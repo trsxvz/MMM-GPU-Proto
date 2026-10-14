@@ -21,19 +21,19 @@ pas 8, la direction de Newton n'est connue qu'à 16 à 32 % près (écart entre
 PCG et MUMPS). Les arrondis des FMA suffisaient à faire basculer les
 calculs.
 
-Correction dans mfem-mgis (4d68f30269) : en float, le code GPU des
+Correction dans mfem-mgis (efb06c1267) : en float, le code GPU des
 noyaux qui calculent des matrices de raideur (standard, FBar, Faltus et
 al.) est compilé sans contraction (`-fmad=false` pour nvcc,
 `-ffp-contract=off` pour clang), par la fonction CMake
 `mfem_mgis_disable_device_floating_point_contraction`. En double, les
 contractions sont gardées : elles ne changeaient pas la convergence, et
-l'assemblage de la poutre était 13 % plus lent sans elles. Le code compilé
-pour l'hôte est inchangé.
+l'assemblage de la poutre était 13 à 16 % plus lent sans elles. Avec nvcc,
+le code compilé pour l'hôte est inchangé.
 
 Après correction, 31 calculs sur 31 convergent (28 en assemblage atomique,
 n = 8 à 14 pas, et 3 calculs identiques en assemblage ordonné), à 4,2e-5 au
-plus du double. En float, l'assemblage coûte autant qu'avant (84 ms pour 16
-assemblages). Mesure de performance refaite :
+plus du double. En float, l'assemblage coûte autant qu'avant (83 à 85 ms
+pour 16 assemblages, avant comme après). Mesure de performance refaite :
 results/precision-poutre-gpu-2026-10-14-0843 (float 1,37 fois plus rapide
 que le double, 3 calculs sur 3 convergés, à 3,4e-5 au plus du double). Test
 reproducteur : `poutre-gpu-r4` dans cas/poutre (assemblage ordonné, n = 10,
@@ -81,7 +81,7 @@ norme comparée au double à 5e-5 près).
    double. Le critère de PCG sur la norme 2 du résidu ne change rien. Dans
    les calculs qui divergent, le résidu relatif atteint son minimum à la
    deuxième itération (1,0e-4 à 1,5e-4, juste au-dessus du critère), puis
-   croît d'environ 1,5 fois par itération jusqu'à 3e-3.
+   croît de 1,5 à 2 fois par itération jusqu'à 3e-3.
 4. Sensibilité (`ecarts.txt`), n = 8 à 14 pas, critère 1e-4, assemblage
    atomique (non déterministe, un calcul par n), écart de la norme des
    déplacements au double sur le GPU au même nombre de pas :

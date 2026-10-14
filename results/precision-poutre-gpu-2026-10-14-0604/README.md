@@ -24,7 +24,8 @@ double, 0,81 s en float ; prédiction 0,55 et 0,49 s ; le reste est petit.
   divergé (Newton au dixième pas), les calculs convergés diffèrent entre
   eux (4e-5) et du double (3e-4, contre 8e-5 pour le float sur le CPU).
   Analyse (`scratch`, 14/10) : 4 échecs sur 8 avec l'assemblage atomique,
-  8 sur 8 avec l'assemblage ordonné ; le calcul converge si les éléments
+  8 sur 8 par noyaux avec l'assemblage ordonné et un solveur itératif (un
+  calcul avec MUMPS converge) ; le calcul converge si les éléments
   finis sont sur le CPU, les lois et le solveur restant sur le GPU, et
   diverge si les éléments finis sont sur le GPU, quels que soient les
   placements des lois et du solveur (PCG et BoomerAMG). Les mêmes noyaux

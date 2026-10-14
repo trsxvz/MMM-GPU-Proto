@@ -197,7 +197,7 @@ mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
 # the regularization of Faltus et al., which compute stiffness matrices in
 # the same way, are compiled likewise. In double precision, the contractions
 # are kept: they did not change the convergence, and the assembly of the
-# beam was 13 % slower without them.
+# beam was 13 to 16 % slower without them.
 if(MFEM_MGIS_REAL_TYPE STREQUAL "float")
   mfem_mgis_disable_device_floating_point_contraction(MFEMMGIS
     Batch/StiffnessMatricesKernels.cxx

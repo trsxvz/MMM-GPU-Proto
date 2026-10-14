@@ -10,8 +10,8 @@ Poutre r4 du prototype (111 843 inconnues), 10 pas, Newton (critère 1e-4, et
 celui du cas, 1e-8, en double), PCG de hypre préconditionné par BoomerAMG
 (tolérance 1e-4), tout sur le GPU (`--execution gpu`, assemblage atomique,
 loi du backend `cuda`), un processus sur le cœur 0, GPU NVIDIA RTX 5080
-libre. Aucun autre calcul en cours (charge de 3,5 due aux services du
-système). Script : `PERIPHERIQUE=gpu cas/mesures-precision-poutre.sh`.
+libre. Aucun autre calcul pendant la mesure (la charge de 3,5 sur la
+minute précédente vient des suites de tests finies juste avant). Script : `PERIPHERIQUE=gpu cas/mesures-precision-poutre.sh`.
 Double : build/cas-9b (environnement mmm-gpu). Float : build/cas-float-gpu
 (environnement mmm-float-gpu, MFEM et hypre en simple avec CUDA).
 
@@ -22,8 +22,8 @@ Double : build/cas-9b (environnement mmm-gpu). Float : build/cas-float-gpu
 | float | 1e-4 | 1,35 | 1,35 | 16 | 48,83538818 à 48,83585739 |
 
 Temps par phase (premier passage à 1e-4) : résolution linéaire 1,12 s en
-double, 0,80 s en float ; prédiction 0,54 et 0,42 s ; assemblage de la
-tangente 97 et 83 ms pour 16 assemblages (100 et 85 ms avant la
+double, 0,80 s en float ; prédiction 0,55 et 0,42 s ; assemblage de la
+tangente 97 et 83 ms pour 16 assemblages (100 et 84 à 85 ms avant la
 correction).
 
 - Les trois calculs float convergent, avec les mêmes itérations que le

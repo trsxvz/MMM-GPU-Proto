@@ -507,8 +507,8 @@ Suite (13/10/2026, soir) :
   float est 1,31 fois plus rapide quand il converge, mais un calcul sur
   trois diverge, et les calculs convergés s'écartent du double de 3e-4.
 - Diagnostic (results/diagnostic-float-gpu-2026-10-14) : nvcc contracte
-  par défaut les multiplications et les additions en multiplications-
-  additions fusionnées (FMA). Dans les noyaux de raideur, en float, ces
+  par défaut les multiplications et les additions en
+  multiplications-additions fusionnées (FMA). Dans les noyaux de raideur, en float, ces
   contractions faisaient diverger le Newton, ou converger vers des
   solutions moins précises, probablement par une dérive le long des modes
   mous de la poutre (flexion). Les tangentes par noyaux et élément par
@@ -518,7 +518,7 @@ Suite (13/10/2026, soir) :
   (standard, FBar, Faltus et al.) est compilé sans contraction (fonction
   CMake `mfem_mgis_disable_device_floating_point_contraction`), au même
   coût d'assemblage. En double, les contractions sont gardées (assemblage
-  13 % plus lent sans elles, convergence inchangée). Après correction, 31
+  13 à 16 % plus lent sans elles, convergence inchangée). Après correction, 31
   calculs sur 31 convergent, à 4,2e-5 au plus du double ; test
   reproducteur `poutre-gpu-r4` dans cas/poutre.
 - Mesure refaite après correction
