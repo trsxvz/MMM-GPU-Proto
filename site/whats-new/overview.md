@@ -6,15 +6,18 @@ document is `docs/overview.md`.
 
 ## Goal
 
-A mechanical simulation with mfem-mgis spends much of its time in the
-constitutive laws (behaviours). They are evaluated at each integration
-point, at each iteration. This computation is highly parallel: the
-points are independent.
-
 The prototype makes the whole chain MFront, MGIS and mfem-mgis able to
-compute on the GPU as well as on the CPU. The same MFront file must be
-usable everywhere. The choice between CPU and GPU is made when the law
-is compiled or at run time, not in the code of the law.
+compute on the GPU as well as on the CPU: the finite element
+computations, the constitutive laws (behaviours) and the linear solvers
+can all run on the same device. Keeping the whole computation on one
+device keeps the chain consistent and avoids copying the data between
+the host and the GPU at each iteration.
+
+The laws are evaluated at each integration point, at each iteration.
+The points are independent: they are processed by batches. The same
+MFront file must be usable everywhere. The choice between CPU and GPU is
+made when the law is compiled or at run time, not in the code of the
+law.
 
 ## In short
 

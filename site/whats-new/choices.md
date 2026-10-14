@@ -29,12 +29,12 @@ reasons given for them. The sources are
 
 ## Why batches
 
-A mechanical simulation with mfem-mgis spends much of its time in the
-constitutive laws, evaluated at each integration point and at each
-iteration. The points are independent, so the computation is highly
+The constitutive laws are evaluated at each integration point and at
+each iteration. The points are independent, so the computation is highly
 parallel. A batch function processes all the points of one material in
 one call, so that each backend can use the parallel primitive natural to
-its programming model.
+its programming model, and the laws run on the same device as the rest
+of the computation, without copying the data of the points.
 
 - **Same meaning as the `generic` interface**: a call on a batch is
   equivalent to calling the `generic` function on each point.
