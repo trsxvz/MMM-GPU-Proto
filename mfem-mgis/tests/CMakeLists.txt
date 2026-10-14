@@ -122,7 +122,9 @@ if(MFEM_MGIS_HAVE_TFEL)
 
   # Helper function for UniaxialTensileTest cases. The optional arguments are
   # a suffix of the name of the test and additional options of the test, the
-  # reference file being the one of the behaviour.
+  # reference file being the one of the behaviour. The internal state
+  # variable may be empty (none extracted): it is given apart from the list
+  # of the parameters, which would drop an empty value.
   function(add_uniaxial_tensile_test behaviour internal_state_variable)
     set(test "UniaxialTensileTest-${behaviour}")
     set(options)
@@ -139,16 +141,17 @@ if(MFEM_MGIS_HAVE_TFEL)
         "${behaviour}"
         "--reference-file"
         "${CMAKE_CURRENT_SOURCE_DIR}/references/${behaviour}.ref"
-        "--internal-state-variable"
-        "${internal_state_variable}"
         ${options})
     add_test(NAME ${test}
              COMMAND ./UniaxialTensileTest ${UniaxialTensileTestParameters}
+                     "--internal-state-variable" "${internal_state_variable}"
                      "--no-parallel")
     if(MFEM_USE_MPI)
       add_test(NAME ${test}P
                COMMAND mpirun -n 2 ./UniaxialTensileTest
-                       ${UniaxialTensileTestParameters} "--parallel")
+                       ${UniaxialTensileTestParameters}
+                       "--internal-state-variable" "${internal_state_variable}"
+                       "--parallel")
     endif(MFEM_USE_MPI)
     set_property(TEST ${test} PROPERTY DEPENDS BehaviourTest)
   endfunction()
@@ -170,6 +173,15 @@ if(MFEM_MGIS_HAVE_TFEL)
                             DisplacementGradient --displacement-gradient)
   add_uniaxial_tensile_test(LogarithmicStrainElasticity EquivalentStrain
                             DisplacementGradient --displacement-gradient)
+  # orthotropic finite strain behaviour (rotated by the test): the gradients
+  # are rotated in the material frame, H as F. In double only: the stress
+  # extracted is a lateral one in the material frame, zero within the
+  # convergence criterion of the Newton solver, about 5e4 Pa in float
+  if(NOT MFEM_MGIS_REAL_TYPE STREQUAL "float")
+    add_uniaxial_tensile_test(OrthotropicSaintVenantKirchhoffElasticity "")
+    add_uniaxial_tensile_test(OrthotropicSaintVenantKirchhoffElasticity ""
+                              DisplacementGradient --displacement-gradient)
+  endif()
   # convergence of the Newton solver at the floor of the residual, in float
   # only: with an unreachable relative tolerance, a stagnation of the
   # residual is accepted as convergence (option StagnationRelativeTolerance
