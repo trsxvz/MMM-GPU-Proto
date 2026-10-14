@@ -1,0 +1,43 @@
+# Environment of the continuous integration with CUDA (plan
+# docs/plan-ci-site.md): the dependencies of mfem-mgis compiled with CUDA, in
+# double, for compilation only (the machines of GitHub have no GPU). Same
+# specs as the environment ci-cpu, with hypre and MFEM compiled with CUDA for
+# one architecture (sm_120, the GPU of the development machine). CUDA 13.0 is
+# installed by the workflow from the packages of NVIDIA and found by
+# `spack external find cuda`. TFEL and MGIS are built from the sources of the
+# prototype, not by spack. Same packages as the environments of the prototype
+# (develop branch of spack-packages, commit 3b7fdffc24), the compilers being
+# the ones of the runner.
+spack:
+  specs:
+  - openmpi@5 +internal-hwloc +internal-pmix
+  - hypre@3.2.0 +mpi +cuda ~int64 cuda_arch=120
+  - mumps +mpi
+  # C++20, as mfem-mgis. PTX code only (package mfem of the repository
+  # mmm_gpu): ptxas needs more than 12 GB for fem/lor/lor_batched.cpp with
+  # sm_120, more than the memory of the machines of GitHub
+  - mfem@4.10.0 +mpi +shared ~static +cuda cuda_arch=120 +cuda_ptx_only cxxstd=20 +mumps +suite-sparse
+  # ccache is installed by the composite action setup-ccache of mfem-mgis
+  - cmake
+  view: true
+  concretizer:
+    unify: true
+    reuse: false
+  # the packages of the repository mmm_gpu (deps/spack/repos) replace the
+  # ones of spack, as in the environments of the prototype: in particular,
+  # MFEM 4.10 is patched for CUDA 13 (fem/integ/bilininteg_convection_ea.cpp,
+  # which cicc does not finish compiling otherwise)
+  repos:
+    mmm_gpu: $env/../repos/spack_repo/mmm_gpu
+  packages:
+    all:
+      require: [target=x86_64_v3]
+    mpi:
+      require: [openmpi@5]
+    blas:
+      require: [openblas]
+    lapack:
+      require: [openblas]
+    # the toolkit installed by the workflow, never built by spack
+    cuda:
+      buildable: false

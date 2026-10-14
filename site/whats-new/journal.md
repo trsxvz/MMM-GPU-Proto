@@ -180,3 +180,5 @@ GPU.
 - Defects reported upstream: single precision with an external LAPACK
   in hypre (issue and pull request), lost writes of an idle integrated
   GPU in ROCm (issue).
+- The continuous integration also compiles the whole chain with CUDA and
+  with HIP at each run (simulated locally, not yet run on GitHub).

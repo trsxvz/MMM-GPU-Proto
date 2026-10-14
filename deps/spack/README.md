@@ -25,12 +25,23 @@ Content:
   elimination 98, 99, 198 and 199 of BoomerAMG, Schwarz, FSAI, MGR, AIR,
   GSMG, LOBPCG, AME);
 - `ci-cpu/spack.yaml` and `ci-cpu-float/spack.yaml`: environments of the
-  CI on the CPU (`.github/workflows/cpu.yml`,
+  CI on the CPU (`.github/workflows/ci.yml`,
   [docs/plan-ci-site.md](../../docs/plan-ci-site.md)), in double (MFEM 4.10
   with MUMPS and SuiteSparse, hypre, OpenMPI) and in single precision (as
   `mmm-float-cpu`, without SuiteSparse, refused by MFEM in float). Only
   the package repository of spack, at the same commit as the other
-  environments, and the compilers of the CI machine;
+  environments, and the compilers of the CI machine. The job `hip` of the
+  CI also uses `ci-cpu` (MPI, METIS, SuiteSparse, OpenBLAS and hypre for
+  the MFEM compiled with HIP by `scripts/build-hip-amd.sh`);
+- `ci-cuda/spack.yaml`: environment of the job `cuda` of the CI
+  (compilation only), the specs of `ci-cpu` with hypre and MFEM compiled
+  with CUDA for sm_120; CUDA 13.0 is installed by the workflow from the
+  packages of NVIDIA and found by `spack external find cuda`. It uses the
+  repository `mmm_gpu` (patch of MFEM for CUDA 13), and MFEM embeds the
+  PTX code only (variant `cuda_ptx_only`): for `fem/lor/lor_batched.cpp`,
+  ptxas needs more than 12 GB even with `-O0`, and cicc 8.8 GB and 34 min;
+  two jobs reached 12.5 GB for cicc, hence hypre and MFEM are compiled
+  with one job;
 - `repos/spack_repo/mmm_gpu`: complementary package repository, with
   priority over the one of spack:
   - `adaptivecpp`: AdaptiveCpp 25.10 (the `hipsycl` package of spack
@@ -47,7 +58,9 @@ Content:
     finish `fem/integ/bilininteg_convection_ea.cpp` (more than 2 h 30 and
     17 GB, then killed for lack of memory); the 3D kernels of the element
     assembly of the convection are no longer specialised beyond order 3,
-    the generic kernel of the same file takes the higher orders;
+    the generic kernel of the same file takes the higher orders; variant
+    `cuda_ptx_only` (PTX code only, ptxas not run at compilation) for the
+    compilation checks of the CI;
   - `petsc`: complete copy of the recipe of spack-packages (commit
     3b7fdffc24), whose later fixes are not taken over. Only modification:
     the `cuda_lambda` variant of Kokkos is required only up to Kokkos 4

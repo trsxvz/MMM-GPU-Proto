@@ -31,9 +31,24 @@ class Mfem(BuiltinMfem):
     then killed for lack of memory): its 3D kernels are specialized up to 8
     degrees of freedom and 9 quadrature points per direction. The patch keeps
     the specializations up to the order 3 and leaves the higher orders to the
-    generic kernel of the same file."""
+    generic kernel of the same file.
+
+    The variant `cuda_ptx_only` embeds the PTX code only, without SASS:
+    ptxas is not run at compilation, the driver compiles the PTX code at
+    the first run. It is meant for the compilation checks of the
+    continuous integration: with CUDA 13 and sm_120, ptxas needs more than
+    12 GB for `fem/lor/lor_batched.cpp`, more than the memory of the
+    machines of GitHub."""
 
     patch("mfem-4.10-convection-ea-cuda13.patch", when="@4.10.0 +cuda ^cuda@13:")
+
+    variant(
+        "cuda_ptx_only",
+        default=False,
+        when="+cuda",
+        description="Embed the PTX code only (no SASS, ptxas not run at "
+        "compilation): for compilation checks",
+    )
 
     _configuration_files = ["config/config.mk", "config/_config.hpp"]
 
@@ -56,6 +71,14 @@ class Mfem(BuiltinMfem):
                 # the default link flags of AmgX (config/defaults.mk) name
                 # libnvToolsExt, removed from CUDA 13 (NVTX 3 is header-only)
                 filter_file(r" -lnvToolsExt\b", "", "config/config.mk")
+            if spec.satisfies("+cuda_ptx_only"):
+                # virtual architecture only: the PTX code is embedded and
+                # ptxas is not run
+                filter_file(
+                    r"-arch=sm_(\d+)",
+                    r"-arch=compute_\1 -code=compute_\1",
+                    "config/config.mk",
+                )
             for f in self._configuration_files:
                 previous = f + ".mmm-previous"
                 if not os.path.exists(previous):

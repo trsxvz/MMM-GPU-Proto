@@ -1,9 +1,9 @@
 # Plan: continuous integration and site of the prototype
 
 Status: plan of 13/10/2026 (tasks 9f and 9g), decisions taken on
-13/10 (see below); drafts of the CI on the CPU and of the site on
-14/10, triggered by hand, not yet run. The two tasks
-depend on the visibility of the repository (decision E1).
+13/10 and 14/10 (see below); drafts of the CI (CPU, CUDA and HIP levels)
+and of the site on 14/10, triggered by hand, not yet run on GitHub. The
+two tasks depend on the visibility of the repository (decision E1).
 
 ## Constraints
 
@@ -34,12 +34,10 @@ Three levels, each in its own job:
    MGIS applied from `patches/mgis`, mfem-mgis, examples, mm-opera-hpc;
    CPU tests of each. Also checks that the patch series
    apply (`scripts/verify-patches.sh`).
-2. CUDA, compilation only, every night: environment `ci-cuda` (CUDA from
-   spack, MFEM with CUDA, without GPU), kernels of mfem-mgis and `cuda`
-   backends of TFEL compiled, tests on CPU.
-3. HIP, compilation only, every night: ROCm through Python packages and
-   `scripts/build-hip-amd.sh` (MFEM HIP, mfem-mgis, examples), tests without
-   GPU.
+2. CUDA, compilation only: environment `ci-cuda` (MFEM with CUDA, without
+   GPU), kernels of mfem-mgis and `cuda` backends of TFEL compiled.
+3. HIP, compilation only: ROCm through Python packages and
+   `scripts/build-hip-amd.sh` (MFEM HIP, mfem-mgis, examples).
 
 Cache: spack dependencies on GHCR as for mfem-mgis (composite
 actions, single index, monthly purge), plus ccache for TFEL. The
@@ -88,12 +86,57 @@ pushed by the CI:
 
 E1 (a): public repository, after an audit of the whole history (done on
 13/10, nothing to rewrite); the change of visibility remains to be done by the
-owner of the repository. E2: CPU first, then CUDA and HIP at night. E3:
+owner of the repository. E2: CPU first, then CUDA and HIP at night,
+changed on 14/10: CUDA and HIP at each run of the CI, as the CPU level,
+their compilations being cached (spack build cache and ccache, as in the
+CI of TDLS and of mfem-mgis). E3:
 no runner on the development machine. E4: site in English.
+
+## Draft of the CUDA and HIP levels (14/10/2026)
+
+The workflow `.github/workflows/cpu.yml` became `.github/workflows/ci.yml`
+(name `CI`), with the jobs `patches`, `cpu`, `cuda`, `hip` and
+`update_build_cache`, all started by each run of the CI (by hand while
+the repository is private).
+
+- Caches, as in mfem-mgis: the dependencies installed by spack are pushed
+  to the build cache `ghcr.io/<owner>/mmm-gpu-proto-buildcache` by the
+  runs of the main branch (composite actions of mfem-mgis
+  `setup-build-cache` and `push-build-cache`), then the packages unused by
+  the run are removed by the job `update_build_cache` if all the jobs
+  succeeded (`clean-build-cache`); the compilations of TFEL, MGIS,
+  mfem-mgis, the examples and mm-opera-hpc go through ccache
+  (`setup-ccache`, `save-ccache`, one cache per job, 3 GB at most).
+- Job `cuda`: CUDA 13.0 from the packages of NVIDIA (only the components
+  used: nvcc, cudart, cccl, cuBLAS, cuSPARSE, cuSOLVER, cuRAND), declared
+  to spack by `spack external find cuda`; environment
+  `deps/spack/ci-cuda` (hypre and MFEM 4.10 compiled with CUDA for
+  sm_120, MFEM patched by the repository `mmm_gpu` and with the PTX code
+  only, ptxas needing more than 12 GB for one of its files); TFEL with the configuration `cuda-nvcc`, MGIS with its CUDA
+  tests, mfem-mgis with its GPU tests, the examples and mm-opera-hpc,
+  compiled and not run (no GPU). The behaviours compiled by mfront for
+  the `cuda` backend also go through ccache (variable `CUDA_COMPILER` of
+  mfront).
+- Job `hip`: ROCm 10.1 from its Python packages (TheRock, devices
+  gfx90a); environment `deps/spack/ci-cpu` for MPI, METIS, SuiteSparse,
+  OpenBLAS and hypre (on the CPU, shared with the job `cpu` through the
+  build cache); MFEM compiled with HIP by `scripts/build-hip-amd.sh mfem`
+  (made usable by the CI: `SPACK_ENVIRONMENT`, `HIP_DEPS_DIR`,
+  `HYPRE_DIR`, `CPUS` empty) and kept by `actions/cache`, whose key
+  contains the hashes of these dependencies, the version of ROCm and the
+  script; TFEL with the configuration `hip-hipcc`, MGIS, mfem-mgis, the
+  examples and mm-opera-hpc compiled, without the view of the spack
+  environment, whose MFEM is the one of the CPU. The behaviours compiled
+  by mfront for the `hip` backend do not go through ccache (mfem-mgis
+  gives the compiler of MFEM to mfront).
+- Both jobs free disk space first (dotnet, Android, GHC, CodeQL).
+- Simulated locally (`scratch/ci-sim/run-gpu.sh`): same spack and
+  packages, CUDA 13.0.2 of the HPC SDK instead of the packages of NVIDIA,
+  the ROCm of the development machine.
 
 ## Draft of the CPU level (14/10/2026)
 
-`.github/workflows/cpu.yml`, `deps/spack/ci-cpu/spack.yaml` and
+`.github/workflows/ci.yml` (then named `cpu.yml`), `deps/spack/ci-cpu/spack.yaml` and
 `deps/spack/ci-cpu-float/spack.yaml`, not yet run. Manual
 trigger only as long as the repository is private (machine minutes);
 pushes, pull requests and nightly run to be added once the
@@ -177,7 +220,7 @@ repository is public.
 
 1. Environments `ci-cpu` and `ci-cpu-float`, CPU job without cache, then
    with the GHCR cache.
-2. Nightly CUDA and HIP jobs.
+2. CUDA and HIP jobs (compilation only, at each run).
 3. Build of the site (Sphinx, see "Draft of the site"), publication
    by the CI.
 4. Documentation of the CI and of the site in `docs/`.

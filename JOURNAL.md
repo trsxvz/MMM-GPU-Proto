@@ -4747,3 +4747,22 @@ formula as MTest). All the others give the Newton solution to within
   50/50 in double and in float, with the bindings 99/99, mfem-mgis 227/227
   in double and 230/230 in float, mm-opera-hpc 6/6 in double and in
   float.
+
+### 2026-10-14 (night), CUDA and HIP levels of the continuous integration
+
+- The jobs `cuda` and `hip` of `.github/workflows/ci.yml` (renamed from
+  `cpu.yml`) compile the whole chain with CUDA 13.0 and with ROCm 10.1 at
+  each run, with the build cache of spack on GHCR and ccache, as the job
+  `cpu`. Simulated locally (`scratch/ci-sim/run-gpu.sh`): both green.
+- First simulation of `cuda`: two defects. The environment `ci-cuda` did
+  not use the repository `mmm_gpu`, hence not its patch of MFEM for CUDA 13
+  (cicc never ends on `bilininteg_convection_ea.cpp`); and ptxas needs more
+  than 12 GB for `fem/lor/lor_batched.cpp` with sm_120, even with `-O0`,
+  more than the memory of the machines of GitHub. Fixed by the repository
+  `mmm_gpu` in `ci-cuda`, a variant `cuda_ptx_only` of its package `mfem`
+  (PTX code only: ptxas is not run, enough for a CI which only compiles),
+  and one job for hypre and MFEM (cicc needs up to 8.8 GB for
+  `lor_batched.cpp`, 12.5 GB with two jobs).
+- Found by this job: the link of `HypreDevicePoolSizeTest` of mfem-mgis
+  failed with a hypre built with Umpire and an MFEM built without it
+  (mfem-mgis aa045a7853: Umpire linked explicitly).

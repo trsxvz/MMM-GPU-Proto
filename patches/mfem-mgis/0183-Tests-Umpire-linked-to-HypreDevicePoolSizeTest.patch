@@ -1,0 +1,35 @@
+From aa045a7853d6e40cd66a22ec83f990bcd27b9beb Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 22:08:14 +0200
+Subject: [PATCH] Tests: Umpire linked to HypreDevicePoolSizeTest
+
+With a hypre built with Umpire, the test reads the size of the pool
+created by hypre with a function of Umpire. MFEM does not link Umpire
+when it is built without it: the link of the test failed (DSO missing
+from command line). The library is now found and linked explicitly.
+---
+ tests/CMakeLists.txt | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 1ab3295fb8..ebc5d1da48 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1605,6 +1605,14 @@ endif()
+ # (no memory allocated on the GPU)
+ if(MFEM_USE_MPI)
+   add_test_executable(HypreDevicePoolSizeTest)
++  # with a hypre built with Umpire, the test reads the size of the pool
++  # created by hypre with a function of Umpire, which is linked explicitly
++  # (MFEM may not link it, for instance when it is built without Umpire)
++  find_library(MFEM_MGIS_UMPIRE_LIBRARY umpire)
++  if(MFEM_MGIS_UMPIRE_LIBRARY)
++    target_link_libraries(HypreDevicePoolSizeTest
++      PRIVATE ${MFEM_MGIS_UMPIRE_LIBRARY})
++  endif()
+   add_test(NAME HypreDevicePoolSizeTest
+            COMMAND HypreDevicePoolSizeTest --hypre-device-pool-size 0.25
+                    --expected 0.25)
+-- 
+2.43.0
+

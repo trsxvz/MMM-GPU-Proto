@@ -1,0 +1,658 @@
+# Continuous integration (docs/plan-ci-site.md):
+# - patches: the series of patches checked against the upstream repositories;
+# - cpu: TFEL and MGIS built from the sources and the patches of the
+#   prototype, mfem-mgis, mfem-mgis-examples and mm-opera-hpc built and tested
+#   on the CPU, in double and in single precision;
+# - cuda and hip: the same chain compiled with CUDA (MFEM and hypre compiled
+#   with CUDA, `cuda-nvcc` configuration of TFEL) and with HIP for an AMD GPU
+#   (MFEM compiled with HIP, `hip-hipcc` configuration of TFEL), tests
+#   included. The machines of GitHub have no GPU: these jobs compile only.
+#
+# Caches, as in mfem-mgis: the dependencies installed by spack are pushed to
+# a build cache on GHCR (from the main branch only, then pruned by the job
+# update_build_cache), MFEM compiled with HIP is kept by actions/cache, and
+# the compilations of the prototype by ccache (composite actions of
+# mfem-mgis).
+#
+# Started by hand only while the repository is private (minutes of the
+# runners), in double by default; push, pull_request and schedule are added
+# when it is public (both precisions).
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      precisions:
+        description: 'Numerical types of the job cpu, as a JSON list ("double", "float")'
+        default: '["double"]'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUILD_CACHE: oci://ghcr.io/${{ github.repository_owner }}/mmm-gpu-proto-buildcache
+
+jobs:
+  patches:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v7
+    - name: Check the series of patches against the upstream repositories
+      run: |
+        set -e
+        check() {
+          local directory=$1 url=$2 base=$3
+          git clone --quiet --filter=blob:none "$url" "upstream-$directory"
+          git -C "upstream-$directory" checkout --quiet "$base"
+          git -C "upstream-$directory" -c user.name=ci -c user.email=ci@localhost \
+            am --quiet --keep-cr "$PWD"/patches/"$directory"/*.patch
+          if [ -d "$directory" ]; then
+            # the sources of the prototype are the patched upstream sources
+            diff -r -q --exclude=.git "upstream-$directory" "$directory"
+          fi
+          echo "patches/$directory: applied on $base"
+        }
+        check tfel https://github.com/thelfer/tfel.git ff0959ece
+        check mgis https://github.com/thelfer/MFrontGenericInterfaceSupport.git e8ef4b4
+        check mfem-mgis https://github.com/thelfer/mfem-mgis.git 8fac67336e
+        check mfem-mgis-examples https://github.com/latug0/mfem-mgis-examples.git 600da70
+        check mm-opera-hpc https://github.com/rprat-pro/mm-opera-hpc.git 49147f2
+
+  cpu:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # numerical type of the whole chain: the one of the MFEM of the spack
+        # environment (ci-cpu or ci-cpu-float), given to MGIS
+        precision: ${{ fromJSON(inputs.precisions || '["double", "float"]') }}
+    env:
+      PRECISION: ${{ matrix.precision }}
+      ENVIRONMENT: ${{ matrix.precision == 'float' && 'deps/spack/ci-cpu-float' || 'deps/spack/ci-cpu' }}
+      CC: gcc-14
+      CXX: g++-14
+      # concurrent mpirun of ctest -j: OpenMPI 5.0.10 may give the same job
+      # identifier to two of them, which then share their shared memory
+      # segments (open-mpi/ompi#13783, fixed in 5.0.12)
+      OMPI_MCA_btl: self,tcp
+      # some tests use more processes than the cores of the runner
+      PRTE_MCA_rmaps_default_mapping_policy: :oversubscribe
+    steps:
+    - name: Check the precision
+      run: |
+        case "$PRECISION" in
+          double | float) ;;
+          *) echo "unknown precision '$PRECISION'" >&2; exit 1 ;;
+        esac
+
+    - uses: actions/checkout@v7
+
+    - name: Set up Spack
+      uses: spack/setup-spack@v3
+      with:
+        spack_ref: v1.2.2             # Spack version
+        # same packages as the environments of the prototype (a commit must be
+        # given by its full hash)
+        packages_ref: 3b7fdffc24511b067b65540e0e9b3c89d07f8a7f
+        buildcache: false             # our own build cache, set up below
+        color: true
+        spack_path: ${{ github.workspace }}/spack
+
+    - name: Set up the build cache
+      uses: ./mfem-mgis/.github/actions/setup-build-cache
+
+    - name: Install the system packages
+      run: |
+        sudo apt-get update
+        # TBB: parallel algorithms of libstdc++ (stlpar backend of TFEL)
+        sudo apt-get install -y libtbb-dev
+
+    - name: Install the dependencies
+      env:
+        GITHUB_USER: ${{ github.actor }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        nproc
+        lscpu | head -20
+        spack compiler find
+        spack -e $ENVIRONMENT config add "packages:c:require:[gcc@14]"
+        spack -e $ENVIRONMENT config add "packages:cxx:require:[gcc@14]"
+        spack -e $ENVIRONMENT config add "packages:fortran:require:[gcc@14]"
+        spack -e $ENVIRONMENT concretize
+        spack -e $ENVIRONMENT install -j $(nproc)
+        # the numerical type of the chain is the one of MFEM
+        if [ "$PRECISION" = float ]; then MFEM_PRECISION=single; else MFEM_PRECISION=double; fi
+        spack -e $ENVIRONMENT find mfem precision=$MFEM_PRECISION
+        spack clean -a
+        df -h .
+
+    - name: Push the dependencies to the build cache
+      if: github.ref == 'refs/heads/main'
+      uses: ./mfem-mgis/.github/actions/push-build-cache
+      env:
+        GITHUB_USER: ${{ github.actor }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        artifact: used-hashes-cpu-${{ matrix.precision }}
+
+    - name: Set up ccache
+      id: ccache
+      uses: ./mfem-mgis/.github/actions/setup-ccache
+      with:
+        key: cpu-${{ matrix.precision }}
+
+    # TFEL, MGIS, mfem-mgis, the examples and mm-opera-hpc: more than the
+    # 500 MB chosen by setup-ccache for mfem-mgis alone
+    - name: Size of the cache of ccache
+      run: echo "CCACHE_MAXSIZE=3G" >> $GITHUB_ENV
+
+    - name: Build TFEL
+      run: |
+        cmake -S tfel -B build/tfel -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/tfel \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON \
+          -Denable-website=OFF -Denable-python=OFF -Denable-python-bindings=OFF \
+          -Denable-fortran=OFF -Denable-testing=OFF \
+          -Dgeneric-parallel-configurations="stlpar-parunseq-gcc;openmp-host-gcc"
+        cmake --build build/tfel -j $(nproc) --target install
+
+    - name: Build and test MGIS
+      run: |
+        # mfront, used by the tests, has no run path to the libraries of TFEL
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib
+        git clone --quiet --filter=blob:none \
+          https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
+        git -C mgis checkout --quiet e8ef4b4
+        git -C mgis -c user.name=ci -c user.email=ci@localhost \
+          am --quiet --keep-cr $PWD/patches/mgis/*.patch
+        cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/mgis \
+          -DCMAKE_PREFIX_PATH=$PWD/install/tfel \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON -Denable-testing=ON \
+          -Denable-mgis-function=ON -Denable-hdf5-automatic-support=OFF \
+          -DMGIS_REAL_TYPE=$PRECISION
+        cmake --build build/mgis -j $(nproc)
+        cmake --build build/mgis -j $(nproc) --target check
+        cmake --install build/mgis
+
+    - name: Build and test mfem-mgis
+      shell: spack-sh {0}
+      run: |
+        spack env activate $ENVIRONMENT
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        cmake -S mfem-mgis -B build/mfem-mgis -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/mfem-mgis \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON \
+          -DMFEM_DIR=$(spack location -i mfem) \
+          -DMFrontGenericInterface_DIR=$PWD/install/mgis/share/mgis/cmake \
+          -DTFEL_DIR=$PWD/install/tfel/share/tfel/cmake
+        cmake --build build/mfem-mgis -j $(nproc) --target install
+        # the behaviour library of the tests depends on the target check,
+        # not on build-tests
+        cmake --build build/mfem-mgis -j $(nproc) --target build-tests BehaviourTest
+        cd build/mfem-mgis
+        ctest -j $(nproc) --timeout 900 --output-on-failure \
+          -E "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"
+
+    - name: Build and test mfem-mgis-examples
+      shell: spack-sh {0}
+      run: |
+        spack env activate $ENVIRONMENT
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        cmake -S mfem-mgis-examples -B build/examples -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DMFEMMGIS_DIR=$PWD/install/mfem-mgis/share/mfem-mgis/cmake \
+          -DMFEM_DIR=$(spack location -i mfem)
+        cmake --build build/examples -j $(nproc)
+        cd build/examples
+        ctest -j $(nproc) --timeout 900 --output-on-failure -E gpu
+
+    - name: Build and test mm-opera-hpc
+      shell: spack-sh {0}
+      run: |
+        spack env activate $ENVIRONMENT
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        cmake -S mm-opera-hpc -B build/mm-opera-hpc -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DMFEMMGIS_DIR=$PWD/install/mfem-mgis/share/mfem-mgis/cmake \
+          -DMFEM_DIR=$(spack location -i mfem)
+        cmake --build build/mm-opera-hpc -j $(nproc)
+        cd build/mm-opera-hpc
+        ctest -j $(nproc) --timeout 900 --output-on-failure -E gpu
+
+    # even when a test fails, so that the next run does not compile everything again
+    - name: Save ccache
+      if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+      uses: ./mfem-mgis/.github/actions/save-ccache
+
+    - name: Disk space
+      if: ${{ !cancelled() }}
+      run: df -h .
+
+  cuda:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      ENVIRONMENT: deps/spack/ci-cuda
+      CC: gcc-14
+      CXX: g++-14
+      CUDA: /usr/local/cuda-13.0
+    steps:
+    - uses: actions/checkout@v7
+
+    # CUDA, MFEM compiled with CUDA and the builds of the chain do not fit in
+    # the free space of the runner
+    - name: Free disk space
+      run: |
+        df -h /
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+          /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+        df -h /
+
+    # the components of CUDA 13.0 used by hypre, MFEM, TFEL and MGIS, from the
+    # packages of NVIDIA (the whole toolkit is several GB larger)
+    - name: Install CUDA
+      run: |
+        wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+        sudo dpkg -i cuda-keyring_1.1-1_all.deb
+        sudo apt-get update
+        sudo apt-get install -y cuda-nvcc-13-0 cuda-cudart-dev-13-0 \
+          cuda-cccl-13-0 cuda-driver-dev-13-0 cuda-profiler-api-13-0 \
+          cuda-nvtx-13-0 libcublas-dev-13-0 libcusparse-dev-13-0 \
+          libcusolver-dev-13-0 libcurand-dev-13-0
+        echo "$CUDA/bin" >> $GITHUB_PATH
+        $CUDA/bin/nvcc --version
+
+    - name: Set up Spack
+      uses: spack/setup-spack@v3
+      with:
+        spack_ref: v1.2.2
+        packages_ref: 3b7fdffc24511b067b65540e0e9b3c89d07f8a7f
+        buildcache: false
+        color: true
+        spack_path: ${{ github.workspace }}/spack
+
+    - name: Set up the build cache
+      uses: ./mfem-mgis/.github/actions/setup-build-cache
+
+    - name: Install the dependencies
+      env:
+        GITHUB_USER: ${{ github.actor }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        spack compiler find
+        # the CUDA installed above, which spack never builds (see the
+        # environment)
+        spack external find cuda
+        spack -e $ENVIRONMENT config add "packages:c:require:[gcc@14]"
+        spack -e $ENVIRONMENT config add "packages:cxx:require:[gcc@14]"
+        spack -e $ENVIRONMENT config add "packages:fortran:require:[gcc@14]"
+        spack -e $ENVIRONMENT concretize
+        spack -e $ENVIRONMENT install -j $(nproc) --only dependencies
+        # one job for hypre and MFEM: cicc needs up to 8.8 GB for some files
+        # of MFEM (fem/lor/lor_batched.cpp; 7.6 GB for
+        # fem/integ/bilininteg_diffusion_ea.cpp), and two jobs reached 12.5 GB
+        # in a local simulation, close to the memory of the runners (16 GB)
+        spack -e $ENVIRONMENT install -j 1
+        spack -e $ENVIRONMENT find mfem +cuda
+        spack clean -a
+        df -h .
+
+    - name: Push the dependencies to the build cache
+      if: github.ref == 'refs/heads/main'
+      uses: ./mfem-mgis/.github/actions/push-build-cache
+      env:
+        GITHUB_USER: ${{ github.actor }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        artifact: used-hashes-cuda
+
+    - name: Set up ccache
+      id: ccache
+      uses: ./mfem-mgis/.github/actions/setup-ccache
+      with:
+        key: cuda
+
+    # CUDA_COMPILER: the compiler that mfront uses for the behaviours of the
+    # cuda backend (tests of MGIS and of mfem-mgis, examples), instead of the
+    # nvcc of the configuration file of TFEL
+    - name: Settings of ccache
+      run: |
+        echo "CCACHE_MAXSIZE=3G" >> $GITHUB_ENV
+        echo "CUDA_COMPILER=ccache $CUDA/bin/nvcc" >> $GITHUB_ENV
+
+    - name: Build TFEL
+      run: |
+        cmake -S tfel -B build/tfel -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/tfel \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON \
+          -Denable-website=OFF -Denable-python=OFF -Denable-python-bindings=OFF \
+          -Denable-fortran=OFF -Denable-testing=OFF \
+          -Dgeneric-parallel-configurations="cuda-nvcc" \
+          -DCUDAToolkit_ROOT=$CUDA
+        cmake --build build/tfel -j $(nproc) --target install
+
+    - name: Build MGIS
+      run: |
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib
+        git clone --quiet --filter=blob:none \
+          https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
+        git -C mgis checkout --quiet e8ef4b4
+        git -C mgis -c user.name=ci -c user.email=ci@localhost \
+          am --quiet --keep-cr $PWD/patches/mgis/*.patch
+        cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/mgis \
+          -DCMAKE_PREFIX_PATH=$PWD/install/tfel \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CUDA_COMPILER=$CUDA/bin/nvcc -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
+          -Denable-portable-build=ON -Denable-testing=ON \
+          -Denable-generic-parallel-cuda-tests=ON \
+          -Denable-mgis-function=ON -Denable-hdf5-automatic-support=OFF
+        cmake --build build/mgis -j $(nproc)
+        # the tests need a GPU: they are built, not run
+        cmake --build build/mgis -j $(nproc) --target build-tests
+        cmake --install build/mgis
+
+    - name: Build mfem-mgis
+      shell: spack-sh {0}
+      run: |
+        spack env activate $ENVIRONMENT
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        cmake -S mfem-mgis -B build/mfem-mgis -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/mfem-mgis \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON -Denable-gpu-tests=ON \
+          -DMFEM_DIR=$(spack location -i mfem) \
+          -DMFrontGenericInterface_DIR=$PWD/install/mgis/share/mgis/cmake \
+          -DTFEL_DIR=$PWD/install/tfel/share/tfel/cmake
+        cmake --build build/mfem-mgis -j $(nproc) --target install
+        cmake --build build/mfem-mgis -j $(nproc) --target build-tests BehaviourTest
+
+    - name: Build mfem-mgis-examples
+      shell: spack-sh {0}
+      run: |
+        spack env activate $ENVIRONMENT
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        cmake -S mfem-mgis-examples -B build/examples -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+          -DMFEMMGIS_DIR=$PWD/install/mfem-mgis/share/mfem-mgis/cmake \
+          -DMFEM_DIR=$(spack location -i mfem)
+        cmake --build build/examples -j $(nproc)
+
+    - name: Build mm-opera-hpc
+      shell: spack-sh {0}
+      run: |
+        spack env activate $ENVIRONMENT
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        cmake -S mm-opera-hpc -B build/mm-opera-hpc -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+          -DMFEMMGIS_DIR=$PWD/install/mfem-mgis/share/mfem-mgis/cmake \
+          -DMFEM_DIR=$(spack location -i mfem)
+        cmake --build build/mm-opera-hpc -j $(nproc)
+
+    - name: Save ccache
+      if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+      uses: ./mfem-mgis/.github/actions/save-ccache
+
+    - name: Disk space
+      if: ${{ !cancelled() }}
+      run: df -h .
+
+  hip:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # MPI, METIS, SuiteSparse, OpenBLAS and hypre (on the CPU) of the
+      # environment of the job cpu in double, shared through the build cache
+      ENVIRONMENT: deps/spack/ci-cpu
+      CC: gcc-14
+      CXX: g++-14
+      HIP_ARCH: gfx90a
+      ROCM_VERSION: 10.1.0
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Free disk space
+      run: |
+        df -h /
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+          /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+        df -h /
+
+    # ROCm from its Python packages (TheRock), as on the development machine
+    # (see scripts/build-hip-amd.sh)
+    - name: Install ROCm
+      run: |
+        python3 -m venv $RUNNER_TEMP/rocm
+        $RUNNER_TEMP/rocm/bin/pip install --quiet --index-url \
+          https://stable.repo.amd.com/rocm/whl-next/ \
+          "rocm[libraries,devel,device-$HIP_ARCH]==$ROCM_VERSION"
+        $RUNNER_TEMP/rocm/bin/rocm-sdk init
+        ROCM=$($RUNNER_TEMP/rocm/bin/rocm-sdk path --root)
+        echo "ROCM_VENV=$RUNNER_TEMP/rocm" >> $GITHUB_ENV
+        echo "ROCM=$ROCM" >> $GITHUB_ENV
+        $ROCM/bin/hipcc --version
+
+    - name: Set up Spack
+      uses: spack/setup-spack@v3
+      with:
+        spack_ref: v1.2.2
+        packages_ref: 3b7fdffc24511b067b65540e0e9b3c89d07f8a7f
+        buildcache: false
+        color: true
+        spack_path: ${{ github.workspace }}/spack
+
+    - name: Set up the build cache
+      uses: ./mfem-mgis/.github/actions/setup-build-cache
+
+    - name: Install the dependencies
+      id: dependencies
+      env:
+        GITHUB_USER: ${{ github.actor }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        spack compiler find
+        spack -e $ENVIRONMENT config add "packages:c:require:[gcc@14]"
+        spack -e $ENVIRONMENT config add "packages:cxx:require:[gcc@14]"
+        spack -e $ENVIRONMENT config add "packages:fortran:require:[gcc@14]"
+        spack -e $ENVIRONMENT concretize
+        spack -e $ENVIRONMENT install -j $(nproc)
+        # MFEM compiled with HIP depends on these installations (paths in its
+        # configuration): part of the key of its cache
+        hashes=$(spack -e $ENVIRONMENT find --format '{name}-{hash}' \
+          openmpi metis suite-sparse openblas hypre | sort | sha256sum | cut -c1-16)
+        echo "hashes=$hashes" >> $GITHUB_OUTPUT
+        spack clean -a
+        df -h .
+
+    - name: Push the dependencies to the build cache
+      if: github.ref == 'refs/heads/main'
+      uses: ./mfem-mgis/.github/actions/push-build-cache
+      env:
+        GITHUB_USER: ${{ github.actor }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        artifact: used-hashes-hip
+
+    - name: Restore MFEM compiled with HIP
+      id: mfem
+      uses: actions/cache/restore@v6
+      with:
+        path: deps/hip-amd/install/mfem
+        key: mfem-hip-${{ env.HIP_ARCH }}-rocm-${{ env.ROCM_VERSION }}-${{ steps.dependencies.outputs.hashes }}-${{ hashFiles('scripts/build-hip-amd.sh') }}
+
+    - name: Build MFEM with HIP
+      if: steps.mfem.outputs.cache-hit != 'true'
+      run: |
+        export SPACK=$(command -v spack) SPACK_ENVIRONMENT=$PWD/$ENVIRONMENT
+        export HYPRE_DIR=$(spack -e $ENVIRONMENT location -i hypre)
+        CPUS= JOBS=$(nproc) scripts/build-hip-amd.sh mfem
+        rm -rf deps/hip-amd/mfem-src
+
+    - name: Save MFEM compiled with HIP
+      if: steps.mfem.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: deps/hip-amd/install/mfem
+        key: ${{ steps.mfem.outputs.cache-primary-key }}
+
+    - name: Set up ccache
+      id: ccache
+      uses: ./mfem-mgis/.github/actions/setup-ccache
+      with:
+        key: hip
+
+    - name: Size of the cache of ccache
+      run: echo "CCACHE_MAXSIZE=3G" >> $GITHUB_ENV
+
+    # TFEL configured for the AMD platform, without the view of the spack
+    # environment, whose MFEM is compiled for the CPU (see
+    # scripts/build-hip-amd.sh)
+    - name: Build TFEL
+      env:
+        HIP_PLATFORM: amd
+      run: |
+        cmake -S tfel -B build/tfel -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/tfel \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON \
+          -Denable-website=OFF -Denable-python=OFF -Denable-python-bindings=OFF \
+          -Denable-fortran=OFF -Denable-testing=OFF \
+          -Dgeneric-parallel-configurations="hip-hipcc" \
+          -DTFEL_HIPCC_COMPILER=$ROCM/bin/hipcc
+        cmake --build build/tfel -j $(nproc) --target install
+
+    - name: Build MGIS
+      run: |
+        export PATH=$PWD/install/tfel/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib
+        git clone --quiet --filter=blob:none \
+          https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
+        git -C mgis checkout --quiet e8ef4b4
+        git -C mgis -c user.name=ci -c user.email=ci@localhost \
+          am --quiet --keep-cr $PWD/patches/mgis/*.patch
+        cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/mgis \
+          -DCMAKE_PREFIX_PATH=$PWD/install/tfel \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -Denable-portable-build=ON -Denable-testing=ON \
+          -Denable-mgis-function=ON -Denable-hdf5-automatic-support=OFF
+        cmake --build build/mgis -j $(nproc)
+        cmake --build build/mgis -j $(nproc) --target build-tests
+        cmake --install build/mgis
+
+    # without the view of the spack environment (see Build TFEL): MPI and
+    # MFEM are given explicitly; the old HIP headers that a system package
+    # may install in /usr/include/hip come after those of ROCm
+    - name: Build mfem-mgis
+      run: |
+        MPI=$(spack -e $ENVIRONMENT location -i openmpi)
+        export PATH=$PWD/install/tfel/bin:$MPI/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        export HIPCC_COMPILE_FLAGS_APPEND="-isystem $ROCM/include"
+        cmake -S mfem-mgis -B build/mfem-mgis -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=$PWD/install/mfem-mgis \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_HIP_COMPILER_LAUNCHER=ccache \
+          -DMPI_C_COMPILER=$MPI/bin/mpicc -DMPI_CXX_COMPILER=$MPI/bin/mpicxx \
+          -DCMAKE_HIP_FLAGS="-isystem $ROCM/include" \
+          -Denable-portable-build=ON -Denable-gpu-tests=ON \
+          -DMFEM_DIR=$PWD/deps/hip-amd/install/mfem \
+          -DMFrontGenericInterface_DIR=$PWD/install/mgis/share/mgis/cmake \
+          -DTFEL_DIR=$PWD/install/tfel/share/tfel/cmake
+        cmake --build build/mfem-mgis -j $(nproc) --target install
+        cmake --build build/mfem-mgis -j $(nproc) --target build-tests BehaviourTest
+
+    - name: Build mfem-mgis-examples
+      run: |
+        MPI=$(spack -e $ENVIRONMENT location -i openmpi)
+        export PATH=$PWD/install/tfel/bin:$MPI/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        export HIPCC_COMPILE_FLAGS_APPEND="-isystem $ROCM/include"
+        cmake -S mfem-mgis-examples -B build/examples -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_HIP_COMPILER_LAUNCHER=ccache \
+          -DMPI_C_COMPILER=$MPI/bin/mpicc -DMPI_CXX_COMPILER=$MPI/bin/mpicxx \
+          -DCMAKE_HIP_FLAGS="-isystem $ROCM/include" \
+          -DMFEMMGIS_DIR=$PWD/install/mfem-mgis/share/mfem-mgis/cmake \
+          -DMFEM_DIR=$PWD/deps/hip-amd/install/mfem
+        cmake --build build/examples -j $(nproc)
+
+    - name: Build mm-opera-hpc
+      run: |
+        MPI=$(spack -e $ENVIRONMENT location -i openmpi)
+        export PATH=$PWD/install/tfel/bin:$MPI/bin:$PATH
+        export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
+        export HIPCC_COMPILE_FLAGS_APPEND="-isystem $ROCM/include"
+        cmake -S mm-opera-hpc -B build/mm-opera-hpc -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_HIP_COMPILER_LAUNCHER=ccache \
+          -DMPI_C_COMPILER=$MPI/bin/mpicc -DMPI_CXX_COMPILER=$MPI/bin/mpicxx \
+          -DCMAKE_HIP_FLAGS="-isystem $ROCM/include" \
+          -DMFEMMGIS_DIR=$PWD/install/mfem-mgis/share/mfem-mgis/cmake \
+          -DMFEM_DIR=$PWD/deps/hip-amd/install/mfem
+        cmake --build build/mm-opera-hpc -j $(nproc)
+
+    - name: Save ccache
+      if: ${{ !cancelled() && steps.ccache.outcome == 'success' }}
+      uses: ./mfem-mgis/.github/actions/save-ccache
+
+    - name: Disk space
+      if: ${{ !cancelled() }}
+      run: df -h .
+
+  # a single update of the build cache once all the jobs have pushed, to
+  # avoid concurrent index updates, only on main
+  update_build_cache:
+    needs: [cpu, cuda, hip]
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Spack
+      uses: spack/setup-spack@v3
+      with:
+        spack_ref: v1.2.2
+        packages_ref: 3b7fdffc24511b067b65540e0e9b3c89d07f8a7f
+        buildcache: false
+        spack_path: ${{ github.workspace }}/spack
+
+    - name: Clean the build cache
+      uses: ./mfem-mgis/.github/actions/clean-build-cache
+      env:
+        GITHUB_USER: ${{ github.actor }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        # only when all the jobs succeeded: a failed job may not have pushed
+        # the packages it uses
+        prune: ${{ needs.cpu.result == 'success' && needs.cuda.result == 'success' && needs.hip.result == 'success' }}

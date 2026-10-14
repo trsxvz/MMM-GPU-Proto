@@ -1605,6 +1605,14 @@ endif()
 # (no memory allocated on the GPU)
 if(MFEM_USE_MPI)
   add_test_executable(HypreDevicePoolSizeTest)
+  # with a hypre built with Umpire, the test reads the size of the pool
+  # created by hypre with a function of Umpire, which is linked explicitly
+  # (MFEM may not link it, for instance when it is built without Umpire)
+  find_library(MFEM_MGIS_UMPIRE_LIBRARY umpire)
+  if(MFEM_MGIS_UMPIRE_LIBRARY)
+    target_link_libraries(HypreDevicePoolSizeTest
+      PRIVATE ${MFEM_MGIS_UMPIRE_LIBRARY})
+  endif()
   add_test(NAME HypreDevicePoolSizeTest
            COMMAND HypreDevicePoolSizeTest --hypre-device-pool-size 0.25
                    --expected 0.25)

@@ -41,7 +41,11 @@
 # With HYPRE_HIP=ON, MFEM and the rest have the additional suffix
 # -hypre-hip. MFEM 4.10 comes from the official repository (tag v4.10).
 # MPI, METIS, SuiteSparse and OpenBLAS are those of the spack environment
-# mmm-gpu. Result: deps/hip-amd/install/{hypre,mfem}.
+# given by SPACK_ENVIRONMENT (deps/spack/mmm-gpu by default). Result:
+# deps/hip-amd/install/{hypre,mfem}, or HIP_DEPS_DIR/install/{hypre,mfem}.
+# MFEM uses the hypre given by HYPRE_DIR, if any, instead of the one built
+# by the step hypre (the continuous integration takes the hypre of its spack
+# environment).
 #
 # The step mfem-mgis builds mfem-mgis (directory mfem-mgis of the prototype)
 # with this MFEM, and the MGIS and TFEL of the prototype, in
@@ -54,6 +58,9 @@
 # configuration, behaviours compiled for the AMD GPU), in
 # build/examples-hip, then runs its tests (those on GPU with GPU_TESTS=ON,
 # option MFEM_MGIS_EXAMPLES_GPU_TESTS).
+#
+# The compilations and the tests run on the cores given by CPUS (0,1,8,9 by
+# default), or without restriction if CPUS is empty.
 #
 # Usage: [HIP_ARCH=gfx1036] [GPU_TESTS=ON] [HYPRE_HIP=ON] \
 #   scripts/build-hip-amd.sh [hypre|mfem|mfem-mgis|examples|all]
@@ -81,11 +88,19 @@ else
 fi
 SPACK=${SPACK:-$HOME/Bureau/spack-mmm/bin/spack}
 JOBS=${JOBS:-4}
-# cores used by the compilation and by the tests
-CPUS=${CPUS:-0,1,8,9}
+SPACK_ENVIRONMENT=${SPACK_ENVIRONMENT:-$P/deps/spack/mmm-gpu}
+# cores used by the compilation and by the tests, all if empty
+CPUS=${CPUS-0,1,8,9}
+on_cpus() {
+  if [ -n "$CPUS" ]; then
+    taskset -c "$CPUS" "$@"
+  else
+    "$@"
+  fi
+}
 
 location() {
-  SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$P/deps/spack/mmm-gpu" \
+  SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$SPACK_ENVIRONMENT" \
     location -i "$1"
 }
 MPI=$(location mpi)
@@ -93,8 +108,9 @@ METIS=$(location metis)
 SUITESPARSE=$(location suite-sparse)
 OPENBLAS=$(location openblas)
 
-D=$P/deps/hip-amd
+D=${HIP_DEPS_DIR:-$P/deps/hip-amd}
 mkdir -p "$D"
+HYPRE_DIR=${HYPRE_DIR:-$D/install/hypre$H}
 
 build_hypre() {
   local version=3.2.0
@@ -128,7 +144,7 @@ build_hypre() {
     -DHYPRE_ENABLE_MPI=ON -DBUILD_SHARED_LIBS=ON \
     "${gpu[@]}" \
     -DCMAKE_INSTALL_PREFIX="$D/install/hypre$H"
-  taskset -c "$CPUS" cmake --build "$b" -j "$JOBS"
+  on_cpus cmake --build "$b" -j "$JOBS"
   cmake --install "$b"
   echo "hypre $version installed in $D/install/hypre$H"
 }
@@ -155,14 +171,14 @@ build_mfem() {
     MFEM_SHARED=YES MFEM_STATIC=NO \
     HIP_CXX="$ROCM/bin/hipcc" HIP_DIR="$ROCM" HIP_ARCH="$HIP_ARCH" \
     MPICXX="$MPI/bin/mpic++" \
-    HYPRE_DIR="$D/install/hypre$H" \
-    HYPRE_LIB="-Wl,-rpath,$D/install/hypre$H/lib -L$D/install/hypre$H/lib -lHYPRE" \
+    HYPRE_DIR="$HYPRE_DIR" \
+    HYPRE_LIB="-Wl,-rpath,$HYPRE_DIR/lib -L$HYPRE_DIR/lib -lHYPRE" \
     METIS_DIR="$METIS" \
     METIS_LIB="-Wl,-rpath,$METIS/lib -L$METIS/lib -lmetis" \
     SUITESPARSE_DIR="$SUITESPARSE" \
     SUITESPARSE_OPT="-I$SUITESPARSE/include -I$SUITESPARSE/include/suitesparse" \
     LAPACK_LIB="$blas"
-  taskset -c "$CPUS" make -j "$JOBS" lib
+  on_cpus make -j "$JOBS" lib
   make install
   echo "MFEM installed in $D/install/mfem$A"
 }
@@ -192,10 +208,10 @@ build_mfem_mgis() {
     -DTFELHOME="$tfel" -DTFEL_DIR="$tfel/share/tfel/cmake" \
     -Denable-gpu-tests="$GPU_TESTS" \
     -DCMAKE_INSTALL_PREFIX="$P/install/mfem-mgis-hip$A"
-  taskset -c "$CPUS" cmake --build "$b" -j "$JOBS"
+  on_cpus cmake --build "$b" -j "$JOBS"
   # the library of behaviours of the tests (BehaviourTest) depends on the
   # target check, not on build-tests
-  taskset -c "$CPUS" cmake --build "$b" -j "$JOBS" \
+  on_cpus cmake --build "$b" -j "$JOBS" \
     --target build-tests BehaviourTest
   run_tests "$b"
 }
@@ -224,7 +240,11 @@ run_tests() {
     serialize="${serialize}export AMD_SERIALIZE_KERNEL=3 AMD_SERIALIZE_COPY=3; "
   fi
   # timeout of 600 s per test: a blocked test does not hold the cores for 1500 s
-  local cmd="${serialize}cd '$1' && taskset -c '$CPUS' ctest --timeout 600 --output-on-failure"
+  local launcher=
+  if [ -n "$CPUS" ]; then
+    launcher="taskset -c '$CPUS' "
+  fi
+  local cmd="${serialize}cd '$1' && ${launcher}ctest --timeout 600 --output-on-failure"
   if [ "$GPU_TESTS" = ON ] && ! id -nG | grep -qw render; then
     sg render -c "export LD_LIBRARY_PATH='$LD_LIBRARY_PATH'; $cmd"
   else
@@ -243,7 +263,7 @@ build_examples() {
     -DMFEMMGIS_DIR="$P/install/mfem-mgis-hip$A/share/mfem-mgis/cmake" \
     -DMFEM_DIR="$D/install/mfem$A" \
     -DMFEM_MGIS_EXAMPLES_GPU_TESTS="$GPU_TESTS"
-  taskset -c "$CPUS" cmake --build "$b" -j "$JOBS"
+  on_cpus cmake --build "$b" -j "$JOBS"
   run_tests "$b"
 }
 
