@@ -1,28 +1,28 @@
-== poutre, tétraèdres P1, mécanique: ./assemblage --device cuda -r 5 -n 10 -t mechanics
+== beam, P1 tetrahedra, mechanics: ./assembly --device cuda -r 5 -n 10 -t mechanics
 elements 1572864, degrees of freedom per element 12, entries 36494793, positions 453 MB (4.057 ms)
 assembly without positions: median 24.57 ms, minimum 23.45 ms
 assembly with positions: median 24.7 ms, minimum 23.36 ms
 entries searched with the positions 0
 ratio of the medians 0.9947, maximum difference 3.469e-17 (maximum value 0.0697)
-   statut 0
-== thermique, tétraèdres P1: ./assemblage --device cuda -r 5 -n 10 -t thermal
+   status 0
+== thermal, P1 tetrahedra: ./assembly --device cuda -r 5 -n 10 -t thermal
 elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (0.2047 ms)
 assembly without positions: median 12.97 ms, minimum 12.35 ms
 assembly with positions: median 12.97 ms, minimum 12.34 ms
 entries searched with the positions 0
 ratio of the medians 1.001, maximum difference 4.163e-17 (maximum value 0.1074)
-   statut 0
-== hexaèdres Q1, mécanique (27 points): ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
+   status 0
+== Q1 hexahedra, mechanics (27 points): ./assembly --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
 elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (1.046 ms)
 assembly without positions: median 42.9 ms, minimum 41.44 ms
 assembly with positions: median 42.53 ms, minimum 41.42 ms
 entries searched with the positions 0
 ratio of the medians 1.009, maximum difference 1.301e-18 (maximum value 0.004256)
-   statut 0
-== tétraèdres P2, mécanique: ./assemblage --device cuda -r 4 -o 2 -n 10 -t mechanics
+   status 0
+== P2 tetrahedra, mechanics: ./assembly --device cuda -r 4 -o 2 -n 10 -t mechanics
 elements 196608, degrees of freedom per element 30, entries 69643017, positions 353.9 MB (13.93 ms)
 assembly without positions: median 67.45 ms, minimum 67.42 ms
 assembly with positions: median 67.14 ms, minimum 67.07 ms
 entries searched with the positions 0
 ratio of the medians 1.005, maximum difference 2.776e-17 (maximum value 0.0895)
-   statut 0
+   status 0

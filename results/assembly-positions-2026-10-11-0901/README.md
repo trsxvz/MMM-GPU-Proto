@@ -1,58 +1,59 @@
-# Positions des entrées dans la matrice creuse (11/10/2026)
+# Positions of the entries in the sparse matrix (11/10/2026)
 
-Banc `cases/assembly` : assemblage par noyaux des matrices de rigidité de
-tous les éléments dans la matrice creuse locale de la tangente, avec les
-positions des entrées calculées une fois
-(`batch::computeStiffnessMatricesPositions`) et sans elles (recherche de
-chaque entrée dans sa ligne, par dichotomie), dans le même programme, en
-alternant les deux, 10 fois chacun. Blocs de la tangente arbitraires, un
-processus. mfem-mgis branche `positions` (d04acab66c), construction
-séparée installée dans `install/mfem-mgis-positions`. Machine calme, un
-cœur (`taskset -c 4`) ou la RTX 5080.
+Benchmark `cases/assembly`: assembly by kernels of the stiffness matrices
+of all the elements into the local sparse matrix of the tangent, with the
+positions of the entries computed once
+(`batch::computeStiffnessMatricesPositions`) and without them (search of
+each entry in its row, by bisection), in the same program, alternating the
+two, 10 times each. Arbitrary blocks of the tangent, one process.
+mfem-mgis branch `positions` (d04acab66c), separate build installed in
+`install/mfem-mgis-positions`. Quiet machine, one core (`taskset -c 4`) or
+the RTX 5080.
 
-Sorties : `host-2.txt` (un cœur) et `gpu-2.txt` (`--device cuda`). Les
-fichiers `host.txt` et `gpu.txt` sont la première série (b64d5dda96) :
-sur le GPU, chaque assemblage chronométré y comptait la copie de toute la
-matrice vers l'hôte (temps gonflés de 10 à 40 %), et le temps des
-positions la copie des positions ; les rapports sont les mêmes.
+Outputs: `host-2.txt` (one core) and `gpu-2.txt` (`--device cuda`). The
+files `host.txt` and `gpu.txt` are the first series (b64d5dda96): on the
+GPU, each timed assembly counted there the copy of the whole matrix to the
+host (times inflated by 10 to 40 %), and the time of the positions the
+copy of the positions; the ratios are the same.
 
-## Un cœur
+## One core
 
-| Cas | Éléments | Entrées de la matrice | Positions | Sans positions | Avec positions | Gain | Rentabilisé à |
+| Case | Elements | Entries of the matrix | Positions | Without positions | With positions | Gain | Paid back after |
 |---|---|---|---|---|---|---|---|
-| poutre, tétraèdres P1, mécanique (r4) | 196 608 | 4,7 M | 57 Mo, 419 ms | 235 ms | 117 ms | ×2,0 | 4 assemblages |
-| thermique, tétraèdres P1 (r5) | 1 572 864 | 4,1 M | 50 Mo, 272 ms | 382 ms | 133 ms | ×2,9 | 2 |
-| hexaèdres Q1, 27 points, petites déformations (r4) | 4 096 | 1,1 M | 4,7 Mo, 31 ms | 130 ms | 116 ms | ×1,1 | 3 |
-| hexaèdres Q1, 27 points, grandes transformations (r4) | 4 096 | 1,1 M | 4,7 Mo, 31 ms | 178 ms | 165 ms | ×1,1 | 3 |
-| tétraèdres P2, mécanique (r3) | 24 576 | 8,9 M | 44 Mo, 357 ms | 337 ms | 216 ms | ×1,6 | 3 |
-| hexaèdres Q2, mécanique (r2) | 64 | 0,3 M | 0,8 Mo, 5 ms | 44 ms | 41 ms | ×1,1 | 2 |
+| beam, P1 tetrahedra, mechanics (r4) | 196,608 | 4.7 M | 57 MB, 419 ms | 235 ms | 117 ms | ×2.0 | 4 assemblies |
+| thermal, P1 tetrahedra (r5) | 1,572,864 | 4.1 M | 50 MB, 272 ms | 382 ms | 133 ms | ×2.9 | 2 |
+| Q1 hexahedra, 27 points, small strain (r4) | 4,096 | 1.1 M | 4.7 MB, 31 ms | 130 ms | 116 ms | ×1.1 | 3 |
+| Q1 hexahedra, 27 points, finite strain (r4) | 4,096 | 1.1 M | 4.7 MB, 31 ms | 178 ms | 165 ms | ×1.1 | 3 |
+| P2 tetrahedra, mechanics (r3) | 24,576 | 8.9 M | 44 MB, 357 ms | 337 ms | 216 ms | ×1.6 | 3 |
+| Q2 hexahedra, mechanics (r2) | 64 | 0.3 M | 0.8 MB, 5 ms | 44 ms | 41 ms | ×1.1 | 2 |
 
-Temps médians ; le temps des positions est celui d'un second calcul.
-Matrices identiques au bit près, aucune entrée cherchée avec les
-positions. Le calcul des positions coûte de 0,1 à 1,8 assemblage ; il est
-rentabilisé entre la deuxième et la quatrième tangente. Le gain est grand
-quand le calcul des blocs est léger (éléments linéaires, peu de points,
-thermique) ; avec 27 points par hexaèdre, le calcul des blocs domine
-(voir `results/registers-kernels-2026-10-11`, qui le réduit). Mémoire : 2
-n² octets par élément, du même ordre que la matrice locale pour les
-éléments linéaires.
+Median times; the time of the positions is the one of a second
+computation. Bitwise identical matrices, no entry searched with the
+positions. The computation of the positions costs from 0.1 to 1.8
+assemblies. It is paid back between the second and the fourth tangent.
+The gain is large when the computation of the blocks is light (linear
+elements, few points, thermal). With 27 points per hexahedron, the
+computation of the blocks dominates (see
+`results/registers-kernels-2026-10-11`, which reduces it). Memory: 2 n²
+bytes per element, of the same order as the local matrix for linear
+elements.
 
 ## GPU
 
-| Cas | Éléments | Positions | Sans positions | Avec positions | Gain |
+| Case | Elements | Positions | Without positions | With positions | Gain |
 |---|---|---|---|---|---|
-| poutre, tétraèdres P1 (r5) | 1 572 864 | 453 Mo | 24,6 ms | 24,7 ms | ×0,99 |
-| thermique, tétraèdres P1 (r5) | 1 572 864 | 50 Mo | 13,0 ms | 13,0 ms | ×1,00 |
-| hexaèdres Q1, 27 points (r5) | 32 768 | 38 Mo | 42,9 ms | 42,5 ms | ×1,01 |
-| tétraèdres P2 (r4) | 196 608 | 354 Mo | 67,5 ms | 67,1 ms | ×1,01 |
+| beam, P1 tetrahedra (r5) | 1,572,864 | 453 MB | 24.6 ms | 24.7 ms | ×0.99 |
+| thermal, P1 tetrahedra (r5) | 1,572,864 | 50 MB | 13.0 ms | 13.0 ms | ×1.00 |
+| Q1 hexahedra, 27 points (r5) | 32,768 | 38 MB | 42.9 ms | 42.5 ms | ×1.01 |
+| P2 tetrahedra (r4) | 196,608 | 354 MB | 67.5 ms | 67.1 ms | ×1.01 |
 
-Aucun gain sur le GPU : la recherche y est masquée par le calcul des blocs
-et les additions atomiques, et les positions prendraient jusqu'à 450 Mo.
-Décision : `MultiMaterialNonLinearIntegrator` ne les utilise pas avec un
-GPU (ni avec le périphérique `debug` de MFEM). Il les garde pour chaque
-disposition des lignes (colonnes triées par un solveur direct, ou
-diagonale en tête), les recalcule après un assemblage où des entrées ont
-été cherchées, au plus trois fois, puis les abandonne.
+No gain on the GPU: the search is hidden there by the computation of the
+blocks and the atomic additions, and the positions would take up to
+450 MB. Decision: `MultiMaterialNonLinearIntegrator` does not use them
+with a GPU (nor with the `debug` device of MFEM). It keeps them for each
+layout of the rows (columns sorted by a direct solver, or diagonal first),
+recomputes them after an assembly where entries were searched, at most
+three times, then gives them up.
 
-Le banc ne mesure que le noyau standard ; les noyaux du FBar (rang un) et
-de Faltus lisent les mêmes positions.
+The benchmark only measures the standard kernel. The kernels of FBar (rank
+one) and of Faltus read the same positions.

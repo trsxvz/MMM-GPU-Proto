@@ -1,13 +1,13 @@
-date : 2026-10-11 19:16:02
-cas : cermet
-machine : 16 cœurs, 30 Go
-charge : 1.23 1.72 1.70
-mfem-mgis : 0c61fbfcb4
-== cermet-np1-gpu-umpire : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint MFEM_MEMORY=umpire
-   statut 0
-== cermet-np1-gpu-host : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint MFEM_MEMORY=host
-   statut 0
-   7 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00
-== cermet-np1-gpu-defaut : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint
-   statut 0
-   7 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00
+date: 2026-10-11 19:16:02
+case: cermet
+machine: 16 cores, 30 GB
+load: 1.23 1.72 1.70
+mfem-mgis: 0c61fbfcb4
+== cermet-np1-gpu-umpire: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint MFEM_MEMORY=umpire
+   status 0
+== cermet-np1-gpu-host: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint MFEM_MEMORY=host
+   status 0
+   7 values, largest difference relative to the maximum of its group: 0.000e+00
+== cermet-np1-gpu-default: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint
+   status 0
+   7 values, largest difference relative to the maximum of its group: 0.000e+00

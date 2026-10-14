@@ -33,15 +33,15 @@ if(_usable)
     else()
       set(_command ${_run})
     endif()
-    add_test(NAME ex2${_variant}-point-par-point COMMAND ${_command}
+    add_test(NAME ex2${_variant}-point-by-point COMMAND ${_command}
       WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX2_DIR}")
-    set_tests_properties(ex2${_variant}-point-par-point PROPERTIES
+    set_tests_properties(ex2${_variant}-point-by-point PROPERTIES
       ENVIRONMENT "OMP_NUM_THREADS=1")
-    add_test(NAME ex2${_variant}-noyaux COMMAND ${_command}
+    add_test(NAME ex2${_variant}-kernels COMMAND ${_command}
       WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX2_DIR}")
-    set_tests_properties(ex2${_variant}-noyaux PROPERTIES
+    set_tests_properties(ex2${_variant}-kernels PROPERTIES
       ENVIRONMENT "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}")
-    list(APPEND _tests ex2${_variant}-point-par-point ex2${_variant}-noyaux)
+    list(APPEND _tests ex2${_variant}-point-by-point ex2${_variant}-kernels)
     foreach(_backend ${ex2-behaviours_BACKENDS})
       set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
       set(_name ex2${_variant}-batch-${_backend})

@@ -1,39 +1,39 @@
-date : 2026-10-09 20:23:17
-cas : polycristal
-machine : 16 cœurs, 30 Go
-charge : 1.14 2.11 2.74
-mfem-mgis : ed91564643
-== polycristal-np8-point-par-point : 8 processus, 1 fils, défaut
-   statut 0
-== polycristal-np8-lots : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 0.000e+00
-== polycristal-np8-lots-noyaux-gradients : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 1.549e-10
-== polycristal-np8-lots-noyaux-forces : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 2.582e-09
-== polycristal-np8-lots-noyaux-tangente : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 2.170e-10
-== polycristal-np8-lots-noyaux : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 2.598e-09
-== polycristal-np1-point-par-point : 1 processus, 1 fils, défaut
-   statut 0
-== polycristal-np1-lots : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 0.000e+00
-== polycristal-np1-lots-noyaux-gradients : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 4.627e-09
-== polycristal-np1-lots-noyaux-forces : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 2.604e-09
-== polycristal-np1-lots-noyaux-tangente : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 1.320e-09
-== polycristal-np1-lots-noyaux : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de sa colonne : 8.572e-11
+date: 2026-10-09 20:23:17
+case: polycrystal
+machine: 16 cores, 30 GB
+load: 1.14 2.11 2.74
+mfem-mgis: ed91564643
+== polycrystal-np8-point-by-point: 8 processes, 1 threads, default
+   status 0
+== polycrystal-np8-batches: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
+   status 0
+   70 values, largest difference relative to the maximum of its column: 0.000e+00
+== polycrystal-np8-batches-kernels-gradients: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its column: 1.549e-10
+== polycrystal-np8-batches-kernels-forces: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its column: 2.582e-09
+== polycrystal-np8-batches-kernels-tangent: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its column: 2.170e-10
+== polycrystal-np8-batches-kernels: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its column: 2.598e-09
+== polycrystal-np1-point-by-point: 1 processes, 1 threads, default
+   status 0
+== polycrystal-np1-batches: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
+   status 0
+   70 values, largest difference relative to the maximum of its column: 0.000e+00
+== polycrystal-np1-batches-kernels-gradients: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its column: 4.627e-09
+== polycrystal-np1-batches-kernels-forces: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its column: 2.604e-09
+== polycrystal-np1-batches-kernels-tangent: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its column: 1.320e-09
+== polycrystal-np1-batches-kernels: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its column: 8.572e-11

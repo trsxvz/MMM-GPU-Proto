@@ -4,8 +4,8 @@
  * line of the beam cases
  */
 
-#ifndef LIB_CAS_POUTRE_SOLVER_OPTIONS_HXX
-#define LIB_CAS_POUTRE_SOLVER_OPTIONS_HXX
+#ifndef LIB_CASES_BEAM_SOLVER_OPTIONS_HXX
+#define LIB_CASES_BEAM_SOLVER_OPTIONS_HXX
 
 #include <string>
 #include <cstdlib>
@@ -116,4 +116,4 @@ inline mfem_mgis::Parameters amgxPCGOptions(const mfem_mgis::Parameters& amgx,
   return params;
 }  // end of amgxPCGOptions
 
-#endif /* LIB_CAS_POUTRE_SOLVER_OPTIONS_HXX */
+#endif /* LIB_CASES_BEAM_SOLVER_OPTIONS_HXX */

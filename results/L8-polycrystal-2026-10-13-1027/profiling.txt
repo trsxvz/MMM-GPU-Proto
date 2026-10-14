@@ -1,8 +1,8 @@
-cas | total | intégration | résidu | tangente | préconditionneur | résolution | accélération | prédiction | fin de pas
+case | total | integration | residual | tangent | preconditioner | resolution | acceleration | prediction | end of step
 --- | --- | --- | --- | --- | --- | --- | --- | --- | ---
-polycristal-np1-gpu-post-traitements-noyaux | 12.53 (1) | 5.22 (158) | 0.02 (158) | 0.13 (98) | 0.01 (98) | 5.29 (98) | - | - | 0.01 (10)
-polycristal-np1-gpu-post-traitements | 12.48 (1) | 5.23 (158) | 0.02 (158) | 0.13 (98) | 0.01 (98) | 5.28 (98) | - | - | 0.01 (10)
-polycristal-np1-gpu-sans-post-traitements | 11.00 (1) | 5.24 (158) | 0.02 (158) | 0.12 (98) | 0.01 (98) | 5.28 (98) | - | - | 0.02 (10)
-polycristal-np8-post-traitements-noyaux | 30.02 (1) | 14.25 (158) | 0.08 (158) | 0.40 (98) | 0.01 (98) | 14.79 (98) | - | - | 0.00 (10)
-polycristal-np8-post-traitements | 30.28 (1) | 14.36 (158) | 0.08 (158) | 0.41 (98) | 0.04 (98) | 14.83 (98) | - | - | 0.00 (10)
-polycristal-np8-sans-post-traitements | 28.68 (1) | 14.01 (158) | 0.07 (158) | 0.37 (98) | 0.04 (98) | 13.89 (98) | - | - | 0.00 (10)
+polycrystal-np1-gpu-post-processings-kernels | 12.53 (1) | 5.22 (158) | 0.02 (158) | 0.13 (98) | 0.01 (98) | 5.29 (98) | - | - | 0.01 (10)
+polycrystal-np1-gpu-post-processings | 12.48 (1) | 5.23 (158) | 0.02 (158) | 0.13 (98) | 0.01 (98) | 5.28 (98) | - | - | 0.01 (10)
+polycrystal-np1-gpu-without-post-processings | 11.00 (1) | 5.24 (158) | 0.02 (158) | 0.12 (98) | 0.01 (98) | 5.28 (98) | - | - | 0.02 (10)
+polycrystal-np8-post-processings-kernels | 30.02 (1) | 14.25 (158) | 0.08 (158) | 0.40 (98) | 0.01 (98) | 14.79 (98) | - | - | 0.00 (10)
+polycrystal-np8-post-processings | 30.28 (1) | 14.36 (158) | 0.08 (158) | 0.41 (98) | 0.04 (98) | 14.83 (98) | - | - | 0.00 (10)
+polycrystal-np8-without-post-processings | 28.68 (1) | 14.01 (158) | 0.07 (158) | 0.37 (98) | 0.04 (98) | 13.89 (98) | - | - | 0.00 (10)

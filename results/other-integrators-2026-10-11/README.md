@@ -1,41 +1,42 @@
-# Autres intégrateurs de la forme dans les calculs par noyaux (11/10/2026)
+# Other integrators of the form in the computations by kernels (11/10/2026)
 
-Script : `cases/measure-other-integrators.sh`. Thermique r5 (279 873
-inconnues, 5 pas), 8 processus d'un fil, tout par noyaux, tangente
-assemblée, GMRES et BoomerAMG. Seconde extrémité : échange convectif
-(option `-hc 1`, intégrateur de faces de bord de la forme non linéaire,
-comme la condition de Robin de l'exemple ex8) ou température imposée (sans
-autre intégrateur, pour comparaison). Avant : mfem-mgis e111df8454
-(`install/mfem-mgis-globale`, boucles de MFEM sur tous les éléments dès
-qu'un autre intégrateur est présent) ; après : 517e33cde4
-(`install/mfem-mgis-autres`). Machine calme, trois passages (`summary.txt`,
+Script: `cases/measure-other-integrators.sh`. Thermal r5 (279,873
+unknowns, 5 steps), 8 single-threaded processes, everything by kernels,
+assembled tangent, GMRES and BoomerAMG. Second end: convective exchange
+(option `-hc 1`, boundary face integrator of the nonlinear form, like the
+Robin condition of the example ex8) or imposed temperature (without any
+other integrator, for comparison). Before: mfem-mgis e111df8454
+(`install/mfem-mgis-global`, loops of MFEM over all the elements as soon
+as another integrator is present); after: 517e33cde4
+(`install/mfem-mgis-others`). Quiet machine, three runs (`summary.txt`,
 `repetition-2`, `repetition-3`).
 
-Boucle sur les pas (ligne `time`), en secondes, médiane et extrêmes des
-trois passages :
+Loop over the steps (line `time`), in seconds, median and extremes of the
+three runs:
 
-| Cas | Avant | Après |
+| Case | Before | After |
 |---|---|---|
-| échange convectif | 4,17 (4,10 à 4,17) | 2,70 (2,66 à 2,96) |
-| température imposée | 2,98 (2,86 à 3,04) | 2,86 (2,85 à 2,91) |
+| convective exchange | 4.17 (4.10 to 4.17) | 2.70 (2.66 to 2.96) |
+| imposed temperature | 2.98 (2.86 to 3.04) | 2.86 (2.85 to 2.91) |
 
-Phases du premier passage (`cases/summary-profiling.py`, nombre d'appels
-entre parenthèses) :
+Phases of the first run (`cases/summary-profiling.py`, number of calls in
+parentheses):
 
-| Cas | Résidu | Tangente | Résolution |
+| Case | Residual | Tangent | Solution |
 |---|---|---|---|
-| échange convectif, avant | 0,49 (20) | 1,62 (15) | 1,53 |
-| échange convectif, après | 0,25 (20) | 0,49 (15) | 1,68 |
-| température imposée, après | 0,23 (23) | 0,47 (18) | 1,57 |
+| convective exchange, before | 0.49 (20) | 1.62 (15) | 1.53 |
+| convective exchange, after | 0.25 (20) | 0.49 (15) | 1.68 |
+| imposed temperature, after | 0.23 (23) | 0.47 (18) | 1.57 |
 
-- Avec l'échange convectif, la tangente passe de 108 à 33 ms par appel
-  (×3,3) et le résidu de 24,5 à 12,5 ms (×2) ; boucle sur les pas ×1,54
-  (médianes). Par appel, il reste environ 25 % de plus que sans autre
-  intégrateur (tangente 33 contre 26 ms, résidu 12,5 contre 10 ms) :
-  évaluation des faces de bord sur l'hôte et prolongation des inconnues.
-- Mêmes normes de la solution et mêmes itérations de Newton avant et
-  après (15 pour l'échange convectif, 18 pour la température imposée).
-- Sans autre intégrateur, le chemin ne change pas : les écarts de la
-  température imposée (moins de 4 %) sont du bruit de mesure.
-- La résolution linéaire domine maintenant le calcul (1,5 à 1,7 s sur
-  2,7 à 3 s).
+- With the convective exchange, the tangent goes from 108 to 33 ms per
+  call (×3.3) and the residual from 24.5 to 12.5 ms (×2); loop over the
+  steps ×1.54 (medians). Per call, about 25% more than without any other
+  integrator remains (tangent 33 against 26 ms, residual 12.5 against
+  10 ms): evaluation of the boundary faces on the host and prolongation of
+  the unknowns.
+- Same norms of the solution and same Newton iterations before and after
+  (15 for the convective exchange, 18 for the imposed temperature).
+- Without any other integrator, the path does not change: the gaps of the
+  imposed temperature (less than 4%) are measurement noise.
+- The linear solution now dominates the computation (1.5 to 1.7 s out of
+  2.7 to 3 s).

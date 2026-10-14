@@ -2,7 +2,7 @@
 
 This page presents the prototype: its goal, the role of each library,
 the principles it follows, its vocabulary and its status. The source
-document, in French, is `docs/overview.md`.
+document is `docs/overview.md`.
 
 ## Goal
 
@@ -141,8 +141,8 @@ mfem-mgis, in detail:
 
 Single precision: the real type of the whole chain is the one of the
 installed MFEM (`double` by default, or `float`). In float, the test
-suites pass: MGIS 49/49, and 51/51 with CUDA; mfem-mgis 219/219 on the
-CPU and 276/276 on the GPU; the examples 21/21; mm-opera-hpc 6/6.
+suites pass: MGIS 49/49, and 51/51 with CUDA; mfem-mgis 223/223 on the
+CPU and 276/276 on the GPU (before the ParaSails and stagnation tests); the examples 21/21; mm-opera-hpc 6/6.
 
 ## Performance
 
@@ -168,7 +168,7 @@ GPU, with the same iterations, 3.4e-5 away from the solution in double
 
 ## Where to read more
 
-The repository documents, in French, in reading order: `docs/overview.md`,
+The repository documents, in reading order: `docs/overview.md`,
 `docs/tfel.md`, `docs/mgis.md`, `docs/validation.md`,
 `docs/upstream-integration.md`, `docs/plan-mfem-mgis.md` and
 `docs/plan-mfem-mgis-detailed.md`, `docs/plan-execution.md`,

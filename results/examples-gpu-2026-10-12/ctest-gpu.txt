@@ -1,4 +1,4 @@
-Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas-post
+Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cases-post
     Start  88: ex7-batch-cuda
 1/5 Test  #88: ex7-batch-cuda ...................   Passed   10.67 sec
     Start  93: ex6-batch-cuda

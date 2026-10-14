@@ -1,4 +1,4 @@
-# comparaison terme à terme des tangentes par noyaux (K) et élément par élément (E), float sur le GPU, fin des pas 1, 5, 7 et 8
+# term by term comparison of the tangents by kernels (K) and element by element (E), float on the GPU, end of steps 1, 5, 7 and 8
 step 1: rows 111843, nnz kernels 4702185, element by element 4702185
   max |K - E| 2.048e+03, max |E| 2.000e+10, relative 1.024e-07, Frobenius relative 3.867e-08
   asymmetry: kernels 0.000e+00, element by element 1.280e-08 (relative to max)

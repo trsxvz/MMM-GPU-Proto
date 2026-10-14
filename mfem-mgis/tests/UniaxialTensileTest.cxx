@@ -471,7 +471,8 @@ int main(int argc, char** argv) {
     // a resolution which does not converge ends the test with a failure
     // (expected by UniaxialTensileTest-NoStagnation-*), not with an abort
     if (!problem.solve(ctx, t, dt).status) {
-      mfem_mgis::getErrorStream() << "the resolution failed\n";
+      mfem_mgis::getErrorStream() << ctx.getErrorMessage() << '\n'
+                                  << "the resolution failed\n";
       mfem_mgis::finalize();
       return EXIT_FAILURE;
     }

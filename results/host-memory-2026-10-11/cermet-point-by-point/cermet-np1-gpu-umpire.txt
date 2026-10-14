@@ -8,7 +8,7 @@ Options used:
    --petsc-configuration-file 
    --macroscopic-stress-output-file /home/t/Documents/GitHub/mfem-mgis-gpu-proto/results/host-memory-2026-10-11/cermet-point-by-point/cermet-np1-gpu-umpire.res
    --mesh mesh/5grains.msh
-   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/mm-opera-hpc-memoire/cermet/src/libBehaviour.so
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/mm-opera-hpc-memory/cermet/src/libBehaviour.so
    --order 1
    --refinement 0
    --postprocessing 0

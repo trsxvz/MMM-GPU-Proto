@@ -1,15 +1,15 @@
-# Dépôts des bibliothèques. Les sources de TFEL, de mfem-mgis, de
-# mfem-mgis-examples et de mm-opera-hpc sont suivies par ce dépôt (copie du
-# dernier commit du dépôt local, faite par scripts/sync-tfel.sh et
-# scripts/sync-repository.sh) ; les fichiers non suivis de ces dossiers sont
-# ignorés. MGIS est suivi par sa série de patchs (patches/mgis).
+# Repositories of the libraries. The sources of TFEL, mfem-mgis,
+# mfem-mgis-examples and mm-opera-hpc are tracked by this repository (copy of
+# the last commit of the local repository, made by scripts/sync-tfel.sh and
+# scripts/sync-repository.sh). The untracked files of these directories are
+# ignored. MGIS is tracked by its patch series (patches/mgis).
 /tfel/
 /tfel-dev/
 /mgis/
 /mfem-mgis/
 /mfem-mgis-examples/
 /mm-opera-hpc/
-# constructions, installations et dépendances
+# builds, installations and dependencies
 /build/
 /install/
 /deps/*
@@ -19,7 +19,7 @@
 /deps/spack/*/.spack-env/
 /deps/spack/*/spack.lock
 /backups/
-# brouillons : seuls les outils de développement réutilisés sont suivis
+# drafts: only the reused development tools are tracked
 /scratch/*
 !/scratch/validate3.sh
 !/scratch/dev-test.sh
@@ -30,5 +30,5 @@
 !/scratch/b2/config-dev*.json
 # Python caches
 __pycache__/
-# notes de reprise locales, non versionnées
-/NOTES-REPRISE.md
+# local resumption notes, not versioned
+/RESUME-NOTES.md

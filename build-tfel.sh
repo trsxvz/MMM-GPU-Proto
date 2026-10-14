@@ -1,23 +1,23 @@
 #!/bin/bash
-# Compile et installe le fork de TFEL du prototype.
-# PROTO_ENVIRONMENT (voir scripts/env.sh) choisit l'environnement : mmm-gpu
-# par défaut (deps/spack/mmm-gpu : Kokkos, AdaptiveCpp, HIP 7.2.3 et LLVM
-# de spack, CUDA 13.0.2 du HPC SDK pour nvcc et HIP ; TFEL construit dans
-# build/tfel-mmm-gpu et installé dans install/tfel-mmm-gpu) ou
-# tfelgpu_local (ancien environnement : Kokkos et AdaptiveCpp de install/,
-# hipcc 5.7 avec le CUDA 12.9 du HPC SDK ; build/tfel et install/tfel).
-# Configurations generic-parallel : cuda-nvcc, hip-hipcc (plateforme
-# nvidia), stlpar-parunseq-gcc, stlpar-parunseq-nvhpc-gpu (nvc++ du HPC
-# SDK), kokkos (CUDA + OpenMP), sycl-default-acpp et sycl-gpu-acpp
+# Builds and installs the TFEL fork of the prototype.
+# PROTO_ENVIRONMENT (see scripts/env.sh) selects the environment: mmm-gpu
+# by default (deps/spack/mmm-gpu: Kokkos, AdaptiveCpp, HIP 7.2.3 and LLVM
+# from spack, CUDA 13.0.2 from the HPC SDK for nvcc and HIP; TFEL built in
+# build/tfel-mmm-gpu and installed in install/tfel-mmm-gpu) or
+# tfelgpu_local (old environment: Kokkos and AdaptiveCpp from install/,
+# hipcc 5.7 with the CUDA 12.9 of the HPC SDK; build/tfel and install/tfel).
+# generic-parallel configurations: cuda-nvcc, hip-hipcc (nvidia
+# platform), stlpar-parunseq-gcc, stlpar-parunseq-nvhpc-gpu (nvc++ from the
+# HPC SDK), kokkos (CUDA + OpenMP), sycl-default-acpp and sycl-gpu-acpp
 # (AdaptiveCpp), openmp-host-gcc, openmp-offload-nvhpc-gpu (nvc++ -mp=gpu),
-# stlpar-parunseq-clang (clang 20 du LLVM de spack : sa bibliothèque est
-# dans LD_LIBRARY_PATH, le clang du système ne peut donc pas servir),
-# cuda-clang et hip-clang (même clang, avec CUDA 12.9 : clang 20 ne
-# connaît pas CUDA 13), stlpar-parunseq-icpx et sycl-default-icpx (oneAPI
-# 2026.1, SYCL sur CPU) ; TDLS activé. Pour changer les configurations
-# d'un dossier de construction existant :
+# stlpar-parunseq-clang (clang 20 from the LLVM of spack: its library is in
+# LD_LIBRARY_PATH, so the clang of the system cannot be used),
+# cuda-clang and hip-clang (same clang, with CUDA 12.9: clang 20 does not
+# know CUDA 13), stlpar-parunseq-icpx and sycl-default-icpx (oneAPI
+# 2026.1, SYCL on CPU); TDLS enabled. To change the configurations of an
+# existing build directory:
 # cmake -Dgeneric-parallel-configurations="..." -U "tfel-substitutions*" .
-# Les tests s'exécutent dans l'environnement de scripts/env.sh.
+# The tests run in the environment of scripts/env.sh.
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
 case "${PROTO_ENVIRONMENT:-mmm-gpu}" in
@@ -40,8 +40,8 @@ case "${PROTO_ENVIRONMENT:-mmm-gpu}" in
     CLANGXX=$V/bin/clang++
     BUILD=$P/build/tfel-mmm-gpu
     INSTALL=$P/install/tfel-mmm-gpu
-    # environnement spack éventuellement activé dans le shell : invisible
-    # pour CMake (voir scripts/env.sh)
+    # spack environment possibly activated in the shell: made invisible
+    # to CMake (see scripts/env.sh)
     unset SPACK_ENV SPACK_ENV_VIEW NVHPC_CUDA_HOME ACLOCAL_PATH
     export CMAKE_PREFIX_PATH=$V
     export PKG_CONFIG_PATH=$V/lib/pkgconfig:$V/share/pkgconfig

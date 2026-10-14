@@ -1,8 +1,8 @@
-Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas-post
-    Start 104: ex5-point-par-point
-1/4 Test #104: ex5-point-par-point ..............   Passed    1.21 sec
-    Start 105: ex5-noyaux
-2/4 Test #105: ex5-noyaux .......................   Passed    0.69 sec
+Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cases-post
+    Start 104: ex5-point-by-point
+1/4 Test #104: ex5-point-by-point ..............   Passed    1.21 sec
+    Start 105: ex5-kernels
+2/4 Test #105: ex5-kernels .......................   Passed    0.69 sec
     Start 106: ex5-batch-openmp
 3/4 Test #106: ex5-batch-openmp .................   Passed    0.67 sec
     Start 107: ex5-batch-stlpar

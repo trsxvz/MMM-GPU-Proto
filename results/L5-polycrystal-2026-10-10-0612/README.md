@@ -1,18 +1,19 @@
-# Polycristal, contrôle après les jacobiens par noyau (10/10/2026)
+# Polycrystal, check after the jacobians by a kernel (10/10/2026)
 
-Mêmes cas que `results/L5-polycrystal-2026-10-10-0502/`, avec le calcul
-des jacobiens par un noyau (mfem-mgis 8b0b47acfb ; `summary.txt` indique le
-commit de base). Charge 4,8 au départ (fin des mesures de la poutre).
+Same cases as `results/L5-polycrystal-2026-10-10-0502/`, with the
+computation of the jacobians by a kernel (mfem-mgis 8b0b47acfb;
+`summary.txt` gives the base commit). Load 4.8 at the start (end of the
+measurements of the beam).
 
-| Cas | CPU, 8 processus | GPU |
+| Case | CPU, 8 processes | GPU |
 |---|---|---|
-| Newton | 29,65 s | 11,86 s |
-| Newton, EW1 | 34,08 s | 11,60 s |
-| NewtonK0 | 25,12 s | 11,25 s |
-| NewtonK0, EW1 | 23,50 s | 9,58 s |
+| Newton | 29.65 s | 11.86 s |
+| Newton, EW1 | 34.08 s | 11.60 s |
+| NewtonK0 | 25.12 s | 11.25 s |
+| NewtonK0, EW1 | 23.50 s | 9.58 s |
 
-Temps totaux (`cases/summary-profiling.py`). Tout est égal à la mesure
-précédente à 0,5 % près : le maillage est petit, la géométrie n'y pesait
-pas. Contraintes macroscopiques égales à Newton à 2,4e-13 près sans
-Eisenstat-Walker, de 9,6e-7 à 3,5e-6 avec (dans la tolérance du Newton
-microscopique, voir la mesure précédente).
+Total times (`cases/summary-profiling.py`). Everything is equal to the
+previous measurement within 0.5 %: the mesh is small, the geometry did not
+weigh there. Macroscopic stresses equal to Newton up to 2.4e-13 without
+Eisenstat-Walker, from 9.6e-7 to 3.5e-6 with it (within the tolerance of
+the microscopic Newton, see the previous measurement).

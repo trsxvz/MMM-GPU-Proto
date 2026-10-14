@@ -1,78 +1,76 @@
-# Assemblage ordonné de la tangente (12 et 13/10/2026)
+# Ordered assembly of the tangent (12 and 13/10/2026)
 
-Paramètre `TangentOperatorAssembly` de mfem-mgis (`Atomic` par défaut,
-`Ordered`), variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`. Avec un
-périphérique, les matrices de rigidité des éléments sont ajoutées à la
-matrice creuse par additions atomiques, dans un ordre qui change d'un
-passage à l'autre : les derniers chiffres des résultats changent aussi, et
-le nombre d'itérations de Newton peut varier (32 ou 31 tangentes ci-dessous
-avec l'assemblage atomique). L'assemblage ordonné stocke les matrices des
-éléments, puis les ajoute dans un ordre fixe. Sans périphérique, le chemin
-de l'hôte ajoute déjà les éléments l'un après l'autre : les deux valeurs du
-paramètre y donnent le même assemblage.
+Parameter `TangentOperatorAssembly` of mfem-mgis (`Atomic` by default,
+`Ordered`), variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`. With a device,
+the stiffness matrices of the elements are added to the sparse matrix by
+atomic additions, in an order that changes from one run to the next: the
+last digits of the results change too, and the number of Newton iterations
+may vary (32 or 31 tangents below with the atomic assembly). The ordered
+assembly stores the matrices of the elements, then adds them in a fixed
+order. Without a device, the host path already adds the elements one after
+the other: both values of the parameter give the same assembly there.
 
-Poutre r4 du prototype (111 843 inconnues, von Mises à écrouissage
-linéaire, 10 pas), tout par noyaux, loi cuda, un processus sur le GPU
-(cœurs 0 à 3), hypre sur le GPU. Installation séparée
-`install/mfem-mgis-ordered`, construction `build/cas-ordered` (seul
-l'exécutable `poutre`). Commandes dans `measure.sh`.
+Beam r4 of the prototype (111,843 unknowns, von Mises with linear
+hardening, 10 steps), everything by kernels, cuda behaviour, one process on
+the GPU (cores 0 to 3), hypre on the GPU. Separate installation
+`install/mfem-mgis-ordered`, build `build/cases-ordered` (only the `beam`
+executable). Commands in `measure.sh`.
 
-## Deux versions de l'assemblage ordonné sur le GPU
+## Two versions of the ordered assembly on the GPU
 
-- Première version (mfem-mgis 456c298dd6) : un fil par ligne de la
-  matrice, qui cherche la colonne de chacune de ses entrées dans la ligne.
-  Profil Nsight Systems : 7,1 ms par assemblage pour ce noyau, contre
-  0,48 ms pour le noyau des additions atomiques. Avec un seul fil par
-  ligne (111 843 fils), chaque fil fait en série près de 200 recherches
-  et lectures dispersées.
-- Version retenue (mfem-mgis f57072220f) : un fil par valeur de la matrice
-  (environ 9 millions de fils), qui ajoute dans un ordre fixe les deux à
-  trois contributions de cette valeur. La liste des contributions est
-  calculée une fois par agencement des lignes, à partir des positions des
-  entrées (noyau existant), puis vérifiée colonne par colonne à chaque
-  assemblage. Mêmes valeurs que la première version.
+- First version (mfem-mgis 456c298dd6): one thread per row of the matrix,
+  which looks for the column of each of its entries in the row. Nsight
+  Systems profile: 7.1 ms per assembly for this kernel, against 0.48 ms for
+  the kernel of the atomic additions. With a single thread per row
+  (111,843 threads), each thread does in sequence nearly 200 searches and
+  scattered reads.
+- Version kept (mfem-mgis f57072220f): one thread per value of the matrix
+  (about 9 million threads), which adds in a fixed order the two to three
+  contributions to this value. The list of the contributions is computed
+  once per layout of the rows, from the positions of the entries (existing
+  kernel), then checked column by column at each assembly. Same values as
+  the first version.
 
-## Temps (secondes)
+## Times (seconds)
 
-Temps total de la boucle sur les pas, deux passages par variante ; temps
-cumulés de l'assemblage de la tangente (`NS::getJacobian`) et de
-l'assemblage de la prédiction (`PRED::assemble`, qui contient le premier
-assemblage, donc le calcul des contributions).
+Total time of the loop over the steps, two runs per variant; cumulated
+times of the assembly of the tangent (`NS::getJacobian`) and of the
+assembly of the prediction (`PRED::assemble`, which contains the first
+assembly, hence the computation of the contributions).
 
-| Méthode | Assemblage | Total | Tangente | Prédiction |
+| Method | Assembly | Total | Tangent | Prediction |
 |---|---|---|---|---|
-| Newton, PCG et BoomerAMG | atomique | 3,09 et 3,09 | 0,137 (32) et 0,146 (33) | 0,104 et 0,106 |
-| Newton, PCG et BoomerAMG | ordonné, par ligne | 3,20 et 3,20 | 0,354 (32) et 0,353 (32) | 0,178 et 0,175 |
-| Newton, PCG et BoomerAMG | ordonné, par valeur | 3,09 et 3,67 | 0,189 (32) et 0,212 (32) | 0,234 et 0,247 |
-| NewtonK0, Eisenstat et Walker | atomique | 1,89 et 1,95 | 0,123 (51) et 0,140 (53) | 0,106 et 0,109 |
-| NewtonK0, Eisenstat et Walker | ordonné, par ligne | 2,40 et 2,61 | 0,493 (53) et 0,542 (53) | 0,173 et 0,183 |
-| NewtonK0, Eisenstat et Walker | ordonné, par valeur | 2,22 et 2,35 | 0,218 (53) et 0,234 (53) | 0,235 et 0,244 |
+| Newton, PCG and BoomerAMG | atomic | 3.09 and 3.09 | 0.137 (32) and 0.146 (33) | 0.104 and 0.106 |
+| Newton, PCG and BoomerAMG | ordered, by row | 3.20 and 3.20 | 0.354 (32) and 0.353 (32) | 0.178 and 0.175 |
+| Newton, PCG and BoomerAMG | ordered, by value | 3.09 and 3.67 | 0.189 (32) and 0.212 (32) | 0.234 and 0.247 |
+| NewtonK0, Eisenstat and Walker | atomic | 1.89 and 1.95 | 0.123 (51) and 0.140 (53) | 0.106 and 0.109 |
+| NewtonK0, Eisenstat and Walker | ordered, by row | 2.40 and 2.61 | 0.493 (53) and 0.542 (53) | 0.173 and 0.183 |
+| NewtonK0, Eisenstat and Walker | ordered, by value | 2.22 and 2.35 | 0.218 (53) and 0.234 (53) | 0.235 and 0.244 |
 
-Entre parenthèses, le nombre d'assemblages de la tangente. Les temps
-totaux varient d'environ 10 % d'un passage à l'autre (autres sessions sur
-la machine) ; les temps par assemblage sont plus stables.
+In parentheses, the number of assemblies of the tangent. The total times
+vary by about 10% from one run to the next (other sessions on the
+machine); the times per assembly are more stable.
 
-- Par assemblage de la tangente : 4,3 ms en atomique, 11 ms par ligne,
-  6 ms par valeur. Le premier assemblage coûte en plus 0,13 s par valeur
-  (calcul des contributions, une fois par agencement des lignes ; 0,45 s
-  quand les entrées étaient cherchées sur l'hôte).
-- Mémoire en plus avec un périphérique : les matrices des éléments
-  (8 n² octets par élément), les contributions (4 n² octets par élément,
-  plus 4 octets par valeur de la matrice) et leurs positions, le temps de
-  leur calcul (2 n² octets par élément).
+- Per assembly of the tangent: 4.3 ms with atomics, 11 ms by row, 6 ms by
+  value. The first assembly costs 0.13 s more by value (computation of the
+  contributions, once per layout of the rows; 0.45 s when the entries were
+  looked for on the host).
+- Extra memory with a device: the matrices of the elements (8 n² bytes per
+  element), the contributions (4 n² bytes per element, plus 4 bytes per
+  value of the matrix) and their positions, during their computation (2 n²
+  bytes per element).
 
 ## CPU
 
-Même poutre sur 4 processus (cœurs 0 à 3), sans périphérique, loi openmp,
-Newton, PCG et BoomerAMG. Passages alternés : atomique 17,96 et 16,36 s,
-ordonné 17,84 et 16,71 s (tangente 0,76 et 0,70 s pour les deux). La
-première version de l'assemblage ordonné, qui stockait les matrices aussi
-sur l'hôte, prenait 22,2 s (tangente 4,1 à 4,3 s, sans les positions des
-entrées) : fichiers `poutre-cpu4-newton-Ordered-lignes-*`.
+Same beam on 4 processes (cores 0 to 3), without device, openmp behaviour,
+Newton, PCG and BoomerAMG. Alternated runs: atomic 17.96 and 16.36 s,
+ordered 17.84 and 16.71 s (tangent 0.76 and 0.70 s for both). The first
+version of the ordered assembly, which also stored the matrices on the
+host, took 22.2 s (tangent 4.1 to 4.3 s, without the positions of the
+entries): files `beam-cpu4-newton-Ordered-rows-*`.
 
-## Reproductibilité
+## Reproducibility
 
-`FixedPointSolverTest` sur le GPU, noyaux forcés, assemblage ordonné :
-quatre passages donnent des historiques d'itérations identiques bit à
-bit, avec les deux versions ; avec l'assemblage atomique, trois passages
-donnent trois historiques différents.
+`FixedPointSolverTest` on the GPU, kernels forced, ordered assembly: four
+runs give bitwise identical iteration histories, with both versions; with
+the atomic assembly, three runs give three different histories.

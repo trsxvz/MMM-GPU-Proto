@@ -1,655 +1,655 @@
-# Solveurs et techniques pour l'étude CPU et GPU de mfem-mgis
+# Solvers and techniques for the CPU and GPU study of mfem-mgis
 
-Statut : liste établie le 09/10/2026, mise à jour le 13/10/2026. Les
-lignes et les points marqués « fait » sont codés dans mfem-mgis ; les
-autres restent des pistes. Cette liste sert à
-choisir les études de performance de mfem-mgis et les paquets de
-l'environnement spack `mmm-gpu` ([deps/spack](../deps/spack/README.md)).
+Status: list drawn up on 09/10/2026, updated on 13/10/2026. The rows and
+the items marked "done" are implemented in mfem-mgis; the others remain
+leads. This list is used to
+choose the performance studies of mfem-mgis and the packages of the
+spack environment `mmm-gpu` ([deps/spack](../deps/spack/README.md)).
 
-Périmètre : seulement ce qui tourne sur CPU et sur GPU, ou sur GPU seul.
-Ce qui ne tourne que sur CPU est écarté (voir [Écartés](#écartés-cpu-seul)).
+Scope: only what runs on CPU and on GPU, or on GPU only.
+What runs only on CPU is excluded (see [Excluded](#excluded-cpu-only)).
 
-Chaque point indique où la fonctionnalité existe, ce qui a été vérifié et
-comment, ce qu'il faudrait dans mfem-mgis, et un intérêt sur 10 pour ce
-projet. « Vérifié » veut dire lu dans les sources ou les notes de version
-de la version citée (voir [Sources](#sources)), pas encore essayé sur la
-machine. « À vérifier » veut dire non confirmé.
+Each item states where the feature exists, what was checked and how,
+what mfem-mgis would need, and an interest out of 10 for this project.
+"Checked" means read in the sources or the release notes of the quoted
+version (see [Sources](#sources)), not yet tried on the machine. "To be
+checked" means not confirmed.
 
-## Sommaire
+## Contents
 
-1. [Tableau d'ensemble](#tableau-densemble)
-2. [Réutiliser les préconditionneurs](#réutiliser-les-préconditionneurs)
-3. [Solveurs non linéaires](#solveurs-non-linéaires)
-4. [Préconditionneurs sans matrice](#préconditionneurs-sans-matrice)
-5. [AMG sur GPU](#amg-sur-gpu)
-6. [Précision mixte](#précision-mixte)
-7. [Solveurs directs sur GPU](#solveurs-directs-sur-gpu)
-8. [Plusieurs GPU](#plusieurs-gpu)
-9. [Assemblage et opérateur tangent](#assemblage-et-opérateur-tangent)
-10. [Problèmes couplés](#problèmes-couplés)
-11. [Outils de mesure](#outils-de-mesure)
-12. [Écartés (CPU seul)](#écartés-cpu-seul)
+1. [Overview table](#overview-table)
+2. [Reusing the preconditioners](#reusing-the-preconditioners)
+3. [Nonlinear solvers](#nonlinear-solvers)
+4. [Matrix free preconditioners](#matrix-free-preconditioners)
+5. [AMG on GPU](#amg-on-gpu)
+6. [Mixed precision](#mixed-precision)
+7. [Direct solvers on GPU](#direct-solvers-on-gpu)
+8. [Several GPUs](#several-gpus)
+9. [Assembly and tangent operator](#assembly-and-tangent-operator)
+10. [Coupled problems](#coupled-problems)
+11. [Measurement tools](#measurement-tools)
+12. [Excluded (CPU only)](#excluded-cpu-only)
 13. [MFEM 4.10](#mfem-410)
-14. [Correspondance avec l'environnement spack](#correspondance-avec-lenvironnement-spack)
+14. [Mapping to the spack environment](#mapping-to-the-spack-environment)
 15. [Sources](#sources)
 
-## Tableau d'ensemble
+## Overview table
 
-Les lignes sans marque viennent de la liste de départ. Les lignes marquées
-« ajout » complètent cette liste. Ginkgo est installé dans l'environnement
-(MFEM est compilé avec), pas encore essayé : il apparaît dans plusieurs
-lignes.
+The rows without a mark come from the initial list. The rows marked
+"addition" complete this list. Ginkgo is installed in the environment
+(MFEM is compiled with it), not yet tried: it appears in several
+rows.
 
-| Technique | CPU/GPU | Intérêt | Où |
+| Technique | CPU/GPU | Interest | Where |
 |---|---|---|---|
-| Réutiliser le préconditionneur (AMG construit une fois, sur l'opérateur élastique, ou gardé plusieurs itérations ou pas de temps) | les deux | 9 | fait : méthode `NewtonK0` du solveur `FixedPoint` de mfem-mgis (AMG construit une fois par résolution sur l'opérateur élastique, ou une fois pour tout le calcul avec `ElasticOperatorUpdate` à `Once`) |
-| Ajout : réutilisation partielle de la hiérarchie AMG (prolongateurs gardés, opérateurs grossiers recalculés) | les deux | 7 | GAMG de PETSc ; AmgX (`AMGX_solver_resetup`, pas exposé par MFEM) |
-| Point fixe accéléré par Anderson | les deux | 9 | fait : solveur `FixedPoint` de mfem-mgis, accélérations de MTest (paramètre `Acceleration` : `Anderson`, `UAnderson`, `FAnderson`, `Secant`, `IronsTuck`, etc.) ; KINSOL non essayé |
-| Ajout : assemblage de la matrice tangente globale sur GPU (option c sur GPU), motif creux et matrice hypre réutilisés d'une itération à l'autre | les deux | 9 | fait dans mfem-mgis : tangente assemblée par noyaux (voir [plus bas](#assemblage-et-opérateur-tangent)) |
-| Ajout : choix de la règle d'intégration (8 points au lieu de 27 sur l'hexaèdre d'ordre 1) | les deux | 8 | fait : paramètre `IntegrationRuleOrder` de la discrétisation de mfem-mgis |
-| Newton inexact (Eisenstat-Walker, `NewtonSolver::SetAdaptiveLinRtol` de MFEM) | les deux | 8 | fait dans le Newton de mfem-mgis et la méthode `NewtonK0` (option `AdaptiveLinearSolverTolerance`) |
-| Lisseurs sans matrice Jacobi et Chebyshev sur la diagonale (`OperatorJacobiSmoother`, `OperatorChebyshevSmoother`), indispensables à l'option a entièrement sans matrice | les deux | 8 | fait : préconditionneurs `OperatorJacobiSmoother` et `OperatorChebyshevSmoother` de la fabrique de mfem-mgis (MFEM) |
-| Ajout : Jacobi par blocs nodaux 3×3 sans matrice (diagonale par blocs de la tangente) | les deux | 7 | mfem-mgis, comme la mini-application `hooke` de MFEM |
-| Ajout : l1-Jacobi « en valeur absolue » sans matrice | les deux | 5 | MFEM 4.9, `miniapps/diag-smoothers` |
-| Réglages GPU de BoomerAMG exposés dans mfem-mgis (PMIS, ext+i, l1-Jacobi, Chebyshev, nombre de niveaux, seuils) | les deux | 8 | fait : options de `HypreBoomerAMG` dans mfem-mgis (voir [plus bas](#boomeramg-hypre)) |
-| Ajout : BoomerAMG pour les systèmes sur GPU (stratégie « System », réglages préservés à chaque `SetOperator` ; « Elasticity » arrête le programme avec hypre GPU) | les deux | 8 | fait dans mfem-mgis : « Elasticity » remplacée par « System » avec un avertissement, réglages réappliqués après chaque `SetOperator` |
-| Précision mixte : préconditionneur en simple précision, Krylov en double ; gain fort sur la RTX 5080 (FP64 lent), plus faible sur A100 ou H100 | surtout GPU | 6 (8 sur GPU grand public) | Ginkgo, hypre 3, AmgX |
-| L-BFGS préconditionné par un cycle AMG ou p-MG (`LBFGSSolver` de MFEM), comme Ratel | les deux | 7 | à écrire : `LBFGSSolver` de MFEM ignore le préconditionneur ; `SNESQN` de PETSc en a un |
-| p-multigrille sans matrice avec AMG sur le Q1 (ordre 2 et plus), ou LOR (`LORSolver`) | les deux | 7 | MFEM |
-| Ajout : Ginkgo distribué (matrices MPI, Schwarz à deux niveaux, multigrille PGM distribuée) | les deux | 7 | Ginkgo 1.8 à 1.11 ; enveloppes MFEM 4.10 |
-| Ajout : AmgX en précision mixte (mode `dDFI`) et matrices par blocs 3×3 | GPU NVIDIA | 6 | AmgX ; pas dans l'enveloppe de MFEM |
-| Recherche linéaire pour Newton (crochet `ComputeScalingFactor`) | les deux | 6 | à écrire dans le Newton de mfem-mgis (il ne divise aujourd'hui la correction par 2 qu'en cas d'échec de la loi) |
-| AMG élasticité avec modes rigides sur GPU : GAMG de PETSc avec espace quasi nul (Kokkos), nouveau chemin par blocs sur GPU (Adams, arXiv 2606.24748) ; demande de réparer le chemin PETSc de mfem-mgis | les deux | 6 | PETSc 3.26 (`aijkokkos` ; le chemin par blocs de l'article n'y est pas) |
-| KINSOL de SUNDIALS par MFEM (`KINSolver` : point fixe avec Anderson, JFNK, recherche linéaire) | les deux | 6 | SUNDIALS 7.9, MFEM ; demande un opérateur dont `Mult` intègre la loi |
-| Ajout : prédiction par extrapolation de l'incrément de déplacement | les deux | 5 | mfem-mgis |
-| AmgX par `AmgXSolver` de MFEM (point de comparaison avec BoomerAMG, modes MPI) | GPU NVIDIA | 5 | fait par une enveloppe propre à mfem-mgis (`AmgX`, `AmgXPCG`, voir [plus bas](#amgx-nvidia)) |
-| cuDSS (solveur direct NVIDIA, un ou plusieurs GPU, MPI, refactorisation) | GPU NVIDIA | 5 | cuDSS ; enveloppe `CuDSSSolver` de MFEM 4.10 ; fait : solveur `CuDSSSolver` de mfem-mgis |
-| Ajout : Krylov pipeliné (CG pipeliné de Ginkgo, `KSPPIPECG` de PETSc) | les deux | 5 | Ginkgo 1.10, PETSc |
-| Ajout : Ratel comme calcul de référence sur le même cas | les deux | 5 | Ratel, PETSc, libCEED |
-| SuperLU_DIST et STRUMPACK sur GPU (enveloppes MFEM existantes) | les deux | 4 | MFEM |
-| MGR de hypre (GPU depuis 2.29) pour les problèmes couplés monolithiques | les deux | 4 | hypre (construction sur GPU depuis 2.24, sans mémoire unifiée depuis 2.29) |
-| FSAI (GPU depuis 2.30) et ILU de hypre sur GPU | les deux | 4 | hypre |
-| Ajout : hypre récent (filtrage des couplages entre composantes, cycle flexible, Schwarz avec recouvrement, solveur de Chebyshev) | les deux | 4 | hypre 2.32 à 3.2 |
-| Ajout : pas de temps adaptatif guidé par la convergence de Newton | les deux | 4 | mfem-mgis |
-| Ajout : solveurs non linéaires de PETSc sur vecteurs GPU (NGMRES, Anderson, quasi-Newton, NASM) | les deux | 4 | PETSc SNES |
-| Ajout : MueLu de Trilinos (agrégation lissée avec modes rigides, Kokkos) | les deux | 3 | Trilinos ; pas d'interface MFEM |
-| Ajout : recyclage de sous-espaces de Krylov entre itérations de Newton | les deux | 3 | PETSc (HPDDM, GCRO-DR) ; GPU à vérifier |
-| Ajout : lois de comportement en simple précision sur GPU grand public | GPU | 3 | demande TFEL et MGIS |
-| Ajout : algèbre dense par lots de MFEM (`BatchedLinAlg`, blocs 3×3 et matrices élémentaires) et graphes CUDA (petits noyaux) | surtout GPU | 4 | MFEM 4.8 et plus, CUDA |
-| Ajout (outils) : profils NVTX de hypre, Caliper, Nsight Systems | les deux | 7 | hypre `+gpu-profiling`, MFEM |
-| Ajout (outils) : pools mémoire Umpire pour MFEM et hypre | surtout GPU | 6 | Umpire |
-| Ajout (outils) : MPI compatible GPU | GPU | 5 | MPI de la grappe, MFEM, hypre |
+| Reuse the preconditioner (AMG built once, on the elastic operator, or kept for several iterations or time steps) | both | 9 | done: method `NewtonK0` of the `FixedPoint` solver of mfem-mgis (AMG built once per solve on the elastic operator, or once for the whole computation with `ElasticOperatorUpdate` set to `Once`) |
+| Addition: partial reuse of the AMG hierarchy (prolongators kept, coarse operators recomputed) | both | 7 | GAMG of PETSc; AmgX (`AMGX_solver_resetup`, not exposed by MFEM) |
+| Fixed point accelerated by Anderson | both | 9 | done: `FixedPoint` solver of mfem-mgis, accelerations of MTest (parameter `Acceleration`: `Anderson`, `UAnderson`, `FAnderson`, `Secant`, `IronsTuck`, etc.); KINSOL not tried |
+| Addition: assembly of the global tangent matrix on GPU (option c on GPU), sparsity pattern and hypre matrix reused from one iteration to the next | both | 9 | done in mfem-mgis: tangent assembled by kernels (see [below](#assembly-and-tangent-operator)) |
+| Addition: choice of the integration rule (8 points instead of 27 on the first order hexahedron) | both | 8 | done: parameter `IntegrationRuleOrder` of the discretization of mfem-mgis |
+| Inexact Newton (Eisenstat-Walker, `NewtonSolver::SetAdaptiveLinRtol` of MFEM) | both | 8 | done in the Newton of mfem-mgis and the method `NewtonK0` (option `AdaptiveLinearSolverTolerance`) |
+| Matrix free Jacobi and Chebyshev smoothers on the diagonal (`OperatorJacobiSmoother`, `OperatorChebyshevSmoother`), required by a fully matrix free option a | both | 8 | done: preconditioners `OperatorJacobiSmoother` and `OperatorChebyshevSmoother` of the factory of mfem-mgis (MFEM) |
+| Addition: matrix free Jacobi by 3×3 nodal blocks (block diagonal of the tangent) | both | 7 | mfem-mgis, like the `hooke` mini-application of MFEM |
+| Addition: matrix free "absolute value" l1-Jacobi | both | 5 | MFEM 4.9, `miniapps/diag-smoothers` |
+| GPU settings of BoomerAMG exposed in mfem-mgis (PMIS, ext+i, l1-Jacobi, Chebyshev, number of levels, thresholds) | both | 8 | done: options of `HypreBoomerAMG` in mfem-mgis (see [below](#boomeramg-hypre)) |
+| Addition: BoomerAMG for systems on GPU ("System" strategy, settings preserved at each `SetOperator`; "Elasticity" stops the program with hypre built for GPU) | both | 8 | done in mfem-mgis: "Elasticity" replaced by "System" with a warning, settings applied again after each `SetOperator` |
+| Mixed precision: preconditioner in single precision, Krylov in double; large gain on the RTX 5080 (slow FP64), smaller on A100 or H100 | mostly GPU | 6 (8 on consumer GPU) | Ginkgo, hypre 3, AmgX |
+| L-BFGS preconditioned by an AMG or p-MG cycle (`LBFGSSolver` of MFEM), like Ratel | both | 7 | to be written: `LBFGSSolver` of MFEM ignores the preconditioner; `SNESQN` of PETSc has one |
+| Matrix free p-multigrid with AMG on the Q1 (order 2 and higher), or LOR (`LORSolver`) | both | 7 | MFEM |
+| Addition: distributed Ginkgo (MPI matrices, two level Schwarz, distributed PGM multigrid) | both | 7 | Ginkgo 1.8 to 1.11; MFEM 4.10 wrappers |
+| Addition: AmgX in mixed precision (mode `dDFI`) and 3×3 block matrices | NVIDIA GPU | 6 | AmgX; not in the MFEM wrapper |
+| Line search for Newton (hook `ComputeScalingFactor`) | both | 6 | to be written in the Newton of mfem-mgis (today it only divides the correction by 2 when the behaviour fails) |
+| Elasticity AMG with rigid body modes on GPU: GAMG of PETSc with near null space (Kokkos), new block path on GPU (Adams, arXiv 2606.24748); requires repairing the PETSc path of mfem-mgis | both | 6 | PETSc 3.26 (`aijkokkos`; the block path of the paper is not there) |
+| KINSOL of SUNDIALS through MFEM (`KINSolver`: fixed point with Anderson, JFNK, line search) | both | 6 | SUNDIALS 7.9, MFEM; requires an operator whose `Mult` integrates the behaviour |
+| Addition: prediction by extrapolation of the displacement increment | both | 5 | mfem-mgis |
+| AmgX through `AmgXSolver` of MFEM (comparison point with BoomerAMG, MPI modes) | NVIDIA GPU | 5 | done by a wrapper specific to mfem-mgis (`AmgX`, `AmgXPCG`, see [below](#amgx-nvidia)) |
+| cuDSS (NVIDIA direct solver, one or several GPUs, MPI, refactorization) | NVIDIA GPU | 5 | cuDSS; wrapper `CuDSSSolver` of MFEM 4.10; done: solver `CuDSSSolver` of mfem-mgis |
+| Addition: pipelined Krylov (pipelined CG of Ginkgo, `KSPPIPECG` of PETSc) | both | 5 | Ginkgo 1.10, PETSc |
+| Addition: Ratel as reference computation on the same case | both | 5 | Ratel, PETSc, libCEED |
+| SuperLU_DIST and STRUMPACK on GPU (existing MFEM wrappers) | both | 4 | MFEM |
+| MGR of hypre (GPU since 2.29) for monolithic coupled problems | both | 4 | hypre (setup on GPU since 2.24, without unified memory since 2.29) |
+| FSAI (GPU since 2.30) and ILU of hypre on GPU | both | 4 | hypre |
+| Addition: recent hypre (filtering of the couplings between components, flexible cycle, overlapping Schwarz, Chebyshev solver) | both | 4 | hypre 2.32 to 3.2 |
+| Addition: adaptive time step driven by the convergence of Newton | both | 4 | mfem-mgis |
+| Addition: nonlinear solvers of PETSc on GPU vectors (NGMRES, Anderson, quasi-Newton, NASM) | both | 4 | PETSc SNES |
+| Addition: MueLu of Trilinos (smoothed aggregation with rigid body modes, Kokkos) | both | 3 | Trilinos; no MFEM interface |
+| Addition: recycling of Krylov subspaces between Newton iterations | both | 3 | PETSc (HPDDM, GCRO-DR); GPU to be checked |
+| Addition: behaviours in single precision on consumer GPU | GPU | 3 | requires TFEL and MGIS |
+| Addition: batched dense algebra of MFEM (`BatchedLinAlg`, 3×3 blocks and element matrices) and CUDA graphs (small kernels) | mostly GPU | 4 | MFEM 4.8 and later, CUDA |
+| Addition (tools): NVTX profiles of hypre, Caliper, Nsight Systems | both | 7 | hypre `+gpu-profiling`, MFEM |
+| Addition (tools): Umpire memory pools for MFEM and hypre | mostly GPU | 6 | Umpire |
+| Addition (tools): GPU-aware MPI | GPU | 5 | MPI of the cluster, MFEM, hypre |
 
-## Réutiliser les préconditionneurs
+## Reusing the preconditioners
 
-Sur GPU, la construction d'un AMG coûte souvent plus que plusieurs
-résolutions. Le Newton de mfem-mgis la refait à chaque itération : le
-solveur linéaire reçoit la nouvelle tangente
-(`this->prec->SetOperator(J)` dans `NewtonSolver.cxx`), et le `SetOperator` d'un Krylov rappelle
-toujours celui de son préconditionneur (Krylov de MFEM,
-`linalg/solvers.cpp:184-193` ; `HyprePCG::SetOperator` ; la phase de
-construction des Krylov de hypre reconstruit aussi le préconditionneur).
+On GPU, building an AMG often costs more than several
+solves. The Newton of mfem-mgis rebuilds it at each iteration: the
+linear solver receives the new tangent
+(`this->prec->SetOperator(J)` in `NewtonSolver.cxx`), and the `SetOperator` of a Krylov solver
+always calls the one of its preconditioner (Krylov solvers of MFEM,
+`linalg/solvers.cpp:184-193`; `HyprePCG::SetOperator`; the setup
+phase of the Krylov solvers of hypre also rebuilds the preconditioner).
 
-- **Réutilisation complète** : construire l'AMG une fois et le garder.
-  Variantes : sur l'opérateur élastique (garde toute la simulation), sur
-  la tangente du début du pas (garde un pas), sur la tangente gardée
-  `n` itérations. Le Krylov reste exact, seul le préconditionneur
-  vieillit. Il faut une enveloppe de préconditionneur dont `SetOperator`
-  ne reconstruit rien (et, avec les Krylov de hypre, un préconditionneur
-  dont la phase de construction ne fait rien), plus la politique de mise
-  à jour dans le Newton de mfem-mgis. Des mécanismes existent ailleurs :
-  `KSPSetReusePreconditioner` et `-snes_lag_preconditioner` de PETSc,
-  `SetMaxSetupCalls` de KINSOL. Intérêt 9. Fait : la méthode `NewtonK0`
-  du solveur `FixedPoint` de mfem-mgis garde un AMG construit sur
-  l'opérateur élastique.
-- **Réutilisation partielle** (ajout) : garder la structure de la
-  hiérarchie (agrégats, prolongateurs) et recalculer seulement les
-  opérateurs grossiers `Pᵀ A P` avec les nouvelles valeurs. Coût de
-  construction bien plus faible, qualité proche d'une construction
-  complète tant que la tangente ne change pas trop. Existe dans :
-  - GAMG de PETSc (`PCGAMGSetReuseInterpolation`) ;
-  - AmgX (`AMGX_solver_resetup`, option `structure_reuse_levels`), pas
-    exposé par MFEM : `AmgXSolver::UpdateOperator` remplace seulement les
-    coefficients de la matrice, sans nouvelle construction, ce qui est
-    une réutilisation complète (vérifié dans `linalg/amgxsolver.cpp` de
-    MFEM 4.9) ;
-  - MGR de hypre 3.2 (« component reuse », notes de version) ;
-  - BoomerAMG : pas d'équivalent trouvé.
-  Intérêt 7.
+- **Full reuse**: build the AMG once and keep it.
+  Variants: on the elastic operator (kept for the whole simulation), on
+  the tangent at the start of the step (kept for one step), on the tangent kept
+  for `n` iterations. The Krylov solver stays exact, only the preconditioner
+  ages. This needs a preconditioner wrapper whose `SetOperator`
+  rebuilds nothing (and, with the Krylov solvers of hypre, a preconditioner
+  whose setup phase does nothing), plus the update policy
+  in the Newton of mfem-mgis. Mechanisms exist elsewhere:
+  `KSPSetReusePreconditioner` and `-snes_lag_preconditioner` of PETSc,
+  `SetMaxSetupCalls` of KINSOL. Interest 9. Done: the method `NewtonK0`
+  of the `FixedPoint` solver of mfem-mgis keeps an AMG built on
+  the elastic operator.
+- **Partial reuse** (addition): keep the structure of the
+  hierarchy (aggregates, prolongators) and recompute only the
+  coarse operators `Pᵀ A P` with the new values. Much lower setup
+  cost, quality close to a full setup
+  as long as the tangent does not change too much. Exists in:
+  - GAMG of PETSc (`PCGAMGSetReuseInterpolation`);
+  - AmgX (`AMGX_solver_resetup`, option `structure_reuse_levels`), not
+    exposed by MFEM: `AmgXSolver::UpdateOperator` only replaces the
+    coefficients of the matrix, without a new setup, which is
+    a full reuse (checked in `linalg/amgxsolver.cpp` of
+    MFEM 4.9);
+  - MGR of hypre 3.2 ("component reuse", release notes);
+  - BoomerAMG: no equivalent found.
+  Interest 7.
 
-## Solveurs non linéaires
+## Nonlinear solvers
 
-### Prérequis : un opérateur qui intègre la loi
+### Prerequisite: an operator that integrates the behaviour
 
-Dans mfem-mgis, `Mult` (le résidu) n'intègre pas la loi : l'intégration
-est déclenchée par le solveur non linéaire de mfem-mgis, par une action
-appelée à chaque nouvelle estimation (`NonLinearSolverBase.cxx:39-58`).
-Le `Mult` du formulaire ne fait qu'assembler les forces déjà calculées.
-Un solveur non linéaire extérieur (`LBFGSSolver`, `KINSolver`,
-`mfem::NewtonSolver`, SNES de PETSc) appelle seulement `Mult` : il
-calculerait le résidu avec des contraintes périmées. Seule exception, le
-mode PETSc, où `AssembleElementVector` intègre la loi lui-même ; un échec
-de la loi y arrête le programme (`MFEM_VERIFY` de
-`MultiMaterialNonLinearIntegrator::AssembleElementVector`), ce qui explique
-peut-être que le chemin PETSc plantait.
+In mfem-mgis, `Mult` (the residual) does not integrate the behaviour: the integration
+is triggered by the nonlinear solver of mfem-mgis, through an action
+called at each new estimate (`NonLinearSolverBase.cxx:39-58`).
+The `Mult` of the form only assembles the forces already computed.
+An external nonlinear solver (`LBFGSSolver`, `KINSolver`,
+`mfem::NewtonSolver`, SNES of PETSc) only calls `Mult`: it
+would compute the residual with outdated stresses. The only exception is the
+PETSc mode, where `AssembleElementVector` integrates the behaviour itself; a failure
+of the behaviour there stops the program (`MFEM_VERIFY` of
+`MultiMaterialNonLinearIntegrator::AssembleElementVector`), which may
+explain why the PETSc path crashed.
 
-Il faut donc, pour tous les solveurs extérieurs, un opérateur dont `Mult`
-intègre la loi puis assemble, et qui signale un échec de la loi sans
-arrêter le programme. C'est le rôle de l'opérateur propre du plan
-détaillé (point d'entrée B).
+So all the external solvers need an operator whose `Mult`
+integrates the behaviour then assembles, and which reports a failure of the behaviour without
+stopping the program. This is the role of the dedicated operator of the
+detailed plan (entry point B).
 
-Le Newton de mfem-mgis (`mfem_mgis::NewtonSolver`) n'est pas celui de
-MFEM : il dérive de `mfem::IterativeSolver` par `NonLinearSolverBase`,
-et réécrit `Mult`. Les crochets de `mfem::NewtonSolver`
-(`SetAdaptiveLinRtol`, `ComputeScalingFactor`) n'y servent pas.
+The Newton of mfem-mgis (`mfem_mgis::NewtonSolver`) is not the one of
+MFEM: it derives from `mfem::IterativeSolver` through `NonLinearSolverBase`,
+and rewrites `Mult`. The hooks of `mfem::NewtonSolver`
+(`SetAdaptiveLinRtol`, `ComputeScalingFactor`) are of no use there.
 
 ### Techniques
 
-Tous ces solveurs n'utilisent que des vecteurs, des actions d'opérateurs
-et des produits scalaires : ils tournent sur GPU dès que les vecteurs et
-les opérateurs y sont.
+All these solvers only use vectors, operator actions
+and scalar products: they run on GPU as soon as the vectors and
+the operators are there.
 
-- **Point fixe accéléré par Anderson** (intérêt 9). Fait dans mfem-mgis :
-  solveur `FixedPoint` (option b du plan), accélérations de MTest
-  (paramètre `Acceleration`). Autre voie, non essayée : KINSOL
-  (`KINSolver::EnableAndersonAcc`, pour `KIN_FP` et `KIN_PICARD`, vérifié
-  dans `linalg/sundials.hpp` de MFEM 4.9). Avec `KIN_FP`, KINSOL attend la
-  fonction de point fixe `G(u) = u - K0⁻¹ F(u)`, pas le résidu : il faut
-  un opérateur qui l'applique, ou `KIN_PICARD`. Le point fixe seul
-  convergeait mal sur le polycristal des essais préalables : Anderson est
-  la première chose à essayer.
-- **Newton inexact** (intérêt 8) : tolérance du solveur linéaire adaptée
-  au résidu non linéaire (Eisenstat-Walker). Fait dans le Newton de
-  mfem-mgis et la méthode `NewtonK0`, sur le modèle de
-  `mfem::NewtonSolver::SetAdaptiveLinRtol` (paramètre
+- **Fixed point accelerated by Anderson** (interest 9). Done in mfem-mgis:
+  `FixedPoint` solver (option b of the plan), accelerations of MTest
+  (parameter `Acceleration`). Another way, not tried: KINSOL
+  (`KINSolver::EnableAndersonAcc`, for `KIN_FP` and `KIN_PICARD`, checked
+  in `linalg/sundials.hpp` of MFEM 4.9). With `KIN_FP`, KINSOL expects the
+  fixed point function `G(u) = u - K0⁻¹ F(u)`, not the residual: this needs
+  an operator that applies it, or `KIN_PICARD`. The plain fixed point
+  converged poorly on the polycrystal of the preliminary trials: Anderson is
+  the first thing to try.
+- **Inexact Newton** (interest 8): tolerance of the linear solver adapted
+  to the nonlinear residual (Eisenstat-Walker). Done in the Newton of
+  mfem-mgis and the method `NewtonK0`, following
+  `mfem::NewtonSolver::SetAdaptiveLinRtol` (parameter
   `AdaptiveLinearSolverTolerance`).
-- **L-BFGS** (intérêt 7) : avec un cycle d'AMG ou de p-multigrille comme
-  inverse initial, comme Ratel. `LBFGSSolver` de MFEM ne convient pas :
-  il ignore le préconditionneur (`SetPreconditioner` affiche « L-BFGS
-  won't use the given preconditioner », `linalg/solvers.hpp:917-920`, en
-  4.9 comme en 4.10). À écrire ; `SNESQN` de PETSc
-  (`-snes_qn_type lbfgs`, `-snes_qn_scale_type jacobian`) est la
-  référence existante d'un L-BFGS à inverse initial préconditionné.
-- **Recherche linéaire** (intérêt 6) : le Newton de mfem-mgis divise
-  aujourd'hui la correction par 2 seulement quand la loi échoue
-  (`NewtonSolver::Mult`). Une vraie recherche linéaire (sur la
-  norme du résidu ou l'énergie) est à y écrire.
-- **KINSOL** (intérêt 6) : point fixe avec Anderson, Picard, Newton-Krylov
-  sans matrice (`SetJFNK`), recherche linéaire, jacobienne réutilisée
-  (`SetMaxSetupCalls`). L'enveloppe de MFEM utilise les vecteurs CUDA de
-  SUNDIALS quand MFEM est compilé avec CUDA (vérifié dans
-  `linalg/sundials.hpp`). Demande l'opérateur qui intègre la loi. À
-  essayer sur la machine.
-- **Prédiction par extrapolation** (ajout, intérêt 5) : début de chaque pas
-  à partir de l'incrément du pas précédent (linéaire), ou des deux
-  précédents (quadratique). Moins chère que la prédiction par l'opérateur
-  tangent de mfem-mgis : aucune résolution. Réduit le nombre
-  d'itérations de Newton quand le chargement est régulier.
-- **Pas de temps adaptatif** (ajout, intérêt 4) : mfem-mgis a le cadre
-  (`AbstractTimeIncrementComputer`, sous-pas en cas d'échec), mais le
-  calcul par défaut va directement à la fin de la séquence. Un calcul du
-  pas guidé par le nombre d'itérations de Newton influence directement le
-  coût total, donc la comparaison des variantes.
-- **Solveurs non linéaires de PETSc** (ajout, intérêt 4) : NGMRES,
-  Anderson, quasi-Newton (L-BFGS, `SNESQN`), NASM, avec des vecteurs sur
-  GPU. Utiles comme implémentations de référence pour les points
-  ci-dessus, une fois le chemin PETSc de mfem-mgis réparé (opérateur qui
-  intègre la loi).
+- **L-BFGS** (interest 7): with an AMG or p-multigrid cycle as
+  initial inverse, like Ratel. `LBFGSSolver` of MFEM is not suitable:
+  it ignores the preconditioner (`SetPreconditioner` prints "L-BFGS
+  won't use the given preconditioner", `linalg/solvers.hpp:917-920`, in
+  4.9 as in 4.10). To be written; `SNESQN` of PETSc
+  (`-snes_qn_type lbfgs`, `-snes_qn_scale_type jacobian`) is the
+  existing reference of an L-BFGS with a preconditioned initial inverse.
+- **Line search** (interest 6): the Newton of mfem-mgis today
+  divides the correction by 2 only when the behaviour fails
+  (`NewtonSolver::Mult`). A real line search (on the
+  norm of the residual or the energy) is to be written there.
+- **KINSOL** (interest 6): fixed point with Anderson, Picard, matrix free
+  Newton-Krylov (`SetJFNK`), line search, reused Jacobian
+  (`SetMaxSetupCalls`). The MFEM wrapper uses the CUDA vectors of
+  SUNDIALS when MFEM is compiled with CUDA (checked in
+  `linalg/sundials.hpp`). Requires the operator that integrates the behaviour. To be
+  tried on the machine.
+- **Prediction by extrapolation** (addition, interest 5): start of each step
+  from the increment of the previous step (linear), or of the two
+  previous ones (quadratic). Cheaper than the prediction by the tangent
+  operator of mfem-mgis: no solve. Reduces the number
+  of Newton iterations when the loading is regular.
+- **Adaptive time step** (addition, interest 4): mfem-mgis has the framework
+  (`AbstractTimeIncrementComputer`, substeps on failure), but the
+  default computation goes directly to the end of the sequence. A computation of the
+  step driven by the number of Newton iterations directly influences the
+  total cost, hence the comparison of the variants.
+- **Nonlinear solvers of PETSc** (addition, interest 4): NGMRES,
+  Anderson, quasi-Newton (L-BFGS, `SNESQN`), NASM, with vectors on
+  GPU. Useful as reference implementations for the items
+  above, once the PETSc path of mfem-mgis is repaired (operator that
+  integrates the behaviour).
 
-## Préconditionneurs sans matrice
+## Matrix free preconditioners
 
-Utiles à l'option a (tangente sans matrice). L'option a du plan
-préconditionne par un AMG construit sur l'opérateur élastique assemblé ;
-les lisseurs ci-dessous, qui ne demandent que la diagonale ou des blocs,
-permettent une option a entièrement sans matrice (seuls, ou dans une
-p-multigrille).
+Useful for option a (matrix free tangent). Option a of the plan
+is preconditioned by an AMG built on the assembled elastic operator;
+the smoothers below, which only need the diagonal or blocks,
+allow a fully matrix free option a (alone, or inside a
+p-multigrid).
 
-- **Jacobi et Chebyshev sur la diagonale** (intérêt 8) :
-  `OperatorJacobiSmoother` et `OperatorChebyshevSmoother` de MFEM
-  (vérifiés dans 4.9). La diagonale vient de `AssembleGradDiagonalPA`
-  (point d'entrée de l'assemblage partiel) ou d'un noyau de mfem-mgis.
-  Chebyshev demande une estimation de la plus grande valeur propre.
-- **Jacobi par blocs nodaux 3×3** (ajout, intérêt 7) : inverser, nœud par
-  nœud, le bloc 3×3 de la diagonale de la tangente. Plus robuste que le
-  Jacobi scalaire en élasticité, où les composantes d'un même nœud sont
-  fortement couplées. La mini-application `hooke` de MFEM 4.9 (élasticité
-  non linéaire sans matrice, sur GPU) le fait
-  (`ElasticityDiagonalPreconditioner`, type `BlockDiagonal`) : c'est un
-  modèle direct pour mfem-mgis. L'algèbre dense par lots de MFEM
-  (`BatchedLinAlg`, depuis 4.8) peut inverser ces blocs sur GPU.
-- **l1-Jacobi en valeur absolue** (ajout, intérêt 5) : famille de lisseurs
-  sans matrice convergents par construction (MFEM 4.9,
-  `miniapps/diag-smoothers`, exemples en élasticité et en multigrille).
-- **p-multigrille et LOR** (intérêt 7) : `GeometricMultigrid` de MFEM avec
-  des lisseurs sans matrice et un AMG sur l'espace d'ordre 1, ou
-  `LORSolver` (AMG sur la discrétisation d'ordre bas). Seulement utile
-  pour l'ordre 2 et plus. MFEM 4.10 améliore l'assemblage LOR par lots.
+- **Jacobi and Chebyshev on the diagonal** (interest 8):
+  `OperatorJacobiSmoother` and `OperatorChebyshevSmoother` of MFEM
+  (checked in 4.9). The diagonal comes from `AssembleGradDiagonalPA`
+  (entry point of the partial assembly) or from a kernel of mfem-mgis.
+  Chebyshev requires an estimate of the largest eigenvalue.
+- **Jacobi by 3×3 nodal blocks** (addition, interest 7): invert, node by
+  node, the 3×3 block of the diagonal of the tangent. More robust than the
+  scalar Jacobi in elasticity, where the components of a node are
+  strongly coupled. The `hooke` mini-application of MFEM 4.9 (matrix free
+  nonlinear elasticity, on GPU) does it
+  (`ElasticityDiagonalPreconditioner`, type `BlockDiagonal`): it is a
+  direct model for mfem-mgis. The batched dense algebra of MFEM
+  (`BatchedLinAlg`, since 4.8) can invert these blocks on GPU.
+- **Absolute value l1-Jacobi** (addition, interest 5): family of matrix free
+  smoothers convergent by construction (MFEM 4.9,
+  `miniapps/diag-smoothers`, examples in elasticity and in multigrid).
+- **p-multigrid and LOR** (interest 7): `GeometricMultigrid` of MFEM with
+  matrix free smoothers and an AMG on the first order space, or
+  `LORSolver` (AMG on the low order discretization). Only useful
+  for order 2 and higher. MFEM 4.10 improves the batched LOR assembly.
 
-## AMG sur GPU
+## AMG on GPU
 
 ### BoomerAMG (hypre)
 
-- Ce qui tourne sur GPU (documentation de hypre) : grossissement PMIS,
-  interpolations directe (3), BAMG directe (15), étendue (14), étendue+i
-  (6) et étendue+e (18), grossissement agressif avec interpolation
-  multipasse ou en deux étapes, lisseurs Jacobi (7), l1-Jacobi (18),
-  Gauss-Seidel hybride (3, 4, 6), Gauss-Seidel en deux étapes (11, 12) et
-  Chebyshev (16). L'environnement compile hypre sans mémoire unifiée : une
-  option sans support GPU échoue au lieu de passer sur le CPU.
-- MFEM choisit des valeurs compatibles avec le GPU quand hypre est compilé
-  pour le GPU (PMIS, ext+i, l1-Jacobi, sans grossissement agressif ;
-  vérifié dans `HypreBoomerAMG::SetDefaultOptions`, MFEM 4.9).
-- **Réglages exposés dans mfem-mgis** (intérêt 8, fait) : options
+- What runs on GPU (documentation of hypre): PMIS coarsening,
+  direct (3), BAMG direct (15), extended (14), extended+i
+  (6) and extended+e (18) interpolations, aggressive coarsening with multipass
+  or two stage interpolation, Jacobi (7), l1-Jacobi (18),
+  hybrid Gauss-Seidel (3, 4, 6), two stage Gauss-Seidel (11, 12) and
+  Chebyshev (16) smoothers. The environment compiles hypre without unified memory: an
+  option without GPU support fails instead of falling back to the CPU.
+- MFEM chooses values compatible with the GPU when hypre is compiled
+  for the GPU (PMIS, ext+i, l1-Jacobi, without aggressive coarsening;
+  checked in `HypreBoomerAMG::SetDefaultOptions`, MFEM 4.9).
+- **Settings exposed in mfem-mgis** (interest 8, done): options
   `StrengthThreshold`, `CoarseningType`, `AggressiveCoarseningLevels`,
   `InterpolationType`, `RelaxationType`, `RelaxationSweeps`, `CycleType`,
-  `NumberOfCycles` et `MaximumNumberOfLevels` de `HypreBoomerAMG`, en plus
-  de la stratégie. Meilleur réglage mesuré sur la poutre :
+  `NumberOfCycles` and `MaximumNumberOfLevels` of `HypreBoomerAMG`, in addition
+  to the strategy. Best setting measured on the beam:
   `AggressiveCoarseningLevels=1` (`results/L5-beam-2026-10-10-1034`).
-- **Stratégies de mfem-mgis sur GPU** (ajout, intérêt 8) :
-  - « System » (`SetSystemsOptions`, approche par inconnue) fonctionne sur
-    GPU : MFEM copie la table des composantes sur le GPU. C'est le défaut
-    de mfem-mgis sans `Strategy` quand l'espace a plusieurs composantes.
-  - « Elasticity » appelle `HypreBoomerAMG::SetElasticityOptions`, qui
-    arrête le programme avec hypre GPU (« this method is not supported in
-    hypre built with GPU support », vérifié dans MFEM 4.9). Cela ne
-    concerne que la numérotation byVDIM : en byNODES, mfem-mgis passe déjà
-    à « System » avec un avertissement. Fait : quand hypre calcule sur le
-    GPU, mfem-mgis passe aussi à « System » avec un avertissement. Les
-    modes rigides (vecteurs d'interpolation) restent sur CPU avec
+- **Strategies of mfem-mgis on GPU** (addition, interest 8):
+  - "System" (`SetSystemsOptions`, unknown-based approach) works on
+    GPU: MFEM copies the table of the components to the GPU. It is the default
+    of mfem-mgis without `Strategy` when the space has several components.
+  - "Elasticity" calls `HypreBoomerAMG::SetElasticityOptions`, which
+    stops the program with hypre built for GPU ("this method is not supported in
+    hypre built with GPU support", checked in MFEM 4.9). This only
+    concerns the byVDIM numbering: in byNODES, mfem-mgis already switches
+    to "System" with a warning. Done: when hypre computes on the
+    GPU, mfem-mgis also switches to "System" with a warning. The
+    rigid body modes (interpolation vectors) stay on CPU with
     BoomerAMG.
-  - Rappeler `SetSystemsOptions` à chaque `SetOperator`, comme le faisait
-    `SystemHypreBoomerAMG`, remet le nombre de niveaux de grossissement
-    agressif à 0 et le seuil à 0,5 (`linalg/hypre.cpp:5231-5232`) : des
-    réglages exposés seraient écrasés à chaque itération de Newton. Fait :
-    la classe `ConfiguredHypreBoomerAMG` de mfem-mgis réapplique tous les
-    réglages, stratégie puis options, après chaque `SetOperator`.
-  - `SetDefaultOptions` choisit les valeurs pour CPU ou GPU à la
-    construction de l'AMG (`linalg/hypre.cpp:5029`) : l'AMG doit être
-    créé après `mfem::Device`.
-- **Filtrage des couplages entre composantes** (ajout, intérêt 4) :
-  `HYPRE_BoomerAMGSetFilterFunctions` (hypre 2.32) retire les couplages
-  entre composantes de la matrice utilisée pour l'AMG : complexité plus
-  faible, convergence à mesurer en élasticité. Suppose des inconnues
-  entrelacées (byVDIM). GPU à vérifier.
-- **Petits systèmes : hypre sur l'hôte** (fait le 12/10). Sous 10 000
-  inconnues environ, une résolution par GMRES et BoomerAMG sur le GPU est
-  dominée par les lancements de noyaux : 100 ms pour les 9 516 inconnues
-  de la thermique d'ex8, contre 42 ms sur deux cœurs
-  (`results/ex8-thermal-gpu-2026-10-11`). L'option
-  `--hypre-on-host` de `mfem_mgis::initialize` garde les lois et les
-  noyaux sur le GPU et fait calculer hypre sur l'hôte : ex7 complet
-  (2 634 inconnues) 6,7 -> 4,4 s, ex8 12,5 -> 11,6 s
-  (`results/hypre-host-2026-10-12`). MUMPS sur l'hôte donne le même gain
-  pour la thermique d'ex8 (`results/ex8-thermal-gpu-2026-10-11`).
+  - Calling `SetSystemsOptions` again at each `SetOperator`, as
+    `SystemHypreBoomerAMG` did, resets the number of aggressive
+    coarsening levels to 0 and the threshold to 0.5 (`linalg/hypre.cpp:5231-5232`): exposed
+    settings would be overwritten at each Newton iteration. Done:
+    the class `ConfiguredHypreBoomerAMG` of mfem-mgis applies all the
+    settings again, strategy then options, after each `SetOperator`.
+  - `SetDefaultOptions` chooses the values for CPU or GPU at the
+    construction of the AMG (`linalg/hypre.cpp:5029`): the AMG must be
+    created after `mfem::Device`.
+- **Filtering of the couplings between components** (addition, interest 4):
+  `HYPRE_BoomerAMGSetFilterFunctions` (hypre 2.32) removes the couplings
+  between components from the matrix used for the AMG: lower
+  complexity, convergence to be measured in elasticity. Assumes interleaved
+  unknowns (byVDIM). GPU to be checked.
+- **Small systems: hypre on the host** (done on 12/10). Below about 10,000
+  unknowns, a solve by GMRES and BoomerAMG on the GPU is
+  dominated by the kernel launches: 100 ms for the 9,516 unknowns
+  of the thermal problem of ex8, against 42 ms on two cores
+  (`results/ex8-thermal-gpu-2026-10-11`). The option
+  `--hypre-on-host` of `mfem_mgis::initialize` keeps the behaviours and the
+  kernels on the GPU and makes hypre compute on the host: full ex7
+  (2,634 unknowns) 6.7 -> 4.4 s, ex8 12.5 -> 11.6 s
+  (`results/hypre-host-2026-10-12`). MUMPS on the host gives the same gain
+  for the thermal problem of ex8 (`results/ex8-thermal-gpu-2026-10-11`).
 
 ### GAMG (PETSc)
 
-Agrégation lissée avec espace quasi nul (modes rigides) : l'AMG de
-référence pour l'élasticité. Avec PETSc compilé avec Kokkos ou CUDA, les
-matrices sont sur GPU (`aijkokkos`, `aijcusparse`) ; la part de la
-construction faite sur GPU dépend de la version, à mesurer. PETSc 3.26
-utilise Kokkos 5.2.2 par défaut, la version de l'environnement. Le chemin
-PETSc de mfem-mgis plantait lors d'essais antérieurs : à réparer d'abord
-(voir [le prérequis des solveurs non linéaires](#prérequis--un-opérateur-qui-intègre-la-loi)).
-MFEM 4.10 exige PETSc compilé avec hypre. Le chemin par blocs sur GPU de
-l'article d'Adams (arXiv 2606.24748) n'est pas dans PETSc 3.26.0, qui n'a
-que les matrices `aijkokkos` et `aijcusparse` sur GPU. Intérêt 6.
+Smoothed aggregation with near null space (rigid body modes): the reference
+AMG for elasticity. With PETSc compiled with Kokkos or CUDA, the
+matrices are on GPU (`aijkokkos`, `aijcusparse`); the share of the
+setup done on GPU depends on the version, to be measured. PETSc 3.26
+uses Kokkos 5.2.2 by default, the version of the environment. The PETSc path
+of mfem-mgis crashed in earlier trials: to be repaired first
+(see [the prerequisite of the nonlinear solvers](#prerequisite-an-operator-that-integrates-the-behaviour)).
+MFEM 4.10 requires PETSc compiled with hypre. The block path on GPU of
+the paper by Adams (arXiv 2606.24748) is not in PETSc 3.26.0, which only has
+the `aijkokkos` and `aijcusparse` matrices on GPU. Interest 6.
 
 ### AmgX (NVIDIA)
 
-- `AmgXSolver` de MFEM : matrice scalaire, double précision seulement
-  (`AMGX_mode_dDDI`, commentaire « currently only double is supported »
-  dans `linalg/amgxsolver.hpp`), modes MPI, réutilisation complète par
-  `UpdateOperator` (coefficients remplacés, pas de nouvelle
-  construction). Ses ressources, partagées par tous ses solveurs, gardent
-  le communicateur et la configuration du premier : détruire le premier
-  solveur fait échouer les suivants ; le GPU 0 est imposé ; le statut de
-  convergence d'AmgX n'est pas accessible. **mfem-mgis ne l'utilise pas.**
-- **Enveloppe propre à mfem-mgis** (fait, option `enable-amgx`, AmgX donné
-  par `AMGX_DIR`) : interface C d'AmgX, préconditionneur et solveur `AmgX`
-  (cycles du multigrille), solveur `AmgXPCG` (gradient conjugué d'AmgX).
-  - Ressources d'AmgX uniques pour le processus : elles portent des objets
-    globaux (réserve de mémoire du GPU, poignées cuSPARSE et cuBLAS),
-    libérés par la destruction de n'importe quelles ressources, et gardent
-    l'adresse de leur communicateur. Elles sont créées pour le premier
-    solveur sur `MPI_COMM_WORLD` (AmgX en fait lui-même une copie pour
-    ses échanges) et détruites avec le dernier ; création et destruction
-    ne sont pas collectives.
-  - Communicateur d'un solveur parallèle : tous les processus dans le
-    même ordre, ou un seul processus (la matrice est alors téléversée
-    comme une matrice locale). Chaque processus doit posséder des lignes
-    de la matrice, au plus 2^31 - 1 lignes en tout : contrôles collectifs
-    dans `SetOperator`. Après un échec de `SetOperator`, le solveur refuse
-    de résoudre jusqu'à la mise en place suivante.
-  - Les solveurs doivent être détruits avant `MPI_Finalize` (AmgX libère
-    alors ses communicateurs).
-  - Planchers d'AmgX : la convergence est déclarée dès que la norme du
-    résidu passe sous le maximum de 1e-20 et de `e` fois la norme du
-    résidu initial (`e` vaut 1e-12 en double, 1e-6 en simple), et
-    d'emblée si la norme initiale est sous 1e-20. Sans tolérance
-    absolue, `AmgXPCG` multiplie le second membre par une puissance de 2
-    qui ramène le maximum des valeurs absolues de ses composantes entre
-    1 et 2 (calculé sur tous les processus ; la norme elle-même
-    déborderait aux extrêmes), puis la solution par l'inverse
-    (opérations exactes) : seul reste le plancher relatif, et la
-    tolérance relative doit valoir au moins `e`. Les statistiques
-    affichées par AmgX sont alors celles du système mis à l'échelle.
-    Avec une tolérance absolue (double précision seulement), le second
-    membre n'est pas modifié : la tolérance absolue doit valoir au moins
-    1e-20, et avec une tolérance absolue seule la résolution s'arrête
-    aussi quand la norme du résidu a été multipliée par `e`. En simple
-    précision, le second membre est toujours mis à l'échelle : une
-    tolérance relative est exigée et une tolérance absolue refusée. Le
-    préconditionneur en simple précision (configuration par défaut) met
-    aussi le second membre à l'échelle, pour rester dans la plage de la
-    simple précision : une tolérance passée par `AmgXParameters`
-    s'applique alors au second membre mis à l'échelle.
-  - Double copie d'AmgX, en attendant la reconstruction de MFEM :
-    libmfem.so contient l'AmgX statique non patché de MFEM. Un programme
-    doit lier libamgxsh.so (patchée) avant MFEM, comme le fait
-    `MFEMMGISConfig.cmake` ; sinon le multigrille classique échoue
-    (« Thrust failure »). Un programme qui se termine avec un solveur
-    encore vivant (`std::exit`, objet statique) peut s'arrêter ou se
-    bloquer sur une double libération des objets globaux des deux
+- `AmgXSolver` of MFEM: scalar matrix, double precision only
+  (`AMGX_mode_dDDI`, comment "currently only double is supported"
+  in `linalg/amgxsolver.hpp`), MPI modes, full reuse through
+  `UpdateOperator` (coefficients replaced, no new
+  setup). Its resources, shared by all its solvers, keep
+  the communicator and the configuration of the first one: destroying the first
+  solver makes the next ones fail; GPU 0 is imposed; the convergence
+  status of AmgX is not accessible. **mfem-mgis does not use it.**
+- **Wrapper specific to mfem-mgis** (done, option `enable-amgx`, AmgX given
+  by `AMGX_DIR`): C interface of AmgX, preconditioner and solver `AmgX`
+  (cycles of the multigrid), solver `AmgXPCG` (conjugate gradient of AmgX).
+  - A single set of AmgX resources per process: they hold global
+    objects (GPU memory pool, cuSPARSE and cuBLAS handles),
+    released by the destruction of any resources, and keep
+    the address of their communicator. They are created for the first
+    solver on `MPI_COMM_WORLD` (AmgX makes its own copy of it for
+    its exchanges) and destroyed with the last one; creation and destruction
+    are not collective.
+  - Communicator of a parallel solver: all the processes in the
+    same order, or a single process (the matrix is then uploaded
+    as a local matrix). Each process must own rows
+    of the matrix, at most 2^31 - 1 rows in total: collective checks
+    in `SetOperator`. After a failure of `SetOperator`, the solver refuses
+    to solve until the next setup.
+  - The solvers must be destroyed before `MPI_Finalize` (AmgX releases
+    its communicators there).
+  - Floors of AmgX: convergence is declared as soon as the norm of the
+    residual goes below the maximum of 1e-20 and `e` times the norm of the
+    initial residual (`e` is 1e-12 in double, 1e-6 in single), and
+    immediately if the initial norm is below 1e-20. Without an
+    absolute tolerance, `AmgXPCG` multiplies the right-hand side by a power of 2
+    that brings the maximum of the absolute values of its components between
+    1 and 2 (computed on all the processes; the norm itself
+    would overflow at the extremes), then the solution by the inverse
+    (exact operations): only the relative floor remains, and the
+    relative tolerance must be at least `e`. The statistics
+    printed by AmgX are then those of the scaled system.
+    With an absolute tolerance (double precision only), the right-hand
+    side is not modified: the absolute tolerance must be at least
+    1e-20, and with an absolute tolerance alone the solve also stops
+    when the norm of the residual has been multiplied by `e`. In single
+    precision, the right-hand side is always scaled: a
+    relative tolerance is required and an absolute tolerance refused. The
+    preconditioner in single precision (default configuration) also
+    scales the right-hand side, to stay within the range of
+    single precision: a tolerance passed through `AmgXParameters`
+    then applies to the scaled right-hand side.
+  - Double copy of AmgX, until MFEM is rebuilt:
+    libmfem.so contains the unpatched static AmgX of MFEM. A program
+    must link libamgxsh.so (patched) before MFEM, as
+    `MFEMMGISConfig.cmake` does; otherwise the classical multigrid fails
+    ("Thrust failure"). A program that ends with a solver
+    still alive (`std::exit`, static object) can abort or
+    hang on a double release of the global objects of the two
     copies.
-  - GPU courant du processus, statut de convergence d'AmgX, erreurs
-    rendues par les codes de retour (sans le paramètre
-    `exception_handling`, qui fait au contraire abandonner AmgX).
-  - Paramètres d'AmgX par leur nom (`AmgXParameters`, par exemple
-    `strength_threshold=0.8, interpolator=MULTIPASS`), qui complètent la
-    configuration par défaut (celle de MFEM).
-  - Simple précision (`Precision` : `Single`, mode `dFFI`, vecteurs
-    convertis sur le GPU). La précision mixte `dDFI` (matrice en simple,
-    vecteurs en double) n'est plus prise en charge par AmgX 2.5
-    (« Mixed precision modes not currently supported for CUDA 10.1 or
-    later »).
-  - Reste à faire : matrices par blocs 3×3 (ordre par composantes),
-    réutilisation partielle (`AMGX_solver_resetup`), mise en place sans
-    passer par l'hôte.
-- AmgX 2.5.0 annonce CUDA 13 (testé jusqu'à 13.0). Deux corrections
-  complémentaires ont suivi sur la branche principale en 2026 (C++17 avec
-  CUDA 13.1 et plus, tuples de CUDA 13) : l'environnement utilise un
-  commit de cette branche. Avec CUDA 13 sur sm_120, le multigrille
-  classique échouait (« invalid device function ») : patch de la recette
-  spack, reproducteur `reproducers/amgx-classical-cuda13`.
+  - Current GPU of the process, convergence status of AmgX, errors
+    reported through the return codes (without the parameter
+    `exception_handling`, which on the contrary makes AmgX abort).
+  - Parameters of AmgX by their name (`AmgXParameters`, for example
+    `strength_threshold=0.8, interpolator=MULTIPASS`), which complete the
+    default configuration (the one of MFEM).
+  - Single precision (`Precision`: `Single`, mode `dFFI`, vectors
+    converted on the GPU). The mixed precision `dDFI` (matrix in single,
+    vectors in double) is no longer supported by AmgX 2.5
+    ("Mixed precision modes not currently supported for CUDA 10.1 or
+    later").
+  - Still to do: 3×3 block matrices (ordering by components),
+    partial reuse (`AMGX_solver_resetup`), setup without
+    going through the host.
+- AmgX 2.5.0 announces CUDA 13 (tested up to 13.0). Two complementary
+  fixes followed on the main branch in 2026 (C++17 with
+  CUDA 13.1 and later, tuples of CUDA 13): the environment uses a
+  commit of this branch. With CUDA 13 on sm_120, the classical multigrid
+  failed ("invalid device function"): patch of the spack
+  recipe, reproducer `reproducers/amgx-classical-cuda13`.
 
 ### Ginkgo
 
-Multigrille algébrique par agrégation (`Pgm`), distribuée depuis 1.8. Pas
-d'enveloppe MFEM pour la multigrille de Ginkgo (ni en 4.9 ni en 4.10) : à
-configurer par l'API de Ginkgo. Les enveloppes de MFEM ne proposent que
-les exécuteurs de référence, OpenMP, CUDA et HIP (pas SYCL). Voir aussi
-[Plusieurs GPU](#plusieurs-gpu) et [Précision mixte](#précision-mixte).
+Algebraic multigrid by aggregation (`Pgm`), distributed since 1.8. No
+MFEM wrapper for the multigrid of Ginkgo (neither in 4.9 nor in 4.10): to be
+configured through the API of Ginkgo. The MFEM wrappers only offer
+the reference, OpenMP, CUDA and HIP executors (not SYCL). See also
+[Several GPUs](#several-gpus) and [Mixed precision](#mixed-precision).
 
 ### MueLu (Trilinos)
 
-Agrégation lissée avec modes rigides sur GPU par Kokkos. Pas d'interface
-MFEM : intégration lourde. Intérêt 3, à garder en tête comme point de
-comparaison.
+Smoothed aggregation with rigid body modes on GPU through Kokkos. No MFEM
+interface: heavy integration. Interest 3, to keep in mind as a
+comparison point.
 
-## Précision mixte
+## Mixed precision
 
-Sur la RTX 5080, le calcul en double précision est environ 64 fois plus
-lent qu'en simple. Les produits matrice-vecteur sont limités par la
-mémoire : en CSR, passer les valeurs en simple précision réduit les
-octets lus d'environ un tiers (12 octets par coefficient au lieu de 8,
-les indices restant sur 4 octets). Les calculs
-denses (lois, petits blocs) sont limités par le calcul en double. Sur
-A100 ou H100, le rapport n'est que de 2.
+On the RTX 5080, computing in double precision is about 64 times
+slower than in single. The matrix-vector products are limited by the
+memory: in CSR, switching the values to single precision reduces the
+bytes read by about a third (8 bytes per coefficient instead of 12,
+the indices staying on 4 bytes). The dense computations (behaviours,
+small blocks) are limited by the double precision compute. On
+A100 or H100, the ratio is only 2.
 
-Idée commune : le Krylov extérieur et le résidu restent en double, le
-préconditionneur travaille en simple (ou moins). La solution garde la
-précision double.
+Common idea: the outer Krylov solver and the residual stay in double, the
+preconditioner works in single (or lower). The solution keeps
+double precision.
 
-- **Ginkgo** : Jacobi par blocs à précision adaptative (`storage_opt` et
-  `accuracy` de `JacobiPreconditioner` dans l'enveloppe de MFEM 4.9,
-  vérifié), CB-GMRES (base de Krylov compressée) et raffinement itératif
-  (`CBGMRESSolver`, `IRSolver` dans l'enveloppe de MFEM 4.9), demi
-  précision et bfloat16 (1.9, 1.10), matrices distribuées en précision
-  mixte (1.10), multigrille en précision mixte.
-- **hypre 3** : fonctions en précision mixte (3.0 : choix de la précision
-  à l'exécution, Krylov préconditionné en précision plus basse), sur GPU
-  depuis 3.2 (notes de version). Mais la recette spack de hypre interdit
-  `precision=mixed` avec CUDA (`conflicts("precision=mixed")` sous
-  `+cuda`), et MFEM exige un hypre en double (`hypre precision=double`
-  dans sa recette) : il faudrait changer la recette, puis vérifier la
-  compatibilité avec MFEM.
-- **AmgX** : mode `dDFI` (voir plus haut).
-- **MFEM** : pas de précision mixte. MFEM se compile entièrement en
-  simple ou en double (`precision`).
+- **Ginkgo**: block Jacobi with adaptive precision (`storage_opt` and
+  `accuracy` of `JacobiPreconditioner` in the MFEM 4.9 wrapper,
+  checked), CB-GMRES (compressed Krylov basis) and iterative refinement
+  (`CBGMRESSolver`, `IRSolver` in the MFEM 4.9 wrapper), half
+  precision and bfloat16 (1.9, 1.10), distributed matrices in mixed
+  precision (1.10), multigrid in mixed precision.
+- **hypre 3**: mixed precision functions (3.0: choice of the precision
+  at run time, Krylov preconditioned in lower precision), on GPU
+  since 3.2 (release notes). But the spack recipe of hypre forbids
+  `precision=mixed` with CUDA (`conflicts("precision=mixed")` under
+  `+cuda`), and MFEM requires a hypre in double (`hypre precision=double`
+  in its recipe): the recipe would have to be changed, then the
+  compatibility with MFEM checked.
+- **AmgX**: mode `dDFI` (see above).
+- **MFEM**: no mixed precision. MFEM is compiled entirely in
+  single or in double (`precision`).
 
-Intérêt 6, 8 sur GPU grand public.
+Interest 6, 8 on consumer GPU.
 
-## Solveurs directs sur GPU
+## Direct solvers on GPU
 
-Intérêt pour les petits cas, les configurations mixtes et comme référence.
+Interest for small cases, mixed configurations and as a reference.
 
-- **cuDSS** (intérêt 5, fait le 12/10) : solveur direct de NVIDIA, un ou
-  plusieurs GPU, MPI. MFEM 4.10 l'enveloppe (`CuDSSSolver`, avec
-  `SetReorderingReuse` : l'analyse symbolique est gardée quand seule la
-  valeur des coefficients change, ce qui est le cas d'une itération de
-  Newton à l'autre). La recette spack de MFEM 4.10 accepte cuDSS 0.6 à
-  0.7.1 ; l'environnement installe cuDSS 0.7.1 pour CUDA 13 et MFEM avec
-  `+cudss`. Solveur `CuDSSSolver` de la fabrique de mfem-mgis, avec
-  `Symmetric`, `PositiveDefinite` et `ReuseAnalysis` (motif comparé sur
-  tous les processus, solveur de MFEM recréé quand le motif ou la taille
-  change : MFEM ne permet de choisir la réutilisation qu'avant la première
-  matrice et s'arrête sur une taille différente). Sur la matrice
-  d'élasticité d'ex8, une factorisation prend 0,018 s contre 0,203 s pour
-  MUMPS sur l'hôte ; ex8 sur le GPU 9,8 -> 4,4 s, puis 2,6 s avec la
-  thermique aussi par cuDSS (9 516 inconnues : factorisation 6 ms,
-  résolution 1 ms, contre 52 ms par GMRES et BoomerAMG sur l'hôte)
-  (`results/cudss-2026-10-12`). Il ne paie pas sur les grands problèmes
-  tridimensionnels (poutre r4, 111 843 inconnues : factorisation 0,24 s
-  contre 68 ms par résolution par PCG et BoomerAMG,
-  `results/cudss-beam-2026-10-12`) ni sur le polycristal périodique et
-  non symétrique (20 553 inconnues : 132 ms contre 57 ms,
-  `results/cudss-polycrystal-2026-10-12`). Chaque solution est contrôlée par son
-  résidu (cuDSS ne signale pas les échecs de la factorisation). L'analyse
-  distribuée de cuDSS 0.7.1 échoue pour certaines matrices que MUMPS
-  résout : lignes réduites à leur coefficient diagonal, matrice
-  tridiagonale couplant les processus, certaines répartitions inégales
-  (`reproducers/cudss-distributed`, plusieurs processus sur un GPU) ; un
-  processus n'est pas touché, et les matrices de diffusion passent.
-- **MUMPS sur l'hôte, analyse réutilisée** (fait le 12/10). Dans ex8 sur
-  le GPU, les 29 factorisations de MUMPS de la mécanique sont le premier
-  poste. Le paramètre `ReuseAnalysis` du solveur `MUMPSSolver` de
-  mfem-mgis garde l'analyse (ordonnancement et factorisation symbolique)
-  tant que le motif de la matrice ne change sur aucun processus :
-  `SetReorderingReuse` de MFEM ne vérifie pas le motif, mfem-mgis le
-  compare avant chaque factorisation. Factorisations −19 % sur le GPU
-  (un processus) et −26 % sur CPU (deux processus), ex8 sur le GPU
-  11,1 -> 9,7 s, mêmes résultats (`results/mumps-analysis-2026-10-12`).
-  Les autres réglages de MUMPS (ordonnancements, factorisation approchée
-  BLR) ne gagnent rien sur cette matrice. La même comparaison du motif
-  sert aussi au solveur cuDSS (ci-dessus) : avec `SetReorderingReuse`,
-  MFEM n'y vérifie que le nombre de coefficients (et s'arrête s'il
-  change), pas leurs colonnes.
-- **SuperLU_DIST** (intérêt 4) : factorisation sur GPU (CUDA). MFEM 4.10
-  ajoute `SuperLUSolver::SetDeviceOffload`.
-- **STRUMPACK** (intérêt 4) : `STRUMPACKSolverBase::EnableGPU` dans MFEM
-  4.9 (vérifié).
+- **cuDSS** (interest 5, done on 12/10): direct solver of NVIDIA, one or
+  several GPUs, MPI. MFEM 4.10 wraps it (`CuDSSSolver`, with
+  `SetReorderingReuse`: the symbolic analysis is kept when only the
+  value of the coefficients changes, which is the case from one Newton
+  iteration to the next). The spack recipe of MFEM 4.10 accepts cuDSS 0.6 to
+  0.7.1; the environment installs cuDSS 0.7.1 for CUDA 13 and MFEM with
+  `+cudss`. Solver `CuDSSSolver` of the factory of mfem-mgis, with
+  `Symmetric`, `PositiveDefinite` and `ReuseAnalysis` (pattern compared on
+  all the processes, MFEM solver recreated when the pattern or the size
+  changes: MFEM only allows choosing the reuse before the first
+  matrix and stops on a different size). On the elasticity matrix
+  of ex8, a factorization takes 0.018 s against 0.203 s for
+  MUMPS on the host; ex8 on the GPU 9.8 -> 4.4 s, then 2.6 s with the
+  thermal problem also solved by cuDSS (9,516 unknowns: factorization 6 ms,
+  solve 1 ms, against 52 ms by GMRES and BoomerAMG on the host)
+  (`results/cudss-2026-10-12`). It does not pay off on large
+  three-dimensional problems (beam r4, 111,843 unknowns: factorization 0.24 s
+  against 68 ms per solve by PCG and BoomerAMG,
+  `results/cudss-beam-2026-10-12`) nor on the periodic and
+  nonsymmetric polycrystal (20,553 unknowns: 132 ms against 57 ms,
+  `results/cudss-polycrystal-2026-10-12`). Each solution is checked by its
+  residual (cuDSS does not report the failures of the factorization). The distributed
+  analysis of cuDSS 0.7.1 fails for some matrices that MUMPS
+  solves: rows reduced to their diagonal coefficient,
+  tridiagonal matrix coupling the processes, some uneven distributions
+  (`reproducers/cudss-distributed`, several processes on one GPU); a
+  single process is not affected, and the diffusion matrices pass.
+- **MUMPS on the host, reused analysis** (done on 12/10). In ex8 on
+  the GPU, the 29 factorizations of MUMPS for the mechanics are the largest
+  cost item. The parameter `ReuseAnalysis` of the solver `MUMPSSolver` of
+  mfem-mgis keeps the analysis (ordering and symbolic factorization)
+  as long as the pattern of the matrix does not change on any process:
+  `SetReorderingReuse` of MFEM does not check the pattern, mfem-mgis
+  compares it before each factorization. Factorizations −19 % on the GPU
+  (one process) and −26 % on CPU (two processes), ex8 on the GPU
+  11.1 -> 9.7 s, same results (`results/mumps-analysis-2026-10-12`).
+  The other settings of MUMPS (orderings, BLR approximate
+  factorization) gain nothing on this matrix. The same comparison of the pattern
+  is also used by the cuDSS solver (above): with `SetReorderingReuse`,
+  MFEM only checks the number of coefficients there (and stops if it
+  changes), not their columns.
+- **SuperLU_DIST** (interest 4): factorization on GPU (CUDA). MFEM 4.10
+  adds `SuperLUSolver::SetDeviceOffload`.
+- **STRUMPACK** (interest 4): `STRUMPACKSolverBase::EnableGPU` in MFEM
+  4.9 (checked).
 
-## Plusieurs GPU
+## Several GPUs
 
-Utile pour l'étude sur grappe (un processus par GPU).
+Useful for the study on a cluster (one process per GPU).
 
-- **Ginkgo distribué** (ajout, intérêt 7) : matrices et vecteurs
-  distribués, multigrille distribuée avec grossissement PGM (1.8),
-  Schwarz à deux niveaux (1.10), CG pipeliné (1.10), communications recouvertes par le calcul
-  (1.11). Enveloppes MFEM pour les solveurs et préconditionneurs
-  distribués dans MFEM 4.10 (exemple `examples/ginkgo/ex1p`, demande
-  Ginkgo 1.11 compilé avec MPI, ce qu'a l'environnement). Avant 4.10,
-  l'enveloppe ne prenait que des matrices séquentielles.
-- **Krylov pipeliné** (ajout, intérêt 5) : une seule réduction globale par
-  itération, recouverte par le calcul. CG pipeliné de Ginkgo, `KSPPIPECG`
-  et voisins dans PETSc. Gain seulement à grand nombre de GPU.
-- **MPI compatible GPU** (outil, intérêt 5) : échanges directement entre
-  mémoires GPU. `Device::SetGPUAwareMPI` ou variable `MFEM_GPU_AWARE_MPI`
-  (depuis MFEM 4.9) ; `GroupCommunicator` sur le périphérique (MFEM
-  4.10) ; variante `+gpu-aware-mpi` de hypre (pas activée). L'OpenMPI de
-  l'environnement est compilé avec CUDA (hwloc interne sans OpenCL), pour
-  que le code reste générique ; sur une seule carte, l'effet est nul. Sur
-  une grappe, le MPI de la grappe. Sans MPI compatible GPU, les échanges
-  de la prolongation et ceux de hypre passent par l'hôte à chaque
-  application : « aucune copie cachée » n'est alors
-  atteignable qu'en un seul processus.
+- **Distributed Ginkgo** (addition, interest 7): distributed matrices and vectors,
+  distributed multigrid with PGM coarsening (1.8),
+  two level Schwarz (1.10), pipelined CG (1.10), communications overlapped with computation
+  (1.11). MFEM wrappers for the distributed solvers and preconditioners
+  in MFEM 4.10 (example `examples/ginkgo/ex1p`, requires
+  Ginkgo 1.11 compiled with MPI, which the environment has). Before 4.10,
+  the wrapper only took sequential matrices.
+- **Pipelined Krylov** (addition, interest 5): a single global reduction per
+  iteration, overlapped with computation. Pipelined CG of Ginkgo, `KSPPIPECG`
+  and related solvers in PETSc. Gain only with a large number of GPUs.
+- **GPU-aware MPI** (tool, interest 5): exchanges directly between
+  GPU memories. `Device::SetGPUAwareMPI` or variable `MFEM_GPU_AWARE_MPI`
+  (since MFEM 4.9); `GroupCommunicator` on the device (MFEM
+  4.10); variant `+gpu-aware-mpi` of hypre (not enabled). The OpenMPI of
+  the environment is compiled with CUDA (internal hwloc without OpenCL), so
+  that the code stays generic; on a single card, the effect is nil. On
+  a cluster, the MPI of the cluster. Without GPU-aware MPI, the exchanges
+  of the prolongation and those of hypre go through the host at each
+  application: "no hidden copy" is then only
+  reachable with a single process.
 
-## Assemblage et opérateur tangent
+## Assembly and tangent operator
 
-Le plan prévoit trois options pour l'opérateur tangent
-([plan-mfem-mgis.md](plan-mfem-mgis.md#choix-retenus)). Ajouts :
+The plan provides three options for the tangent operator
+([plan-mfem-mgis.md](plan-mfem-mgis.md#choices-made)). Additions:
 
-- **Règle d'intégration** (ajout, intérêt 8) : mfem-mgis intègre avec
-  `IntRules.Get(geom, 2 * OrderGrad)` (code des intégrateurs générés),
-  soit 27 points sur l'hexaèdre d'ordre 1. Une règle à 8 points divise
-  environ par 3,4 le coût de la loi, du résidu et de la tangente, sur CPU
-  comme sur GPU. C'est le levier de coût le plus direct des maillages
-  hexaédriques. Fait : paramètre `IntegrationRuleOrder` de la
-  discrétisation de mfem-mgis (option `--integration-rule-order` d'ex4).
-  L'ordre 3 donne 8 points, qui intègrent exactement la rigidité
-  élastique des hexaèdres affines d'ordre 1 ; les ordres 0 et 1 donnent
-  un point, avec des modes parasites (documentation de mfem-mgis).
-- **Assemblage de la matrice globale sur GPU** (ajout, intérêt 9) : pour
-  l'option c sur GPU, les matrices élémentaires calculées sur GPU doivent
-  donner la matrice hypre sans passer par l'hôte. Deux chemins :
-  - le remplissage de matrice creuse de MFEM sur le périphérique
-    (`ElementRestriction::FillJAndData`, niveau d'assemblage `FULL` des
-    formes bilinéaires). Il travaille sur des degrés de liberté
-    scalaires ; l'élasticité de MFEM l'utilise composante par composante.
-    Pour un espace à 3 composantes, à vérifier, ou à faire par blocs de
-    composantes ;
-  - l'assemblage IJ de hypre sur GPU (pointeurs en mémoire GPU, depuis
+- **Integration rule** (addition, interest 8): mfem-mgis integrates with
+  `IntRules.Get(geom, 2 * OrderGrad)` (code of the generated integrators),
+  i.e. 27 points on the first order hexahedron. A rule with 8 points divides
+  by about 3.4 the cost of the behaviour, of the residual and of the tangent, on CPU
+  as on GPU. It is the most direct cost lever of the hexahedral
+  meshes. Done: parameter `IntegrationRuleOrder` of the
+  discretization of mfem-mgis (option `--integration-rule-order` of ex4).
+  Order 3 gives 8 points, which integrate exactly the elastic
+  stiffness of affine first order hexahedra; orders 0 and 1 give
+  one point, with spurious modes (documentation of mfem-mgis).
+- **Assembly of the global matrix on GPU** (addition, interest 9): for
+  option c on GPU, the element matrices computed on GPU must
+  give the hypre matrix without going through the host. Two paths:
+  - the sparse matrix filling of MFEM on the device
+    (`ElementRestriction::FillJAndData`, assembly level `FULL` of the
+    bilinear forms). It works on scalar degrees of
+    freedom; the elasticity of MFEM uses it component by component.
+    For a space with 3 components, to be checked, or to be done by blocks of
+    components;
+  - the IJ assembly of hypre on GPU (pointers in GPU memory, since
     hypre 2.20).
-  Le motif creux, la `HypreParMatrix` et son schéma de communication
-  doivent être gardés d'une itération à l'autre (seules les valeurs
-  changent), et les degrés de liberté imposés éliminés sur le
-  périphérique (possible depuis MFEM 4.5). Sans cela, l'option c sur GPU
-  recopie la tangente sur l'hôte, ou reconstruit sa structure, à chaque
-  itération.
-  Fait dans mfem-mgis : sur le GPU, les noyaux ajoutent les blocs des
-  matrices élémentaires directement dans la matrice creuse locale (motif
-  du premier assemblage de MFEM ; additions atomiques, ou ordre fixe avec
-  le paramètre `TangentOperatorAssembly` à `Ordered`), puis le produit
-  `PᵀAP` et l'élimination des degrés de liberté imposés (`EliminateBC`) se
-  font sur le GPU. Quand hypre calcule sur l'hôte, la matrice globale
-  garde son motif et son schéma d'échange d'une itération à l'autre
+  The sparsity pattern, the `HypreParMatrix` and its communication scheme
+  must be kept from one iteration to the next (only the values
+  change), and the imposed degrees of freedom eliminated on the
+  device (possible since MFEM 4.5). Otherwise, option c on GPU
+  copies the tangent back to the host, or rebuilds its structure, at each
+  iteration.
+  Done in mfem-mgis: on the GPU, the kernels add the blocks of the
+  element matrices directly into the local sparse matrix (pattern
+  of the first assembly of MFEM; atomic additions, or fixed order with
+  the parameter `TangentOperatorAssembly` set to `Ordered`), then the product
+  `PᵀAP` and the elimination of the imposed degrees of freedom (`EliminateBC`) are
+  done on the GPU. When hypre computes on the host, the global matrix
+  keeps its pattern and its exchange scheme from one iteration to the next
   (`batch::GlobalStiffnessMatrix`,
   `results/global-matrix-end-to-end-2026-10-11`).
-- **Assemblage par élément** (ajout, intérêt 6) : garder les matrices
-  élémentaires et appliquer la tangente élément par élément (niveau
-  `ELEMENT` de MFEM pour les formes bilinéaires). Intermédiaire entre
-  l'option a (rien de stocké que `K` aux points) et l'option c (matrice
-  globale) : plus de mémoire que a, pas d'assemblage global, diagonale
-  et blocs nodaux immédiats. `BatchedLinAlg` de MFEM (4.8) pour les
-  produits par lots ; graphes CUDA pour réduire le coût de lancement des
-  petits noyaux (petits cas, plusieurs matériaux).
-- La mini-application `hooke` de MFEM (élasticité non linéaire sans
-  matrice sur GPU, Newton et CG, préconditionneur diagonal ou par blocs)
-  est la référence la plus proche de l'option a dans MFEM.
+- **Element assembly** (addition, interest 6): keep the element
+  matrices and apply the tangent element by element (level
+  `ELEMENT` of MFEM for the bilinear forms). Intermediate between
+  option a (nothing stored but `K` at the points) and option c (global
+  matrix): more memory than a, no global assembly, diagonal
+  and nodal blocks immediately available. `BatchedLinAlg` of MFEM (4.8) for the
+  batched products; CUDA graphs to reduce the launch cost of the
+  small kernels (small cases, several materials).
+- The `hooke` mini-application of MFEM (matrix free nonlinear elasticity
+  on GPU, Newton and CG, diagonal or block preconditioner)
+  is the closest reference to option a in MFEM.
 
-## Problèmes couplés
+## Coupled problems
 
-- **MGR de hypre** (intérêt 4) : réduction multigrille pour les systèmes
-  monolithiques (thermomécanique, micromorphe). Construction sur GPU
-  depuis 2.24, sans mémoire unifiée depuis 2.29, nombreuses options depuis (3.2 : réutilisation de
-  composants, complément de Schur fourni, plusieurs cycles).
-- Préconditionneurs par blocs de MFEM (`BlockDiagonalPreconditioner`,
-  complément de Schur) : génériques, tournent sur GPU si les blocs y
-  sont.
+- **MGR of hypre** (interest 4): multigrid reduction for the
+  monolithic systems (thermomechanics, micromorphic). Setup on GPU
+  since 2.24, without unified memory since 2.29, many options since then (3.2: reuse of
+  components, user-provided Schur complement, several cycles).
+- Block preconditioners of MFEM (`BlockDiagonalPreconditioner`,
+  Schur complement): generic, they run on GPU if the blocks are
+  there.
 
-## Outils de mesure
+## Measurement tools
 
-Indispensables aux études de performance, sans être des solveurs.
+Required by the performance studies, without being solvers.
 
-- **Profils** (intérêt 7) : Nsight Systems et Nsight Compute (installés
-  sur la machine) ; marqueurs NVTX dans hypre (variante
-  `+gpu-profiling`) ; Caliper (pas encore dans l'environnement). Sans
-  marqueurs, un profil de hypre est difficile à lire.
-- **Pools mémoire** (intérêt 6) : Umpire pour hypre (`+umpire`, dans
-  l'environnement) et pour MFEM (`+umpire`). La construction d'un AMG sur
-  GPU alloue beaucoup de petits tableaux. MFEM compilé avec Umpire prend
-  les types de mémoire Umpire par défaut : à garder en tête dans les
-  mesures.
-- **Périphérique `debug` de MFEM** : il simule le GPU sur le CPU (noyaux
-  exécutés sur l'hôte, mémoire « périphérique » distincte) et détecte les
-  accès à une copie périmée. Il ne peut pas exécuter une loi compilée
-  pour `cuda` : avec lui, utiliser une loi `openmp` ou `stlpar` et un
-  emplacement accessible par l'hôte.
-- GPU sans HMM et profil Nsight Systems : vérifier qu'aucune copie cachée
-  n'a lieu sur le vrai GPU (déjà dans le plan).
+- **Profiles** (interest 7): Nsight Systems and Nsight Compute (installed
+  on the machine); NVTX markers in hypre (variant
+  `+gpu-profiling`); Caliper (not yet in the environment). Without
+  markers, a profile of hypre is hard to read.
+- **Memory pools** (interest 6): Umpire for hypre (`+umpire`, in
+  the environment) and for MFEM (`+umpire`). The setup of an AMG on
+  GPU allocates many small arrays. MFEM compiled with Umpire takes
+  the Umpire memory types by default: to keep in mind in the
+  measurements.
+- **`debug` device of MFEM**: it simulates the GPU on the CPU (kernels
+  executed on the host, distinct "device" memory) and detects the
+  accesses to an outdated copy. It cannot run a behaviour compiled
+  for `cuda`: with it, use an `openmp` or `stlpar` behaviour and a
+  location accessible by the host.
+- GPU without HMM and Nsight Systems profile: check that no hidden copy
+  takes place on the real GPU (already in the plan).
 
-## Écartés (CPU seul)
+## Excluded (CPU only)
 
-- Solveurs directs MUMPS et UMFPACK (restent dans l'environnement : ce sont
-  les solveurs actuels de mfem-mgis, et la référence des configurations
-  mixtes) ;
-- `HypreEuclid`, `HypreParaSails` ; options élasticité de BoomerAMG
-  (`SetElasticityOptions`, voir plus haut) ;
-- BDDC et FETI (PETSc), HPDDM : support GPU partiel ou absent ;
-- (n'est plus écarté) libCEED par MFEM : backend `ceed-cpu` et
-  `ceed-cuda` de MFEM, installé pour comparaison avec l'assemblage partiel
-  natif ; aussi utile à travers Ratel.
+- Direct solvers MUMPS and UMFPACK (they stay in the environment: they are
+  the current solvers of mfem-mgis, and the reference of the mixed
+  configurations);
+- `HypreEuclid`, `HypreParaSails`; elasticity options of BoomerAMG
+  (`SetElasticityOptions`, see above);
+- BDDC and FETI (PETSc), HPDDM: partial or no GPU support;
+- (no longer excluded) libCEED through MFEM: backends `ceed-cpu` and
+  `ceed-cuda` of MFEM, installed for comparison with the native partial
+  assembly; also useful through Ratel.
 
 ## MFEM 4.10
 
-Tout le prototype utilise MFEM 4.10 (décision du 09/10/2026 ; mfem-mgis
-était jusqu'ici utilisé avec 4.9). MFEM 4.10 (01/09/2026) apporte, pour
-cette étude (notes de version et sources de 4.10) :
+The whole prototype uses MFEM 4.10 (decision of 09/10/2026; mfem-mgis
+was used with 4.9 until then). MFEM 4.10 (01/09/2026) brings, for
+this study (release notes and sources of 4.10):
 
-- enveloppe de cuDSS (`CuDSSSolver`) ;
-- solveurs et préconditionneurs distribués de Ginkgo ;
-- `SuperLUSolver::SetDeviceOffload` ;
-- `GroupCommunicator` sur le périphérique, avec MPI compatible GPU ;
-- noyaux d'assemblage partiel améliorés (diagonale de l'élasticité) ;
-- assemblage LOR par lots sur maillages très connectés.
+- wrapper of cuDSS (`CuDSSSolver`);
+- distributed solvers and preconditioners of Ginkgo;
+- `SuperLUSolver::SetDeviceOffload`;
+- `GroupCommunicator` on the device, with GPU-aware MPI;
+- improved partial assembly kernels (diagonal of the elasticity);
+- batched LOR assembly on highly connected meshes.
 
-Les faits vérifiés sur les sources de 4.9 et cités dans ce document
-(BoomerAMG sur GPU, L-BFGS, `mfem::forall`, AmgX, Ginkgo, assemblage
-partiel des formes non linéaires) ont été revérifiés sur celles de 4.10.
+The facts checked on the sources of 4.9 and quoted in this document
+(BoomerAMG on GPU, L-BFGS, `mfem::forall`, AmgX, Ginkgo, partial
+assembly of the nonlinear forms) were checked again on those of 4.10.
 
-## Correspondance avec l'environnement spack
+## Mapping to the spack environment
 
-| Technique | Paquet et variante de `mmm-gpu` |
+| Technique | Package and variant of `mmm-gpu` |
 |---|---|
-| Krylov de MFEM, lisseurs sans matrice, p-MG, LOR, `BatchedLinAlg` | `mfem@4.10.0 +cuda cxxstd=20` |
-| Mêmes noyaux sur CPU multicœur, backend libCEED | `mfem +openmp +threadsafe +libceed`, `libceed +cuda +openmp` |
-| Newton inexact, point fixe et Anderson | faits dans mfem-mgis |
-| Recherche linéaire, L-BFGS préconditionné | à écrire dans mfem-mgis |
-| BoomerAMG, MGR, FSAI, ILU, Krylov de hypre | `hypre@3.2.0 +cuda +umpire` |
-| Ginkgo, distribué compris | `ginkgo@1.11.0 +cuda +openmp +mpi`, `mfem +ginkgo` |
-| GAMG, SNES, Krylov pipeliné | `petsc@3.26.0 +cuda +kokkos +openmp +hypre`, `kokkos-kernels`, `mfem +petsc` |
+| Krylov solvers of MFEM, matrix free smoothers, p-MG, LOR, `BatchedLinAlg` | `mfem@4.10.0 +cuda cxxstd=20` |
+| Same kernels on multicore CPU, libCEED backend | `mfem +openmp +threadsafe +libceed`, `libceed +cuda +openmp` |
+| Inexact Newton, fixed point and Anderson | done in mfem-mgis |
+| Line search, preconditioned L-BFGS | to be written in mfem-mgis |
+| BoomerAMG, MGR, FSAI, ILU, Krylov solvers of hypre | `hypre@3.2.0 +cuda +umpire` |
+| Ginkgo, distributed included | `ginkgo@1.11.0 +cuda +openmp +mpi`, `mfem +ginkgo` |
+| GAMG, SNES, pipelined Krylov | `petsc@3.26.0 +cuda +kokkos +openmp +hypre`, `kokkos-kernels`, `mfem +petsc` |
 | KINSOL | `sundials +cuda +mpi`, `mfem +sundials` |
-| AmgX | `amgx` (commit compatible CUDA 13), `mfem +amgx` |
+| AmgX | `amgx` (commit compatible with CUDA 13), `mfem +amgx` |
 | cuDSS | `cudss@0.7.1-13 +mpi`, `mfem +cudss` |
-| SuperLU_DIST, STRUMPACK sur GPU | `superlu-dist +cuda`, `strumpack +cuda`, `mfem +superlu-dist +strumpack` |
-| MPI compatible GPU | `openmpi@5 +cuda` (hwloc interne sans OpenCL) |
-| Pools mémoire | `umpire +cuda`, `mfem +umpire`, `hypre +umpire` |
-| Solveurs directs CPU de mfem-mgis | `mfem +mumps +suite-sparse` |
+| SuperLU_DIST, STRUMPACK on GPU | `superlu-dist +cuda`, `strumpack +cuda`, `mfem +superlu-dist +strumpack` |
+| GPU-aware MPI | `openmpi@5 +cuda` (internal hwloc without OpenCL) |
+| Memory pools | `umpire +cuda`, `mfem +umpire`, `hypre +umpire` |
+| CPU direct solvers of mfem-mgis | `mfem +mumps +suite-sparse` |
 
-Pas encore dans l'environnement : Caliper, hypre `+gpu-profiling`, hypre
-en précision mixte, MueLu, Ratel (qui demande PETSc 3.24).
+Not yet in the environment: Caliper, hypre `+gpu-profiling`, hypre
+in mixed precision, MueLu, Ratel (which requires PETSc 3.24).
 
 ## Sources
 
-- Sources de MFEM 4.9.0 et 4.10.0 (archives de la recette spack, sommes de
-  contrôle vérifiées) : `linalg/hypre.cpp` (`SetDefaultOptions`,
+- Sources of MFEM 4.9.0 and 4.10.0 (archives of the spack recipe,
+  checksums verified): `linalg/hypre.cpp` (`SetDefaultOptions`,
   `SetSystemsOptions`, `SetElasticityOptions`), `linalg/ginkgo.hpp`,
-  `linalg/amgxsolver.hpp` et `.cpp`, `linalg/sundials.hpp`,
+  `linalg/amgxsolver.hpp` and `.cpp`, `linalg/sundials.hpp`,
   `linalg/strumpack.hpp`, `linalg/solvers.hpp`, `linalg/cudss.hpp` (4.10),
   `miniapps/hooke`, `miniapps/diag-smoothers`, `CHANGELOG`, `INSTALL`.
-- hypre : `CHANGELOG` de la version 3.2.0, `src/parcsr_ls/HYPRE_parcsr_ls.h`
-  (3.2.0), documentation de BoomerAMG (options GPU).
-- Ginkgo : `CHANGELOG.md` de la version 1.11.0.
-- PETSc 3.24.6 et 3.26.0 : `config/BuildSystem/config/packages/kokkos.py`
-  et `kokkos-kernels.py`.
-- AmgX : historique de la branche principale (corrections CUDA 13 de
-  janvier et juillet 2026, après la version 2.5.0 de décembre 2025).
-- mfem-mgis : `src/LinearSolverFactory.cxx` (stratégies de BoomerAMG),
+- hypre: `CHANGELOG` of version 3.2.0, `src/parcsr_ls/HYPRE_parcsr_ls.h`
+  (3.2.0), documentation of BoomerAMG (GPU options).
+- Ginkgo: `CHANGELOG.md` of version 1.11.0.
+- PETSc 3.24.6 and 3.26.0: `config/BuildSystem/config/packages/kokkos.py`
+  and `kokkos-kernels.py`.
+- AmgX: history of the main branch (CUDA 13 fixes of
+  January and July 2026, after version 2.5.0 of December 2025).
+- mfem-mgis: `src/LinearSolverFactory.cxx` (strategies of BoomerAMG),
   `src/NewtonSolver.cxx`, `src/NonLinearSolverBase.cxx`,
-  `src/MultiMaterialNonLinearIntegrator.cxx`, intégrateurs générés, lus le
-  09/10/2026 ; états « fait » et références relus le 13/10/2026 sur
+  `src/MultiMaterialNonLinearIntegrator.cxx`, generated integrators, read on
+  09/10/2026; "done" states and references reviewed again on 13/10/2026 on
   `gpu-proto` b5e7d12fc4.
-- Relecture indépendante de ce document le 09/10/2026 (constats corrigés).
-- Recettes spack du dépôt `spack-packages` au commit `3b7fdffc24`.
-- Ratel : `https://gitlab.com/micromorph/ratel`, arXiv 2204.01722.
+- Independent review of this document on 09/10/2026 (findings corrected).
+- Spack recipes of the repository `spack-packages` at commit `3b7fdffc24`.
+- Ratel: `https://gitlab.com/micromorph/ratel`, arXiv 2204.01722.

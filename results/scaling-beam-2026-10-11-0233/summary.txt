@@ -1,0 +1,57 @@
+date: 2026-10-11 02:33:01
+case: beam
+machine: 16 cores, 30 GB
+load: 1.03 3.71 4.22
+mfem-mgis: e03fd927f7
+== beam-r3-gpu-amg-aggressive: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+dofs 15795 | nls fixed-point | ls pcg-amg | ||u|| 18.38573624 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 0.644 s
+   memory of the GPU at most 5928 MiB
+== beam-r3-gpu-amgx-simple: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+dofs 15795 | nls fixed-point | ls pcg-amg | ||u|| 18.38573629 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 0.473 s
+   memory of the GPU at most 6382 MiB
+== beam-r3-np8-amg-aggressive: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+dofs 15795 | nls fixed-point | ls pcg-amg | ||u|| 18.3857363 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 1.213 s
+== beam-r4-gpu-amg-aggressive: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704605 | iterations per step: 2 2 2 3 4 4 4 5 4 4 | total 34
+time 1.776 s
+   memory of the GPU at most 5928 MiB
+== beam-r4-gpu-amgx-simple: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704556 | iterations per step: 2 2 2 4 4 4 4 5 5 5 | total 37
+time 1.528 s
+   memory of the GPU at most 6524 MiB
+== beam-r4-np8-amg-aggressive: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704598 | iterations per step: 2 2 2 3 4 4 4 5 4 4 | total 34
+time 9.730 s
+== beam-r5-gpu-amg-aggressive: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+dofs 839619 | nls fixed-point | ls pcg-amg | ||u|| 133.6958486 | iterations per step: 2 2 2 4 4 4 5 4 5 5 | total 37
+time 9.469 s
+   memory of the GPU at most 7978 MiB
+== beam-r5-gpu-amgx-simple: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+dofs 839619 | nls fixed-point | ls pcg-amg | ||u|| 133.6958495 | iterations per step: 2 2 2 4 4 4 4 4 4 4 | total 34
+time 11.887 s
+   memory of the GPU at most 9374 MiB
+== beam-r5-np8-amg-aggressive: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+dofs 839619 | nls fixed-point | ls pcg-amg | ||u|| 133.6958479 | iterations per step: 2 2 2 3 4 4 5 5 4 5 | total 36
+time 123.553 s
+== CPU rerun, load 1.13 2.44 3.60
+== beam-r3-np8-amg-aggressive-rerun: status 0, load 1.12 2.42 3.59
+dofs 15795 | nls fixed-point | ls pcg-amg | ||u|| 18.3857363 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 1.209 s
+== beam-r4-np8-amg-aggressive-rerun: status 0, load 2.41 2.65 3.65
+dofs 111843 | nls fixed-point | ls pcg-amg | ||u|| 48.83704598 | iterations per step: 2 2 2 3 4 4 4 5 4 4 | total 34
+time 9.610 s
+== beam-r5-np8-amg-aggressive-rerun: status 0, load 8.08 4.78 4.31
+dofs 839619 | nls fixed-point | ls pcg-amg | ||u|| 133.6958479 | iterations per step: 2 2 2 3 4 4 5 5 4 5 | total 36
+time 121.338 s

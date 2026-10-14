@@ -220,9 +220,12 @@ set(MFEM_HYPRE_VERSION ${HYPRE_VERSION})
 add_compile_definitions(MFEM_HYPRE_VERSION=${MFEM_HYPRE_VERSION})
 # in single precision, hypre must be built with its internal LAPACK: with an
 # external LAPACK, hypre 3.2.0 calls the LAPACK routines of the double type
-# on float arrays (ParaSails, Gaussian elimination 99 and 199 of BoomerAMG,
-# Schwarz, FSAI, MGR, AIR, LOBPCG). Checked again at each configuration
+# on float arrays (ParaSails, Gaussian elimination 98, 99, 198 and 199 of
+# BoomerAMG, Schwarz, FSAI, MGR, AIR, AME, LOBPCG). Checked again at each
+# configuration
 if(MFEM_USE_MPI AND (MFEM_MGIS_REAL_TYPE STREQUAL "float"))
+  include(CMakePushCheckState)
+  cmake_push_check_state(RESET)
   set(CMAKE_REQUIRED_INCLUDES ${HYPRE_INCLUDE_DIRS})
   set(CMAKE_REQUIRED_QUIET ON)
   unset(MFEM_MGIS_HYPRE_LAPACK_MATCHES_REAL_TYPE CACHE)
@@ -232,8 +235,7 @@ if(MFEM_USE_MPI AND (MFEM_MGIS_REAL_TYPE STREQUAL "float"))
 #error "hypre in single precision with an external LAPACK"
 #endif
 int main() { return 0; }]] MFEM_MGIS_HYPRE_LAPACK_MATCHES_REAL_TYPE)
-  unset(CMAKE_REQUIRED_INCLUDES)
-  unset(CMAKE_REQUIRED_QUIET)
+  cmake_pop_check_state()
   if(NOT MFEM_MGIS_HYPRE_LAPACK_MATCHES_REAL_TYPE)
     message(WARNING "mfem-mgis: hypre is built in single precision with an "
             "external LAPACK, whose routines of the double type it calls on "

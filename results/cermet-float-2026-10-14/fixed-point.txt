@@ -1,4 +1,4 @@
-# double, pas de 0,2 s, exécutable de la CI, 1 processus (test)
+# double, step of 0.2 s, executable of the CI, 1 process (test)
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78048e+07
 Fixed Point iteration 1 : |res| = 664228
@@ -9,7 +9,7 @@ Fixed Point iteration 0 : |res| = 2.5609e+06
 Fixed Point iteration 1 : |res| = 30883.8
 Fixed Point iteration 2 : |res| = 4359.47
 
-# double, pas de 0,1 s, exécutable de la CI, 1 processus
+# double, step of 0.1 s, executable of the CI, 1 process
 Solving time step from  0  to  0.1
 Fixed Point iteration 0 : |res| = 8.65991e+06
 Fixed Point iteration 1 : |res| = 555999
@@ -28,7 +28,7 @@ Fixed Point iteration 0 : |res| = 579019
 Fixed Point iteration 1 : |res| = 11416.4
 Fixed Point iteration 2 : |res| = 556.529
 
-# float, exécutable de la CI, 1 processus, loi gcc 13, seuil 1e4 Pa
+# float, executable of the CI, 1 process, behaviour gcc 13, threshold 1e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669378
@@ -64,7 +64,7 @@ Fixed Point iteration 0 : |res| = 2.28182e+06
 Fixed Point iteration 1 : |res| = 24676.2
 Fixed Point iteration 2 : |res| = 8407.19
 
-# float, exécutable de la CI, 1 processus, loi gcc 14, seuil 1e4 Pa
+# float, executable of the CI, 1 process, behaviour gcc 14, threshold 1e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669379
@@ -100,7 +100,7 @@ Fixed Point iteration 0 : |res| = 2.28195e+06
 Fixed Point iteration 1 : |res| = 24662.6
 Fixed Point iteration 2 : |res| = 8325
 
-# float, exécutable de la CI, 1 processus, loi gcc 13, seuil 2e4 Pa
+# float, executable of the CI, 1 process, behaviour gcc 13, threshold 2e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669378
@@ -111,7 +111,7 @@ Fixed Point iteration 0 : |res| = 2.54688e+06
 Fixed Point iteration 1 : |res| = 28726
 Fixed Point iteration 2 : |res| = 10077.5
 
-# float, exécutable de la CI, 1 processus, loi gcc 14, seuil 2e4 Pa
+# float, executable of the CI, 1 process, behaviour gcc 14, threshold 2e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669379
@@ -122,7 +122,7 @@ Fixed Point iteration 0 : |res| = 2.54708e+06
 Fixed Point iteration 1 : |res| = 28720.5
 Fixed Point iteration 2 : |res| = 10018.1
 
-# float, exécutable de la CI, 1 processus, loi gcc 13, seuil 3e4 Pa
+# float, executable of the CI, 1 process, behaviour gcc 13, threshold 3e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669378
@@ -132,7 +132,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.54688e+06
 Fixed Point iteration 1 : |res| = 28726
 
-# float, exécutable de la CI, 1 processus, loi gcc 14, seuil 3e4 Pa
+# float, executable of the CI, 1 process, behaviour gcc 14, threshold 3e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669379
@@ -142,7 +142,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.54708e+06
 Fixed Point iteration 1 : |res| = 28720.5
 
-# float, exécutable de la CI, 1 processus, loi gcc 13, seuil 5e4 Pa
+# float, executable of the CI, 1 process, behaviour gcc 13, threshold 5e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669378
@@ -151,7 +151,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.5781e+06
 Fixed Point iteration 1 : |res| = 28733.5
 
-# float, exécutable de la CI, 1 processus, loi gcc 14, seuil 5e4 Pa
+# float, executable of the CI, 1 process, behaviour gcc 14, threshold 5e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669379
@@ -160,7 +160,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.57799e+06
 Fixed Point iteration 1 : |res| = 28796.2
 
-# float, exécutable de la CI, 2 processus, loi gcc 13, seuil 1e4 Pa
+# float, executable of the CI, 2 processes, behaviour gcc 13, threshold 1e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669445
@@ -196,7 +196,7 @@ Fixed Point iteration 0 : |res| = 2.2819e+06
 Fixed Point iteration 1 : |res| = 24637.9
 Fixed Point iteration 2 : |res| = 8413.76
 
-# float, exécutable de la CI, 2 processus, loi gcc 14, seuil 1e4 Pa
+# float, executable of the CI, 2 processes, behaviour gcc 14, threshold 1e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669437
@@ -232,7 +232,7 @@ Fixed Point iteration 0 : |res| = 2.28205e+06
 Fixed Point iteration 1 : |res| = 24706.7
 Fixed Point iteration 2 : |res| = 8487.53
 
-# float, exécutable de la CI, 2 processus, loi gcc 13, seuil 2e4 Pa
+# float, executable of the CI, 2 processes, behaviour gcc 13, threshold 2e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669445
@@ -243,7 +243,7 @@ Fixed Point iteration 0 : |res| = 2.54732e+06
 Fixed Point iteration 1 : |res| = 28783.8
 Fixed Point iteration 2 : |res| = 9921.74
 
-# float, exécutable de la CI, 2 processus, loi gcc 14, seuil 2e4 Pa
+# float, executable of the CI, 2 processes, behaviour gcc 14, threshold 2e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669437
@@ -254,7 +254,7 @@ Fixed Point iteration 0 : |res| = 2.54714e+06
 Fixed Point iteration 1 : |res| = 28770.5
 Fixed Point iteration 2 : |res| = 10005.4
 
-# float, exécutable de la CI, 2 processus, loi gcc 13, seuil 3e4 Pa
+# float, executable of the CI, 2 processes, behaviour gcc 13, threshold 3e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669445
@@ -264,7 +264,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.54732e+06
 Fixed Point iteration 1 : |res| = 28783.8
 
-# float, exécutable de la CI, 2 processus, loi gcc 14, seuil 3e4 Pa
+# float, executable of the CI, 2 processes, behaviour gcc 14, threshold 3e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669437
@@ -274,7 +274,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.54714e+06
 Fixed Point iteration 1 : |res| = 28770.5
 
-# float, exécutable de la CI, 2 processus, loi gcc 13, seuil 5e4 Pa
+# float, executable of the CI, 2 processes, behaviour gcc 13, threshold 5e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669445
@@ -283,7 +283,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.57795e+06
 Fixed Point iteration 1 : |res| = 28773.6
 
-# float, exécutable de la CI, 2 processus, loi gcc 14, seuil 5e4 Pa
+# float, executable of the CI, 2 processes, behaviour gcc 14, threshold 5e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669437
@@ -292,7 +292,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.57795e+06
 Fixed Point iteration 1 : |res| = 28749
 
-# float, exécutable float du prototype, 2 processus, loi gcc 13, seuil 1e4 Pa
+# float, float executable of the prototype, 2 processes, behaviour gcc 13, threshold 1e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.7836e+07
 Fixed Point iteration 1 : |res| = 664872
@@ -305,7 +305,7 @@ Fixed Point iteration 0 : |res| = 2.53653e+06
 Fixed Point iteration 1 : |res| = 29991
 Fixed Point iteration 2 : |res| = 5167.38
 
-# float, exécutable float du prototype, 2 processus, loi gcc 14, seuil 1e4 Pa
+# float, float executable of the prototype, 2 processes, behaviour gcc 14, threshold 1e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.7836e+07
 Fixed Point iteration 1 : |res| = 664856
@@ -341,7 +341,7 @@ Fixed Point iteration 0 : |res| = 2.28677e+06
 Fixed Point iteration 1 : |res| = 26521.5
 Fixed Point iteration 2 : |res| = 4062.21
 
-# float, exécutable float du prototype, 2 processus, loi gcc 13, seuil 3e4 Pa
+# float, float executable of the prototype, 2 processes, behaviour gcc 13, threshold 3e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.7836e+07
 Fixed Point iteration 1 : |res| = 664872
@@ -351,7 +351,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.52126e+06
 Fixed Point iteration 1 : |res| = 24025.4
 
-# float, exécutable float du prototype, 2 processus, loi gcc 14, seuil 3e4 Pa
+# float, float executable of the prototype, 2 processes, behaviour gcc 14, threshold 3e4 Pa
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.7836e+07
 Fixed Point iteration 1 : |res| = 664856
@@ -361,7 +361,7 @@ Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.52123e+06
 Fixed Point iteration 1 : |res| = 24055.2
 
-# double, pas de 0,2 s, exécutable de la CI, 1 processus, tolérance absolue de l'équilibre microscopique de 6e4 (celle du float)
+# double, step of 0.2 s, executable of the CI, 1 process, absolute tolerance of the microscopic equilibrium of 6e4 (the one of float)
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.77989e+07
 Fixed Point iteration 1 : |res| = 677974
@@ -372,7 +372,7 @@ Fixed Point iteration 0 : |res| = 2.54408e+06
 Fixed Point iteration 1 : |res| = 26198.3
 Fixed Point iteration 2 : |res| = 2039.41
 
-# float, exécutable de la CI, 1 processus, loi gcc 13, tolérance d'au moins deux fois la résolution
+# float, executable of the CI, 1 process, behaviour gcc 13, tolerance of at least twice the resolution
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669378
@@ -384,7 +384,7 @@ Fixed Point iteration 0 : |res| = 2.54688e+06
 Fixed Point iteration 1 : |res| = 28726
 Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
 
-# float, exécutable de la CI, 1 processus, loi gcc 14, tolérance d'au moins deux fois la résolution
+# float, executable of the CI, 1 process, behaviour gcc 14, tolerance of at least twice the resolution
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669379
@@ -396,7 +396,7 @@ Fixed Point iteration 0 : |res| = 2.54708e+06
 Fixed Point iteration 1 : |res| = 28720.5
 Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
 
-# float, exécutable de la CI, 2 processus, loi gcc 13, tolérance d'au moins deux fois la résolution
+# float, executable of the CI, 2 processes, behaviour gcc 13, tolerance of at least twice the resolution
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669445
@@ -408,7 +408,7 @@ Fixed Point iteration 0 : |res| = 2.54732e+06
 Fixed Point iteration 1 : |res| = 28783.8
 Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
 
-# float, exécutable de la CI, 2 processus, loi gcc 14, tolérance d'au moins deux fois la résolution
+# float, executable of the CI, 2 processes, behaviour gcc 14, tolerance of at least twice the resolution
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.78316e+07
 Fixed Point iteration 1 : |res| = 669437
@@ -420,7 +420,7 @@ Fixed Point iteration 0 : |res| = 2.54714e+06
 Fixed Point iteration 1 : |res| = 28770.5
 Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
 
-# float, exécutable float du prototype, 2 processus, loi gcc 13, tolérance d'au moins deux fois la résolution
+# float, float executable of the prototype, 2 processes, behaviour gcc 13, tolerance of at least twice the resolution
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.7836e+07
 Fixed Point iteration 1 : |res| = 664872
@@ -432,7 +432,7 @@ Fixed Point iteration 0 : |res| = 2.52126e+06
 Fixed Point iteration 1 : |res| = 24025.4
 Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
 
-# float, exécutable float du prototype, 2 processus, loi gcc 14, tolérance d'au moins deux fois la résolution
+# float, float executable of the prototype, 2 processes, behaviour gcc 14, tolerance of at least twice the resolution
 Solving time step from  0  to  0.2
 Fixed Point iteration 0 : |res| = 1.7836e+07
 Fixed Point iteration 1 : |res| = 664856

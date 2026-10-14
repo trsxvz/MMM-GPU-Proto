@@ -1,55 +1,55 @@
-== grandes transformations, hexaèdres Q1 27 points (r5), mfem-mgis positions: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t finite-strain
+== finite strain, Q1 hexahedra 27 points (r5), mfem-mgis positions: ./assembly --device cuda -m cube.mesh -r 5 -n 10 -t finite-strain
 elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (9.956 ms)
 assembly without positions: median 63.99 ms, minimum 63.31 ms
 assembly with positions: median 64.53 ms, minimum 62.98 ms
 ratio of the medians 0.9916, maximum difference 6.939e-18 (maximum value 0.02789)
-== grandes transformations, hexaèdres Q1 27 points (r5), mfem-mgis registres: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t finite-strain
+== finite strain, Q1 hexahedra 27 points (r5), mfem-mgis registers: ./assembly --device cuda -m cube.mesh -r 5 -n 10 -t finite-strain
 elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (10.32 ms)
 assembly without positions: median 36.86 ms, minimum 36.3 ms
 assembly with positions: median 36.72 ms, minimum 36.39 ms
 ratio of the medians 1.004, maximum difference 1.041e-17 (maximum value 0.02789)
-   VALEURS DIFFÉRENTES
-== petites déformations, hexaèdres Q1 27 points (r5), mfem-mgis positions: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
+   DIFFERENT VALUES
+== small strain, Q1 hexahedra 27 points (r5), mfem-mgis positions: ./assembly --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
 elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (10.3 ms)
 assembly without positions: median 47.74 ms, minimum 46.08 ms
 assembly with positions: median 47.42 ms, minimum 45.94 ms
 ratio of the medians 1.007, maximum difference 1.301e-18 (maximum value 0.004256)
-== petites déformations, hexaèdres Q1 27 points (r5), mfem-mgis registres: ./assemblage --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
+== small strain, Q1 hexahedra 27 points (r5), mfem-mgis registers: ./assembly --device cuda -m cube.mesh -r 5 -n 10 -t mechanics
 elements 32768, degrees of freedom per element 24, entries 8214057, positions 37.75 MB (10.25 ms)
 assembly without positions: median 34.23 ms, minimum 33.99 ms
 assembly with positions: median 34.18 ms, minimum 34 ms
 ratio of the medians 1.001, maximum difference 1.301e-18 (maximum value 0.004256)
-   VALEURS DIFFÉRENTES
-== poutre, tétraèdres P1 (r5), mfem-mgis positions: ./assemblage --device cuda -r 5 -n 10 -t mechanics
+   DIFFERENT VALUES
+== beam, P1 tetrahedra (r5), mfem-mgis positions: ./assembly --device cuda -r 5 -n 10 -t mechanics
 elements 1572864, degrees of freedom per element 12, entries 36494793, positions 453 MB (102.2 ms)
 assembly without positions: median 40.93 ms, minimum 40.9 ms
 assembly with positions: median 40.68 ms, minimum 40.64 ms
 ratio of the medians 1.006, maximum difference 3.469e-17 (maximum value 0.0697)
-== poutre, tétraèdres P1 (r5), mfem-mgis registres: ./assemblage --device cuda -r 5 -n 10 -t mechanics
+== beam, P1 tetrahedra (r5), mfem-mgis registers: ./assembly --device cuda -r 5 -n 10 -t mechanics
 elements 1572864, degrees of freedom per element 12, entries 36494793, positions 453 MB (102.1 ms)
 assembly without positions: median 33.97 ms, minimum 33.94 ms
 assembly with positions: median 33.95 ms, minimum 33.89 ms
 ratio of the medians 1.001, maximum difference 3.469e-17 (maximum value 0.0697)
-   VALEURS DIFFÉRENTES
-== grandes transformations, tétraèdres P2 (r4), mfem-mgis positions: ./assemblage --device cuda -r 4 -o 2 -n 10 -t finite-strain
+   DIFFERENT VALUES
+== finite strain, P2 tetrahedra (r4), mfem-mgis positions: ./assembly --device cuda -r 4 -o 2 -n 10 -t finite-strain
 elements 196608, degrees of freedom per element 30, entries 69643017, positions 353.9 MB (100.6 ms)
 assembly without positions: median 140.5 ms, minimum 140.4 ms
 assembly with positions: median 135.6 ms, minimum 135.5 ms
 ratio of the medians 1.036, maximum difference 5.551e-17 (maximum value 0.2628)
-== grandes transformations, tétraèdres P2 (r4), mfem-mgis registres: ./assemblage --device cuda -r 4 -o 2 -n 10 -t finite-strain
+== finite strain, P2 tetrahedra (r4), mfem-mgis registers: ./assembly --device cuda -r 4 -o 2 -n 10 -t finite-strain
 elements 196608, degrees of freedom per element 30, entries 69643017, positions 353.9 MB (99.03 ms)
 assembly without positions: median 87.58 ms, minimum 87.44 ms
 assembly with positions: median 87.61 ms, minimum 87.39 ms
 ratio of the medians 0.9997, maximum difference 5.551e-17 (maximum value 0.2628)
-   VALEURS DIFFÉRENTES
-== thermique, tétraèdres P1 (r5), mfem-mgis positions: ./assemblage --device cuda -r 5 -n 10 -t thermal
+   DIFFERENT VALUES
+== thermal, P1 tetrahedra (r5), mfem-mgis positions: ./assembly --device cuda -r 5 -n 10 -t thermal
 elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (11.57 ms)
 assembly without positions: median 14.74 ms, minimum 14.72 ms
 assembly with positions: median 14.72 ms, minimum 14.71 ms
 ratio of the medians 1.001, maximum difference 4.857e-17 (maximum value 0.1074)
-== thermique, tétraèdres P1 (r5), mfem-mgis registres: ./assemblage --device cuda -r 5 -n 10 -t thermal
+== thermal, P1 tetrahedra (r5), mfem-mgis registers: ./assembly --device cuda -r 5 -n 10 -t thermal
 elements 1572864, degrees of freedom per element 4, entries 4054977, positions 50.33 MB (11.69 ms)
 assembly without positions: median 15.51 ms, minimum 15.5 ms
 assembly with positions: median 15.55 ms, minimum 15.53 ms
 ratio of the medians 0.9971, maximum difference 4.163e-17 (maximum value 0.1074)
-   VALEURS DIFFÉRENTES
+   DIFFERENT VALUES

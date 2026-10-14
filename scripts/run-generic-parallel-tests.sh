@@ -1,17 +1,17 @@
 #!/bin/bash
-# Lance les tests installés de l'interface generic-parallel (lois et
-# propriétés matériau) pour toutes les configurations, dans une copie
-# jetable (scratch/tc par défaut), avec l'environnement de scripts/env.sh.
-# Usage : scripts/run-generic-parallel-tests.sh [motif de configuration]
-# Variables :
-# - GPB_OPTIMIZATION_LEVEL (par exemple -O1 ou -O3) : remplace -O2 dans les
-#   fichiers de configuration (copiés dans chaque dossier de test, où MFront
-#   les cherche en premier) et dans les commandes des tests ;
-# - GPB_TESTS_DIRECTORY : dossier de la copie des tests.
+# Runs the installed tests of the generic-parallel interface (behaviours
+# and material properties) for all the configurations, in a disposable
+# copy (scratch/tc by default), with the environment of scripts/env.sh.
+# Usage: scripts/run-generic-parallel-tests.sh [configuration pattern]
+# Variables:
+# - GPB_OPTIMIZATION_LEVEL (for example -O1 or -O3): replaces -O2 in the
+#   configuration files (copied in each test directory, where MFront looks
+#   for them first) and in the commands of the tests;
+# - GPB_TESTS_DIRECTORY: directory of the copy of the tests.
 set -u
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
-# MFront appelle make, qui lit MAKEFLAGS : compilation des lois en parallèle
-# (6 compilations GPU simultanées tiennent dans 30 Go de mémoire)
+# MFront calls make, which reads MAKEFLAGS: the behaviours are compiled in
+# parallel (6 simultaneous GPU compilations fit in 30 GB of memory)
 export MAKEFLAGS=${MAKEFLAGS:--j6}
 T=${GPB_TESTS_DIRECTORY:-$PROTO/scratch/tc}
 level=${GPB_OPTIMIZATION_LEVEL:-}

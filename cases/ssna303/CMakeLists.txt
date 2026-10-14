@@ -19,22 +19,22 @@ if(_usable)
   set(_run mpirun -n 2 ./ssna303_3d_hypre --no-paraview --nbsteps 1
            --end-time 0.1 --reference-file ssna303_3d-force-10steps.ref)
   set(_kernels "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
-  add_test(NAME ssna303-point-par-point COMMAND ${_run}
+  add_test(NAME ssna303-point-by-point COMMAND ${_run}
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
-  add_test(NAME ssna303-noyaux COMMAND ${_run}
+  add_test(NAME ssna303-kernels COMMAND ${_run}
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
-  set_tests_properties(ssna303-noyaux PROPERTIES
+  set_tests_properties(ssna303-kernels PROPERTIES
     ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}")
   # FBar formulation: point by point, and by kernels on the host and on the
   # GPU, compared to the reference values of the example with FBar
   set(_run_fbar mpirun -n 2 ./ssna303_3d_hypre --no-paraview --nbsteps 1
                 --end-time 0.1 --use-fbar
                 --reference-file ssna303_3d-force-10steps-fbar.ref)
-  add_test(NAME ssna303-fbar-point-par-point COMMAND ${_run_fbar}
+  add_test(NAME ssna303-fbar-point-by-point COMMAND ${_run_fbar}
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
-  add_test(NAME ssna303-fbar-noyaux COMMAND ${_run_fbar}
+  add_test(NAME ssna303-fbar-kernels COMMAND ${_run_fbar}
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
-  set_tests_properties(ssna303-fbar-noyaux PROPERTIES
+  set_tests_properties(ssna303-fbar-kernels PROPERTIES
     ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}")
   foreach(_backend ${ssna303-behaviours_BACKENDS})
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")

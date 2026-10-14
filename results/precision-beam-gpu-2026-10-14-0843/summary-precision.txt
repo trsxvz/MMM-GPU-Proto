@@ -1,5 +1,5 @@
-calcul                                  n   min (s)   médiane  itér.          ||u||     écart
-double-critere-1e-4                     3     1.846     1.854     16    48.83716422          
-float-critere-1e-4                      3     1.350     1.354     16    48.83581924  2.75e-05
-  double / float (temps minimaux)           1.37
-double-critere-du-cas                   3     2.885     2.936     32    48.83704586          
+computation                             n   min (s)    median  iter.          ||u||       gap
+double-criterion-1e-4                   3     1.846     1.854     16    48.83716422          
+float-criterion-1e-4                    3     1.350     1.354     16    48.83581924  2.75e-05
+  double / float (minimum times)            1.37
+double-case-criterion                   3     2.885     2.936     32    48.83704586          

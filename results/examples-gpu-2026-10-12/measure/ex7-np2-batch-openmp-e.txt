@@ -3,7 +3,7 @@ Warning: program compiled against libxml 213 using older 209
 Warning: program compiled against libxml 213 using older 209
 Options used:
    --mesh mesh/OneSphere.msh
-   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas-post/ex7/generic-parallel-openmp/src/libGenericParallelBehaviour-openmp.so
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cases-post/ex7/generic-parallel-openmp/src/libGenericParallelBehaviour-openmp.so
    --order 2
    --refinement 0
    --nbsteps 40

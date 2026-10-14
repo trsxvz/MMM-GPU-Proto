@@ -1,38 +1,37 @@
-# cuDSS sur le polycristal (12/10/2026)
+# cuDSS on the polycrystal (12/10/2026)
 
-Polycristal de mm-opera-hpc (5 grains, loi de monocristal de l'UO2 en
-grandes transformations, cellule périodique, traction uniaxiale, 20 553
-inconnues, éléments linéaires, 10 pas), tout par noyaux, loi cuda, un
-processus sur le GPU (cœurs 0 à 3). mfem-mgis 429f76ded3
-(`install/mfem-mgis-mumps`), construction `build/mm-opera-hpc-cudss`
-(seul `uniaxial-polycrystal`). Option `--reuse-analysis` et solveurs
-directs `MUMPSSolver` et `CuDSSSolver` ajoutés à l'option
-`--linear-solver` du polycristal (matrices non symétriques). Deux passages
-(commandes dans `measure.sh`, contraintes macroscopiques dans `*.res`).
-La charge de la machine valait 3,3 au premier passage et 2 au second (une
-autre session déboguait sur les cœurs 12 à 15) ; les deux passages
-concordent à 1 % près. Temps totaux, en secondes :
+Polycrystal of mm-opera-hpc (5 grains, single crystal behaviour of UO2 in
+finite strain, periodic cell, uniaxial tension, 20,553 unknowns, linear
+elements, 10 steps), everything by kernels, cuda behaviour, one process on
+the GPU (cores 0 to 3). mfem-mgis 429f76ded3 (`install/mfem-mgis-mumps`),
+build `build/mm-opera-hpc-cudss` (only `uniaxial-polycrystal`). Option
+`--reuse-analysis` and direct solvers `MUMPSSolver` and `CuDSSSolver`
+added to the option `--linear-solver` of the polycrystal (non symmetric
+matrices). Two passes (commands in `measure.sh`, macroscopic stresses in
+`*.res`). The load of the machine was 3.3 in the first pass and 2 in the
+second (another session was debugging on cores 12 to 15). The two passes
+agree within 1 %. Total times, in seconds:
 
-| Méthode | Solveur | Temps |
+| Method | Solver | Time |
 |---|---|---|
-| Newton | HyprePCG et BoomerAMG (hypre sur le GPU) | 11,46 et 11,44 |
-| NewtonK0, tolérance d'Eisenstat et Walker | gradient conjugué et BoomerAMG construit sur K0 | 8,78 et 8,76 |
-| Newton | cuDSS, analyse réutilisée, hypre sur le GPU | 19,12 et 19,11 |
-| Newton | cuDSS, analyse réutilisée, hypre sur l'hôte | 19,30 et 19,26 |
+| Newton | HyprePCG and BoomerAMG (hypre on the GPU) | 11.46 and 11.44 |
+| NewtonK0, Eisenstat and Walker tolerance | conjugate gradient and BoomerAMG built on K0 | 8.78 and 8.76 |
+| Newton | cuDSS, analysis reused, hypre on the GPU | 19.12 and 19.11 |
+| Newton | cuDSS, analysis reused, hypre on the host | 19.30 and 19.26 |
 
-- cuDSS ne paie pas sur ce cas : une factorisation prend 132 ms (12,9 s
-  pour 98), contre 57 ms pour une résolution par PCG et BoomerAMG (5,6 s
-  pour 98). La réutilisation de l'analyse fonctionne (essai court sur deux
-  pas : 134 ms par factorisation avec, 222 ms sans), mais la factorisation
-  numérique de cette matrice coûte cher : la cellule périodique relie les
-  faces opposées, et la matrice est non symétrique.
-- À taille voisine, la matrice mécanique d'ex8 (28 548 inconnues, non
-  périodique, symétrique définie positive) se factorise en 24 ms
+- cuDSS does not pay off on this case: one factorisation takes 132 ms
+  (12.9 s for 98), against 57 ms for one solve by PCG and BoomerAMG (5.6 s
+  for 98). The reuse of the analysis works (short trial over two steps:
+  134 ms per factorisation with it, 222 ms without), but the numerical
+  factorisation of this matrix is expensive: the periodic cell links the
+  opposite faces, and the matrix is non symmetric.
+- At a similar size, the mechanical matrix of ex8 (28,548 unknowns, non
+  periodic, symmetric positive definite) is factorised in 24 ms
   (`results/cudss-2026-10-12`).
-- Mêmes contraintes macroscopiques avec cuDSS et avec PCG (écart relatif
-  2,6e-9). NewtonK0 avec Eisenstat et Walker s'écarte de Newton d'environ
-  1e-6 sur la contrainte axiale (quelques pascals sur les contraintes
-  transverses, presque nulles).
-- La meilleure variante reste NewtonK0 avec la tolérance d'Eisenstat et
-  Walker (8,8 s ; 9,6 s le 10/10 avec mfem-mgis 4b72095ee0,
+- Same macroscopic stresses with cuDSS and with PCG (relative gap
+  2.6e-9). NewtonK0 with Eisenstat and Walker departs from Newton by about
+  1e-6 on the axial stress (a few pascals on the transverse stresses,
+  which are almost zero).
+- The best variant stays NewtonK0 with the Eisenstat and Walker tolerance
+  (8.8 s; 9.6 s on 10/10 with mfem-mgis 4b72095ee0,
   `results/L5-polycrystal-2026-10-10-0502`).

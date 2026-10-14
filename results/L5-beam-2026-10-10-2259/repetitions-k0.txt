@@ -1,5 +1,5 @@
-# poutre-k0 -r 4 -n 5 --device cuda, trois exécutions par solveur (11/10/2026, mfem-mgis 309849dff3)
-# temps et itérations des résolutions hors la première
+# beam-k0 -r 4 -n 5 --device cuda, three runs per solver (11/10/2026, mfem-mgis 309849dff3)
+# time and iterations of the solutions except the first one
 == -s cg-amg
  time 0.08867 s   iterations 70 ; time 0.06936 s   iterations 70 ; time 0.07896 s   iterations 70 ; time 0.08496 s   iterations 70 ; time 0.08335 s   iterations 70 ;
 == -s cg-amgx -amgxs -amgxo strength_threshold=0.8,interpolator=MULTIPASS

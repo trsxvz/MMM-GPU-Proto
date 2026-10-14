@@ -8,8 +8,8 @@
 P=$(cd "$(dirname "$0")/../.." && pwd)
 source $P/scripts/env.sh > /dev/null
 out=$P/results/ordered-assembly-2026-10-12
-L=$P/build/cas/poutre/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
-cd $P/build/cas-ordered/poutre
+L=$P/build/cases/beam/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+cd $P/build/cases-ordered/beam
 export OMP_NUM_THREADS=1 MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch \
   MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels \
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels \
@@ -24,9 +24,9 @@ for pass in 1 2; do
       esac
       echo "== pass $pass, $variant, $assembly, load $(cut -d ' ' -f 1 /proc/loadavg)"
       MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=$assembly \
-        taskset -c ${CORES:-0-3} timeout 900 mpirun -n 1 ./poutre -r 4 \
+        taskset -c ${CORES:-0-3} timeout 900 mpirun -n 1 ./beam -r 4 \
         -n 10 -mi 3000 -l $L --profiling --device cuda $extra \
-        > $out/poutre-gpu-$variant-$assembly-$pass.txt 2>&1
+        > $out/beam-gpu-$variant-$assembly-$pass.txt 2>&1
       echo "   exit $?"
     done
   done

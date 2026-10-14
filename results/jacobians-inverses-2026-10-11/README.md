@@ -1,35 +1,36 @@
-# Inverses des jacobiennes calculées une fois (11/10/2026)
+# Inverses of the Jacobians computed once (11/10/2026)
 
-Les noyaux n'utilisaient les jacobiennes que par leurs inverses, recalculées
-par chaque fil à chaque point (pour chaque paire de nœuds dans le noyau des
-matrices de rigidité) : 9 divisions et une trentaine de multiplications en
-double précision, lente sur ce GPU. mfem-mgis (branche `jacobiennes`,
-bf7673f4f8) : le noyau de la géométrie range les inverses à la place des
-jacobiennes (même mémoire), les noyaux les lisent.
+The kernels only used the Jacobians through their inverses, recomputed by
+each thread at each point (for each pair of nodes in the kernel of the
+stiffness matrices): 9 divisions and about thirty multiplications in
+double precision, slow on this GPU. mfem-mgis (branch `jacobians`,
+bf7673f4f8): the kernel of the geometry stores the inverses in place of
+the Jacobians (same memory), and the kernels read them.
 
-Banc `cases/assembly`, installations séparées `install/mfem-mgis-registres`
-(4a007e85f2, avant) et `install/mfem-mgis-jacobiennes` (après), mêmes
-commandes, un cœur (`taskset -c 4`) ou la RTX 5080, machine calme. Temps
-médians de 10 assemblages. Sorties : `gpu.txt`, `host.txt`.
+Bench `cases/assembly`, separate installations
+`install/mfem-mgis-registers` (4a007e85f2, before) and
+`install/mfem-mgis-jacobians` (after), same commands, one core
+(`taskset -c 4`) or the RTX 5080, quiet machine. Median times of 10
+assemblies. Outputs: `gpu.txt`, `host.txt`.
 
-GPU (sans positions, chemin par défaut avec un GPU) :
+GPU (without positions, the default path with a GPU):
 
-| Cas | Avant | Après | Gain |
+| Case | Before | After | Gain |
 |---|---|---|---|
-| grandes transformations, hexaèdres Q1 27 points (r5) | 31,8 ms | 19,0 ms | ×1,67 |
-| petites déformations, hexaèdres Q1 27 points (r5) | 29,2 ms | 16,3 ms | ×1,79 |
-| poutre, tétraèdres P1 (r5) | 18,1 ms | 8,1 ms | ×2,2 |
-| grandes transformations, tétraèdres P2 (r4) | 52,8 ms | 26,4 ms | ×2,0 |
-| thermique, tétraèdres P1 (r5) | 13,8 ms | 2,3 ms | ×5,9 |
+| finite strain, Q1 hexahedra 27 points (r5) | 31.8 ms | 19.0 ms | ×1.67 |
+| small strain, Q1 hexahedra 27 points (r5) | 29.2 ms | 16.3 ms | ×1.79 |
+| beam, P1 tetrahedra (r5) | 18.1 ms | 8.1 ms | ×2.2 |
+| finite strain, P2 tetrahedra (r4) | 52.8 ms | 26.4 ms | ×2.0 |
+| thermal, P1 tetrahedra (r5) | 13.8 ms | 2.3 ms | ×5.9 |
 
-Écarts entre les deux versions de 1e-17 à 6e-17 pour des valeurs de 4e-3 à
-0,27 : ordre des additions atomiques.
+Gaps between the two versions of 1e-17 to 6e-17 for values of 4e-3 to
+0.27: order of the atomic additions.
 
-Un cœur (avec les positions) : 52,3 contre 51,5 ms (grandes
-transformations), 75,6 contre 72,3 ms (poutre), 116,7 contre 109,7 ms
-(thermique) ; valeurs identiques au bit près. Le chemin de l'hôte
-n'inversait les jacobiennes qu'une fois par point.
+One core (with the positions): 52.3 against 51.5 ms (finite strain), 75.6
+against 72.3 ms (beam), 116.7 against 109.7 ms (thermal); bitwise
+identical values. The host path only inverted the Jacobians once per
+point.
 
-Registres (cuobjdump) : matrices de rigidité de la thermique 3D 56 au lieu
-de 84 (64 avant le lot des matrices sans former B) ; gradients 40 à 46 ;
-le reste inchangé.
+Registers (cuobjdump): stiffness matrices of the 3D thermal 56 instead of
+84 (64 before the work package of the matrices without forming B);
+gradients 40 to 46; the rest unchanged.

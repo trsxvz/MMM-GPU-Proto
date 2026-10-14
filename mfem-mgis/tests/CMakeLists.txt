@@ -153,43 +153,34 @@ if(MFEM_MGIS_HAVE_TFEL)
   # convergence of the Newton solver at the floor of the residual, in float
   # only: with an unreachable relative tolerance, a stagnation of the
   # residual is accepted as convergence (option StagnationRelativeTolerance
-  # of the Newton solver), and the resolution fails when this option is
-  # disabled. The relative tolerance is bounded below by 100 times the
-  # machine epsilon, and the floor of the residual is reached with the finite
-  # strain behaviour (about 3e-4). In double, the residual of these tests
-  # keeps decreasing slowly (factor 0.5 per iteration at 5e-19 of the
-  # initial residual): the floor is not reached in ten iterations
+  # of the Newton solver, whose message is required), and the resolution
+  # fails when this option is disabled. The relative tolerance is bounded
+  # below by 100 times the machine epsilon: the floor of the residual is
+  # reached with the finite strain behaviour (about 3e-4 to 8e-4), not with
+  # the small strain one. In double, the residual of these tests keeps
+  # decreasing slowly (factor 0.5 per iteration at 5e-19 of the initial
+  # residual): the floor is not reached in ten iterations
   if(MFEM_MGIS_REAL_TYPE STREQUAL "float")
-    foreach(behaviour IsotropicLinearHardeningPlasticity
-                      SaintVenantKirchhoffElasticity)
-      if(behaviour STREQUAL "IsotropicLinearHardeningPlasticity")
-        set(isv EquivalentPlasticStrain)
-      else()
-        set(isv EquivalentStrain)
-      endif()
-      add_test(NAME UniaxialTensileTest-Stagnation-${behaviour}
-               COMMAND ./UniaxialTensileTest
-                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
-                       --library $<TARGET_FILE:BehaviourTest>
-                       --behaviour ${behaviour}
-                       --reference-file
-                       ${CMAKE_CURRENT_SOURCE_DIR}/references/${behaviour}.ref
-                       --internal-state-variable ${isv}
-                       --relative-tolerance 1e-30 --no-parallel
-                       --no-post-processing)
-    endforeach()
+    set(_svk_options
+        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+        --library $<TARGET_FILE:BehaviourTest>
+        --behaviour SaintVenantKirchhoffElasticity
+        --internal-state-variable EquivalentStrain
+        --relative-tolerance 1e-30 --no-parallel --no-post-processing)
+    add_test(NAME UniaxialTensileTest-Stagnation-SaintVenantKirchhoffElasticity
+             COMMAND ./UniaxialTensileTest ${_svk_options}
+                     --reference-file
+                     ${CMAKE_CURRENT_SOURCE_DIR}/references/SaintVenantKirchhoffElasticity.ref)
+    set_tests_properties(
+      UniaxialTensileTest-Stagnation-SaintVenantKirchhoffElasticity
+      PROPERTIES PASS_REGULAR_EXPRESSION "accepted as convergence"
+                 FAIL_REGULAR_EXPRESSION "the resolution failed;test failed")
     add_test(NAME UniaxialTensileTest-NoStagnation-SaintVenantKirchhoffElasticity
-             COMMAND ./UniaxialTensileTest
-                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
-                     --library $<TARGET_FILE:BehaviourTest>
-                     --behaviour SaintVenantKirchhoffElasticity
-                     --internal-state-variable EquivalentStrain
-                     --relative-tolerance 1e-30
-                     --stagnation-relative-tolerance 0 --no-parallel
-                     --no-post-processing)
+             COMMAND ./UniaxialTensileTest ${_svk_options}
+                     --stagnation-relative-tolerance 0)
     set_tests_properties(
       UniaxialTensileTest-NoStagnation-SaintVenantKirchhoffElasticity
-      PROPERTIES WILL_FAIL ON)
+      PROPERTIES PASS_REGULAR_EXPRESSION "the resolution failed")
   endif()
 
   # ImposedPressureTest executable

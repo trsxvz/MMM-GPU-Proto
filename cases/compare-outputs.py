@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
-"""Comparaison de deux fichiers de résultats numériques.
+"""Comparison of two files of numerical results.
 
-usage : cases/compare-outputs.py référence fichier [--rtol r] [--atol a]
-        [--groupes g[:r]...] [--csv]
+usage: cases/compare-outputs.py reference file [--rtol r] [--atol a]
+       [--groups g[:r]...] [--csv]
 
-Compare un à un les nombres des deux fichiers, rangés en lignes de
-colonnes (par exemple : temps, composantes du gradient et des contraintes
-macroscopiques). La différence de chaque valeur doit être inférieure à
-atol + rtol * m, m étant la plus grande valeur absolue de son groupe de
-colonnes dans la référence : une composante proche de zéro (une
-contrainte imposée nulle) n'est pas comparée à elle-même. Par défaut,
-chaque colonne forme un groupe ; avec --groupes, des colonnes de même
-nature partagent une échelle, par exemple `--groupes 0 1-3 4-6` pour le
-temps, le gradient et les contraintes : une contrainte transverse nulle en
-théorie (bruit numérique de 1e2 Pa sous un chargement de 1e7 Pa) est
-alors comparée à l'échelle des contraintes. Un groupe peut avoir sa propre
-tolérance relative (`1-3:1e-6`), à la place de --rtol. Une valeur non
-finie (NaN, infini) dans l'un des fichiers est une différence. Avec --csv,
-les valeurs sont séparées par des virgules et la première ligne (les noms
-des colonnes) est ignorée. Affiche la plus grande différence ainsi
-rapportée ; code de retour non nul si les fichiers diffèrent.
+Compares one by one the numbers of the two files, arranged in lines of
+columns (for instance: time, components of the gradient and of the
+macroscopic stresses). The difference of each value must be lower than
+atol + rtol * m, m being the largest absolute value of its group of
+columns in the reference: a component close to zero (a null imposed
+stress) is not compared to itself. By default, each column is a group;
+with --groups, columns of the same nature share a scale, for instance
+`--groups 0 1-3 4-6` for the time, the gradient and the stresses: a
+transverse stress null in theory (numerical noise of 1e2 Pa under a
+loading of 1e7 Pa) is then compared to the scale of the stresses. A group
+may have its own relative tolerance (`1-3:1e-6`), instead of --rtol. A non
+finite value (NaN, infinity) in one of the files is a difference. With
+--csv, the values are separated by commas and the first line (the names
+of the columns) is ignored. Prints the largest difference so scaled; non
+zero exit code if the files differ.
 """
 import argparse
 import math
@@ -40,18 +39,18 @@ def main():
     parser.add_argument("file")
     parser.add_argument("--rtol", type=float, default=1e-10)
     parser.add_argument("--atol", type=float, default=0.0)
-    parser.add_argument("--groupes", nargs="*", default=[],
-                        help="groupes de colonnes partageant une échelle "
-                        "(indices à partir de 0, intervalles i-j), suivis "
-                        "éventuellement de leur tolérance relative (i-j:r)")
+    parser.add_argument("--groups", nargs="*", default=[],
+                        help="groups of columns sharing a scale (indices "
+                        "from 0, intervals i-j), possibly followed by their "
+                        "relative tolerance (i-j:r)")
     parser.add_argument("--csv", action="store_true",
-                        help="valeurs séparées par des virgules, première "
-                        "ligne ignorée")
+                        help="values separated by commas, first line "
+                        "ignored")
     args = parser.parse_args()
     a = read(args.reference, args.csv)
     b = read(args.file, args.csv)
     if len(a) != len(b) or not a or any(len(x) != len(y) for x, y in zip(a, b)):
-        print("formes différentes ou fichier vide")
+        print("different shapes or empty file")
         return 1
     ncolumns = max(len(x) for x in a)
     scale = [0.0] * ncolumns
@@ -59,12 +58,12 @@ def main():
     for x in a:
         for j, v in enumerate(x):
             scale[j] = max(scale[j], abs(v))
-    for g in args.groupes:
+    for g in args.groups:
         interval, _, tolerance = g.partition(":")
         first, _, last = interval.partition("-")
         columns = range(int(first), int(last or first) + 1)
         if any(j >= ncolumns for j in columns):
-            print(f"groupe {g} : colonne absente")
+            print(f"group {g}: missing column")
             return 1
         m = max(scale[j] for j in columns)
         for j in columns:
@@ -83,8 +82,8 @@ def main():
                 ok = False
             if scale[j] != 0:
                 worst = max(worst, d / scale[j])
-    print(f"{n} valeurs, plus grande différence rapportée au maximum de son "
-          f"groupe : {worst:.3e}")
+    print(f"{n} values, largest difference relative to the maximum of its "
+          f"group: {worst:.3e}")
     return 0 if ok else 1
 
 

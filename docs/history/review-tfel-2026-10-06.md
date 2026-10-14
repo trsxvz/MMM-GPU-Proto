@@ -1,573 +1,564 @@
-# Relecture de conception de la branche generic-parallel-behaviours (TFEL)
+# Design review of the branch generic-parallel-behaviours (TFEL)
 
-> Document historique. Relecture indépendante faite le 06/10, sur l'état de
-> la branche à cette date. Tous ses constats ont été traités (phase R1 du
-> [journal](../../JOURNAL.md)). L'état actuel est décrit dans
+> Historical document. Independent review made on 06/10, on the state of
+> the branch at that date. All its findings have been handled (phase R1 of
+> the [log](../../JOURNAL.md)). The current state is described in
 > [tfel.md](../tfel.md).
 
-Date : 2026-10-06. Diff relu : fec0ade99..generic-parallel-behaviours (40 commits, 364 fichiers, +18421/-4875).
+Date: 2026-10-06. Diff reviewed: fec0ade99..generic-parallel-behaviours (40 commits, 364 files, +18421/-4875).
 
-## FICHIERS LUS / RESTANTS
+## FILES READ / REMAINING
 
-LUS :
+READ:
 - DESIGN.md, docs/web/generic-parallel-behaviour-interface.md
 - GenericParallelBehaviour/BatchData.h, Integrate.hxx, GPU.hxx, ParallelSTL.hxx, Kokkos.hxx, OpenMP.hxx, SYCL.hxx, FiniteStrainIntegrators.hxx, ModelIntegrator.hxx
-- diff de GenericBehaviour/Integrate.hxx
+- diff of GenericBehaviour/Integrate.hxx
 - GenericParallelBehaviourInterface.{hxx,cxx}, GenericParallelModelInterface.cxx
-- GenericParallel/Behaviour/* (backends générateurs), DeviceStackSize.hxx
+- GenericParallel/Behaviour/* (generator backends), DeviceStackSize.hxx
 - diff MaterialProperty/* (ParallelSTL, BackendBase, CxxProgrammingModelBackendBase)
-- diff AbstractBehaviourInterface, BehaviourCodeGeneratorBase (.hxx, .cxx en grande partie), GenericModelInterface.hxx
+- diff AbstractBehaviourInterface, BehaviourCodeGeneratorBase (.hxx, .cxx for the most part), GenericModelInterface.hxx
 - MechanicalBehaviour.hxx, TFELConfig.hxx
 - config-*.json, test.check, compare-all.sh, compare-functions.sh, compare-tdls.sh, compare.cxx (structure)
 
 - BehaviourRotationFunctions.hxx, CodeGeneratorUtilities.cxx (diff), MFrontMaterialPropertyInterface.cxx (diff, mfront::device)
-- GenericBehaviour/StressMeasures.hxx, plan de GreenLagrangeStrainIntegrate.hxx
-- include/TFEL : TFELConfig, ConstantObject, TrivialGenTypeBase, GenTypeBase, BoundsCheck, MechanicalBehaviour, GenericFixedSizeArray, TensorViewFromStensor, StensorComputeEigenVectors (commit 9cd913eb2), FiniteStrainBehaviourTangentOperator, tmatrix (change_basis), LinearHomogenizationSchemes, DDIF2Base (échantillons)
+- GenericBehaviour/StressMeasures.hxx, outline of GreenLagrangeStrainIntegrate.hxx
+- include/TFEL: TFELConfig, ConstantObject, TrivialGenTypeBase, GenTypeBase, BoundsCheck, MechanicalBehaviour, GenericFixedSizeArray, TensorViewFromStensor, StensorComputeEigenVectors (commit 9cd913eb2), FiniteStrainBehaviourTangentOperator, tmatrix (change_basis), LinearHomogenizationSchemes, DDIF2Base (samples)
 - cmake/modules/tfel.cmake, ImplicitCodeGeneratorBase (diff), PerformanceProfiling, RungeKuttaDSLBase, BehaviourDSLCommon (diffs)
-- messages des commits de contournement (9cd913eb2, a22a3cff6, 58f4ced56, f008859df, b0d52da8f, 494929641, 1b621828d)
+- messages of the workaround commits (9cd913eb2, a22a3cff6, 58f4ced56, f008859df, b0d52da8f, 494929641, 1b621828d)
 
-RESTANTS : aucun (synthèse classée écrite en fin de fichier)
+REMAINING: none (ranked summary written at the end of the file)
 
-## CONSTATS (au fil de la lecture)
+## FINDINGS (in reading order)
 
 
-### Lot 1 : en-têtes d'exécution (GenericParallelBehaviour/*)
+### Group 1: execution headers (GenericParallelBehaviour/*)
 
-- [MODÉRÉ, duplication] Chaque backend réécrit les mêmes quatre fonctions
-  d'entrée (integrate, executeInitializeFunction, executePostProcessing,
-  rotate) qui ne font que lier `makeApply` : GPU.hxx:280-364,
-  ParallelSTL.hxx:103-203, OpenMP.hxx (même structure), Kokkos.hxx (idem).
-  Environ 100 lignes par backend, documentation comprise. Le code généré
-  pourrait appeler directement `mfront::gpb::integrateBatch<...>(s, d, p,
-  policy, gpu::makeApply(...))` : chaque backend ne fournirait que son
-  `apply`/`makeApply`. La conception annoncée (DESIGN.md, "each backend
-  provides a single primitive") est juste, mais la mise en oeuvre ne va pas
-  au bout.
-- [MODÉRÉ, duplication] SYCL.hxx:369-581 garde ses propres points d'entrée
-  (4 fonctions de 40 à 50 lignes) qui répètent chacun : check, test de la
-  queue, création de DeviceBatchData, transfert, dispatch, copyOutputs. La
-  seule raison est le transfert des champs. On pourrait transférer d'abord,
-  puis appeler `integrateBatch` avec le BatchData transféré. Incohérence
-  mineure : `std::unique_ptr<DeviceBatchData>` pour trois fonctions,
-  `std::optional<DeviceCopies>` pour `rotate` (SYCL.hxx:563).
-- [MODÉRÉ, duplication] Integrate.hxx : `dispatch`, `dispatchInitializeFunction`,
+- [MODERATE, duplication] Each backend rewrites the same four entry
+  functions (integrate, executeInitializeFunction, executePostProcessing,
+  rotate), which only bind `makeApply`: GPU.hxx:280-364,
+  ParallelSTL.hxx:103-203, OpenMP.hxx (same structure), Kokkos.hxx (same).
+  About 100 lines per backend, documentation included. The generated code
+  could call `mfront::gpb::integrateBatch<...>(s, d, p,
+  policy, gpu::makeApply(...))` directly: each backend would only provide
+  its `apply`/`makeApply`. The announced design (DESIGN.md, "each backend
+  provides a single primitive") is right, but the implementation does not
+  go all the way.
+- [MODERATE, duplication] SYCL.hxx:369-581 keeps its own entry points
+  (4 functions of 40 to 50 lines), each of which repeats: check, test of the
+  queue, creation of DeviceBatchData, transfer, dispatch, copyOutputs. The
+  only reason is the transfer of the fields. One could transfer first, then
+  call `integrateBatch` with the transferred BatchData. Minor
+  inconsistency: `std::unique_ptr<DeviceBatchData>` for three functions,
+  `std::optional<DeviceCopies>` for `rotate` (SYCL.hxx:563).
+- [MODERATE, duplication] Integrate.hxx: `dispatch`, `dispatchInitializeFunction`,
   `dispatchPostProcessing` (Integrate.hxx:1081-1092, 1241-1258, 1286-1303)
-  répètent le même aiguillage direct/copie. `PointIntegrator`,
-  `InitializeFunctionExecutor`, `PostProcessingExecutor` répètent les mêmes
-  membres (BatchData, InputFields, parameters, policy). Un aiguillage
-  générique (`std::bool_constant<direct>`) suffirait.
-- [MINEUR, duplication] Integrate.hxx:110-210 : `gather`/`gatherValues` et
-  `scatter`/`scatterValues` font la même chose, une version sur
-  `LocalValues<N>`, l'autre sur un pointeur nu.
-- [MODÉRÉ, sur-ingénierie / boilerplate] FiniteStrainIntegrators.hxx : trois
-  structures (FiniteStrainIntegrator, GreenLagrangeStrainIntegrator,
-  LogarithmicStrainIntegrator), plus StandardIntegrator dans Integrate.hxx,
-  qui ne diffèrent que par l'espace de noms appelé. 300 lignes dont 80 %
-  de documentation répétée. Le style "stratégie = struct de fonctions
-  statiques templates" est raisonnable, mais ces structures auraient leur
-  place dans `mfront::gb::*` (DESIGN.md parle d'ailleurs de
-  `mfront::gb::StandardIntegrator`, qui n'existe pas : le type est dans
+  repeat the same direct/copy switch. `PointIntegrator`,
+  `InitializeFunctionExecutor`, `PostProcessingExecutor` repeat the same
+  members (BatchData, InputFields, parameters, policy). A generic switch
+  (`std::bool_constant<direct>`) would be enough.
+- [MINOR, duplication] Integrate.hxx:110-210: `gather`/`gatherValues` and
+  `scatter`/`scatterValues` do the same thing, one version on
+  `LocalValues<N>`, the other on a raw pointer.
+- [MODERATE, over-engineering / boilerplate] FiniteStrainIntegrators.hxx:
+  three structures (FiniteStrainIntegrator, GreenLagrangeStrainIntegrator,
+  LogarithmicStrainIntegrator), plus StandardIntegrator in Integrate.hxx,
+  which only differ by the namespace called. 300 lines, 80 % of which is
+  repeated documentation. The style "strategy = struct of static template
+  functions" is reasonable, but these structures would belong in
+  `mfront::gb::*` (DESIGN.md actually mentions
+  `mfront::gb::StandardIntegrator`, which does not exist: the type is in
   `mfront::gpb`).
-- [IMPORTANT, intégration MGIS/mfem-mgis] GPU.hxx:178-245 : chaque appel fait
+- [IMPORTANT, MGIS/mfem-mgis integration] GPU.hxx:178-245: each call does
   cudaGetDevice, cudaDeviceGetAttribute, cudaMallocAsync,
-  cudaFuncGetAttributes, cudaDeviceGetLimit (sous mutex), lancement, copie,
-  cudaFreeAsync puis `cudaStreamSynchronize`. L'appel est donc toujours
-  bloquant et le bilan (OutputStatus) est toujours rapatrié sur l'hôte. Pour
-  mfem-mgis avec assemblage sur GPU, cela impose une synchronisation par
-  appel et par partie de matériau, sans moyen de l'éviter. Même chose pour
-  SYCL (`wait_and_throw` 3 fois, SYCL.hxx:338-343) et Kokkos (réduction
-  dans un scalaire). Aucune variante asynchrone n'est prévue dans le
-  contrat C.
-- [IMPORTANT, intégration] GPU.hxx:49-83 et DeviceStackSize.hxx : la
-  bibliothèque générée modifie une limite globale du contexte CUDA
-  (`cudaDeviceSetLimit(cudaLimitStackSize)`) à l'insu de l'appelant. Cela
-  change la mémoire locale réservée pour tous les noyaux du processus
-  (MFEM, hypre). C'est justifié techniquement mais doit être documenté
-  comme effet de bord et pouvoir être désactivé par l'appelant (seul le
-  backend stlpar/openmp/sycl a une option, CUDA/HIP l'applique toujours).
-- [MODÉRÉ, contrat C] BatchData.h : pas de numéro de version ni de taille de
-  structure. DESIGN.md:55-57 dit que la structure "can evolve without
-  breaking the prototype", mais un MGIS compilé contre une ancienne
-  version passera silencieusement une structure de mauvaise taille. Un
-  champ `version` (ou un symbole exporté donnant la version du contrat)
-  coûte peu et protège MGIS.
-- [MINEUR, contrat C] `statuses` est un `int*` alors que tout le reste est un
-  champ avec strides (BatchData.h:152). `rdts` est un champ, `statuses` non.
-  Conventions de statut inversées par rapport au `generic` pour les
-  fonctions d'initialisation et de post-traitement (1 = succès contre 0),
-  documentée mais source d'erreurs pour MGIS.
-- [MINEUR] Les foncteurs passés aux noyaux copient tout le `BatchData`
-  (environ 25 champs) plus `InputFields` (4 x N champs de 24 octets plus
-  tailles) plus les paramètres. Pour une loi avec beaucoup de propriétés
-  matériau, la taille des arguments de noyau grossit vite (limite 4 Ko
-  avant CUDA 12.1). Rien de bloquant, mais à surveiller.
-- [BIEN] Integrate.hxx : séparation nette "vue d'un point" (`PointView`),
-  "fonction appliquée en un point" (foncteurs trivialement copiables),
-  "primitive du backend" (`apply`). Pas de lambda étendue requise. Le
-  choix direct/copie est fait une fois sur l'hôte. Les commentaires
-  expliquent les choix et les contournements de compilateurs.
-- [BIEN] Réduction par warp puis atomiques seulement si nécessaire
-  (GPU.hxx:121-156), clé ordonnée pour le min de rdt (Integrate.hxx:765-778).
-  Simple et correct.
+  cudaFuncGetAttributes, cudaDeviceGetLimit (under a mutex), launch, copy,
+  cudaFreeAsync then `cudaStreamSynchronize`. The call is therefore always
+  blocking and the report (OutputStatus) is always brought back to the
+  host. For mfem-mgis with assembly on GPU, this imposes one
+  synchronisation per call and per material part, with no way to avoid it.
+  Same thing for SYCL (`wait_and_throw` 3 times, SYCL.hxx:338-343) and
+  Kokkos (reduction into a scalar). No asynchronous variant is planned in
+  the C contract.
+- [IMPORTANT, integration] GPU.hxx:49-83 and DeviceStackSize.hxx: the
+  generated library modifies a global limit of the CUDA context
+  (`cudaDeviceSetLimit(cudaLimitStackSize)`) without the caller knowing.
+  This changes the local memory reserved for all the kernels of the
+  process (MFEM, hypre). It is technically justified but must be
+  documented as a side effect and the caller must be able to disable it
+  (only the stlpar/openmp/sycl backend has an option, CUDA/HIP always
+  applies it).
+- [MODERATE, C contract] BatchData.h: no version number nor structure
+  size. DESIGN.md:55-57 says that the structure "can evolve without
+  breaking the prototype", but an MGIS compiled against an older version
+  will silently pass a structure of the wrong size. A `version` field (or
+  an exported symbol giving the version of the contract) costs little and
+  protects MGIS.
+- [MINOR, C contract] `statuses` is an `int*` while everything else is a
+  field with strides (BatchData.h:152). `rdts` is a field, `statuses` is
+  not. Status conventions inverted with respect to `generic` for the
+  initialisation and post-processing functions (1 = success against 0),
+  documented but a source of errors for MGIS.
+- [MINOR] The functors passed to the kernels copy the whole `BatchData`
+  (about 25 fields) plus `InputFields` (4 x N fields of 24 bytes plus
+  sizes) plus the parameters. For a behaviour with many material
+  properties, the size of the kernel arguments grows fast (limit 4 KB
+  before CUDA 12.1). Nothing blocking, but to be watched.
+- [GOOD] Integrate.hxx: clean separation between "view of a point"
+  (`PointView`), "function applied at a point" (trivially copyable
+  functors), "primitive of the backend" (`apply`). No extended lambda
+  required. The direct/copy choice is made once on the host. The comments
+  explain the choices and the compiler workarounds.
+- [GOOD] Reduction per warp then atomics only if needed
+  (GPU.hxx:121-156), ordered key for the min of rdt (Integrate.hxx:765-778).
+  Simple and correct.
 
-### Lot 2 : pilotes du `generic` (GenericBehaviour/Integrate.hxx)
+### Group 2: drivers of `generic` (GenericBehaviour/Integrate.hxx)
 
-- [BIEN] Le découpage "coeur TFEL_HOST_DEVICE + fonction historique qui décode
-  K" est propre et évite toute duplication de la physique entre `generic` et
-  `generic-parallel`. `ComputationOptions` remplace des décodages ad hoc de
-  `K[0]` dispersés. `MethodCaller<m>` garde l'API par pointeur de membre sur
-  l'hôte.
-- [MODÉRÉ, processus] Le commit 494929641 mélange le refactoring et six
-  corrections de comportement du `generic` sur CPU (statut `if (r)` des
-  pilotes grandes déformations, DTAU_DDF en Hencky, variables internes de
-  fin de pas dans les post-traitements, etc.). Ce sont de vraies
-  corrections, bien décrites dans le message, mais elles contredisent le
-  principe 4 de DESIGN.md ("No change of the CPU behaviour of existing
-  interfaces") et devraient être des commits (voire des PR) séparés pour
-  l'amont : elles concernent tous les utilisateurs du `generic`.
-- [MINEUR] `callAndReportExceptions(d, f, on_exception)` : le troisième
-  argument est `[] {}` dans 3 appels sur 4. Une surcharge à deux
-  arguments serait plus lisible.
+- [GOOD] The split "TFEL_HOST_DEVICE core + historical function that decodes
+  K" is clean and avoids any duplication of the physics between `generic`
+  and `generic-parallel`. `ComputationOptions` replaces scattered ad hoc
+  decodings of `K[0]`. `MethodCaller<m>` keeps the API by member pointer on
+  the host.
+- [MODERATE, process] Commit 494929641 mixes the refactoring and six fixes
+  of the behaviour of `generic` on CPU (status `if (r)` of the finite
+  strain drivers, DTAU_DDF in Hencky, internal variables of the end of the
+  time step in the post-processings, etc.). They are real fixes, well
+  described in the message, but they contradict principle 4 of DESIGN.md
+  ("No change of the CPU behaviour of existing interfaces") and should be
+  separate commits (or even PRs) for upstream: they concern all the users
+  of `generic`.
+- [MINOR] `callAndReportExceptions(d, f, on_exception)`: the third
+  argument is `[] {}` in 3 calls out of 4. An overload with two arguments
+  would be more readable.
 
-### Lot 3 : générateurs (interfaces et backends)
+### Group 3: generators (interfaces and backends)
 
-- [MODÉRÉ, cohérence d'architecture] Deux philosophies coexistent dans la
-  même famille `generic-parallel`. Les propriétés matériau (amont) écrivent
-  les boucles et noyaux sous forme de chaînes dans le générateur
-  (MaterialProperty/ParallelSTLBackend.cxx:68-120, OpenMPBackend.cxx et
-  KokkosBackend.cxx ajoutés par la branche dans ce style). Les lois de
-  comportement mettent toute la logique dans des en-têtes templates et le
-  générateur n'écrit qu'un appel (Behaviour/*Backend.cxx, 40 à 70 lignes
-  chacun). La seconde approche est nettement meilleure, mais la branche a
-  étendu la première (Kokkos, OpenMP pour les propriétés matériau) au lieu
-  de converger. Deux hiérarchies de backends, deux fabriques
-  (`generic_parallel::material_property::BackendFactory` et
-  `generic_parallel::behaviour::BackendFactory`), même clé d'options
-  `backend` dans les fichiers de configuration.
-- [MODÉRÉ, duplication] Analyse des options dupliquée entre les deux
-  hiérarchies : `execution_policy` (MaterialProperty/ParallelSTLBackend.cxx:
-  29-46 et Behaviour/ParallelSTLBackend.cxx:27-49, mêmes chaînes, messages
-  légèrement différents), `device_stack_size` (5 copies), `data_transfer_policy`
-  (SYCL). Une petite fonction commune `parseExecutionPolicy` suffirait.
-- [MINEUR, duplication] GenericParallelBehaviourInterface.cxx et
-  GenericParallelModelInterface.cxx répètent `setOptions` (identiques au nom
-  de classe près), `getLibraryName`, `getHeaderFileName`,
-  `getSourceFileName`, `getTargetsDescription`, et l'écriture des points
-  d'entrée (vérification du pointeur nul, `handleExceptions`, paramètres,
+- [MODERATE, architectural consistency] Two philosophies coexist in the
+  same `generic-parallel` family. The material properties (upstream) write
+  the loops and kernels as strings in the generator
+  (MaterialProperty/ParallelSTLBackend.cxx:68-120, OpenMPBackend.cxx and
+  KokkosBackend.cxx added by the branch in this style). The behaviours put
+  all the logic in template headers and the generator only writes a call
+  (Behaviour/*Backend.cxx, 40 to 70 lines each). The second approach is
+  clearly better, but the branch extended the first one (Kokkos, OpenMP for
+  the material properties) instead of converging. Two hierarchies of
+  backends, two factories
+  (`generic_parallel::material_property::BackendFactory` and
+  `generic_parallel::behaviour::BackendFactory`), same option key
+  `backend` in the configuration files.
+- [MODERATE, duplication] Parsing of the options duplicated between the
+  two hierarchies: `execution_policy` (MaterialProperty/ParallelSTLBackend.cxx:
+  29-46 and Behaviour/ParallelSTLBackend.cxx:27-49, same strings, slightly
+  different messages), `device_stack_size` (5 copies), `data_transfer_policy`
+  (SYCL). A small common function `parseExecutionPolicy` would be enough.
+- [MINOR, duplication] GenericParallelBehaviourInterface.cxx and
+  GenericParallelModelInterface.cxx repeat `setOptions` (identical except
+  for the class name), `getLibraryName`, `getHeaderFileName`,
+  `getSourceFileName`, `getTargetsDescription`, and the writing of the
+  entry points (check of the null pointer, `handleExceptions`, parameters,
   `writeCall`).
-- [MODÉRÉ, conception fragile] BehaviourCodeGeneratorBase.cxx,
-  `writeInterfacesCode` : la compatibilité `generic` + `generic-parallel`
-  repose sur la déduplication de blocs de code par égalité de texte. Un
-  espace ou un commentaire de différence suffit à produire des définitions
-  en double (erreur de compilation peu lisible pour l'utilisateur). Une
-  relation explicite ("cette interface réutilise les membres de
-  `generic`", par exemple une méthode `getBaseInterfaceForGeneratedMembers`)
-  serait plus robuste. C'est pragmatique et court, donc acceptable pour un
-  prototype, mais c'est le genre de mécanisme implicite que l'amont refusera
-  probablement.
-- [IMPORTANT, conception] `areDynamicallyAllocatedVectorsAllowed()` et
-  `getParametersSourceInBehaviourConstructor()` sont des propriétés d'une
-  interface (AbstractBehaviourInterface.hxx:93-111) alors que la classe de
-  la loi est commune à toutes les interfaces. Ajouter `generic-parallel`
-  change donc la classe générée pour `generic`, `castem`, etc. dans le même
-  appel de mfront (pas de vecteurs dynamiques, constructeur supplémentaire).
-  C'est voulu, mais cela devrait être documenté comme tel et nommé comme une
-  contrainte sur la classe (par exemple "requiresDeviceCompatibleClass").
-- [IMPORTANT, sémantique] Paramètres traités comme variables statiques
-  (BehaviourCodeGeneratorBase.cxx, `writeBehaviourParameters`) : en code
-  device, `static constexpr` devient un membre `const` non statique sous
-  `#ifdef TFEL_DEVICE_CODE`. La classe n'a donc pas la même disposition
-  mémoire ni la même définition dans les passes hôte et device de nvcc,
-  clang et hipcc (violation de l'ODR). Cela marche parce que l'objet loi
-  n'est jamais transmis de l'hôte au device, mais c'est fragile : le jour
-  où MGIS ou mfem-mgis voudra construire ou copier une loi côté hôte pour
-  le device, cela cassera silencieusement. Plus simple et sûr : la même
-  déclaration dans les deux passes (membre `const` partout, au prix de
-  quelques octets), ou une constante device de portée namespace sur le
-  modèle de `getConstantObject`. Lignes : BehaviourCodeGeneratorBase.cxx:3809-3814.
-- [IMPORTANT, sémantique et tests] TFELConfig.hxx:383-390 :
-  `TFEL_DEVICE_CODE` est défini dans toute l'unité de traduction avec
-  `nvc++ -stdpar=gpu`, `nvc++ -mp=gpu` et AdaptiveCpp SSCP. Avec les fichiers
-  de configuration fournis, la bibliothèque `generic` compilée dans le même
-  appel (`--interface=generic --interface=generic-parallel`) l'est aussi avec
-  ces options : elle perd les exceptions, les avertissements de bornes, les
-  paramètres lus depuis les initialiseurs dans certains chemins, etc. Dans
-  les tests de ces configurations (stlpar-parunseq-nvhpc-gpu/test.check,
-  openmp-offload-nvhpc-gpu, sycl-default-acpp), la "référence" n'est donc
-  pas indépendante : les chemins device sont comparés aux chemins device,
-  avec le même compilateur. Le nom `TFEL_DEVICE_CODE` est aussi trompeur
-  dans ce cas ("peut être du code device"). Il faudrait compiler la
-  référence avec le compilateur hôte habituel, ou au moins le dire dans les
-  tests.
-- [MINEUR, bug de contrat] Points d'entrée générés
-  (GenericParallelBehaviourInterface.cxx, `write_function`, et
-  GenericParallelModelInterface.cxx:318-323, GenericParallelBehaviourInterface.cxx:725-730) : si `mfront_batch_data` est
-  nul, `report(-2)` est appelé sans `initialize` : `number_of_failures`,
-  `number_of_unreliable_results` et `rdt` du statut restent non
-  initialisés. Les fonctions de rotation, elles, appellent `initialize`
-  avant.
-- [MINEUR, désordre] GenericParallelBehaviourInterface.cxx:102-111 : bloc de
-  documentation orphelin (celui de `getPointDataSizes`) suivi d'un autre
-  bloc ; la fonction documentée est ligne 149. Préfixes de noms
-  générés incohérents : `mgb_d`, `mgpb_parameters`, `mfront_parameters`,
+- [MODERATE, fragile design] BehaviourCodeGeneratorBase.cxx,
+  `writeInterfacesCode`: the compatibility `generic` + `generic-parallel`
+  relies on the deduplication of code blocks by text equality. One space
+  or one comment of difference is enough to produce duplicate definitions
+  (compilation error hard to read for the user). An explicit relation
+  ("this interface reuses the members of `generic`", for example a method
+  `getBaseInterfaceForGeneratedMembers`) would be more robust. It is
+  pragmatic and short, so acceptable for a prototype, but it is the kind
+  of implicit mechanism that upstream will probably refuse.
+- [IMPORTANT, design] `areDynamicallyAllocatedVectorsAllowed()` and
+  `getParametersSourceInBehaviourConstructor()` are properties of an
+  interface (AbstractBehaviourInterface.hxx:93-111) while the class of the
+  behaviour is common to all the interfaces. Adding `generic-parallel`
+  therefore changes the class generated for `generic`, `castem`, etc. in
+  the same call of mfront (no dynamic vectors, additional constructor).
+  It is intended, but it should be documented as such and named as a
+  constraint on the class (for example "requiresDeviceCompatibleClass").
+- [IMPORTANT, semantics] Parameters treated as static variables
+  (BehaviourCodeGeneratorBase.cxx, `writeBehaviourParameters`): in device
+  code, `static constexpr` becomes a non static `const` member under
+  `#ifdef TFEL_DEVICE_CODE`. The class therefore has neither the same
+  memory layout nor the same definition in the host and device passes of
+  nvcc, clang and hipcc (ODR violation). It works because the behaviour
+  object is never passed from the host to the device, but it is fragile:
+  the day MGIS or mfem-mgis wants to build or copy a behaviour on the host
+  side for the device, it will break silently. Simpler and safe: the same
+  declaration in both passes (`const` member everywhere, at the cost of a
+  few bytes), or a device constant of namespace scope on the model of
+  `getConstantObject`. Lines: BehaviourCodeGeneratorBase.cxx:3809-3814.
+- [IMPORTANT, semantics and tests] TFELConfig.hxx:383-390:
+  `TFEL_DEVICE_CODE` is defined in the whole translation unit with
+  `nvc++ -stdpar=gpu`, `nvc++ -mp=gpu` and AdaptiveCpp SSCP. With the
+  provided configuration files, the `generic` library compiled in the same
+  call (`--interface=generic --interface=generic-parallel`) is also
+  compiled with these options: it loses the exceptions, the bounds
+  warnings, the parameters read from the initialisers in some paths, etc.
+  In the tests of these configurations
+  (stlpar-parunseq-nvhpc-gpu/test.check, openmp-offload-nvhpc-gpu,
+  sycl-default-acpp), the "reference" is therefore not independent: the
+  device paths are compared to the device paths, with the same compiler.
+  The name `TFEL_DEVICE_CODE` is also misleading in this case ("may be
+  device code"). The reference should be compiled with the usual host
+  compiler, or at least the tests should say so.
+- [MINOR, contract bug] Generated entry points
+  (GenericParallelBehaviourInterface.cxx, `write_function`, and
+  GenericParallelModelInterface.cxx:318-323, GenericParallelBehaviourInterface.cxx:725-730): if `mfront_batch_data` is
+  null, `report(-2)` is called without `initialize`: `number_of_failures`,
+  `number_of_unreliable_results` and `rdt` of the status remain
+  uninitialised. The rotation functions, on the other hand, call
+  `initialize` before.
+- [MINOR, disorder] GenericParallelBehaviourInterface.cxx:102-111: orphan
+  documentation block (the one of `getPointDataSizes`) followed by another
+  block; the documented function is at line 149. Inconsistent prefixes of
+  the generated names: `mgb_d`, `mgpb_parameters`, `mfront_parameters`,
   `mfront_data`.
-- [MINEUR] GenericParallelModelInterface.cxx:344-346 : la politique hors
-  bornes passée aux modèles est `None` et ignorée (ModelIntegrator.hxx:59,
-  paramètre anonyme). Le commentaire le dit, mais l'API transmet une valeur
-  inutile.
-- [MINEUR, API] KokkosBackend : la chaîne `execution_space` est recopiée
-  telle quelle comme argument template dans le code généré
-  (Behaviour/KokkosBackend.cxx:39-43), sans validation.
-- [BIEN] `GPUBackend` factorise CUDA et HIP (une seule classe, deux noms,
-  deux extensions). La fabrique et la validation des options suivent
-  exactement le modèle des propriétés matériau. Le générateur de
-  l'interface fait 840 lignes lisibles, sans physique.
-- [BIEN] Les modèles réutilisent `writeGenericModelClass` avec une option
-  `device` plutôt qu'une copie du générateur `generic`.
+- [MINOR] GenericParallelModelInterface.cxx:344-346: the out of bounds
+  policy passed to the models is `None` and ignored (ModelIntegrator.hxx:59,
+  anonymous parameter). The comment says so, but the API passes a useless
+  value.
+- [MINOR, API] KokkosBackend: the string `execution_space` is copied as is
+  as a template argument in the generated code
+  (Behaviour/KokkosBackend.cxx:39-43), without validation.
+- [GOOD] `GPUBackend` factors CUDA and HIP (a single class, two names, two
+  extensions). The factory and the validation of the options follow
+  exactly the model of the material properties. The generator of the
+  interface is 840 readable lines, without physics.
+- [GOOD] The models reuse `writeGenericModelClass` with an option
+  `device` rather than a copy of the `generic` generator.
 
-### Lot 4 : tests
+### Group 4: tests
 
-- [MODÉRÉ, maintenabilité] La liste des 29 fichiers .mfront est recopiée
-  à l'identique dans les 15 test.check (vérifié : même empreinte md5 pour
-  les 15 configurations). Ajouter un cas de test oblige à modifier 16
-  fichiers. compare-all.sh centralise les comparaisons mais pas la
-  génération.
-- [MODÉRÉ, maintenabilité] compare-all.sh passe à la main les tailles de
-  chaque loi (`6 6 2 7 1 36 ...`) alors que la bibliothèque `generic`
-  exporte ces informations (symboles lus par MGIS). Toute modification d'une
-  loi de test oblige à recalculer ces nombres. Pour les rotations, 8
-  arguments factices (`0 0 0 0 0 0 0 - 0 --rotation=6`) montrent que
-  l'interface en ligne de commande de compare.cxx est à bout de souffle.
-- [MINEUR] compare.cxx (1235 lignes) mêle cinq environnements d'exécution
-  par macros (Kokkos, SYCL, SYCL mémoire hôte, CUDA/HIP, CPU). C'est
-  raisonnable pour un banc de test, mais un futur test via MGIS
-  remplacerait avantageusement une grande partie de ce code.
-- [BIEN] La référence est l'interface `generic` point par point, sur deux
-  pas de temps, trois dispositions mémoire, trois types de calcul, avec
-  échecs partiels, énergies, vitesse du son, fonctions d'initialisation,
-  post-traitements et rotations. La couverture fonctionnelle est très
-  bonne.
+- [MODERATE, maintainability] The list of the 29 .mfront files is copied
+  identically in the 15 test.check (checked: same md5 hash for the 15
+  configurations). Adding a test case requires modifying 16 files.
+  compare-all.sh centralises the comparisons but not the generation.
+- [MODERATE, maintainability] compare-all.sh passes by hand the sizes of
+  each behaviour (`6 6 2 7 1 36 ...`) while the `generic` library exports
+  this information (symbols read by MGIS). Any modification of a test
+  behaviour requires recomputing these numbers. For the rotations, 8 dummy
+  arguments (`0 0 0 0 0 0 0 - 0 --rotation=6`) show that the command line
+  interface of compare.cxx has reached its limits.
+- [MINOR] compare.cxx (1235 lines) mixes five execution environments by
+  macros (Kokkos, SYCL, SYCL host memory, CUDA/HIP, CPU). It is reasonable
+  for a test bench, but a future test through MGIS would advantageously
+  replace a large part of this code.
+- [GOOD] The reference is the `generic` interface point by point, on two
+  time steps, three memory layouts, three types of computation, with
+  partial failures, energies, speed of sound, initialize functions,
+  post-processings and rotations. The functional coverage is very good.
 
-### Lot 5 : en-têtes TFEL (include/TFEL)
+### Group 5: TFEL headers (include/TFEL)
 
-Mesure : 163 fichiers, +2362/-1836 lignes ; 757 lignes ajoutées sur 2362
-contiennent une annotation TFEL_HOST_DEVICE. Le reste : reformatage induit,
-remplacement d'exceptions, et une poignée de vrais changements.
+Measurement: 163 files, +2362/-1836 lines; 757 added lines out of 2362
+contain a TFEL_HOST_DEVICE annotation. The rest: induced reformatting,
+replacement of exceptions, and a handful of real changes.
 
-- [BIEN] Les contournements de compilateurs dans les en-têtes TFEL sont peu
-  nombreux et tous commentés avec version et symptôme :
-  ConstantObject.hxx:29,44 (nvcc, nvc++), BoundsCheck.hxx:49 (nvcc),
-  TensorViewFromStensor.hxx:57 (nvc++ 25.11, switch), GenericFixedSizeArray.ixx:36
-  (nvc++ 25.11, initialisation par valeur). Les messages de commit
-  (58f4ced56, a22a3cff6, f008859df) donnent les reproducteurs. Pas
-  d'accumulation sauvage.
-- [BIEN] BoundsCheck.hxx : passage de `std::string` à `const char*` et des
-  spécialisations par dimension à une boucle : -365/+199 lignes, plus simple
-  qu'avant. Retour booléen sur device, exception sur l'hôte : compromis
-  clair et documenté.
-- [BIEN] TrivialGenTypeBase (union étiquetée, 249 lignes, test unitaire
-  TrivialGenTypeBaseTest.cxx) : justifié (std::variant non supporté par nvc++
-  sur device), isolé, même interface que GenTypeBase.
-- [MODÉRÉ, invasif] Ruptures d'API/ABI dans le coeur de TFEL, toutes
-  justifiées mais à négocier avec l'amont :
-  * MechanicalBehaviour.hxx : suppression des fonctions virtuelles (commit
-    1b621828d), remplacées par un concept. Tout code tiers qui écrit
-    `override` sur ces méthodes ne compile plus ;
-  * BoundsCheck : signature `const char*` au lieu de `std::string` ;
-  * src/Material/LogarithmicStrainHandler.cxx supprimé : deux symboles
-    exportés disparaissent de libTFELMaterial ;
-  * GenericFixedSizeArray : constructeurs de copie et opérateurs
-    d'affectation supprimés (pour être trivialement copiable).
-- [MODÉRÉ, changement de résultats CPU] StensorComputeEigenVectors.hxx
-  (commit 9cd913eb2) : pour une valeur propre multiple en 3D, les vecteurs
-  propres sont désormais calculés par Jacobi (`fses::syevj3`) au lieu de
-  l'algorithme analytique, sur l'hôte aussi. C'est un changement
-  numérique (cas dégénéré) pour tous les utilisateurs de TFEL, motivé par
-  le device. Il aurait pu être limité au code device, ou au moins être
-  signalé comme changement de résultats.
-- [MINEUR, churn] GenTypeBase.hxx : toutes les méthodes reçoivent
-  TFEL_HOST_DEVICE et `std::get` devient `*std::get_if`, alors que
-  GenTypeBase (std::variant) n'est plus utilisé en code device depuis
-  l'introduction de TrivialGenTypeBase dans le même commit (329a740e9).
-  Modification non nécessaire d'un en-tête central.
-- [MINEUR] ConstantObject.hxx:57-70 : le type de retour de
-  `getConstantObject` dépend du compilateur (`T` avec nvc++, `const T&`
-  ailleurs). La règle "lier à une référence constante" est documentée, mais
-  c'est un piège d'API (un `auto x = ...` copie partout, un `auto& x = ...`
-  ne compile qu'ailleurs que chez nvc++).
-- [MINEUR, cosmétique] Une partie du diff est du reformatage clang-format
-  (clauses `requires`, ordre `[[nodiscard]] TFEL_HOST_DEVICE`). L'ordre des
-  attributs est une vraie correction (grammaire C++), mais la
-  réindentation des `requires` (LinearHomogenizationSchemes.ixx, etc.)
-  alourdit la relecture amont.
+- [GOOD] The compiler workarounds in the TFEL headers are few and all
+  commented with version and symptom: ConstantObject.hxx:29,44 (nvcc,
+  nvc++), BoundsCheck.hxx:49 (nvcc), TensorViewFromStensor.hxx:57
+  (nvc++ 25.11, switch), GenericFixedSizeArray.ixx:36 (nvc++ 25.11, value
+  initialisation). The commit messages (58f4ced56, a22a3cff6, f008859df)
+  give the reproducers. No uncontrolled accumulation.
+- [GOOD] BoundsCheck.hxx: change from `std::string` to `const char*` and
+  from the specialisations per dimension to a loop: -365/+199 lines,
+  simpler than before. Boolean return on device, exception on the host:
+  clear and documented compromise.
+- [GOOD] TrivialGenTypeBase (tagged union, 249 lines, unit test
+  TrivialGenTypeBaseTest.cxx): justified (std::variant not supported by
+  nvc++ on device), isolated, same interface as GenTypeBase.
+- [MODERATE, invasive] API/ABI breaks in the core of TFEL, all justified
+  but to be negotiated with upstream:
+  * MechanicalBehaviour.hxx: removal of the virtual functions (commit
+    1b621828d), replaced by a concept. Any third party code that writes
+    `override` on these methods no longer compiles;
+  * BoundsCheck: signature `const char*` instead of `std::string`;
+  * src/Material/LogarithmicStrainHandler.cxx removed: two exported
+    symbols disappear from libTFELMaterial;
+  * GenericFixedSizeArray: copy constructors and assignment operators
+    removed (to be trivially copyable).
+- [MODERATE, change of CPU results] StensorComputeEigenVectors.hxx
+  (commit 9cd913eb2): for a multiple eigenvalue in 3D, the eigenvectors
+  are now computed by Jacobi (`fses::syevj3`) instead of the analytical
+  algorithm, on the host too. It is a numerical change (degenerate case)
+  for all the users of TFEL, motivated by the device. It could have been
+  limited to the device code, or at least flagged as a change of results.
+- [MINOR, churn] GenTypeBase.hxx: all the methods receive
+  TFEL_HOST_DEVICE and `std::get` becomes `*std::get_if`, while
+  GenTypeBase (std::variant) is no longer used in device code since the
+  introduction of TrivialGenTypeBase in the same commit (329a740e9).
+  Unnecessary modification of a central header.
+- [MINOR] ConstantObject.hxx:57-70: the return type of
+  `getConstantObject` depends on the compiler (`T` with nvc++, `const T&`
+  elsewhere). The rule "bind to a constant reference" is documented, but
+  it is an API trap (an `auto x = ...` copies everywhere, an
+  `auto& x = ...` only compiles elsewhere than with nvc++).
+- [MINOR, cosmetic] Part of the diff is clang-format reformatting
+  (`requires` clauses, order `[[nodiscard]] TFEL_HOST_DEVICE`). The order
+  of the attributes is a real fix (C++ grammar), but the reindentation of
+  the `requires` (LinearHomogenizationSchemes.ixx, etc.) makes the
+  upstream review heavier.
 
-### Lot 6 : points qui gêneront MGIS et mfem-mgis
+### Group 6: points that will hinder MGIS and mfem-mgis
 
-- [IMPORTANT] Appels toujours synchrones et bilan toujours rapatrié sur
-  l'hôte (voir lot 1). mfem-mgis sur GPU voudra enchaîner intégration,
-  assemblage et solveur sur le même flux sans synchronisation.
-- [IMPORTANT, sémantique silencieuse] Sur device, plusieurs valeurs
-  diffèrent silencieusement de l'hôte : paramètres des lois matériau
-  appelées (`mfront::device`, valeurs par défaut,
-  MFrontMaterialPropertyInterface.cxx, `writeDeviceMaterialPropertyBody`),
-  paramètres des variables de comportement (valeurs par défaut), bornes
-  standard des lois matériau non vérifiées, avertissements de bornes
-  supprimés. Documenté dans generic-parallel-behaviour-interface.md:453-474,
-  mais aucune détection à l'exécution : un utilisateur de MGIS qui modifie
-  un paramètre d'une loi matériau aura des résultats GPU différents des
-  résultats CPU sans aucun message.
-- [MODÉRÉ] Deux bibliothèques (`libBehaviour.so` et
-  `libGenericParallelBehaviour-<backend>.so`) exportent les mêmes noms C
-  (fonction d'intégration, `setParameter`, `setOutOfBoundsPolicy`) et
-  contiennent chacune leur copie de l'objet compilé de la loi (Makefile
-  généré : `X.o` lié dans les deux). L'état (paramètres, politique hors
-  bornes) est donc dupliqué : si MGIS se replie sur `generic` pour une
-  partie des points, il devra répercuter chaque `setParameter` dans les deux
-  bibliothèques. Avec un chargement RTLD_GLOBAL (ou une édition de liens
-  directe), les noms identiques peuvent même s'interposer.
-- [MODÉRÉ] Pas de version du contrat C (voir lot 1).
-- [MINEUR] Les messages d'erreur par point sont perdus
-  (`bd.error_message = nullptr`, Integrate.hxx:531, `PointView`) : en cas
-  d'échec sur CPU (stlpar, openmp hôte), le message de l'exception de la
-  loi n'est jamais remonté, seulement "integration failed at some
-  integration points". Garder le premier message (au moins sur l'hôte)
-  aiderait beaucoup au débogage dans MGIS.
-- [MINEUR] GPU.hxx:54 : le mutex de `ensureStackSize` est statique dans un
-  modèle de fonction, donc un mutex par noyau. La séquence lire-comparer-
-  écrire de la limite de pile n'est pas protégée entre noyaux différents ni
-  entre bibliothèques : avec des appels concurrents depuis plusieurs fils
-  hôte (matériaux différents dans mfem-mgis), une limite plus faible peut
-  écraser une limite plus forte juste avant un lancement.
-- [BIEN] Le contrat C par champs (pointeur + 2 strides), avec propriétés
-  matériau et variables externes "par variable", colle exactement à
-  `MaterialDataManager` de MGIS (valeurs uniformes ou par point) : MGIS
-  pourra passer ses données sans copie. Le symbole
-  `<behaviour>_generic_parallel_backend` et la réutilisation des symboles
-  du `generic` simplifient le chargement. Le rôle de chaque bibliothèque
-  (DESIGN.md:234-265) est clair et sain : TFEL n'alloue pas, MGIS ne
-  dépend d'aucun outil GPU.
+- [IMPORTANT] Calls always synchronous and report always brought back to
+  the host (see group 1). mfem-mgis on GPU will want to chain integration,
+  assembly and solver on the same stream without synchronisation.
+- [IMPORTANT, silent semantics] On device, several values silently differ
+  from the host: parameters of the called material laws (`mfront::device`,
+  default values, MFrontMaterialPropertyInterface.cxx,
+  `writeDeviceMaterialPropertyBody`), parameters of the behaviour
+  variables (default values), standard bounds of the material laws not
+  checked, bounds warnings removed. Documented in
+  generic-parallel-behaviour-interface.md:453-474, but no detection at
+  runtime: a user of MGIS who modifies a parameter of a material law will
+  get GPU results different from the CPU results without any message.
+- [MODERATE] Two libraries (`libBehaviour.so` and
+  `libGenericParallelBehaviour-<backend>.so`) export the same C names
+  (integration function, `setParameter`, `setOutOfBoundsPolicy`) and each
+  contains its own copy of the compiled object of the behaviour (generated
+  Makefile: `X.o` linked in both). The state (parameters, out of bounds
+  policy) is therefore duplicated: if MGIS falls back on `generic` for a
+  part of the points, it will have to forward each `setParameter` to both
+  libraries. With an RTLD_GLOBAL loading (or a direct link), the identical
+  names can even interpose.
+- [MODERATE] No version of the C contract (see group 1).
+- [MINOR] The error messages per point are lost
+  (`bd.error_message = nullptr`, Integrate.hxx:531, `PointView`): in case
+  of failure on CPU (stlpar, host openmp), the message of the exception of
+  the behaviour is never reported, only "integration failed at some
+  integration points". Keeping the first message (at least on the host)
+  would help debugging in MGIS a lot.
+- [MINOR] GPU.hxx:54: the mutex of `ensureStackSize` is static in a
+  function template, so one mutex per kernel. The read-compare-write
+  sequence of the stack limit is not protected between different kernels
+  nor between libraries: with concurrent calls from several host threads
+  (different materials in mfem-mgis), a lower limit can overwrite a higher
+  limit just before a launch.
+- [GOOD] The C contract by fields (pointer + 2 strides), with material
+  properties and external variables "per variable", matches exactly the
+  `MaterialDataManager` of MGIS (uniform values or per point): MGIS will be
+  able to pass its data without copy. The symbol
+  `<behaviour>_generic_parallel_backend` and the reuse of the symbols of
+  `generic` simplify the loading. The role of each library
+  (DESIGN.md:234-265) is clear and sound: TFEL does not allocate, MGIS
+  depends on no GPU tool.
 
-### Divers vérifiés (cosmétique)
+### Miscellaneous checked (cosmetic)
 
-- cmake/modules/tfel.cmake:554 : `_tfel-generic-parallel_behaviours_only_configurations`
-  est une liste vide, utilisée dans un test : échafaudage mort.
-- RungeKuttaDSLBase.cxx:753-760 et RungeKuttaCodeGeneratorBase.cxx:2254-2265
-  écrivent encore leurs `#ifdef TFEL_DEVICE_CODE` et leurs branches
-  `useQt` à la main au lieu d'utiliser `makeHostAndDeviceCode` et
-  `getInvalidStandardTangentOperatorFlagCondition` introduits par la
-  branche : harmonisation incomplète.
-- DESIGN.md:94-97 cite `mfront::gb::StandardIntegrator` et
-  `finite_strain::Integrator`, qui n'existent pas sous ces noms
+- cmake/modules/tfel.cmake:554: `_tfel-generic-parallel_behaviours_only_configurations`
+  is an empty list, used in a test: dead scaffolding.
+- RungeKuttaDSLBase.cxx:753-760 and RungeKuttaCodeGeneratorBase.cxx:2254-2265
+  still write their `#ifdef TFEL_DEVICE_CODE` and their `useQt` branches
+  by hand instead of using `makeHostAndDeviceCode` and
+  `getInvalidStandardTangentOperatorFlagCondition` introduced by the
+  branch: incomplete harmonisation.
+- DESIGN.md:94-97 quotes `mfront::gb::StandardIntegrator` and
+  `finite_strain::Integrator`, which do not exist under these names
   (`mfront::gpb::StandardIntegrator`, `mfront::gpb::FiniteStrainIntegrator`).
 
-### Compléments (vérifiés)
+### Complements (checked)
 
-- [MODÉRÉ, cohérence] Conventions de statut différentes dans la même
-  famille `generic-parallel` : propriétés matériau (`mfront_gmp_OutputStatus`,
-  GenericMaterialProperty/OutputStatus.h:26-75) : 0 succès, 1 prudence,
-  -2 exception, -4 résultat invalide, -6 pile (ajouté par la branche) ;
-  lois (`mfront_gpb_OutputStatus`, BatchData.h:187-209) : 1 succès,
-  0 peu fiable, -1 échec, -2 arguments invalides, -3 erreur d'exécution
-  ou exception. Le choix "comme `generic`" se défend pour les lois, mais
-  -2 n'a pas le même sens d'une structure à l'autre et MGIS manipulera les
-  deux.
-- [MODÉRÉ, périmètre] Six backends et quinze configurations testées. La
-  plupart des contournements et des chemins particuliers viennent de
-  nvc++ (21 mentions dans les lignes ajoutées hors tests : switch, init
-  par valeur, référence à un drapeau local, pointeurs de membres,
-  assertions, mémoire `managed` imposée, pile via dlopen) et d'AdaptiveCpp
-  (pas de réductions, pas de récursion, pas de fonctions virtuelles).
-  Pour l'amont et pour MGIS, un premier lot CUDA/HIP + stlpar/OpenMP hôte
-  serait beaucoup plus facile à faire accepter et à maintenir ; les autres
-  pourraient suivre.
-- [MODÉRÉ, coût de compilation] Chaque point d'entrée est instancié deux
-  fois (`direct` vrai ou faux, Integrate.hxx:1081-1092), donc deux noyaux
-  complets par fonction, initialisations et post-traitements compris. Le
-  gain du mode direct n'est mesuré nulle part (JOURNAL.md ne donne pas de
-  comparaison). Pour des lois lourdes (monocristaux), cela double un temps
-  de compilation déjà long. À mesurer, ou à rendre optionnel.
+- [MODERATE, consistency] Different status conventions in the same
+  `generic-parallel` family: material properties (`mfront_gmp_OutputStatus`,
+  GenericMaterialProperty/OutputStatus.h:26-75): 0 success, 1 caution,
+  -2 exception, -4 invalid result, -6 stack (added by the branch);
+  behaviours (`mfront_gpb_OutputStatus`, BatchData.h:187-209): 1 success,
+  0 unreliable, -1 failure, -2 invalid arguments, -3 runtime error or
+  exception. The choice "as `generic`" is defensible for the behaviours,
+  but -2 does not have the same meaning from one structure to the other
+  and MGIS will handle both.
+- [MODERATE, scope] Six backends and fifteen tested configurations. Most
+  of the workarounds and of the particular paths come from nvc++ (21
+  mentions in the added lines outside tests: switch, value init, reference
+  to a local flag, member pointers, assertions, imposed `managed` memory,
+  stack via dlopen) and from AdaptiveCpp (no reductions, no recursion, no
+  virtual functions). For upstream and for MGIS, a first batch CUDA/HIP +
+  host stlpar/OpenMP would be much easier to get accepted and to maintain;
+  the others could follow.
+- [MODERATE, compilation cost] Each entry point is instantiated twice
+  (`direct` true or false, Integrate.hxx:1081-1092), so two complete
+  kernels per function, initialisations and post-processings included. The
+  gain of the direct mode is measured nowhere (JOURNAL.md gives no
+  comparison). For heavy behaviours (single crystals), this doubles an
+  already long compilation time. To be measured, or to be made optional.
 
-## SYNTHÈSE CLASSÉE
+## RANKED SUMMARY
 
-Verdict général : la conception de fond est bonne (une seule
-implémentation par point partagée avec `generic`, logique dans des
-en-têtes, contrat C simple et adapté à MGIS). Les défauts sérieux sont des
-effets de bord sur l'existant et des divergences silencieuses hôte/device,
-pas la structure du nouveau code. La duplication est réelle mais locale et
-facile à résorber.
+Overall verdict: the core design is good (a single implementation per
+point shared with `generic`, logic in headers, simple C contract suited to
+MGIS). The serious defects are side effects on the existing code and
+silent host/device divergences, not the structure of the new code. The
+duplication is real but local and easy to remove.
 
-### A. Problèmes sérieux
+### A. Serious problems
 
-A1. `TFEL_DEVICE_CODE` défini dans toute l'unité de traduction pour nvc++
--stdpar/-mp et AdaptiveCpp SSCP (TFELConfig.hxx:383-390). Avec les
-fichiers de configuration fournis, la bibliothèque `generic` du même appel
-est compilée avec ces options (Makefile généré : `X.o` lié dans
-libBehaviour.so et dans libGenericParallelBehaviour-stlpar.so). Elle perd
-alors exceptions et avertissements, et le constructeur par défaut des
-variables de comportement prend les valeurs par défaut des paramètres même
-sur l'hôte (BehaviourCodeGeneratorBase.cxx:2446-2455). Les tests de ces
+A1. `TFEL_DEVICE_CODE` defined in the whole translation unit for nvc++
+-stdpar/-mp and AdaptiveCpp SSCP (TFELConfig.hxx:383-390). With the
+provided configuration files, the `generic` library of the same call is
+compiled with these options (generated Makefile: `X.o` linked in
+libBehaviour.so and in libGenericParallelBehaviour-stlpar.so). It then
+loses exceptions and warnings, and the default constructor of the
+behaviour variables takes the default values of the parameters even on
+the host (BehaviourCodeGeneratorBase.cxx:2446-2455). The tests of these
 configurations (stlpar-parunseq-nvhpc-gpu, openmp-offload-nvhpc-gpu,
-sycl-default-acpp) comparent donc chemin device contre chemin device, avec
-le même compilateur : la référence n'est pas indépendante.
+sycl-default-acpp) therefore compare device path against device path, with
+the same compiler: the reference is not independent.
 
-A2. Divergences silencieuses hôte/device, documentées mais jamais
-détectées : paramètres des lois matériau appelées (`mfront::device`,
-valeurs par défaut, MFrontMaterialPropertyInterface.cxx,
-`writeDeviceMaterialPropertyBody`), paramètres des variables de
-comportement, bornes standard non vérifiées, avertissements supprimés. Un
-`setParameter` côté MGIS donnera des résultats GPU différents des
-résultats CPU sans aucun message. Il faudrait au minimum un refus (ou un
-avertissement) à l'exécution quand un paramètre modifié n'est pas
-transmis au device.
+A2. Silent host/device divergences, documented but never detected:
+parameters of the called material laws (`mfront::device`, default
+values, MFrontMaterialPropertyInterface.cxx,
+`writeDeviceMaterialPropertyBody`), parameters of the behaviour variables,
+standard bounds not checked, warnings removed. A `setParameter` on the
+MGIS side will give GPU results different from the CPU results without
+any message. At a minimum, there should be a refusal (or a warning) at
+runtime when a modified parameter is not passed to the device.
 
-A3. Appels toujours bloquants, effets de bord globaux. GPU.hxx:178-245 :
-cudaMallocAsync, copie, lancement, copie, cudaFreeAsync puis
-cudaStreamSynchronize à chaque appel ; SYCL.hxx:338-343 : trois
-`wait_and_throw` ; Kokkos : réduction dans un scalaire. Le bilan est
-toujours rapatrié sur l'hôte. La limite de pile du contexte CUDA est
-modifiée sans possibilité de refus pour CUDA/HIP (GPU.hxx:49-83), et via
-dlopen de libcudart pour les autres (DeviceStackSize.hxx). Pour mfem-mgis
-avec assemblage sur GPU, c'est la première chose à revoir : une variante
-asynchrone (bilan laissé en mémoire device, synchronisation à la charge
-de l'appelant) et un réglage de pile explicite.
+A3. Calls always blocking, global side effects. GPU.hxx:178-245:
+cudaMallocAsync, copy, launch, copy, cudaFreeAsync then
+cudaStreamSynchronize at each call; SYCL.hxx:338-343: three
+`wait_and_throw`; Kokkos: reduction into a scalar. The report is always
+brought back to the host. The stack limit of the CUDA context is modified
+without any possibility of refusal for CUDA/HIP (GPU.hxx:49-83), and via
+dlopen of libcudart for the others (DeviceStackSize.hxx). For mfem-mgis
+with assembly on GPU, it is the first thing to revisit: an asynchronous
+variant (report left in device memory, synchronisation left to the caller)
+and an explicit stack setting.
 
-A4. La classe de loi n'a pas la même définition dans les passes hôte et
-device : paramètres traités comme variables statiques déclarés `static
-constexpr` sur l'hôte et membres `const` non statiques sur le device
-(BehaviourCodeGeneratorBase.cxx:3809-3814). Violation de l'ODR pour nvcc,
-clang et hipcc. Cela marche tant que l'objet loi n'est jamais construit
-sur l'hôte puis copié vers le device ; ce sera faux le jour où MGIS ou
-mfem-mgis le feront.
+A4. The behaviour class does not have the same definition in the host and
+device passes: parameters treated as static variables declared `static
+constexpr` on the host and non static `const` members on the device
+(BehaviourCodeGeneratorBase.cxx:3809-3814). ODR violation for nvcc, clang
+and hipcc. It works as long as the behaviour object is never built on the
+host then copied to the device; it will be wrong the day MGIS or
+mfem-mgis do so.
 
-A5. Changements de comportement de l'existant mêlés au prototype,
-contraires au principe 4 de DESIGN.md ("No change of the CPU behaviour of
-existing interfaces") : six corrections des pilotes `generic` dans le
-commit 494929641, corrections des rotations (79eacfee1), vecteurs propres
-d'une valeur propre multiple calculés par Jacobi sur l'hôte aussi
-(9cd913eb2), ruptures d'API (MechanicalBehaviour sans fonctions
-virtuelles, 1b621828d ; BoundsCheck en `const char*`), rupture d'ABI
-(LogarithmicStrainHandler.cxx supprimé de libTFELMaterial). Chaque
-changement est justifié et bien expliqué dans son message de commit, mais
-l'ensemble doit être séparé en PR distinctes pour l'amont et le principe
-de DESIGN.md corrigé.
+A5. Changes of behaviour of the existing code mixed with the prototype,
+contrary to principle 4 of DESIGN.md ("No change of the CPU behaviour of
+existing interfaces"): six fixes of the `generic` drivers in commit
+494929641, fixes of the rotations (79eacfee1), eigenvectors of a multiple
+eigenvalue computed by Jacobi on the host too (9cd913eb2), API breaks
+(MechanicalBehaviour without virtual functions, 1b621828d; BoundsCheck as
+`const char*`), ABI break (LogarithmicStrainHandler.cxx removed from
+libTFELMaterial). Each change is justified and well explained in its
+commit message, but the whole must be split into distinct PRs for
+upstream and the principle of DESIGN.md corrected.
 
-### B. Problèmes modérés
+### B. Moderate problems
 
-B1. Deux architectures dans la même famille `generic-parallel` :
-propriétés matériau générées sous forme de chaînes (la branche y ajoute
-Kokkos et OpenMP dans ce style), lois par en-têtes templates. Deux
-fabriques, options analysées deux fois (`execution_policy` :
-MaterialProperty/ParallelSTLBackend.cxx:29-46 et
-Behaviour/ParallelSTLBackend.cxx:22-49 ; `device_stack_size` : six
-copies), deux conventions de statut (`mfront_gmp_OutputStatus` : 0 succès,
--2 exception ; `mfront_gpb_OutputStatus` : 1 succès, -2 arguments
-invalides).
+B1. Two architectures in the same `generic-parallel` family: material
+properties generated as strings (the branch adds Kokkos and OpenMP to them
+in this style), behaviours by template headers. Two factories, options
+parsed twice (`execution_policy`:
+MaterialProperty/ParallelSTLBackend.cxx:29-46 and
+Behaviour/ParallelSTLBackend.cxx:22-49; `device_stack_size`: six copies),
+two status conventions (`mfront_gmp_OutputStatus`: 0 success,
+-2 exception; `mfront_gpb_OutputStatus`: 1 success, -2 invalid
+arguments).
 
-B2. Duplication dans les en-têtes d'exécution : quatre points d'entrée
-recopiés par backend alors qu'ils ne font que lier `makeApply`
-(GPU.hxx:280-364, ParallelSTL.hxx:103-203, OpenMP.hxx, Kokkos.hxx) ;
-quatre points d'entrée SYCL de 40 à 50 lignes répétant la même séquence
-(SYCL.hxx:369-581) ; trois `dispatch*` identiques (Integrate.hxx:1081-1092,
-1241-1258, 1286-1303) ; quatre structures d'intégration qui ne diffèrent
-que par l'espace de noms appelé (FiniteStrainIntegrators.hxx, 300 lignes).
-Le code généré pourrait appeler `mfront::gpb::integrateBatch` avec le
-`makeApply` du backend : 300 à 400 lignes de moins.
+B2. Duplication in the execution headers: four entry points copied per
+backend while they only bind `makeApply` (GPU.hxx:280-364,
+ParallelSTL.hxx:103-203, OpenMP.hxx, Kokkos.hxx); four SYCL entry points
+of 40 to 50 lines repeating the same sequence (SYCL.hxx:369-581); three
+identical `dispatch*` (Integrate.hxx:1081-1092, 1241-1258, 1286-1303);
+four integration structures that only differ by the namespace called
+(FiniteStrainIntegrators.hxx, 300 lines). The generated code could call
+`mfront::gpb::integrateBatch` with the `makeApply` of the backend: 300 to
+400 fewer lines.
 
-B3. Mécanismes implicites dans le générateur : compatibilité
-`generic` + `generic-parallel` obtenue en dédupliquant des blocs de code
-par égalité de texte (`writeInterfacesCode`, BehaviourCodeGeneratorBase.cxx) ;
-propriétés d'interface (`areDynamicallyAllocatedVectorsAllowed`,
-AbstractBehaviourInterface.hxx:93-111) qui modifient la classe partagée par
-toutes les interfaces du même appel. Pragmatique, mais fragile et peu
-lisible.
+B3. Implicit mechanisms in the generator: compatibility
+`generic` + `generic-parallel` obtained by deduplicating code blocks by
+text equality (`writeInterfacesCode`, BehaviourCodeGeneratorBase.cxx);
+interface properties (`areDynamicallyAllocatedVectorsAllowed`,
+AbstractBehaviourInterface.hxx:93-111) that modify the class shared by
+all the interfaces of the same call. Pragmatic, but fragile and hard to
+read.
 
-B4. Contrat C et intégration MGIS : pas de version du contrat (alors que
-DESIGN.md:53-57 compte sur l'évolution de la structure) ; état dupliqué
-entre libBehaviour.so et libGenericParallelBehaviour-*.so (paramètres,
-politique hors bornes, mêmes noms C), à répercuter par MGIS en cas de
-repli sur `generic` ; message d'erreur par point perdu
+B4. C contract and MGIS integration: no version of the contract (while
+DESIGN.md:53-57 counts on the evolution of the structure); state
+duplicated between libBehaviour.so and libGenericParallelBehaviour-*.so
+(parameters, out of bounds policy, same C names), to be forwarded by MGIS
+in case of fallback on `generic`; error message per point lost
 (Integrate.hxx:531).
 
-B5. Tests difficiles à maintenir : la liste des 29 fichiers .mfront
-recopiée à l'identique dans 15 test.check ; tailles de chaque loi passées à
-la main dans compare-all.sh alors que la bibliothèque `generic` les
-exporte ; arguments positionnels factices pour les rotations
-(`0 0 0 0 0 0 0 - 0 --rotation=6`).
+B5. Tests hard to maintain: the list of the 29 .mfront files copied
+identically in 15 test.check; sizes of each behaviour passed by hand in
+compare-all.sh while the `generic` library exports them; dummy positional
+arguments for the rotations (`0 0 0 0 0 0 0 - 0 --rotation=6`).
 
-B6. Périmètre : six backends et quinze configurations. La plupart des
-contournements viennent de nvc++ (21 mentions dans les lignes ajoutées) et
-d'AdaptiveCpp. Un premier lot CUDA/HIP + stlpar/OpenMP hôte serait plus
-facile à faire accepter.
+B6. Scope: six backends and fifteen configurations. Most of the
+workarounds come from nvc++ (21 mentions in the added lines) and from
+AdaptiveCpp. A first batch CUDA/HIP + host stlpar/OpenMP would be easier
+to get accepted.
 
-B7. Double instanciation direct/copie de chaque point d'entrée, sans mesure
-du gain : temps de compilation doublé pour les lois lourdes.
+B7. Double direct/copy instantiation of each entry point, without
+measurement of the gain: compilation time doubled for the heavy
+behaviours.
 
-### C. Mineur et cosmétique
+### C. Minor and cosmetic
 
-- Integrate.hxx:110-213 : `gather`/`gatherValues`, `scatter`/`scatterValues`
-  en double.
-- Pointeur de batch nul : `report(-2)` sans `initialize`, champs du statut
-  non initialisés (GenericParallelBehaviourInterface.cxx:725-730,
+- Integrate.hxx:110-213: `gather`/`gatherValues`, `scatter`/`scatterValues`
+  duplicated.
+- Null batch pointer: `report(-2)` without `initialize`, fields of the
+  status uninitialised (GenericParallelBehaviourInterface.cxx:725-730,
   GenericParallelModelInterface.cxx:318-323).
-- Bloc de documentation orphelin (GenericParallelBehaviourInterface.cxx:102-111) ;
-  préfixes générés incohérents (`mgb_d`, `mgpb_parameters`, `mfront_parameters`).
-- GenTypeBase.hxx annoté TFEL_HOST_DEVICE et modifié (`*std::get_if`) alors
-  qu'il n'est plus utilisé sur device.
-- `getConstantObject` : type de retour qui dépend du compilateur
+- Orphan documentation block (GenericParallelBehaviourInterface.cxx:102-111);
+  inconsistent generated prefixes (`mgb_d`, `mgpb_parameters`, `mfront_parameters`).
+- GenTypeBase.hxx annotated TFEL_HOST_DEVICE and modified (`*std::get_if`)
+  while it is no longer used on device.
+- `getConstantObject`: return type that depends on the compiler
   (ConstantObject.hxx:57-69).
-- GPU.hxx:54 : mutex statique par instanciation de modèle, la séquence
-  lire-comparer-écrire de la pile n'est pas protégée entre noyaux.
-- Modèles : politique hors bornes `None` passée puis ignorée
+- GPU.hxx:54: static mutex per template instantiation, the
+  read-compare-write sequence of the stack is not protected between
+  kernels.
+- Models: out of bounds policy `None` passed then ignored
   (GenericParallelModelInterface.cxx:344-346, ModelIntegrator.hxx:59).
-- KokkosBackend : `execution_space` recopié sans validation dans le code
-  généré.
-- tfel.cmake:554 : liste vide `_tfel-generic-parallel_behaviours_only_configurations`.
-- RungeKutta : `#ifdef TFEL_DEVICE_CODE` et branches `useQt` écrits à la
-  main au lieu des nouveaux utilitaires (RungeKuttaDSLBase.cxx:753-760,
+- KokkosBackend: `execution_space` copied without validation in the
+  generated code.
+- tfel.cmake:554: empty list `_tfel-generic-parallel_behaviours_only_configurations`.
+- RungeKutta: `#ifdef TFEL_DEVICE_CODE` and `useQt` branches written by
+  hand instead of the new utilities (RungeKuttaDSLBase.cxx:753-760,
   RungeKuttaCodeGeneratorBase.cxx:2254-2265).
-- DESIGN.md:94-97 : noms de types qui n'existent pas
+- DESIGN.md:94-97: names of types that do not exist
   (`mfront::gb::StandardIntegrator`).
-- Taille des arguments de noyau (BatchData + InputFields + paramètres
-  copiés par valeur) à surveiller pour les lois à nombreuses propriétés.
-- Reformatage clang-format de clauses `requires` qui alourdit le diff.
+- Size of the kernel arguments (BatchData + InputFields + parameters
+  copied by value) to be watched for the behaviours with many properties.
+- clang-format reformatting of `requires` clauses that makes the diff
+  heavier.
 
-### D. Ce qui est bien fait
+### D. What is done well
 
-- Une seule implémentation par point : les pilotes `generic` sont coupés en
-  un coeur TFEL_HOST_DEVICE (options explicites, arguments du constructeur
-  transmis) et les fonctions historiques. Aucune physique dupliquée.
-- Séparation nette vue d'un point / foncteur trivialement copiable /
-  primitive `apply` du backend ; pas de lambdas étendues ; choix
-  direct/copie fait une fois sur l'hôte.
-- Contrat C par champs (pointeur + deux pas) avec propriétés matériau et
-  variables externes "par variable" : correspond exactement à
-  `MaterialDataManager`, MGIS pourra passer ses données sans copie.
-  Rôles de TFEL, MGIS et mfem-mgis clairs (DESIGN.md:234-265).
-- Réduction par warp et atomiques seulement si nécessaire ; clé ordonnée
-  pour le minimum de rdt.
-- Contournements de compilateurs peu nombreux dans les en-têtes TFEL
-  (quatre), tous commentés avec version et symptôme ; reproducteurs dans
-  results/nvhpc-bugs.
-- BoundsCheck simplifié (-365/+199 lignes) ; TrivialGenTypeBase justifié et
-  testé ; `change_basis` ajouté avec test ; rotations partagées entre
-  `generic` et `generic-parallel` (BehaviourRotationFunctions) avec
-  corrections du `generic`.
-- Modèles réalisés en réutilisant `writeGenericModelClass` (option
-  `device`) ; backends CUDA et HIP factorisés dans `GPUBackend`.
-- Messages de commit exemplaires (motif, défaut de compilateur,
-  corrections) ; documentation utilisateur complète ; couverture
-  fonctionnelle des tests très bonne (deux pas, trois dispositions, trois
-  types de calcul, échecs partiels, énergies, vitesse du son, fonctions
-  d'initialisation, post-traitements, rotations, modèles).
+- A single implementation per point: the `generic` drivers are split into
+  a TFEL_HOST_DEVICE core (explicit options, arguments of the constructor
+  passed) and the historical functions. No duplicated physics.
+- Clean separation view of a point / trivially copyable functor /
+  primitive `apply` of the backend; no extended lambdas; direct/copy
+  choice made once on the host.
+- C contract by fields (pointer + two strides) with material properties
+  and external variables "per variable": matches exactly
+  `MaterialDataManager`, MGIS will be able to pass its data without copy.
+  Roles of TFEL, MGIS and mfem-mgis clear (DESIGN.md:234-265).
+- Reduction per warp and atomics only if needed; ordered key for the
+  minimum of rdt.
+- Few compiler workarounds in the TFEL headers (four), all commented with
+  version and symptom; reproducers in results/nvhpc-bugs.
+- BoundsCheck simplified (-365/+199 lines); TrivialGenTypeBase justified
+  and tested; `change_basis` added with a test; rotations shared between
+  `generic` and `generic-parallel` (BehaviourRotationFunctions) with fixes
+  of `generic`.
+- Models made by reusing `writeGenericModelClass` (option `device`); CUDA
+  and HIP backends factored in `GPUBackend`.
+- Exemplary commit messages (motivation, compiler defect, fixes);
+  complete user documentation; very good functional coverage of the tests
+  (two steps, three layouts, three types of computation, partial
+  failures, energies, speed of sound, initialize functions,
+  post-processings, rotations, models).
 
-### E. Ordre de travail suggéré avant MGIS
+### E. Suggested work order before MGIS
 
-1. Variante asynchrone et réglage de pile explicite (A3).
-2. Détection des paramètres non transmis au device (A2).
-3. Même définition de classe hôte/device (A4).
-4. Référence `generic` compilée par le compilateur hôte dans les tests
-   (A1).
-5. Factoriser les points d'entrée et les `dispatch` (B2), version du
-   contrat C (B4).
-6. Découper la branche en PR amont : corrections du `generic`, TFEL
-   device, interface (A5).
+1. Asynchronous variant and explicit stack setting (A3).
+2. Detection of the parameters not passed to the device (A2).
+3. Same class definition on host and device (A4).
+4. `generic` reference compiled by the host compiler in the tests (A1).
+5. Factor the entry points and the `dispatch` (B2), version of the C
+   contract (B4).
+6. Split the branch into upstream PRs: fixes of `generic`, TFEL device,
+   interface (A5).

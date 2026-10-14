@@ -1,32 +1,32 @@
 #!/bin/bash
-# Mesures de bout en bout de l'assemblage de la tangente par noyaux
-# (positions des entrées dans la matrice creuse, matrices sans former B) :
-# thermique r5 et poutre r4 sur 8 processus, tangente assemblée par noyaux,
-# avec la construction des cas liée à mfem-mgis installé dans
-# install/mfem-mgis (avant, build/cas) et à celui installé dans
-# install/mfem-mgis-registres (après, build/cas-registres), plus le calcul
-# point par point comme référence. À lancer sur une machine calme, rien
-# d'autre ne tournant sur les cœurs (les processeurs N et N+8 partagent un
-# cœur).
+# End to end measurements of the assembly of the tangent operator by
+# kernels (positions of the entries in the sparse matrix, matrices without
+# forming B): thermal case r5 and beam r4 on 8 processes, tangent operator
+# assembled by kernels, with the build of the cases linked to the mfem-mgis
+# installed in install/mfem-mgis (before, build/cases) and to the one
+# installed in install/mfem-mgis-registers (after, build/cases-registers),
+# plus the computation point by point as reference. To be run on a quiet
+# machine, nothing else running on the cores (the processors N and N+8
+# share a core).
 #
-# usage : cases/measure-positions.sh [dossier de résultats]
-lot=positions
+# usage: cases/measure-positions.sh [results directory]
+work_package=positions
 P=$(cd "$(dirname "$0")/.." && pwd)
 out=${1:-$P/results/positions-$(date +%Y-%m-%d-%H%M)}
 batch=(MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
   MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
-for case_name in thermique poutre; do
+for case_name in thermal beam; do
   source "$P/cases/measure-common.sh" "$case_name" "$out"
-  if [ "$case_name" = thermique ]; then
+  if [ "$case_name" = thermal ]; then
     linear_solver=gmres-amg
     linear_tolerance=1e-8
   fi
-  run "$case_name-np8-point-par-point" 1 8 "$generic"
-  run "$case_name-np8-noyaux-avant" 1 8 "$generic" "${batch[@]}"
-  B=$P/build/cas-registres/$case_name
-  executable=./poutre
-  run "$case_name-np8-noyaux-apres" 1 8 "$generic" "${batch[@]}"
+  run "$case_name-np8-point-by-point" 1 8 "$generic"
+  run "$case_name-np8-kernels-before" 1 8 "$generic" "${batch[@]}"
+  B=$P/build/cases-registers/$case_name
+  executable=./beam
+  run "$case_name-np8-kernels-after" 1 8 "$generic" "${batch[@]}"
 done
-echo "résultats dans $out"
+echo "results in $out"

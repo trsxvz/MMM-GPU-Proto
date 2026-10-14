@@ -19,13 +19,13 @@ proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX6_DIR}/rve")
 if(_usable)
   set(_run mpirun -n 2 ./rve --no-post-processing --verbosity-level 0)
   set(_kernels "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
-  add_test(NAME ex6-point-par-point COMMAND ${_run}
+  add_test(NAME ex6-point-by-point COMMAND ${_run}
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX6_DIR}")
-  add_test(NAME ex6-noyaux COMMAND ${_run}
+  add_test(NAME ex6-kernels COMMAND ${_run}
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX6_DIR}")
-  set_tests_properties(ex6-point-par-point PROPERTIES
+  set_tests_properties(ex6-point-by-point PROPERTIES
     ENVIRONMENT "OMP_NUM_THREADS=1")
-  set_tests_properties(ex6-noyaux PROPERTIES
+  set_tests_properties(ex6-kernels PROPERTIES
     ENVIRONMENT "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}")
   foreach(_backend ${ex6-behaviours_BACKENDS})
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")

@@ -1,17 +1,18 @@
 #!/bin/bash
-# Bilan sur le GPU des lots du 11/10/2026 (positions, matrices et action sans
-# former B, inverses des jacobiennes, matrice globale) : poutre r4 sur un
-# processus et le GPU, tout par noyaux (loi `cuda`), tangente assemblée ou
-# appliquée sans assemblage, Newton ou NewtonK0 avec Eisenstat-Walker, avec
-# la construction des cas liée à mfem-mgis installé dans install/mfem-mgis
-# (avant, build/cas) et dans install/mfem-mgis-globale (après,
-# build/cas-globale). À lancer sur une machine calme, GPU libre.
+# Summary on the GPU of the work packages of 11/10/2026 (positions, matrices
+# and action without forming B, inverses of the jacobians, global matrix):
+# beam r4 on one process and the GPU, everything by kernels (behaviour
+# `cuda`), tangent operator assembled or applied without assembly, Newton
+# or NewtonK0 with Eisenstat-Walker, with the build of the cases linked to
+# the mfem-mgis installed in install/mfem-mgis (before, build/cases) and in
+# install/mfem-mgis-global (after, build/cases-global). To be run on a quiet
+# machine, with the GPU free.
 #
-# usage : cases/measure-gpu-summary.sh [dossier de résultats]
-lot=bilan-gpu
+# usage: cases/measure-gpu-summary.sh [results directory]
+work_package=gpu-summary
 P=$(cd "$(dirname "$0")/.." && pwd)
-out=${1:-$P/results/bilan-gpu-$(date +%Y-%m-%d-%H%M)}
-source "$P/cases/measure-common.sh" poutre "$out"
+out=${1:-$P/results/gpu-summary-$(date +%Y-%m-%d-%H%M)}
+source "$P/cases/measure-common.sh" beam "$out"
 kernels=(MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
   MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels)
@@ -23,19 +24,19 @@ linear_tolerance=1e-4
 k0="-nls fixed-point -fpm newton-k0 -els amg -k0 -pk0"
 ew="-alst EisenstatWalker1 -alsti 0.1"
 variants=(
-  "assemblee-newton:pcg-amg:$assembled:"
-  "assemblee-newton-k0-ew1:pcg-amg:$assembled:$k0 $ew"
-  "sans-matrice-newton-k0-ew1:pcg-amg:$matrix_free:$k0 $ew")
-for version in avant apres; do
-  if [ "$version" = avant ]; then
-    B=$P/build/cas/poutre
+  "assembled-newton:pcg-amg:$assembled:"
+  "assembled-newton-k0-ew1:pcg-amg:$assembled:$k0 $ew"
+  "matrix-free-newton-k0-ew1:pcg-amg:$matrix_free:$k0 $ew")
+for version in before after; do
+  if [ "$version" = before ]; then
+    B=$P/build/cases/beam
   else
-    B=$P/build/cas-globale/poutre
+    B=$P/build/cases-global/beam
   fi
   for variant in "${variants[@]}"; do
     IFS=: read -r name linear_solver tangent options <<< "$variant"
-    run "poutre-np1-gpu-$name-$version" 1 1 "$cuda" "${kernels[@]}" \
+    run "beam-np1-gpu-$name-$version" 1 1 "$cuda" "${kernels[@]}" \
       "$tangent"
   done
 done
-echo "résultats dans $out"
+echo "results in $out"

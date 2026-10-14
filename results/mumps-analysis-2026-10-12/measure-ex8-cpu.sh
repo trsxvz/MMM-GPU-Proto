@@ -12,14 +12,14 @@ export OMP_NUM_THREADS=1 MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch \
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels \
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
 for pass in 1 2; do
-  for variant in sans avec; do
+  for variant in without with; do
     extra=""
-    [ $variant = avec ] && extra=-mra
+    [ $variant = with ] && extra=-mra
     echo "== pass $pass, $variant, load $(cut -d ' ' -f 1 /proc/loadavg)"
     taskset -c 0-3 timeout 900 mpirun -n 2 ./rjh_plate -m assemblage_hexa.msh \
       -r 0 -ns 5 -lsMc MUMPSSolver -msMc SymmetricPositiveDefinite -no-pp \
       -lU $L/libU3SI2-generic.so -lA $L/libALFENI-generic.so $extra \
-      > $out/ex8-np2-noyaux-$variant-$pass.txt 2>&1
+      > $out/ex8-np2-kernels-$variant-$pass.txt 2>&1
     echo "   exit $?"
   done
 done

@@ -1,101 +1,100 @@
-# ex8 : solveur de la thermique sur le GPU (11/10/2026)
+# ex8: solver of the thermal on the GPU (11/10/2026)
 
-Exemple ex8 de mfem-mgis-examples (plaque thermomécanique), maillage
-d'origine (9 516 inconnues pour la thermique, 28 548 pour la
-mécanique), 5 pas, tout par noyaux. Mécanique : MUMPS avec
+Example ex8 of mfem-mgis-examples (thermomechanical plate), original mesh
+(9,516 unknowns for the thermal, 28,548 for the mechanics), 5 steps,
+everything by kernels. Mechanics: MUMPS with
 `-msMc SymmetricPositiveDefinite` (`results/ex8-mumps-symmetric-2026-10-11`).
-Construction `build/examples-post-ex8`, liée à `install/mfem-mgis-post`.
+Build `build/examples-post-ex8`, linked to `install/mfem-mgis-post`.
 
-Après le passage de la mécanique à MUMPS symétrique, la thermique est le
-second poste d'ex8 sur le GPU. Variantes du solveur de la thermique
-(`-lsTh`, `-pcTh`) : GMRES de hypre (défaut) avec BoomerAMG (défaut),
-DiagScale, ILU ou ParaSails, et MUMPS sur l'hôte.
+After the switch of the mechanics to symmetric MUMPS, the thermal is the
+second item of ex8 on the GPU. Variants of the solver of the thermal
+(`-lsTh`, `-pcTh`): GMRES of hypre (default) with BoomerAMG (default),
+DiagScale, ILU or ParaSails, and MUMPS on the host.
 
-## GPU, 1 processus, lois cuda (un passage)
+## GPU, 1 process, cuda behaviours (one run)
 
-| Thermique | Total (s) | Thermique (s) | Résolutions (35) | Préparation |
+| Thermal | Total (s) | Thermal (s) | Solutions (35) | Setup |
 |---|---|---|---|---|
-| GMRES et BoomerAMG (défaut) | 12,62 | 4,26 | 3,49 | 0,003 |
-| GMRES et DiagScale | 12,80 | 4,56 | 3,83 | 0,000 |
-| MUMPS (`-lsTh MUMPSSolver`) | **11,50** | **3,03** | 0,06 | 2,17 (factorisations) |
-| GMRES et ILU | arrêté à 600 s | | | |
-| GMRES et ParaSails | plantage | | | |
+| GMRES and BoomerAMG (default) | 12.62 | 4.26 | 3.49 | 0.003 |
+| GMRES and DiagScale | 12.80 | 4.56 | 3.83 | 0.000 |
+| MUMPS (`-lsTh MUMPSSolver`) | **11.50** | **3.03** | 0.06 | 2.17 (factorisations) |
+| GMRES and ILU | stopped at 600 s | | | |
+| GMRES and ParaSails | crash | | | |
 
-La mécanique ne change pas (8,2 à 8,4 s, dont 7,3 s de factorisations).
-Avec MUMPS, BoomerAMG ou DiagScale, mêmes itérations de Newton et mêmes
-statistiques des champs.
+The mechanics does not change (8.2 to 8.4 s, including 7.3 s of
+factorisations). With MUMPS, BoomerAMG or DiagScale, same Newton iterations
+and same statistics of the fields.
 
-- MUMPS sur l'hôte est le plus rapide pour la thermique d'ex8 sur le
-  GPU : 4,26 à 3,03 s pour la thermique, 12,6 à 11,5 s pour ex8. Les 35
-  factorisations (2,17 s) coûtent moins que les 35 résolutions de GMRES
-  sur le GPU (3,49 s).
-- Sur le GPU, une résolution de GMRES et BoomerAMG prend 100 ms pour
-  9 516 inconnues, contre 42 ms sur 2 processus du CPU. DiagScale, sans
-  préparation, met presque autant de temps que BoomerAMG. Le système est
-  probablement trop petit pour le GPU : le temps tiendrait surtout au
-  coût fixe de chaque itération (lancements de noyaux, réductions), le
-  nombre d'itérations n'ayant pas été relevé.
-- ILU : sur le GPU, mfem-mgis impose ILU(0) (les niveaux de remplissage
-  supérieurs plantent dans hypre, `reproducers/hypre-ilu-gpu`). GMRES ne
-  converge pas dès la deuxième itération de Newton du premier pas. Le pas
-  de temps est alors redécoupé, et le calcul n'est qu'à 12 700 s sur
-  20 000 s du premier pas après 600 s. Sur le CPU (2 processus, ILU(1)
-  par blocs, défaut de MFEM), ILU converge (tableau suivant). Ces essais
-  ne disent pas si l'échec vient du niveau 0 ou du GPU.
-- ParaSails : deux défauts, corrigés dans mfem-mgis (branche `parasails`,
-  607f895a0d, détails plus bas).
+- MUMPS on the host is the fastest for the thermal of ex8 on the GPU: 4.26
+  to 3.03 s for the thermal, 12.6 to 11.5 s for ex8. The 35
+  factorisations (2.17 s) cost less than the 35 solutions of GMRES on the
+  GPU (3.49 s).
+- On the GPU, one solution of GMRES and BoomerAMG takes 100 ms for 9,516
+  unknowns, against 42 ms on 2 CPU processes. DiagScale, with no setup,
+  takes almost as long as BoomerAMG. The system is probably too small for
+  the GPU: the time would come mostly from the fixed cost of each
+  iteration (kernel launches, reductions); the number of iterations was not
+  recorded.
+- ILU: on the GPU, mfem-mgis imposes ILU(0) (the higher fill levels crash
+  in hypre, `reproducers/hypre-ilu-gpu`). GMRES does not converge from the
+  second Newton iteration of the first step on. The time step is then
+  split, and after 600 s the computation is only at 12,700 s out of the
+  20,000 s of the first step. On the CPU (2 processes, block ILU(1), the
+  default of MFEM), ILU converges (next table). These attempts do not tell
+  whether the failure comes from level 0 or from the GPU.
+- ParaSails: two defects, fixed in mfem-mgis (branch `parasails`,
+  607f895a0d, details below).
 
-## CPU, 2 processus, lois generic (un passage, cœurs 0 à 3)
+## CPU, 2 processes, generic behaviours (one run, cores 0 to 3)
 
-| Thermique | Thermique (s) | Résolutions (35) | Itérations de Newton |
+| Thermal | Thermal (s) | Solutions (35) | Newton iterations |
 |---|---|---|---|
-| GMRES et BoomerAMG (défaut) | 6,04 | 1,49 | 114 |
-| GMRES et ILU(1) par blocs | 8,09 | 3,53 | 114 |
-| GMRES et ParaSails, avant correction | plantage à la 2e résolution | | |
-| GMRES et ParaSails, après correction | échec : pas de temps redécoupés jusqu'à la limite | | |
+| GMRES and BoomerAMG (default) | 6.04 | 1.49 | 114 |
+| GMRES and block ILU(1) | 8.09 | 3.53 | 114 |
+| GMRES and ParaSails, before the fix | crash at the 2nd solution | | |
+| GMRES and ParaSails, after the fix | failure: time steps split down to the limit | | |
 
-Les totaux (28 à 30 s) ne sont pas comparables aux 19,9 s de
-`results/ex8-mumps-symmetric-2026-10-11` : ces essais calculent élément
-par élément (sans les variables de mfem-mgis qui choisissent les lots et
-les noyaux), cette mesure-là tout par noyaux. Les résolutions de la
-thermique (1,49 s) et les factorisations de la mécanique (5,32 s) sont les
-mêmes. Seules les colonnes de la thermique servent à comparer les
-préconditionneurs.
+The totals (28 to 30 s) are not comparable to the 19.9 s of
+`results/ex8-mumps-symmetric-2026-10-11`: these attempts compute element by
+element (without the variables of mfem-mgis that select the batches and
+the kernels), while that measurement computes everything by kernels. The
+solutions of the thermal (1.49 s) and the factorisations of the mechanics
+(5.32 s) are the same. Only the columns of the thermal are used to compare
+the preconditioners.
 
 ## ParaSails
 
-1. Sur le CPU comme sur le GPU, `mfem::HypreParaSails::SetOperator`
-   (MFEM 4.10, aussi sur la branche principale de MFEM) crée le nouveau
-   préconditionneur de hypre avec le communicateur de l'opérateur
-   précédent. Les solveurs non linéaires de mfem-mgis détruisent cet
-   opérateur avant de donner le nouveau. Le communicateur lu est alors
-   invalide, et la deuxième résolution plante (`MPI_ERR_COMM` ou erreur de
-   segmentation). Reproducteur : `reproducers/hypre-parasails-operator`.
-   `HypreEuclid` lit le communicateur du nouvel opérateur et n'a pas ce
-   défaut. Correction dans mfem-mgis : le préconditionneur de la fabrique
-   remplace l'opérateur par le nouveau avant d'appeler cette méthode.
-   Correction amont possible : une ligne de MFEM (`*A` remplacé par
-   `*new_A`).
-2. ParaSails ne calcule que sur l'hôte. Quand hypre calcule sur le GPU, sa
-   préparation lit la matrice rangée sur le GPU et plante dans
-   `MatrixSetRow`, dès la première préparation. mfem-mgis le refuse
-   maintenant avec un message (`gpu-gmres-parasails-refused.txt`).
+1. On the CPU as on the GPU, `mfem::HypreParaSails::SetOperator` (MFEM
+   4.10, also on the main branch of MFEM) creates the new preconditioner
+   of hypre with the communicator of the previous operator. The nonlinear
+   solvers of mfem-mgis destroy this operator before giving the new one.
+   The communicator read is then invalid, and the second solution crashes
+   (`MPI_ERR_COMM` or segmentation fault). Reproducer:
+   `reproducers/hypre-parasails-operator`. `HypreEuclid` reads the
+   communicator of the new operator and does not have this defect. Fix in
+   mfem-mgis: the preconditioner of the factory replaces the operator by
+   the new one before calling this method. Possible upstream fix: one line
+   of MFEM (`*A` replaced by `*new_A`).
+2. ParaSails only computes on the host. When hypre computes on the GPU,
+   its setup reads the matrix stored on the GPU and crashes in
+   `MatrixSetRow`, from the first setup on. mfem-mgis now refuses it with
+   a message (`gpu-gmres-parasails-refused.txt`).
 
-Après correction, ParaSails (options par défaut de MFEM) reste un mauvais
-préconditionneur pour la thermique d'ex8. GMRES met 1 944 à 5 626
-itérations quand il converge, et sinon s'arrête à 10 000 itérations sur
-un résidu relatif de 0,5 à 0,7 (`np2-gmres-parasails-v1.txt`). Le pas de
-temps est redécoupé jusqu'à la limite du nombre d'échecs.
+After the fix, ParaSails (default options of MFEM) remains a bad
+preconditioner for the thermal of ex8. GMRES takes 1,944 to 5,626
+iterations when it converges, and otherwise stops at 10,000 iterations on
+a relative residual of 0.5 to 0.7 (`np2-gmres-parasails-v1.txt`). The time
+step is split down to the limit of the number of failures.
 
-## Fichiers
+## Files
 
-- `gpu-*.txt` : GPU, un processus (`gpu-gmres-parasails.txt` avant la
-  correction, `gpu-gmres-parasails-refused.txt` après).
-- `np2-*.txt` : CPU, 2 processus (`np2-gmres-parasails.txt` avant la
-  correction, `np2-gmres-parasails-fixed.txt` après,
-  `np2-gmres-parasails-v1.txt` après avec `-v 1`, arrêté à 40 s).
+- `gpu-*.txt`: GPU, one process (`gpu-gmres-parasails.txt` before the fix,
+  `gpu-gmres-parasails-refused.txt` after).
+- `np2-*.txt`: CPU, 2 processes (`np2-gmres-parasails.txt` before the fix,
+  `np2-gmres-parasails-fixed.txt` after, `np2-gmres-parasails-v1.txt`
+  after with `-v 1`, stopped at 40 s).
 
-Commande (GPU) :
+Command (GPU):
 
 ```
 ./rjh_plate -m assemblage_hexa.msh -r 0 -ns 5 -no-pp --device cuda \

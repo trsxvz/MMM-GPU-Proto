@@ -1,5 +1,5 @@
-# noyaux de mfem-mgis compilés sans contraction (-fmad=false), float sur le GPU, assemblage ordonné :
-# tangentes comparées en fin des pas 1 et 7, puis directions à la 1re itération du pas 8 de cette trajectoire
+# kernels of mfem-mgis compiled without contraction (-fmad=false), float on the GPU, ordered assembly:
+# tangents compared at the end of steps 1 and 7, then directions at the 1st iteration of step 8 of this trajectory
 step 1: rows 111843, nnz kernels 4702185, element by element 4702185
   max |K - E| 2.048e+03, max |E| 2.000e+10, relative 1.024e-07, Frobenius relative 2.546e-08
   asymmetry: kernels 0.000e+00, element by element 1.280e-08 (relative to max)

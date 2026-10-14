@@ -1,46 +1,46 @@
-# Backend kokkos sur le polycristal (11/10/2026)
+# kokkos backend on the polycrystal (11/10/2026)
 
-Script : `cases/measure-backends-polycrystal.sh`, avec les variables
-`polycristal=build/mm-opera-hpc-kokkos/polycrystal`,
-`cas=build/cas-kokkos` et `backends="cuda:cuda kokkos:kokkos"`.
+Script: `cases/measure-backends-polycrystal.sh`, with the variables
+`polycrystal=build/mm-opera-hpc-kokkos/polycrystal`,
+`cases=build/cases-kokkos` and `backends="cuda:cuda kokkos:kokkos"`.
 
-Polycristal de mm-opera-hpc (5 grains, loi de monocristal de l'UO2,
-orthotrope, grandes transformations, implicite), 10 pas, un processus et
-le GPU, tout par noyaux. Même exécutable pour tous les calculs : celui de
-mm-opera-hpc construit contre l'installation `install/mfem-mgis-kokkos`
-(branche kokkos de mfem-mgis, aed33abb8a, option `enable-kokkos`). La
-ligne « mfem-mgis » de `summary.txt` donne la version du sous-module, pas
-celle de cette installation.
+Polycrystal of mm-opera-hpc (5 grains, single crystal behaviour of UO2,
+orthotropic, finite strain, implicit), 10 steps, one process and the GPU,
+everything by kernels. Same executable for all the computations: the one
+of mm-opera-hpc built against the installation `install/mfem-mgis-kokkos`
+(kokkos branch of mfem-mgis, aed33abb8a, option `enable-kokkos`). The line
+"mfem-mgis" of `summary.txt` gives the version of the submodule, not that
+of this installation.
 
-Lois comparées :
+Behaviours compared:
 
-- `generic` : interface generic, intégrée sur l'hôte (référence des
-  contraintes macroscopiques) ;
-- cuda : interface generic-parallel, configuration `config-cuda-nvcc.json` ;
-- kokkos : interface generic-parallel, configuration `config-kokkos.json`
-  (Kokkos 5.2.2 construit pour CUDA, compilé par `nvcc_wrapper`). Kokkos
-  est initialisé par mfem-mgis (variable `MFEM_MGIS_KOKKOS=1`), sur le GPU
-  du périphérique de MFEM.
+- `generic`: generic interface, integrated on the host (reference of the
+  macroscopic stresses);
+- cuda: generic-parallel interface, configuration `config-cuda-nvcc.json`;
+- kokkos: generic-parallel interface, configuration `config-kokkos.json`
+  (Kokkos 5.2.2 built for CUDA, compiled by `nvcc_wrapper`). Kokkos is
+  initialised by mfem-mgis (variable `MFEM_MGIS_KOKKOS=1`), on the GPU of
+  the device of MFEM.
 
-Machine calme (navigateur seul), deux passages.
+Quiet machine (web browser only), two runs.
 
-Contraintes macroscopiques : écart relatif au plus 2,8e-13 par rapport au
-premier calcul avec la loi `generic` (70 valeurs). Mêmes itérations de
-Newton (98) dans les six calculs.
+Macroscopic stresses: relative gap at most 2.8e-13 with respect to the
+first computation with the `generic` behaviour (70 values). Same Newton
+iterations (98) in the six computations.
 
-| Bibliothèque | Total (s) | Intégration, 158 appels (s) | Résolution (s) |
+| Library | Total (s) | Integration, 158 calls (s) | Solution (s) |
 |---|---|---|---|
-| `generic` (hôte) | 107,65 et 107,48 | 99,97 et 99,84 | 5,73 et 5,66 |
-| cuda (nvcc) | 12,88 et 12,79 | 5,61 et 5,61 | 5,64 et 5,56 |
-| kokkos (nvcc) | 12,97 et 13,22 | 5,62 et 5,69 | 5,70 et 5,88 |
+| `generic` (host) | 107.65 and 107.48 | 99.97 and 99.84 | 5.73 and 5.66 |
+| cuda (nvcc) | 12.88 and 12.79 | 5.61 and 5.61 | 5.64 and 5.56 |
+| kokkos (nvcc) | 12.97 and 13.22 | 5.62 and 5.69 | 5.70 and 5.88 |
 
-- kokkos et cuda donnent le même temps d'intégration, à 1,4 % près. Les
-  deux chaînes passent par nvcc. Comme pour cuda et hip
-  (`results/backends-polycrystal-2026-10-11`), c'est le compilateur qui
-  compte, pas le modèle de programmation.
-- L'écart sur le total (0,1 et 0,4 s) vient surtout de la résolution, qui
-  ne dépend pas de la loi. L'initialisation de Kokkos, faite par
-  `mfem_mgis::initialize`, précède la résolution du problème et n'est pas
-  comptée dans le total.
-- Il fallait que le programme initialise Kokkos. C'est maintenant le rôle
-  de mfem-mgis : aucune modification de mm-opera-hpc n'a été nécessaire.
+- kokkos and cuda give the same integration time, within 1.4%. Both
+  toolchains go through nvcc. As for cuda and hip
+  (`results/backends-polycrystal-2026-10-11`), the compiler is what
+  matters, not the programming model.
+- The gap on the total (0.1 and 0.4 s) comes mostly from the solution,
+  which does not depend on the behaviour. The initialisation of Kokkos,
+  done by `mfem_mgis::initialize`, precedes the solution of the problem
+  and is not counted in the total.
+- The program had to initialise Kokkos. This is now the role of
+  mfem-mgis: no change of mm-opera-hpc was needed.

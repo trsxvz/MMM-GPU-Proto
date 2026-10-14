@@ -22,14 +22,14 @@ if(_usable)
   set(_kernels "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
   foreach(_case 0 1 2 3 4 5)
     set(_run ./two_layer_cube --test-case ${_case})
-    set(_tests ex3-${_case}-point-par-point ex3-${_case}-noyaux)
-    add_test(NAME ex3-${_case}-point-par-point COMMAND ${_run}
+    set(_tests ex3-${_case}-point-by-point ex3-${_case}-kernels)
+    add_test(NAME ex3-${_case}-point-by-point COMMAND ${_run}
       WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX3_DIR}")
-    add_test(NAME ex3-${_case}-noyaux COMMAND ${_run}
+    add_test(NAME ex3-${_case}-kernels COMMAND ${_run}
       WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX3_DIR}")
-    set_tests_properties(ex3-${_case}-point-par-point PROPERTIES
+    set_tests_properties(ex3-${_case}-point-by-point PROPERTIES
       ENVIRONMENT "OMP_NUM_THREADS=1")
-    set_tests_properties(ex3-${_case}-noyaux PROPERTIES
+    set_tests_properties(ex3-${_case}-kernels PROPERTIES
       ENVIRONMENT "OMP_NUM_THREADS=1;${_kernels}")
     foreach(_backend ${ex3-behaviours_BACKENDS})
       set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")

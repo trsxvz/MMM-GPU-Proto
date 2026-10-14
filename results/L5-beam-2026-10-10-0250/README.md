@@ -1,135 +1,133 @@
-# Point fixe sur la poutre, CPU et GPU (10/10/2026)
+# Fixed point on the beam, CPU and GPU (10/10/2026)
 
-Poutre r4 (111 843 inconnues, tétraèdres d'ordre 1), plasticité de von
-Mises à écrouissage linéaire, 10 pas, prédiction élastique, tolérance
-relative du solveur non linéaire 1e-8. mfem-mgis d05475d265. Script :
-`cases/measure-L5.sh`. Une RTX 5080, 16 cœurs ; une relecture tournait en
-même temps (charge moyenne de 4,5 au départ) : les temps sur CPU sont
-majorés d'environ 20 % (Newton : 16,6 s sur machine calme, 20,2 s ici).
+Beam r4 (111,843 unknowns, tetrahedra of order 1), von Mises plasticity
+with linear hardening, 10 steps, elastic prediction, relative tolerance of
+the nonlinear solver 1e-8. mfem-mgis d05475d265. Script:
+`cases/measure-L5.sh`. One RTX 5080, 16 cores. A review was running at the
+same time (average load of 4.5 at the start): the times on CPU are
+overestimated by about 20 % (Newton: 16.6 s on a quiet machine, 20.2 s
+here).
 
-Tous les calculs utilisent les noyaux (gradients, résidu, tangente
-assemblée) ; loi `generic` sur CPU (8 processus), loi `cuda` sur le GPU.
+All the computations use the kernels (gradients, residual, assembled
+tangent); `generic` behaviour on CPU (8 processes), `cuda` behaviour on the
+GPU.
 
-- **Newton** : meilleur Newton mesuré, PCG + BoomerAMG de hypre, tolérance
-  linéaire 1e-4 ;
-- **point fixe** sur l'opérateur élastique K0 (`FixedPoint`, méthode
-  `ElasticOperator`, K0 assemblé une fois), accéléré par Anderson (profondeur
-  8) ou par l'algorithme de Cast3M, K0 résolu par un cycle de BoomerAMG
-  par itération (réglages par défaut de hypre, ou lisseur de Chebyshev,
-  `RelaxationType=16`), ou par PCG + BoomerAMG ; prédiction résolue à 1e-8
-  près ;
-- **Newton modifié** accéléré par Anderson (tangente de la première
-  itération du pas).
+- **Newton**: best Newton measured, PCG + BoomerAMG of hypre, linear
+  tolerance 1e-4;
+- **fixed point** on the elastic operator K0 (`FixedPoint`, method
+  `ElasticOperator`, K0 assembled once), accelerated by Anderson (depth 8)
+  or by the algorithm of Cast3M, K0 solved by one cycle of BoomerAMG per
+  iteration (default settings of hypre, or Chebyshev smoother,
+  `RelaxationType=16`), or by PCG + BoomerAMG; prediction solved up to
+  1e-8;
+- **modified Newton** accelerated by Anderson (tangent of the first
+  iteration of the step).
 
-| Cas | CPU, 8 processus | GPU |
+| Case | CPU, 8 processes | GPU |
 |---|---|---|
-| Newton | 20,27 s (29 it.) | **3,43 s** (32 it.) |
-| point fixe, Anderson 8, un cycle d'AMG | **13,33 s** (341 it.) | 4,80 s (1 231 it.) |
-| idem, lisseur de Chebyshev | 13,25 s (330 it.) | **3,44 s** (438 it.) |
-| point fixe, Cast3M, un cycle d'AMG | 14,36 s (477 it.) | 4,32 s (1 162 it.) |
-| point fixe, Anderson 8, PCG + AMG | 31,52 s (94 it.) | 8,49 s (96 it.) |
-| Newton modifié, Anderson 8 | 29,67 s (74 it.) | 7,82 s (76 it.) |
+| Newton | 20.27 s (29 it.) | **3.43 s** (32 it.) |
+| fixed point, Anderson 8, one AMG cycle | **13.33 s** (341 it.) | 4.80 s (1,231 it.) |
+| same, Chebyshev smoother | 13.25 s (330 it.) | **3.44 s** (438 it.) |
+| fixed point, Cast3M, one AMG cycle | 14.36 s (477 it.) | 4.32 s (1,162 it.) |
+| fixed point, Anderson 8, PCG + AMG | 31.52 s (94 it.) | 8.49 s (96 it.) |
+| modified Newton, Anderson 8 | 29.67 s (74 it.) | 7.82 s (76 it.) |
 
-Temps total profilé (maximum sur les processus).
+Total profiled time (maximum over the processes).
 
-Répartition sur le GPU (secondes, nombre d'appels) :
+Breakdown on the GPU (seconds, number of calls):
 
-| Cas | Intégration | Résidu | Résolution | Accélération | Prédiction |
+| Case | Integration | Residual | Solve | Acceleration | Prediction |
 |---|---|---|---|---|---|
-| Newton | 0,05 (42) | 0,02 (42) | 2,05 (32) | | 0,78 (10) |
-| point fixe, Chebyshev | 0,39 (449) | 0,23 (448) | 0,83 (438) | 0,12 (438) | 1,49 (10) |
+| Newton | 0.05 (42) | 0.02 (42) | 2.05 (32) | | 0.78 (10) |
+| fixed point, Chebyshev | 0.39 (449) | 0.23 (448) | 0.83 (438) | 0.12 (438) | 1.49 (10) |
 
-## Constats
+## Findings
 
-- **Sur CPU, le point fixe gagne** : 13,3 s contre 20,3 s pour Newton
-  (×1,5, à comparer au ×1,8 du prototype du 04/10). Le point fixe évite
-  l'assemblage de la tangente et la construction de BoomerAMG à chaque
-  itération ; une itération (loi, résidu, un cycle d'AMG, Anderson) coûte
-  environ 21 ms contre 560 ms pour une itération de Newton (temps hors
-  prédiction divisés par le nombre d'itérations).
-- **Sur le GPU, égalité** (3,44 s contre 3,43 s), et seulement avec le
-  lisseur de Chebyshev : avec les réglages par défaut de hypre sur GPU
-  (l1-Jacobi, grossissement PMIS), un cycle de BoomerAMG est bien plus
-  faible (1 231 itérations au lieu de 438). Le prototype (×4 sur GPU)
-  utilisait sa propre AMG par agrégation lissée avec les modes rigides.
-  Chebyshev ne profite pas à Newton (3,95 s).
-- **La prédiction pèse** : 1,49 s sur 3,44 s sur le GPU (6,2 s sur 13,3 s
-  sur CPU), parce qu'elle est résolue à 1e-8 près par PCG + BoomerAMG, avec
-  une nouvelle construction de BoomerAMG à chaque pas. Sans prédiction, le
-  point fixe est plus lent (1 394 itérations sur le GPU, 23 s sur CPU) :
-  Anderson et un cycle d'AMG résolvent mal le grand incrément élastique.
-  Piste : faire la prédiction avec K0 et son AMG déjà construits (prévu
-  au plan).
-- Une itération du point fixe sur le GPU coûte environ 4 ms (loi 0,9 ms,
-  résidu 0,5 ms, cycle d'AMG 1,9 ms, Anderson 0,3 ms) : la latence des
-  lancements domine encore (voir `results/L6-beam-2026-10-09/`).
-- Les nombres d'itérations du point fixe sur le GPU varient d'une
-  exécution à l'autre (de 1 128 à 2 133 pour une même configuration avec
-  le lisseur par défaut) : hypre sur GPU et les additions atomiques ne
-  sont pas reproductibles bit à bit, et Anderson amplifie ces écarts.
+- **On CPU, the fixed point wins**: 13.3 s against 20.3 s for Newton
+  (×1.5, to compare with the ×1.8 of the prototype of 04/10). The fixed
+  point avoids the assembly of the tangent and the setup of BoomerAMG at
+  each iteration. One iteration (behaviour, residual, one AMG cycle,
+  Anderson) costs about 21 ms against 560 ms for one Newton iteration
+  (times without the prediction divided by the number of iterations).
+- **On the GPU, a tie** (3.44 s against 3.43 s), and only with the
+  Chebyshev smoother: with the default settings of hypre on GPU (l1-Jacobi,
+  PMIS coarsening), one cycle of BoomerAMG is much weaker (1,231 iterations
+  instead of 438). The prototype (×4 on GPU) used its own smoothed
+  aggregation AMG with the rigid body modes. Chebyshev does not benefit
+  Newton (3.95 s).
+- **The prediction weighs**: 1.49 s out of 3.44 s on the GPU (6.2 s out of
+  13.3 s on CPU), because it is solved up to 1e-8 by PCG + BoomerAMG, with
+  a new setup of BoomerAMG at each step. Without prediction, the fixed
+  point is slower (1,394 iterations on the GPU, 23 s on CPU): Anderson and
+  one AMG cycle solve the large elastic increment badly. Lead: do the
+  prediction with K0 and its AMG already built (planned).
+- One iteration of the fixed point on the GPU costs about 4 ms (behaviour
+  0.9 ms, residual 0.5 ms, AMG cycle 1.9 ms, Anderson 0.3 ms): the latency
+  of the launches still dominates (see `results/L6-beam-2026-10-09/`).
+- The numbers of iterations of the fixed point on the GPU vary from one
+  run to the other (from 1,128 to 2,133 for the same configuration with the
+  default smoother): hypre on GPU and the atomic additions are not bitwise
+  reproducible, and Anderson amplifies these differences.
 
-## Suite : prédiction par l'AMG de K0 (mfem-mgis 846551e0cb, 1ef05104d1)
+## Next: prediction by the AMG of K0 (mfem-mgis 846551e0cb, 1ef05104d1)
 
-Option `PredictionLinearSolver=ElasticOperator` du point fixe (`-pk0`) : la
-prédiction élastique est résolue par le gradient conjugué préconditionné
-par le cycle de BoomerAMG de K0, déjà construit, au lieu d'une nouvelle
-construction de BoomerAMG à chaque pas. Point fixe, Anderson 8, un cycle
-d'AMG de Chebyshev, K0 gardé, sur le GPU :
+Option `PredictionLinearSolver=ElasticOperator` of the fixed point
+(`-pk0`): the elastic prediction is solved by the conjugate gradient
+preconditioned by the BoomerAMG cycle of K0, already built, instead of a
+new setup of BoomerAMG at each step. Fixed point, Anderson 8, one Chebyshev
+AMG cycle, K0 kept, on the GPU:
 
-| Tolérance de la prédiction | Itérations | Total | Prédiction | Résolutions |
+| Tolerance of the prediction | Iterations | Total | Prediction | Solves |
 |---|---|---|---|---|
-| 1e-4 | 534 | **2,80 s** | 0,77 s | 1,01 s |
-| 1e-5 | 535 | 3,13 s | 1,10 s | 1,02 s |
-| 1e-6 | 458 | 2,94 s | 1,18 s | 0,88 s |
-| 1e-7 | 605 | 3,60 s | 1,31 s | 1,15 s |
-| 1e-8 | 490 | 3,31 s | 1,41 s | 0,96 s |
+| 1e-4 | 534 | **2.80 s** | 0.77 s | 1.01 s |
+| 1e-5 | 535 | 3.13 s | 1.10 s | 1.02 s |
+| 1e-6 | 458 | 2.94 s | 1.18 s | 0.88 s |
+| 1e-7 | 605 | 3.60 s | 1.31 s | 1.15 s |
+| 1e-8 | 490 | 3.31 s | 1.41 s | 0.96 s |
 
-Avec une prédiction à 1e-4, trois exécutions de chaque : Newton 3,15 s,
-3,16 s, 3,18 s ; point fixe 3,32 s, 2,88 s, 2,97 s (566 à 674
-itérations). **Sur le GPU, le point fixe est à égalité ou un peu plus
-rapide que Newton** (médiane 2,97 s contre 3,16 s) ; sur 8 cœurs il
-reste nettement plus rapide.
+With a prediction at 1e-4, three runs of each: Newton 3.15 s, 3.16 s,
+3.18 s; fixed point 3.32 s, 2.88 s, 2.97 s (566 to 674 iterations). **On
+the GPU, the fixed point is on par with Newton or slightly faster** (median
+2.97 s against 3.16 s). On 8 cores it stays clearly faster.
 
-- La prédiction coûte environ 40 ms par pas en régime (assemblage par
-  noyaux 3,3 ms, assemblage global 2,6 ms, gradient conjugué environ
-  35 ms) ; le premier pas porte en plus les mises en place ponctuelles
-  (géométrie des éléments 214 ms, motif de la matrice), que les moyennes
-  par appel mélangent.
-- Une itération du point fixe coûte environ 3,5 ms sur le GPU : intégration
-  de la loi 0,96 ms (dont 0,65 ms de noyau de la loi), résidu 0,55 ms (le
-  noyau des forces intérieures, un fil par nœud, inverse 4 fois chaque
-  jacobienne : à écrire comme le noyau fusionné de l'action, un fil par
-  élément), cycle d'AMG 1,9 ms, Anderson 0,3 ms.
-- Réglages de BoomerAMG essayés en plus de Chebyshev (grossissement
-  agressif, seuil 0,5, interpolation 18, niveaux limités) : aucun gain
-  au-delà de la dispersion des nombres d'itérations.
+- The prediction costs about 40 ms per step in steady state (assembly by
+  kernels 3.3 ms, global assembly 2.6 ms, conjugate gradient about 35 ms).
+  The first step also carries the one-off setups (geometry of the elements
+  214 ms, pattern of the matrix), which the averages per call mix in.
+- One iteration of the fixed point costs about 3.5 ms on the GPU:
+  integration of the behaviour 0.96 ms (of which 0.65 ms of the behaviour
+  kernel), residual 0.55 ms (the kernel of the internal forces, one thread
+  per node, inverts each jacobian 4 times: to be written like the fused
+  kernel of the action, one thread per element), AMG cycle 1.9 ms, Anderson
+  0.3 ms.
+- Settings of BoomerAMG tried in addition to Chebyshev (aggressive
+  coarsening, threshold 0.5, interpolation 18, limited levels): no gain
+  beyond the scatter of the numbers of iterations.
 
-## Suite : méthode NewtonK0 (mfem-mgis 30beae4764)
+## Next: NewtonK0 method (mfem-mgis 30beae4764)
 
-Newton avec la tangente cohérente, résolue par le gradient conjugué de
-MFEM préconditionné par BoomerAMG construit une fois sur K0
-(`Method=NewtonK0`, `-fpm newton-k0 -els amg -k0 -pk0`, tolérance du
-gradient conjugué 1e-4), aucune construction de BoomerAMG pendant le
-calcul après le premier pas. Machine calme (charge 3).
+Newton with the consistent tangent operator, solved by the conjugate
+gradient of MFEM preconditioned by BoomerAMG built once on K0
+(`Method=NewtonK0`, `-fpm newton-k0 -els amg -k0 -pk0`, tolerance of the
+conjugate gradient 1e-4), no setup of BoomerAMG during the computation
+after the first step. Quiet machine (load 3).
 
-| Cas | GPU | CPU, 8 processus |
+| Case | GPU | CPU, 8 processes |
 |---|---|---|
-| Newton (PCG + BoomerAMG reconstruit à chaque itération) | 3,16 s (32 it.) | 13,49 s (29 it.) |
-| NewtonK0 | **2,58 à 2,66 s** (31 à 32 it.) | 11,56 s (29 it.) |
-| point fixe, Anderson 8, un cycle d'AMG, prédiction par K0 | 2,88 à 3,32 s | **9,51 s** (518 it.) |
+| Newton (PCG + BoomerAMG rebuilt at each iteration) | 3.16 s (32 it.) | 13.49 s (29 it.) |
+| NewtonK0 | **2.58 to 2.66 s** (31 to 32 it.) | 11.56 s (29 it.) |
+| fixed point, Anderson 8, one AMG cycle, prediction by K0 | 2.88 to 3.32 s | **9.51 s** (518 it.) |
 
-Trois exécutions de NewtonK0 sur le GPU : 2,604 s, 2,579 s, 2,655 s,
-mêmes nombres d'itérations que Newton : contrairement au point fixe, le
-résultat est stable.
+Three runs of NewtonK0 on the GPU: 2.604 s, 2.579 s, 2.655 s, same numbers
+of iterations as Newton: unlike the fixed point, the result is stable.
 
-- **Sur le GPU, NewtonK0 est le meilleur solveur mesuré** (×1,22 contre
-  Newton) : la construction de BoomerAMG à chaque itération de Newton
-  coûtait plus que les itérations supplémentaires du gradient conjugué
-  avec l'AMG de K0.
-- **Sur CPU, le point fixe accéléré reste le meilleur** (×1,42 contre
-  Newton), NewtonK0 entre les deux (×1,17).
-- Avec la tangente sans matrice (`TangentOperatorComputation=MatrixFree`),
-  NewtonK0 n'assemble plus rien pendant les itérations (3,10 s sur le
-  GPU) : c'est le premier bon préconditionneur du chemin sans matrice,
-  encore plus lent que la tangente assemblée sur ces tétraèdres d'ordre 1
-  (voir `results/L4-beam-2026-10-10-0123/`).
+- **On the GPU, NewtonK0 is the best solver measured** (×1.22 against
+  Newton): the setup of BoomerAMG at each Newton iteration cost more than
+  the additional iterations of the conjugate gradient with the AMG of K0.
+- **On CPU, the accelerated fixed point stays the best** (×1.42 against
+  Newton), NewtonK0 in between (×1.17).
+- With the matrix free tangent (`TangentOperatorComputation=MatrixFree`),
+  NewtonK0 no longer assembles anything during the iterations (3.10 s on
+  the GPU): it is the first good preconditioner of the matrix free path,
+  still slower than the assembled tangent on these tetrahedra of order 1
+  (see `results/L4-beam-2026-10-10-0123/`).

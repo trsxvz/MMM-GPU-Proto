@@ -1,56 +1,56 @@
-Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas-post
-      Start 109: ex1-point-par-point
- 1/28 Test #109: ex1-point-par-point ..............   Passed    0.96 sec
-      Start 110: ex1-noyaux
- 2/28 Test #110: ex1-noyaux .......................   Passed    0.65 sec
+Test project /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cases-post
+      Start 109: ex1-point-by-point
+ 1/28 Test #109: ex1-point-by-point ..............   Passed    0.96 sec
+      Start 110: ex1-kernels
+ 2/28 Test #110: ex1-kernels .......................   Passed    0.65 sec
       Start 111: ex1-batch-openmp
  3/28 Test #111: ex1-batch-openmp .................   Passed    0.67 sec
       Start 112: ex1-batch-stlpar
  4/28 Test #112: ex1-batch-stlpar .................   Passed    0.62 sec
-      Start 114: ex3-0-point-par-point
- 5/28 Test #114: ex3-0-point-par-point ............   Passed    0.62 sec
-      Start 115: ex3-0-noyaux
- 6/28 Test #115: ex3-0-noyaux .....................   Passed    0.62 sec
+      Start 114: ex3-0-point-by-point
+ 5/28 Test #114: ex3-0-point-by-point ............   Passed    0.62 sec
+      Start 115: ex3-0-kernels
+ 6/28 Test #115: ex3-0-kernels .....................   Passed    0.62 sec
       Start 116: ex3-0-batch-openmp
  7/28 Test #116: ex3-0-batch-openmp ...............   Passed    0.62 sec
       Start 117: ex3-0-batch-stlpar
  8/28 Test #117: ex3-0-batch-stlpar ...............   Passed    0.64 sec
-      Start 119: ex3-1-point-par-point
- 9/28 Test #119: ex3-1-point-par-point ............   Passed    0.67 sec
-      Start 120: ex3-1-noyaux
-10/28 Test #120: ex3-1-noyaux .....................   Passed    0.66 sec
+      Start 119: ex3-1-point-by-point
+ 9/28 Test #119: ex3-1-point-by-point ............   Passed    0.67 sec
+      Start 120: ex3-1-kernels
+10/28 Test #120: ex3-1-kernels .....................   Passed    0.66 sec
       Start 121: ex3-1-batch-openmp
 11/28 Test #121: ex3-1-batch-openmp ...............   Passed    0.67 sec
       Start 122: ex3-1-batch-stlpar
 12/28 Test #122: ex3-1-batch-stlpar ...............   Passed    0.68 sec
-      Start 124: ex3-2-point-par-point
-13/28 Test #124: ex3-2-point-par-point ............   Passed    0.68 sec
-      Start 125: ex3-2-noyaux
-14/28 Test #125: ex3-2-noyaux .....................   Passed    0.69 sec
+      Start 124: ex3-2-point-by-point
+13/28 Test #124: ex3-2-point-by-point ............   Passed    0.68 sec
+      Start 125: ex3-2-kernels
+14/28 Test #125: ex3-2-kernels .....................   Passed    0.69 sec
       Start 126: ex3-2-batch-openmp
 15/28 Test #126: ex3-2-batch-openmp ...............   Passed    0.69 sec
       Start 127: ex3-2-batch-stlpar
 16/28 Test #127: ex3-2-batch-stlpar ...............   Passed    0.65 sec
-      Start 129: ex3-3-point-par-point
-17/28 Test #129: ex3-3-point-par-point ............   Passed    0.68 sec
-      Start 130: ex3-3-noyaux
-18/28 Test #130: ex3-3-noyaux .....................   Passed    0.71 sec
+      Start 129: ex3-3-point-by-point
+17/28 Test #129: ex3-3-point-by-point ............   Passed    0.68 sec
+      Start 130: ex3-3-kernels
+18/28 Test #130: ex3-3-kernels .....................   Passed    0.71 sec
       Start 131: ex3-3-batch-openmp
 19/28 Test #131: ex3-3-batch-openmp ...............   Passed    0.68 sec
       Start 132: ex3-3-batch-stlpar
 20/28 Test #132: ex3-3-batch-stlpar ...............   Passed    0.71 sec
-      Start 134: ex3-4-point-par-point
-21/28 Test #134: ex3-4-point-par-point ............   Passed    0.67 sec
-      Start 135: ex3-4-noyaux
-22/28 Test #135: ex3-4-noyaux .....................   Passed    0.64 sec
+      Start 134: ex3-4-point-by-point
+21/28 Test #134: ex3-4-point-by-point ............   Passed    0.67 sec
+      Start 135: ex3-4-kernels
+22/28 Test #135: ex3-4-kernels .....................   Passed    0.64 sec
       Start 136: ex3-4-batch-openmp
 23/28 Test #136: ex3-4-batch-openmp ...............   Passed    0.66 sec
       Start 137: ex3-4-batch-stlpar
 24/28 Test #137: ex3-4-batch-stlpar ...............   Passed    0.68 sec
-      Start 139: ex3-5-point-par-point
-25/28 Test #139: ex3-5-point-par-point ............   Passed    0.92 sec
-      Start 140: ex3-5-noyaux
-26/28 Test #140: ex3-5-noyaux .....................   Passed    0.64 sec
+      Start 139: ex3-5-point-by-point
+25/28 Test #139: ex3-5-point-by-point ............   Passed    0.92 sec
+      Start 140: ex3-5-kernels
+26/28 Test #140: ex3-5-kernels .....................   Passed    0.64 sec
       Start 141: ex3-5-batch-openmp
 27/28 Test #141: ex3-5-batch-openmp ...............   Passed    0.64 sec
       Start 142: ex3-5-batch-stlpar

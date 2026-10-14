@@ -1,19 +1,19 @@
 #!/bin/bash
-# Coût des post-traitements (lot L8) : polycristal de mm-opera-hpc, 10 pas,
-# tous les noyaux, Newton, sur le GPU et sur 8 processus CPU, sans puis
-# avec les post-traitements du cas (export ParaView des résultats et
-# moyennes des contraintes à chaque pas), calculés sur l'hôte puis par
-# noyaux (MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels). La variable
-# `executable` donne un autre exécutable que celui du dossier de
-# construction (chemin absolu). Les sections de profilage de
-# mfem-mgis séparent la recopie des matériaux vers l'hôte
-# (NLEP::PP::synchronizeOnHost) de l'exécution des post-traitements
-# (NLEP::PP::execute). Les fichiers ParaView sont écrits dans le dossier de
-# construction du cas, puis effacés.
+# Cost of the post-processings (work package L8): polycrystal of
+# mm-opera-hpc, 10 steps, all the kernels, Newton, on the GPU and on 8 CPU
+# processes, without then with the post-processings of the case (ParaView
+# export of the results and averages of the stresses at each step),
+# computed on the host then by kernels
+# (MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels). The variable
+# `executable` gives another executable than the one of the build
+# directory (absolute path). The profiling sections of mfem-mgis separate
+# the copy of the materials to the host (NLEP::PP::synchronizeOnHost) from
+# the execution of the post-processings (NLEP::PP::execute). The ParaView
+# files are written in the build directory of the case, then deleted.
 #
-# usage : cases/measure-post-processings.sh [dossier de résultats]
-lot=L8
-source "$(dirname "$0")/measure-common.sh" polycristal "$@"
+# usage: cases/measure-post-processings.sh [results directory]
+work_package=L8
+source "$(dirname "$0")/measure-common.sh" polycrystal "$@"
 batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
@@ -30,7 +30,7 @@ wait_for_gpu() {
     fi
     sleep 5
   done
-  echo "   GPU partagé avec un autre processus" | tee -a "$out/summary.txt"
+  echo "   GPU shared with another process" | tee -a "$out/summary.txt"
 }
 
 for device in cuda ""; do
@@ -46,17 +46,17 @@ for device in cuda ""; do
   post_processing=--disable-post-processing
   reference=""
   [ -n "$device" ] && wait_for_gpu
-  run "polycristal-$where-sans-post-traitements" 1 $np "$library" "$batch" \
+  run "polycrystal-$where-without-post-processings" 1 $np "$library" "$batch" \
     "${kernels[@]}"
   post_processing=""
-  reference="polycristal-$where-sans-post-traitements"
+  reference="polycrystal-$where-without-post-processings"
   [ -n "$device" ] && wait_for_gpu
-  run "polycristal-$where-post-traitements" 1 $np "$library" "$batch" \
+  run "polycrystal-$where-post-processings" 1 $np "$library" "$batch" \
     "${kernels[@]}"
   [ -n "$device" ] && wait_for_gpu
-  run "polycristal-$where-post-traitements-noyaux" 1 $np "$library" \
+  run "polycrystal-$where-post-processings-kernels" 1 $np "$library" \
     "$batch" "${kernels[@]}" MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels
   rm -rf "$B"/OutputFile-Uniaxial-polycrystal* "$B"/PolycrystalParaviewOutput
 done
-python3 "$P/cases/summary-profiling.py" "$out"/polycristal-*.txt > "$out/profiling.txt" 2>&1
-echo "fin : $(date '+%F %T')" | tee -a "$out/summary.txt"
+python3 "$P/cases/summary-profiling.py" "$out"/polycrystal-*.txt > "$out/profiling.txt" 2>&1
+echo "end: $(date '+%F %T')" | tee -a "$out/summary.txt"

@@ -1,32 +1,32 @@
 #!/bin/bash
-# Compile, teste et installe mfem-mgis, puis compile et teste
-# mfem-mgis-examples, mm-opera-hpc et les cas de cases/ (dépôts `mfem-mgis/`,
-# `mfem-mgis-examples/` et `mm-opera-hpc/`, branche `gpu-proto`), contre
-# MFEM 4.10 de l'environnement spack `mmm-gpu`, le MGIS installé par
-# build-mgis.sh et le TFEL installé par build-tfel.sh.
+# Builds, tests and installs mfem-mgis, then builds and tests
+# mfem-mgis-examples, mm-opera-hpc and the cases of cases/ (repositories
+# `mfem-mgis/`, `mfem-mgis-examples/` and `mm-opera-hpc/`, branch
+# `gpu-proto`), against MFEM 4.10 of the spack environment `mmm-gpu`, the
+# MGIS installed by build-mgis.sh and the TFEL installed by build-tfel.sh.
 #
-# Les autres constructions ne passent pas par ce script : MFEM compilé avec
-# HIP pour un GPU AMD (scripts/build-hip-amd.sh), et les constructions qui
-# valident l'option enable-kokkos (build/mfem-mgis-kokkos-off et
-# build/mfem-mgis-kokkos, voir docs/validation.md).
+# The other builds do not go through this script: MFEM built with HIP for
+# an AMD GPU (scripts/build-hip-amd.sh), and the builds that validate the
+# option enable-kokkos (build/mfem-mgis-kokkos-off and
+# build/mfem-mgis-kokkos, see docs/validation.md).
 #
-# usage : ./build-mfem-mgis.sh [mfem-mgis|examples|opera|cas ...]
-# Sans argument : les quatre, dans cet ordre. mfem-mgis est installé dans
-# install/mfem-mgis, où les autres le trouvent. `cas` : cas de la campagne
-# de mesures propres au prototype (dossier cases/).
+# usage: ./build-mfem-mgis.sh [mfem-mgis|examples|opera|cases ...]
+# Without argument: the four, in this order. mfem-mgis is installed in
+# install/mfem-mgis, where the others find it. `cases`: cases of the
+# measurement campaign specific to the prototype (directory cases/, built
+# in build/cases).
 #
-# Un dossier de construction existant est réutilisé, et reconfiguré avec
-# les options de ce script à chaque appel. Pour repartir de zéro, le
-# supprimer avant.
+# An existing build directory is reused, and reconfigured with the options
+# of this script at each call. To start from scratch, delete it first.
 #
-# AmgX est celui donné par la variable AMGX_DIR (scripts/env.sh la définit
-# pour l'environnement mmm-gpu), sinon celui de l'environnement spack. Un
-# avertissement est affiché si cet AmgX n'a pas le patch pour CUDA 13
-# (multigrille classique, voir deps/spack/README.md).
+# AmgX is the one given by the variable AMGX_DIR (scripts/env.sh defines it
+# for the environment mmm-gpu), otherwise the one of the spack environment.
+# A warning is printed if this AmgX does not have the patch for CUDA 13
+# (classical multigrid, see deps/spack/README.md).
 #
-# Les compilateurs CUDA (nvcc et son compilateur hôte) sont ceux de MFEM,
-# choisis par mfem-mgis (voir cmake/modules/MFEMMGISDeviceCode.cmake) :
-# ceux qu'un ancien dossier garde dans son cache sont retirés.
+# The CUDA compilers (nvcc and its host compiler) are those of MFEM,
+# chosen by mfem-mgis (see cmake/modules/MFEMMGISDeviceCode.cmake): the
+# ones that an old build directory keeps in its cache are removed.
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
 source "$P/scripts/env.sh"
@@ -65,7 +65,7 @@ build() {
     cmake --install "$b"
   fi
 }
-for what in ${@:-mfem-mgis examples opera cas}; do
+for what in ${@:-mfem-mgis examples opera cases}; do
   case "$what" in
     mfem-mgis)
       build mfem-mgis "$P/mfem-mgis" yes \
@@ -85,13 +85,13 @@ for what in ${@:-mfem-mgis examples opera cas}; do
         -DMFEMMGIS_DIR="$P/install/mfem-mgis/share/mfem-mgis/cmake" \
         -DMFEM_DIR="$MFEM"
       ;;
-    cas)
-      build cas "$P/cas" no \
+    cases)
+      build cases "$P/cases" no \
         -DMFEMMGIS_DIR="$P/install/mfem-mgis/share/mfem-mgis/cmake" \
         -DMFEM_DIR="$MFEM"
       ;;
     *)
-      echo "usage: $0 [mfem-mgis|examples|opera|cas ...]" >&2
+      echo "usage: $0 [mfem-mgis|examples|opera|cases ...]" >&2
       exit 1
       ;;
   esac

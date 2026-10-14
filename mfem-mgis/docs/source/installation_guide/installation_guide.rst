@@ -276,8 +276,8 @@ the Spack package, which requires ``hypre`` in single precision and
 (variant ``~lapack`` of the Spack package): with an external ``LAPACK``,
 ``hypre`` 3.2.0 in single precision calls the ``LAPACK`` routines of the
 ``double`` type on ``float`` arrays, which breaks ``ParaSails``, the
-Gaussian elimination of types 99 and 199 of ``BoomerAMG`` and other
-solvers of ``hypre``. The configuration of ``mfem-mgis`` warns about such
+Gaussian elimination of types 98, 99, 198 and 199 of ``BoomerAMG`` and
+other solvers of ``hypre``. The configuration of ``mfem-mgis`` warns about such
 a ``hypre``. Then:
 
 - ``MGIS`` must be configured with the same type

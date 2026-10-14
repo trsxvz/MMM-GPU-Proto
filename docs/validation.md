@@ -1,314 +1,314 @@
 # Validation
 
-Ce document décrit comment les changements de TFEL, de MGIS, de mfem-mgis
-et des cas sont vérifiés, avec quels outils, et où trouver les résultats.
+This document describes how the changes of TFEL, of MGIS, of mfem-mgis
+and of the cases are checked, with which tools, and where to find the results.
 
-## Principe
+## Principle
 
-L'interface `generic` sert de référence. Pour chaque loi testée, la même
-source MFront est compilée deux fois : avec l'interface `generic` par le
-compilateur de l'hôte, et avec l'interface `generic-parallel` pour la
-configuration testée. Les deux bibliothèques calculent les mêmes points, et
-les résultats sont comparés. Les écarts admis sont des écarts d'arrondi.
+The `generic` interface serves as the reference. For each tested behaviour, the same
+MFront source is compiled twice: with the `generic` interface by the
+host compiler, and with the `generic-parallel` interface for the
+tested configuration. The two libraries compute the same points, and
+the results are compared. The accepted differences are rounding differences.
 
-Un test qui ne peut pas échouer ne vaut rien. Les tests importants sont
-donc vérifiés par une version volontairement fausse du code (indice relatif
-au lieu d'absolu, pas d'un champ faux, flux par défaut au lieu du flux de
-l'appelant, etc.) : le test doit la détecter.
+A test that cannot fail is worthless. The important tests are
+therefore checked with a deliberately wrong version of the code (relative index
+instead of absolute, wrong stride of a field, default stream instead of the stream of
+the caller, etc.): the test must detect it.
 
-## Environnement
+## Environment
 
-- Machine : GPU NVIDIA RTX 5080 (architecture `sm_120`) ; le GPU AMD
-  intégré au processeur (gfx1036) n'est pas utilisé (accès réservé au
-  groupe render).
-- Environnement spack `mmm-gpu` (`deps/spack/`) : NVIDIA HPC SDK 25.11
-  (nvc++ et CUDA 13.0.2), LLVM 20.1.8, AdaptiveCpp 25.10, Kokkos 5.2.2,
-  HIP 7.2.3 (plateforme NVIDIA), MFEM 4.10 avec hypre 3.2.0, et les
-  solveurs étudiés (PETSc, SUNDIALS, SuperLU_DIST, STRUMPACK, Ginkgo,
-  AmgX, cuDSS, MUMPS), OpenMPI 5. Voir `deps/spack/README.md`.
-- `scripts/env.sh` donne l'environnement complet de tous les scripts.
-- La gestion hétérogène de la mémoire (HMM) des pilotes NVIDIA permet au
-  GPU de lire la mémoire ordinaire de l'hôte. Elle masque donc les erreurs
-  d'emplacement. Les validations finales se font sans HMM
+- Machine: NVIDIA RTX 5080 GPU (architecture `sm_120`); the AMD GPU
+  integrated in the processor (gfx1036) is not used (access restricted to the
+  render group).
+- Spack environment `mmm-gpu` (`deps/spack/`): NVIDIA HPC SDK 25.11
+  (nvc++ and CUDA 13.0.2), LLVM 20.1.8, AdaptiveCpp 25.10, Kokkos 5.2.2,
+  HIP 7.2.3 (NVIDIA platform), MFEM 4.10 with hypre 3.2.0, and the
+  studied solvers (PETSc, SUNDIALS, SuperLU_DIST, STRUMPACK, Ginkgo,
+  AmgX, cuDSS, MUMPS), OpenMPI 5. See `deps/spack/README.md`.
+- `scripts/env.sh` gives the complete environment of all the scripts.
+- The heterogeneous memory management (HMM) of the NVIDIA drivers lets the
+  GPU read the ordinary memory of the host. It therefore hides the location
+  errors. The final validations are done without HMM
   (`uvm_disable_hmm=1`).
 
 ## TFEL
 
-### Tests de l'interface des lois et des modèles
+### Tests of the interface of the behaviours and of the models
 
-`tfel/test-suite/behaviours/generic-parallel/<configuration>/` : un dossier
-par configuration (voir [tfel.md](tfel.md#configurations-et-compilateurs)).
-Chaque test compile les lois de test avec les deux interfaces, puis
-l'outil `compare.cxx` les compare sur des lots variés :
+`tfel/test-suite/behaviours/generic-parallel/<configuration>/`: one directory
+per configuration (see [tfel.md](tfel.md#configurations-and-compilers)).
+Each test compiles the test behaviours with the two interfaces, then
+the tool `compare.cxx` compares them on varied batches:
 
-- trois types de calcul (intégration seule, opérateur tangent, prédiction)
-  et deux rangements mémoire ;
-- valeurs uniformes et valeurs par point, données groupe par groupe ou
-  variable par variable ;
-- fonctions d'initialisation, post-traitements, rotations, modèles,
-  paramètres modifiés à l'exécution, échecs volontaires (indice du premier
-  point en échec, statuts par point), calcul asynchrone ;
-- solveur TDLS dans les lois implicites (sous-test `tdls`).
+- three types of computation (integration only, tangent operator, prediction)
+  and two memory layouts;
+- uniform values and values per point, given group by group or
+  variable by variable;
+- initialize functions, post-processings, rotations, models,
+  parameters modified at run time, deliberate failures (index of the first
+  failing point, statuses per point), asynchronous computation;
+- TDLS solver in the implicit behaviours (sub-test `tdls`).
 
-### Tests de l'interface des propriétés matériau
+### Tests of the interface of the material properties
 
-`tfel/test-suite/material-properties/generic-parallel/<configuration>/` :
-valeurs comparées aux valeurs attendues, arguments uniformes et avec pas,
-bornes et politiques, propriétés appelant d'autres propriétés ou définies
-par des données, options d'exécution (flux CUDA et HIP non bloquant,
-instance Kokkos, file SYCL absente), évaluation asynchrone.
+`tfel/test-suite/material-properties/generic-parallel/<configuration>/`:
+values compared with the expected values, uniform and strided arguments,
+bounds and policies, properties calling other properties or defined
+by data, execution options (non-blocking CUDA and HIP stream,
+Kokkos instance, missing SYCL queue), asynchronous evaluation.
 
-Le test du flux est discriminant : un noyau lent écrit les arguments sur le
-flux de l'appelant juste avant l'évaluation. Les valeurs ne sont justes que
-si la propriété attend ce noyau. Avec le flux par défaut, le test échoue.
+The test of the stream is discriminating: a slow kernel writes the arguments on the
+stream of the caller just before the evaluation. The values are only correct
+if the property waits for this kernel. With the default stream, the test fails.
 
-### Balayages
+### Sweeps
 
-Les lois de test de MFront (`tfel/mfront/tests`) sont bien plus nombreuses
-que les lois des tests de l'interface. Des balayages les couvrent toutes :
+The test behaviours of MFront (`tfel/mfront/tests`) are much more numerous
+than the behaviours of the tests of the interface. Sweeps cover all of them:
 
-| Outil | Ce qui est vérifié | Résultat |
+| Tool | What is checked | Result |
 |---|---|---|
-| `scripts/compile-sweep.sh` | compilation de toutes les lois, modèles et propriétés de test, pour nvcc, clang CUDA (qui refuse tout appel d'une fonction hôte depuis le code GPU), AdaptiveCpp et nvc++ | 541 compilations réussies sur 608 fichiers (60 invalides, 7 fragments), aucun code utilisateur bloquant, depuis le 06/10 au soir (voir ci-dessous) |
-| `scripts/runtime-sweep.py` | exécution de toutes les lois et modèles de test, comparée à l'interface `generic`, avec trois amplitudes de chargement | tous les écarts restants sont des écarts d'arrondi, vérifiés |
-| `scripts/property-sweep.py` | exécution des 56 propriétés matériau de test | conformes |
-| `scripts/roundoff-check.sh`, `scripts/roundoff-triage.py` | rejoue une loi sur l'hôte avec et sans contraction des opérations (FMA), comme nvcc sur GPU | les écarts signalés viennent de lois qui amplifient l'arrondi |
-| `scripts/clang-cuda-header-scan.sh` | compilation de chaque en-tête de TFEL par clang CUDA | annotations hôte et GPU cohérentes |
+| `scripts/compile-sweep.sh` | compilation of all the test behaviours, models and properties, for nvcc, clang CUDA (which refuses any call to a host function from GPU code), AdaptiveCpp and nvc++ | 541 successful compilations out of 608 files (60 invalid, 7 fragments), no blocking user code, since the evening of 06/10 (see below) |
+| `scripts/runtime-sweep.py` | execution of all the test behaviours and models, compared with the `generic` interface, with three loading amplitudes | all the remaining differences are rounding differences, checked |
+| `scripts/property-sweep.py` | execution of the 56 test material properties | conforming |
+| `scripts/roundoff-check.sh`, `scripts/roundoff-triage.py` | replays a behaviour on the host with and without contraction of the operations (FMA), like nvcc on GPU | the reported differences come from behaviours that amplify the rounding |
+| `scripts/clang-cuda-header-scan.sh` | compilation of each header of TFEL by clang CUDA | consistent host and GPU annotations |
 
-### Validation complète
+### Full validation
 
-`scratch/validate3.sh <étiquette>` enchaîne :
+`scratch/validate3.sh <label>` runs in sequence:
 
-1. la reconfiguration et l'installation de TFEL ;
-2. la suite de tests complète de TFEL (`ctest`) : 6970 tests au 12/10,
-   tous verts ;
-3. la matrice des tests `generic-parallel` à `-O3` pour toutes les
-   configurations (`scripts/run-generic-parallel-tests.sh`) ;
-4. les balayages de compilation avec nvcc et clang.
+1. the reconfiguration and the installation of TFEL;
+2. the complete test suite of TFEL (`ctest`): 6970 tests as of 12/10,
+   all green;
+3. the matrix of the `generic-parallel` tests at `-O3` for all the
+   configurations (`scripts/run-generic-parallel-tests.sh`);
+4. the compilation sweeps with nvcc and clang.
 
-Les résultats des matrices sont dans `results/generic-parallel-tests-*.txt`.
-La dernière validation complète date du 08/10
-(`validate3.sh 2026-10-08-r8` : 6965 tests de TFEL, matrice `-O3` 31/31,
-balayages nvcc et clang 541 OK ; matrice dans
-`results/generic-parallel-tests-2026-10-08-r8-O3.txt`). Après les patchs
-des 09 et 12/10, la suite complète de TFEL a été relancée le 12/10
-(6970 tests, tous verts), pas la matrice. Après le rebasage du 13/10 sur
-`ff0959ece`, seuls TDLS et les tests `generic-parallel` de `cuda-nvcc`
-ont été relancés.
+The results of the matrices are in `results/generic-parallel-tests-*.txt`.
+The last full validation dates from 08/10
+(`validate3.sh 2026-10-08-r8`: 6965 tests of TFEL, `-O3` matrix 31/31,
+nvcc and clang sweeps 541 OK; matrix in
+`results/generic-parallel-tests-2026-10-08-r8-O3.txt`). After the patches
+of 09 and 12/10, the complete suite of TFEL was run again on 12/10
+(6970 tests, all green), not the matrix. After the rebase of 13/10 on
+`ff0959ece`, only TDLS and the `generic-parallel` tests of `cuda-nvcc`
+were run again.
 
-Les balayages suivis dans `results/compile-sweep-*-2026-10-06.tsv` donnent
-l'état du 06/10 au matin : 504 OK, 36 codes utilisateur bloquants, 1 appel
-d'une fonction hôte. Les balayages à 541 OK (journal du 06/10 au soir et
-du 08/10) sont restés dans `scratch/` (`sweep-r2-*.tsv`, `sweep-r3-*.tsv`),
-non suivis.
+The tracked sweeps in `results/compile-sweep-*-2026-10-06.tsv` give
+the state of the morning of 06/10: 504 OK, 36 blocking user codes, 1 call
+to a host function. The sweeps at 541 OK (log of the evening of 06/10 and
+of 08/10) stayed in `scratch/` (`sweep-r2-*.tsv`, `sweep-r3-*.tsv`),
+untracked.
 
-### Tests ciblés pendant le développement
+### Targeted tests during development
 
-- `scratch/dev-test.sh <configuration>` lance un test avec l'arbre de
-  développement (MFront de `scratch/build-dev2`, en-têtes de `tfel-dev`),
-  sans installer TFEL. `DEVTEST_KIND=material-properties` choisit les
-  propriétés matériau.
-- `scratch/targeted-test.sh <configuration> <motif> <loi>...` ne construit
-  que les lois données.
-- `reproducers/` : petits programmes autonomes qui vérifient un point
-  précis, par exemple les rotations des blocs de l'opérateur tangent, les
-  chaînes de caractères dans le code GPU, le coût d'un appel synchrone, les
-  variables statiques dans le code CUDA, ou des défauts de hypre, d'AmgX
-  et de cuDSS. Voir `reproducers/README.md`.
+- `scratch/dev-test.sh <configuration>` runs a test with the development
+  tree (MFront from `scratch/build-dev2`, headers from `tfel-dev`),
+  without installing TFEL. `DEVTEST_KIND=material-properties` selects the
+  material properties.
+- `scratch/targeted-test.sh <configuration> <pattern> <behaviour>...` only builds
+  the given behaviours.
+- `reproducers/`: small standalone programs that check a precise
+  point, for example the rotations of the blocks of the tangent operator, the
+  character strings in GPU code, the cost of a synchronous call, the
+  static variables in CUDA code, or defects of hypre, of AmgX
+  and of cuDSS. See `reproducers/README.md`.
 
 ## MGIS
 
-MGIS est construit dans `build/mgis` contre le TFEL du prototype. Ses
-tests (`ctest`, 50 tests) comprennent ceux d'origine et :
+MGIS is built in `build/mgis` against the TFEL of the prototype. Its
+tests (`ctest`, 50 tests) include the original ones and:
 
-| Test | Ce qui est vérifié |
+| Test | What is checked |
 |---|---|
-| `GenericParallelLoadTest` | chargement, refus croisés des fonctions d'un point et de lot, disposition mémoire des copies des structures de TFEL |
-| `GenericParallelIntegrateTest` | lots sur CPU (`stlpar`) comparés au calcul point par point : intégration, plages, échecs partiels, fonctions d'initialisation, post-traitements, rotations 2D et 3D, grandes déformations, vitesse du son, toutes les sortes de variables externes, modèle, politiques d'exécution, emplacements et ressources mémoire |
-| `GenericParallelEvaluateTest` | propriétés matériau sur CPU : chargement, valeurs, bornes et politiques, emplacements, arguments invalides, politique d'exécution |
-| `GenericParallelCUDATest` | mêmes vérifications sur GPU (`cuda`), données en mémoire managée, ressource mémoire, flux non par défaut, modèle et propriétés matériau ; valeur uniforme gardée sur l'hôte refusée par `make_view`, donnée par `make_unchecked_view` |
-| `MaterialDataViewTest` | vues : `FieldView` et ses contrats, `getPoints` ; intégration, fonctions d'initialisation et post-traitements sur vues dans quatre rangements (point par point, composante par composante, avec ou sans pas plus grand que nécessaire), identiques bit à bit au gestionnaire, avec un espace de travail, avec les politiques synchrone et asynchrone et par `integrate_debug`, chaque calcul partant d'une copie de l'état avant calcul ; les huit types d'intégration, prédictions comprises ; vitesse du son ; modèle ; énergies stockée et dissipée ; ensembles vides ; vue sans blocs de la tangente ; `make_view` ; opérations de l'hôte ; `update`, `revert`, `updateValues` (avec et sans contexte) ; variables d'une vue d'état, blocs de la tangente, extraction ; refus attendus, pour les deux interfaces |
-| `MaterialDataManagerLayoutTest` | gestionnaire rangé composante par composante identique bit à bit au rangement point par point : intégration sur des plages, ensembles vides, pool de threads (erreurs comprises), politiques, `revert` ; initialisation et post-traitement sous toutes leurs formes ; fin de pas des propriétés matériau et variables externes (tableaux externes, locaux, valeurs uniformes, politiques de mise à jour) ; conversions des grandes transformations sur vues et sur gestionnaire, en 3D et en déformation plane, contrainte de Piola-Kirchhoff comparée à sa définition ; vues des variables, vues *strided coalesced* ; `MaterialFunctionManager` ; `save` et `restore` ; `updateInputValues` (entrées mises à jour, tableaux des états non copiés) |
-| `GenericParallelIntegrateTest`, `GenericParallelEvaluateTest` (ajouts) | rotations et `evaluate` sur vues, identiques bit à bit aux surcharges sur tableaux, pour tous les rangements de la source et de la destination, en place ou non, matrices données des cinq façons, sans politique, synchrone et asynchrone |
-| `FieldOperationsCUDATest` | opérations CUDA (copies, transpositions, remplissages), cycle complet sur GPU (tableaux de l'appelant composante par composante en mémoire du GPU seulement, intégration et fin de pas sur le GPU, comparés à l'hôte), intégration, initialisation, post-traitement, `update`, `revert` et extraction directement sur une `MaterialDataView` en mémoire du GPU, rotations et `evaluate` sur vues en mémoire du GPU, calculs asynchrones avec un pool de mémoire managée, masse volumique gardée sur l'hôte refusée |
-| `AllocationTest` | aucune allocation sur le tas dans le thread appelant pour l'intégration, `update` et `revert` des gestionnaires (deux rangements) et des vues, les rotations et `evaluate`, pour les deux interfaces |
-| `RotationMatrixCopyTest` | copies et déplacements des matrices de rotation, stockage local et externe, rotation après destruction de l'original |
-| `ProfilingTest` (ajout) | fonction de synchronisation de `setProfilingSynchronization` appelée au début et à la fin de chaque section active, jamais pour une section inactive |
+| `GenericParallelLoadTest` | loading, cross refusals of the point and batch functions, memory layout of the copies of the structures of TFEL |
+| `GenericParallelIntegrateTest` | batches on CPU (`stlpar`) compared with the point by point computation: integration, ranges, partial failures, initialize functions, post-processings, 2D and 3D rotations, finite strain, speed of sound, all the kinds of external variables, model, execution policies, memory locations and resources |
+| `GenericParallelEvaluateTest` | material properties on CPU: loading, values, bounds and policies, locations, invalid arguments, execution policy |
+| `GenericParallelCUDATest` | same checks on GPU (`cuda`), data in managed memory, memory resource, non-default stream, model and material properties; uniform value kept on the host refused by `make_view`, given by `make_unchecked_view` |
+| `MaterialDataViewTest` | views: `FieldView` and its contracts, `getPoints`; integration, initialize functions and post-processings on views in four layouts (point by point, component by component, with or without a stride larger than needed), identical bit for bit to the manager, with a workspace, with the synchronous and asynchronous policies and through `integrate_debug`, each computation starting from a copy of the state before the computation; the eight integration types, predictions included; speed of sound; model; stored and dissipated energies; empty sets; view without blocks of the tangent; `make_view`; host operations; `update`, `revert`, `updateValues` (with and without context); variables of a state view, blocks of the tangent, extraction; expected refusals, for both interfaces |
+| `MaterialDataManagerLayoutTest` | manager stored component by component identical bit for bit to the point by point layout: integration on ranges, empty sets, thread pool (errors included), policies, `revert`; initialization and post-processing in all their forms; end of step of the material properties and external variables (external arrays, local arrays, uniform values, update policies); conversions of finite strain on views and on the manager, in 3D and in plane strain, Piola-Kirchhoff stress compared with its definition; views of the variables, *strided coalesced* views; `MaterialFunctionManager`; `save` and `restore`; `updateInputValues` (inputs updated, arrays of the states not copied) |
+| `GenericParallelIntegrateTest`, `GenericParallelEvaluateTest` (additions) | rotations and `evaluate` on views, identical bit for bit to the overloads on arrays, for all the layouts of the source and of the destination, in place or not, matrices given in the five ways, without policy, synchronous and asynchronous |
+| `FieldOperationsCUDATest` | CUDA operations (copies, transpositions, fills), complete cycle on GPU (arrays of the caller component by component in GPU memory only, integration and end of step on the GPU, compared with the host), integration, initialization, post-processing, `update`, `revert` and extraction directly on a `MaterialDataView` in GPU memory, rotations and `evaluate` on views in GPU memory, asynchronous computations with a managed memory pool, mass density kept on the host refused |
+| `AllocationTest` | no heap allocation in the calling thread for the integration, `update` and `revert` of the managers (two layouts) and of the views, the rotations and `evaluate`, for both interfaces |
+| `RotationMatrixCopyTest` | copies and moves of the rotation matrices, local and external storage, rotation after destruction of the original |
+| `ProfilingTest` (addition) | synchronization function of `setProfilingSynchronization` called at the start and at the end of each active section, never for an inactive section |
 
-Les tests des liaisons C et Fortran sont construits par la cible `check`
-de CMake, pas par `build-tests` : sans elle, `ctest` relance d'anciens
-exécutables.
+The tests of the C and Fortran bindings are built by the CMake target `check`,
+not by `build-tests`: without it, `ctest` runs old
+executables again.
 
-La construction `build/mgis-full` ajoute HDF5 et les liaisons C, Fortran et
-Python (96 tests), dont les tests du rangement dans chaque liaison
-(`LayoutTest` : rangement du gestionnaire, rangement invalide refusé en C,
-blocs de la tangente en Fortran dans les deux rangements, pas des tableaux
-numpy et tableaux à pas refusés en Python). Le script `scripts/check-mgis-gpu-headers.sh` compile les
-en-têtes GPU de MGIS (opérations de copie et ressources mémoire) avec les
-chaînes CUDA, HIP, SYCL, Kokkos et OpenMP déporté du prototype, et les
-exécute sur le GPU (`reproducers/mgis-gpu-headers/check.cxx`).
+The build `build/mgis-full` adds HDF5 and the C, Fortran and
+Python bindings (96 tests), including the tests of the layout in each binding
+(`LayoutTest`: layout of the manager, invalid layout refused in C,
+blocks of the tangent in Fortran in both layouts, strides of the
+numpy arrays and strided arrays refused in Python). The script `scripts/check-mgis-gpu-headers.sh` compiles the
+GPU headers of MGIS (copy operations and memory resources) with the
+CUDA, HIP, SYCL, Kokkos and OpenMP offload toolchains of the prototype, and
+runs them on the GPU (`reproducers/mgis-gpu-headers/check.cxx`).
 
-Le test CUDA demande l'option CMake `enable-generic-parallel-cuda-tests`.
-Les bibliothèques de lots des tests sont construites par les fonctions de
+The CUDA test requires the CMake option `enable-generic-parallel-cuda-tests`.
+The batch libraries of the tests are built by the functions of
 `mgis/cmake/modules/generic-parallel.cmake`.
 
 ## mfem-mgis
 
-mfem-mgis est construit dans `build/mfem-mgis` (ou dans une construction
-séparée par lot, `build/mfem-mgis-<lot>`, avec les cibles `BehaviourTest` et
-`GenericParallelBehaviour-*`, hors de `all` et de `build-tests`). Sa suite
-(293 tests au 13/10/2026 sur `gpu-proto` 898f63edf9, dont 77 dont le nom
-correspond au motif `cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos` ; 244 et
-58 le 12/10) se lance de trois façons, qui doivent toutes passer (les
-chiffres datés ci-dessous sont ceux des passages notés au journal) :
+mfem-mgis is built in `build/mfem-mgis` (or in a separate build per
+work package, `build/mfem-mgis-<package>`, with the targets `BehaviourTest` and
+`GenericParallelBehaviour-*`, outside of `all` and of `build-tests`). Its suite
+(293 tests as of 13/10/2026 on `gpu-proto` 898f63edf9, of which 77 have a name
+matching the pattern `cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos`; 244 and
+58 on 12/10) is run in three ways, which must all pass (the
+dated figures below are those of the runs noted in the log):
 
-- telle quelle : `ctest -j 3 -E
-  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (216 tests, 216/216 le
-  13/10 sur `gpu-proto` 6b9ebf5bcc en 432 s ; 186/186 le 12/10 sur
-  45afaa0653), puis les variantes qui utilisent le GPU, `ctest -j 2 -R
-  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (77 tests, 77/77 le 13/10
-  en 226 s). Les variantes qui calculent sur le GPU partagent le verrou
-  `RESOURCE_LOCK gpu` : sans lui, hypre réserve un pool sur le GPU pour
-  chaque processus de deux tests simultanés et l'allocation échoue (vu le
-  13/10 avec `ExecutionSettingsTest`, corrigé par 898f63edf9 puis
-  a836c34207 : le verrou est donné à tout test dont le nom finit par
-  `-cuda`, `-hip` ou `-gpu`) ;
-- avec tous les calculs forcés aux noyaux du chemin par lots, par les
+- as it is: `ctest -j 3 -E
+  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (216 tests, 216/216 on
+  13/10 on `gpu-proto` 6b9ebf5bcc in 432 s; 186/186 on 12/10 on
+  45afaa0653), then the variants that use the GPU, `ctest -j 2 -R
+  "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (77 tests, 77/77 on 13/10
+  in 226 s). The variants that compute on the GPU share the lock
+  `RESOURCE_LOCK gpu`: without it, hypre reserves a pool on the GPU for
+  each process of two simultaneous tests and the allocation fails (seen on
+  13/10 with `ExecutionSettingsTest`, fixed by 898f63edf9 then
+  a836c34207: the lock is given to any test whose name ends with
+  `-cuda`, `-hip` or `-gpu`);
+- with all the computations forced to the kernels of the batch path, through the
   variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`,
   `MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels`,
-  `MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels` et
-  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels` (182/182 le 12/10, hors variantes
-  GPU) ;
-- sur le GPU, avec la variable `MFEM_MGIS_DEVICE=cuda` (équivalente à
-  l'option `--device cuda` de chaque test), avec ou sans les variables
-  précédentes, un test à la fois (`ctest -j 1 -E "cuda|gpu|GPU|debug"`,
-  182 tests, 180/182 le 12/10 en 624 s sans les variables précédentes,
-  179/182 en 652 s avec) : des tests simultanés se
-  partagent le GPU et échouent. Le script
-  `scripts/mfem-mgis-gpu-suite.sh [default|kernels]` (noyaux forcés sans argument) lance cette suite
-  avec l'assemblage ordonné des matrices de rigidité
-  (`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`), qui rend les résultats
-  identiques d'un passage à l'autre : 184/186 le 13/10 en 668 s avec les
-  noyaux forcés (mfem-mgis 54ff8e6c8a), seuls les deux tests qui exigent
-  l'absence de périphérique échouant. Les
-  tests à 4 processus demandent aussi
-  `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1` : hypre réserve sinon 4 Gio par
-  processus sur le GPU (16 Go). Seuls `DeviceForallTest-cpu` et
-  `DeviceOptionTest-none`, qui exigent l'absence de périphérique,
-  échouent alors. `FixedPointSolverTest-kernels-cpu`, qui garde
-  son option `--device cpu`, et `UnitTestParameters`, qui n'initialise pas
-  mfem-mgis, ne passent alors pas par le GPU. Les variantes
-  `ExecutionSettingsTest-cpu*` et `ExecutionSettingsTest-refused-*` non
-  plus : avec l'option `--execution`, la variable `MFEM_MGIS_DEVICE` est
-  ignorée (avertissement). `FixedPointSolverTest`
-  échoue de temps en temps sur le GPU avec les noyaux forcés : une fois
-  sur 26 passages le 11/10, puis dans la suite du 12/10 et une fois sur 20
-  passages isolés. C'est toujours l'accélération `Crossed2Deltabis` : sur
-  un pas, elle tombe dans un cycle où le résidu relatif stagne vers 1e-10
-  jusqu'à la limite de 1 000 itérations, alors qu'elle converge en 71
-  itérations dans les autres passages. Les sommes faites sur le GPU ne
-  sont pas reproductibles d'un passage à l'autre (même le nombre
-  d'itérations de Newton varie, 8 ou 9) ; le portage de l'algorithme de
-  MTest est fidèle (mêmes historiques, même formule, même seuil de
-  colinéarité) ; sur CPU, où les calculs sont reproductibles, le test
-  passe toujours. Sources vérifiées le 12/10 (historiques comparés sur
-  plusieurs passages, hypre sur le GPU ou sur l'hôte) : l'assemblage de
-  la tangente par noyaux (additions atomiques dans la matrice creuse ;
-  différences dès le premier pas, quel que soit l'emplacement de hypre),
-  puis l'action de la tangente sans assemblage ; avec la tangente
-  assemblée sur l'hôte, les 478 premières lignes d'itérations sont
-  identiques d'un passage à l'autre. La seconde source est en fait la
-  même : dans le sous-test sans assemblage, l'opérateur élastique K0 du
-  préconditionneur est assemblé par noyaux avec des additions atomiques
-  (l'action par noyaux et la réduction de MFEM sont déterministes).
-  L'assemblage ordonné (paramètre `TangentOperatorAssembly` à `Ordered`,
-  variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`) supprime ces écarts :
-  avec un périphérique, matrices élémentaires stockées, puis ajoutées par
-  un fil par valeur de la matrice, dans un ordre fixe ; sans périphérique,
-  le chemin de l'hôte ajoute déjà les éléments l'un après l'autre (coût
-  mesuré sur la poutre r4 : `results/ordered-assembly-2026-10-12`). Avec lui, quatre passages de
-  `FixedPointSolverTest` sur le GPU, noyaux forcés, donnent des historiques
-  identiques bit à bit (les deux variantes du diagnostic), contre trois
-  historiques différents en trois passages avec l'assemblage atomique
-  (`scratch/nuit-2026-10-12/determinisme-ordonne`, non suivi). Le test
-  `FixedPointSolverTest-kernels-ordered-cuda` passe donc toujours ; les
-  cas ordonnés de `BatchIntegrationTest` vérifient que deux calculs
-  identiques donnent les mêmes résultats bit à bit.
+  `MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels` and
+  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels` (182/182 on 12/10, GPU
+  variants excluded);
+- on the GPU, with the variable `MFEM_MGIS_DEVICE=cuda` (equivalent to
+  the option `--device cuda` of each test), with or without the
+  previous variables, one test at a time (`ctest -j 1 -E "cuda|gpu|GPU|debug"`,
+  182 tests, 180/182 on 12/10 in 624 s without the previous variables,
+  179/182 in 652 s with them): simultaneous tests
+  share the GPU and fail. The script
+  `scripts/mfem-mgis-gpu-suite.sh [default|kernels]` (kernels forced without argument) runs this suite
+  with the ordered assembly of the stiffness matrices
+  (`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`), which makes the results
+  identical from one run to the next: 184/186 on 13/10 in 668 s with the
+  kernels forced (mfem-mgis 54ff8e6c8a), only the two tests that require
+  the absence of a device failing. The
+  tests with 4 processes also require
+  `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1`: otherwise hypre reserves 4 GiB per
+  process on the GPU (16 GB). Only `DeviceForallTest-cpu` and
+  `DeviceOptionTest-none`, which require the absence of a device,
+  then fail. `FixedPointSolverTest-kernels-cpu`, which keeps
+  its option `--device cpu`, and `UnitTestParameters`, which does not initialize
+  mfem-mgis, then do not go through the GPU. Neither do the variants
+  `ExecutionSettingsTest-cpu*` and `ExecutionSettingsTest-refused-*`:
+  with the option `--execution`, the variable `MFEM_MGIS_DEVICE` is
+  ignored (warning). `FixedPointSolverTest`
+  fails from time to time on the GPU with the kernels forced: once
+  in 26 runs on 11/10, then in the suite of 12/10 and once in 20
+  isolated runs. It is always the acceleration `Crossed2Deltabis`: on
+  one step, it falls into a cycle where the relative residual stagnates around 1e-10
+  up to the limit of 1,000 iterations, whereas it converges in 71
+  iterations in the other runs. The sums done on the GPU
+  are not reproducible from one run to the next (even the number
+  of Newton iterations varies, 8 or 9); the port of the algorithm of
+  MTest is faithful (same histories, same formula, same collinearity
+  threshold); on CPU, where the computations are reproducible, the test
+  always passes. Sources checked on 12/10 (histories compared over
+  several runs, hypre on the GPU or on the host): the assembly of
+  the tangent by kernels (atomic additions in the sparse matrix;
+  differences from the first step, wherever hypre is),
+  then the action of the tangent without assembly; with the tangent
+  assembled on the host, the first 478 lines of iterations are
+  identical from one run to the next. The second source is in fact the
+  same: in the sub-test without assembly, the elastic operator K0 of the
+  preconditioner is assembled by kernels with atomic additions
+  (the action by kernels and the reduction of MFEM are deterministic).
+  The ordered assembly (parameter `TangentOperatorAssembly` set to `Ordered`,
+  variable `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`) removes these differences:
+  with a device, element matrices stored, then added by
+  one thread per value of the matrix, in a fixed order; without a device,
+  the host path already adds the elements one after the other (cost
+  measured on the beam r4: `results/ordered-assembly-2026-10-12`). With it, four runs of
+  `FixedPointSolverTest` on the GPU, kernels forced, give histories
+  identical bit for bit (the two variants of the diagnosis), against three
+  different histories in three runs with the atomic assembly
+  (`scratch/night-2026-10-12/determinisme-ordonne`, untracked). The test
+  `FixedPointSolverTest-kernels-ordered-cuda` therefore always passes; the
+  ordered cases of `BatchIntegrationTest` check that two identical computations
+  give the same results bit for bit.
 
-Les réglages d'exécution (`--execution cpu|gpu|mixed`, voir
-[plan-execution.md](plan-execution.md)) sont vérifiés par les 33 variantes
-de `ExecutionSettingsTest` : sans option, `--execution cpu` (avec les
-variables de placement, qui doivent être ignorées, et avec `--device
-debug`), `--execution gpu`, `--execution mixed` (placement par défaut,
-variables de placement ignorées, 16 placements des phases), et 10 refus d'options invalides ou contradictoires (message
-attendu). Les autres variantes calculent la traction uniaxiale d'un cube,
-dont la contrainte est connue, là où les réglages placent chaque phase,
-et vérifient le refus des lois et des solveurs qui calculent ailleurs
-(`tests/ExecutionSettingsTest.cxx` de mfem-mgis). Le 13/10, sur
-b5e7d12fc4 : 230/230 tests sans `cuda` ni `gpu` dans leur nom, 62/62 avec.
+The execution settings (`--execution cpu|gpu|mixed`, see
+[plan-execution.md](plan-execution.md)) are checked by the 33 variants
+of `ExecutionSettingsTest`: without option, `--execution cpu` (with the
+placement variables, which must be ignored, and with `--device
+debug`), `--execution gpu`, `--execution mixed` (default placement,
+placement variables ignored, 16 placements of the phases), and 10 refusals of invalid or contradictory options (expected
+message). The other variants compute the uniaxial tension of a cube,
+whose stress is known, where the settings place each phase,
+and check the refusal of the behaviours and of the solvers that compute elsewhere
+(`tests/ExecutionSettingsTest.cxx` of mfem-mgis). On 13/10, on
+b5e7d12fc4: 230/230 tests without `cuda` or `gpu` in their name, 62/62 with.
 
-La compilation pour un GPU AMD (`scripts/build-hip-amd.sh`, MFEM 4.10
-compilé avec HIP pour gfx90a) construit mfem-mgis dans
-`build/mfem-mgis-hip` et les exemples dans `build/examples-hip`, sans
-les tests qui demandent un GPU, puis lance les autres : 213/213 pour
-mfem-mgis et 15/15 pour les exemples le 13/10, construction refaite de
-zéro (mfem-mgis 7db41904c0, exemples a48701a). Rien ne s'exécute sur un
-GPU AMD.
+The compilation for an AMD GPU (`scripts/build-hip-amd.sh`, MFEM 4.10
+compiled with HIP for gfx90a) builds mfem-mgis in
+`build/mfem-mgis-hip` and the examples in `build/examples-hip`, without
+the tests that require a GPU, then runs the others: 213/213 for
+mfem-mgis and 15/15 for the examples on 13/10, build redone from
+scratch (mfem-mgis 7db41904c0, examples a48701a). Nothing runs on an
+AMD GPU.
 
-L'option `enable-kokkos` (initialisation de Kokkos par mfem-mgis) se
-valide dans deux constructions séparées : `build/mfem-mgis-kokkos-off`
-(sans Kokkos : `ctest -R KokkosOptionTest`, 6 tests, option refusée et
-variable ignorée avec un avertissement) et `build/mfem-mgis-kokkos` (avec
-le Kokkos de l'environnement, construit pour CUDA, installé dans
-`install/mfem-mgis-kokkos` : `ctest -R "KokkosOptionTest|-kokkos"`, 7
-tests dont 4 sur le GPU). Côté clients, mm-opera-hpc
-(`build/mm-opera-hpc-kokkos`) et `cases/` (`build/cas-kokkos`, avec
-`MM_OPERA_HPC_POLYCRYSTAL_WITH_KOKKOS=ON`) se construisent contre cette
-installation sans chercher Kokkos ; leurs tests `poutre-gpu-kokkos` et
-`polycristal-batch-kokkos` (avec sa comparaison) utilisent la loi générée
-par le backend kokkos.
+The option `enable-kokkos` (initialization of Kokkos by mfem-mgis) is
+validated in two separate builds: `build/mfem-mgis-kokkos-off`
+(without Kokkos: `ctest -R KokkosOptionTest`, 6 tests, option refused and
+variable ignored with a warning) and `build/mfem-mgis-kokkos` (with
+the Kokkos of the environment, built for CUDA, installed in
+`install/mfem-mgis-kokkos`: `ctest -R "KokkosOptionTest|-kokkos"`, 7
+tests including 4 on the GPU). On the client side, mm-opera-hpc
+(`build/mm-opera-hpc-kokkos`) and `cases/` (`build/cases-kokkos`, with
+`MM_OPERA_HPC_POLYCRYSTAL_WITH_KOKKOS=ON`) are built against this
+installation without looking for Kokkos; their tests `beam-gpu-kokkos` and
+`polycrystal-batch-kokkos` (with its comparison) use the behaviour generated
+by the kokkos backend.
 
-La gestion hétérogène de la mémoire (HMM) masque ici les données de l'hôte
-lues par erreur sur le GPU : la mutation qui donne au noyau d'un modèle
-aux points les pointeurs hôte de ses entrées n'est pas détectée avec HMM.
+The heterogeneous memory management (HMM) hides here the host data
+read by mistake on the GPU: the mutation that gives the kernel of a model
+at the points the host pointers of its inputs is not detected with HMM.
 
-La factorisation incomplète ILU(k) de hypre 3.2.0 de niveau 1 ou plus
-plante sur le GPU (reproducteur `reproducers/hypre-ilu-gpu`) : mfem-mgis y
-prend le niveau 0 par défaut et refuse les niveaux supérieurs. La
-factorisation ILUT (`HypreILUType` 1) y fonctionne. Le préconditionneur
-ParaSails, qui ne calcule que sur l'hôte, est refusé quand hypre calcule
-sur le GPU. Sur l'hôte, `mfem::HypreParaSails::SetOperator` lit le
-communicateur de l'opérateur précédent, déjà détruit : mfem-mgis donne
-le nouvel opérateur avant l'appel (mfem-mgis 52bfb818b0, reproducteur
+The incomplete factorization ILU(k) of hypre 3.2.0 with level 1 or more
+crashes on the GPU (reproducer `reproducers/hypre-ilu-gpu`): mfem-mgis
+takes level 0 there by default and refuses the higher levels. The
+ILUT factorization (`HypreILUType` 1) works there. The
+ParaSails preconditioner, which only computes on the host, is refused when hypre computes
+on the GPU. On the host, `mfem::HypreParaSails::SetOperator` reads the
+communicator of the previous operator, already destroyed: mfem-mgis gives
+the new operator before the call (mfem-mgis 52bfb818b0, reproducer
 `reproducers/hypre-parasails-operator`).
 
-Les exemples de mfem-mgis-examples et les cas de mm-opera-hpc se valident
-dans `cases/` (construction `build/cas-post`, liée à une installation de
-mfem-mgis et aux constructions des exemples et de mm-opera-hpc) : chaque
-cas garde la vérification de l'exemple (référence ou solution analytique)
-et passe point par point, par noyaux, par lots avec chaque backend de
-l'hôte et sur le GPU. Sur le CPU, `ctest -E
-"cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (les tests Kokkos
-utilisent le GPU) ; sur le GPU, `ctest -R cuda`, les tests qui partagent
-un fichier de sortie ou le GPU étant sérialisés par des verrous.
+The examples of mfem-mgis-examples and the cases of mm-opera-hpc are validated
+in `cases/` (build `build/cases-post`, linked to an installation of
+mfem-mgis and to the builds of the examples and of mm-opera-hpc): each
+case keeps the check of the example (reference or analytical solution)
+and runs point by point, by kernels, by batches with each host backend
+and on the GPU. On the CPU, `ctest -E
+"cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"` (the Kokkos tests
+use the GPU); on the GPU, `ctest -R cuda`, the tests that share
+an output file or the GPU being serialized by locks.
 
-## Simple précision
+## Single precision
 
-Chaque bibliothèque se construit et se teste aussi en `float`, avec les
-environnements spack jumeaux `mmm-float-cpu` et `mmm-double-cpu`, et
-`mmm-float-gpu` (MFEM et hypre en simple avec CUDA). Résultats : MGIS
-49/49, et 51/51 avec CUDA ; mfem-mgis 224/224 sur le CPU (avec les tests
-ParaSails, hypre utilisant son LAPACK interne, et les tests du critère de
-stagnation de Newton) et 276/276 sur le GPU (dix tests restent en double
-seulement : UMFPACK, GSLIB, Umpire, cuDSS et CUDA, absents du MFEM en
-float) ; exemples 21/21 ;
-mm-opera-hpc 6/6 ; cas de `cases/` 134 en float (143 en double). Mesures et
-diagnostic : [plan-precision.md](plan-precision.md),
-`results/precision-poutre-*`, `results/diagnostic-float-gpu-2026-10-14`.
+Each library is also built and tested in `float`, with the
+twin spack environments `mmm-float-cpu` and `mmm-double-cpu`, and
+`mmm-float-gpu` (MFEM and hypre in single with CUDA). Results: MGIS
+49/49, and 51/51 with CUDA; mfem-mgis 223/223 on the CPU (with the
+ParaSails tests, hypre using its internal LAPACK, and the tests of the Newton
+stagnation criterion) and 276/276 on the GPU (ten tests remain in double
+only: UMFPACK, GSLIB, Umpire, cuDSS and CUDA, absent from the MFEM in
+float); examples 21/21;
+mm-opera-hpc 6/6; cases of `cases/` 134 in float (143 in double). Measurements and
+diagnosis: [plan-precision.md](plan-precision.md),
+`results/precision-beam-*`, `results/diagnostic-float-gpu-2026-10-14`.
 
-## Défauts de compilateurs
+## Compiler defects
 
-Les défauts rencontrés sont contournés de façon ciblée, avec un
-reproducteur pour chacun : `results/nvhpc-bugs/README.md`. Le script
-`results/nvhpc-bugs/run-nvcxx-reproducers.sh` les rejoue, pour vérifier
-s'ils sont corrigés dans une nouvelle version d'un compilateur.
+The defects encountered are worked around in a targeted way, with a
+reproducer for each one: `results/nvhpc-bugs/README.md`. The script
+`results/nvhpc-bugs/run-nvcxx-reproducers.sh` replays them, to check
+whether they are fixed in a new version of a compiler.

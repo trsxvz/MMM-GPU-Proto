@@ -2,8 +2,8 @@ Warning: program compiled against libxml 213 using older 209
 Warning: program compiled against libxml 213 using older 209
 Options used:
    --mesh assemblage_hexa.msh
-   --libraryU3SI2 /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/examples-post-ex8/../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelU3SI2-cuda.so
-   --libraryALFENI /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/examples-post-ex8/../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelALFENI-cuda.so
+   --libraryU3SI2 /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/examples-post-ex8/../cases-memory/ex8/generic-parallel-cuda/src/libGenericParallelU3SI2-cuda.so
+   --libraryALFENI /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/examples-post-ex8/../cases-memory/ex8/generic-parallel-cuda/src/libGenericParallelALFENI-cuda.so
    --linearsolver-thermal MUMPSSolver
    --preconditioner-thermal HypreBoomerAMG
    --linearsolver-mechanics MUMPSSolver

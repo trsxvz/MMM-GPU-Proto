@@ -1,23 +1,22 @@
-# ex8 : BoomerAMG avec les options d'élasticité (11/10/2026)
+# ex8: BoomerAMG with the elasticity options (11/10/2026)
 
-Exemple ex8 de mfem-mgis-examples (plaque thermomécanique), maillage
-d'origine, 5 pas, 2 processus du CPU, tout par noyaux pour la mécanique.
-Construction `build/examples-post-ex8` (ex8 avec les options `-oMc` et
-`-amgMc`, liée à `install/mfem-mgis-post`).
+Example ex8 of mfem-mgis-examples (thermomechanical plate), original mesh,
+5 steps, 2 CPU processes, everything by kernels for the mechanics. Build
+`build/examples-post-ex8` (ex8 with the options `-oMc` and `-amgMc`, linked
+to `install/mfem-mgis-post`).
 
-| Solveur de la mécanique | Couplage sur les 5 pas (s) |
+| Solver of the mechanics | Coupling over the 5 steps (s) |
 |---|---|
-| MUMPS (référence) | 23,52 |
-| PCG + BoomerAMG, options d'élasticité, rangement byVDIM (`-lsMc HyprePCG -pcMc HypreBoomerAMG -oMc byVDIM -amgMc Elasticity`) | 201,16 |
+| MUMPS (reference) | 23.52 |
+| PCG + BoomerAMG, elasticity options, byVDIM ordering (`-lsMc HyprePCG -pcMc HypreBoomerAMG -oMc byVDIM -amgMc Elasticity`) | 201.16 |
 
-- Mêmes statistiques des champs (températures et normes des
-  déplacements) dans les deux calculs.
-- Les options d'élasticité (interpolation par modes rigides) font pire
-  que les options de systèmes essayées auparavant (environ 240
-  itérations, 93 s, mesure du 11/10 après-midi notée dans `JOURNAL.md`,
-  sans sortie brute conservée) : 441 itérations de PCG en moyenne par résolution
-  (29 résolutions). La plaque est mince et ses matériaux contrastés :
-  BoomerAMG ne convient pas tel quel (le premier niveau grossit peu :
-  28 548 puis 22 482 lignes, complexité d'opérateur 3,6 ; l'explication
-  par la géométrie et les matériaux n'est pas vérifiée). MUMPS reste le
-  choix pour la mécanique d'ex8.
+- Same statistics of the fields (temperatures and norms of the
+  displacements) in both computations.
+- The elasticity options (interpolation by rigid modes) do worse than the
+  systems options tried before (about 240 iterations, 93 s, measurement of
+  the afternoon of 11/10 noted in `JOURNAL.md`, with no raw output kept):
+  441 PCG iterations on average per solution (29 solutions). The plate is
+  thin and its materials are contrasted: BoomerAMG does not fit as is (the
+  first level coarsens little: 28,548 then 22,482 rows, operator
+  complexity 3.6; the explanation by the geometry and the materials is not
+  verified). MUMPS remains the choice for the mechanics of ex8.

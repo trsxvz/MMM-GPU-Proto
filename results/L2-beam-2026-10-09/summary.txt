@@ -1,45 +1,45 @@
-date : 2026-10-09 19:38:06
-cas : poutre
-machine : 16 cœurs, 30 Go
-charge : 2.84 2.06 2.08
-mfem-mgis : 4a68166ca9
-== poutre-np8-point-par-point : 8 processus, 1 fils, PointByPoint
-   statut 0
+date: 2026-10-09 19:38:06
+case: beam
+machine: 16 cores, 30 GB
+load: 2.84 2.06 2.08
+mfem-mgis: 4a68166ca9
+== beam-np8-point-by-point: 8 processes, 1 threads, PointByPoint
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
 time 15.594 s
-== poutre-np8-lots-generic : 8 processus, 1 fils, Batch
-   statut 0
+== beam-np8-batches-generic: 8 processes, 1 threads, Batch
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
 time 15.531 s
-== poutre-np8-lots-openmp-1fil : 8 processus, 1 fils, Batch
-   statut 0
+== beam-np8-batches-openmp-1thread: 8 processes, 1 threads, Batch
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
 time 15.503 s
-== poutre-np1-point-par-point : 1 processus, 1 fils, PointByPoint
-   statut 0
+== beam-np1-point-by-point: 1 processes, 1 threads, PointByPoint
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 65.214 s
-== poutre-np1-lots-generic : 1 processus, 1 fils, Batch
-   statut 0
+== beam-np1-batches-generic: 1 processes, 1 threads, Batch
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 64.913 s
-== poutre-np1-lots-openmp-1fil : 1 processus, 1 fils, Batch
-   statut 0
+== beam-np1-batches-openmp-1thread: 1 processes, 1 threads, Batch
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 64.956 s
-== poutre-np1-lots-openmp-8fils : 1 processus, 8 fils, Batch
-   statut 0
+== beam-np1-batches-openmp-8threads: 1 processes, 8 threads, Batch
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 64.668 s
-== poutre-np1-lots-stlpar-8coeurs : 1 processus, 8 fils, Batch
-   statut 0
+== beam-np1-batches-stlpar-8cores: 1 processes, 8 threads, Batch
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 64.964 s
-== poutre-np2-point-par-point : 2 processus, 1 fils, PointByPoint
-   statut 0
+== beam-np2-point-by-point: 2 processes, 1 threads, PointByPoint
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 36.523 s
-== poutre-np2-lots-openmp-4fils : 2 processus, 4 fils, Batch
-   statut 0
+== beam-np2-batches-openmp-4threads: 2 processes, 4 threads, Batch
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 36.241 s

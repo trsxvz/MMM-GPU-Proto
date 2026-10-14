@@ -1,90 +1,88 @@
-# D2, MGIS : API sur des vues (proposition, version 4)
+# D2, MGIS: API on views (proposal, version 4)
 
-> Document historique. Proposition de conception écrite avant le travail
-> sur les vues de MGIS, après trois relectures (annexe). L'état actuel est
-> décrit dans [mgis.md](../mgis.md#vues-et-rangements), le cheminement
-> dans le [journal](../../JOURNAL.md).
+> Historical document. Design proposal written before the work on the
+> views of MGIS, after three reviews (appendix). The current state is
+> described in [mgis.md](../mgis.md#views-and-layouts), the path that led
+> to it in the [log](../../JOURNAL.md).
 
-Écarts avec la proposition, constatés en codant :
+Differences with the proposal, found while coding:
 
-- les ressources mémoire CUDA, HIP et Kokkos ne pouvaient pas servir de
-  ressource amont à un pool (alignement refusé au-delà de celui de leur
-  mémoire) : corrigé par sur-allocation, sans quoi le remède de 3.5 ne
-  marchait pas ;
-- l'extraction d'une variable interne sur une vue d'état passe par des
-  opérations (`extractInternalStateVariable(sortie, état, nom, ops)`) et
-  marche donc aussi sur GPU. Des accesseurs par variable sur une vue
-  d'état (`getGradientView`, etc.) s'ajoutent, comme sur le gestionnaire ;
-- les surcharges des rotations et de `evaluate` sur tableaux construisent
-  des vues et appellent les fonctions sur vues : un seul chemin de code ;
-- une copie d'une vue dans elle-même ne fait rien (les copies de la
-  bibliothèque standard et des runtimes GPU interdisent les recouvrements).
+- the CUDA, HIP and Kokkos memory resources could not serve as upstream
+  resource of a pool (alignment refused beyond the one of their memory):
+  fixed by over-allocation, without which the remedy of 3.5 did not work;
+- the extraction of an internal state variable on a state view goes
+  through operations (`extractInternalStateVariable(output, state, name, ops)`)
+  and therefore also works on GPU. Per variable accessors on a state view
+  (`getGradientView`, etc.) are added, as on the manager;
+- the overloads of the rotations and of `evaluate` on arrays build views
+  and call the functions on views: a single code path;
+- a copy of a view into itself does nothing (the copies of the standard
+  library and of the GPU runtimes forbid overlaps).
 
-Statut : proposition, aucun code écrit. Première étape du
-[plan pour mfem-mgis](../plan-mfem-mgis.md). Cette version intègre
-trois relectures indépendantes (version 1 : constats A1 à C5 ; version 2 :
-constats N1 à N10 ; version 3 : constats F1 à F6), tous vérifiés dans le
-code. Leur traitement est en annexe. La dernière relecture conclut que la
-conception tient et qu'aucun point restant n'impose de changer l'API.
+Status: proposal, no code written. First step of the
+[plan for mfem-mgis](../plan-mfem-mgis.md). This version integrates three
+independent reviews (version 1: findings A1 to C5; version 2: findings N1
+to N10; version 3: findings F1 to F6), all checked in the code. Their
+handling is in the appendix. The last review concludes that the design
+holds and that no remaining point requires changing the API.
 
-## 1. Besoin
+## 1. Need
 
-mfem-mgis veut ranger les données aux points de Gauss de deux façons, au
-choix, sur CPU comme sur GPU :
+mfem-mgis wants to lay out the data at the Gauss points in two ways, as
+chosen, on CPU as on GPU:
 
-- **point par point** : les composantes d'un point sont contiguës
-  (`valeur(i, j) = v[i * nc + j]`) ;
-- **composante par composante** : les valeurs d'une composante sont
-  contiguës sur tous les points du matériau (`valeur(i, j) = v[j * n + i]`),
-  accès coalescés sur GPU. C'est le rangement *strided coalesced* de
-  `mgis::function` et de TFEL (`tfel::math::StridedCoalescedView`).
+- **point by point**: the components of a point are contiguous
+  (`value(i, j) = v[i * nc + j]`);
+- **component by component**: the values of a component are contiguous
+  over all the points of the material (`value(i, j) = v[j * n + i]`),
+  coalesced accesses on GPU. This is the *strided coalesced* layout of
+  `mgis::function` and of TFEL (`tfel::math::StridedCoalescedView`).
 
-MGIS doit calculer sur ces données sans copie et sans surcoût, avec toutes
-ses fonctions, et finir un pas de temps sur GPU.
+MGIS must compute on these data without copy and without overhead, with
+all its functions, and finish a time step on GPU.
 
-**TFEL n'a rien à changer** (vérifié par les deux relectures). Son contrat
-décrit chaque groupe par un pointeur et deux pas. Ses noyaux lisent et
-écrivent ainsi tous les groupes, les entrées des fonctions
-d'initialisation, les sorties des post-traitements et les rotations. Le
-backend SYCL copie les champs à pas. Les tableaux de champs par variable
-sont lus sur l'hôte pendant l'appel, en asynchrone aussi, pour tous les
-backends (foncteurs passés par valeur ; OpenMP et `stlpar` synchrones).
+**TFEL has nothing to change** (checked by the two reviews). Its contract
+describes each group by a pointer and two strides. Its kernels thus read
+and write all the groups, the inputs of the initialize functions, the
+outputs of the post-processings and the rotations. The SYCL backend copies
+the strided fields. The arrays of per variable fields are read on the host
+during the call, in asynchronous mode too, for all backends (functors
+passed by value; OpenMP and `stlpar` synchronous).
 
-## 2. Ce que montrent MFEM 4.9 et mfem-mgis
+## 2. What MFEM 4.9 and mfem-mgis show
 
-- L'ordre des degrés de liberté (`FiniteElementSpaceOrdering`, `byNODES`
-  ou `byVDIM`) est indépendant du rangement aux points de Gauss.
-  `ElementRestriction` rend toujours des vecteurs élémentaires
-  `(ND, VDIM, NE)`.
-- Le rangement `byNODES` de `QuadratureInterpolator` est par blocs
-  d'élément (`q + NQ * (c + K * e)`). Il ne sert pas tel quel : les
-  gradients de la loi demandent un noyau de conversion, et les points d'un
-  matériau n'y sont pas contigus. Ce noyau écrit dans le rangement choisi.
-- mfem-mgis : `Material` dérive de `MaterialDataManager`. Le chemin actuel
-  suppose le point par point à une quarantaine d'endroits et garde ce
-  rangement. Le rangement composante par composante sert aux nouveaux
-  chemins par lot. mfem-mgis donne ses propriétés matériau et variables
-  externes avec la politique `NOUPDATE`.
+- The ordering of the degrees of freedom (`FiniteElementSpaceOrdering`,
+  `byNODES` or `byVDIM`) is independent of the layout at the Gauss points.
+  `ElementRestriction` always returns element vectors `(ND, VDIM, NE)`.
+- The `byNODES` layout of `QuadratureInterpolator` is by element blocks
+  (`q + NQ * (c + K * e)`). It cannot be used as is: the gradients of the
+  behaviour require a conversion kernel, and the points of a material are
+  not contiguous in it. This kernel writes in the chosen layout.
+- mfem-mgis: `Material` derives from `MaterialDataManager`. The current
+  path assumes the point by point layout in about forty places and keeps
+  this layout. The component by component layout is used by the new batch
+  paths. mfem-mgis gives its material properties and external state
+  variables with the `NOUPDATE` policy.
 
-## 3. Proposition
+## 3. Proposal
 
-### 3.1 `FieldView` : un champ à pas, avec ses étendues
+### 3.1 `FieldView`: a strided field, with its extents
 
-Le pendant à deux dimensions de `std::span`, avec le sens de `std::mdspan`
-et `layout_stride` (absent de C++20 et de gcc 14) :
+The two-dimensional counterpart of `std::span`, with the meaning of
+`std::mdspan` and `layout_stride` (absent from C++20 and from gcc 14):
 
 ```cpp
 namespace mgis {
-  //! rangement des tableaux d'un gestionnaire ; COMPONENT_BY_COMPONENT est
-  //! le rangement « strided coalesced » de mgis::function
+  //! layout of the arrays of a manager; COMPONENT_BY_COMPONENT is
+  //! the "strided coalesced" layout of mgis::function
   enum struct FieldLayout { POINT_BY_POINT, COMPONENT_BY_COMPONENT };
 
-  //! valeur(i, j) = data()[i * getPointStride() + j * getComponentStride()]
-  template <typename ValueType>  // real ou const real
+  //! value(i, j) = data()[i * getPointStride() + j * getComponentStride()]
+  template <typename ValueType>  // real or const real
   struct FieldView {
-    //! vue vide : jamais un champ uniforme par défaut
+    //! empty view: never a uniform field by default
     constexpr FieldView() noexcept = default;
-    //! préconditions : étendue suffisante, pas cohérents (voir plus bas)
+    //! preconditions: sufficient extent, consistent strides (see below)
     static constexpr bool checkPreconditions(AbstractErrorHandler&,
                                              std::span<ValueType>, size_type n,
                                              size_type nc, size_type ps,
@@ -95,7 +93,7 @@ namespace mgis {
     constexpr FieldView(const PreconditionsCheck<doPreconditionsCheck>&,
                         std::span<ValueType>, size_type n, size_type nc,
                         size_type ps, size_type cs);
-    //! conversion gratuite d'une vue modifiable en vue constante
+    //! free conversion of a mutable view into a constant view
     template <typename OtherValueType>
     requires(std::is_same_v<const OtherValueType, ValueType>)
     constexpr FieldView(const FieldView<OtherValueType>&) noexcept;
@@ -112,40 +110,41 @@ namespace mgis {
                                          size_type nc, size_type ps); // ps >= nc
   FieldView<T> makeComponentByComponentFieldView(std::span<T>, size_type n,
                                                  size_type nc, size_type ld); // ld >= n
-  FieldView<T> makeUniformFieldView(std::span<T>, size_type n); // pas de point nul
+  FieldView<T> makeUniformFieldView(std::span<T>, size_type n); // zero point stride
   FieldView<T> getComponents(FieldView<T>, size_type offset, size_type count);
 }
 ```
 
-- Gestion des erreurs comme dans `mgis::function` : `checkPreconditions`
-  statique, et constructeur à `PreconditionsCheck` qui appelle
-  `check_preconditions<FieldView>` (vérification contournable quand
-  l'appelant l'a déjà faite). Sans dériver de `PreconditionsChecker`, qui
-  n'a ni constructeur par défaut ni affectation : `FieldView` reste un type
-  régulier, comme `std::span`.
-- Préconditions : un ensemble vide (`n == 0` ou `nc == 0`) est accepté
-  d'abord, sans calcul d'étendue ; sinon l'étendue couvre
-  `(n - 1) * ps + (nc - 1) * cs + 1` valeurs.
-- **Sorties** (contrôle à l'appel) : aucune valeur ne doit servir à deux
-  couples `(i, j)`. Contrôle exact et en temps constant d'une condition
-  suffisante : en rangeant les deux dimensions d'étendue supérieure à un
-  par pas croissant, le petit pas est non nul et le grand pas est au moins
-  le petit pas fois son étendue. Les entrelacements exotiques sont donc
-  refusés pour les sorties. Les entrées peuvent être uniformes.
-- **Groupes vides** (modèles sans gradients, lois sans variables internes,
-  énergies non calculées) : la vue doit être vide, sans autre contrôle.
-- Interopérabilité avec `mgis::function`, dans un seul sens : une
-  `FunctionView` et une vue *strided coalesced* (à laquelle on ajoute un
-  accès public à ses données) se convertissent en `FieldView`. Les vues
-  `CoalescedMemoryAccess` (un pointeur par composante) n'ont pas
-  d'équivalent : un seul pointeur par champ, comme le contrat de TFEL.
+- Error handling as in `mgis::function`: static `checkPreconditions`, and
+  a constructor taking `PreconditionsCheck` that calls
+  `check_preconditions<FieldView>` (check that can be bypassed when the
+  caller has already done it). Without deriving from
+  `PreconditionsChecker`, which has neither a default constructor nor
+  assignment: `FieldView` stays a regular type, like `std::span`.
+- Preconditions: an empty set (`n == 0` or `nc == 0`) is accepted first,
+  without computing the extent; otherwise the extent covers
+  `(n - 1) * ps + (nc - 1) * cs + 1` values.
+- **Outputs** (checked at the call): no value may serve two pairs
+  `(i, j)`. Exact, constant time check of a sufficient condition: when the
+  two dimensions with an extent greater than one are sorted by increasing
+  stride, the small stride is non-zero and the large stride is at least
+  the small stride times its extent. Exotic interleavings are therefore
+  refused for outputs. Inputs may be uniform.
+- **Empty groups** (models without gradients, behaviours without internal
+  state variables, energies not computed): the view must be empty, without
+  any other check.
+- Interoperability with `mgis::function`, in one direction only: a
+  `FunctionView` and a *strided coalesced* view (to which a public access
+  to its data is added) convert into a `FieldView`. The
+  `CoalescedMemoryAccess` views (one pointer per component) have no
+  equivalent: a single pointer per field, like the contract of TFEL.
 
-### 3.2 `MaterialDataView` : la description d'un matériau sur des tableaux d'autrui
+### 3.2 `MaterialDataView`: the description of a material on arrays owned by others
 
-`MaterialDataManager` possède ses tableaux. `MaterialDataView` décrit des
-tableaux de l'appelant, avec n'importe quels pas. Ce sont des types
-réguliers (copiables et affectables) : la loi est gardée par pointeur,
-comme `BehaviourDataView` garde ses tableaux.
+`MaterialDataManager` owns its arrays. `MaterialDataView` describes arrays
+of the caller, with any strides. These are regular types (copyable and
+assignable): the behaviour is kept by pointer, as `BehaviourDataView` keeps
+its arrays.
 
 ```cpp
 namespace mgis::behaviour {
@@ -154,14 +153,14 @@ namespace mgis::behaviour {
                       std::pmr::memory_resource* = nullptr);
     FieldView<real> gradients, thermodynamic_forces,
         internal_state_variables, stored_energies, dissipated_energies;
-    // une vue par variable, dans l'ordre de la loi, vides au départ
+    // one view per variable, in the order of the behaviour, empty at first
     std::pmr::vector<FieldView<const real>> material_properties;
     FieldView<const real> mass_density;
     std::pmr::vector<FieldView<const real>> external_state_variables;
-    const Behaviour* b;  // jamais nul
+    const Behaviour* b;  // never null
     size_type n;
   };
-  // par nom, avec variantes Context, comme pour MaterialStateManager
+  // by name, with Context variants, as for MaterialStateManager
   void setMaterialProperty(MaterialStateView&, std::string_view,
                            FieldView<const real>);
   void setExternalStateVariable(MaterialStateView&, std::string_view,
@@ -172,155 +171,149 @@ namespace mgis::behaviour {
     MaterialDataView(const Behaviour&, size_type n, MemoryLocation,
                      std::pmr::memory_resource* = nullptr);
     MaterialStateView s0, s1;
-    FieldView<real> K;               // si un opérateur est demandé
-    FieldView<real> speed_of_sound;  // si demandée
-    //! politique des fonctions qui n'en prennent pas, comme le gestionnaire
+    FieldView<real> K;               // if an operator is requested
+    FieldView<real> speed_of_sound;  // if requested
+    //! policy of the functions that take none, like the manager
     BatchExecutionPolicy batch_execution_policy;
-    const Behaviour* b;  // jamais nul
+    const Behaviour* b;  // never null
     size_type n;
     MemoryLocation memory_location;
   };
-  //! vue sur les tableaux d'un gestionnaire, dans son rangement, avec sa
-  //! politique ; les vecteurs par variable sont alloués par la ressource
+  //! view on the arrays of a manager, in its layout, with its
+  //! policy; the per variable vectors are allocated by the resource
   MaterialDataView make_view(MaterialDataManager&,
                              std::pmr::memory_resource* = nullptr);
 }
 ```
 
-- Vecteurs `std::pmr` : la copie d'une vue alloue avec la ressource par
-  défaut, le déplacement garde la ressource. Une vue construite sur un
-  tampon de pile ne doit pas sortir de sa portée, et deux vues de
-  ressources différentes ne s'échangent pas (`swap`). Seules les fonctions
-  du gestionnaire utilisent un tampon de pile, pour une vue qui ne sort
-  pas de l'appel. `make_view` sans ressource utilise la ressource par
-  défaut.
-- `make_view` vérifie que les valeurs gardées par le gestionnaire sur
-  l'hôte (scalaires, stockage local) sont lisibles par les calculs de la
-  loi, comme aujourd'hui : une vue obtenue par `make_view` ne contourne
-  aucun contrôle.
-- Membres publics, comme le gestionnaire. Chaque fonction vérifie la
-  cohérence de la vue (même loi et même nombre de points dans la vue et
-  ses états, nombre de vues par variable, étendues de chaque champ,
-  emplacement). Un contrôle par variable, sur l'hôte, par appel.
-- Trois niveaux : `MaterialDataManager` (possède), `MaterialDataView`
-  (décrit, dure tout le calcul), et à chaque appel la structure C
-  `BatchDataView` (contrat de TFEL). Copier une vue copie des
-  descripteurs, jamais des valeurs.
+- `std::pmr` vectors: copying a view allocates with the default resource,
+  moving keeps the resource. A view built on a stack buffer must not leave
+  its scope, and two views with different resources are not swapped
+  (`swap`). Only the functions of the manager use a stack buffer, for a
+  view that does not leave the call. `make_view` without a resource uses
+  the default resource.
+- `make_view` checks that the values kept by the manager on the host
+  (scalars, local storage) are readable by the computations of the
+  behaviour, as today: a view obtained by `make_view` bypasses no check.
+- Public members, like the manager. Each function checks the consistency
+  of the view (same behaviour and same number of points in the view and
+  its states, number of per variable views, extents of each field,
+  location). One check per variable, on the host, per call.
+- Three levels: `MaterialDataManager` (owns), `MaterialDataView`
+  (describes, lasts for the whole computation), and at each call the C
+  structure `BatchDataView` (contract of TFEL). Copying a view copies
+  descriptors, never values.
 
-**Fonctions sur une vue.** Les mêmes que sur le gestionnaire. La forme
-« sans politique » du gestionnaire, qui bascule entre lot et calcul point
-par point, prend sur une vue un **espace de travail explicite** :
+**Functions on a view.** The same as on the manager. The "without policy"
+form of the manager, which switches between batch and point by point
+computation, takes on a view an **explicit workspace**:
 
-| Fonction | Formes sur une vue |
+| Function | Forms on a view |
 |---|---|
-| `integrate` | `(politique, v, opts, dt[, b, e])` et `(politique asynchrone, ...)` : bibliothèque de lots ; `(espace de travail, v, opts, dt[, b, e])` : toute bibliothèque (lot avec la politique de la vue, ou point par point sur l'hôte) ; `integrate_debug(espace de travail, v, ...)` |
-| `executeInitializeFunction` | mêmes formes, entrées en `FieldView` ou absentes |
-| `executePostProcessing` | mêmes formes, sorties en `FieldView` |
-| rotations (gradients, forces, blocs de K) | matrices en `FieldView` ou à partir des axes (`RotationMatrix2D/3D`), en place ou non ; synchrone, asynchrone, sans politique |
-| `evaluate` (propriétés matériau) | sortie et entrées en `FieldView`, avec ou sans `OutOfBoundsPolicy` ; synchrone, asynchrone, sans politique |
+| `integrate` | `(policy, v, opts, dt[, b, e])` and `(asynchronous policy, ...)`: batch library; `(workspace, v, opts, dt[, b, e])`: any library (batch with the policy of the view, or point by point on the host); `integrate_debug(workspace, v, ...)` |
+| `executeInitializeFunction` | same forms, inputs as `FieldView` or absent |
+| `executePostProcessing` | same forms, outputs as `FieldView` |
+| rotations (gradients, forces, blocks of K) | matrices as `FieldView` or from the axes (`RotationMatrix2D/3D`), in place or not; synchronous, asynchronous, without policy |
+| `evaluate` (material properties) | output and inputs as `FieldView`, with or without `OutOfBoundsPolicy`; synchronous, asynchronous, without policy |
 
-- Le nombre de points vient des étendues : plus de `n` à part.
-- **Un seul chemin de code** : les fonctions du gestionnaire appellent
-  celles de la vue. Sans politique : `make_view(m)` et l'espace de travail
-  du fil appelant. Avec `ThreadPool` : un espace de travail par fil, sur
-  des plages. Ce qui est propre au gestionnaire reste chez lui (allocation
-  de K à la demande, contrôle des valeurs gardées sur l'hôte).
-- **Espace de travail** (`BehaviourIntegrationWorkSpace`) : un par fil,
-  fourni par l'appelant. Il garde un pointeur vers la loi pour laquelle il
-  a été construit (vérifié à chaque appel). Il reçoit, alloués une fois à
-  sa construction, les tampons d'un point pour `s0` et `s1` : gradients,
-  forces, variables internes, énergies, K, plus grande entrée de fonction
-  d'initialisation, plus grande sortie de post-traitement.
-- Les fonctions du gestionnaire sans politique aiguillent une loi
-  `generic-parallel` vers le lot **avant** de prendre un espace de travail,
-  comme aujourd'hui : ni verrou ni allocation sur ce chemin.
-- **Bibliothèque `generic`** : calcul point par point sur l'hôte. Deux
-  versions de la boucle, choisies une fois par appel : pointeurs directs si
-  toutes les composantes sont contiguës (le cas actuel, inchangé), sinon
-  valeurs rassemblées dans l'espace de travail puis recopiées. Le
-  rassemblement reproduit le calcul actuel (options d'intégration écrites
-  dans `K[0]`, propriétés et variables externes lues avec leurs pas). Les
-  rotations d'une bibliothèque `generic` sur des champs non contigus font
-  de même avec un tampon d'un point (sur la pile, sur le tas au-delà).
-- Pas de `ThreadPool` sur une vue : le parallélisme CPU passe par les
-  backends `openmp` et `stlpar`, ou par l'appelant avec ses espaces de
-  travail.
-- Les anciennes formes à `IntegrationType`, gardées pour la compatibilité
-  (et utilisées par les liaisons C), restent sur le gestionnaire seulement :
-  les vues sont une nouvelle API.
-- Fonctions hôte sur une vue, comme sur le gestionnaire :
-  `extractInternalStateVariable(sortie, état, nom)`,
-  `convertFiniteStrainStress` et `convertFiniteStrainTangentOperator`
-  (sortie en `FieldView`), lisibles par l'hôte seulement.
+- The number of points comes from the extents: no separate `n` any more.
+- **A single code path**: the functions of the manager call those of the
+  view. Without a policy: `make_view(m)` and the workspace of the calling
+  thread. With `ThreadPool`: one workspace per thread, on ranges. What is
+  specific to the manager stays there (allocation of K on demand, check of
+  the values kept on the host).
+- **Workspace** (`BehaviourIntegrationWorkSpace`): one per thread,
+  provided by the caller. It keeps a pointer to the behaviour for which it
+  was built (checked at each call). It receives, allocated once at its
+  construction, the buffers of one point for `s0` and `s1`: gradients,
+  forces, internal state variables, energies, K, largest input of an
+  initialize function, largest output of a post-processing.
+- The functions of the manager without a policy route a `generic-parallel`
+  behaviour to the batch **before** taking a workspace, as today: neither
+  lock nor allocation on this path.
+- **`generic` library**: point by point computation on the host. Two
+  versions of the loop, chosen once per call: direct pointers if all the
+  components are contiguous (the current case, unchanged), otherwise
+  values gathered in the workspace then copied back. The gathering
+  reproduces the current computation (integration options written in
+  `K[0]`, properties and external state variables read with their
+  strides). The rotations of a `generic` library on non-contiguous fields
+  do the same with a buffer of one point (on the stack, on the heap
+  beyond).
+- No `ThreadPool` on a view: CPU parallelism goes through the `openmp` and
+  `stlpar` backends, or through the caller with its workspaces.
+- The old forms with `IntegrationType`, kept for compatibility (and used
+  by the C bindings), stay on the manager only: views are a new API.
+- Host functions on a view, as on the manager:
+  `extractInternalStateVariable(output, state, name)`,
+  `convertFiniteStrainStress` and `convertFiniteStrainTangentOperator`
+  (output as `FieldView`), readable by the host only.
 
-### 3.3 Rangement d'un `MaterialDataManager`
+### 3.3 Layout of a `MaterialDataManager`
 
 ```cpp
 auto i = MaterialDataManagerInitializer{};
-i.layout = FieldLayout::COMPONENT_BY_COMPONENT;  // POINT_BY_POINT par défaut
+i.layout = FieldLayout::COMPONENT_BY_COMPONENT;  // POINT_BY_POINT by default
 ```
 
-Le rangement est rangé dans `MaterialDataManager::layout` et
-`MaterialStateManager::layout` (nouveau paramètre de son constructeur),
-comme l'emplacement mémoire. **Tout ce qui est donné par point au
-gestionnaire suit ce rangement** :
+The layout is stored in `MaterialDataManager::layout` and
+`MaterialStateManager::layout` (new parameter of its constructor), like
+the memory location. **Everything that is given per point to the manager
+follows this layout**:
 
-- tableaux d'état, K, vitesse du son ;
-- variables externes à plusieurs composantes données par un `std::span`
-  (les propriétés matériau sont scalaires) ;
-- entrées des fonctions d'initialisation et sorties des post-traitements
-  données par un `std::span` ;
-- sorties de `extractInternalStateVariable` et des conversions des grandes
-  transformations, qui reçoivent aussi des surcharges en `FieldView`.
+- state arrays, K, speed of sound;
+- external state variables with several components given by a
+  `std::span` (material properties are scalars);
+- inputs of the initialize functions and outputs of the post-processings
+  given by a `std::span`;
+- outputs of `extractInternalStateVariable` and of the finite strain
+  conversions, which also receive overloads taking `FieldView`.
 
-Ce qui change dans MGIS :
+What changes in MGIS:
 
-- **F mis à l'identité** (lois `F-Cauchy`) avec les pas du rangement ;
-- `updateValues(o, i)` vérifie que les deux états ont le même rangement ;
-- `save` et `restore` écrivent et lisent toujours point par point : une
-  reprise ne dépend pas du rangement ;
-- accès dans le rangement du gestionnaire : `getGradientsView(s)`,
-  `getGradientView(s, nom)`, de même pour les forces, les variables
-  internes et les blocs de K ;
-- les surcharges de rotation à `std::span` restent point par point (elles
-  ne voient pas le gestionnaire) : la doc le dit et renvoie aux surcharges
-  en `FieldView` ;
-- `MaterialFunctionManager` : constructeur avec initialiseur ; rangé
-  composante par composante, il rend des vues *strided coalesced* par de
-  nouveaux accesseurs de taille fixe (`getStridedCoalescedGradient<N>`,
-  etc.). Ses accesseurs actuels restent point par point (erreur claire
-  sinon) : `mgis::function` n'a pas de vue *strided coalesced* de taille
-  dynamique ;
-- liaisons : le rangement est exposé dans les initialiseurs et par un
-  accesseur en C, Fortran et Python. Python rend des tableaux numpy avec
-  les pas du rangement (pybind11). FEniCS construit toujours son
-  gestionnaire point par point : rien à faire. Julia n'expose aucun
-  tableau. Les accesseurs `*_stride` gardent leur sens (nombre de valeurs
-  par point).
+- **F set to the identity** (`F-Cauchy` behaviours) with the strides of
+  the layout;
+- `updateValues(o, i)` checks that the two states have the same layout;
+- `save` and `restore` always write and read point by point: a restart
+  does not depend on the layout;
+- access in the layout of the manager: `getGradientsView(s)`,
+  `getGradientView(s, name)`, and likewise for the forces, the internal
+  state variables and the blocks of K;
+- the rotation overloads taking `std::span` stay point by point (they do
+  not see the manager): the documentation says so and refers to the
+  overloads taking `FieldView`;
+- `MaterialFunctionManager`: constructor with an initializer; laid out
+  component by component, it returns *strided coalesced* views through new
+  fixed-size accessors (`getStridedCoalescedGradient<N>`, etc.). Its
+  current accessors stay point by point (clear error otherwise):
+  `mgis::function` has no *strided coalesced* view of dynamic size;
+- bindings: the layout is exposed in the initializers and by an accessor
+  in C, Fortran and Python. Python returns numpy arrays with the strides of
+  the layout (pybind11). FEniCS always builds its manager point by point:
+  nothing to do. Julia exposes no array. The `*_stride` accessors keep
+  their meaning (number of values per point).
 
-`update` et `revert` copient des tableaux entiers : ils ne dépendent pas du
-rangement.
+`update` and `revert` copy whole arrays: they do not depend on the layout.
 
-### 3.4 Fin de pas sur GPU : la même procédure, des copies faites par l'appelant
+### 3.4 End of time step on GPU: the same procedure, copies done by the caller
 
-`update` et `revert` font plus que copier (`updateValues` crée ou efface
-des entrées, change un scalaire en tableau, remet la masse volumique à
-zéro, respecte `shall_be_updated`). Pour garder exactement ce sens, MGIS
-garde sa procédure et confie seulement les copies de valeurs à des
-opérations fournies par l'appelant, sur le modèle de
-`std::pmr::memory_resource` :
+`update` and `revert` do more than copying (`updateValues` creates or
+erases entries, changes a scalar into an array, resets the mass density to
+zero, respects `shall_be_updated`). To keep exactly this meaning, MGIS
+keeps its procedure and only delegates the copies of values to operations
+provided by the caller, on the model of `std::pmr::memory_resource`:
 
 ```cpp
 namespace mgis {
   struct FieldOperations {
-    //! copie (mêmes étendues), éventuellement asynchrone sur la file de
-    //! l'appelant ; les deux opérandes sont dans l'emplacement du
-    //! gestionnaire ou de la vue
+    //! copy (same extents), possibly asynchronous on the queue of the
+    //! caller; both operands are in the location of the
+    //! manager or of the view
     void copy(FieldView<real>, FieldView<const real>);
     void fill(FieldView<real>, const real);
     virtual ~FieldOperations();
    private:
-    // interface publique non virtuelle, comme std::pmr::memory_resource
+    // non-virtual public interface, like std::pmr::memory_resource
     virtual void do_copy(FieldView<real>, FieldView<const real>) = 0;
     virtual void do_fill(FieldView<real>, const real) = 0;
   };
@@ -330,88 +323,89 @@ namespace mgis::behaviour {
   void update(MaterialDataManager&, FieldOperations&);
   void revert(MaterialDataManager&, FieldOperations&);
   void updateValues(MaterialStateManager&, const MaterialStateManager&,
-                    FieldOperations&);  // avec variantes Context
-  void update(const MaterialDataView&, FieldOperations&);  // états et K
+                    FieldOperations&);  // with Context variants
+  void update(const MaterialDataView&, FieldOperations&);  // states and K
   void revert(const MaterialDataView&, FieldOperations&);
   void updateValues(const MaterialStateView&, const MaterialStateView&,
-                    FieldOperations&);  // tableaux d'état
+                    FieldOperations&);  // state arrays
 }
 ```
 
-- **Une seule procédure** : `update(m)` garde son contrôle d'accès par
-  l'hôte, puis appelle `update(m, HostFieldOperations)`. De même pour
-  `revert(m)` et `updateValues(o, i)`. Le sens actuel est conservé cas par
-  cas (redimensionnement, masse volumique, insertions, effacements,
-  `shall_be_updated` ; vérifié par la relecture).
-- Règle des valeurs : un tableau de l'appelant vers un tableau de
-  l'appelant passe par les opérations. Tout le reste se fait sur l'hôte
-  par MGIS : valeurs qu'il garde (scalaires, stockage local), et toute
-  copie entre une valeur qu'il garde et un tableau de l'appelant, **dans
-  les deux sens**. Ces copies mixtes sont refusées, avec un message, si
-  l'emplacement du gestionnaire n'est pas lisible par l'hôte. Les
-  opérations ne reçoivent donc que des tableaux de l'emplacement du
-  gestionnaire : `FieldView` n'a pas besoin de porter d'emplacement.
-- Ordre et asynchrone : MGIS fait sa part sur l'hôte pendant l'appel, les
-  copies confiées aux opérations peuvent partir plus tard sur la file.
-  Préconditions, écrites dans la doc : aucun calcul en attente sur le
-  gestionnaire au moment de l'appel ; synchroniser la file avant de lire
-  sur l'hôte un tableau copié, ou avant un nouvel `update` ou `revert` si
-  des copies mixtes sont possibles (emplacement partagé).
-- Vue : tableaux d'état (`updateValues` entre deux états d'une vue) et
-  remise à zéro de K. Les propriétés matériau et les variables externes
-  d'une vue appartiennent à l'appelant.
-- Opérations fournies en en-têtes, compilées par l'appelant avec son outil
-  GPU, à côté des ressources mémoire (`MGIS/FieldOperations/`) : CUDA et
-  HIP (un flux), SYCL (une file), Kokkos (une instance), OpenMP déporté
-  (synchrone, numéro de périphérique). Copie contiguë directe quand les
-  deux rangements sont denses, un noyau sinon.
-- Pas d'échange des états : il n'équivaut pas à `update` (une prédiction
-  n'écrit pas `s1`, les points en échec non plus, mfem-mgis lit `s1` pour
-  le résidu de prédiction), pour un gain d'une copie par pas de temps.
+- **A single procedure**: `update(m)` keeps its host access check, then
+  calls `update(m, HostFieldOperations)`. Likewise for `revert(m)` and
+  `updateValues(o, i)`. The current meaning is preserved case by case
+  (resizing, mass density, insertions, erasures, `shall_be_updated`;
+  checked by the review).
+- Rule for the values: an array of the caller to an array of the caller
+  goes through the operations. Everything else is done on the host by
+  MGIS: values it keeps (scalars, local storage), and any copy between a
+  value it keeps and an array of the caller, **in both directions**. These
+  mixed copies are refused, with a message, if the location of the manager
+  is not readable by the host. The operations therefore only receive
+  arrays in the location of the manager: `FieldView` does not need to
+  carry a location.
+- Order and asynchronous mode: MGIS does its part on the host during the
+  call, the copies delegated to the operations may start later on the
+  queue. Preconditions, written in the documentation: no pending
+  computation on the manager at the time of the call; synchronise the
+  queue before reading on the host a copied array, or before a new
+  `update` or `revert` if mixed copies are possible (shared location).
+- View: state arrays (`updateValues` between two states of a view) and
+  reset of K to zero. The material properties and the external state
+  variables of a view belong to the caller.
+- Operations provided as headers, compiled by the caller with its GPU
+  tool, next to the memory resources (`MGIS/FieldOperations/`): CUDA and
+  HIP (a stream), SYCL (a queue), Kokkos (an instance), OpenMP offload
+  (synchronous, device number). Direct contiguous copy when both layouts
+  are dense, a kernel otherwise.
+- No swap of the states: it is not equivalent to `update` (a prediction
+  does not write `s1`, nor do the failed points, mfem-mgis reads `s1` for
+  the prediction residual), for a gain of one copy per time step.
 
-### 3.5 Corrections du code existant (étape D1)
+### 3.5 Fixes of the existing code (step D1)
 
-- Chaque appel asynchrone alloue son statut par la ressource de la
-  politique : avec une ressource managée CUDA, un `cudaMallocManaged` et
-  un `cudaFree` par appel. Remède standard, sans nouvelle API : une
-  `std::pmr::synchronized_pool_resource` au-dessus de la ressource managée,
-  recommandée par la doc, utilisée par les tests et les exemples. La doc
-  rappelle la précondition déjà écrite (l'objet en attente vit jusqu'à la
-  fin du calcul) : avec un pool, la violer corrompt l'appel suivant au lieu
-  d'être lente. Les grands blocs (matrices construites à partir des axes)
-  dépassent la taille des blocs du pool : il faut les construire une fois
-  avec `buildRotationMatrices`, comme la doc le conseille déjà.
-- `evaluate` alloue deux `std::vector` par appel : remplacés par un tampon
-  sur la pile.
+- Each asynchronous call allocates its status through the resource of the
+  policy: with a CUDA managed resource, one `cudaMallocManaged` and one
+  `cudaFree` per call. Standard remedy, without a new API: a
+  `std::pmr::synchronized_pool_resource` on top of the managed resource,
+  recommended by the documentation, used by the tests and the examples.
+  The documentation recalls the precondition already written (the pending
+  object lives until the end of the computation): with a pool, violating
+  it corrupts the next call instead of being slow. The large blocks
+  (matrices built from the axes) exceed the block size of the pool: they
+  must be built once with `buildRotationMatrices`, as the documentation
+  already advises.
+- `evaluate` allocates two `std::vector` per call: replaced by a buffer on
+  the stack.
 
-### 3.6 Coût
+### 3.6 Cost
 
-- **Noyaux de TFEL inchangés** : seul le calcul des adresses change avec le
-  rangement.
-- **Appels du gestionnaire : aucune allocation dans le cas courant.**
-  `make_view` et les tableaux de champs de la structure C sont construits
-  dans un tampon sur la pile (`std::pmr::monotonic_buffer_resource`).
-  Aujourd'hui, le gestionnaire alloue quatre `std::vector` par appel.
-- **Vue construite par l'appelant** : allocation une fois, à sa
-  construction. Rien par appel.
-- **Calcul point par point** : rien de plus pour le cas actuel ; tampons
-  de l'espace de travail alloués une fois.
-- **Contrôles** : un par variable et par champ, sur l'hôte, par appel.
-- **Fin de pas** : une copie par tableau d'état et par pas de temps (pas
-  par itération), et un appel virtuel par copie.
-- **À mesurer, ce n'est pas un surcoût** : point par point contre
-  composante par composante, selon la loi et la machine.
+- **TFEL kernels unchanged**: only the computation of the addresses
+  changes with the layout.
+- **Calls of the manager: no allocation in the common case.** `make_view`
+  and the arrays of fields of the C structure are built in a buffer on the
+  stack (`std::pmr::monotonic_buffer_resource`). Today, the manager
+  allocates four `std::vector` per call.
+- **View built by the caller**: allocation once, at its construction.
+  Nothing per call.
+- **Point by point computation**: nothing more for the current case;
+  buffers of the workspace allocated once.
+- **Checks**: one per variable and per field, on the host, per call.
+- **End of time step**: one copy per state array and per time step (not
+  per iteration), and one virtual call per copy.
+- **To be measured, this is not an overhead**: point by point against
+  component by component, depending on the behaviour and the machine.
 
-## 4. Exemples
+## 4. Examples
 
-mfem-mgis, chemin tout GPU, gestionnaire rangé composante par composante :
+mfem-mgis, all-GPU path, manager laid out component by component:
 
 ```cpp
 auto i = MaterialDataManagerInitializer{};
 i.layout = FieldLayout::COMPONENT_BY_COMPONENT;
 i.location = MemoryLocation::DEVICE;
-i.s0.gradients = std::span(g0, n * gsize);  // mémoire de MFEM
-// ... tous les tableaux donnés
+i.s0.gradients = std::span(g0, n * gsize);  // memory of MFEM
+// ... all the arrays given
 auto m = MaterialDataManager(b, n, i);
 setExternalStateVariable(m.s0, "Temperature", std::span(T0, n),
                          MaterialStateManager::EXTERNAL_STORAGE);
@@ -419,18 +413,18 @@ setExternalStateVariable(m.s1, "Temperature", std::span(T1, n),
                          MaterialStateManager::EXTERNAL_STORAGE);
 auto p = BatchExecutionPolicy{};
 p.queue = stream;
-const auto r = integrate(p, m, opts, dt);  // inchangé
+const auto r = integrate(p, m, opts, dt);  // unchanged
 auto ops = mgis::field_operations::CUDAFieldOperations{stream};
-update(m, ops);  // fin de pas sur le GPU, dans l'ordre du flux
+update(m, ops);  // end of time step on the GPU, in the order of the stream
 ```
 
-Code qui gère lui-même ses données :
+Code that manages its data itself:
 
 ```cpp
 auto v = MaterialDataView(b, n, MemoryLocation::DEVICE);
 v.s0.gradients = makeComponentByComponentFieldView(std::span(g0, gsize * ld), n, gsize, ld);
 v.s1.gradients = makeComponentByComponentFieldView(std::span(g1, gsize * ld), n, gsize, ld);
-// ... forces, variables internes, K
+// ... forces, internal state variables, K
 const auto E = makeUniformFieldView(std::span<const real>(E_d, 1), n);
 setMaterialProperty(v.s0, "YoungModulus", E);
 setMaterialProperty(v.s1, "YoungModulus", E);
@@ -439,112 +433,113 @@ p.queue = stream;
 const auto r = integrate(p, v, opts, dt);
 ```
 
-## 5. Symétrie à vérifier avant de dire « fini »
+## 5. Symmetry to check before saying "done"
 
-| Axe | Valeurs |
+| Axis | Values |
 |---|---|
-| Objet | loi, modèle, propriété matériau |
-| Fonction | intégration, initialisation, post-traitement, rotations (3 sortes, 3 façons de donner les matrices), évaluation, `update`, `revert`, `updateValues`, extraction, conversions des grandes transformations |
-| Support | vue, gestionnaire |
-| Rangement | point par point, composante par composante, pas quelconques et `ld > n` (vues) |
-| Exécution | sans politique (espace de travail), synchrone, asynchrone, `ThreadPool` (gestionnaire) |
-| Bibliothèque | `generic-parallel` (hôte et GPU), `generic` |
-| Points | tous, plage `[b, e)`, ensemble vide, groupes vides |
-| Emplacement | hôte, GPU, partagé, refus attendus |
-| Liaisons et reprises | C, Fortran, Python ; `save` et `restore` |
+| Object | behaviour, model, material property |
+| Function | integration, initialisation, post-processing, rotations (3 kinds, 3 ways of giving the matrices), evaluation, `update`, `revert`, `updateValues`, extraction, finite strain conversions |
+| Support | view, manager |
+| Layout | point by point, component by component, arbitrary strides and `ld > n` (views) |
+| Execution | without policy (workspace), synchronous, asynchronous, `ThreadPool` (manager) |
+| Library | `generic-parallel` (host and GPU), `generic` |
+| Points | all, range `[b, e)`, empty set, empty groups |
+| Location | host, GPU, shared, expected refusals |
+| Bindings and restarts | C, Fortran, Python; `save` and `restore` |
 
-## 6. Écarté, avec la raison
+## 6. Set aside, with the reason
 
-- **Rangement par blocs d'élément** (`byNODES` de `QuadratureInterpolator`) :
-  troisième pas et contrat TFEL v3, sans usage (section 2).
-- **Statuts par point** : le contrat de TFEL en a pour les lois, pas pour
-  les propriétés matériau, avec des conventions différentes, et le calcul
-  point par point s'arrête au premier échec. La limite actuelle reste pour
-  les deux. Ajout possible plus tard, ensemble.
-- **Échange des états** : section 3.4.
-- **`ThreadPool` sur une vue** : section 3.2.
-- **Variantes `Context` des fonctions de calcul** : les fonctions de calcul
-  du gestionnaire n'en ont pas. Celles qui en ont (affectations,
-  `updateValues`) en ont aussi sur les vues.
-- **Recouvrement entre deux sorties différentes** : non vérifié (coûteux en
-  général), contrat documenté. Le recouvrement d'une sortie avec elle-même
-  est vérifié (3.1).
-- **Ressource mémoire OpenMP** : OpenMP n'a pas de mémoire partagée
-  portable ; les opérations de fin de pas OpenMP existent, pas la
-  ressource (situation actuelle inchangée).
+- **Layout by element blocks** (`byNODES` of `QuadratureInterpolator`):
+  third stride and TFEL contract v3, without use (section 2).
+- **Statuses per point**: the contract of TFEL has them for behaviours,
+  not for material properties, with different conventions, and the point
+  by point computation stops at the first failure. The current limitation
+  stays for both. Possible addition later, together.
+- **Swap of the states**: section 3.4.
+- **`ThreadPool` on a view**: section 3.2.
+- **`Context` variants of the computation functions**: the computation
+  functions of the manager do not have them. Those that have them
+  (assignments, `updateValues`) also have them on views.
+- **Overlap between two different outputs**: not checked (costly in
+  general), documented contract. The overlap of an output with itself is
+  checked (3.1).
+- **OpenMP memory resource**: OpenMP has no portable shared memory; the
+  OpenMP end of time step operations exist, the resource does not
+  (current situation unchanged).
 
-## 7. Ce qui revient à mfem-mgis
+## 7. What falls to mfem-mgis
 
-- un pas de composante dans `PartialQuadratureFunction`, ou les vues
-  *strided coalesced* de `mgis::function`, pour les sorties d'un matériau
-  rangé composante par composante ;
-- des tableaux lisibles par le GPU pour `PartialQuadratureSpace` ;
-- en assemblage partiel, la gestion des éléments de chaque matériau par
-  l'intégrateur (MFEM ignore les marqueurs).
+- a component stride in `PartialQuadratureFunction`, or the *strided
+  coalesced* views of `mgis::function`, for the outputs of a material laid
+  out component by component;
+- arrays readable by the GPU for `PartialQuadratureSpace`;
+- in partial assembly, the handling of the elements of each material by
+  the integrator (MFEM ignores the markers).
 
-## 8. Étapes
+## 8. Steps
 
-1. `FieldView`, `MaterialDataView`, fonctions sur les vues, fonctions du
-   gestionnaire réécrites dessus, espace de travail explicite, tampons sur
-   la pile. Les 45 tests actuels inchangés et verts.
-2. Rangement du gestionnaire (3.3), `MaterialFunctionManager`, liaisons.
-3. `FieldOperations`, `update`, `revert` et `updateValues` avec opérations,
-   en-têtes CUDA, HIP, SYCL, Kokkos et OpenMP déporté. Corrections de 3.5.
-4. Tests de chaque case de la matrice de symétrie avec quelques lois
-   (élasticité, Norton, loi orthotrope, grandes transformations
-   `F-Cauchy`, modèle, loi avec fonction d'initialisation et
-   post-traitement, propriété matériau), sur CPU (`stlpar`, `openmp`,
-   `generic`) et CUDA, dont `ld > n`, prédiction, fin de pas sur GPU, et
-   GPU sans HMM. Résultats identiques bit à bit entre vue et gestionnaire,
-   et entre les deux rangements. Une seconde construction de MGIS avec les
-   liaisons et HDF5 (aujourd'hui désactivés) teste ce qui y est touché. Doc
-   web et Doxygen de MGIS, doc du prototype, journal.
-5. Relecture indépendante, corrections, seconde relecture du diff.
+1. `FieldView`, `MaterialDataView`, functions on views, functions of the
+   manager rewritten on top of them, explicit workspace, buffers on the
+   stack. The 45 current tests unchanged and green.
+2. Layout of the manager (3.3), `MaterialFunctionManager`, bindings.
+3. `FieldOperations`, `update`, `revert` and `updateValues` with
+   operations, CUDA, HIP, SYCL, Kokkos and OpenMP offload headers. Fixes
+   of 3.5.
+4. Tests of each cell of the symmetry matrix with a few behaviours
+   (elasticity, Norton, orthotropic behaviour, `F-Cauchy` finite strain,
+   model, behaviour with an initialize function and a post-processing,
+   material property), on CPU (`stlpar`, `openmp`, `generic`) and CUDA,
+   including `ld > n`, prediction, end of time step on GPU, and GPU without
+   HMM. Bit for bit identical results between view and manager, and
+   between the two layouts. A second build of MGIS with the bindings and
+   HDF5 (disabled today) tests what is touched there. Web and Doxygen
+   documentation of MGIS, documentation of the prototype, log.
+5. Independent review, fixes, second review of the diff.
 
-## Annexe : traitement des relectures
+## Appendix: handling of the reviews
 
 ### Version 1
 
-| Constat | Traitement |
+| Finding | Handling |
 |---|---|
-| A1 F initialisé point par point | 3.3 |
-| A2 espace de travail d'une vue | argument explicite (3.2) |
-| A3 échange non équivalent à `update` | échange retiré (3.4) |
-| A4 `update` des propriétés et variables externes | même procédure, copies par opérations, règle écrite (3.4) |
-| B1 TFEL et statuts par point | statuts retirés pour les deux (section 6) |
-| B2 surcharges manquantes | rotations par axes et en place, `evaluate` sans politique de bornes, politique de la vue, setters et `updateValues` avec `Context` |
-| B3 statuts par point | retirés |
-| B4 rangement des sorties | tout ce qui est donné par point suit le rangement (3.3) |
-| B5 pièges de `FieldView` | vue vide par défaut, étendues, conversion vers `const` |
-| B6 allocations | tampons sur la pile, pool pour l'asynchrone (3.5, 3.6) |
-| B7 doublons et analogies | trois niveaux (3.2), types réguliers |
-| B8 interopérabilité `mgis::function` | un seul sens, accès public aux données, accesseurs nommés |
-| B9 code qui suppose le point par point | rangement exposé ou refusé dans chaque liaison (3.3) |
-| B10 surcharges en trop | pas de `ThreadPool` sur une vue |
-| C1 à C5 | ensemble vide d'abord, recouvrement d'une sortie, rangement dans le gestionnaire, fabriques `make…`, `getComponents(vue, début, nombre)`, `n` tiré des vues |
+| A1 F initialised point by point | 3.3 |
+| A2 workspace of a view | explicit argument (3.2) |
+| A3 swap not equivalent to `update` | swap removed (3.4) |
+| A4 `update` of the properties and external state variables | same procedure, copies through operations, written rule (3.4) |
+| B1 TFEL and statuses per point | statuses removed for both (section 6) |
+| B2 missing overloads | rotations by axes and in place, `evaluate` without bounds policy, policy of the view, setters and `updateValues` with `Context` |
+| B3 statuses per point | removed |
+| B4 layout of the outputs | everything given per point follows the layout (3.3) |
+| B5 pitfalls of `FieldView` | empty view by default, extents, conversion to `const` |
+| B6 allocations | buffers on the stack, pool for the asynchronous mode (3.5, 3.6) |
+| B7 duplicates and analogies | three levels (3.2), regular types |
+| B8 interoperability with `mgis::function` | one direction only, public access to the data, named accessors |
+| B9 code that assumes point by point | layout exposed or refused in each binding (3.3) |
+| B10 superfluous overloads | no `ThreadPool` on a view |
+| C1 to C5 | empty set first, overlap of an output, layout in the manager, `make…` factories, `getComponents(view, start, count)`, `n` taken from the views |
 
 ### Version 2
 
-| Constat | Traitement |
+| Finding | Handling |
 |---|---|
-| N1 pointeur d'espace de travail dans la vue | retiré : argument explicite, un par fil, loi vérifiée, tampons dimensionnés à la construction |
-| N2 allocation de `make_view` | vecteurs `std::pmr`, tampon sur la pile dans les fonctions du gestionnaire |
-| N3 fin de pas contre `updateValues` | même procédure avec opérations de copie, règle des valeurs gardées par MGIS, `updateValues` avec opérations, contrôle du rangement entre états, K pour une vue |
-| N4 recouvrement | contrôle exact d'une condition suffisante |
-| N5 rotations | surcharges `std::span` documentées point par point ; tampon d'un point pour `generic` |
-| N6 groupes vides | règle écrite (3.1) |
-| N7 pool | `synchronized_pool_resource`, précondition rappelée, grands blocs |
-| N8 affirmations | confirmées vraies |
-| N9 types non réguliers | pointeur vers la loi, membres non constants, cohérence vérifiée à chaque appel |
-| N10 mineurs | `memory_location`, propriétés matériau scalaires, `PreconditionsChecker`, paramètre du constructeur de `MaterialStateManager`, numpy avec pas, opérations hôte publiques (`HostFieldOperations`), plus de fonction `get…` qui modifie, exemples corrigés |
+| N1 workspace pointer in the view | removed: explicit argument, one per thread, behaviour checked, buffers sized at construction |
+| N2 allocation of `make_view` | `std::pmr` vectors, buffer on the stack in the functions of the manager |
+| N3 end of time step against `updateValues` | same procedure with copy operations, rule for the values kept by MGIS, `updateValues` with operations, check of the layout between states, K for a view |
+| N4 overlap | exact check of a sufficient condition |
+| N5 rotations | `std::span` overloads documented as point by point; buffer of one point for `generic` |
+| N6 empty groups | written rule (3.1) |
+| N7 pool | `synchronized_pool_resource`, precondition recalled, large blocks |
+| N8 statements | confirmed true |
+| N9 non-regular types | pointer to the behaviour, non-constant members, consistency checked at each call |
+| N10 minor | `memory_location`, scalar material properties, `PreconditionsChecker`, parameter of the constructor of `MaterialStateManager`, numpy with strides, public host operations (`HostFieldOperations`), no more `get…` function that modifies, examples fixed |
 
 ### Version 3
 
-| Constat | Traitement |
+| Finding | Handling |
 |---|---|
-| F1 fin de pas : copie d'une valeur gardée par MGIS vers un tableau de l'appelant, ordre en asynchrone, contrôle d'accès de `update(m)` | copies mixtes sur l'hôte dans les deux sens, refusées hors mémoire lisible par l'hôte ; préconditions d'ordre écrites ; contrôle d'accès gardé (3.4) |
-| F2 `FieldView` dérivée de `PreconditionsChecker` non régulière | plus d'héritage, même mécanisme par `check_preconditions` (3.1) |
-| F3 `make_view` public contourne `checkHostValues` | contrôle dans `make_view` (3.2) |
-| F4 sémantique des vecteurs `std::pmr` | écrite (3.2) |
-| F5 asymétries : `updateValues` sur une vue, extraction et conversions sur une vue, formes `IntegrationType` | ajoutées, ou écrites comme réservées au gestionnaire (3.2, 3.4) |
-| F6 détails de mise en œuvre : aiguillage avant l'espace de travail, `K[0]`, tampons de `s0` et `s1`, pas des évaluateurs, tampon d'une taille qui dépend de la loi, pointeur vers la loi dans l'espace de travail, interface non virtuelle de `FieldOperations` | écrits (3.2, 3.4) |
+| F1 end of time step: copy of a value kept by MGIS to an array of the caller, order in asynchronous mode, access check of `update(m)` | mixed copies on the host in both directions, refused outside memory readable by the host; order preconditions written; access check kept (3.4) |
+| F2 `FieldView` derived from `PreconditionsChecker` not regular | no more inheritance, same mechanism through `check_preconditions` (3.1) |
+| F3 public `make_view` bypasses `checkHostValues` | check in `make_view` (3.2) |
+| F4 semantics of the `std::pmr` vectors | written (3.2) |
+| F5 asymmetries: `updateValues` on a view, extraction and conversions on a view, `IntegrationType` forms | added, or written as reserved to the manager (3.2, 3.4) |
+| F6 implementation details: routing before the workspace, `K[0]`, buffers of `s0` and `s1`, strides of the evaluators, buffer with a size that depends on the behaviour, pointer to the behaviour in the workspace, non-virtual interface of `FieldOperations` | written (3.2, 3.4) |

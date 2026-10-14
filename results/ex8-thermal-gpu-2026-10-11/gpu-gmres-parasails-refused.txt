@@ -1,7 +1,7 @@
 Options used:
    --mesh assemblage_hexa.msh
-   --libraryU3SI2 ../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelU3SI2-cuda.so
-   --libraryALFENI ../cas-memoire/ex8/generic-parallel-cuda/src/libGenericParallelALFENI-cuda.so
+   --libraryU3SI2 ../cases-memory/ex8/generic-parallel-cuda/src/libGenericParallelU3SI2-cuda.so
+   --libraryALFENI ../cases-memory/ex8/generic-parallel-cuda/src/libGenericParallelALFENI-cuda.so
    --linearsolver-thermal HypreGMRES
    --preconditioner-thermal HypreParaSails
    --linearsolver-mechanics MUMPSSolver
@@ -51,4 +51,4 @@ setHypreParaSailsPreconditioner: the ParaSails preconditioner is not supported w
 [t-MS-7E47:22256] [ 8] /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x77f93c42a28b]
 [t-MS-7E47:22256] [ 9] ./rjh_plate(+0x652b5)[0x5601418ed2b5]
 [t-MS-7E47:22256] *** End of error message ***
-timeout: la commande surveillée a renvoyé un core dump
+timeout: the monitored command dumped core

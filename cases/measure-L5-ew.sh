@@ -1,16 +1,16 @@
 #!/bin/bash
-# Mesures du Newton inexact (lot L5) sur la poutre : tolérance du solveur
-# linéaire fixe (1e-4) ou adaptée à la décroissance du résidu (choix 1 et 2
-# d'Eisenstat et Walker, option -alst), pour Newton (PCG + BoomerAMG
-# reconstruit à chaque itération) et pour NewtonK0 (gradient conjugué
-# préconditionné par BoomerAMG construit une fois sur K0, prédiction par ce
-# gradient conjugué). Sur 8 processus CPU puis sur le GPU (loi `cuda`). La
-# tolérance fixe sert aussi aux prédictions. À lancer sur une machine calme,
-# après build-mfem-mgis.sh.
+# Measurements of the inexact Newton (work package L5) on the beam: fixed
+# tolerance of the linear solver (1e-4) or tolerance adapted to the decrease
+# of the residual (choices 1 and 2 of Eisenstat and Walker, option -alst),
+# for Newton (PCG + BoomerAMG rebuilt at each iteration) and for NewtonK0
+# (conjugate gradient preconditioned by BoomerAMG built once on K0,
+# prediction by this conjugate gradient). On 8 CPU processes then on the
+# GPU (behaviour `cuda`). The fixed tolerance is also used for the
+# predictions. To be run on a quiet machine, after build-mfem-mgis.sh.
 #
-# usage : cases/measure-L5-ew.sh [dossier de résultats]
-lot=L5
-source "$(dirname "$0")/measure-common.sh" poutre "$@"
+# usage: cases/measure-L5-ew.sh [results directory]
+work_package=L5
+source "$(dirname "$0")/measure-common.sh" beam "$@"
 batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
@@ -18,7 +18,7 @@ kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
 cuda=$gp/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
 linear_solver=pcg-amg
 k0="-nls fixed-point -fpm newton-k0 -els amg -k0 -pk0"
-# nom:tolérance du solveur linéaire:options
+# name:tolerance of the linear solver:options
 variants=(
   "newton:1e-4:"
   "newton-ew1:1e-4:-alst EisenstatWalker1"
@@ -38,7 +38,7 @@ for device in "" cuda; do
   fi
   for variant in "${variants[@]}"; do
     IFS=: read -r name linear_tolerance options <<< "$variant"
-    run "poutre-$where-$name" 1 $np "$library" "$batch" "${kernels[@]}"
+    run "beam-$where-$name" 1 $np "$library" "$batch" "${kernels[@]}"
   done
 done
-echo "résultats dans $out"
+echo "results in $out"

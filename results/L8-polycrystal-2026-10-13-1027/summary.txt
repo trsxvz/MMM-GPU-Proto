@@ -1,22 +1,22 @@
-date : 2026-10-13 10:27:36
-cas : polycristal
-machine : 16 cœurs, 30 Go
-charge : 10.22 5.59 4.94
-mfem-mgis : 54ff8e6c8a
-== polycristal-np1-gpu-sans-post-traitements : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
-== polycristal-np1-gpu-post-traitements : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de son groupe : 2.221e-13
-== polycristal-np1-gpu-post-traitements-noyaux : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de son groupe : 2.382e-13
-== polycristal-np8-sans-post-traitements : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
-== polycristal-np8-post-traitements : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00
-== polycristal-np8-post-traitements-noyaux : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels
-   statut 0
-   70 valeurs, plus grande différence rapportée au maximum de son groupe : 0.000e+00
-fin : 2026-10-13 10:29:51
+date: 2026-10-13 10:27:36
+case: polycrystal
+machine: 16 cores, 30 GB
+load: 10.22 5.59 4.94
+mfem-mgis: 54ff8e6c8a
+== polycrystal-np1-gpu-without-post-processings: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+== polycrystal-np1-gpu-post-processings: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its group: 2.221e-13
+== polycrystal-np1-gpu-post-processings-kernels: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its group: 2.382e-13
+== polycrystal-np8-without-post-processings: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+== polycrystal-np8-post-processings: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its group: 0.000e+00
+== polycrystal-np8-post-processings-kernels: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels MFEM_MGIS_POST_PROCESSINGS_COMPUTATION=Kernels
+   status 0
+   70 values, largest difference relative to the maximum of its group: 0.000e+00
+end: 2026-10-13 10:29:51

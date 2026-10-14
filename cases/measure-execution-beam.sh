@@ -1,35 +1,36 @@
 #!/bin/bash
-# Surcoût de chaque placement des calculs donné par l'option --execution de
-# mfem-mgis (tâche 9a) : poutre r4 (111 843 inconnues), 10 pas, Newton,
-# PCG de hypre et BoomerAMG, tout sur le CPU (`PROCESSUS_CPU` processus, 8
-# par défaut, sur une machine calme), tout sur le GPU
-# (un processus), et les huit placements des éléments finis, des lois et
-# des solveurs linéaires en mode mixte (un processus et le GPU ; la poutre
-# n'a pas de post-traitements). La loi est celle du cas, pour le CPU
-# (interface generic) ou pour le GPU (interface generic-parallel, backend
-# cuda), selon le placement des lois. Les copies des tableaux des matériaux
-# entre l'hôte et le GPU sont relevées sous le tableau de profilage.
+# Overhead of each placement of the computations given by the option
+# --execution of mfem-mgis (task 9a): beam r4 (111,843 unknowns), 10 steps,
+# Newton, PCG of hypre and BoomerAMG, everything on the CPU
+# (`CPU_PROCESSES` processes, 8 by default, on a quiet machine), everything
+# on the GPU (one process), and the eight placements of the finite
+# elements, of the behaviours and of the linear solvers in mixed mode (one
+# process and the GPU; the beam has no post-processings). The behaviour is
+# the one of the case, for the CPU (generic interface) or for the GPU
+# (generic-parallel interface, cuda backend), depending on the placement of
+# the behaviours. The copies of the arrays of the materials between the
+# host and the GPU are reported below the profiling table.
 #
-# La variable `cas_build` donne la construction des cas, construite contre
-# un mfem-mgis qui a l'option --execution (par défaut build/cas-9a).
+# The variable `cases_build` gives the build of the cases, built against a
+# mfem-mgis which has the option --execution (by default build/cases-9a).
 #
-# usage : cases/measure-execution-beam.sh [dossier de résultats]
-lot=execution
-cas_build=${cas_build:-$(cd "$(dirname "$0")/.." && pwd)/build/cas-9a}
-source "$(dirname "$0")/measure-common.sh" poutre "$@"
+# usage: cases/measure-execution-beam.sh [results directory]
+work_package=execution
+cases_build=${cases_build:-$(cd "$(dirname "$0")/.." && pwd)/build/cases-9a}
+source "$(dirname "$0")/measure-common.sh" beam "$@"
 cuda=$gp/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
 linear_solver=pcg-amg
 linear_tolerance=1e-4
 summary="^dofs|^time|host to device|device to host"
 device=""
-# tout sur le CPU
+# everything on the CPU
 options="--execution cpu"
-np=${PROCESSUS_CPU:-8}
+np=${CPU_PROCESSES:-8}
 run "execution-cpu-${np}p" 1 "$np" "$generic"
-# tout sur le GPU
+# everything on the GPU
 options="--execution gpu"
 run execution-gpu 1 1 "$cuda"
-# placements mixtes
+# mixed placements
 for fe in cpu gpu; do
   for bh in cpu gpu; do
     for lsd in cpu gpu; do
@@ -38,8 +39,8 @@ for fe in cpu gpu; do
         library=$cuda
       fi
       options="--execution mixed --finite-elements $fe --behaviours $bh --linear-solver-device $lsd"
-      run "execution-mixte-fe-$fe-lois-$bh-solveur-$lsd" 1 1 "$library"
+      run "execution-mixed-fe-$fe-behaviours-$bh-solver-$lsd" 1 1 "$library"
     done
   done
 done
-echo "résultats dans $out"
+echo "results in $out"

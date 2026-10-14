@@ -1,45 +1,45 @@
-# Transferts entre l'hôte et le GPU (lot L7.3, 11/10/2026)
+# Transfers between the host and the GPU (work package L7.3, 11/10/2026)
 
-Profil nsys (`cases/transfers-profile.sh`) de la thermique stationnaire r5
-(279 873 inconnues, 5 pas, 18 itérations de Newton) et de la poutre r4
-(111 843 inconnues, 10 pas, NewtonK0 et Eisenstat-Walker 1, BoomerAMG
-agressif), tous les noyaux, loi `cuda`, mfem-mgis e03fd927f7. Copies
-regroupées par sens et par taille ; leur origine est donnée par gdb
-(points d'arrêt sur `mfem::CuMemcpyDtoH` et `mfem::CuMemcpyHtoD` filtrés
-par taille, `gdb-copies.txt`, thermique sur un pas).
+nsys profile (`cases/transfers-profile.sh`) of the steady-state thermal
+problem r5 (279,873 unknowns, 5 steps, 18 Newton iterations) and of the
+beam r4 (111,843 unknowns, 10 steps, NewtonK0 and Eisenstat-Walker 1,
+aggressive BoomerAMG), all the kernels, `cuda` behaviour, mfem-mgis
+e03fd927f7. Copies grouped by direction and by size. Their origin is given
+by gdb (breakpoints on `mfem::CuMemcpyDtoH` and `mfem::CuMemcpyHtoD`
+filtered by size, `gdb-copies.txt`, thermal problem over one step).
 
-| Cas | Durée | Hôte vers GPU | GPU vers hôte |
+| Case | Duration | Host to GPU | GPU to host |
 |---|---|---|---|
-| Thermique r5 | 1,46 s | 60 ms | 58 ms |
-| Poutre r4 | 1,97 s | 33 ms | 30 ms |
+| Thermal r5 | 1.46 s | 60 ms | 58 ms |
+| Beam r4 | 1.97 s | 33 ms | 30 ms |
 
-Thermique : les copies représentent 8 % du temps.
+Thermal: the copies represent 8 % of the time.
 
-| Copie | Nombre | Temps | Origine |
+| Copy | Count | Time | Origin |
 |---|---|---|---|
-| états, 3 composantes par point, GPU vers hôte | 40 | 40 ms | fin de pas (`update`), tableaux d'état ramenés sur l'hôte |
-| états, 3 composantes par point, hôte vers GPU | 30 | 30 ms | intégration suivante, tableaux renvoyés au GPU |
-| température aux points, hôte vers GPU | 92 | 21 ms | intégration : variables externes en début et en fin de pas |
-| température aux points, GPU vers hôte | 46 | 14 ms | valeurs des inconnues aux points recopiées dans la variable externe |
+| states, 3 components per point, GPU to host | 40 | 40 ms | end of step (`update`), state arrays brought back to the host |
+| states, 3 components per point, host to GPU | 30 | 30 ms | next integration, arrays sent back to the GPU |
+| temperature at the points, host to GPU | 92 | 21 ms | integration: external state variables at the beginning and at the end of the step |
+| temperature at the points, GPU to host | 46 | 14 ms | values of the unknowns at the points copied into the external state variable |
 
-Poutre : contraintes et déformations (6 composantes) et variables
-internes (7 composantes), 80 et 40 copies dans chaque sens, 56 ms en tout
-(3 %), même origine (fin de pas puis intégration suivante).
+Beam: stresses and strains (6 components) and internal state variables (7
+components), 80 and 40 copies in each direction, 56 ms in total (3 %),
+same origin (end of step, then next integration).
 
-## Décisions
+## Decisions
 
-- Fin de pas : la mise à jour est faite sur le GPU, puis les tableaux
-  sont ramenés sur l'hôte et leur copie sur le GPU invalidée. C'est le
-  contrat documenté de `MaterialArrays` : après une mise à jour, l'état
-  peut être modifié directement sur l'hôte (cas « write after update » de
-  `BatchIntegrationTest`). Une synchronisation en lecture seule, qui
-  garderait la copie du GPU valide, économiserait le renvoi (2 % sur la
-  thermique, 1,4 % sur la poutre) mais casse ce contrat : essai annulé
-  (le test échoue sur les périphériques `debug` et `cuda`). Une option
-  qui garderait les états sur le GPU au prix d'écritures sur l'hôte
-  explicitement synchronisées reste possible.
-- Température : la garder sur le GPU (source sur le GPU pour la variable
-  externe de fin de pas, copie de début de pas gardée d'une itération à
-  l'autre, copie sur l'hôte seulement à la fin du pas) économiserait au
-  plus 2,3 % de la thermique, pour une gestion de validité de plus dans
-  `BehaviourIntegratorBase`. Non fait pour l'instant.
+- End of step: the update is done on the GPU, then the arrays are brought
+  back to the host and their copy on the GPU is invalidated. This is the
+  documented contract of `MaterialArrays`: after an update, the state may
+  be modified directly on the host (case "write after update" of
+  `BatchIntegrationTest`). A read-only synchronisation, which would keep
+  the copy on the GPU valid, would save the copy back (2 % on the thermal
+  problem, 1.4 % on the beam) but breaks this contract: trial cancelled
+  (the test fails on the `debug` and `cuda` devices). An option that would
+  keep the states on the GPU at the price of explicitly synchronised
+  writes on the host remains possible.
+- Temperature: keeping it on the GPU (source on the GPU for the external
+  state variable at the end of the step, copy at the beginning of the step
+  kept from one iteration to the other, copy to the host only at the end
+  of the step) would save at most 2.3 % of the thermal problem, for one
+  more validity management in `BehaviourIntegratorBase`. Not done for now.

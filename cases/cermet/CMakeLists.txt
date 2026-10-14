@@ -40,14 +40,14 @@ function(add_cermet_test name environment)
   set_tests_properties(cermet-${name} PROPERTIES
     ENVIRONMENT "${environment}"
     FIXTURES_SETUP cermet-${name})
-  if(name STREQUAL "point-par-point")
+  if(name STREQUAL "point-by-point")
     return()
   endif()
   add_test(NAME cermet-comparison-${name}
     COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/../compare-outputs.py"
             "${_reference}" "${_output}" --rtol ${_rtol}
-            --groupes 0 ${_gradients} 4-6)
+            --groups 0 ${_gradients} 4-6)
   set_tests_properties(cermet-comparison-${name} PROPERTIES
     FIXTURES_REQUIRED "cermet-point-by-point;cermet-${name}")
 endfunction()
@@ -58,9 +58,9 @@ set(_generic "${MM_OPERA_HPC_CERMET_DIR}/BehavioursCermet/cpu/libBehaviour.so")
 if(NOT EXISTS "${_generic}")
   set(_generic "${MM_OPERA_HPC_CERMET_DIR}/src/libBehaviour.so")
 endif()
-add_cermet_test(point-par-point "MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint"
+add_cermet_test(point-by-point "MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint"
   -l "${_generic}")
-add_cermet_test(noyaux "${_kernels}" -l "${_generic}")
+add_cermet_test(kernels "${_kernels}" -l "${_generic}")
 foreach(_backend ${cermet-behaviours_BACKENDS})
   set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
   if(_backend STREQUAL "cuda")

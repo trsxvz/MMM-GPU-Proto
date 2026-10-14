@@ -11,7 +11,7 @@ Options used:
    --mesh mesh/5crystals.msh
    --mesh_mode FromScratch
    --vect mesh/vectors_5crystals.txt
-   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas/polycristal/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cases/polycrystal/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
    --behaviour Mono_UO2_Cosh_Jaco3
    --linear-solver HyprePCG
    --no-reuse-analysis

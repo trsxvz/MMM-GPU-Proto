@@ -1,99 +1,97 @@
-# Poutre sur GPU, tranche minimale (09/10/2026)
+# Beam on GPU, minimal slice (09/10/2026)
 
-Poutre r4 (111 843 inconnues, tétraèdres d'ordre 1), plasticité de von
-Mises, PCG + BoomerAMG (tolérance 1e-4), 10 pas. mfem-mgis 7159b6de4c,
-MGIS a0b5140. Script : `cases/measure-L6.sh poutre`. Une RTX 5080, 16 cœurs.
+Beam r4 (111,843 unknowns, tetrahedra of order 1), von Mises plasticity,
+PCG + BoomerAMG (tolerance 1e-4), 10 steps. mfem-mgis 7159b6de4c, MGIS
+a0b5140. Script: `cases/measure-L6.sh beam`. One RTX 5080, 16 cores.
 
-Calculs sur GPU : périphérique `cuda` de MFEM, hypre sur le GPU, tous les
-noyaux (gradients, forces intérieures, tangente assemblée directement dans
-la matrice creuse, prédiction), loi `generic` (intégrée sur l'hôte) ou
-`generic-parallel` compilée pour `cuda` (intégrée sur le GPU, sur les
-copies des tableaux du matériau).
+Computations on GPU: `cuda` device of MFEM, hypre on the GPU, all the
+kernels (gradients, internal forces, tangent assembled directly into the
+sparse matrix, prediction), `generic` behaviour (integrated on the host)
+or `generic-parallel` compiled for `cuda` (integrated on the GPU, on the
+copies of the arrays of the material).
 
-Réserve : la machine sortait d'une compilation (charge moyenne de 10 au
-départ, en baisse) ; le calcul de référence point par point sur 8
-processus prend 17,5 s contre 15,7 s sur machine calme.
+Caveat: the machine was coming out of a compilation (average load of 10 at
+the start, decreasing). The point by point reference computation on 8
+processes takes 17.5 s against 15.7 s on a quiet machine.
 
-| Cas | Total | Intégration | Résidu | Tangente | Résolution | Prédiction |
+| Case | Total | Integration | Residual | Tangent | Solve | Prediction |
 |---|---|---|---|---|---|---|
-| CPU, 8 processus, point par point | 17,54 | 0,58 (41) | 0,48 (41) | 2,38 (31) | 10,89 | 3,12 (10) |
-| CPU, 8 processus, tout par noyaux | 14,68 | 0,20 (39) | 0,11 (39) | 1,91 (29) | 9,50 | 2,89 (10) |
-| GPU, 1 processus, loi `generic` | 5,01 | 0,79 (42) | 0,05 (42) | 0,33 (32) | 2,55 | 0,99 (10) |
-| GPU, 1 processus, loi `cuda` | **4,06** | 0,10 (42) | 0,03 (42) | 0,24 (32) | 2,47 | 0,87 (10) |
-| GPU, 2 processus, loi `cuda` | 28,64 | 0,11 (41) | 0,04 (41) | 0,44 (31) | 22,90 | 4,91 (10) |
+| CPU, 8 processes, point by point | 17.54 | 0.58 (41) | 0.48 (41) | 2.38 (31) | 10.89 | 3.12 (10) |
+| CPU, 8 processes, everything by kernels | 14.68 | 0.20 (39) | 0.11 (39) | 1.91 (29) | 9.50 | 2.89 (10) |
+| GPU, 1 process, `generic` behaviour | 5.01 | 0.79 (42) | 0.05 (42) | 0.33 (32) | 2.55 | 0.99 (10) |
+| GPU, 1 process, `cuda` behaviour | **4.06** | 0.10 (42) | 0.03 (42) | 0.24 (32) | 2.47 | 0.87 (10) |
+| GPU, 2 processes, `cuda` behaviour | 28.64 | 0.11 (41) | 0.04 (41) | 0.44 (31) | 22.90 | 4.91 (10) |
 
-Temps en secondes (maximum sur les processus) ; entre parenthèses, nombre
-d'appels. Même solution partout (norme 48,83704586) ; les nombres
-d'itérations de Newton varient de 29 à 32 avec l'arrondi (ordre des
-sommes, additions atomiques sur GPU).
+Times in seconds (maximum over the processes); in parentheses, number of
+calls. Same solution everywhere (norm 48.83704586). The numbers of Newton
+iterations vary from 29 to 32 with the rounding (order of the sums, atomic
+additions on GPU).
 
-## Constats
+## Findings
 
-- **Un GPU contre 8 cœurs** : 4,06 s contre 17,54 s (×4,3), et contre
-  14,68 s pour les mêmes noyaux sur CPU (×3,6).
-- **Ce qui reste** : la résolution linéaire (PCG + BoomerAMG de hypre sur
-  le GPU) fait 61 % du temps, la prédiction 21 % (dont sa propre
-  résolution linéaire). La tangente coûte 7,5 ms par appel, l'intégration
-  de la loi 2,4 ms par appel.
-- **Loi sur le GPU** : l'intégration passe de 0,79 s à 0,10 s (plus de
-  copies des tableaux entre l'hôte et le GPU).
-- **Deux processus sur un même GPU** : la résolution devient 9 fois plus
-  lente (22,9 s). Non analysé. Hypothèse la plus probable : sans le
-  service MPS de CUDA, les contextes des deux processus se partagent le
-  GPU par tranches de temps, et les nombreux petits noyaux de BoomerAMG
-  s'exécutent l'un après l'autre avec des changements de contexte. À
-  vérifier avec MPS (`nvidia-cuda-mps-control -d`). Un processus par GPU
-  reste la configuration naturelle.
-- **Mémoire** : chaque processus sur le GPU réserve une réserve de 4 Gio
-  (Umpire) ; quatre processus sur le GPU de 16 Go échouent (vu en lançant
-  les tests en parallèle).
+- **One GPU against 8 cores**: 4.06 s against 17.54 s (×4.3), and against
+  14.68 s for the same kernels on CPU (×3.6).
+- **What remains**: the linear solve (PCG + BoomerAMG of hypre on the GPU)
+  takes 61 % of the time, the prediction 21 % (including its own linear
+  solve). The tangent costs 7.5 ms per call, the integration of the
+  behaviour 2.4 ms per call.
+- **Behaviour on the GPU**: the integration goes from 0.79 s to 0.10 s (no
+  more copies of the arrays between the host and the GPU).
+- **Two processes on the same GPU**: the solve becomes 9 times slower
+  (22.9 s). Not analysed. Most probable hypothesis: without the MPS service
+  of CUDA, the contexts of the two processes share the GPU by time slices,
+  and the many small kernels of BoomerAMG run one after the other with
+  context switches. To be checked with MPS (`nvidia-cuda-mps-control -d`).
+  One process per GPU stays the natural configuration.
+- **Memory**: each process on the GPU reserves a pool of 4 GiB (Umpire).
+  Four processes on the 16 GB GPU fail (seen when running the tests in
+  parallel).
 
-## Profil Nsight Systems (3 pas, 1 processus, loi `cuda`, mfem-mgis f0239ab807)
+## Nsight Systems profile (3 steps, 1 process, `cuda` behaviour, mfem-mgis f0239ab807)
 
-`nsys profile -t cuda,nvtx` (Nsight Systems 2025.5 du HPC SDK 25.11 ; le
-`nsys` de CUDA 13.0 ne relit pas ce rapport) sur la poutre r4, 3 pas (10
-itérations de Newton, 13 résidus), environ 1,8 s :
+`nsys profile -t cuda,nvtx` (Nsight Systems 2025.5 of the HPC SDK 25.11;
+the `nsys` of CUDA 13.0 does not read this report) on the beam r4, 3 steps
+(10 Newton iterations, 13 residuals), about 1.8 s:
 
-| Copies | Nombre | Volume | Temps |
+| Copies | Count | Volume | Time |
 |---|---|---|---|
-| hôte vers GPU | 835 | 146 Mo | 7,3 ms |
-| GPU vers hôte | 5 814 | 9 Mo | 2,2 ms |
-| dans le GPU | 14 704 | 3,0 Go | 13,7 ms |
+| host to GPU | 835 | 146 MB | 7.3 ms |
+| GPU to host | 5,814 | 9 MB | 2.2 ms |
+| within the GPU | 14,704 | 3.0 GB | 13.7 ms |
 
-- **Pas de copie cachée notable** : les grosses copies vers le GPU ne
-  sont faites qu'une ou quelques fois (géométrie, motif, maillage) ; par
-  itération, il reste un ou deux vecteurs (0,9 Mo) dans chaque sens (norme
-  et ddl imposés de la prédiction, conditions de Dirichlet) et des
-  scalaires (normes, statuts de hypre : 3 215 copies de 8 octets).
-- **Temps de calcul du GPU : 0,71 s sur 1,8 s**, en 95 339 lancements de
-  noyaux. Les produits matrice-vecteur creux de hypre (`csrmv`, PCG et
-  BoomerAMG) en prennent 65 % (460 ms), le produit de matrices de la mise
-  en place de l'AMG 78 ms, les noyaux de MFEM et de mfem-mgis
-  (`CuKernel1D`, `CuKernel2D`) 69 ms, la loi (`apply`) 16 ms.
-- Le reste du temps (environ 1,1 s) est passé sur l'hôte à lancer et
-  attendre ces petits noyaux : la résolution est limitée par la latence
-  des lancements de hypre, pas par le calcul. Pistes : moins d'itérations
-  de PCG (préconditionneur réutilisé d'une itération à l'autre, options
-  de BoomerAMG pour le GPU), problèmes plus gros, opérateur sans matrice.
+- **No notable hidden copy**: the large copies to the GPU are made only
+  once or a few times (geometry, pattern, mesh). Per iteration, one or two
+  vectors (0.9 MB) remain in each direction (norm and imposed dofs of the
+  prediction, Dirichlet conditions) and scalars (norms, statuses of hypre:
+  3,215 copies of 8 bytes).
+- **Compute time of the GPU: 0.71 s out of 1.8 s**, in 95,339 kernel
+  launches. The sparse matrix-vector products of hypre (`csrmv`, PCG and
+  BoomerAMG) take 65 % of it (460 ms), the matrix product of the setup of
+  the AMG 78 ms, the kernels of MFEM and of mfem-mgis (`CuKernel1D`,
+  `CuKernel2D`) 69 ms, the behaviour (`apply`) 16 ms.
+- The rest of the time (about 1.1 s) is spent on the host launching and
+  waiting for these small kernels: the solve is limited by the latency of
+  the launches of hypre, not by the compute. Leads: fewer PCG iterations
+  (preconditioner reused from one iteration to the other, options of
+  BoomerAMG for the GPU), larger problems, matrix free operator.
 
-## Tangente sans matrice (mfem-mgis 4d465460c3)
+## Matrix free tangent (mfem-mgis 4d465460c3)
 
-Option `TangentOperatorComputation=MatrixFree` : la tangente est appliquée
-par noyaux sans assemblage (`Σ Bᵀ K B` aux points), sa diagonale aussi ;
-gradient conjugué de MFEM avec un préconditionneur de Jacobi (`-ls
-cg-jacobi`), même tolérance relative (1e-4) que PCG + BoomerAMG. Loi
-`cuda`, 10 pas, 1 processus :
+Option `TangentOperatorComputation=MatrixFree`: the tangent is applied by
+kernels without assembly (`Σ Bᵀ K B` at the points), and so is its
+diagonal; conjugate gradient of MFEM with a Jacobi preconditioner (`-ls
+cg-jacobi`), same relative tolerance (1e-4) as PCG + BoomerAMG. `cuda`
+behaviour, 10 steps, 1 process:
 
-| Cas | Total | Tangente | Résolution | Prédiction |
+| Case | Total | Tangent | Solve | Prediction |
 |---|---|---|---|---|
-| tangente assemblée, PCG + BoomerAMG | 3,61 | 0,22 (32) | 2,23 | 0,77 |
-| tangente sans matrice, CG + Jacobi | 95,31 | 0,00 (30) | 93,30 | 1,58 |
+| assembled tangent, PCG + BoomerAMG | 3.61 | 0.22 (32) | 2.23 | 0.77 |
+| matrix free tangent, CG + Jacobi | 95.31 | 0.00 (30) | 93.30 | 1.58 |
 
-Même solution (48,83704586), mêmes nombres d'itérations de Newton à
-l'arrondi près. Le chemin sans matrice est juste, mais Jacobi ne suffit
-pas : 3,1 s de gradient conjugué par itération de Newton (des milliers
-d'itérations sur cette poutre élancée). Il faut un vrai préconditionneur
-pour l'opérateur sans matrice : AMG construit sur la tangente assemblée
-(ou sur l'opérateur élastique) et gardé plusieurs itérations, ou
-multigrille polynomial avec des lisseurs de Chebyshev (lots L4 et L5 du
-plan).
+Same solution (48.83704586), same numbers of Newton iterations up to the
+rounding. The matrix free path is correct, but Jacobi is not enough: 3.1 s
+of conjugate gradient per Newton iteration (thousands of iterations on
+this slender beam). The matrix free operator needs a real preconditioner:
+AMG built on the assembled tangent (or on the elastic operator) and kept
+for several iterations, or polynomial multigrid with Chebyshev smoothers
+(work packages L4 and L5 of the plan).

@@ -2,7 +2,7 @@
 
 This page is a short timeline of the main milestones of the prototype.
 The full log, day by day, with the defects found, the decisions and
-their reasons, is `JOURNAL.md` (in French) in the repository. Each entry
+their reasons, is `JOURNAL.md` in the repository. Each entry
 of the log describes the state at the time it was written; the current
 state is described in `docs/`.
 

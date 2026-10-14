@@ -1,134 +1,133 @@
-# D1, MGIS : intégration d'un lot avec une bibliothèque `generic-parallel`
+# D1, MGIS: integration of a batch with a `generic-parallel` library
 
-> Document historique. Proposition de conception écrite avant le travail
-> sur MGIS, puis complétée pendant les premières étapes. L'état actuel est
-> décrit dans [mgis.md](../mgis.md), le cheminement dans le
-> [journal](../../JOURNAL.md).
+> Historical document. Design proposal written before the work on MGIS,
+> then completed during the first steps. The current state is described
+> in [mgis.md](../mgis.md), the path that led to it in the
+> [log](../../JOURNAL.md).
 
-Statut à l'écriture : étapes 1 à 3 faites le 2026-10-08 (branche
-`gpu-proto` de `mgis/`, `patches/mgis`). Plan révisé le 2026-10-08.
-Bases : MGIS master `818f0f9`, TFEL du proto (`tfel/`, R1 à R8 : structures
-en version 2, indice du premier point en échec).
+Status at the time of writing: steps 1 to 3 done on 2026-10-08 (branch
+`gpu-proto` of `mgis/`, `patches/mgis`). Plan revised on 2026-10-08.
+Bases: MGIS master `818f0f9`, TFEL of the proto (`tfel/`, R1 to R8:
+structures in version 2, index of the first failed point).
 
-Écarts avec le plan, constatés en codant :
+Differences with the plan, found while coding:
 
-- les valeurs uniformes gardées par MGIS (`real` des `FieldHolder`, matrices
-  de rotation construites depuis des axes) sont en mémoire hôte : refusées
-  avec un message pour `cuda` et `hip`. L'appelant les donne par un
-  `std::span` en mémoire accessible (les propriétés matériau acceptent
-  maintenant un `std::span` d'une valeur, comme les variables externes) ;
-- le premier point en échec (`n`) est connu sans tableau de statuts
-  (indice fourni par TFEL) ;
-- les rotations n'ont pas encore de surcharge prenant une politique
-  d'exécution (file par défaut du backend) ;
-- les bibliothèques ne sont plus déchargées en fin de processus (fils de
-  TBB).
-La version du 2026-10-06 (analyse détaillée de MGIS, numéros de lignes)
-reste dans l'historique git de ce fichier.
+- the uniform values kept by MGIS (`real` of the `FieldHolder`, rotation
+  matrices built from axes) are in host memory: refused with a message for
+  `cuda` and `hip`. The caller gives them by a `std::span` in accessible
+  memory (material properties now accept a `std::span` of one value, like
+  external state variables);
+- the first failed point (`n`) is known without an array of statuses
+  (index provided by TFEL);
+- the rotations do not yet have an overload taking an execution policy
+  (default queue of the backend);
+- the libraries are no longer unloaded at the end of the process (TBB
+  threads).
+The version of 2026-10-06 (detailed analysis of MGIS, line numbers) stays
+in the git history of this file.
 
-## 1. Ce que TFEL fournit maintenant
+## 1. What TFEL now provides
 
-- Contrat C versionné : `MFront/GenericParallelBehaviour/BatchData.h`
-  (`MFRONT_GPB_API_VERSION`) pour les lois et les modèles,
+- Versioned C contract: `MFront/GenericParallelBehaviour/BatchData.h`
+  (`MFRONT_GPB_API_VERSION`) for behaviours and models,
   `MFront/GenericParallelMaterialProperty/MaterialProperty.h`
-  (`MFRONT_GPMP_API_VERSION`) pour les propriétés matériau.
-- Symboles de chaque bibliothèque : `<b>_mfront_interface` =
+  (`MFRONT_GPMP_API_VERSION`) for material properties.
+- Symbols of each library: `<b>_mfront_interface` =
   `GenericParallel`, `<b>_generic_parallel_backend`,
-  `<b>_generic_parallel_api_version` (lois, modèles et propriétés
-  matériau).
-- Propriétés matériau et variables externes données groupe par groupe ou
-  variable par variable : chaque `FieldHolder` de MGIS devient un champ,
-  sans copie (uniforme : pas nul ; tableau : `{p + b * s, s, 1}`).
-- Lot vide accepté même avec des pointeurs nuls ; options de calcul
-  invalides refusées pour le lot (`-2`) ; statut de sortie toujours
-  complet.
-- Exécution : file ou flux (`queue`), statistiques asynchrones
-  (`mfront_gpb_BatchStatistics`, fonctions C de décodage), file SYCL
-  ordonnée exigée en asynchrone, pile des fils GPU réglée par la
-  bibliothèque.
-- Données partagées (`@SharedData`) copiées par la bibliothèque, une fois
-  par GPU : rien à faire dans MGIS, plusieurs GPU par processus possibles.
-- Paramètres : réglés dans la bibliothèque `generic-parallel` elle-même
-  (`<b>_setParameter`), lus sur l'hôte à chaque appel.
+  `<b>_generic_parallel_api_version` (behaviours, models and material
+  properties).
+- Material properties and external state variables given group by group
+  or variable by variable: each `FieldHolder` of MGIS becomes a field,
+  without copy (uniform: zero stride; array: `{p + b * s, s, 1}`).
+- Empty batch accepted even with null pointers; invalid computation
+  options refused for the batch (`-2`); output status always complete.
+- Execution: queue or stream (`queue`), asynchronous statistics
+  (`mfront_gpb_BatchStatistics`, C decoding functions), in-order SYCL queue
+  required in asynchronous mode, stack of the GPU threads set by the
+  library.
+- Shared data (`@SharedData`) copied by the library, once per GPU: nothing
+  to do in MGIS, several GPUs per process possible.
+- Parameters: set in the `generic-parallel` library itself
+  (`<b>_setParameter`), read on the host at each call.
 
-## 2. Ce que MGIS fournit déjà et qui simplifie tout
+## 2. What MGIS already provides and simplifies everything
 
-- **Stockage fourni par l'appelant.** `MaterialDataManagerInitializer` et
-  `MaterialStateManagerInitializer` acceptent des tableaux externes pour
-  les gradients, les forces, les variables internes, les énergies, `K` et
-  la vitesse du son ; les `FieldHolder` des propriétés matériau et des
-  variables externes acceptent des `std::span`. Un code qui alloue lui-même
-  en mémoire GPU (mfem-mgis avec la mémoire de MFEM) peut donc déjà tout
-  placer : **aucune nouvelle API mémoire n'est nécessaire pour mfem-mgis**.
-- Stockage interne privé (`std::vector`) : il peut changer d'allocateur
-  sans rupture d'API.
-- `LibrariesManager::getInterface` existe (jamais appelé).
-- `MGIS_HOST_DEVICE` et un module `mgis::function` avec des algorithmes
-  CUDA existent déjà : D1 n'en dépend pas, mais n'empêche pas de s'y
-  raccorder plus tard.
+- **Storage provided by the caller.** `MaterialDataManagerInitializer` and
+  `MaterialStateManagerInitializer` accept external arrays for the
+  gradients, the forces, the internal state variables, the energies, `K`
+  and the speed of sound; the `FieldHolder` of material properties and
+  external state variables accept `std::span`. A code that allocates GPU
+  memory itself (mfem-mgis with the memory of MFEM) can therefore already
+  place everything: **no new memory API is needed for mfem-mgis**.
+- Private internal storage (`std::vector`): it can change allocator
+  without breaking the API.
+- `LibrariesManager::getInterface` exists (never called).
+- `MGIS_HOST_DEVICE` and a `mgis::function` module with CUDA algorithms
+  already exist: D1 does not depend on them, but does not prevent
+  connecting to them later.
 
-Ce qu'attend mfem-mgis (D2) : aujourd'hui l'intégration est faite point
-par point au milieu de la boucle d'assemblage
-(`BehaviourIntegratorBase::performsLocalBehaviourIntegration`). Sur GPU,
-l'assemblage devient trois phases : calcul des gradients en tous les points
-(sur le GPU), intégration du lot, assemblage. MGIS doit donc :
+What mfem-mgis (D2) expects: today the integration is done point by point
+in the middle of the assembly loop
+(`BehaviourIntegratorBase::performsLocalBehaviourIntegration`). On GPU,
+the assembly becomes three phases: computation of the gradients at all
+points (on the GPU), integration of the batch, assembly. MGIS must
+therefore:
 
-1. intégrer un lot (ou une plage `[b, e)`) sur des tableaux qui restent sur
-   le GPU ;
-2. ne jamais lire ni écrire ces tableaux sur l'hôte pendant l'intégration ;
-3. permettre de soumettre plusieurs matériaux avant une seule
-   synchronisation ;
-4. mettre à jour l'état (`update`, `revert`) sans rapatrier les données.
+1. integrate a batch (or a range `[b, e)`) on arrays that stay on the GPU;
+2. never read or write these arrays on the host during the integration;
+3. allow several materials to be submitted before a single
+   synchronisation;
+4. update the state (`update`, `revert`) without bringing the data back.
 
-## 3. Principes
+## 3. Principles
 
-1. **MGIS reste une bibliothèque hôte sans dépendance GPU** (compilée par
-   g++). Elle charge, vérifie, décrit les données et appelle ; le calcul
-   est dans la bibliothèque générée.
-2. **Zéro copie** entre `MaterialDataManager` et `BatchData`, propriétés
-   matériau et variables externes comprises.
-3. **MGIS n'alloue jamais dans la mémoire d'un GPU.** La mémoire vient de
-   l'appelant (tableaux externes), ou d'une ressource mémoire qu'il donne
-   (section 5, confort pour les codes simples et les tests).
-4. **Le chemin de lot ne touche pas au contenu des tableaux sur l'hôte**
-   (pas de copie, pas de lecture des statuts par point) : la mémoire peut
-   être purement GPU.
-5. **Erreurs explicites au lieu de comportements indéfinis.** MGIS connaît
-   le backend (symbole) et l'emplacement des tableaux, déclaré à la
-   construction (section 4.2) : un backend GPU avec de la mémoire hôte
-   ordinaire est refusé avec un message clair. Les points d'entrée par
-   point refusent une bibliothèque `generic-parallel`, et inversement.
-6. **Basculement automatique.** Les fonctions existantes (`integrate`,
+1. **MGIS stays a host library without GPU dependency** (compiled by
+   g++). It loads, checks, describes the data and calls; the computation
+   is in the generated library.
+2. **Zero copy** between `MaterialDataManager` and `BatchData`, material
+   properties and external state variables included.
+3. **MGIS never allocates in the memory of a GPU.** The memory comes from
+   the caller (external arrays), or from a memory resource that it gives
+   (section 5, convenience for simple codes and tests).
+4. **The batch path does not touch the content of the arrays on the host**
+   (no copy, no reading of the statuses per point): the memory can be
+   purely GPU memory.
+5. **Explicit errors instead of undefined behaviours.** MGIS knows the
+   backend (symbol) and the location of the arrays, declared at
+   construction (section 4.2): a GPU backend with ordinary host memory is
+   refused with a clear message. The per point entry points refuse a
+   `generic-parallel` library, and conversely.
+6. **Automatic switch.** The existing functions (`integrate`,
    `executeInitializeFunction`, `executePostProcessing`, rotations)
-   reconnaissent une bibliothèque `generic-parallel` : un code existant
-   fonctionne sans changement dès que sa mémoire convient au backend.
-7. **Statuts.** `1`, `0`, `-1` : statut d'intégration habituel ; `-2`
-   (arguments) et `-3` (erreur du backend) : exceptions, ou erreurs du
-   `Context` dans les variantes `noexcept`. Un bogue n'est jamais pris pour
-   un échec de convergence (qui ferait réduire le pas sans fin).
+   recognise a `generic-parallel` library: an existing code works without
+   change as soon as its memory suits the backend.
+7. **Statuses.** `1`, `0`, `-1`: usual integration status; `-2`
+   (arguments) and `-3` (backend error): exceptions, or errors of the
+   `Context` in the `noexcept` variants. A bug is never taken for a
+   convergence failure (which would make the time step decrease endlessly).
 
 ## 4. API
 
-### 4.1 Chargement
+### 4.1 Loading
 
-- `BehaviourDescription` : `interface` (`""`/`Generic` ou
-  `GenericParallel`), `backend` ; version d'API vérifiée au chargement.
-- `Behaviour` : pointeurs de lot (`batch_b`, fonctions d'initialisation et
-  post-traitements de lot, trois rotations). Pour une bibliothèque
-  `generic-parallel`, les pointeurs par point restent nuls.
-- `LibrariesManager` : `getBatchBehaviour`, `getBatchInitializeFunction`,
-  `getBatchPostProcessing`, `getBatchRotation` ; les fonctions par point
-  vérifient l'interface.
-- Modèles (`libGenericParallel<...>-<backend>.so`) : même chemin, sans
-  travail supplémentaire.
-- MGIS garde sa propre copie des structures C (comme pour l'interface
-  `generic`, sans dépendance de compilation à TFEL) ; un test vérifie la
-  disposition mémoire contre `BatchData.h`.
+- `BehaviourDescription`: `interface` (`""`/`Generic` or
+  `GenericParallel`), `backend`; API version checked at loading time.
+- `Behaviour`: batch pointers (`batch_b`, batch initialize functions and
+  post-processings, three rotations). For a `generic-parallel` library,
+  the per point pointers stay null.
+- `LibrariesManager`: `getBatchBehaviour`, `getBatchInitializeFunction`,
+  `getBatchPostProcessing`, `getBatchRotation`; the per point functions
+  check the interface.
+- Models (`libGenericParallel<...>-<backend>.so`): same path, without
+  additional work.
+- MGIS keeps its own copy of the C structures (as for the `generic`
+  interface, without compile-time dependency on TFEL); a test checks the
+  memory layout against `BatchData.h`.
 
-### 4.2 Emplacement des données et politique d'exécution
+### 4.2 Location of the data and execution policy
 
-L'emplacement des données est une propriété des données, déclarée à la
-construction ; la politique d'exécution ne décrit que l'exécution.
+The location of the data is a property of the data, declared at
+construction; the execution policy only describes the execution.
 
 ```cpp
 namespace mgis::behaviour {
@@ -149,15 +148,15 @@ namespace mgis::behaviour {
 }
 ```
 
-MGIS croise l'emplacement et le backend : mémoire `HOST` refusée par un
-backend GPU (sauf SYCL avec transferts automatiques) ; fonctions hôte
-(extraction, sauvegarde, valeurs locales) refusées pour `DEVICE`.
+MGIS crosses the location and the backend: `HOST` memory refused by a GPU
+backend (except SYCL with automatic transfers); host functions
+(extraction, saving, local values) refused for `DEVICE`.
 
-`MaterialDataManager` porte une politique par défaut
-(`m.batch_execution_policy`), utilisée par le basculement automatique ;
-les surcharges qui prennent une politique la remplacent pour un appel.
+`MaterialDataManager` carries a default policy
+(`m.batch_execution_policy`), used by the automatic switch; the overloads
+that take a policy replace it for one call.
 
-### 4.3 Fonctions
+### 4.3 Functions
 
 ```cpp
 // synchronous integration of all the points, or of [b, e)
@@ -173,20 +172,20 @@ BehaviourIntegrationResult integrate(const BatchExecutionPolicy&,
 // and rotations with the same pattern
 ```
 
-- Résultat : `BehaviourIntegrationResult` existant, enrichi du nombre
-  d'échecs et de résultats peu fiables. Le premier point en échec (`n`)
-  n'est connu que si l'appelant fournit un tableau de statuts.
-- Statuts et facteurs de pas par point : tableaux optionnels du
-  `MaterialDataManager`, fournis comme `K`
+- Result: existing `BehaviourIntegrationResult`, extended with the number
+  of failures and of unreliable results. The first failed point (`n`) is
+  known only if the caller provides an array of statuses.
+- Statuses and time step factors per point: optional arrays of the
+  `MaterialDataManager`, provided like `K`
   (`useExternalArrayOfIntegrationStatuses`, `...OfTimeStepScalingFactors`).
-- Facteur de pas initial : le même que le chemin par point (résultats
-  identiques).
-- `ThreadPool&` : ignoré pour une bibliothèque `generic-parallel` (le
-  parallélisme est celui du backend).
-- `integrate_debug` : refusé pour une bibliothèque `generic-parallel`
-  (utiliser la bibliothèque `generic` de la même loi).
+- Initial time step factor: the same as the per point path (identical
+  results).
+- `ThreadPool&`: ignored for a `generic-parallel` library (the parallelism
+  is the one of the backend).
+- `integrate_debug`: refused for a `generic-parallel` library (use the
+  `generic` library of the same behaviour).
 
-### 4.4 Asynchrone (pour plusieurs matériaux)
+### 4.4 Asynchronous (for several materials)
 
 ```cpp
 // submits the integration and returns at once (CUDA, HIP, Kokkos, SYCL
@@ -199,11 +198,11 @@ BehaviourIntegrationResult getIntegrationResult(
     const mfront_gpb_BatchStatistics&);
 ```
 
-### 4.5 Mise à jour de l'état
+### 4.5 Update of the state
 
-`update` et `revert` copient `s1` dans `s0` (ou l'inverse) sur l'hôte.
-Le propriétaire de la mémoire fournit la primitive de copie, MGIS garde
-l'algorithme (quels blocs copier) :
+`update` and `revert` copy `s1` into `s0` (or the reverse) on the host.
+The owner of the memory provides the copy primitive, MGIS keeps the
+algorithm (which blocks to copy):
 
 ```cpp
 // copy: callable copying n reals (the copy of MFEM for mfem-mgis)
@@ -213,85 +212,84 @@ template <typename CopyFunction>
 void revert(MaterialDataManager&, const CopyFunction&);
 ```
 
-Sans primitive, `update`/`revert` copient sur l'hôte et refusent la
-mémoire `DEVICE`.
+Without a primitive, `update`/`revert` copy on the host and refuse
+`DEVICE` memory.
 
-## 5. Ressource mémoire (confort)
+## 5. Memory resource (convenience)
 
-Pour les codes qui laissent MGIS allouer : `std::pmr::memory_resource*`
-optionnel dans les initialiseurs, utilisé pour tout le stockage interne
-(états, `K`, vitesse du son, statuts). Ressources fournies en en-têtes
-seuls, compilées par le code appelant (MGIS n'en dépend pas) : mémoire
-managée CUDA et HIP, USM partagée SYCL, espace partagé Kokkos. Les
-`FieldHolder` gardent `std::vector` (API publique utilisée par mfem-mgis) :
-avec un backend GPU, les propriétés matériau et variables externes doivent
-être uniformes ou des `std::span` en mémoire accessible, sinon erreur.
+For the codes that let MGIS allocate: optional `std::pmr::memory_resource*`
+in the initializers, used for all the internal storage (states, `K`, speed
+of sound, statuses). Resources provided as header-only files, compiled by
+the calling code (MGIS does not depend on them): CUDA and HIP managed
+memory, SYCL shared USM, Kokkos shared space. The `FieldHolder` keep
+`std::vector` (public API used by mfem-mgis): with a GPU backend, the
+material properties and external state variables must be uniform or
+`std::span` in accessible memory, otherwise an error is raised.
 
 ## 6. Tests
 
-Lois de test de MGIS compilées avec `generic` (référence) et
-`generic-parallel` pour les configurations choisies à la configuration de
-MGIS (`stlpar-parunseq-gcc` par défaut ; `cuda-nvcc`, `kokkos`,
-`sycl-default-acpp` en option). Les tests GPU allouent en mémoire managée
-par l'API C du runtime (`cudaMallocManaged` appelée depuis du code g++, sans
-nvcc) et tournent **sans HMM**, pour attraper tout accès à la mémoire de
-l'hôte.
+Test behaviours of MGIS compiled with `generic` (reference) and
+`generic-parallel` for the configurations chosen when configuring MGIS
+(`stlpar-parunseq-gcc` by default; `cuda-nvcc`, `kokkos`,
+`sycl-default-acpp` as options). The GPU tests allocate managed memory
+through the C API of the runtime (`cudaMallocManaged` called from g++ code,
+without nvcc) and run **without HMM**, to catch any access to host memory.
 
-1. Chargement : interface, backend, version, pointeurs, refus croisés des
-   API par point et par lot.
-2. Disposition mémoire des structures copiées.
-3. Intégration : lot contre boucle par point sur des états identiques
-   (tolérance d'arrondi, chargements loin des limites de convergence) ;
-   trois types d'intégration ; lois de MGIS (Plasticity, Norton, Gurson,
-   variables externes tensorielles, vitesse du son, énergies, grandes
-   déformations, Runge-Kutta, monocristal).
-4. Champs : propriétés matériau et variables externes uniformes, en place
-   et mixtes ; plages `[b, e)` ; lot vide.
-5. Échecs et erreurs : échec en quelques points, file SYCL absente,
-   mémoire hôte refusée sur GPU, `-2`/`-3` jamais pris pour `-1`.
-6. Fonctions d'initialisation, post-traitements, rotations.
-7. Basculement : les tests d'intégration existants rejoués sur
-   `generic-parallel`.
-8. Asynchrone et mise à jour sur le GPU.
-9. Ressource mémoire : suite complète avec la ressource managée.
+1. Loading: interface, backend, version, pointers, cross refusals of the
+   per point and batch APIs.
+2. Memory layout of the copied structures.
+3. Integration: batch against loop per point on identical states (rounding
+   tolerance, loadings far from the convergence limits); three types of
+   integration; behaviours of MGIS (Plasticity, Norton, Gurson, tensorial
+   external state variables, speed of sound, energies, finite strain,
+   Runge-Kutta, single crystal).
+4. Fields: uniform, in-place and mixed material properties and external
+   state variables; ranges `[b, e)`; empty batch.
+5. Failures and errors: failure at a few points, missing SYCL queue, host
+   memory refused on GPU, `-2`/`-3` never taken for `-1`.
+6. Initialize functions, post-processings, rotations.
+7. Switch: the existing integration tests replayed on `generic-parallel`.
+8. Asynchronous mode and update on the GPU.
+9. Memory resource: complete suite with the managed resource.
 
-## 7. Étapes
+## 7. Steps
 
-Chaque étape : code, tests, suite complète de MGIS, commit.
+Each step: code, tests, complete MGIS test suite, commit.
 
-1. Chargement, détection, gardes ; structures C et test de disposition.
-2. Intégration synchrone (politique, correspondance des données,
-   vérifications de mémoire, statuts, plages) et basculement automatique ;
-   tests CPU (`stlpar`, `openmp`) puis GPU (`cuda`, mémoire managée).
-3. Fonctions d'initialisation, post-traitements, rotations.
-4. Ressource mémoire et ressources en en-têtes seuls.
-5. Asynchrone, `update`/`revert` sur le GPU.
-6. Propriétés matériau `generic-parallel` dans `mgis::material_property`
-   (évaluation d'un tableau de points), si mfem-mgis en a besoin.
-7. Documentation. Liaisons C, Python et Fortran : plus tard.
+1. Loading, detection, guards; C structures and layout test.
+2. Synchronous integration (policy, mapping of the data, memory checks,
+   statuses, ranges) and automatic switch; CPU tests (`stlpar`, `openmp`)
+   then GPU tests (`cuda`, managed memory).
+3. Initialize functions, post-processings, rotations.
+4. Memory resource and header-only resources.
+5. Asynchronous mode, `update`/`revert` on the GPU.
+6. `generic-parallel` material properties in `mgis::material_property`
+   (evaluation of an array of points), if mfem-mgis needs them.
+7. Documentation. C, Python and Fortran bindings: later.
 
-Les étapes 1 à 3 donnent un MGIS utilisable par mfem-mgis sur CPU et sur
-GPU (mémoire fournie par l'appelant) ; 4 et 5 servent la performance et le
-confort ; 6 dépend de D2.
+Steps 1 to 3 give an MGIS usable by mfem-mgis on CPU and on GPU (memory
+provided by the caller); 4 and 5 serve performance and convenience; 6
+depends on D2.
 
-## 8. Risques
+## 8. Risks
 
-- Noms de points d'entrée identiques, signatures différentes : gardes et
-  test 1.
-- Dérive des structures copiées : version vérifiée au chargement, test 2.
-- Mémoire managée touchée par l'hôte entre deux pas : migrations de pages
-  (performances) ; d'où la copie sur le GPU de la section 4.5 et la règle
-  « le chemin de lot ne touche pas aux tableaux ».
-- Sémantique différente du chemin par point : tous les points sont
-  intégrés (le chemin par point s'arrête au premier échec), messages par
-  point non transmis.
-- Pile GPU des polycristaux (près de 15 Go réservés) : un seul processus
-  par GPU pour ces lois.
+- Identical entry point names, different signatures: guards and test 1.
+- Drift of the copied structures: version checked at loading time, test 2.
+- Managed memory touched by the host between two time steps: page
+  migrations (performance); hence the copy on the GPU of section 4.5 and
+  the rule "the batch path does not touch the arrays".
+- Different semantics from the per point path: all points are integrated
+  (the per point path stops at the first failure), messages per point not
+  transmitted.
+- GPU stack of polycrystals (nearly 15 GB reserved): a single process per
+  GPU for these behaviours.
 
-## 9. Décisions à prendre
+## 9. Decisions to take
 
-1. Basculement automatique des fonctions existantes (recommandé : oui).
-2. Politique par défaut portée par `MaterialDataManager` (recommandé : oui).
-3. Asynchrone et copie sur le GPU dès D1 (étape 5) ou après les premiers
-   essais de mfem-mgis (recommandé : après l'étape 3, selon les mesures).
-4. Propriétés matériau `generic-parallel` dans MGIS (étape 6) : selon D2.
+1. Automatic switch of the existing functions (recommended: yes).
+2. Default policy carried by `MaterialDataManager` (recommended: yes).
+3. Asynchronous mode and copy on the GPU from D1 on (step 5) or after the
+   first trials of mfem-mgis (recommended: after step 3, depending on the
+   measurements).
+4. `generic-parallel` material properties in MGIS (step 6): depending on
+   D2.

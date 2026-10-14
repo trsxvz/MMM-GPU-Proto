@@ -1,63 +1,62 @@
-# Défauts de compilateurs GPU rencontrés (reproducteurs minimaux)
+# Defects of GPU compilers met (minimal reproducers)
 
-| Fichier | Compilateur | Défaut | Contournement dans le proto |
+| File | Compiler | Defect | Workaround in the prototype |
 |---|---|---|---|
-| `signed-loop-trip-count.cu` | nvc++ 25.11 (`-cuda`, `-stdpar=gpu`) | boucle à compteur signé et test `!=` : N+1 itérations sur GPU à -O2/-O3 | boucles non signées dans le code concerné |
-| `empty-kernel-stdpar.cxx` | nvc++ 25.11 | mode mémoire unifiée (`-gpu=mem:unified`, défaut) : écriture à une adresse de pile | `-gpu=mem:managed` |
-| `aggregate-zero-init.cxx` | nvc++ 25.11 `-stdpar=gpu` | initialiseur par défaut `= {}` d'un membre tableau : constante LLVM invalide (« parse integer constant must have integer type ») | membre initialisé dans le constructeur (`PointView`) |
-| `member-function-pointer.cxx` | nvc++ 25.11 `-stdpar=gpu` | appel par pointeur sur fonction membre ignoré **silencieusement** sur GPU (-O0 à -O3) | objets fonctions nommés générés par MFront |
-| `std-variant-visit.cxx` | nvc++ 25.11 `-stdpar=gpu` | `std::variant` (libstdc++) : « Unexpected branch type », alias LLVM invalides | `TrivialGenTypeBase` pour l'opérateur tangent |
-| `nvcc-static-constexpr-object.cu` | nvcc 13.0 | copie device d'un objet `static constexpr` local remplie de **zéros, sans diagnostic** si un constructeur est appelé | variables `__device__ constexpr` d'espace de noms (`tfel::utilities::getConstantObject`) |
-| `nvcc-decltype-functional-cast.cu` | nvcc 13.0 (cudafe++) | `auto i = decltype(s){};` avec `const auto s = c.size();` dans un patron utilisé en code device : réécrit pour le compilateur hôte en une conversion fonctionnelle invalide (g++ : « expected primary-expression before ‘auto’ ») | `size_type{}` (`LinearInterpolation.ixx`) |
-| `nvcc-builtin-constant-p.cu` | nvcc 13.0 | fonction `constexpr` utilisant `__builtin_constant_p` (fonction hôte pour nvcc) compilée **sans diagnostic** en une fonction vide dans le code device (-O0 à -O3) : `std::advance`, `std::next` et `std::prev` de libstdc++ 14 ne font rien sur GPU (interpolation par spline cubique à NaN) | `advance` et `previous` internes (`CubicSpline.ixx`) |
-| (journal, 06/10 nuit) | nvc++ 25.11 à 26.9 `-mp=gpu` (OpenMP, -O2 et -O3) | lois des DSL implicites : `computeConsistentTangentOperator` renvoie faux sans passer par aucun de ses `return false`. Déclencheur : objet local généré par MFront (`GetPartialJacobianInvert`) tenant une référence `bool&` vers un drapeau local | objets de MFront propriétaires de leur drapeau (commit f008859df) |
-| (journal, 06/10 nuit) | nvc++ 25.11 et 26.3 `-mp=gpu` (OpenMP) | bloc statique `_st_<hash>__T1_0` (317 octets) introuvable au chargement : texte `__PRETTY_FUNCTION__` d'un `assert` du calcul des vecteurs propres 3D, supprimé du code device mais enregistré | `assert` redondants retirés (commit a22a3cff6) |
-| (journal, 06/10 nuit) | nvc++ 25.11 `-mp=gpu` (-O2) et nvcc 13.0 | contrainte écrite par une fonction d'initialisation de loi en grandes déformations perdue quand les champs sont rangés point par point. Déclencheur : sauvegarde puis restauration des pointeurs des données de la loi autour de l'appel, dans les pilotes de l'interface `generic` | pilotes travaillant sur une copie locale des données (branche `batchdata-by-variable`) |
-| `omp-array-value-init.cxx` | nvc++ 25.11 `-mp=gpu` (OpenMP, -O2) | initialisation à zéro d'un membre tableau (`v()`, `v{}` ou `= {}`) d'un objet du noyau : copie d'un tableau global `.common` non initialisé, puis l'optimiseur **supprime le code du noyau** (aucun résultat écrit) | mise à zéro par une boucle dans le constructeur par défaut de `GenericFixedSizeArray` |
-| `omp-lambda-pointer-array.cxx` | nvc++ 25.11 `-mp=gpu` (OpenMP) | lambda capturant par valeur un `std::array` de pointeurs, transmise par `map(to : kernel)` : pointeurs faux sur GPU à -O2 et -O3, **sans diagnostic** ; erreur NVVM à -O0 et -O1. Un pointeur capturé seul, une structure tenant un pointeur ou un tableau d'entiers fonctionnent | pointeurs des arguments capturés un par un (propriétés matériau) |
-| `omp-lambda-reference-capture.cxx` | nvc++ 25.11 `-mp=gpu` (OpenMP, -O0 à -O3) | dans une lambda transmise par `map(to : kernel)`, une lambda imbriquée qui capture par référence un pointeur capturé par le noyau n'écrit pas par ce pointeur, **sans diagnostic** | lambda imbriquée capturant par copie (évaluation d'une propriété matériau en un point) |
-| `stdpar-staticinit-link.cxx` | nvc++ 25.11 `-stdpar=gpu` (-O0 à -O3) | données constantes du code device exportées sous un nom qui n'est unique que dans un fichier (`__staticinit_<compteur>_<fonction>`) : deux fichiers qui donnent le même compteur à la même fonction inline ne peuvent pas être liés ensemble (« nvlink error : Multiple definition »). Survient au hasard dans une bibliothèque de plusieurs lois | code device de chaque fichier lié seul (`-gpu=nordc`) |
-| `omp-tensor-view-switch.cxx` (non minimal : en-têtes de TFEL où la vue `tensor` d'un `stensor` utilise un `switch`) | nvc++ 25.11 `-mp=gpu` (OpenMP, -O2 et -O3) | erreur interne « Computed goto control expression must be a 32-bit integer » sur le produit d'un `tensor` par un `stensor` : `switch` de la vue inliné dans celui du produit | vue `tensor` d'un `stensor` écrite sans `switch` (table d'indices) |
-| `nvcc-cicc-initialize-function-reproducer.cu` (non minimal : inclut le début de la source générée de `SaintVenantKirchhoffElasticity` pour l'interface `generic-parallel`, compiler avec `-DUSE_BACKEND -I include` dans un dossier de génération de la loi) | nvcc 13.0, optimiseur NVVM (`cicc`) | la contrainte écrite par une fonction d'initialisation de loi en grandes déformations est perdue quand l'état de fin de pas est copié après la construction de la vue du point ; juste avec `-G`, `-Xcicc -O0` et clang CUDA ; le résultat change avec des `printf` | copie de l'état de fin de pas dans le constructeur de `PointView` |
+| `signed-loop-trip-count.cu` | nvc++ 25.11 (`-cuda`, `-stdpar=gpu`) | loop with a signed counter and a `!=` test: N+1 iterations on GPU at -O2/-O3 | unsigned loops in the code concerned |
+| `empty-kernel-stdpar.cxx` | nvc++ 25.11 | unified memory mode (`-gpu=mem:unified`, the default): write at a stack address | `-gpu=mem:managed` |
+| `aggregate-zero-init.cxx` | nvc++ 25.11 `-stdpar=gpu` | default initialiser `= {}` of an array member: invalid LLVM constant ("parse integer constant must have integer type") | member initialised in the constructor (`PointView`) |
+| `member-function-pointer.cxx` | nvc++ 25.11 `-stdpar=gpu` | call through a pointer to member function **silently** ignored on GPU (-O0 to -O3) | named function objects generated by MFront |
+| `std-variant-visit.cxx` | nvc++ 25.11 `-stdpar=gpu` | `std::variant` (libstdc++): "Unexpected branch type", invalid LLVM aliases | `TrivialGenTypeBase` for the tangent operator |
+| `nvcc-static-constexpr-object.cu` | nvcc 13.0 | device copy of a local `static constexpr` object filled with **zeros, without diagnostic** if a constructor is called | namespace scope `__device__ constexpr` variables (`tfel::utilities::getConstantObject`) |
+| `nvcc-decltype-functional-cast.cu` | nvcc 13.0 (cudafe++) | `auto i = decltype(s){};` with `const auto s = c.size();` in a template used in device code: rewritten for the host compiler into an invalid functional cast (g++: "expected primary-expression before ‘auto’") | `size_type{}` (`LinearInterpolation.ixx`) |
+| `nvcc-builtin-constant-p.cu` | nvcc 13.0 | `constexpr` function using `__builtin_constant_p` (a host function for nvcc) compiled **without diagnostic** into an empty function in the device code (-O0 to -O3): `std::advance`, `std::next` and `std::prev` of libstdc++ 14 do nothing on GPU (cubic spline interpolation gives NaN) | internal `advance` and `previous` (`CubicSpline.ixx`) |
+| (log, night of 06/10) | nvc++ 25.11 to 26.9 `-mp=gpu` (OpenMP, -O2 and -O3) | behaviours of the implicit DSLs: `computeConsistentTangentOperator` returns false without going through any of its `return false`. Trigger: local object generated by MFront (`GetPartialJacobianInvert`) holding a `bool&` reference to a local flag | objects of MFront that own their flag (commit f008859df) |
+| (log, night of 06/10) | nvc++ 25.11 and 26.3 `-mp=gpu` (OpenMP) | static block `_st_<hash>__T1_0` (317 bytes) not found at load time: `__PRETTY_FUNCTION__` text of an `assert` of the computation of the 3D eigenvectors, removed from the device code but registered | redundant `assert` removed (commit a22a3cff6) |
+| (log, night of 06/10) | nvc++ 25.11 `-mp=gpu` (-O2) and nvcc 13.0 | stress written by an initialisation function of a finite strain behaviour lost when the fields are stored point by point. Trigger: save then restore of the pointers of the data of the behaviour around the call, in the drivers of the `generic` interface | drivers working on a local copy of the data (branch `batchdata-by-variable`) |
+| `omp-array-value-init.cxx` | nvc++ 25.11 `-mp=gpu` (OpenMP, -O2) | zero initialisation of an array member (`v()`, `v{}` or `= {}`) of an object of the kernel: copy of an uninitialised global `.common` array, then the optimiser **removes the code of the kernel** (no result written) | zeroing by a loop in the default constructor of `GenericFixedSizeArray` |
+| `omp-lambda-pointer-array.cxx` | nvc++ 25.11 `-mp=gpu` (OpenMP) | lambda capturing by value a `std::array` of pointers, passed by `map(to : kernel)`: wrong pointers on GPU at -O2 and -O3, **without diagnostic**; NVVM error at -O0 and -O1. A pointer captured alone, a structure holding a pointer or an array of integers work | pointers of the arguments captured one by one (material properties) |
+| `omp-lambda-reference-capture.cxx` | nvc++ 25.11 `-mp=gpu` (OpenMP, -O0 to -O3) | in a lambda passed by `map(to : kernel)`, a nested lambda that captures by reference a pointer captured by the kernel does not write through this pointer, **without diagnostic** | nested lambda capturing by copy (evaluation of a material property at a point) |
+| `stdpar-staticinit-link.cxx` | nvc++ 25.11 `-stdpar=gpu` (-O0 to -O3) | constant data of the device code exported under a name that is only unique within a file (`__staticinit_<counter>_<function>`): two files that give the same counter to the same inline function cannot be linked together ("nvlink error : Multiple definition"). Happens at random in a library of several behaviours | device code of each file linked alone (`-gpu=nordc`) |
+| `omp-tensor-view-switch.cxx` (not minimal: headers of TFEL where the `tensor` view of a `stensor` uses a `switch`) | nvc++ 25.11 `-mp=gpu` (OpenMP, -O2 and -O3) | internal error "Computed goto control expression must be a 32-bit integer" on the product of a `tensor` by a `stensor`: `switch` of the view inlined into the one of the product | `tensor` view of a `stensor` written without `switch` (table of indices) |
+| `nvcc-cicc-initialize-function-reproducer.cu` (not minimal: includes the beginning of the generated source of `SaintVenantKirchhoffElasticity` for the `generic-parallel` interface, compile with `-DUSE_BACKEND -I include` in a generation directory of the behaviour) | nvcc 13.0, NVVM optimiser (`cicc`) | the stress written by an initialisation function of a finite strain behaviour is lost when the end of step state is copied after the construction of the view of the point; correct with `-G`, `-Xcicc -O0` and clang CUDA; the result changes with `printf` calls | copy of the end of step state in the constructor of `PointView` |
 
-`run-nvcxx-reproducers.sh <nvc++>` compile et exécute les reproducteurs de
-nvc++ de -O0 à -O3. Résultats (06/10/2026, RTX 5080) :
+`run-nvcxx-reproducers.sh <nvc++>` compiles and runs the reproducers of
+nvc++ from -O0 to -O3. Results (06/10/2026, RTX 5080):
 
-| Reproducteur | 25.11 | 26.3 | 26.9 |
+| Reproducer | 25.11 | 26.3 | 26.9 |
 |---|---|---|---|
-| `signed-loop-trip-count.cu` (-O2, -O3) | échec | échec | échec |
-| `empty-kernel-stdpar.cxx` (-O2, -O3) | échec | échec | échec |
-| `aggregate-zero-init.cxx` | échec | échec | **corrigé** |
-| `member-function-pointer.cxx` | échec | échec | échec |
-| `std-variant-visit.cxx` | échec | échec | échec |
+| `signed-loop-trip-count.cu` (-O2, -O3) | failure | failure | failure |
+| `empty-kernel-stdpar.cxx` (-O2, -O3) | failure | failure | failure |
+| `aggregate-zero-init.cxx` | failure | failure | **fixed** |
+| `member-function-pointer.cxx` | failure | failure | failure |
+| `std-variant-visit.cxx` | failure | failure | failure |
 
-Les deux défauts de nvcc (`nvcc-static-constexpr-object.cu`,
-`nvcc-decltype-functional-cast.cu`) sont toujours présents avec nvcc 13.0.88,
-13.1.115, 13.2.86, 13.3.73 et 13.4.92 (vérifié le 06/10/2026 avec les
-compilateurs distribués en paquets pip `nvidia-cuda-nvcc`,
-`nvidia-cuda-crt`, `nvidia-nvvm`). Les notes de version de NVHPC 26.1 à 26.9
-ne donnent aucune liste de défauts corrigés : seuls les reproducteurs disent
-si les défauts de nvc++ le sont.
+The two defects of nvcc (`nvcc-static-constexpr-object.cu`,
+`nvcc-decltype-functional-cast.cu`) are still present with nvcc 13.0.88,
+13.1.115, 13.2.86, 13.3.73 and 13.4.92 (checked on 06/10/2026 with the
+compilers distributed as pip packages `nvidia-cuda-nvcc`,
+`nvidia-cuda-crt`, `nvidia-nvvm`). The release notes of NVHPC 26.1 to 26.9
+give no list of fixed defects: only the reproducers tell whether the
+defects of nvc++ are fixed.
 
-Contraintes (non des défauts) : nvc++ `-stdpar=gpu` (mémoire gérée)
-interdit l'accès aux variables globales et statiques depuis le code GPU
-(erreur explicite) : `getConstantObject` y renvoie une copie.
+Constraints (not defects): nvc++ `-stdpar=gpu` (managed memory) forbids
+access to global and static variables from the GPU code (explicit error):
+`getConstantObject` returns a copy there.
 
-nvcc accepte une définition sans `__host__ __device__` quand la
-déclaration en porte (et inversement), clang CUDA la refuse. Ce n'est pas
-un défaut de nvcc mais une incohérence de TFEL, corrigée dans 85
-définitions (balayage clang de tous les en-têtes, voir le journal).
+nvcc accepts a definition without `__host__ __device__` when the
+declaration has them (and conversely), clang CUDA refuses it. This is not a
+defect of nvcc but an inconsistency of TFEL, fixed in 85 definitions
+(clang sweep of all the headers, see the log).
 
-Défauts d'édition de liens et d'environnement (NVHPC 25.11) :
+Link and environment defects (NVHPC 25.11):
 
-- `libnvcpumath.so` utilise `sincos` de `libm.so.6` sans en dépendre : un
-  programme qui ne charge pas la bibliothèque mathématique ne peut pas
-  charger une bibliothèque compilée par nvc++
-  (`dlopen-without-libm.cxx`). Sans effet sur les programmes C++ qui
-  utilisent `<cmath>`, comme MGIS.
-- `nvc++ -mp=gpu -gpu=mem:managed` ne lie pas `libnvhpcmanaux`, dont la
-  fonction `free` reconnaît la mémoire gérée, alors que `-stdpar=gpu` la
-  lie. Un programme compilé ainsi qui charge des bibliothèques compilées par
-  g++ peut s'arrêter sur `free(): invalid pointer` (lecture d'un fichier par
-  `CxxTokenizer` dans une loi de polycristal). Contournement : lier le
-  programme avec `-lnvhpcmanaux`.
+- `libnvcpumath.so` uses `sincos` from `libm.so.6` without depending on
+  it: a program that does not load the math library cannot load a library
+  compiled by nvc++ (`dlopen-without-libm.cxx`). No effect on the C++
+  programs that use `<cmath>`, such as MGIS.
+- `nvc++ -mp=gpu -gpu=mem:managed` does not link `libnvhpcmanaux`, whose
+  `free` function recognises the managed memory, while `-stdpar=gpu` links
+  it. A program compiled this way that loads libraries compiled by g++ may
+  stop on `free(): invalid pointer` (reading of a file by `CxxTokenizer` in
+  a polycrystal behaviour). Workaround: link the program with
+  `-lnvhpcmanaux`.

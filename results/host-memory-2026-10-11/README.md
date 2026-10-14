@@ -1,73 +1,70 @@
-# Mémoire de l'hôte de MFEM sur le GPU (11/10/2026)
+# Host memory of MFEM on the GPU (11/10/2026)
 
-Script : `cases/measure-host-memory.sh <cas>`, un processus et le GPU,
-machine calme, un passage.
+Script: `cases/measure-host-memory.sh <case>`, one process and the GPU,
+quiet machine, one run.
 
-## Le défaut
+## The defect
 
-MFEM compilé avec Umpire (c'est le cas ici, comme hypre) prend Umpire
-pour la mémoire de l'hôte dès qu'un périphérique est configuré
-(`HOST_UMPIRE`). Umpire enregistre chaque allocation dans sa table. Les
-boucles par élément faites sur l'hôte allouent et libèrent des
-temporaires à chaque point (fonctions de forme, matrices élémentaires) :
-chacun passe par cette table, sous verrou. Diagnostic par des piles
-d'appels prises avec gdb pendant les post-traitements de la bulle :
-toutes dans `umpire::...::AllocationMap`, appelé depuis `CalcShape` et
-`CalcDShape`. Les appels CUDA ne comptaient que pour 1 s sur 61.
+MFEM compiled with Umpire (this is the case here, as for hypre) takes
+Umpire for the host memory as soon as a device is configured
+(`HOST_UMPIRE`). Umpire records each allocation in its table. The loops
+over the elements done on the host allocate and free temporaries at each
+point (shape functions, element matrices): each of them goes through this
+table, under a lock. Diagnosis by call stacks taken with gdb during the
+post-processings of the bubble: all in `umpire::...::AllocationMap`, called
+from `CalcShape` and `CalcDShape`. The CUDA calls only accounted for 1 s
+out of 61.
 
-Correctif (mfem-mgis 0c61fbfcb4, branche memoire-hote) : avant de créer
-le périphérique, `mfem_mgis::initialize` choisit la mémoire standard pour
-l'hôte et garde Umpire pour le GPU, sauf si la variable `MFEM_MEMORY` de
-MFEM est donnée.
+Fix (mfem-mgis 0c61fbfcb4, branch host-memory): before creating the
+device, `mfem_mgis::initialize` selects the standard memory for the host
+and keeps Umpire for the GPU, unless the variable `MFEM_MEMORY` of MFEM is
+given.
 
-## Variantes
+## Variants
 
-- `umpire` : `MFEM_MEMORY=umpire`, Umpire pour l'hôte et le GPU (choix
-  de MFEM, celui de toutes les mesures GPU précédentes du prototype) ;
-- `host` : `MFEM_MEMORY=host`, mémoire standard pour l'hôte et le GPU ;
-- `defaut` : choix de mfem-mgis après le correctif, mémoire standard
-  pour l'hôte et Umpire pour le GPU.
+- `umpire`: `MFEM_MEMORY=umpire`, Umpire for the host and the GPU (choice
+  of MFEM, the one of all the previous GPU measurements of the prototype);
+- `host`: `MFEM_MEMORY=host`, standard memory for the host and the GPU;
+- `default`: choice of mfem-mgis after the fix, standard memory for the
+  host and Umpire for the GPU.
 
-Exécutables : mm-opera-hpc (`build/mm-opera-hpc-memoire`) et poutre
-(`build/cas-memoire`) liés à `install/mfem-mgis-memoire` (correctif) ;
-ex8 de `build/examples-pointwise-ex8`, lié à une installation sans le
-correctif (sa variante `defaut` vaudrait `umpire`, elle n'est pas
-mesurée). Lois cuda de `build/cas-memoire`, sauf mention point par point
-(lois `generic`, intégrées sur l'hôte).
+Executables: mm-opera-hpc (`build/mm-opera-hpc-memory`) and beam
+(`build/cases-memory`) linked to `install/mfem-mgis-memory` (fix); ex8 of
+`build/examples-pointwise-ex8`, linked to an installation without the fix
+(its `default` variant would be equal to `umpire`, it is not measured).
+Cuda behaviours of `build/cases-memory`, unless point by point is mentioned
+(`generic` behaviours, integrated on the host).
 
-Résultats identiques entre variantes : bulle aux chiffres écrits,
-cermet à 5,4e-15, polycristal à 2,5e-13 (70 valeurs).
+Identical results between variants: bubble to the digits written, cermet
+within 5.4e-15, polycrystal within 2.5e-13 (70 values).
 
-## Temps (secondes, total du profil)
+## Times (seconds, total of the profile)
 
-| Cas | umpire | host | defaut |
+| Case | umpire | host | default |
 |---|---|---|---|
-| bulle (467 109 inconnues, tout par noyaux, post-traitements compris) | 69,17 | 13,83 | 13,97 |
-| cermet, 1 pas, tout par noyaux | 3,52 | 1,53 | 1,53 |
-| cermet, 1 pas, point par point | 28,10 | 14,81 | 14,80 |
-| ex8, 5 pas, tout par noyaux, lois cuda | 18,64 | 16,89 | |
-| ex8, 5 pas, point par point | 164,57 | 57,30 | |
-| polycristal, 10 pas, tout par noyaux | 13,26 | 11,76 | 12,32 |
-| poutre r4, 10 pas, tout par noyaux | 3,55 | 3,22 | 3,31 |
+| bubble (467,109 unknowns, everything by kernels, post-processings included) | 69.17 | 13.83 | 13.97 |
+| cermet, 1 step, everything by kernels | 3.52 | 1.53 | 1.53 |
+| cermet, 1 step, point by point | 28.10 | 14.81 | 14.80 |
+| ex8, 5 steps, everything by kernels, cuda behaviours | 18.64 | 16.89 | |
+| ex8, 5 steps, point by point | 164.57 | 57.30 | |
+| polycrystal, 10 steps, everything by kernels | 13.26 | 11.76 | 12.32 |
+| beam r4, 10 steps, everything by kernels | 3.55 | 3.22 | 3.31 |
 
-- Le gain suit la part du travail fait sur l'hôte par des boucles par
-  élément de MFEM. Bulle : post-traitements (export des contraintes aux
-  nœuds, projection L2) de 60,8 s à 10,4 s (`host`) et 10,5 s
-  (`defaut`), contre 11,3 s sur un cœur du CPU. ex8
-  point par point : intégration, résidu et tangente (assemblés sur
-  l'hôte) de 149 s à 41,7 s. ex8 tout par noyaux : la condition de Robin,
-  évaluée sur l'hôte, fait passer le résidu de 1,47 à 0,31 s et la
-  tangente de 1,10 à 0,42 s.
-- Quand tout est calculé par noyaux sur le GPU (polycristal, poutre),
-  l'écart reste de l'ordre du bruit d'un passage (de 3 à 11 %).
-- `host` et `defaut` ne se distinguent pas ici : la mémoire du GPU
-  d'Umpire n'apporte ni ne coûte rien de visible. Le correctif la garde,
-  comme MFEM.
-- Bulle sur le GPU après correctif : 14 s, contre 31 s sur un cœur du
-  CPU, tout par noyaux. Avant, le GPU était deux fois plus lent que le
-  CPU.
-- Les mesures GPU antérieures du prototype ont toutes tourné avec
-  `umpire`. Celles où le GPU calcule tout par noyaux changent peu.
-  Celles qui gardent des boucles sur l'hôte étaient pénalisées : intégration
-  point par point sur le GPU, post-traitements, autres intégrateurs
-  évalués sur l'hôte.
+- The gain follows the share of the work done on the host by loops over
+  the elements of MFEM. Bubble: post-processings (export of the stresses at
+  the nodes, L2 projection) from 60.8 s to 10.4 s (`host`) and 10.5 s
+  (`default`), against 11.3 s on one CPU core. ex8 point by point:
+  integration, residual and tangent (assembled on the host) from 149 s to
+  41.7 s. ex8 everything by kernels: the Robin condition, evaluated on the
+  host, brings the residual from 1.47 to 0.31 s and the tangent from 1.10
+  to 0.42 s.
+- When everything is computed by kernels on the GPU (polycrystal, beam),
+  the gap stays of the order of the noise of one run (from 3 to 11%).
+- `host` and `default` cannot be told apart here: the GPU memory of Umpire
+  brings and costs nothing visible. The fix keeps it, as MFEM does.
+- Bubble on the GPU after the fix: 14 s, against 31 s on one CPU core,
+  everything by kernels. Before, the GPU was twice as slow as the CPU.
+- The earlier GPU measurements of the prototype all ran with `umpire`.
+  Those where the GPU computes everything by kernels change little. Those
+  that keep loops on the host were penalised: point by point integration
+  on the GPU, post-processings, other integrators evaluated on the host.

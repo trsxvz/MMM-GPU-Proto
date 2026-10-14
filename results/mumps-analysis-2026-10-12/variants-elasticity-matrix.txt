@@ -69,7 +69,7 @@ prterun has exited due to process rank 0 with PID 0 on node t-MS-7E47 calling
 "abort". This may have caused other processes in the application to be
 terminated by signals sent by prterun (as reported here).
 --------------------------------------------------------------------------
-/usr/bin/grep: (entrée standard) : fichiers binaires correspondent
+/usr/bin/grep: (standard input): binary file matches
 == np2 ptscotch
  On return from DMUMPS, INFOG(1)=             -38
  On return from DMUMPS, INFOG(2)=               0
@@ -101,4 +101,4 @@ prterun has exited due to process rank 0 with PID 0 on node t-MS-7E47 calling
 "abort". This may have caused other processes in the application to be
 terminated by signals sent by prterun (as reported here).
 --------------------------------------------------------------------------
-/usr/bin/grep: (entrée standard) : fichiers binaires correspondent
+/usr/bin/grep: (standard input): binary file matches

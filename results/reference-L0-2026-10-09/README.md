@@ -1,71 +1,70 @@
-# Temps de référence du lot L0 (09/10/2026)
+# Reference times of the work package L0 (09/10/2026)
 
-Chemin actuel de mfem-mgis (branche `gpu-proto`, 373550f0d0), MFEM 4.10
-de l'environnement `mmm-gpu`, sur CPU (pas de périphérique), un fil
-OpenMP par processus. Machine : AMD Ryzen 7 9800X3D (8 cœurs, 16 fils),
-30 Go, machine calme. Script : `cases/measure-reference.sh` ; résumé par
-phase : `cases/summary-profiling.py *.txt`.
+Current path of mfem-mgis (branch `gpu-proto`, 373550f0d0), MFEM 4.10 of
+the environment `mmm-gpu`, on CPU (no device), one OpenMP thread per
+process. Machine: AMD Ryzen 7 9800X3D (8 cores, 16 threads), 30 GB, quiet
+machine. Script: `cases/measure-reference.sh`; summary per phase:
+`cases/summary-profiling.py *.txt`.
 
-## Cas
+## Cases
 
-| Cas | Inconnues | Processus | Pas | Newton (total) |
+| Case | Unknowns | Processes | Steps | Newton (total) |
 |---|---|---|---|---|
-| poutre r3, PCG + BoomerAMG | 15 795 | 4 | 10 | 22 |
-| poutre r3, PCG + BoomerAMG, tolérance 1e-4 | 15 795 | 4 | 10 | 25 |
-| poutre r3, MUMPS | 15 795 | 4 | 10 | 22 |
-| poutre r4, PCG + BoomerAMG, tolérance 1e-4 | 111 843 | 8 | 10 | 31 |
-| poutre r4, MUMPS | 111 843 | 8 | 10 | 26 |
-| ssna303 3D (ex4), FGMRES + BoomerAMG | 27 945 | 4 | 10 | 26 |
-| ssna303 3D (ex4) r1 | environ 8 fois plus | 8 | 10 | 26 |
-| polycristal, 5 grains (mm-opera-hpc) | 20 553 | 4 | 10 | 98 |
-| polycristal r1 | 168 885 | 8 | 10 | 147 |
-| thermomécanique (ex8), MUMPS | 9 516 | 4 | 2 | 17 |
+| beam r3, PCG + BoomerAMG | 15,795 | 4 | 10 | 22 |
+| beam r3, PCG + BoomerAMG, tolerance 1e-4 | 15,795 | 4 | 10 | 25 |
+| beam r3, MUMPS | 15,795 | 4 | 10 | 22 |
+| beam r4, PCG + BoomerAMG, tolerance 1e-4 | 111,843 | 8 | 10 | 31 |
+| beam r4, MUMPS | 111,843 | 8 | 10 | 26 |
+| ssna303 3D (ex4), FGMRES + BoomerAMG | 27,945 | 4 | 10 | 26 |
+| ssna303 3D (ex4) r1 | about 8 times more | 8 | 10 | 26 |
+| polycrystal, 5 grains (mm-opera-hpc) | 20,553 | 4 | 10 | 98 |
+| polycrystal r1 | 168,885 | 8 | 10 | 147 |
+| thermomechanical (ex8), MUMPS | 9,516 | 4 | 2 | 17 |
 
-La poutre donne la même solution avec tous les solveurs (norme finale
-18,38573629 en r3, 48,83704586 en r4).
+The beam gives the same solution with all the solvers (final norm
+18.38573629 at r3, 48.83704586 at r4).
 
-## Temps par phase (secondes, maximum sur les processus)
+## Times per phase (seconds, maximum over the processes)
 
-Entre parenthèses : nombre d'appels. Intégration : intégration des lois
-(`NS::processNewUnknownsEstimate`) ; préconditionneur : construction du
-solveur linéaire (factorisation de MUMPS ; BoomerAMG se construit au
-premier produit, compté dans la résolution) ; prédiction : prédiction
-élastique au début du pas (assemblage et résolution).
+In parentheses: number of calls. Integration: integration of the
+behaviours (`NS::processNewUnknownsEstimate`); preconditioner: construction
+of the linear solver (factorisation of MUMPS; BoomerAMG is built at the
+first product, counted in the solution); prediction: elastic prediction at
+the beginning of the step (assembly and solution).
 
-| Cas | Total | Intégration | Résidu | Tangente | Préconditionneur | Résolution | Prédiction | Fin de pas |
+| Case | Total | Integration | Residual | Tangent | Preconditioner | Solution | Prediction | End of step |
 |---|---|---|---|---|---|---|---|---|
-| poutre r3 PCG+AMG | 2,55 | 0,09 | 0,08 | 0,32 | 0,00 | 1,32 | 0,73 | 0,00 |
-| poutre r3 PCG+AMG 1e-4 | 2,20 | 0,10 | 0,09 | 0,36 | 0,00 | 1,13 | 0,51 | 0,00 |
-| poutre r3 MUMPS | 3,42 | 0,09 | 0,08 | 0,32 | 1,32 | 0,06 | 1,54 | 0,00 |
-| poutre r4 PCG+AMG 1e-4 | 15,45 | 0,50 | 0,43 | 2,19 | 0,01 | 9,43 | 2,84 | 0,03 |
-| poutre r4 MUMPS | 65,62 | 0,41 | 0,36 | 1,84 | 35,81 | 0,79 | 26,34 | 0,03 |
-| ssna303 3D | 10,35 | 3,18 | 0,31 | 1,91 | 0,00 | 2,44 | 2,37 | 0,05 |
-| ssna303 3D r1 | 66,86 | 12,61 | 1,26 | 8,37 | 0,01 | 28,95 | 14,87 | 0,48 |
-| polycristal | 49,73 | 27,48 | 1,13 | 3,22 | 0,00 | 17,65 | - | 0,01 |
-| polycristal r1 | 386,71 | 139,16 | 6,57 | 26,13 | 0,13 | 214,33 | - | 0,11 |
-| thermomécanique | 5,07 | 1,62 | 0,37 | 0,85 | 1,70 | 0,46 | - | 0,01 |
+| beam r3 PCG+AMG | 2.55 | 0.09 | 0.08 | 0.32 | 0.00 | 1.32 | 0.73 | 0.00 |
+| beam r3 PCG+AMG 1e-4 | 2.20 | 0.10 | 0.09 | 0.36 | 0.00 | 1.13 | 0.51 | 0.00 |
+| beam r3 MUMPS | 3.42 | 0.09 | 0.08 | 0.32 | 1.32 | 0.06 | 1.54 | 0.00 |
+| beam r4 PCG+AMG 1e-4 | 15.45 | 0.50 | 0.43 | 2.19 | 0.01 | 9.43 | 2.84 | 0.03 |
+| beam r4 MUMPS | 65.62 | 0.41 | 0.36 | 1.84 | 35.81 | 0.79 | 26.34 | 0.03 |
+| ssna303 3D | 10.35 | 3.18 | 0.31 | 1.91 | 0.00 | 2.44 | 2.37 | 0.05 |
+| ssna303 3D r1 | 66.86 | 12.61 | 1.26 | 8.37 | 0.01 | 28.95 | 14.87 | 0.48 |
+| polycrystal | 49.73 | 27.48 | 1.13 | 3.22 | 0.00 | 17.65 | - | 0.01 |
+| polycrystal r1 | 386.71 | 139.16 | 6.57 | 26.13 | 0.13 | 214.33 | - | 0.11 |
+| thermomechanical | 5.07 | 1.62 | 0.37 | 0.85 | 1.70 | 0.46 | - | 0.01 |
 
-## Constats
+## Findings
 
-- **Ce que le GPU doit viser** : la résolution linéaire (jusqu'à 61 % du
-  temps pour la poutre, 55 % pour le polycristal raffiné) et
-  l'intégration des lois (55 % du polycristal, 31 % de ssna303). La
-  tangente pèse 7 à 18 %. Le résidu est faible partout.
-- **Prédiction** : avec MUMPS, elle refactorise l'opérateur élastique à
-  chaque pas (26 s sur 66 pour la poutre r4). C'est le gain attendu de la
-  prédiction avec `K0` factorisé une fois (plan, point fixe).
-- **Comparaison avec l'ancienne pile** (MFEM 4.9, mfem-mgis master
-  4c8a91d815, étude du 04/10), même cas, même Newton de mfem-mgis, poutre
-  r4 à 8 processus, mêmes solutions et mêmes itérations :
-  - PCG + BoomerAMG : 15,4 s contre 17,5 s (plus rapide) ;
-  - MUMPS : 65,6 s contre 42,2 s (1,55 fois plus lent). OpenMPI compilé
-    avec CUDA en explique environ 10 % : 59,3 s avec
-    `mpirun --mca accelerator null`. Le reste n'est pas expliqué : MUMPS
-    5.9.1 contre 5.8.1, ScaLAPACK 2.2.3 contre 2.2.2, OpenBLAS avec
-    OpenMP contre sans, MFEM 4.10 contre 4.9. Les deux MUMPS sont
-    construits sans METIS ni SCOTCH (renumérotation AMD ou PORD).
-    À essayer lors de la reconstruction de MFEM : MUMPS `+metis
-    +parmetis`.
-- Le temps d'OpenMPI compilé avec CUDA sur les échanges du CPU (environ
-  10 % ici) est à garder en tête pour les comparaisons CPU contre GPU :
-  les mesures CPU peuvent être refaites avec `--mca accelerator null`.
+- **What the GPU must target**: the linear solution (up to 61% of the time
+  for the beam, 55% for the refined polycrystal) and the integration of
+  the behaviours (55% of the polycrystal, 31% of ssna303). The tangent
+  weighs 7 to 18%. The residual is small everywhere.
+- **Prediction**: with MUMPS, it refactorises the elastic operator at each
+  step (26 s out of 66 for the beam r4). This is the gain expected from
+  the prediction with `K0` factorised once (plan, fixed point).
+- **Comparison with the old stack** (MFEM 4.9, mfem-mgis master
+  4c8a91d815, study of 04/10), same case, same Newton of mfem-mgis, beam
+  r4 on 8 processes, same solutions and same iterations:
+  - PCG + BoomerAMG: 15.4 s against 17.5 s (faster);
+  - MUMPS: 65.6 s against 42.2 s (1.55 times slower). OpenMPI compiled
+    with CUDA explains about 10% of it: 59.3 s with
+    `mpirun --mca accelerator null`. The rest is not explained: MUMPS
+    5.9.1 against 5.8.1, ScaLAPACK 2.2.3 against 2.2.2, OpenBLAS with
+    OpenMP against without, MFEM 4.10 against 4.9. Both MUMPS are built
+    without METIS or SCOTCH (AMD or PORD reordering). To try when MFEM is
+    rebuilt: MUMPS `+metis +parmetis`.
+- The time of OpenMPI compiled with CUDA on the CPU exchanges (about 10%
+  here) is to be kept in mind for the CPU against GPU comparisons: the CPU
+  measurements can be redone with `--mca accelerator null`.

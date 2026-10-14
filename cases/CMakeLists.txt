@@ -244,7 +244,7 @@ int main() {
   return ((f != nullptr) && (a.searched_entries == nullptr)) ? 0 : 1;
 }" MFEM_MGIS_HAS_STIFFNESS_MATRICES_POSITIONS)
 # the assembly of the global matrix with the pattern and the exchanges kept
-# (mfem-mgis branch globale, October 11, 2026), timed by the benchmark if
+# (mfem-mgis branch global, October 11, 2026), timed by the benchmark if
 # available
 unset(MFEM_MGIS_HAS_GLOBAL_STIFFNESS_MATRIX CACHE)
 check_cxx_source_compiles("
@@ -268,7 +268,7 @@ unset(CMAKE_REQUIRED_LIBRARIES)
 if(MFEM_MGIS_HAS_STIFFNESS_MATRICES_POSITIONS)
   add_subdirectory(assembly)
 else()
-  message(STATUS "assemblage: mfem-mgis without the positions of the "
+  message(STATUS "assembly: mfem-mgis without the positions of the "
     "entries of the stiffness matrices, benchmark not built")
 endif()
 # Kokkos (optional), initialized on demand (option --kokkos) for the

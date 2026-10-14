@@ -1,25 +1,25 @@
 #!/bin/bash
-# Comparaison des backends GPU de l'interface generic-parallel dans
-# mfem-mgis : poutre r4 sur un processus et le GPU, tout par noyaux,
-# tangente assemblée, Newton et PCG + BoomerAMG, avec la même loi générée
-# pour chaque backend qui fonctionne dans mfem-mgis (cuda par nvcc et par
-# clang, hip par clang et par hipcc sur la plateforme NVIDIA, kokkos avec
-# Kokkos initialisé à l'option --kokkos, par le cas ou par mfem-mgis s'il
-# est construit avec Kokkos). Les bibliothèques sont
-# celles des dossiers generic-parallel-<dossier> de build/cas-autres/poutre
-# (cuda pour nvcc, sinon le nom de la configuration), ou celles de
-# `$libs/<configuration>/src` si la variable `libs` est donnée.
-# L'exécutable est celui du dossier donné par la variable `poutre` (par
-# défaut build/cas-autres/poutre), construit avec Kokkos pour l'option
-# --kokkos (Kokkos trouvé par la configuration de cases/, ou mfem-mgis
-# construit avec Kokkos). À lancer sur une machine calme, GPU libre.
+# Comparison of the GPU backends of the generic-parallel interface in
+# mfem-mgis: beam r4 on one process and the GPU, everything by kernels,
+# assembled tangent operator, Newton and PCG + BoomerAMG, with the same
+# behaviour generated for each backend which works in mfem-mgis (cuda by
+# nvcc and by clang, hip by clang and by hipcc on the NVIDIA platform,
+# kokkos with Kokkos initialized by the option --kokkos, by the case or by
+# mfem-mgis if it is built with Kokkos). The libraries are the ones of the
+# directories generic-parallel-<directory> of build/cases-others/beam (cuda
+# for nvcc, otherwise the name of the configuration), or the ones of
+# `$libs/<configuration>/src` if the variable `libs` is given. The
+# executable is the one of the directory given by the variable `beam` (by
+# default build/cases-others/beam), built with Kokkos for the option --kokkos
+# (Kokkos found by the configuration of cases/, or mfem-mgis built with
+# Kokkos). To be run on a quiet machine, with the GPU free.
 #
-# usage : cases/measure-backends-gpu.sh [dossier de résultats]
-lot=backends
+# usage: cases/measure-backends-gpu.sh [results directory]
+work_package=backends
 P=$(cd "$(dirname "$0")/.." && pwd)
 out=${1:-$P/results/backends-gpu-$(date +%Y-%m-%d-%H%M)}
-source "$P/cases/measure-common.sh" poutre "$out"
-B=${poutre:-$P/build/cas-autres/poutre}
+source "$P/cases/measure-common.sh" beam "$out"
+B=${beam:-$P/build/cases-others/beam}
 kernels=(MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
   MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
@@ -42,8 +42,8 @@ for pass in 1 2; do
     if [ "$suffix" = kokkos ]; then
       options="--kokkos"
     fi
-    run "poutre-np1-gpu-$configuration-$pass" 1 1 \
+    run "beam-np1-gpu-$configuration-$pass" 1 1 \
       "$(library_of "$configuration" "$directory" "$suffix")" "${kernels[@]}"
   done
 done
-echo "résultats dans $out"
+echo "results in $out"

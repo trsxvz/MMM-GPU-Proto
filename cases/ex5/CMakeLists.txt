@@ -18,15 +18,15 @@ add_generic_parallel_mfront_libraries(ex5-behaviours CUDA
 proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX5_DIR}/satoh")
 if(_usable)
   set(_kernels "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
-  add_test(NAME ex5-point-par-point COMMAND ./satoh
+  add_test(NAME ex5-point-by-point COMMAND ./satoh
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX5_DIR}")
-  add_test(NAME ex5-noyaux COMMAND ./satoh
+  add_test(NAME ex5-kernels COMMAND ./satoh
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX5_DIR}")
-  set_tests_properties(ex5-point-par-point PROPERTIES
+  set_tests_properties(ex5-point-by-point PROPERTIES
     ENVIRONMENT "OMP_NUM_THREADS=1")
-  set_tests_properties(ex5-noyaux PROPERTIES
+  set_tests_properties(ex5-kernels PROPERTIES
     ENVIRONMENT "OMP_NUM_THREADS=1;MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}")
-  set(_tests ex5-point-par-point ex5-noyaux)
+  set(_tests ex5-point-by-point ex5-kernels)
   foreach(_backend ${ex5-behaviours_BACKENDS})
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
     # two OpenMP threads for the backends on the host

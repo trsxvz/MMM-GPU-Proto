@@ -7,16 +7,16 @@
 P=$(cd "$(dirname "$0")/../.." && pwd)
 source $P/scripts/env.sh > /dev/null
 out=$P/results/cudss-2026-10-12
-L=$P/build/cas-memoire/ex8/generic-parallel-cuda/src
+L=$P/build/cases-memory/ex8/generic-parallel-cuda/src
 cd $P/build/examples-mumps/ex8
 export OMP_NUM_THREADS=1 MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch \
   MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels \
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels \
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
 for pass in 1 2; do
-  for variant in hypre-hote hypre-gpu; do
+  for variant in hypre-host hypre-gpu; do
     case $variant in
-      hypre-hote) extra="--hypre-on-host" ;;
+      hypre-host) extra="--hypre-on-host" ;;
       hypre-gpu) extra="" ;;
     esac
     echo "== pass $pass, $variant, load $(cut -d ' ' -f 1 /proc/loadavg)"
@@ -25,7 +25,7 @@ for pass in 1 2; do
       -lsMc CuDSSSolver -lsTh CuDSSSolver -mra -no-pp --device cuda \
       -lU $L/libGenericParallelU3SI2-cuda.so \
       -lA $L/libGenericParallelALFENI-cuda.so $extra \
-      > $out/ex8-gpu-thermique-cudss-$variant-$pass.txt 2>&1
+      > $out/ex8-gpu-thermal-cudss-$variant-$pass.txt 2>&1
     echo "   exit $?"
   done
 done

@@ -1,27 +1,26 @@
 #!/bin/bash
-# Mesures du barreau entaillé ssna303 en 3D (campagne de mesures, cas 2) :
-# exemple ex4 de mfem-mgis-examples, variante résolue par hypre (Newton,
-# FGMRES de hypre préconditionné par BoomerAMG), plasticité en grandes
-# transformations (déformation logarithmique de Hencky), chargement complet
-# en 10 pas, maillage raffiné zéro, une et deux fois (28 000 à 1,7 million
-# d'inconnues) :
-# - point par point puis par lots et noyaux sur 8 processus CPU ;
-# - par noyaux sur le GPU (loi `cuda`), avec la réserve de mémoire de hypre
-#   réduite à 0,5 Gio ;
-# puis les mêmes calculs avec la formulation FBar (`--use-fbar`), par
-# noyaux depuis le lot L7.9.
-# Avant chaque calcul sur le GPU, le script attend au plus 10 minutes qu'un
-# autre processus libère le GPU, puis le signale dans le résumé.
-# Au raffinement 2 (1,46 million d'inconnues), la règle d'intégration à 27
-# points des hexaèdres ne tient pas dans la mémoire du GPU (16 Go) : les
-# calculs sur le GPU, et un calcul par noyaux sur 8 processus pour comparer,
-# utilisent la règle d'ordre 3 (8 points, option -iro 3) ; FBar sur
-# 8 processus y épuise la mémoire de la machine (30 Go) et n'est pas lancé.
-# La variable SSNA303_REFINEMENTS donne les raffinements (0 1 2 par défaut).
-# À lancer sur une machine calme, après build-mfem-mgis.sh (examples et cas).
+# Measurements of the notched bar ssna303 in 3D (measurement campaign, case
+# 2): example ex4 of mfem-mgis-examples, variant solved by hypre (Newton,
+# FGMRES of hypre preconditioned by BoomerAMG), finite strain plasticity
+# (logarithmic strain of Hencky), complete loading in 10 steps, mesh refined
+# zero, one and two times (28,000 to 1.7 million unknowns):
+# - point by point then by batches and kernels on 8 CPU processes;
+# - by kernels on the GPU (behaviour `cuda`), with the memory pool of hypre
+#   reduced to 0.5 GiB;
+# then the same computations with the FBar formulation (`--use-fbar`), by
+# kernels since the work package L7.9.
+# Before each computation on the GPU, the script waits at most 10 minutes
+# for another process to free the GPU, then reports it in the summary.
+# At refinement 2 (1.46 million unknowns), the integration rule with 27
+# points of the hexahedra does not fit in the memory of the GPU (16 GB): the
+# computations on the GPU, and one computation by kernels on 8 processes for
+# comparison, use the rule of order 3 (8 points, option -iro 3); FBar on
+# 8 processes exhausts the memory of the machine (30 GB) and is not run.
+# The variable SSNA303_REFINEMENTS gives the refinements (0 1 2 by default).
+# To be run on a quiet machine, after build-mfem-mgis.sh (examples and cases).
 #
-# usage : cases/measure-ssna303.sh [dossier de résultats]
-lot=ssna303
+# usage: cases/measure-ssna303.sh [results directory]
+work_package=ssna303
 source "$(dirname "$0")/measure-common.sh" ssna303 "$@"
 batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
@@ -38,7 +37,7 @@ wait_for_gpu() {
     fi
     sleep 5
   done
-  echo "   GPU partagé avec un autre processus" | tee -a "$out/summary.txt"
+  echo "   GPU shared with another process" | tee -a "$out/summary.txt"
 }
 
 for refinement in ${SSNA303_REFINEMENTS:-0 1 2}; do
@@ -47,32 +46,32 @@ for refinement in ${SSNA303_REFINEMENTS:-0 1 2}; do
     if [ "$refinement" != 2 ]; then
       device=""
       options="$fbar"
-      run "ssna303-r$refinement$suffix-np8-point-par-point" 1 8 "$generic"
-      run "ssna303-r$refinement$suffix-np8-noyaux" 1 8 "$generic" "$batch" \
+      run "ssna303-r$refinement$suffix-np8-point-by-point" 1 8 "$generic"
+      run "ssna303-r$refinement$suffix-np8-kernels" 1 8 "$generic" "$batch" \
         "${kernels[@]}"
       device=cuda
       options="$fbar -hdps 0.5"
       wait_for_gpu
-      run "ssna303-r$refinement$suffix-gpu-noyaux" 1 1 "$cuda" "$batch" \
+      run "ssna303-r$refinement$suffix-gpu-kernels" 1 1 "$cuda" "$batch" \
         "${kernels[@]}"
       continue
     fi
-    # raffinement 2 : règle d'ordre 3 sur le GPU et pour la comparaison,
-    # pas de FBar sur 8 processus
+    # refinement 2: rule of order 3 on the GPU and for the comparison, no
+    # FBar on 8 processes
     device=""
     if [ -z "$fbar" ]; then
       options=""
-      run "ssna303-r2-np8-point-par-point" 1 8 "$generic"
-      run "ssna303-r2-np8-noyaux" 1 8 "$generic" "$batch" "${kernels[@]}"
+      run "ssna303-r2-np8-point-by-point" 1 8 "$generic"
+      run "ssna303-r2-np8-kernels" 1 8 "$generic" "$batch" "${kernels[@]}"
       options="-iro 3"
-      run "ssna303-r2-iro3-np8-noyaux" 1 8 "$generic" "$batch" \
+      run "ssna303-r2-iro3-np8-kernels" 1 8 "$generic" "$batch" \
         "${kernels[@]}"
     fi
     device=cuda
     options="$fbar -iro 3 -hdps 0.5"
     wait_for_gpu
-    run "ssna303-r2$suffix-iro3-gpu-noyaux" 1 1 "$cuda" "$batch" \
+    run "ssna303-r2$suffix-iro3-gpu-kernels" 1 1 "$cuda" "$batch" \
       "${kernels[@]}"
   done
 done
-echo "résultats dans $out"
+echo "results in $out"

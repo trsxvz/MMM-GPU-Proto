@@ -6,7 +6,7 @@
 # MFEM_MGIS_BEHAVIOUR_INTEGRATION.
 set(MM_OPERA_HPC_POLYCRYSTAL_DIR "${MM_OPERA_HPC_BINARY_DIR}/polycrystal"
   CACHE PATH "build directory of the polycrystal of mm-opera-hpc")
-add_generic_parallel_mfront_libraries(polycristal-behaviours CUDA
+add_generic_parallel_mfront_libraries(polycrystal-behaviours CUDA
   "${MM_OPERA_HPC_SOURCE_DIR}/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront")
 # backends and suffixes of their libraries, with the other backends for the
 # GPU which work in mfem-mgis without change of the program of mm-opera-hpc
@@ -17,7 +17,7 @@ add_generic_parallel_mfront_libraries(polycristal-behaviours CUDA
 set(MM_OPERA_HPC_POLYCRYSTAL_WITH_KOKKOS OFF CACHE BOOL
   "the polycrystal of mm-opera-hpc is linked to a mfem-mgis built with Kokkos")
 set(_backends_suffixes)
-foreach(_backend ${polycristal-behaviours_BACKENDS})
+foreach(_backend ${polycrystal-behaviours_BACKENDS})
   list(APPEND _backends_suffixes ${_backend}:${_backend})
 endforeach()
 set(_gpu_backends)
@@ -31,10 +31,10 @@ foreach(_gpu_backend ${_gpu_backends})
   string(REPLACE ":" ";" _gb "${_gpu_backend}")
   list(GET _gb 0 _name)
   list(GET _gb 1 _suffix)
-  add_generic_parallel_mfront_library(polycristal-behaviours ${_name}
+  add_generic_parallel_mfront_library(polycrystal-behaviours ${_name}
     config-${_name}.json ${_suffix}
     "${MM_OPERA_HPC_SOURCE_DIR}/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront")
-  if(polycristal-behaviours_${_name}_FOUND)
+  if(polycrystal-behaviours_${_name}_FOUND)
     list(APPEND _backends_suffixes ${_gpu_backend})
   endif()
 endforeach()
@@ -56,38 +56,38 @@ if(Python3_Interpreter_FOUND AND _usable)
   proto_select_tolerance(_gradients 1-3 1-3:1e-6)
   set(_run mpirun -n 2 ./uniaxial-polycrystal --disable-post-processing
            --nstep 1 --duration 0.1)
-  set(_reference "${CMAKE_CURRENT_BINARY_DIR}/polycristal-point-par-point.res")
-  add_test(NAME polycristal-point-par-point
+  set(_reference "${CMAKE_CURRENT_BINARY_DIR}/polycrystal-point-by-point.res")
+  add_test(NAME polycrystal-point-by-point
     COMMAND ${_run} --macroscopic-stress-output-file "${_reference}"
     WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
-  set_tests_properties(polycristal-point-par-point PROPERTIES
+  set_tests_properties(polycrystal-point-by-point PROPERTIES
     ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint"
-    FIXTURES_SETUP polycristal-reference)
+    FIXTURES_SETUP polycrystal-reference)
   # periodic problem with the computations by kernels (generic library)
-  set(_output "${CMAKE_CURRENT_BINARY_DIR}/polycristal-noyaux.res")
-  add_test(NAME polycristal-noyaux
+  set(_output "${CMAKE_CURRENT_BINARY_DIR}/polycrystal-kernels.res")
+  add_test(NAME polycrystal-kernels
     COMMAND ${_run} --macroscopic-stress-output-file "${_output}"
     WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
-  set_tests_properties(polycristal-noyaux PROPERTIES
+  set_tests_properties(polycrystal-kernels PROPERTIES
     ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels"
-    FIXTURES_SETUP polycristal-noyaux)
-  add_test(NAME polycristal-comparison-noyaux
+    FIXTURES_SETUP polycrystal-kernels)
+  add_test(NAME polycrystal-comparison-kernels
     COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/../compare-outputs.py"
             "${_reference}" "${_output}" --rtol ${_rtol}
-            --groupes 0 ${_gradients} 4-6)
-  set_tests_properties(polycristal-comparison-noyaux PROPERTIES
-    FIXTURES_REQUIRED "polycristal-reference;polycristal-noyaux")
+            --groups 0 ${_gradients} 4-6)
+  set_tests_properties(polycrystal-comparison-kernels PROPERTIES
+    FIXTURES_REQUIRED "polycrystal-reference;polycrystal-kernels")
   foreach(_backend_suffix ${_backends_suffixes})
     string(REPLACE ":" ";" _bs "${_backend_suffix}")
     list(GET _bs 0 _backend)
     list(GET _bs 1 _suffix)
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_suffix}.so")
-    set(_output "${CMAKE_CURRENT_BINARY_DIR}/polycristal-batch-${_backend}.res")
+    set(_output "${CMAKE_CURRENT_BINARY_DIR}/polycrystal-batch-${_backend}.res")
     if((_suffix STREQUAL "cuda") OR (_suffix STREQUAL "hip") OR
        (_suffix STREQUAL "kokkos"))
       # behaviour integrated on the GPU, all the computations by kernels
-      add_test(NAME polycristal-batch-${_backend}
+      add_test(NAME polycrystal-batch-${_backend}
         COMMAND ${_run} --device cuda -l "${_library}"
                 --macroscopic-stress-output-file "${_output}"
         WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
@@ -96,25 +96,25 @@ if(Python3_Interpreter_FOUND AND _usable)
         # Kokkos initialized by mfem-mgis
         list(APPEND _environment "MFEM_MGIS_KOKKOS=1")
       endif()
-      set_tests_properties(polycristal-batch-${_backend} PROPERTIES
+      set_tests_properties(polycrystal-batch-${_backend} PROPERTIES
         ENVIRONMENT "${_environment}"
-        FIXTURES_SETUP polycristal-${_backend}
+        FIXTURES_SETUP polycrystal-${_backend}
         RESOURCE_LOCK gpu)
     else()
-      add_test(NAME polycristal-batch-${_backend}
+      add_test(NAME polycrystal-batch-${_backend}
         COMMAND ${_run} -l "${_library}"
                 --macroscopic-stress-output-file "${_output}"
         WORKING_DIRECTORY "${MM_OPERA_HPC_POLYCRYSTAL_DIR}")
-      set_tests_properties(polycristal-batch-${_backend} PROPERTIES
+      set_tests_properties(polycrystal-batch-${_backend} PROPERTIES
         ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;OMP_NUM_THREADS=2"
-        FIXTURES_SETUP polycristal-${_backend})
+        FIXTURES_SETUP polycrystal-${_backend})
     endif()
-    add_test(NAME polycristal-comparison-${_backend}
+    add_test(NAME polycrystal-comparison-${_backend}
       COMMAND ${Python3_EXECUTABLE}
               "${CMAKE_CURRENT_SOURCE_DIR}/../compare-outputs.py"
               "${_reference}" "${_output}" --rtol ${_rtol}
-            --groupes 0 ${_gradients} 4-6)
-    set_tests_properties(polycristal-comparison-${_backend} PROPERTIES
-      FIXTURES_REQUIRED "polycristal-reference;polycristal-${_backend}")
+            --groups 0 ${_gradients} 4-6)
+    set_tests_properties(polycrystal-comparison-${_backend} PROPERTIES
+      FIXTURES_REQUIRED "polycrystal-reference;polycrystal-${_backend}")
   endforeach()
 endif()

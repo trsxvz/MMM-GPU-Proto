@@ -1,60 +1,61 @@
 #!/usr/bin/env bash
-# Construction d'un MFEM compilé avec HIP pour un GPU AMD, puis de mfem-mgis
-# et des exemples avec lui. L'architecture est donnée par HIP_ARCH :
-# - gfx90a (par défaut, MI210 et MI250) : compilation et édition de liens
-#   seulement, la machine de développement n'ayant pas ce GPU ;
-# - gfx1036 : le GPU intégré de la machine de développement (Ryzen), sur
-#   lequel les tests s'exécutent vraiment avec GPU_TESTS=ON. /dev/kfd est
-#   réservé au groupe render : les tests passent par `sg render` si la
-#   session a été ouverte avant l'ajout à ce groupe.
-# Les dossiers d'une architecture autre que gfx90a portent son nom en
-# suffixe (deps/hip-amd/mfem-src-gfx1036, build/mfem-mgis-hip-gfx1036...) ;
-# hypre, compilé pour le CPU, est commun.
+# Build of an MFEM compiled with HIP for an AMD GPU, then of mfem-mgis
+# and of the examples with it. The architecture is given by HIP_ARCH:
+# - gfx90a (default, MI210 and MI250): compilation and link only, the
+#   development machine not having this GPU;
+# - gfx1036: the integrated GPU of the development machine (Ryzen), on
+#   which the tests really run with GPU_TESTS=ON. /dev/kfd is reserved to
+#   the group render: the tests go through `sg render` if the session was
+#   opened before the addition to this group.
+# The directories of an architecture other than gfx90a have its name as
+# suffix (deps/hip-amd/mfem-src-gfx1036, build/mfem-mgis-hip-gfx1036...);
+# hypre, compiled for the CPU, is common.
 #
-# ROCm vient des paquets Python de ROCm (TheRock), installés sans droits
-# d'administrateur dans un environnement virtuel :
+# ROCm comes from the Python packages of ROCm (TheRock), installed without
+# administrator rights in a virtual environment:
 #   python3 -m venv $ROCM_VENV
 #   $ROCM_VENV/bin/pip install --index-url \
 #     https://stable.repo.amd.com/rocm/whl-next/ \
 #     "rocm[libraries,devel,device-gfx90a]==10.1.0"
 #   $ROCM_VENV/bin/rocm-sdk init
-# et, pour une autre architecture, son paquet de noyaux des bibliothèques :
+# and, for another architecture, its package of library kernels:
 #   $ROCM_VENV/bin/pip install --index-url \
 #     https://stable.repo.amd.com/rocm/whl-next/ \
 #     "rocm-sdk-device-gfx1036==10.1.0"
 #
-# Pièges :
-# - un paquet système (libamdhip64-dev d'Ubuntu) installe d'anciens en-têtes
-#   de HIP dans /usr/include/hip, que le compilateur de ROCm lit avant les
-#   siens : les en-têtes de ROCm sont donnés explicitement (-isystem) à
-#   hipcc par HIPCC_COMPILE_FLAGS_APPEND et au compilateur HIP de CMake par
-#   CMAKE_HIP_FLAGS ;
-# - scripts/env.sh exporte HIP_PLATFORM=nvidia (HIP sur GPU NVIDIA pour
-#   TFEL), que hipcc et hipconfig suivent : MFEM est compilé avec
-#   HIP_PLATFORM=amd, et mfem-mgis choisit lui-même la plateforme AMD quand
-#   MFEM utilise HIP.
+# Pitfalls:
+# - a system package (libamdhip64-dev of Ubuntu) installs old HIP headers
+#   in /usr/include/hip, which the compiler of ROCm reads before its own:
+#   the headers of ROCm are given explicitly (-isystem) to hipcc by
+#   HIPCC_COMPILE_FLAGS_APPEND and to the HIP compiler of CMake by
+#   CMAKE_HIP_FLAGS;
+# - scripts/env.sh exports HIP_PLATFORM=nvidia (HIP on NVIDIA GPU for
+#   TFEL), which hipcc and hipconfig follow: MFEM is compiled with
+#   HIP_PLATFORM=amd, and mfem-mgis chooses the AMD platform by itself when
+#   MFEM uses HIP.
 #
-# hypre est compilé pour le CPU (MFEM avec HIP accepte un hypre sur l'hôte),
-# ou avec HIP pour le GPU si HYPRE_HIP=ON (nécessaire aux tests sur le GPU :
-# les réglages d'exécution refusent un solveur linéaire de hypre qui calcule
-# sur l'hôte quand il est placé sur le GPU), depuis l'archive mise en cache
-# par spack. Avec HYPRE_HIP=ON, MFEM et la suite portent le suffixe
-# supplémentaire -hypre-hip. MFEM 4.10 vient du dépôt officiel
-# (étiquette v4.10). MPI, METIS, SuiteSparse et OpenBLAS sont ceux de
-# l'environnement spack mmm-gpu. Résultat : deps/hip-amd/install/{hypre,mfem}.
+# hypre is compiled for the CPU (MFEM with HIP accepts a hypre on the host),
+# or with HIP for the GPU if HYPRE_HIP=ON (needed by the tests on the GPU:
+# the execution settings refuse a linear solver of hypre that computes on
+# the host when it is placed on the GPU), from the archive cached by spack.
+# With HYPRE_HIP=ON, MFEM and the rest have the additional suffix
+# -hypre-hip. MFEM 4.10 comes from the official repository (tag v4.10).
+# MPI, METIS, SuiteSparse and OpenBLAS are those of the spack environment
+# mmm-gpu. Result: deps/hip-amd/install/{hypre,mfem}.
 #
-# L'étape mfem-mgis construit mfem-mgis (dossier mfem-mgis du prototype)
-# avec ce MFEM, MGIS et TFEL du prototype, dans build/mfem-mgis-hip, avec
-# ses tests (cibles build-tests et BehaviourTest), ceux qui demandent un GPU
-# seulement avec GPU_TESTS=ON, puis les lance.
+# The step mfem-mgis builds mfem-mgis (directory mfem-mgis of the prototype)
+# with this MFEM, and the MGIS and TFEL of the prototype, in
+# build/mfem-mgis-hip, with its tests (targets build-tests and
+# BehaviourTest), those that need a GPU only with GPU_TESTS=ON, then runs
+# them.
 #
-# L'étape examples installe ce mfem-mgis dans install/mfem-mgis-hip et
-# construit les exemples de mfem-mgis-examples avec lui (configuration
-# installée, lois compilées pour le GPU AMD), dans build/examples-hip, puis
-# lance ses tests (ceux sur GPU avec GPU_TESTS=ON, option
-# MFEM_MGIS_EXAMPLES_GPU_TESTS).
+# The step examples installs this mfem-mgis in install/mfem-mgis-hip and
+# builds the examples of mfem-mgis-examples with it (installed
+# configuration, behaviours compiled for the AMD GPU), in
+# build/examples-hip, then runs its tests (those on GPU with GPU_TESTS=ON,
+# option MFEM_MGIS_EXAMPLES_GPU_TESTS).
 #
-# Utilisation : [HIP_ARCH=gfx1036] [GPU_TESTS=ON] [HYPRE_HIP=ON] \
+# Usage: [HIP_ARCH=gfx1036] [GPU_TESTS=ON] [HYPRE_HIP=ON] \
 #   scripts/build-hip-amd.sh [hypre|mfem|mfem-mgis|examples|all]
 
 set -euo pipefail
@@ -65,13 +66,13 @@ ROCM=$("$ROCM_VENV/bin/rocm-sdk" path --root)
 HIP_ARCH=${HIP_ARCH:-gfx90a}
 GPU_TESTS=${GPU_TESTS:-OFF}
 HYPRE_HIP=${HYPRE_HIP:-OFF}
-# suffixe des dossiers propres à l'architecture
+# suffix of the directories specific to the architecture
 if [ "$HIP_ARCH" = gfx90a ]; then
   A=
 else
   A=-$HIP_ARCH
 fi
-# suffixes de hypre et des dossiers qui en dépendent
+# suffixes of hypre and of the directories that depend on it
 if [ "$HYPRE_HIP" = ON ]; then
   H=-hip-$HIP_ARCH
   A=$A-hypre-hip
@@ -80,7 +81,7 @@ else
 fi
 SPACK=${SPACK:-$HOME/Bureau/spack-mmm/bin/spack}
 JOBS=${JOBS:-4}
-# cœurs utilisés par la compilation et par les tests
+# cores used by the compilation and by the tests
 CPUS=${CPUS:-0,1,8,9}
 
 location() {
@@ -97,7 +98,7 @@ mkdir -p "$D"
 
 build_hypre() {
   local version=3.2.0
-  # archive mise en cache par spack (somme de contrôle de la recette)
+  # archive cached by spack (checksum of the recipe)
   local sha=5273205a310fb6aa3ae506ce216760fb67b30e02024874f3cdb8b811e4801de7
   local spack_root
   spack_root=$(dirname "$(dirname "$SPACK")")
@@ -109,10 +110,10 @@ build_hypre() {
   tar -xf "$archive" -C "$src" --strip-components=1
   local gpu=()
   if [ "$HYPRE_HIP" = ON ]; then
-    # hypre compilé par le compilateur HIP de ROCm (qui n'est pas l'enveloppe
-    # de MPI : les en-têtes de MPI lui sont donnés), bibliothèques rocsparse,
-    # rocrand et rocblas de ROCm ; sans Umpire, que hypre active d'office
-    # pour un GPU (non installé ici : hypre alloue alors lui-même)
+    # hypre compiled by the HIP compiler of ROCm (which is not the MPI
+    # wrapper: the headers of MPI are given to it), libraries rocsparse,
+    # rocrand and rocblas of ROCm; without Umpire, which hypre enables by
+    # default for a GPU (not installed here: hypre then allocates itself)
     export HIP_PATH=$ROCM ROCM_PATH=$ROCM HIP_PLATFORM=amd
     gpu=(-DHYPRE_ENABLE_HIP=ON -DCMAKE_HIP_ARCHITECTURES="$HIP_ARCH"
       -DHYPRE_ENABLE_UMPIRE=OFF
@@ -129,12 +130,12 @@ build_hypre() {
     -DCMAKE_INSTALL_PREFIX="$D/install/hypre$H"
   taskset -c "$CPUS" cmake --build "$b" -j "$JOBS"
   cmake --install "$b"
-  echo "hypre $version installé dans $D/install/hypre$H"
+  echo "hypre $version installed in $D/install/hypre$H"
 }
 
 build_mfem() {
-  # MFEM 4.10, comme l'environnement mmm-gpu ; les sources déjà extraites
-  # sont gardées (la compilation reprend où elle s'est arrêtée)
+  # MFEM 4.10, as the environment mmm-gpu; the sources already extracted
+  # are kept (the compilation resumes where it stopped)
   local src=$D/mfem-src$A
   if [ ! -f "$src/makefile" ]; then
     git clone --quiet --depth 1 --branch v4.10 \
@@ -142,11 +143,11 @@ build_mfem() {
   fi
   local blas="-Wl,-rpath,$OPENBLAS/lib -L$OPENBLAS/lib -lopenblas"
   export HIPCC_COMPILE_FLAGS_APPEND="-isystem $ROCM/include"
-  # plateforme AMD, même si scripts/env.sh choisit NVIDIA pour TFEL
+  # AMD platform, even if scripts/env.sh chooses NVIDIA for TFEL
   export HIP_PATH=$ROCM ROCM_PATH=$ROCM HIP_PLATFORM=amd
   cd "$src"
-  # `make config` récrit config/config.mk, dont dépendent tous les objets :
-  # il n'est relancé que pour une nouvelle extraction des sources
+  # `make config` rewrites config/config.mk, on which all the objects
+  # depend: it is only run again for a new extraction of the sources
   [ -f config/config.mk ] || make config \
     PREFIX="$D/install/mfem$A" \
     MFEM_USE_MPI=YES MFEM_USE_HIP=YES MFEM_USE_METIS_5=YES \
@@ -163,14 +164,14 @@ build_mfem() {
     LAPACK_LIB="$blas"
   taskset -c "$CPUS" make -j "$JOBS" lib
   make install
-  echo "MFEM installé dans $D/install/mfem$A"
+  echo "MFEM installed in $D/install/mfem$A"
 }
 
-# environnement propre, sans scripts/env.sh : la vue de l'environnement
-# spack mmm-gpu contient le MFEM compilé avec CUDA, dont les en-têtes
-# passeraient avant ceux du MFEM compilé avec HIP (le dossier include de la
-# vue est celui de MPI). Seuls le TFEL du prototype et MPI sont dans les
-# chemins, aucune autre installation de TFEL ou de MFEM.
+# clean environment, without scripts/env.sh: the view of the spack
+# environment mmm-gpu contains the MFEM compiled with CUDA, whose headers
+# would come before those of the MFEM compiled with HIP (the include
+# directory of the view is the one of MPI). Only the TFEL of the prototype
+# and MPI are in the paths, no other installation of TFEL or MFEM.
 build_environment() {
   tfel=$P/install/tfel-mmm-gpu
   unset CMAKE_PREFIX_PATH PKG_CONFIG_PATH HIP_PLATFORM HIP_COMPILER
@@ -192,38 +193,37 @@ build_mfem_mgis() {
     -Denable-gpu-tests="$GPU_TESTS" \
     -DCMAKE_INSTALL_PREFIX="$P/install/mfem-mgis-hip$A"
   taskset -c "$CPUS" cmake --build "$b" -j "$JOBS"
-  # la bibliothèque de lois des tests (BehaviourTest) dépend de la cible
-  # check, pas de build-tests
+  # the library of behaviours of the tests (BehaviourTest) depends on the
+  # target check, not on build-tests
   taskset -c "$CPUS" cmake --build "$b" -j "$JOBS" \
     --target build-tests BehaviourTest
   run_tests "$b"
 }
 
-# lance les tests de la construction donnée ; sur le GPU, par `sg render`
-# si la session n'a pas encore le groupe render (sg, programme setuid,
-# retire LD_LIBRARY_PATH de l'environnement : il est redonné)
+# runs the tests of the given build; on the GPU, through `sg render` if
+# the session does not have the group render yet (sg, a setuid program,
+# removes LD_LIBRARY_PATH from the environment: it is given again)
 #
-# Sur le GPU, les noyaux et les copies sont sérialisés : avec ROCm 10.1
-# (HIP 7.16, paquets de TheRock) sur le GPU intégré gfx1036, un noyau encore
-# en attente est perdu quand un noyau d'une bibliothèque partagée dont le
-# code n'est pas encore chargé est lancé pour la première fois (reproducteur
-# reproducers/hip-lost-kernel) : résidus faux (composantes imposées non
-# annulées) et fautes mémoire de hypre. Le chargement immédiat du code
-# (HIP_ENABLE_DEFERRED_LOADING=0) échoue, libhipblaslt n'ayant pas de code
-# pour gfx1036. La sérialisation ne suffit pas toujours : rve et
-# ssna303_3d_hypre restent alors bloqués dans hipLaunchKernel, au premier
-# lancement d'un noyau de la bibliothèque des lois (attente d'un signal qui
-# ne vient jamais).
+# On the GPU, the kernels and the copies are serialised: with ROCm 10.1
+# (HIP 7.16, packages of TheRock) on the integrated GPU gfx1036, a kernel
+# still pending is lost when a kernel of a shared library whose code is not
+# loaded yet is launched for the first time (reproducer
+# reproducers/hip-lost-kernel): wrong residuals (imposed components not
+# zeroed) and memory faults of hypre. The immediate loading of the code
+# (HIP_ENABLE_DEFERRED_LOADING=0) fails, libhipblaslt having no code for
+# gfx1036. Serialisation is not always enough: rve and ssna303_3d_hypre then
+# stay blocked in hipLaunchKernel, at the first launch of a kernel of the
+# library of behaviours (waiting for a signal that never comes).
 #
-# L'OpenMPI de l'environnement mmm-gpu est construit avec CUDA : sans
-# OMPI_MCA_accelerator=null, chaque processus ouvre un contexte sur le GPU
-# NVIDIA de la machine, qui peut servir à d'autres travaux.
+# The OpenMPI of the environment mmm-gpu is built with CUDA: without
+# OMPI_MCA_accelerator=null, each process opens a context on the NVIDIA GPU
+# of the machine, which may be used by other jobs.
 run_tests() {
   local serialize="export OMPI_MCA_accelerator=null; "
   if [ "$GPU_TESTS" = ON ]; then
     serialize="${serialize}export AMD_SERIALIZE_KERNEL=3 AMD_SERIALIZE_COPY=3; "
   fi
-  # délai de 600 s par test : un test bloqué ne garde pas les cœurs 1500 s
+  # timeout of 600 s per test: a blocked test does not hold the cores for 1500 s
   local cmd="${serialize}cd '$1' && taskset -c '$CPUS' ctest --timeout 600 --output-on-failure"
   if [ "$GPU_TESTS" = ON ] && ! id -nG | grep -qw render; then
     sg render -c "export LD_LIBRARY_PATH='$LD_LIBRARY_PATH'; $cmd"

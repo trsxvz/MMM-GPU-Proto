@@ -1,139 +1,146 @@
-# Cas de la campagne de mesures
+# Cases of the measurement campaign
 
-Cas propres au prototype, qui ne sont ni dans mfem-mgis-examples ni dans
-mm-opera-hpc. Ils se construisent contre le mfem-mgis installé par
-`build-mfem-mgis.sh` (`./build-mfem-mgis.sh cas`, dossier `build/cas`). Les
-lois sont générées dans le type numérique de ce mfem-mgis (`float` si son
-MFEM est en simple précision, option `real_type` de mfront). Les lois pour
-le GPU ne sont générées que si ce MFEM calcule sur un GPU avec CUDA.
+Cases specific to the prototype, which are neither in mfem-mgis-examples
+nor in mm-opera-hpc. They are built against the mfem-mgis installed by
+`build-mfem-mgis.sh` (`./build-mfem-mgis.sh cases`, directory `build/cases`).
+The behaviours are generated in the numerical type of this mfem-mgis
+(`float` if its MFEM is in single precision, option `real_type` of mfront).
+The behaviours for the GPU are only generated if this MFEM computes on a GPU
+with CUDA.
 
-- `poutre/` : poutre encastrée en flexion, plasticité J2 en petites
-  déformations, 3D (maillage `beam-tet.mesh` et loi
-  `IsotropicLinearHardeningPlasticity` des tests de mfem-mgis). Résolue
-  par le Newton de mfem-mgis, avec prédiction élastique. Solveurs
-  linéaires : `pcg-amg` (PCG de hypre et BoomerAMG), `cg-amg`,
-  `cg-jacobi`, `cg-chebyshev`, `cg-amgx`, `amgx-pcg`, et les solveurs
-  directs `mumps` (matrices symétriques), `cudss` (sur un GPU, matrices
-  symétriques définies positives) et `umfpack` (séquentiel). Options
-  principales : `-r` (raffinements), `-n` (pas),
-  `-ls`, `-lt` (tolérance du solveur itératif), `--profiling`, `--device`.
-  Le bilan donne le nombre d'inconnues, la norme de la solution finale
-  (identique pour tous les solveurs) et les itérations de Newton par pas.
-  Les tests comparent cette norme à sa valeur de référence.
-- `thermique/` : thermique stationnaire non linéaire dans la même poutre
-  (conductivité qui dépend de la température, températures imposées aux
-  deux extrémités, loi `StationaryNonLinearHeatTransfer` des tests de
-  mfem-mgis). Résolue par le Newton de mfem-mgis, point par point ou par
-  noyaux, sur l'hôte ou sur le GPU. La tangente thermique est définie
-  négative et les températures imposées ont une diagonale à un : la
-  matrice est indéfinie, d'où GMRES au lieu du gradient conjugué.
-  Solveurs linéaires : `gmres-amg` (GMRES de hypre et BoomerAMG),
-  `gmres-jacobi` (GMRES de MFEM et Jacobi, aussi sans matrice), `mumps`,
-  `umfpack`. Mêmes options et même bilan que la poutre, plus `-dT`
-  (échauffement imposé) et `-alst` (tolérance adaptative).
+The measurement scripts (`measure-*.sh`) use `build/cases` by default. The
+scripts that compare several versions of mfem-mgis (branches of the
+development history, such as `global`, `registers`, `jacobians`, `others`
+or `host-memory`) expect one build directory per version,
+`build/cases-<version>`, `build/mfem-mgis-<version>` or
+`install/mfem-mgis-<version>`. These directories are not part of the
+repository. The names quoted in the READMEs of `results/` are the ones of
+these directories on the development machine, translated into English on
+14/10/2026 with the rest of the repository.
 
-- `polycristal/` : lois du polycristal de mm-opera-hpc générées par
-  l'interface `generic-parallel` (openmp, stlpar, cuda) ; l'exécutable est
-  celui de mm-opera-hpc. Les tests comparent les contraintes
-  macroscopiques au calcul point par point.
-- `bulle/` : loi de la bulle de mm-opera-hpc (cavité sphérique sous
-  pression dans une cellule périodique, élasticité, éléments
-  quadratiques), générée par l'interface `generic-parallel` ; l'exécutable
-  est `test-bubble` de mm-opera-hpc, sur le maillage de sa CI, chaque test
-  dans son dossier. Les tests comparent ses sorties (contrainte
-  hydrostatique moyenne, contraintes près des bulles) au calcul point par
-  point.
-- `cermet/` : lois du cermet de mm-opera-hpc (polycristal de l'UO2 et
-  interface métallique de Norton), une bibliothèque pour les deux ; un
-  pas sur deux processus, contraintes macroscopiques comparées au calcul
-  point par point.
-- `ssna303/` : lois de l'exemple ex4 de mfem-mgis-examples (barreau
-  entaillé en 3D, plasticité en grandes transformations, déformation de
-  Hencky) générées par l'interface `generic-parallel` ; l'exécutable est
-  `ssna303_3d_hypre` de mfem-mgis-examples (options `--device`, `-l`,
-  `-no-pv`, `-r`). Les tests comparent la force résultante du premier pas
-  aux valeurs de référence de l'exemple.
-- `ex1/`, `ex2/`, `ex3/`, `ex5/`, `ex6/`, `ex7/`, `ex8/` : autres exemples
-  de mfem-mgis-examples (traction cyclique, ssna303 en déformations planes
-  avec et sans FBar, cube à deux couches, plaque de Satoh, VER de deux
-  couches, VER de MOX, plaque thermomécanique), avec leurs lois générées
-  par l'interface `generic-parallel` ; l'exécutable est celui de
-  l'exemple (options `-l` et `--device`, ou variable `MFEM_MGIS_DEVICE`
-  pour ex1 et ex3). Chaque test garde la vérification de l'exemple
-  (référence ou solution analytique) : point par point, par noyaux, par
-  lots avec chaque backend et sur le GPU. Les dossiers de construction des
-  exemples sont donnés par `MFEM_MGIS_EXAMPLES_EX<n>_DIR`, dans
-  `MFEM_MGIS_EXAMPLES_BINARY_DIR` par défaut (`build/mfem-mgis-examples`).
-  Ces variables sont gardées en cache dès la première configuration.
+- `beam/`: clamped beam in bending, J2 plasticity in small strains, 3D
+  (mesh `beam-tet.mesh` and behaviour
+  `IsotropicLinearHardeningPlasticity` of the tests of mfem-mgis). Solved
+  by the Newton of mfem-mgis, with elastic prediction. Linear solvers:
+  `pcg-amg` (PCG of hypre and BoomerAMG), `cg-amg`, `cg-jacobi`,
+  `cg-chebyshev`, `cg-amgx`, `amgx-pcg`, and the direct solvers `mumps`
+  (symmetric matrices), `cudss` (on a GPU, symmetric positive definite
+  matrices) and `umfpack` (sequential). Main options: `-r` (refinements),
+  `-n` (steps), `-ls`, `-lt` (tolerance of the iterative solver),
+  `--profiling`, `--device`. The summary gives the number of unknowns, the
+  norm of the final solution (identical for all the solvers) and the
+  Newton iterations per step. The tests compare this norm to its reference
+  value.
+- `thermal/`: stationary non linear heat transfer in the same beam
+  (conductivity which depends on the temperature, temperatures imposed at
+  both ends, behaviour `StationaryNonLinearHeatTransfer` of the tests of
+  mfem-mgis). Solved by the Newton of mfem-mgis, point by point or by
+  kernels, on the host or on the GPU. The thermal tangent operator is
+  negative definite and the imposed temperatures have a unit diagonal: the
+  matrix is indefinite, hence GMRES instead of the conjugate gradient.
+  Linear solvers: `gmres-amg` (GMRES of hypre and BoomerAMG),
+  `gmres-jacobi` (GMRES of MFEM and Jacobi, also matrix free), `mumps`,
+  `umfpack`. Same options and same summary as the beam, plus `-dT`
+  (imposed temperature rise) and `-alst` (adaptive tolerance).
 
-Un cas qui lance un exécutable d'un autre projet (exemples, mm-opera-hpc)
-n'est ajouté que si cet exécutable est construit contre la même
-installation de mfem-mgis que les cas. Il charge en effet les lois des
-cas, qui doivent avoir le même type numérique et les mêmes interfaces. La
-fonction `proto_check_executable` de `CMakeLists.txt` lit pour cela
-`MFEMMGIS_DIR` dans le cache de la construction de l'exécutable.
-`MFEM_MGIS_EXAMPLES_BINARY_DIR` et `MM_OPERA_HPC_BINARY_DIR` désignent donc
-des constructions contre le même mfem-mgis.
+- `polycrystal/`: behaviours of the polycrystal of mm-opera-hpc generated
+  by the `generic-parallel` interface (openmp, stlpar, cuda); the
+  executable is the one of mm-opera-hpc. The tests compare the macroscopic
+  stresses to the computation point by point.
+- `bubble/`: behaviour of the bubble of mm-opera-hpc (pressurized
+  spherical cavity in a periodic cell, elasticity, quadratic elements),
+  generated by the `generic-parallel` interface; the executable is
+  `test-bubble` of mm-opera-hpc, on the mesh of its CI, each test in its
+  own directory. The tests compare its outputs (mean hydrostatic stress,
+  stresses near the bubbles) to the computation point by point.
+- `cermet/`: behaviours of the cermet of mm-opera-hpc (polycrystal of UO2
+  and metallic interface with a Norton behaviour), one library for both;
+  one step on two processes, macroscopic stresses compared to the
+  computation point by point.
+- `ssna303/`: behaviours of the example ex4 of mfem-mgis-examples (notched
+  bar in 3D, finite strain plasticity, Hencky strain) generated by the
+  `generic-parallel` interface; the executable is `ssna303_3d_hypre` of
+  mfem-mgis-examples (options `--device`, `-l`, `-no-pv`, `-r`). The tests
+  compare the resultant force of the first step to the reference values
+  of the example.
+- `ex1/`, `ex2/`, `ex3/`, `ex5/`, `ex6/`, `ex7/`, `ex8/`: other examples
+  of mfem-mgis-examples (cyclic tensile test, ssna303 in plane strain with
+  and without FBar, two-layer cube, plate of Satoh, RVE made of two layers,
+  RVE of MOX, thermomechanical plate), with their behaviours generated by
+  the `generic-parallel` interface; the executable is the one of the
+  example (options `-l` and `--device`, or variable `MFEM_MGIS_DEVICE` for
+  ex1 and ex3). Each test keeps the check of the example (reference or
+  analytical solution): point by point, by kernels, by batches with each
+  backend and on the GPU. The build directories of the examples are given
+  by `MFEM_MGIS_EXAMPLES_EX<n>_DIR`, in `MFEM_MGIS_EXAMPLES_BINARY_DIR` by
+  default (`build/mfem-mgis-examples`). These variables are cached from the
+  first configuration.
 
-En float, MFEM n'a ni SuiteSparse ni AmgX : les tests UMFPACK, AmgX et ex5
-(satoh) sont absents. Les calculs séquentiels de la poutre et de la
-thermique, et les tests `wrong-norm`, passent par un solveur itératif de
-MFEM. Le polycristal et le cermet ont leurs tolérances en float
-(`proto_select_tolerance`, justifiées dans leurs `CMakeLists.txt`). La
-norme de la poutre est comparée à 2e-5 près par défaut (1e-6 en double).
+A case which runs an executable of another project (examples,
+mm-opera-hpc) is only added if this executable is built against the same
+installation of mfem-mgis as the cases. Indeed, it loads the behaviours of
+the cases, which must have the same numerical type and the same
+interfaces. For this, the function `proto_check_executable` of
+`CMakeLists.txt` reads `MFEMMGIS_DIR` in the cache of the build of the
+executable. `MFEM_MGIS_EXAMPLES_BINARY_DIR` and `MM_OPERA_HPC_BINARY_DIR`
+therefore designate builds against the same mfem-mgis.
 
-Options de la poutre ajoutées par les lots suivants : point fixe et
-NewtonK0 (`-nls fixed-point -fpm newton-k0 -k0 -pk0`), tolérance
-adaptative (`-alst EisenstatWalker1 -alsti 0.1`), multigrille de K0
-(`-els amg|amgx`, `-amgo` options de BoomerAMG, `-amgxo`, `-amgxc`,
-`-amgxs` pour AmgX), verbosité du solveur non linéaire (`-vl`), solveur
-direct cuDSS sur le GPU (`-ls cudss`, `-els cudss`, demande un mfem-mgis
-qui le fournit) et réutilisation de l'analyse des solveurs directs, du
-problème comme de l'opérateur élastique (`-mra`, ignorée avec un
-avertissement sans solveur direct). L'outil
-`poutre-k0` résout l'opérateur élastique K0 seul, mise en place et
-résolutions chronométrées à part. Les options de mfem-mgis s'appliquent à
-tous les cas : `--device`, `--hypre-device-pool-size` (`-hdps`),
-`--hypre-on-host`, `--execution cpu|gpu|mixed` (`-x`) et, en mode
-`mixed`, les options de placement `--finite-elements`, `--behaviours`,
-`--linear-solver-device` et `--post-processings` (voir
-[docs/plan-execution.md](../docs/plan-execution.md)), et les variables
-`MFEM_MGIS_*` des calculs par lots et par noyaux. Avec `--execution`, les
-variables `MFEM_MGIS_*` de placement sont ignorées, avec un
-avertissement.
+In float, MFEM has neither SuiteSparse nor AmgX: the UMFPACK, AmgX and ex5
+(satoh) tests are absent. The sequential computations of the beam and of
+the thermal case, and the `wrong-norm` tests, go through an iterative
+solver of MFEM. The polycrystal and the cermet have their own tolerances
+in float (`proto_select_tolerance`, justified in their `CMakeLists.txt`).
+The norm of the beam is compared within 2e-5 by default (1e-6 in double).
 
-Scripts de mesures (résultats dans `results/<lot>-<cas>-<date>/`) :
-`measure-common.sh` (fonctions communes ; cas poutre, polycristal,
-thermique, ssna303, ex8, bulle, cermet ; variable `refinement`), `measure-L2.sh` à
-`measure-L7-thermal.sh` (un script par lot du plan),
-`measure-beam-scaling.sh` (passage à l'échelle de la poutre, mémoire du
-GPU), `measure-ssna303.sh` (ssna303 sur 8 cœurs et sur le GPU),
-`sweep-amgx-k0.sh` (configurations d'AmgX sur K0),
-`transfers-profile.sh` (copies entre l'hôte et le GPU, nsys),
-`measure-host-memory.sh` (types de mémoire de MFEM sur le GPU),
+Options of the beam added by the following work packages: fixed point and
+NewtonK0 (`-nls fixed-point -fpm newton-k0 -k0 -pk0`), adaptive tolerance
+(`-alst EisenstatWalker1 -alsti 0.1`), multigrid of K0 (`-els amg|amgx`,
+`-amgo` options of BoomerAMG, `-amgxo`, `-amgxc`, `-amgxs` for AmgX),
+verbosity of the non linear solver (`-vl`), direct solver cuDSS on the GPU
+(`-ls cudss`, `-els cudss`, requires a mfem-mgis which provides it) and
+reuse of the analysis of the direct solvers, for the problem as well as
+for the elastic operator (`-mra`, ignored with a warning without a direct
+solver). The tool `beam-k0` solves the elastic operator K0 alone, with the
+setup and the resolutions timed separately. The options of mfem-mgis
+apply to all the cases: `--device`, `--hypre-device-pool-size` (`-hdps`),
+`--hypre-on-host`, `--execution cpu|gpu|mixed` (`-x`) and, in `mixed`
+mode, the placement options `--finite-elements`, `--behaviours`,
+`--linear-solver-device` and `--post-processings` (see
+[docs/plan-execution.md](../docs/plan-execution.md)), and the variables
+`MFEM_MGIS_*` of the computations by batches and by kernels. With
+`--execution`, the placement variables `MFEM_MGIS_*` are ignored, with a
+warning.
+
+Measurement scripts (results in `results/<work_package>-<case>-<date>/`):
+`measure-common.sh` (shared functions; cases beam, polycrystal, thermal,
+ssna303, ex8, bubble, cermet; variable `refinement`), `measure-L2.sh` to
+`measure-L7-thermal.sh` (one script per work package of the plan),
+`measure-beam-scaling.sh` (scaling of the beam, memory of the GPU),
+`measure-ssna303.sh` (ssna303 on 8 cores and on the GPU),
+`sweep-amgx-k0.sh` (configurations of AmgX on K0),
+`transfers-profile.sh` (copies between the host and the GPU, nsys),
+`measure-host-memory.sh` (memory types of MFEM on the GPU),
 `measure-positions.sh`, `measure-jacobians-gpu.sh`,
-`measure-global-matrix.sh` et `measure-gpu-summary.sh` (assemblage de la
-tangente par noyaux, lots du 11/10), `measure-other-integrators.sh`
-(autres intégrateurs de la forme), `measure-pressure-beam.sh` (pression
-imposée, lot L7.6), `measure-backends-gpu.sh` et
-`measure-backends-polycrystal.sh` (backends GPU de l'interface
-`generic-parallel`), `measure-ex8.sh` (ex8 de bout en bout),
-`measure-post-processings.sh` (post-traitements, lot L8),
-`measure-execution-beam.sh` (placements donnés par `--execution`,
-tâche 9a), `measure-precision-beam.sh` (float contre double sur le CPU,
-environnements spack jumeaux, tâche 9b). Outils :
-`summary-profiling.py` (temps par phase des sorties `--profiling`),
-`summary-precision.py` (synthèse des mesures float contre double : temps,
-itérations, écart des normes),
-`compare-outputs.py` (comparaison de sorties numériques, `--csv` pour
-les valeurs séparées par des virgules), `assemblage/` (programme qui
-chronomètre l'assemblage par noyaux des matrices de rigidité dans la
-matrice creuse locale, avec et sans les positions des entrées calculées
-une fois, et en parallèle la construction de la matrice globale),
-`commun/` (`KokkosRuntime` : initialisation de Kokkos pour les lois du
-backend `kokkos`).
+`measure-global-matrix.sh` and `measure-gpu-summary.sh` (assembly of the
+tangent operator by kernels, work packages of 11/10),
+`measure-other-integrators.sh` (other integrators of the form),
+`measure-pressure-beam.sh` (imposed pressure, work package L7.6),
+`measure-backends-gpu.sh` and `measure-backends-polycrystal.sh` (GPU
+backends of the `generic-parallel` interface), `measure-ex8.sh` (ex8 end
+to end), `measure-post-processings.sh` (post-processings, work package
+L8), `measure-execution-beam.sh` (placements given by `--execution`, task
+9a), `measure-precision-beam.sh` (float against double on the CPU, twin
+spack environments, task 9b). Tools: `summary-profiling.py` (time per
+phase of the `--profiling` outputs), `summary-precision.py` (synthesis of
+the float against double measurements: times, iterations, gap between the
+norms), `compare-outputs.py` (comparison of numerical outputs, `--csv` for
+comma separated values), `assembly/` (program which times the assembly by
+kernels of the stiffness matrices into the local sparse matrix, with and
+without the positions of the entries computed once, and in parallel the
+construction of the global matrix), `common/` (`KokkosRuntime`:
+initialization of Kokkos for the behaviours of the `kokkos` backend).
 
-`measure-reference.sh` mesure les temps de référence du chemin actuel de
-mfem-mgis sur CPU (lot L0) : poutre, ssna303 en 3D (ex4), polycristal
-(mm-opera-hpc), thermomécanique (ex8). Résultats dans
+`measure-reference.sh` measures the reference times of the current path of
+mfem-mgis on the CPU (work package L0): beam, ssna303 in 3D (ex4),
+polycrystal (mm-opera-hpc), thermomechanics (ex8). Results in
 `results/reference-L0-<date>/`.

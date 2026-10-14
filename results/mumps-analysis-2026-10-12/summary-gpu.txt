@@ -1,4 +1,4 @@
-fichier : total, couplage, préparation des solveurs linéaires (setLinearSolverOperator : thermique, 35 appels ; mécanique, factorisations MUMPS, 29 appels), en s
+file: total, coupling, setup of the linear solvers (setLinearSolverOperator: thermal, 35 calls; mechanics, MUMPS factorisations, 29 calls), in s
 ex8-gpu-kernels-with-1.txt : 9.726975, 9.545192, 0.001931 5.865692 
 ex8-gpu-kernels-with-2.txt : 9.730765, 9.548767, 0.001943 5.863808 
 ex8-gpu-kernels-without-1.txt : 11.148799, 10.957828, 0.002121 7.226941 

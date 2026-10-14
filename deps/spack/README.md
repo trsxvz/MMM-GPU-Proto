@@ -1,64 +1,65 @@
-# Environnement spack du prototype
+# Spack environment of the prototype
 
-Contenu :
+Content:
 
-- `mmm-gpu/spack.yaml` : environnement. NVIDIA HPC SDK 25.11 et son CUDA
-  13.0.2 en externes ; Kokkos 5.2.2, HIP 7.2.3, LLVM 20.1.8, AdaptiveCpp
-  25.10.0, TBB 2023.1.0 (chaînes de TFEL) ; MFEM 4.10.0 avec CUDA,
-  OpenMP et libCEED, et les
-  bibliothèques de solveurs de l'étude (hypre 3.2.0, Ginkgo 1.11.0 avec
-  MPI, PETSc 3.26.0 avec Kokkos, SUNDIALS, AmgX, SuperLU_DIST, STRUMPACK,
-  MUMPS, UMFPACK), cuDSS 0.7.1, OpenMPI 5, OpenBLAS. Le choix des
-  solveurs est expliqué dans [docs/gpu-solvers.md](../../docs/gpu-solvers.md) ;
-- `mmm-float-cpu/spack.yaml`, `mmm-double-cpu/spack.yaml` et
-  `mmm-float-gpu/spack.yaml` : environnements de la précision float (tâche
-  9b, [docs/plan-precision.md](../../docs/plan-precision.md)). MFEM 4.10 en
-  simple précision, hypre en simple et MUMPS `+float`, sur le CPU
-  (`mmm-float-cpu`) ou avec CUDA et Umpire (`mmm-float-gpu`, sans AmgX ni
-  cuDSS) ; `mmm-double-cpu` est le jumeau en double de `mmm-float-cpu`,
-  pour comparer les deux précisions à environnement égal (dans `mmm-gpu`,
-  hypre est construit pour CUDA). Ils partagent l'instance de spack, les
-  paquets et les externes de `mmm-gpu`, qui n'est pas modifié. In float,
+- `mmm-gpu/spack.yaml`: environment. NVIDIA HPC SDK 25.11 and its CUDA
+  13.0.2 as externals; Kokkos 5.2.2, HIP 7.2.3, LLVM 20.1.8, AdaptiveCpp
+  25.10.0, TBB 2023.1.0 (toolchains of TFEL); MFEM 4.10.0 with CUDA,
+  OpenMP and libCEED, and the
+  solver libraries of the study (hypre 3.2.0, Ginkgo 1.11.0 with
+  MPI, PETSc 3.26.0 with Kokkos, SUNDIALS, AmgX, SuperLU_DIST, STRUMPACK,
+  MUMPS, UMFPACK), cuDSS 0.7.1, OpenMPI 5, OpenBLAS. The choice of the
+  solvers is explained in [docs/gpu-solvers.md](../../docs/gpu-solvers.md);
+- `mmm-float-cpu/spack.yaml`, `mmm-double-cpu/spack.yaml` and
+  `mmm-float-gpu/spack.yaml`: environments of the float precision (task
+  9b, [docs/plan-precision.md](../../docs/plan-precision.md)). MFEM 4.10 in
+  single precision, hypre in single precision and MUMPS `+float`, on the
+  CPU (`mmm-float-cpu`) or with CUDA and Umpire (`mmm-float-gpu`, without
+  AmgX nor cuDSS); `mmm-double-cpu` is the double twin of `mmm-float-cpu`,
+  to compare the two precisions with the same environment (in `mmm-gpu`,
+  hypre is built for CUDA). They share the spack instance, the packages
+  and the externals of `mmm-gpu`, which is not modified. In float,
   hypre is built with its internal BLAS and LAPACK (`~lapack`): with an
   external LAPACK, hypre 3.2.0 in single precision calls the LAPACK
   routines of the double type on float arrays (ParaSails, Gaussian
-  elimination 99 and 199 of BoomerAMG, Schwarz, FSAI, MGR, AIR, LOBPCG) ;
-- `ci-cpu/spack.yaml` et `ci-cpu-float/spack.yaml` : environnements de la
-  CI sur le CPU (`.github/workflows/cpu.yml`,
-  [docs/plan-ci-site.md](../../docs/plan-ci-site.md)), en double (MFEM 4.10
-  avec MUMPS et SuiteSparse, hypre, OpenMPI) et en simple précision (comme
-  `mmm-float-cpu`, sans SuiteSparse, refusé par MFEM en float). Seulement
-  le dépôt de paquets de spack, au même commit que les autres
-  environnements, et les compilateurs de la machine de la CI ;
-- `repos/spack_repo/mmm_gpu` : dépôt de paquets complémentaire, prioritaire
-  sur celui de spack :
-  - `adaptivecpp` : AdaptiveCpp 25.10 (le paquet `hipsycl` de spack
-    s'arrête à 24.10, qui ne compile pas avec CUDA 13) ;
-  - `amgx` : version `2.5.0.20260701`, commit de la branche principale
-    avec deux corrections complémentaires pour CUDA 13, postérieures à la
-    version 2.5.0 (C++17 avec CUDA 13.1 et plus, tuples de CUDA 13) ;
-  - `openmpi` : hwloc interne sans OpenCL (voir [MPI](#mpi)) ;
-  - `mfem` : une construction partielle reprend sans tout recompiler
-    (`make config` réécrit `config/config.mk`, dont dépendent tous les
-    objets : sa date est gardée quand son contenu ne change pas) ; patch
-    `mfem-4.10-convection-ea-cuda13.patch` (CUDA 13 seulement) : avec
-    CUDA 13 (sm_120), cicc ne
-    finit pas `fem/integ/bilininteg_convection_ea.cpp` (plus de 2 h 30 et
-    17 Go, puis tué faute de mémoire) ; les noyaux 3D de l'assemblage par
-    élément de la convection ne sont plus spécialisés au-delà de l'ordre 3,
-    le noyau générique du même fichier prend les ordres plus élevés ;
-  - `petsc` : copie complète de la recette de spack-packages (commit
-    3b7fdffc24), dont les corrections ultérieures ne sont pas reprises.
-    Seule modification : la variante `cuda_lambda` de Kokkos n'est exigée
-    que jusqu'à Kokkos 4 (elle n'existe plus en Kokkos 5, où les lambdas
-    CUDA sont toujours actives) ;
-- `make-nvhpc-cuda-prefix.sh` : préfixe CUDA à la disposition du toolkit
-  autonome, construit à partir du SDK (dont les bibliothèques
-  mathématiques sont dans un dossier séparé) ;
-- `install-mmm-gpu.sh` : installation en deux temps, adaptée à une machine
-  de 30 Go de mémoire (voir plus bas).
+  elimination 98, 99, 198 and 199 of BoomerAMG, Schwarz, FSAI, MGR, AIR,
+  GSMG, LOBPCG, AME);
+- `ci-cpu/spack.yaml` and `ci-cpu-float/spack.yaml`: environments of the
+  CI on the CPU (`.github/workflows/cpu.yml`,
+  [docs/plan-ci-site.md](../../docs/plan-ci-site.md)), in double (MFEM 4.10
+  with MUMPS and SuiteSparse, hypre, OpenMPI) and in single precision (as
+  `mmm-float-cpu`, without SuiteSparse, refused by MFEM in float). Only
+  the package repository of spack, at the same commit as the other
+  environments, and the compilers of the CI machine;
+- `repos/spack_repo/mmm_gpu`: complementary package repository, with
+  priority over the one of spack:
+  - `adaptivecpp`: AdaptiveCpp 25.10 (the `hipsycl` package of spack
+    stops at 24.10, which does not compile with CUDA 13);
+  - `amgx`: version `2.5.0.20260701`, commit of the main branch with two
+    complementary fixes for CUDA 13, later than version 2.5.0 (C++17 with
+    CUDA 13.1 and above, tuples of CUDA 13);
+  - `openmpi`: internal hwloc without OpenCL (see [MPI](#mpi));
+  - `mfem`: a partial build resumes without recompiling everything
+    (`make config` rewrites `config/config.mk`, on which all the objects
+    depend: its date is kept when its content does not change); patch
+    `mfem-4.10-convection-ea-cuda13.patch` (CUDA 13 only): with
+    CUDA 13 (sm_120), cicc does not
+    finish `fem/integ/bilininteg_convection_ea.cpp` (more than 2 h 30 and
+    17 GB, then killed for lack of memory); the 3D kernels of the element
+    assembly of the convection are no longer specialised beyond order 3,
+    the generic kernel of the same file takes the higher orders;
+  - `petsc`: complete copy of the recipe of spack-packages (commit
+    3b7fdffc24), whose later fixes are not taken over. Only modification:
+    the `cuda_lambda` variant of Kokkos is required only up to Kokkos 4
+    (it no longer exists in Kokkos 5, where CUDA lambdas are always
+    enabled);
+- `make-nvhpc-cuda-prefix.sh`: CUDA prefix with the layout of the
+  standalone toolkit, built from the SDK (whose mathematical libraries are
+  in a separate directory);
+- `install-mmm-gpu.sh`: installation in two stages, suited to a machine
+  with 30 GB of memory (see below).
 
-## Recréer l'environnement
+## Recreate the environment
 
 ```bash
 git clone --depth 1 --branch v1.2.2 https://github.com/spack/spack.git spack-mmm
@@ -67,16 +68,16 @@ git -C spack-packages-mmm checkout 3b7fdffc24
 deps/spack/make-nvhpc-cuda-prefix.sh <sdk>/Linux_x86_64/25.11 13.0 <prefix>
 ```
 
-Dans `mmm-gpu/spack.yaml`, adapter :
+In `mmm-gpu/spack.yaml`, adapt:
 
-- le chemin du dépôt `builtin` (clone de spack-packages) ;
-- les préfixes de `nvhpc` (racine du SDK) et de `cuda` (préfixe construit
-  ci-dessus) ;
-- le compilateur `gcc` externe ;
-- `cuda_arch` : 80 pour A100, 120 pour Blackwell (RTX 5080). Kokkos
-  n'accepte qu'une architecture par construction.
+- the path of the `builtin` repository (clone of spack-packages);
+- the prefixes of `nvhpc` (root of the SDK) and of `cuda` (prefix built
+  above);
+- the external `gcc` compiler;
+- `cuda_arch`: 80 for A100, 120 for Blackwell (RTX 5080). Kokkos accepts
+  only one architecture per build.
 
-Puis :
+Then:
 
 ```bash
 export SPACK_DISABLE_LOCAL_CONFIG=1
@@ -84,105 +85,105 @@ spack-mmm/bin/spack -e deps/spack/mmm-gpu concretize -f
 deps/spack/install-mmm-gpu.sh spack-mmm/bin/spack
 ```
 
-`SPACK_DISABLE_LOCAL_CONFIG` isole l'environnement de la configuration de
-l'utilisateur (`~/.spack`). L'environnement a aussi son propre cache
-(`misc_cache`) : le cache de l'utilisateur est partagé avec les autres
-installations de spack de la machine, dont le dépôt `builtin` peut être à
-un autre commit, ce qui casse l'index des patchs.
+`SPACK_DISABLE_LOCAL_CONFIG` isolates the environment from the
+configuration of the user (`~/.spack`). The environment also has its own
+cache (`misc_cache`): the cache of the user is shared with the other spack
+installations of the machine, whose `builtin` repository may be at another
+commit, which breaks the index of the patches.
 
-`install-mmm-gpu.sh` installe d'abord tout sauf MFEM (deux paquets à la
-fois, 4 tâches chacun), puis MFEM seul avec 2 tâches. Chaque phase tourne
-sous `scripts/memory-governor.sh` : quand la mémoire disponible est trop
-basse, il suspend tous les processus de la construction sauf le plus gros
-(et ses ancêtres), qui peut ainsi finir et libérer sa mémoire ; tout
-reprend ensuite. `ptxas` prend environ 22 Go pour les noyaux de
-`fem/lor/lor_batched.cpp` (sm_120), les autres fichiers jusqu'à 8 Go.
-Chaque phase est relancée jusqu'à trois fois en cas d'échec (manque de
-mémoire), MFEM avec une seule tâche ; une construction interrompue reprend
-où elle s'est arrêtée (`--dont-restage` et recette `mfem` de `mmm_gpu`).
+`install-mmm-gpu.sh` first installs everything except MFEM (two packages
+at a time, 4 jobs each), then MFEM alone with 2 jobs. Each phase runs
+under `scripts/memory-governor.sh`: when the available memory is too low,
+it suspends all the processes of the build except the largest one (and
+its ancestors), which can thus finish and free its memory; everything
+resumes afterwards. `ptxas` takes about 22 GB for the kernels of
+`fem/lor/lor_batched.cpp` (sm_120), the other files up to 8 GB. Each
+phase is restarted up to three times in case of failure (lack of memory),
+MFEM with a single job; an interrupted build resumes where it stopped
+(`--dont-restage` and `mfem` recipe of `mmm_gpu`).
 
-## Préfixe CUDA
+## CUDA prefix
 
-Dans le préfixe, `bin` est un dossier de liens, pas un lien : nvcc cherche
-ses en-têtes dans `bin/../targets`. Avec un lien, `bin/..` désigne le CUDA
-du SDK, sans les en-têtes des bibliothèques mathématiques (`cublas_v2.h`
-introuvable pour les paquets qui ne passent pas le dossier des en-têtes
-explicitement, comme Kokkos Kernels).
+In the prefix, `bin` is a directory of links, not a link: nvcc looks for
+its headers in `bin/../targets`. With a link, `bin/..` designates the CUDA
+of the SDK, without the headers of the mathematical libraries
+(`cublas_v2.h` not found for the packages that do not pass the directory
+of the headers explicitly, such as Kokkos Kernels).
 
 ## MPI
 
-OpenMPI est compilé avec CUDA (MPI compatible GPU), pour que le code
-reste générique, même si la machine n'a qu'un GPU. Il utilise son hwloc
-interne, construit sans son greffon OpenCL : avec CUDA, ce hwloc trouve
-la bibliothèque OpenCL du toolkit et échoue à l'édition de liens (`cannot
-determine absolute directory name of 'no/opencl/lib/'`). La recette
-`openmpi` de `mmm_gpu` ajoute `--disable-opencl`. Le hwloc de spack avec
-CUDA n'est pas utilisé : partagé avec LLVM et TBB, il les reconstruirait.
+OpenMPI is compiled with CUDA (GPU aware MPI), so that the code stays
+generic, even if the machine has only one GPU. It uses its internal hwloc,
+built without its OpenCL plugin: with CUDA, this hwloc finds the OpenCL
+library of the toolkit and fails at link time (`cannot
+determine absolute directory name of 'no/opencl/lib/'`). The `openmpi`
+recipe of `mmm_gpu` adds `--disable-opencl`. The hwloc of spack with CUDA
+is not used: shared with LLVM and TBB, it would rebuild them.
 
-## État de l'installation du 09/10/2026
+## State of the installation of 09/10/2026
 
-L'installation actuelle de MFEM (hachage `zxpdstv`) a été finie à la main
-pour tenir les délais ; son contenu est celui que donnent les recettes,
-mais pas encore par une construction directe :
+The current installation of MFEM (hash `zxpdstv`) was finished by hand to
+meet the deadlines; its content is the one given by the recipes, but not
+yet by a direct build:
 
-- `fem/integ/bilininteg_convection_ea.cpp` a été compilé depuis la version
-  patchée (même contenu que `mfem-4.10-convection-ea-cuda13.patch`), dans le
-  dossier de construction ;
-- la bibliothèque statique de gslib (`libgs.a`, dans le préfixe de gslib) a
-  été recompilée avec `-fPIC` (mêmes sources, mêmes options) : non
-  relogeable, elle ne pouvait pas entrer dans `libmfem.so`. L'originale est
-  gardée hors du dépôt.
+- `fem/integ/bilininteg_convection_ea.cpp` was compiled from the patched
+  version (same content as `mfem-4.10-convection-ea-cuda13.patch`), in the
+  build directory;
+- the static library of gslib (`libgs.a`, in the prefix of gslib) was
+  recompiled with `-fPIC` (same sources, same options): not relocatable,
+  it could not go into `libmfem.so`. The original is kept outside the
+  repository.
 
-À faire : reconcrétiser et reconstruire MFEM (environ 3 h), pour une
-installation entièrement produite par les recettes. gslib `+shared` est
-déjà imposé dans `mmm-gpu/spack.yaml` (voir [AmgX patché](#amgx-patché-10102026)). La condition du patch de la convection
-(`^cuda@13:`, ajoutée après l'installation) change aussi le hachage de
-MFEM : la même reconcrétisation la prend en compte.
+To do: concretize again and rebuild MFEM (about 3 h), for an installation
+entirely produced by the recipes. gslib `+shared` is already imposed in
+`mmm-gpu/spack.yaml` (see [Patched AmgX](#patched-amgx-10102026)). The
+condition of the convection patch (`^cuda@13:`, added after the
+installation) also changes the hash of MFEM: the same new concretization
+takes it into account.
 
-## AmgX patché (10/10/2026)
+## Patched AmgX (10/10/2026)
 
-Avec CUDA 13 (sm_120), le multigrille classique de l'AmgX du commit
-91a8413e échoue (« invalid device function ») : la recette `amgx` de
-`mmm_gpu` applique `amgx-cuda13-sequence-kernel.patch` (reproducteur
-`reproducers/amgx-classical-cuda13`, PR amont NVIDIA/AMGX #386).
-L'AmgX patché (hachage `xupvzsc`) est installé, mais l'environnement
-garde son spack.lock d'avant, dont le MFEM contient l'AmgX non patché :
-la reconstruction de MFEM attend que les correctifs (AmgX #386, MFEM
-#5604) soient fusionnés en amont puis dans spack-packages. D'ici là,
-mfem-mgis utilise l'AmgX patché par `AMGX_DIR` (fixé par
-`scripts/env.sh`), placé avant MFEM à l'édition de liens.
-`mmm-gpu/spack.yaml` impose aussi gslib `+shared`, pris en compte à la
-même reconstruction.
+With CUDA 13 (sm_120), the classical multigrid of the AmgX of commit
+91a8413e fails ("invalid device function"): the `amgx` recipe of
+`mmm_gpu` applies `amgx-cuda13-sequence-kernel.patch` (reproducer
+`reproducers/amgx-classical-cuda13`, upstream PR NVIDIA/AMGX #386).
+The patched AmgX (hash `xupvzsc`) is installed, but the environment keeps
+its previous spack.lock, whose MFEM contains the unpatched AmgX: the
+rebuild of MFEM waits until the fixes (AmgX #386, MFEM #5604) are merged
+upstream then in spack-packages. Until then, mfem-mgis uses the patched
+AmgX through `AMGX_DIR` (set by `scripts/env.sh`), placed before MFEM at
+link time. `mmm-gpu/spack.yaml` also imposes gslib `+shared`, taken into
+account at the same rebuild.
 
-## Contraintes entre paquets
+## Constraints between packages
 
-- PETSc avec `+openmp` : les en-têtes d'un Kokkos compilé avec OpenMP
-  exigent OpenMP chez le compilateur (`#error "You enabled Kokkos OpenMP
+- PETSc with `+openmp`: the headers of a Kokkos compiled with OpenMP
+  require OpenMP in the compiler (`#error "You enabled Kokkos OpenMP
   support without enabling OpenMP in the compiler!"`).
-- MFEM avec `cxxstd=20` : Umpire 2026 (par camp) utilise les concepts du
-  C++20 ; MFEM se compile en C++17 par défaut.
-- kokkos-kernels partagé exige Kokkos `+pic` : Kokkos a été reconstruit
-  avec cette variante (même version, mêmes options sinon).
-- hypre en entiers 32 bits (`~int64`) : la recette spack de mfem-mgis
-  demande `hypre+int64` par défaut (variante `int64` de mfem-mgis), que
-  hypre refuse avec CUDA (« Use +mixedint for 64-bit integer support for
-  GPUs! »). Une installation de mfem-mgis par sa recette avec CUDA demande
-  donc `mfem-mgis~int64`. Les entiers 32 bits limitent le nombre total
-  d'inconnues à environ 2 milliards, sans gêne pour le prototype.
-- hypre est construit sans `+gpu-aware-mpi` (valeur par défaut) : ses
-  échanges MPI passent par l'hôte, même avec OpenMPI compatible CUDA.
-  Variante à comparer pour les mesures sur GPU à plusieurs processus.
+- MFEM with `cxxstd=20`: Umpire 2026 (through camp) uses the concepts of
+  C++20; MFEM compiles in C++17 by default.
+- shared kokkos-kernels requires Kokkos `+pic`: Kokkos was rebuilt with
+  this variant (same version, same options otherwise).
+- hypre with 32 bit integers (`~int64`): the spack recipe of mfem-mgis
+  requests `hypre+int64` by default (variant `int64` of mfem-mgis), which
+  hypre refuses with CUDA ("Use +mixedint for 64-bit integer support for
+  GPUs!"). An installation of mfem-mgis by its recipe with CUDA therefore
+  requires `mfem-mgis~int64`. The 32 bit integers limit the total number
+  of unknowns to about 2 billion, which does not hinder the prototype.
+- hypre is built without `+gpu-aware-mpi` (default value): its MPI
+  exchanges go through the host, even with CUDA aware OpenMPI. Variant to
+  compare for the measurements on GPU with several processes.
 
-## GPU AMD (HIP)
+## AMD GPU (HIP)
 
-Le MFEM compilé avec HIP pour un GPU AMD (gfx90a) ne vient pas de cet
-environnement : `scripts/build-hip-amd.sh` installe ROCm par ses paquets
-Python, sans droits d'administrateur, et construit hypre et MFEM dans
-`deps/hip-amd/` (non suivi), avec MPI, METIS, SuiteSparse et OpenBLAS de
-`mmm-gpu`. Voir l'en-tête du script.
+The MFEM compiled with HIP for an AMD GPU (gfx90a) does not come from this
+environment: `scripts/build-hip-amd.sh` installs ROCm by its Python
+packages, without administrator rights, and builds hypre and MFEM in
+`deps/hip-amd/` (not tracked), with MPI, METIS, SuiteSparse and OpenBLAS
+from `mmm-gpu`. See the header of the script.
 
-## Pilotes
+## Drivers
 
-CUDA 13.0 demande un pilote 580 ou plus récent. Avec un pilote plus
-ancien, utiliser le CUDA 12.9 du même SDK (`make-nvhpc-cuda-prefix.sh
-... 12.9 ...` et externe `cuda@12.9.1`).
+CUDA 13.0 requires a driver 580 or newer. With an older driver, use the
+CUDA 12.9 of the same SDK (`make-nvhpc-cuda-prefix.sh
+... 12.9 ...` and external `cuda@12.9.1`).

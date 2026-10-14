@@ -1,4 +1,4 @@
-== poutre, tétraèdres P1 (r4): mpirun -n 8 ./assemblage -r 4 -n 10 -t mechanics -p
+== beam, P1 tetrahedra (r4): mpirun -n 8 ./assembly -r 4 -n 10 -t mechanics -p
 8 processes, maxima over the processes, first process:
 assembly without positions: median 24.21 ms
 assembly with positions: median 9.544 ms
@@ -9,8 +9,8 @@ assembly without positions: median 24.08 ms, minimum 23.96 ms
 assembly with positions: median 9.329 ms, minimum 9.286 ms
 entries searched with the positions 0
 ratio of the medians 2.581, maximum difference 0 (maximum value 0.1258)
-   statut 0
-== thermique, tétraèdres P1 (r5): mpirun -n 8 ./assemblage -r 5 -n 10 -t thermal -p
+   status 0
+== thermal, P1 tetrahedra (r5): mpirun -n 8 ./assembly -r 5 -n 10 -t thermal -p
 8 processes, maxima over the processes, first process:
 assembly without positions: median 47.13 ms
 assembly with positions: median 14.76 ms
@@ -21,8 +21,8 @@ assembly without positions: median 46.44 ms, minimum 46.29 ms
 assembly with positions: median 14.55 ms, minimum 14.52 ms
 entries searched with the positions 0
 ratio of the medians 3.191, maximum difference 0 (maximum value 0.09865)
-   statut 0
-== grandes transformations, hexaèdres Q1 27 points (r4): mpirun -n 8 ./assemblage -m cube.mesh -r 4 -n 10 -t finite-strain -p
+   status 0
+== finite strain, Q1 hexahedra 27 points (r4): mpirun -n 8 ./assembly -m cube.mesh -r 4 -n 10 -t finite-strain -p
 8 processes, maxima over the processes, first process:
 assembly without positions: median 7.961 ms
 assembly with positions: median 6.541 ms
@@ -33,4 +33,4 @@ assembly without positions: median 7.948 ms, minimum 7.892 ms
 assembly with positions: median 6.52 ms, minimum 6.476 ms
 entries searched with the positions 0
 ratio of the medians 1.219, maximum difference 0 (maximum value 0.05494)
-   statut 0
+   status 0

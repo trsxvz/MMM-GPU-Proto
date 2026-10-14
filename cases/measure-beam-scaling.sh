@@ -1,27 +1,27 @@
 #!/bin/bash
-# Passage à l'échelle (campagne de mesures, cas 5) : poutre raffinée trois,
-# quatre puis cinq fois (16 000 à 840 000 inconnues, 10 pas), meilleure
-# méthode du lot L5 (NewtonK0, gradient conjugué préconditionné par le
-# multigrille de K0, prédiction, tolérance d'Eisenstat-Walker 1), tous les
-# noyaux :
-# - sur le GPU, multigrille BoomerAMG agressif ou AmgX réglé en simple
-#   précision, tangente assemblée, et BoomerAMG agressif avec la tangente
-#   appliquée sans assemblage (seul K0 est assemblé), avec la mémoire
-#   maximale occupée sur le GPU (relevée par nvidia-smi toutes les 200 ms,
-#   autres processus compris) ;
-# - sur 8 processus CPU, BoomerAMG agressif.
-# Sur le GPU, la réserve de mémoire de hypre (Umpire, 4 Gio par défaut,
-# allouée d'un coup) est réduite à 0,5 Gio (option -hdps de mfem-mgis) :
-# temps à quelques % près, 3,5 Gio de moins. Le raffinement suivant
-# (6,5 millions d'inconnues) ne tient pas dans les 16 Go du GPU, même ainsi
-# (allocation refusée vers 15,3 Gio, tangente assemblée ou non).
-# Avant chaque calcul sur le GPU, le script attend au plus 10 minutes qu'un
-# autre processus libère le GPU, puis le signale dans le résumé.
-# À lancer sur une machine calme, après build-mfem-mgis.sh.
+# Scaling (measurement campaign, case 5): beam refined three, four then
+# five times (16,000 to 840,000 unknowns, 10 steps), best method of the
+# work package L5 (NewtonK0, conjugate gradient preconditioned by the
+# multigrid of K0, prediction, tolerance of Eisenstat-Walker 1), all the
+# kernels:
+# - on the GPU, aggressive BoomerAMG multigrid or AmgX tuned in single
+#   precision, assembled tangent operator, and aggressive BoomerAMG with the
+#   tangent operator applied without assembly (only K0 is assembled), with
+#   the peak memory used on the GPU (sampled by nvidia-smi every 200 ms,
+#   other processes included);
+# - on 8 CPU processes, aggressive BoomerAMG.
+# On the GPU, the memory pool of hypre (Umpire, 4 GiB by default, allocated
+# at once) is reduced to 0.5 GiB (option -hdps of mfem-mgis): times within
+# a few %, 3.5 GiB less. The next refinement (6.5 million unknowns) does not
+# fit in the 16 GB of the GPU, even so (allocation refused around 15.3 GiB,
+# with the tangent operator assembled or not).
+# Before each computation on the GPU, the script waits at most 10 minutes
+# for another process to free the GPU, then reports it in the summary.
+# To be run on a quiet machine, after build-mfem-mgis.sh.
 #
-# usage : cases/measure-beam-scaling.sh [dossier de résultats]
-lot=echelle
-source "$(dirname "$0")/measure-common.sh" poutre "$@"
+# usage: cases/measure-beam-scaling.sh [results directory]
+work_package=scaling
+source "$(dirname "$0")/measure-common.sh" beam "$@"
 batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
@@ -46,7 +46,7 @@ wait_for_gpu() {
     fi
     sleep 5
   done
-  echo "   GPU partagé avec un autre processus" | tee -a "$out/summary.txt"
+  echo "   GPU shared with another process" | tee -a "$out/summary.txt"
 }
 
 # run on the GPU with the peak of the memory used on the GPU
@@ -56,27 +56,27 @@ run_gpu() {
   shift
   wait_for_gpu
   nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -lms 200 \
-    > "$out/$name.memoire.txt" &
+    > "$out/$name.memory.txt" &
   local sampler=$!
   run "$name" 1 1 "$cuda" "$@"
   kill "$sampler"
   wait "$sampler" 2> /dev/null
-  echo "   mémoire du GPU au plus $(sort -n "$out/$name.memoire.txt" |
-    tail -1) Mio" | tee -a "$out/summary.txt"
+  echo "   memory of the GPU at most $(sort -n "$out/$name.memory.txt" |
+    tail -1) MiB" | tee -a "$out/summary.txt"
 }
 
 for refinement in 3 4 5; do
   device=cuda
   options="$base $pool $amg"
-  run_gpu "poutre-r$refinement-gpu-amg-agressif" "$batch" "${kernels[@]}"
+  run_gpu "beam-r$refinement-gpu-amg-aggressive" "$batch" "${kernels[@]}"
   options="$base $pool $amgx"
-  run_gpu "poutre-r$refinement-gpu-amgx-simple" "$batch" "${kernels[@]}"
+  run_gpu "beam-r$refinement-gpu-amgx-simple" "$batch" "${kernels[@]}"
   options="$base $pool $amg"
-  run_gpu "poutre-r$refinement-gpu-amg-agressif-sans-matrice" "$batch" \
+  run_gpu "beam-r$refinement-gpu-amg-aggressive-matrix-free" "$batch" \
     "${matrix_free[@]}"
   device=""
   options="$base $amg"
-  run "poutre-r$refinement-np8-amg-agressif" 1 8 "$generic" "$batch" \
+  run "beam-r$refinement-np8-amg-aggressive" 1 8 "$generic" "$batch" \
     "${kernels[@]}"
 done
-echo "résultats dans $out"
+echo "results in $out"

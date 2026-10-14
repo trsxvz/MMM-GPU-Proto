@@ -1,25 +1,25 @@
-date : 2026-10-10 05:42:45
-cas : thermique
-machine : 16 cœurs, 30 Go
-charge : 1.91 4.38 5.57
-mfem-mgis : 6cae30af99
-== thermique-np8-point-par-point : 8 processus, 1 fils, cpu, défaut
-   statut 0
+date: 2026-10-10 05:42:45
+case: thermal
+machine: 16 cores, 30 GB
+load: 1.91 4.38 5.57
+mfem-mgis: 6cae30af99
+== thermal-np8-point-by-point: 8 processes, 1 threads, cpu, default
+   status 0
 dofs 279873 | ls gmres-amg | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
 time 9.167 s
-== thermique-np8-noyaux : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== thermal-np8-kernels: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 279873 | ls gmres-amg | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
 time 4.886 s
-== thermique-np1-gpu-noyaux : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== thermal-np1-gpu-kernels: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 279873 | ls gmres-amg | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
 time 3.012 s
-== thermique-np1-gpu-noyaux-ew1 : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== thermal-np1-gpu-kernels-ew1: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 279873 | ls gmres-amg | ||T|| 306232.6257 | iterations per step: 5 5 5 5 5 | total 25
 time 4.032 s
-== thermique-np1-gpu-sans-matrice : 1 processus, 1 fils, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
-   statut 0
+== thermal-np1-gpu-matrix-free: 1 processes, 1 threads, cuda, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
+   status 0
 dofs 279873 | ls gmres-jacobi | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
 time 183.399 s

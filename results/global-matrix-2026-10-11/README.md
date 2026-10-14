@@ -1,23 +1,22 @@
-# Matrice globale avec motif et échanges gardés (11/10/2026)
+# Global matrix with pattern and exchanges kept (11/10/2026)
 
-Banc `cases/assembly --parallel` sur 8 processus : assemblage local par
-noyaux (avec les positions), puis matrice globale par le produit `Pᵀ A P`
-de hypre (comme avant) et par `batch::GlobalStiffnessMatrix` (mfem-mgis
-branche `globale`, 28f2367b39, installation séparée
-`install/mfem-mgis-globale`) : motif de la matrice globale et échanges
-entre processus calculés au premier assemblage, puis seules les valeurs
-copiées, échangées (`MPI_Alltoallv`) et additionnées. Temps médians de 10
-assemblages, maxima sur les processus. Machine calme. Sortie :
-`cpu-np8.txt`.
+Bench `cases/assembly --parallel` on 8 processes: local assembly by kernels
+(with the positions), then global matrix by the product `Pᵀ A P` of hypre
+(as before) and by `batch::GlobalStiffnessMatrix` (mfem-mgis branch
+`global`, 28f2367b39, separate installation `install/mfem-mgis-global`):
+pattern of the global matrix and exchanges between processes computed at
+the first assembly, then only the values copied, exchanged
+(`MPI_Alltoallv`) and added. Median times of 10 assemblies, maxima over
+the processes. Quiet machine. Output: `cpu-np8.txt`.
 
-| Cas | Assemblage local | Pᵀ A P de hypre | Motif gardé (premier assemblage) | Gain |
+| Case | Local assembly | Pᵀ A P of hypre | Pattern kept (first assembly) | Gain |
 |---|---|---|---|---|
-| poutre, tétraèdres P1 (r4) | 9,0 ms | 15,4 ms | 2,5 ms (32 ms) | ×6,3 |
-| thermique, tétraèdres P1 (r5) | 14,1 ms | 36,8 ms | 1,7 ms (46 ms) | ×21,6 |
-| grandes transformations, hexaèdres Q1 (r4) | 6,4 ms | 3,0 ms | 0,15 ms (7 ms) | ×20 |
-| tétraèdres P2, mécanique (r3) | 15,2 ms | 22,0 ms | 5,8 ms (65 ms) | ×3,8 |
+| beam, P1 tetrahedra (r4) | 9.0 ms | 15.4 ms | 2.5 ms (32 ms) | ×6.3 |
+| thermal, P1 tetrahedra (r5) | 14.1 ms | 36.8 ms | 1.7 ms (46 ms) | ×21.6 |
+| finite strain, Q1 hexahedra (r4) | 6.4 ms | 3.0 ms | 0.15 ms (7 ms) | ×20 |
+| P2 tetrahedra, mechanics (r3) | 15.2 ms | 22.0 ms | 5.8 ms (65 ms) | ×3.8 |
 
-Mêmes matrices (écart relatif des produits par un vecteur au plus
-1,4e-16). Le premier assemblage coûte deux à trois produits de hypre :
-rentabilisé dès la deuxième tangente. La matrice globale ne coûte plus
-qu'une fraction de l'assemblage local.
+Same matrices (relative gap of the products by a vector at most 1.4e-16).
+The first assembly costs two to three products of hypre: it pays off from
+the second tangent on. The global matrix now costs only a fraction of the
+local assembly.

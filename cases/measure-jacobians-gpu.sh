@@ -1,31 +1,34 @@
 #!/bin/bash
-# Mesures de bout en bout sur le GPU des inverses des jacobiennes calculées
-# une fois (lot 7j) : poutre r4 et thermique r5 sur un processus et le GPU,
-# tout par noyaux (loi `cuda`), avec la construction des cas liée à
-# mfem-mgis installé dans install/mfem-mgis-registres (avant,
-# build/cas-registres) et dans install/mfem-mgis-jacobiennes (après,
-# build/cas-jacobiennes). Les bibliothèques des lois sont celles de
-# build/cas. À lancer sur une machine calme, GPU libre.
+# End to end measurements on the GPU of the inverses of the jacobians
+# computed once (work package 7j): beam r4 and thermal case r5 on one
+# process and the GPU, everything by kernels (behaviour `cuda`), with the
+# build of the cases linked to the mfem-mgis installed in
+# install/mfem-mgis-registers (before, build/cases-registers) and in
+# install/mfem-mgis-jacobians (after, build/cases-jacobians). The
+# libraries of the behaviours are the ones of build/cases. To be run on a
+# quiet machine, with the GPU free.
 #
-# usage : cases/measure-jacobians-gpu.sh [dossier de résultats]
-lot=jacobiennes
+# usage: cases/measure-jacobians-gpu.sh [results directory]
+work_package=jacobians
 P=$(cd "$(dirname "$0")/.." && pwd)
-out=${1:-$P/results/jacobiennes-gpu-$(date +%Y-%m-%d-%H%M)}
+out=${1:-$P/results/jacobians-gpu-$(date +%Y-%m-%d-%H%M)}
 kernels=(MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
   MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
-for case_name in poutre thermique; do
+for case_name in beam thermal; do
   source "$P/cases/measure-common.sh" "$case_name" "$out"
-  if [ "$case_name" = thermique ]; then
+  if [ "$case_name" = thermal ]; then
     linear_solver=gmres-amg
     linear_tolerance=1e-8
   fi
   cuda=$gp/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
   device=cuda
-  for version in registres jacobiennes; do
-    B=$P/build/cas-$version/$case_name
-    run "$case_name-np1-gpu-noyaux-$version" 1 1 "$cuda" "${kernels[@]}"
+  # measured versions, each one with its build directory
+  # build/cases-<version>
+  for version in registers jacobians; do
+    B=$P/build/cases-$version/$case_name
+    run "$case_name-np1-gpu-kernels-$version" 1 1 "$cuda" "${kernels[@]}"
   done
 done
-echo "résultats dans $out"
+echo "results in $out"

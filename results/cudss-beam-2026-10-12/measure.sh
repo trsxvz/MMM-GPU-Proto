@@ -6,8 +6,8 @@
 P=$(cd "$(dirname "$0")/../.." && pwd)
 source $P/scripts/env.sh > /dev/null
 out=$P/results/cudss-beam-2026-10-12
-L=$P/build/cas/poutre/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
-cd $P/build/cas-cudss/poutre
+L=$P/build/cases/beam/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+cd $P/build/cases-cudss/beam
 export OMP_NUM_THREADS=1 MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch \
   MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels \
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels \
@@ -19,9 +19,9 @@ for pass in 1 2; do
       cudss) extra="-ls cudss -mra" ;;
     esac
     echo "== pass $pass, $variant, load $(cut -d ' ' -f 1 /proc/loadavg)"
-    taskset -c ${CORES:-0-3} timeout 900 mpirun -n 1 ./poutre -r 4 -n 10 \
+    taskset -c ${CORES:-0-3} timeout 900 mpirun -n 1 ./beam -r 4 -n 10 \
       -mi 3000 -l $L --profiling --device cuda $extra \
-      > $out/poutre-gpu-$variant-$pass.txt 2>&1
+      > $out/beam-gpu-$variant-$pass.txt 2>&1
     echo "   exit $?"
   done
 done

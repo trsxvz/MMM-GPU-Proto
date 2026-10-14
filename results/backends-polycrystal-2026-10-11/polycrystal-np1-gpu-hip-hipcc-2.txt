@@ -8,7 +8,7 @@ Options used:
    --mesh mesh/5crystals.msh
    --mesh_mode FromScratch
    --vect mesh/vectors_5crystals.txt
-   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas-autres/polycristal/generic-parallel-hip-hipcc/src/libGenericParallelBehaviour-hip.so
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cases-others/polycrystal/generic-parallel-hip-hipcc/src/libGenericParallelBehaviour-hip.so
    --behaviour Mono_UO2_Cosh_Jaco3
    --linear-solver HyprePCG
    --linear-solver-preconditioner HypreBoomerAMG

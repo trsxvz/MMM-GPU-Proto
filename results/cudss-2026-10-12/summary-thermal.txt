@@ -1,4 +1,4 @@
-fichier : total, couplage, préparation des solveurs linéaires (thermique ; mécanique), résolutions thermiques (MFEM::Mult), en s ; norme du déplacement, température
+file: total, coupling, setup of the linear solvers (thermal; mechanics), thermal solutions (MFEM::Mult), in s; norm of the displacement, temperature
 ex8-gpu-thermal-cudss-hypre-gpu-1.txt : 2.576289, 2.397135, 0.203026 0.618582 , 0.036399 ; 0.00128600753526175 0.000644324263349186 ; 309.565082913283 480.495121135856 360.215014545482
 ex8-gpu-thermal-cudss-hypre-gpu-2.txt : 2.727327, 2.532959, 0.206402 0.619471 , 0.036011 ; 0.00128600753526175 0.000644324263349186 ; 309.565082913283 480.495121135856 360.215014545482
 ex8-gpu-thermal-cudss-hypre-host-1.txt : 2.782289, 2.600870, 0.215617 0.676833 , 0.035956 ; 0.00128600753526175 0.000644324263349187 ; 309.565082913283 480.495121135856 360.215014545482

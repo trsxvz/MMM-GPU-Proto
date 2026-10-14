@@ -1,53 +1,50 @@
-# hypre sur l'hôte avec le périphérique sur le GPU (12/10/2026)
+# hypre on the host with the device on the GPU (12/10/2026)
 
-Option `--hypre-on-host` de `mfem_mgis::initialize` (ou variable
-`MFEM_MGIS_HYPRE_ON_HOST`, mfem-mgis 279b5583d4 et 3ad387b002, branche
-hypre-hote) : les
-lois, les noyaux de mfem-mgis et les calculs de MFEM restent sur le GPU,
-hypre calcule sur l'hôte (MFEM lui donne ses données sur l'hôte). Pour les
-petits systèmes linéaires, dont les résolutions sur le GPU sont dominées
-par les lancements de noyaux.
+Option `--hypre-on-host` of `mfem_mgis::initialize` (or variable
+`MFEM_MGIS_HYPRE_ON_HOST`, mfem-mgis 279b5583d4 and 3ad387b002, branch
+hypre-host): the behaviours, the kernels of mfem-mgis and the computations
+of MFEM stay on the GPU, hypre computes on the host (MFEM gives it its data
+on the host). For the small linear systems, whose solutions on the GPU are
+dominated by the kernel launches.
 
-Construction `build/examples-hypre` (mfem-mgis-examples, ex7 et ex8),
-liée à `install/mfem-mgis-hypre`. GPU, un processus lancé par
-`mpirun -n 1` sur les cœurs 4 à 7, tout par noyaux, lois cuda, deux
-passages par variante. Mêmes itérations de Newton et mêmes résultats dans
-les deux cas.
+Build `build/examples-hypre` (mfem-mgis-examples, ex7 and ex8), linked to
+`install/mfem-mgis-hypre`. GPU, one process launched by `mpirun -n 1` on
+cores 4 to 7, everything by kernels, cuda behaviours, two runs per
+variant. Same Newton iterations and same results in both cases.
 
-## ex7 complet (40 pas, 2 634 inconnues, GMRES et BoomerAMG)
+## Complete ex7 (40 steps, 2,634 unknowns, GMRES and BoomerAMG)
 
-| hypre | Total (s) | Résolution (s) | Solveur linéaire (s) | Jacobienne (s) |
+| hypre | Total (s) | Solution (s) | Linear solver (s) | Jacobian (s) |
 |---|---|---|---|---|
-| sur le GPU | 6,73 et 6,65 | 5,61 et 5,76 | 4,94 et 5,08 | 0,44 et 0,45 |
-| sur l'hôte | 4,32 et 4,57 | 3,46 et 3,47 | 3,12 et 3,13 | 0,11 et 0,11 |
+| on the GPU | 6.73 and 6.65 | 5.61 and 5.76 | 4.94 and 5.08 | 0.44 and 0.45 |
+| on the host | 4.32 and 4.57 | 3.46 and 3.47 | 3.12 and 3.13 | 0.11 and 0.11 |
 
-Sur le CPU (`results/examples-gpu-2026-10-12`) : 8,0 s sur un cœur et
-6,3 s sur deux, par noyaux. Avec hypre sur l'hôte, le GPU passe devant.
-La jacobienne est aussi plus rapide : la matrice globale est assemblée par
-les noyaux de mfem-mgis au lieu du produit triple de hypre sur le GPU.
+On the CPU (`results/examples-gpu-2026-10-12`): 8.0 s on one core and
+6.3 s on two, by kernels. With hypre on the host, the GPU takes the lead.
+The Jacobian is also faster: the global matrix is assembled by the kernels
+of mfem-mgis instead of the triple product of hypre on the GPU.
 
-## ex8 (5 pas, thermique de 9 516 inconnues par GMRES et BoomerAMG, mécanique par MUMPS symétrique)
+## ex8 (5 steps, thermal with 9,516 unknowns by GMRES and BoomerAMG, mechanics by symmetric MUMPS)
 
-| hypre | Couplage (s) | Thermique (s) | Résolutions thermiques (s) | Mécanique (s) |
+| hypre | Coupling (s) | Thermal (s) | Thermal solutions (s) | Mechanics (s) |
 |---|---|---|---|---|
-| sur le GPU | 12,70 et 12,46 | 4,01 et 3,94 | 3,18 et 3,13 | 8,65 et 8,49 |
-| sur l'hôte | 11,76 et 11,40 | 2,89 et 2,71 | 1,97 et 1,85 | 8,84 et 8,65 |
+| on the GPU | 12.70 and 12.46 | 4.01 and 3.94 | 3.18 and 3.13 | 8.65 and 8.49 |
+| on the host | 11.76 and 11.40 | 2.89 and 2.71 | 1.97 and 1.85 | 8.84 and 8.65 |
 
-La thermique gagne 1,2 s : autant que MUMPS pour la thermique
-(`results/ex8-thermal-gpu-2026-10-11`, 11,5 s), sans changer de
-solveur. La mécanique (MUMPS sur l'hôte) ne change pas.
+The thermal gains 1.2 s: as much as MUMPS for the thermal
+(`results/ex8-thermal-gpu-2026-10-11`, 11.5 s), without changing the
+solver. The mechanics (MUMPS on the host) does not change.
 
 ## Tests
 
-`ctest.txt` (mfem-mgis 3ad387b002, après relecture) : `DeviceOptionTest`
-(où calcule hypre, option, variable, annulation, refus de
-`--hypre-device-pool-size`, périphérique configuré par `MFEM_DEVICE` ou
-par le programme), `HypreILUTestP-cuda-hypre-on-host`,
-`BatchIntegrationTestP-cuda` et `BatchIntegrationTestP-cuda-hypre-on-host`
-(63 s et 32 s), 18/18. Les deux réglages de `initialize` sont
-nécessaires : sans le drapeau de MFEM (posé avant l'initialisation de
-hypre), le test où le programme crée le périphérique échoue ; sans la
-politique hôte (posée après le périphérique), quatre tests échouent,
-hypre compilé pour le GPU calculant sur le GPU par défaut. Les mesures
-ont été faites avec 279b5583d4, dont le comportement est le même pour un
-périphérique créé par `initialize`.
+`ctest.txt` (mfem-mgis 3ad387b002, after review): `DeviceOptionTest`
+(where hypre computes, option, variable, override, refusal of
+`--hypre-device-pool-size`, device configured by `MFEM_DEVICE` or by the
+program), `HypreILUTestP-cuda-hypre-on-host`, `BatchIntegrationTestP-cuda`
+and `BatchIntegrationTestP-cuda-hypre-on-host` (63 s and 32 s), 18/18. Both
+settings of `initialize` are needed: without the flag of MFEM (set before
+the initialisation of hypre), the test where the program creates the
+device fails; without the host policy (set after the device), four tests
+fail, since hypre compiled for the GPU computes on the GPU by default. The
+measurements were done with 279b5583d4, whose behaviour is the same for a
+device created by `initialize`.

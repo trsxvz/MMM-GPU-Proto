@@ -1,9 +1,9 @@
-# Précision float contre double, premier passage (14/10/2026)
+# Float against double precision, first run (14/10/2026)
 
-Même montage que `results/precision-beam-2026-10-14-0514`, avec le
-critère de Newton du cas (1e-8) et 1,2e-5 pour les deux précisions. Les six
-calculs en float échouent : la tolérance relative, bornée à 100 ε = 1,2e-5
-par mfem-mgis en float, est sous le plancher du résidu relatif à r4
-(environ 1,3e-5 à partir du sixième pas, voir
-`float-case-criterion-1.txt`), et Newton s'arrête au bout de 50 itérations.
-Les calculs en double servent de référence au second passage.
+Same setup as `results/precision-beam-2026-10-14-0514`, with the Newton
+criterion of the case (1e-8) and 1.2e-5 for both precisions. The six
+computations in float fail: the relative tolerance, bounded to 100 ε =
+1.2e-5 by mfem-mgis in float, is below the floor of the relative residual
+at r4 (about 1.3e-5 from the sixth step on, see
+`float-case-criterion-1.txt`), and Newton stops after 50 iterations. The
+computations in double are the reference of the second run.

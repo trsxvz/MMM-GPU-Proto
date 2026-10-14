@@ -7,7 +7,7 @@ is corrected in its own commit and covered by an existing or a new test.
 In mfem-mgis, some commits still mix several subjects and some
 corrections have no test yet: they will be separated in the upstream
 contributions. Some corrections change CPU results: that was their
-purpose. The sources, in French, are
+purpose. The sources are
 `docs/tfel.md`, `docs/mgis.md`, `docs/upstream-integration.md`,
 `docs/plan-precision.md` and `JOURNAL.md`.
 
@@ -255,8 +255,8 @@ merge upstream, then in spack-packages.
   precision BLAS routines, but `src/lapack/_hypre_lapack.h` has no such
   case: hypre calls `dpotrf`, `dgetrf`, `dgels`, `dsygv`... of the double
   type on float arrays. Besides ParaSails, this breaks the Gaussian
-  elimination of types 99 and 199 of BoomerAMG, the Schwarz smoothers,
-  FSAI, MGR, the AIR restrictions, GSMG and LOBPCG. The default BoomerAMG
+  elimination of types 98, 99, 198 and 199 of BoomerAMG, the Schwarz smoothers,
+  FSAI, MGR, the AIR restrictions, GSMG, LOBPCG and AME. The default BoomerAMG
   of MFEM (relaxation 8 or 18) does not use LAPACK.
 - **Variants compared.** A fixed header mapping each name to the single
   precision routine, and the internal LAPACK of hypre: both converge in 8
@@ -300,4 +300,4 @@ Source: `results/diagnostic-float-gpu-2026-10-14/README.md`.
   double, at the same assembly cost. Measurement redone
   (`results/precision-beam-gpu-2026-10-14-0843`): float 1.37 times
   faster than double, same iterations, within 3.4e-5 of double. A
-  reproducer test, `poutre-gpu-r4`, is in `cases/beam`.
+  reproducer test, `beam-gpu-r4`, is in `cases/beam`.

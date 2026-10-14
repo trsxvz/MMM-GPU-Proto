@@ -1,7 +1,7 @@
 # Design choices
 
 This page gathers the main design choices of the prototype and the
-reasons given for them. The sources, in French, are
+reasons given for them. The sources are
 `docs/overview.md`, `docs/tfel.md`, `docs/mgis.md`,
 `docs/plan-mfem-mgis.md`, `docs/plan-mfem-mgis-detailed.md`,
 `docs/plan-execution.md`, `docs/plan-precision.md`,
@@ -260,7 +260,7 @@ minutes and storage, and no GitHub Pages.
 | E1 | Public repository, after an audit of the whole history (done on 13/10/2026, nothing to rewrite); the change of visibility remains to be done |
 | E2 | CPU level first, then CUDA and HIP compilation at night |
 | E3 | No runner on the development machine; GPU tests stay local (`scripts/mfem-mgis-gpu-suite.sh`) |
-| E4 | Site in English, like the documentation of the libraries; the repository keeps its documents in French |
+| E4 | Site in English, like the documentation of the libraries; the repository first kept its documents in French, then was translated into English (14/10/2026) |
 
 The CPU level checks that the patch series apply, builds TFEL from the
 sources of the repository, applies MGIS from its patches, and builds and

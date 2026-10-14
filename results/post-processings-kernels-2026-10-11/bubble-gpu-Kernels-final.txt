@@ -8,7 +8,7 @@ Options used:
    --petsc-configuration-file 
    --mesh mesh/single_sphere.msh
    --parallel-mesh 0
-   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas-memoire/bulle/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cases-memory/bubble/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
    --bubble-file mesh/single_bubble.txt
    --order 2
    --refinement 0

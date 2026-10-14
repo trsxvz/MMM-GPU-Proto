@@ -13,7 +13,7 @@ Options used:
    --preconditioner HypreBoomerAMG
    --refinement 0
    --profiling
-   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cas/ssna303/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+   --library /home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cases/ssna303/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
    --no-paraview
    --no-use-fbar
 dofs 27945

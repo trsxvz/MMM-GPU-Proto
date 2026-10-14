@@ -1,23 +1,23 @@
-date : 2026-10-11 13:39:27
-cas : thermique
-machine : 16 cœurs, 30 Go
-charge : 3.32 2.37 2.80
-mfem-mgis : 517e33cde4
-mfem-mgis-globale : inconnu, /home/t/Documents/GitHub/mfem-mgis-globale absent
-mfem-mgis-autres : 517e33cde4
-== thermique-np8-robin-globale : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+date: 2026-10-11 13:39:27
+case: thermal
+machine: 16 cores, 30 GB
+load: 3.32 2.37 2.80
+mfem-mgis: 517e33cde4
+mfem-mgis-global: unknown, /home/t/Documents/GitHub/mfem-mgis-global missing
+mfem-mgis-others: 517e33cde4
+== thermal-np8-robin-global: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 279873 | ls gmres-amg | ||T|| 234399.0482 | iterations per step: 3 3 3 3 3 | total 15
 time 4.165 s
-== thermique-np8-dirichlet-globale : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== thermal-np8-dirichlet-global: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 279873 | ls gmres-amg | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
 time 3.039 s
-== thermique-np8-robin-autres : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== thermal-np8-robin-others: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 279873 | ls gmres-amg | ||T|| 234399.0482 | iterations per step: 3 3 3 3 3 | total 15
 time 2.661 s
-== thermique-np8-dirichlet-autres : 8 processus, 1 fils, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== thermal-np8-dirichlet-others: 8 processes, 1 threads, cpu, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 279873 | ls gmres-amg | ||T|| 306232.626 | iterations per step: 4 4 4 3 3 | total 18
 time 2.852 s

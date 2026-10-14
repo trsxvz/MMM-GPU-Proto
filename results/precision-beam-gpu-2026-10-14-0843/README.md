@@ -1,40 +1,41 @@
-# Précision float contre double sur le GPU, poutre, après correction (14/10/2026)
+# Float against double precision on the GPU, beam, after the fix (14/10/2026)
 
-Même mesure que results/precision-beam-gpu-2026-10-14-0604, après la
-correction de mfem-mgis : en float, les noyaux des matrices de raideur sont
-compilés pour le GPU sans contraction en multiplications-additions
-fusionnées ; en double, le code est inchangé (voir
-results/diagnostic-float-gpu-2026-10-14).
+Same measurement as results/precision-beam-gpu-2026-10-14-0604, after the
+fix of mfem-mgis: in float, the kernels of the stiffness matrices are
+compiled for the GPU without contraction into fused multiply-adds; in
+double, the code is unchanged (see results/diagnostic-float-gpu-2026-10-14).
 
-Poutre r4 du prototype (111 843 inconnues), 10 pas, Newton (critère 1e-4, et
-celui du cas, 1e-8, en double), PCG de hypre préconditionné par BoomerAMG
-(tolérance 1e-4), tout sur le GPU (`--execution gpu`, assemblage atomique,
-loi du backend `cuda`), un processus sur le cœur 0, GPU NVIDIA RTX 5080
-libre. Aucun autre calcul pendant la mesure (la charge de 3,5 sur la
-minute précédente vient des suites de tests finies juste avant). Script : `PERIPHERIQUE=gpu cases/measure-precision-beam.sh`.
-Double : build/cas-9b (environnement mmm-gpu). Float : build/cas-float-gpu
-(environnement mmm-float-gpu, MFEM et hypre en simple avec CUDA).
+Beam r4 of the prototype (111,843 unknowns), 10 steps, Newton (criterion
+1e-4, and the one of the case, 1e-8, in double), PCG of hypre
+preconditioned by BoomerAMG (tolerance 1e-4), everything on the GPU
+(`--execution gpu`, atomic assembly, behaviour of the `cuda` backend), one
+process on core 0, NVIDIA RTX 5080 GPU free. No other computation during
+the measurement (the load of 3.5 over the previous minute comes from the
+test suites finished just before). Script:
+`DEVICE=gpu cases/measure-precision-beam.sh`. Double: build/cases-9b
+(environment mmm-gpu). Float: build/cases-float-gpu (environment
+mmm-float-gpu, MFEM and hypre in single precision with CUDA).
 
-| Calcul | Critère | Temps min. (s) | Médiane (s) | Itérations | Norme des déplacements |
+| Computation | Criterion | Min. time (s) | Median (s) | Iterations | Norm of the displacements |
 |---|---|---|---|---|---|
-| double | 1e-8 | 2,89 | 2,94 | 31 à 32 | 48,83704586 |
-| double | 1e-4 | 1,85 | 1,85 | 16 | 48,83715811 à 48,83716422 |
-| float | 1e-4 | 1,35 | 1,35 | 16 | 48,83538818 à 48,83585739 |
+| double | 1e-8 | 2.89 | 2.94 | 31 to 32 | 48.83704586 |
+| double | 1e-4 | 1.85 | 1.85 | 16 | 48.83715811 to 48.83716422 |
+| float | 1e-4 | 1.35 | 1.35 | 16 | 48.83538818 to 48.83585739 |
 
-Temps par phase (premier passage à 1e-4) : résolution linéaire 1,12 s en
-double, 0,80 s en float ; prédiction 0,55 et 0,42 s ; assemblage de la
-tangente 97 et 83 ms pour 16 assemblages (100 et 84 à 85 ms avant la
-correction).
+Time per phase (first run at 1e-4): linear solution 1.12 s in double,
+0.80 s in float; prediction 0.55 and 0.42 s; assembly of the tangent 97
+and 83 ms for 16 assemblies (100 and 84 to 85 ms before the fix).
 
-- Les trois calculs float convergent, avec les mêmes itérations que le
-  double. Avant la correction, un sur trois divergeait.
-- Le float est 1,37 fois plus rapide que le double (1,31 avant la
-  correction, sur les calculs qui convergeaient).
-- La norme des déplacements en float s'écarte de 2,7e-5 à 3,6e-5 du double
-  au même critère, et de 3,4e-5 au plus du double convergé (3e-4 avant la
-  correction ; le double au critère 1e-4 en est à 2,4e-6).
-- Les calculs en double diffèrent entre eux de 1,3e-7, les calculs en
-  float de 9,6e-6 : l'assemblage atomique ne garantit pas l'ordre des
-  additions (l'assemblage ordonné,
-  `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`, donne des calculs
-  identiques au bit).
+- The three float computations converge, with the same iterations as
+  double. Before the fix, one out of three diverged.
+- Float is 1.37 times faster than double (1.31 before the fix, on the
+  computations that converged).
+- The norm of the displacements in float differs by 2.7e-5 to 3.6e-5 from
+  double with the same criterion, and by 3.4e-5 at most from converged
+  double (3e-4 before the fix; double with the criterion 1e-4 is at 2.4e-6
+  from it).
+- The computations in double differ from each other by 1.3e-7, the
+  computations in float by 9.6e-6: the atomic assembly does not guarantee
+  the order of the additions (the ordered assembly,
+  `MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`, gives bitwise identical
+  computations).

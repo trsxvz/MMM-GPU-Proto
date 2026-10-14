@@ -405,7 +405,7 @@ int main(int argc, char** argv) {
             << ", maximum difference " << difference << " (maximum value "
             << maximum << ")\n";
   if (failed > 0) {
-    std::cerr << "assemblage: no positions, entries searched or different "
+    std::cerr << "assembly: no positions, entries searched or different "
                  "matrices\n";
     return EXIT_FAILURE;
   }

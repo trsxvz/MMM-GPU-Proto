@@ -1,39 +1,39 @@
-poutre r4, 10 pas, gpu, 1 processus sur les cœurs 0,
-3 répétitions ; mer. 14 oct. 2026 08:43:40 CEST
-machine : 16 fils ; charge : 3.51 3.39 2.83
-== double-critere-du-cas-1 : 
-   statut 0
+beam r4, 10 steps, gpu, 1 processes on the cores 0,
+3 repetitions; Wed 14 Oct 2026 08:43:40 CEST
+machine: 16 threads; load: 3.51 3.39 2.83
+== double-case-criterion-1: 
+   status 0
    dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
    time 2.936 s
-== double-critere-1e-4-1 : -rt 1e-4
-   statut 0
+== double-criterion-1e-4-1: -rt 1e-4
+   status 0
    dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83716422 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
    time 1.846 s
-== float-critere-1e-4-1 : -rt 1e-4
-   statut 0
+== float-criterion-1e-4-1: -rt 1e-4
+   status 0
    dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83581924 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
    time 1.354 s
-== double-critere-du-cas-2 : 
-   statut 0
+== double-case-criterion-2: 
+   status 0
    dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
    time 2.885 s
-== double-critere-1e-4-2 : -rt 1e-4
-   statut 0
+== double-criterion-1e-4-2: -rt 1e-4
+   status 0
    dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83716013 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
    time 1.854 s
-== float-critere-1e-4-2 : -rt 1e-4
-   statut 0
+== float-criterion-1e-4-2: -rt 1e-4
+   status 0
    dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83585739 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
    time 1.350 s
-== double-critere-du-cas-3 : 
-   statut 0
+== double-case-criterion-3: 
+   status 0
    dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
    time 3.020 s
-== double-critere-1e-4-3 : -rt 1e-4
-   statut 0
+== double-criterion-1e-4-3: -rt 1e-4
+   status 0
    dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83715811 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
    time 1.881 s
-== float-critere-1e-4-3 : -rt 1e-4
-   statut 0
+== float-criterion-1e-4-3: -rt 1e-4
+   status 0
    dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83538818 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
    time 1.359 s

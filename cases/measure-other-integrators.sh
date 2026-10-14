@@ -1,33 +1,36 @@
 #!/bin/bash
-# Mesures de bout en bout des autres intégrateurs de la forme ajoutés aux
-# calculs par noyaux (lot 7m) : thermique r5 sur 8 processus, échange
-# convectif à la seconde extrémité (option -hc, intégrateur de faces de bord
-# comme la condition de Robin de l'exemple ex8), tout par noyaux, tangente
-# assemblée, avec la construction des cas liée à mfem-mgis installé dans
-# install/mfem-mgis-globale (avant : boucles de MFEM sur tous les éléments,
-# build/cas-globale) et dans install/mfem-mgis-autres (après,
-# build/cas-autres), et, pour comparaison, le même calcul avec la
-# température imposée (sans autre intégrateur). À lancer sur une machine
-# calme, rien d'autre ne tournant sur les cœurs (les processeurs N et N+8
-# partagent un cœur).
+# End to end measurements of the other integrators of the form added to the
+# computations by kernels (work package 7m): thermal case r5 on 8
+# processes, convective exchange at the second end (option -hc, boundary
+# face integrator like the Robin boundary condition of the example ex8),
+# everything by kernels, assembled tangent operator, with the build of the
+# cases linked to the mfem-mgis installed in install/mfem-mgis-global
+# (before: loops of MFEM over all the elements, build/cases-global) and in
+# install/mfem-mgis-others (after, build/cases-others), and, for comparison,
+# the same computation with the imposed temperature (without other
+# integrator). To be run on a quiet machine, nothing else running on the
+# cores (the processors N and N+8 share a core).
 #
-# usage : cases/measure-other-integrators.sh [dossier de résultats]
-lot=autres
+# usage: cases/measure-other-integrators.sh [results directory]
+work_package=others
 P=$(cd "$(dirname "$0")/.." && pwd)
-out=${1:-$P/results/autres-integrateurs-$(date +%Y-%m-%d-%H%M)}
-source "$P/cases/measure-common.sh" thermique "$out"
-# la loi est celle de build/cas/thermique pour les deux versions (elle ne
-# dépend pas de mfem-mgis) ; versions de mfem-mgis mesurées
-for version in globale autres; do
-  if [ ! -x "$P/build/cas-$version/thermique/thermique" ]; then
-    echo "build/cas-$version/thermique/thermique absent" >&2
+out=${1:-$P/results/other-integrators-$(date +%Y-%m-%d-%H%M)}
+source "$P/cases/measure-common.sh" thermal "$out"
+# measured versions of mfem-mgis, each one with its build directories
+# build/cases-<version> and build/mfem-mgis-<version>
+versions="global others"
+# the behaviour is the one of build/cases/thermal for both versions (it does
+# not depend on mfem-mgis)
+for version in $versions; do
+  if [ ! -x "$P/build/cases-$version/thermal/thermal" ]; then
+    echo "build/cases-$version/thermal/thermal missing" >&2
     exit 1
   fi
   source_dir=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' \
     "$P/build/mfem-mgis-$version/CMakeCache.txt")
   commit=$(git -C "$source_dir" log -1 --format=%h 2> /dev/null ||
-    echo "inconnu, $source_dir absent")
-  echo "mfem-mgis-$version : $commit" | tee -a "$out/summary.txt"
+    echo "unknown, $source_dir missing")
+  echo "mfem-mgis-$version: $commit" | tee -a "$out/summary.txt"
 done
 kernels=(MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
   MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
@@ -35,11 +38,11 @@ kernels=(MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
   MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels)
 linear_solver=gmres-amg
 linear_tolerance=1e-8
-for version in globale autres; do
-  B=$P/build/cas-$version/thermique
+for version in $versions; do
+  B=$P/build/cases-$version/thermal
   options="-hc 1"
-  run "thermique-np8-robin-$version" 1 8 "$generic" "${kernels[@]}"
+  run "thermal-np8-robin-$version" 1 8 "$generic" "${kernels[@]}"
   options=""
-  run "thermique-np8-dirichlet-$version" 1 8 "$generic" "${kernels[@]}"
+  run "thermal-np8-dirichlet-$version" 1 8 "$generic" "${kernels[@]}"
 done
-echo "résultats dans $out"
+echo "results in $out"

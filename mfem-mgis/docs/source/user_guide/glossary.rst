@@ -825,6 +825,28 @@ at the end of each resolution (the predictions keep it).
                   mfem_mgis::Parameters{{"InitialTolerance", 0.1}}}}}}) |
       or_die;
 
+Stagnation of the residual (StagnationRelativeTolerance)
+--------------------------------------------------------
+
+Option of the Newton solver: a residual which has not decreased by more than
+10 % during the last two iterations, at a level of the order of the rounding
+errors, is accepted as converged (see :doc:`nonlinear_algorithms`).
+
+- Option name: ``StagnationRelativeTolerance``, a real in :math:`[0, 1[`,
+  relative to the reference residual; ``0`` disables the criterion.
+- Default value: :math:`10^4` times the machine epsilon of the numerical
+  type (about :math:`1.2\,10^{-3}` with ``float``, :math:`2.2\,10^{-12}`
+  with ``double``).
+
+**Example:**
+
+.. code-block:: cpp
+
+  problem.setSolverParameters(
+      ctx, {{"RelativeTolerance", 1e-8},
+            {"StagnationRelativeTolerance", 1e-4}}) |
+      or_die;
+
 Setup Your NonLinearProblem
 ===========================
 

@@ -1,4 +1,4 @@
-fichier : total, couplage, préparation des solveurs linéaires (thermique ; mécanique), en s
+file: total, coupling, setup of the linear solvers (thermal; mechanics), in s
 ex8-gpu-review-cudss-with-hypre-gpu-1.txt : 5.630540, 5.426352, 0.002761 0.632432 , 0.00128600753526175 0.000644324263349186
 ex8-gpu-review-cudss-with-hypre-gpu-2.txt : 5.584262, 5.382638, 0.002564 0.633202 , 0.00128600753526175 0.000644324263349186
 ex8-gpu-review-cudss-with-hypre-host-1.txt : 4.515017, 4.315706, 0.002588 0.707240 , 0.00128600753526175 0.000644324263349186

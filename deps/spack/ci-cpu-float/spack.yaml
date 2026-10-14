@@ -14,7 +14,8 @@ spack:
   # in single precision calls the LAPACK routines of the double type on
   # float arrays (src/lapack/_hypre_lapack.h has no single precision names,
   # unlike src/blas/_hypre_blas.h), which breaks ParaSails, the Gaussian
-  # elimination 99 and 199 of BoomerAMG, Schwarz, FSAI, MGR, AIR and LOBPCG
+  # elimination 98, 99, 198 and 199 of BoomerAMG, Schwarz, FSAI, MGR, AIR,
+  # GSMG, LOBPCG and AME
   - hypre@3.2.0 +mpi ~int64 ~lapack precision=single
   - mumps +mpi +float
   # C++20, as mfem-mgis

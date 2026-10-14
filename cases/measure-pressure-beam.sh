@@ -1,26 +1,27 @@
 #!/bin/bash
-# Pression imposée sur l'extrémité de la poutre (lot L7.6). Avec les forces
-# intérieures calculées par noyaux, la pression, indépendante des inconnues,
-# est assemblée une fois pour une pression unité et ajoutée au résidu sur le
-# GPU, sans intégrateur dans la forme non linéaire : la tangente est
-# assemblée par noyaux sans passer par l'assemblage de MFEM, et peut être
-# appliquée sans assemblage. Comparaison avec un exécutable construit avec
-# la version précédente de mfem-mgis (premier argument), où la pression est
-# un intégrateur de bord évalué sur l'hôte à chaque résidu et où les
-# matrices élémentaires calculées par noyaux sont assemblées par MFEM sur
-# l'hôte. Poutre r4, 10 pas, NewtonK0 (meilleure méthode du lot L5), tous
-# les noyaux, sur le GPU et sur 8 processus CPU, avec et sans pression.
-# Avant chaque calcul sur le GPU, le script attend au plus 10 minutes qu'un
-# autre processus libère le GPU, puis le signale dans le résumé.
+# Pressure imposed on the end of the beam (work package L7.6). With the
+# inner forces computed by kernels, the pressure, independent of the
+# unknowns, is assembled once for a unit pressure and added to the residual
+# on the GPU, without integrator in the non linear form: the tangent
+# operator is assembled by kernels without going through the assembly of
+# MFEM, and can be applied without assembly. Comparison with an executable
+# built with the previous version of mfem-mgis (first argument), where the
+# pressure is a boundary integrator evaluated on the host at each residual
+# and where the element matrices computed by kernels are assembled by MFEM
+# on the host. Beam r4, 10 steps, NewtonK0 (best method of the work
+# package L5), all the kernels, on the GPU and on 8 CPU processes, with and
+# without pressure.
+# Before each computation on the GPU, the script waits at most 10 minutes
+# for another process to free the GPU, then reports it in the summary.
 #
-# La variable APRES donne l'exécutable de la nouvelle version (par défaut
-# celui du dossier de construction du cas).
+# The variable AFTER gives the executable of the new version (by default
+# the one of the build directory of the case).
 #
-# usage : cases/measure-pressure-beam.sh exécutable-avant [dossier de résultats]
-lot=pression
+# usage: cases/measure-pressure-beam.sh executable-before [results directory]
+work_package=pressure
 before=$(realpath "$1")
 shift
-source "$(dirname "$0")/measure-common.sh" poutre "$@"
+source "$(dirname "$0")/measure-common.sh" beam "$@"
 batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
@@ -31,9 +32,9 @@ matrix_free=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
 cuda=$gp/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
 linear_solver=pcg-amg
 linear_tolerance=1e-4
-pressure=${PRESSION:-1e8}
+pressure=${PRESSURE:-1e8}
 base="-nls fixed-point -fpm newton-k0 -k0 -pk0 -alst EisenstatWalker1 -alsti 0.1 -els amg -amgo AggressiveCoarseningLevels=1"
-echo "pression : $pressure Pa, exécutable avant : $before" | tee -a "$out/summary.txt"
+echo "pressure: $pressure Pa, executable before: $before" | tee -a "$out/summary.txt"
 
 # waits at most 10 minutes for the GPU to be free of other processes
 wait_for_gpu() {
@@ -44,33 +45,33 @@ wait_for_gpu() {
     fi
     sleep 5
   done
-  echo "   GPU partagé avec un autre processus" | tee -a "$out/summary.txt"
+  echo "   GPU shared with another process" | tee -a "$out/summary.txt"
 }
 
-for version in avant apres; do
-  if [ "$version" = avant ]; then
+for version in before after; do
+  if [ "$version" = before ]; then
     executable=$before
   else
-    executable=${APRES:-./poutre}
+    executable=${AFTER:-./beam}
   fi
   device=cuda
   options="$base -hdps 0.5"
   wait_for_gpu
-  run "poutre-gpu-sans-pression-$version" 1 1 "$cuda" "$batch" "${kernels[@]}"
+  run "beam-gpu-without-pressure-$version" 1 1 "$cuda" "$batch" "${kernels[@]}"
   options="$base -hdps 0.5 -pa $pressure"
   wait_for_gpu
-  run "poutre-gpu-pression-$version" 1 1 "$cuda" "$batch" "${kernels[@]}"
-  if [ "$version" = apres ]; then
+  run "beam-gpu-pressure-$version" 1 1 "$cuda" "$batch" "${kernels[@]}"
+  if [ "$version" = after ]; then
     wait_for_gpu
-    run "poutre-gpu-pression-sans-matrice-$version" 1 1 "$cuda" "$batch" \
+    run "beam-gpu-pressure-matrix-free-$version" 1 1 "$cuda" "$batch" \
       "${matrix_free[@]}"
   fi
   device=""
   options="$base"
-  run "poutre-np8-sans-pression-$version" 1 8 "$generic" "$batch" \
+  run "beam-np8-without-pressure-$version" 1 8 "$generic" "$batch" \
     "${kernels[@]}"
   options="$base -pa $pressure"
-  run "poutre-np8-pression-$version" 1 8 "$generic" "$batch" "${kernels[@]}"
+  run "beam-np8-pressure-$version" 1 8 "$generic" "$batch" "${kernels[@]}"
 done
-python3 "$P/cases/summary-profiling.py" "$out"/poutre-*.txt > "$out/profiling.txt" 2>&1
-echo "fin : $(date '+%F %T')" | tee -a "$out/summary.txt"
+python3 "$P/cases/summary-profiling.py" "$out"/beam-*.txt > "$out/profiling.txt" 2>&1
+echo "end: $(date '+%F %T')" | tee -a "$out/summary.txt"

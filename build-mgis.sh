@@ -1,21 +1,20 @@
 #!/bin/bash
-# Compile, teste et installe le fork de MGIS du prototype (dépôt `mgis/`,
-# branche `gpu-proto`), contre le TFEL installé par build-tfel.sh, dans
-# l'environnement de scripts/env.sh (mmm-gpu par défaut).
+# Builds, tests and installs the MGIS fork of the prototype (repository
+# `mgis/`, branch `gpu-proto`), against the TFEL installed by build-tfel.sh,
+# in the environment of scripts/env.sh (mmm-gpu by default).
 #
-# usage : ./build-mgis.sh [full]
+# usage: ./build-mgis.sh [full]
 #
-# Sans argument : construction dans build/mgis (Release, tests CUDA des
-# bibliothèques de lots), cible `check` (tests compris), puis installation
-# dans install/mgis, où mfem-mgis trouve MGIS.
+# Without argument: build in build/mgis (Release, CUDA tests of the batch
+# libraries), target `check` (tests included), then installation in
+# install/mgis, where mfem-mgis finds MGIS.
 #
-# Avec `full` : construction dans build/mgis-full, avec HDF5 et les liaisons
-# C, Fortran et Python (HDF5, pybind11, Python et numpy de l'installation
-# spack de la machine), cible `check`, sans installation.
+# With `full`: build in build/mgis-full, with HDF5 and the C, Fortran and
+# Python bindings (HDF5, pybind11, Python and numpy from the spack
+# installation of the machine), target `check`, without installation.
 #
-# Un dossier de construction existant est réutilisé, et reconfiguré avec
-# les options de ce script à chaque appel. Pour repartir de zéro, le
-# supprimer avant.
+# An existing build directory is reused, and reconfigured with the options
+# of this script at each call. To start from scratch, delete it first.
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
 source "$P/scripts/env.sh"

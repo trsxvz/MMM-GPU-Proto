@@ -1,9 +1,9 @@
-# Notes : « K copy » et « E copy » sont des copies des matrices migrées sur le
-# GPU ; « K » et « E » sont les matrices d'origine. Le bloc « matrix E » (matrice
-# d'origine) n'a pas de résolution par MUMPS : sa colonne |c - c_mumps| compare
-# à la direction de MUMPS obtenue avec K. Les lignes du double viennent de la
-# trajectoire du double (résidu 5,68e5), pas de celle du float (5,70e5).
-# float, état de la 1re itération du pas 8 (trajectoire de la tangente par noyaux)
+# Notes: "K copy" and "E copy" are copies of the matrices migrated to the
+# GPU; "K" and "E" are the original matrices. The block "matrix E" (original
+# matrix) has no solution by MUMPS: its column |c - c_mumps| compares with the
+# direction of MUMPS obtained with K. The lines of double come from the
+# trajectory of double (residual 5.68e5), not from that of float (5.70e5).
+# float, state of the 1st iteration of step 8 (trajectory of the tangent by kernels)
 directions at step 8: ||r|| 5.703580e+05 (hypre memory: host 0, device 1)
   residual: integrated 5.703580e+05, Mult 5.703580e+05, after kernels 0.000e+00 (relative difference), after element by element 0.000e+00
   ||r|| at x again: 5.703580e+05
@@ -44,7 +44,7 @@ directions at step 8: ||r|| 5.703580e+05 (hypre memory: host 0, device 1)
 dofs 111843 | nls newton | ls pcg-amg | ||u|| 33.64945221 | iterations per step: 1 1 1 1 2 2 2 | total 10
 time 12.649 s
 
-# double, même pas et même itération (sa propre trajectoire)
+# double, same step and same iteration (its own trajectory)
 directions at step 8: ||r|| 5.682349e+05 (hypre memory: host 0, device 1)
   residual: integrated 5.682349e+05, Mult 5.682349e+05, after kernels 0.000e+00 (relative difference), after element by element 0.000e+00
   ||r|| at x again: 5.682349e+05

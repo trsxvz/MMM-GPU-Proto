@@ -2,9 +2,9 @@ np2-gmres-1                    6.17 s, exit 0
 np2-mumps-1                    5.41 s, exit 0
 np2-gmres-2                    6.08 s, exit 0
 np2-mumps-2                    5.36 s, exit 0
-gpu-gmres-hypre-hote-1         4.61 s, exit 0
-gpu-cudss-hypre-hote-1         2.08 s, exit 0
+gpu-gmres-hypre-host-1         4.61 s, exit 0
+gpu-cudss-hypre-host-1         2.08 s, exit 0
 gpu-cudss-hypre-gpu-1          2.35 s, exit 0
-gpu-gmres-hypre-hote-2         4.32 s, exit 0
-gpu-cudss-hypre-hote-2         2.02 s, exit 0
+gpu-gmres-hypre-host-2         4.32 s, exit 0
+gpu-cudss-hypre-host-2         2.02 s, exit 0
 gpu-cudss-hypre-gpu-2          2.37 s, exit 0

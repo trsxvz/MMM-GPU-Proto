@@ -1,20 +1,20 @@
 #!/bin/bash
-# Balayage de configurations d'AmgX sur l'opérateur élastique K0 de la
-# poutre r4 (outil poutre-k0, GPU) : gradient conjugué de MFEM
-# préconditionné par un cycle d'AmgX décrit par chaque fichier JSON du
-# dossier de configurations, tolérance relative 1e-8, cinq résolutions.
-# Les configurations sont copiées avec les sorties brutes ; résumé
-# (mise en place, itérations, résolution la plus rapide et la plus lente
-# hors la première, résolutions non convergées) dans summary.txt.
-# À lancer sur une machine calme, après build-mfem-mgis.sh cas.
+# Sweep of configurations of AmgX on the elastic operator K0 of the beam r4
+# (tool beam-k0, GPU): conjugate gradient of MFEM preconditioned by one
+# cycle of AmgX described by each JSON file of the configurations
+# directory, relative tolerance 1e-8, five resolutions.
+# The configurations are copied with the raw outputs; summary
+# (setup, iterations, fastest and slowest resolution after the first one,
+# resolutions not converged) in summary.txt.
+# To be run on a quiet machine, after build-mfem-mgis.sh cases.
 #
-# usage : cases/sweep-amgx-k0.sh dossier-de-configurations [dossier de résultats]
-#         cases/sweep-amgx-k0.sh --resume dossier-de-résultats
-# La seconde forme recalcule summary.txt à partir des sorties brutes.
+# usage: cases/sweep-amgx-k0.sh configurations-directory [results directory]
+#        cases/sweep-amgx-k0.sh --resume results-directory
+# The second form computes summary.txt again from the raw outputs.
 set -u
 P=$(cd "$(dirname "$0")/.." && pwd)
 
-# summary of the output of poutre-k0 for one configuration: setup time,
+# summary of the output of beam-k0 for one configuration: setup time,
 # iterations and times of the resolutions after the first, resolutions not
 # converged (decimal point of the C locale)
 # usage: summarise name output-file
@@ -31,19 +31,19 @@ summarise() {
       ++n
     }
     END {
-      if (n == 0) { printf "%s : échec, voir %s.txt\n", name, name; exit }
-      iterations = (imin == imax) ? imin : imin " à " imax
-      printf "%s : mise en place %s s, %s itérations, résolution %.4f à %.4f s",
+      if (n == 0) { printf "%s: failure, see %s.txt\n", name, name; exit }
+      iterations = (imin == imax) ? imin : imin " to " imax
+      printf "%s: setup %s s, %s iterations, resolution %.4f to %.4f s",
              name, setup, iterations, tmin, tmax
       if (failures > 0) {
-        printf ", %d résolutions sur %d non convergées", failures, n
+        printf ", %d resolutions out of %d not converged", failures, n
       }
       printf "\n"
     }' "$2"
 }
 
 if [ "${1:-}" = --resume ]; then
-  out=$(cd "${2:?dossier de résultats attendu}" && pwd) || exit 1
+  out=$(cd "${2:?results directory expected}" && pwd) || exit 1
   : > "$out/summary.txt"
   for c in "$out"/configurations/*.json; do
     name=$(basename "$c" .json)
@@ -52,24 +52,24 @@ if [ "${1:-}" = --resume ]; then
   exit 0
 fi
 
-configurations=$(cd "${1:?dossier de configurations attendu}" && pwd) ||
+configurations=$(cd "${1:?configurations directory expected}" && pwd) ||
   exit 1
 if ! compgen -G "$configurations/*.json" > /dev/null; then
-  echo "sweep-amgx-k0.sh: aucune configuration dans $configurations" >&2
+  echo "sweep-amgx-k0.sh: no configuration in $configurations" >&2
   exit 1
 fi
 source "$P/scripts/env.sh" > /dev/null
 unset OMP_PROC_BIND OMP_PLACES
-out=${2:-$P/results/balayage-amgx-k0-$(date +%Y-%m-%d-%H%M)}
+out=${2:-$P/results/sweep-amgx-k0-$(date +%Y-%m-%d-%H%M)}
 mkdir -p "$out/configurations"
 out=$(cd "$out" && pwd)
 : > "$out/summary.txt"
-B=$P/build/cas/poutre
+B=$P/build/cases/beam
 for c in "$configurations"/*.json; do
   name=$(basename "$c" .json)
   cp "$c" "$out/configurations/"
-  (cd "$B" && env OMP_NUM_THREADS=1 timeout 600 ./poutre-k0 -r 4 -n 5 \
+  (cd "$B" && env OMP_NUM_THREADS=1 timeout 600 ./beam-k0 -r 4 -n 5 \
     --device cuda -s cg-amgx -amgxc "$c") < /dev/null > "$out/$name.txt" 2>&1
   summarise "$name" "$out/$name.txt" | tee -a "$out/summary.txt"
 done
-echo "résultats dans $out"
+echo "results in $out"

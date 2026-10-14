@@ -1,208 +1,215 @@
-# Plan : choix de l'exécution sur CPU, sur GPU ou mixte
+# Plan: choice of execution on CPU, on GPU or mixed
 
-Statut : plan du 13/10/2026 (tâche 9a). Schéma d'options retenu le
-13/10/2026. Réalisé le 13/10/2026 (étapes 1 à 5, voir la dernière
-section) : mfem-mgis 75bfd92a54 à 1348a95a5e, exemples dbf659f et suivant,
-mm-opera-hpc 7416eb8 et suivants, deux relectures indépendantes traitées.
+Status: plan of 13/10/2026 (task 9a). Option scheme chosen on 13/10/2026.
+Implemented on 13/10/2026 (steps 1 to 5, see the last section):
+mfem-mgis 75bfd92a54 to 1348a95a5e, examples dbf659f and the next one,
+mm-opera-hpc 7416eb8 and the next ones, two independent reviews handled.
 
-## Objectif
+## Objective
 
-Avant cette tâche, placer un calcul sur le GPU demandait plusieurs
-réglages indépendants, et chaque exemple les exposait à sa façon :
+Before this task, placing a computation on the GPU required several
+independent settings, and each example exposed them in its own way:
 
-- l'option `--device` (ou la variable `MFEM_MGIS_DEVICE`) configure le
-  périphérique de MFEM ;
-- les variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION`,
+- the `--device` option (or the `MFEM_MGIS_DEVICE` variable) configures
+  the MFEM device;
+- the variables `MFEM_MGIS_BEHAVIOUR_INTEGRATION`,
   `MFEM_MGIS_GRADIENTS_COMPUTATION`, `MFEM_MGIS_INNER_FORCES_COMPUTATION`,
-  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` et
-  `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` choisissent les calculs par
-  noyaux ;
-- `--hypre-on-host` (ou `MFEM_MGIS_HYPRE_ON_HOST`) garde hypre sur l'hôte ;
-- la bibliothèque de lois (`-l`) décide où les lois sont intégrées : une
-  bibliothèque `generic-parallel` d'un backend GPU les intègre sur le GPU,
-  une bibliothèque `generic` sur l'hôte ; les exemples ne construisent que
-  la seconde ;
-- ex1 et ex3 ne lisent que les variables d'environnement, les variantes
-  MUMPS et PETSc d'ex4 n'ont pas d'option `-l`, le test de Robin n'a
-  aucune option.
+  `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` and
+  `MFEM_MGIS_POST_PROCESSINGS_COMPUTATION` choose the computations by
+  kernels;
+- `--hypre-on-host` (or `MFEM_MGIS_HYPRE_ON_HOST`) keeps hypre on the
+  host;
+- the library of behaviours (`-l`) decides where the behaviours are
+  integrated: a `generic-parallel` library of a GPU backend integrates
+  them on the GPU, a `generic` library on the host; the examples only
+  build the second one;
+- ex1 and ex3 only read the environment variables, the MUMPS and PETSc
+  variants of ex4 have no `-l` option, the Robin test has no option at
+  all.
 
-Le but : un seul jeu d'options, déclaré par mfem-mgis et compris de la
-même façon par tous les exemples, et toutes les combinaisons de placement
-possibles, sauf impossibilité technique réelle, documentée.
+The goal: a single set of options, declared by mfem-mgis and understood
+in the same way by all the examples, and all the possible placement
+combinations, except for a real, documented technical impossibility.
 
 ## Options
 
-Déclarées par `mfem_mgis::declareDefaultOptions`, lues par
-`mfem_mgis::initialize` :
+Declared by `mfem_mgis::declareDefaultOptions`, read by
+`mfem_mgis::initialize`:
 
-- `--execution cpu|gpu|mixed` (`-x`) :
-  - `cpu` : aucun périphérique, tout est calculé sur l'hôte ;
-  - `gpu` : périphérique `gpu` de MFEM (CUDA ou HIP selon sa
-    construction), tout est calculé sur le GPU ;
-  - `mixed` : périphérique `gpu`, et chaque phase est placée par son
-    sous-interrupteur (GPU par défaut) ;
-- en `mixed` seulement (refusés sinon, car contradictoires) :
-  - `--finite-elements cpu|gpu` : données de MFEM, gradients, forces
-    intérieures, tangente ;
-  - `--behaviours cpu|gpu` : intégration des lois (aussi matériau par
-    matériau, par l'API) ;
-  - `--linear-solver-device cpu|gpu` : hypre et les solveurs linéaires ;
-  - `--post-processings cpu|gpu` ;
-- `--device` est gardé pour les experts (noms de MFEM : `debug`, `omp`,
-  `ceed-cuda`...). Il est refusé s'il contredit `--execution` (par
-  exemple `--execution cpu --device cuda`).
+- `--execution cpu|gpu|mixed` (`-x`):
+  - `cpu`: no device, everything is computed on the host;
+  - `gpu`: MFEM `gpu` device (CUDA or HIP depending on how it was
+    built), everything is computed on the GPU;
+  - `mixed`: `gpu` device, and each phase is placed by its sub-switch
+    (GPU by default);
+- in `mixed` only (refused otherwise, because contradictory):
+  - `--finite-elements cpu|gpu`: MFEM data, gradients, internal forces,
+    tangent;
+  - `--behaviours cpu|gpu`: integration of the behaviours (also material
+    by material, through the API);
+  - `--linear-solver-device cpu|gpu`: hypre and the linear solvers;
+  - `--post-processings cpu|gpu`;
+- `--device` is kept for experts (MFEM names: `debug`, `omp`,
+  `ceed-cuda`...). It is refused if it contradicts `--execution` (for
+  example `--execution cpu --device cuda`).
 
-Sans `--execution`, rien ne change : le comportement actuel (options et
-variables existantes) est gardé, ce qui laisse les tests de mfem-mgis
-inchangés.
+Without `--execution`, nothing changes: the current behaviour (existing
+options and variables) is kept, which leaves the tests of mfem-mgis
+unchanged.
 
-Ordre de priorité, du plus fort au plus faible : paramètre donné au
-problème, variable d'environnement, réglage déduit de `--execution`,
-valeur par défaut. Un paramètre donné explicitement garde donc la main
-(un test peut toujours forcer un chemin).
+Order of priority, from the strongest to the weakest: parameter given to
+the problem, environment variable, setting deduced from `--execution`,
+default value. A parameter given explicitly therefore keeps control (a
+test can always force a path).
 
-Réalisé autrement (voir [Réalisation](#réalisation-13102026)) : avec
-`--execution`, les variables d'environnement de placement
+Implemented differently (see [Implementation](#implementation-13102026)):
+with `--execution`, the placement environment variables
 (`MFEM_MGIS_DEVICE`, `MFEM_MGIS_HYPRE_ON_HOST`,
-`MFEM_MGIS_BEHAVIOUR_INTEGRATION`, `MFEM_MGIS_*_COMPUTATION`) sont
-ignorées, avec un avertissement. L'ordre est donc : paramètre donné au
-problème, réglage déduit de `--execution`, valeur par défaut. Sans
-`--execution`, les variables s'appliquent comme avant.
+`MFEM_MGIS_BEHAVIOUR_INTEGRATION`, `MFEM_MGIS_*_COMPUTATION`) are
+ignored, with a warning. The order is therefore: parameter given to the
+problem, setting deduced from `--execution`, default value. Without
+`--execution`, the variables apply as before.
 
-## Correspondance avec les réglages existants
+## Mapping to the existing settings
 
 | Phase | GPU | CPU |
 |---|---|---|
-| éléments finis | `BehaviourIntegration=Batch`, gradients, forces intérieures et tangente `Kernels` sur le périphérique | `ElementByElement`, boucles de MFEM sur l'hôte (réalisé : en `mixed` seulement ; `Kernels` sur l'hôte en mode `cpu`) |
-| lois | bibliothèque d'un backend GPU de `generic-parallel` | bibliothèque `generic` (ou `generic-parallel` sur l'hôte) |
-| solveur linéaire | hypre sur le GPU | hypre sur l'hôte (`--hypre-on-host`) |
-| post-traitements | `PostProcessingsComputation=Kernels` sur le périphérique | `ElementByElement` sur l'hôte |
+| finite elements | `BehaviourIntegration=Batch`, gradients, internal forces and tangent `Kernels` on the device | `ElementByElement`, MFEM loops on the host (implemented: in `mixed` only; `Kernels` on the host in `cpu` mode) |
+| behaviours | library of a GPU backend of `generic-parallel` | `generic` library (or `generic-parallel` on the host) |
+| linear solver | hypre on the GPU | hypre on the host (`--hypre-on-host`) |
+| post-processings | `PostProcessingsComputation=Kernels` on the device | `ElementByElement` on the host |
 
-En mode `cpu`, les éléments finis et les post-traitements gardent le
-chemin par défaut de mfem-mgis (élément par élément) ; les noyaux restent
-accessibles par les paramètres et les variables existants, pour les
-mesures.
+In `cpu` mode, the finite elements and the post-processings keep the
+default path of mfem-mgis (element by element); the kernels remain
+accessible through the existing parameters and variables, for the
+measurements.
 
-Réalisé autrement : en mode `cpu`, les éléments finis sont calculés par
-noyaux sur l'hôte, plus rapides, avec repli élément par élément si les
-intégrateurs ne les supportent pas. Ils restent élément par élément quand
-ils sont placés sur l'hôte en mode `mixed`. Seuls les post-traitements
-gardent le chemin élément par élément sur l'hôte.
+Implemented differently: in `cpu` mode, the finite elements are computed
+by kernels on the host, which is faster, with a fallback to element by
+element if the integrators do not support them. They remain element by
+element when they are placed on the host in `mixed` mode. Only the
+post-processings keep the element by element path on the host.
 
-## Combinaisons
+## Combinations
 
-En mode `mixed`, les 16 combinaisons des quatre phases sont visées. Ce
-qui est déjà possible :
+In `mixed` mode, the 16 combinations of the four phases are targeted.
+What is already possible:
 
-- éléments finis sur l'hôte et lois sur le GPU : les gradients calculés
-  élément par élément sont écrits dans les tableaux des matériaux, dans la
-  mémoire de MFEM, puis lus sur le GPU par l'intégration par lots ;
-- lois sur l'hôte et éléments finis sur le GPU : les tableaux sont
-  synchronisés sur l'hôte avant l'intégration point par point, puis
-  relus sur le GPU ;
-- solveur sur le GPU avec une matrice assemblée sur l'hôte : MFEM copie la
-  matrice dans la mémoire de hypre ;
-- post-traitements sur l'hôte avec un calcul sur le GPU : synchronisation
-  des matériaux sur l'hôte, déjà faite par les post-traitements.
+- finite elements on the host and behaviours on the GPU: the gradients
+  computed element by element are written into the arrays of the
+  materials, in the memory of MFEM, then read on the GPU by the batch
+  integration;
+- behaviours on the host and finite elements on the GPU: the arrays are
+  synchronized on the host before the point by point integration, then
+  read again on the GPU;
+- solver on the GPU with a matrix assembled on the host: MFEM copies the
+  matrix into the memory of hypre;
+- post-processings on the host with a computation on the GPU:
+  synchronization of the materials on the host, already done by the
+  post-processings.
 
-Limites réelles, à refuser avec un message clair :
+Real limits, to be refused with a clear message:
 
-- un solveur qui n'existe que d'un côté : MUMPS, UMFPACK, PETSc (sur
-  l'hôte) ; AmgX et cuDSS (sur le GPU). Le solveur choisi par
-  l'application l'emporte : un conflit avec `--linear-solver-device` est
-  une erreur, pas un déplacement silencieux ;
-- le placement de hypre est global au processus (fixé avant son
-  initialisation) : tous les solveurs de hypre d'un calcul sont du même
-  côté ;
-- le périphérique de MFEM est global : en `mixed`, il est toujours
-  configuré, et « éléments finis sur le CPU » veut dire boucles de MFEM
-  sur l'hôte, les vecteurs restant dans la mémoire de MFEM.
+- a solver that only exists on one side: MUMPS, UMFPACK, PETSc (on the
+  host); AmgX and cuDSS (on the GPU). The solver chosen by the
+  application wins: a conflict with `--linear-solver-device` is an error,
+  not a silent move;
+- the placement of hypre is global to the process (fixed before its
+  initialization): all the hypre solvers of a computation are on the same
+  side;
+- the MFEM device is global: in `mixed`, it is always configured, and
+  "finite elements on the CPU" means MFEM loops on the host, with the
+  vectors remaining in the memory of MFEM.
 
-## Transferts
+## Transfers
 
-Les transferts entre l'hôte et le GPU passent par la mémoire de MFEM
-(`Read`, `Write`, `HostRead`...) et par les synchronisations des
-matériaux. Pour que leur surcoût soit mesurable :
+The transfers between the host and the GPU go through the memory of MFEM
+(`Read`, `Write`, `HostRead`...) and through the synchronizations of the
+materials. So that their overhead can be measured:
 
-- une section de profilage par synchronisation des matériaux
-  (`Material::synchronizeOnHost`, `...OnDevice`), avec le nombre d'octets ;
-- une section autour des copies de la matrice vers hypre quand
-  l'assemblage et le solveur ne sont pas du même côté ;
-- un tableau de mesure (poutre r4, une combinaison par ligne : temps total,
-  temps des transferts) dans `results/`.
+- a profiling section per synchronization of the materials
+  (`Material::synchronizeOnHost`, `...OnDevice`), with the number of
+  bytes;
+- a section around the copies of the matrix to hypre when the assembly
+  and the solver are not on the same side;
+- a measurement table (beam r4, one combination per row: total time,
+  time of the transfers) in `results/`.
 
-Copies asynchrones : la mémoire de MFEM copie de façon synchrone. Une
-copie asynchrone (flux CUDA ou HIP, mémoire épinglée) ne sera ajoutée que
-si la mesure montre un gain, et seulement là où l'ordre des opérations est
-garanti (par exemple la recopie des contraintes vers l'hôte pendant
-l'assemblage de la tangente sur le GPU).
+Asynchronous copies: the memory of MFEM copies synchronously. An
+asynchronous copy (CUDA or HIP stream, pinned memory) will only be added
+if the measurement shows a gain, and only where the order of the
+operations is guaranteed (for example the copy of the stresses back to
+the host during the assembly of the tangent on the GPU).
 
-## Lois
+## Behaviours
 
-- Une fonction CMake commune, installée par mfem-mgis :
-  `mfem_mgis_add_behaviours_library(NAME <nom> SOURCES <.mfront...>
-  [BACKENDS ...])`, qui construit la bibliothèque `generic` et, si MFEM
-  utilise un GPU, celle du backend GPU de `generic-parallel` (`cuda` ou
-  `hip`), avec un nommage fixe. La signature réalisée est différente
-  (voir l'étape 3 de la [Réalisation](#réalisation-13102026)).
-- Une fonction de mfem-mgis qui choisit la bibliothèque d'après le
-  placement des lois : `mfem_mgis::getBehavioursLibrary(ctx, nom)`.
-- L'option `-l` des exemples force une bibliothèque (pour les mesures).
+- A common CMake function, installed by mfem-mgis:
+  `mfem_mgis_add_behaviours_library(NAME <name> SOURCES <.mfront...>
+  [BACKENDS ...])`, which builds the `generic` library and, if MFEM uses
+  a GPU, the one of the GPU backend of `generic-parallel` (`cuda` or
+  `hip`), with a fixed naming. The implemented signature is different
+  (see step 3 of the [Implementation](#implementation-13102026)).
+- A function of mfem-mgis that chooses the library from the placement of
+  the behaviours: `mfem_mgis::getBehavioursLibrary(ctx, name)`.
+- The `-l` option of the examples forces a library (for the
+  measurements).
 
-## Étapes
+## Steps
 
-1. mfem-mgis : options et réglages d'exécution (`ExecutionSettings`),
-   valeurs par défaut des paramètres déduites du placement, refus des
-   contradictions ; test de toutes les combinaisons sur un petit problème
-   (mêmes résultats que tout sur l'hôte) et des refus.
-2. Sections de profilage des transferts.
-3. Fonction CMake des lois et choix automatique de la bibliothèque.
-4. Exemples de mfem-mgis-examples, puis mm-opera-hpc, puis ex1 et ex3 :
-   options communes, lois construites par la fonction commune, variables
-   d'environnement retirées des scripts.
-5. Mesure du surcoût de chaque combinaison (poutre), documentation.
+1. mfem-mgis: execution options and settings (`ExecutionSettings`),
+   default values of the parameters deduced from the placement, refusal
+   of contradictions; test of all the combinations on a small problem
+   (same results as everything on the host) and of the refusals.
+2. Profiling sections for the transfers.
+3. CMake function for the behaviours and automatic choice of the
+   library.
+4. Examples of mfem-mgis-examples, then mm-opera-hpc, then ex1 and ex3:
+   common options, behaviours built by the common function, environment
+   variables removed from the scripts.
+5. Measurement of the overhead of each combination (beam),
+   documentation.
 
-## Réalisation (13/10/2026)
+## Implementation (13/10/2026)
 
-- Étape 1 : options et réglages (`ExecutionSettings`,
-  `getExecutionSettings`), lus avant l'initialisation de MPI et de hypre ;
-  avec `--execution`, les variables d'environnement de placement sont
-  ignorées (avertissement), un paramètre donné au problème garde la main.
-  En mode `cpu`, les éléments finis sont calculés par noyaux sur l'hôte
-  (plus rapide : 12,2 s au lieu de 16,5 s sur la poutre, 8 processus),
-  avec repli élément par élément si les intégrateurs ne les supportent
-  pas ; l'intégration par lots par défaut a le même repli. Le paramètre
-  `BehaviourExecutionLocation` de `addBehaviourIntegrator` place les lois
-  d'un matériau.
-- Étape 2 : copies des tableaux des matériaux comptées
-  (`getMaterialArraysTransfers`) et affichées après la table de profilage.
-  Les autres transferts (propriétés matériau, variables externes, vecteurs
-  et matrices de MFEM) ne sont pas comptés : le surcoût total se lit dans
-  les temps.
-- Étape 3 : `mfem_mgis_add_behaviours_library` (module CMake installé) et
-  `getBehavioursLibrary`. Signature réalisée, sans `NAME` ni `BACKENDS` :
-  `mfem_mgis_add_behaviours_library(<cible> SOURCES <fichiers.mfront>...
-  [LIBRARIES <noms>...] [INCLUDE_DIRECTORY <dossier>] [DEPENDS
-  <fichiers>...] [EXCLUDE_FROM_ALL] [NO_GPU])`. Les bibliothèques sont
-  rangées dans `<dossier>/cpu/` et `<dossier>/gpu/`
-  (`cmake/modules/MFEMMGISBehaviours.cmake` de mfem-mgis).
-- Étape 4 : tous les exemples, mm-opera-hpc, ex1 et ex3 ; tests sur GPU par
-  `--execution`.
-- Étape 5 : `results/execution-beam-2026-10-13-1432`. Les copies des
-  tableaux coûtent au plus 0,42 s (de 0,2 % à 4,5 % du calcul selon le
-  placement) ; le coût d'un placement mixte vient du processeur qui
-  calcule. Les copies asynchrones ne sont donc pas faites : le gain
-  possible est petit devant le risque (ordre des opérations, mémoire
-  épinglée).
-- Limites réelles (documentées dans le guide de mfem-mgis) : solveurs qui
-  n'existent que d'un côté ; solveurs de MFEM sur le GPU dès qu'un GPU est
-  utilisé ; placement de hypre global ; cuDSS sur le GPU avec hypre sur
-  l'hôte seulement par les options expertes. Avec HIP, les noyaux de
-  mfem-mgis sont compilés pour HIP depuis la tâche 9c : compilation et
-  édition de liens vérifiées pour un GPU AMD (gfx90a), pas d'essai sur un
-  tel GPU.
-- Pistes : garder les états sur le GPU après la mise à jour de fin de pas
-  (faite sur le GPU, mais suivie d'un retour sur l'hôte voulu par le
-  contrat de `MaterialArrays`, voir `results/L7-transfers-2026-10-11`),
-  avec des écritures sur l'hôte synchronisées explicitement (120 copies
-  évitables sur la poutre, 0,07 s) ; compter les autres transferts.
+- Step 1: options and settings (`ExecutionSettings`,
+  `getExecutionSettings`), read before the initialization of MPI and
+  hypre; with `--execution`, the placement environment variables are
+  ignored (warning), a parameter given to the problem keeps control. In
+  `cpu` mode, the finite elements are computed by kernels on the host
+  (faster: 12.2 s instead of 16.5 s on the beam, 8 processes), with a
+  fallback to element by element if the integrators do not support them;
+  the default batch integration has the same fallback. The
+  `BehaviourExecutionLocation` parameter of `addBehaviourIntegrator`
+  places the behaviours of a material.
+- Step 2: copies of the arrays of the materials counted
+  (`getMaterialArraysTransfers`) and displayed after the profiling table.
+  The other transfers (material properties, external variables, MFEM
+  vectors and matrices) are not counted: the total overhead is read in
+  the times.
+- Step 3: `mfem_mgis_add_behaviours_library` (installed CMake module) and
+  `getBehavioursLibrary`. Implemented signature, without `NAME` or
+  `BACKENDS`:
+  `mfem_mgis_add_behaviours_library(<target> SOURCES <files.mfront>...
+  [LIBRARIES <names>...] [INCLUDE_DIRECTORY <directory>] [DEPENDS
+  <files>...] [EXCLUDE_FROM_ALL] [NO_GPU])`. The libraries are placed in
+  `<directory>/cpu/` and `<directory>/gpu/`
+  (`cmake/modules/MFEMMGISBehaviours.cmake` of mfem-mgis).
+- Step 4: all the examples, mm-opera-hpc, ex1 and ex3; tests on GPU
+  through `--execution`.
+- Step 5: `results/execution-beam-2026-10-13-1432`. The copies of the
+  arrays cost at most 0.42 s (from 0.2 % to 4.5 % of the computation
+  depending on the placement); the cost of a mixed placement comes from
+  the processor that computes. The asynchronous copies are therefore not
+  done: the possible gain is small compared with the risk (order of the
+  operations, pinned memory).
+- Real limits (documented in the guide of mfem-mgis): solvers that only
+  exist on one side; MFEM solvers on the GPU as soon as a GPU is used;
+  global placement of hypre; cuDSS on the GPU with hypre on the host
+  only through the expert options. With HIP, the kernels of mfem-mgis are
+  compiled for HIP since task 9c: compilation and linking checked for an
+  AMD GPU (gfx90a), not run on such a GPU.
+- Leads: keep the states on the GPU after the end of step update (done
+  on the GPU, but followed by a return to the host required by the
+  contract of `MaterialArrays`, see `results/L7-transfers-2026-10-11`),
+  with writes on the host synchronized explicitly (120 avoidable copies
+  on the beam, 0.07 s); count the other transfers.

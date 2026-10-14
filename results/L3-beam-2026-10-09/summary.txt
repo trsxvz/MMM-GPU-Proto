@@ -1,53 +1,53 @@
-date : 2026-10-09 20:15:00
-cas : poutre
-machine : 16 cœurs, 30 Go
-charge : 1.63 3.42 3.08
-mfem-mgis : ed91564643
-== poutre-np8-point-par-point : 8 processus, 1 fils, défaut
-   statut 0
+date: 2026-10-09 20:15:00
+case: beam
+machine: 16 cores, 30 GB
+load: 1.63 3.42 3.08
+mfem-mgis: ed91564643
+== beam-np8-point-by-point: 8 processes, 1 threads, default
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
 time 15.682 s
-== poutre-np8-lots : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
-   statut 0
+== beam-np8-batches: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
 time 15.656 s
-== poutre-np8-lots-noyaux-gradients : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
-   statut 0
+== beam-np8-batches-kernels-gradients: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
 time 15.139 s
-== poutre-np8-lots-noyaux-forces : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
-   statut 0
+== beam-np8-batches-kernels-forces: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31
 time 15.312 s
-== poutre-np8-lots-noyaux-tangente : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== beam-np8-batches-kernels-tangent: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 14.891 s
-== poutre-np8-lots-noyaux : 8 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== beam-np8-batches-kernels: 8 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 14.288 s
-== poutre-np1-point-par-point : 1 processus, 1 fils, défaut
-   statut 0
+== beam-np1-point-by-point: 1 processes, 1 threads, default
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 71.479 s
-== poutre-np1-lots : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
-   statut 0
+== beam-np1-batches: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 65.560 s
-== poutre-np1-lots-noyaux-gradients : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
-   statut 0
+== beam-np1-batches-kernels-gradients: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 62.334 s
-== poutre-np1-lots-noyaux-forces : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
-   statut 0
+== beam-np1-batches-kernels-forces: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 63.896 s
-== poutre-np1-lots-noyaux-tangente : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== beam-np1-batches-kernels-tangent: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 67.890 s
-== poutre-np1-lots-noyaux : 1 processus, 1 fils, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
-   statut 0
+== beam-np1-batches-kernels: 1 processes, 1 threads, MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+   status 0
 dofs 111843 | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28
 time 63.968 s

@@ -1,53 +1,53 @@
-# Tangente sans assemblage sur le GPU (10/10/2026)
+# Tangent without assembly on the GPU (10/10/2026)
 
-Poutre r4 du prototype (111 843 inconnues, 10 pas), loi `cuda`, une RTX
-5080, noyaux pour les gradients et les forces intérieures. mfem-mgis
-4b72095ee0. Script : `cases/measure-L5-matrix-free.sh`. Machine calme
-(charge 1,7 au départ, en baisse).
+Beam r4 of the prototype (111,843 unknowns, 10 steps), `cuda` behaviour,
+one RTX 5080, kernels for the gradients and the internal forces. mfem-mgis
+4b72095ee0. Script: `cases/measure-L5-matrix-free.sh`. Quiet machine (load
+1.7 at the start, decreasing).
 
-Tangente appliquée sans assemblage (`TangentOperatorComputation` à
-`MatrixFree`, action par le noyau fusionné) avec trois préconditionneurs
-possibles :
+Tangent applied without assembly (`TangentOperatorComputation` set to
+`MatrixFree`, action by the fused kernel) with three possible
+preconditioners:
 
-- le lisseur de Jacobi ;
-- le lisseur de Chebyshev de MFEM (`OperatorChebyshevSmoother`, ordres 2 à 5) ;
-- NewtonK0 : gradient conjugué préconditionné par BoomerAMG construit une
-  fois sur K0, avec ou sans Eisenstat-Walker 1 et une tolérance initiale
-  de 0,1.
+- the Jacobi smoother;
+- the Chebyshev smoother of MFEM (`OperatorChebyshevSmoother`, orders 2 to 5);
+- NewtonK0: conjugate gradient preconditioned by BoomerAMG built once on
+  K0, with or without Eisenstat-Walker 1 and an initial tolerance of 0.1.
 
-Ces cas sont comparés à NewtonK0 avec la tangente assemblée par noyaux.
-Tolérance du solveur linéaire : 1e-4.
+These cases are compared with NewtonK0 with the tangent assembled by
+kernels. Tolerance of the linear solver: 1e-4.
 
-| Cas | Temps | Itérations de Newton | Résolution |
+| Case | Time | Newton iterations | Solve |
 |---|---|---|---|
-| sans matrice, CG + Jacobi | 21,04 s | 30 | 19,50 s |
-| sans matrice, CG + Chebyshev 2 | 23,13 s | 32 | 21,41 s |
-| sans matrice, CG + Chebyshev 3 | 25,50 s | 30 | 23,72 s |
-| sans matrice, CG + Chebyshev 4 | 28,22 s | 30 | 26,33 s |
-| sans matrice, CG + Chebyshev 5 | 31,43 s | 32 | 29,45 s |
-| sans matrice, NewtonK0 | 3,05 s | 33 | 2,24 s |
-| sans matrice, NewtonK0 + Eisenstat-Walker 1 | 2,05 s | 37 | 1,24 s |
-| assemblée, NewtonK0 + Eisenstat-Walker 1 | **1,99 s** | 37 | 0,97 s |
+| matrix free, CG + Jacobi | 21.04 s | 30 | 19.50 s |
+| matrix free, CG + Chebyshev 2 | 23.13 s | 32 | 21.41 s |
+| matrix free, CG + Chebyshev 3 | 25.50 s | 30 | 23.72 s |
+| matrix free, CG + Chebyshev 4 | 28.22 s | 30 | 26.33 s |
+| matrix free, CG + Chebyshev 5 | 31.43 s | 32 | 29.45 s |
+| matrix free, NewtonK0 | 3.05 s | 33 | 2.24 s |
+| matrix free, NewtonK0 + Eisenstat-Walker 1 | 2.05 s | 37 | 1.24 s |
+| assembled, NewtonK0 + Eisenstat-Walker 1 | **1.99 s** | 37 | 0.97 s |
 
-Temps de la boucle sur les pas ; résolution d'après
+Time of the loop over the steps; solve according to
 `cases/summary-profiling.py`.
 
-## Constats
+## Findings
 
-- **Chebyshev ne paie pas ici** : chaque ordre de plus ajoute une action de
-  la tangente sans matrice par application du préconditionneur (tétraèdres
-  d'ordre 1, action à 3 x 4 = 12 inconnues par élément), et le temps croît
-  avec l'ordre. Les itérations du gradient conjugué ne sont pas
-  enregistrées par ces mesures : la réduction qu'apporte chaque ordre n'est
-  pas chiffrée ici (sur un Laplacien, 46 itérations avec Jacobi, 27 et 17
-  avec Chebyshev d'ordre 2 et 4, test `OperatorSmoothersTest`). Le lisseur
-  reste utile comme brique (lissage d'une multigrille géométrique ou p,
-  ordres élevés) : il est dans la fabrique et testé.
-- **Sans matrice, NewtonK0 avec Eisenstat-Walker 1 est à 3 % de la tangente
-  assemblée** (2,05 s contre 1,99 s, une exécution par cas) : la tangente
-  n'est plus assemblée pendant les itérations. La mémoire n'est pas réduite
-  pour autant : K0 (copie d'une tangente assemblée), la matrice du problème
-  et la matrice de la prédiction restent assemblées.
-- Eisenstat-Walker apporte un peu plus sans matrice (3,05 s vers 2,05 s,
-  -33 %) qu'avec la tangente assemblée (2,57 s vers 1,96 s, -24 %,
+- **Chebyshev does not pay off here**: each additional order adds one
+  action of the matrix free tangent per application of the preconditioner
+  (tetrahedra of order 1, action on 3 x 4 = 12 unknowns per element), and
+  the time grows with the order. The iterations of the conjugate gradient
+  are not recorded by these measurements: the reduction brought by each
+  order is not quantified here (on a Laplacian, 46 iterations with Jacobi,
+  27 and 17 with Chebyshev of order 2 and 4, test
+  `OperatorSmoothersTest`). The smoother stays useful as a building block
+  (smoothing of a geometric or p multigrid, high orders): it is in the
+  factory and tested.
+- **Matrix free, NewtonK0 with Eisenstat-Walker 1 is within 3 % of the
+  assembled tangent** (2.05 s against 1.99 s, one run per case): the
+  tangent is no longer assembled during the iterations. The memory is not
+  reduced for all that: K0 (copy of an assembled tangent), the matrix of
+  the problem and the matrix of the prediction stay assembled.
+- Eisenstat-Walker brings a bit more matrix free (3.05 s to 2.05 s,
+  -33 %) than with the assembled tangent (2.57 s to 1.96 s, -24 %,
   `results/L5-beam-2026-10-10-0429/`).

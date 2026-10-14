@@ -1,14 +1,14 @@
 #!/bin/bash
-# Temps de référence du chemin actuel de mfem-mgis (lot L0) : cas de la
-# campagne de mesures, sur CPU (pas de périphérique), un fil OpenMP par
-# processus. À lancer sur une machine calme, après build-mfem-mgis.sh.
+# Reference times of the current path of mfem-mgis (work package L0): cases
+# of the measurement campaign, on the CPU (no device), one OpenMP thread per
+# process. To be run on a quiet machine, after build-mfem-mgis.sh.
 #
-# usage : cases/measure-reference.sh [dossier de résultats]
+# usage: cases/measure-reference.sh [results directory]
 #
-# Sorties brutes (avec les tableaux de profilage) dans le dossier de
-# résultats (par défaut results/reference-L0-<date>), une par cas, et un
-# résumé dans summary.txt : commande, statut, durée totale du processus,
-# lignes de bilan du cas.
+# Raw outputs (with the profiling tables) in the results directory (by
+# default results/reference-L0-<date>), one per case, and a summary in
+# summary.txt: command, status, total duration of the process, summary
+# lines of the case.
 set -u
 P=$(cd "$(dirname "$0")/.." && pwd)
 source "$P/scripts/env.sh" > /dev/null
@@ -24,54 +24,55 @@ B=$P/build
 run() {
   local name=$1 dir=$2
   shift 2
-  echo "== $name : $*" | tee -a "$out/summary.txt"
+  echo "== $name: $*" | tee -a "$out/summary.txt"
   local start end status
   start=$(date +%s.%N)
   (cd "$dir" && timeout 3600 "$@") < /dev/null > "$out/$name.txt" 2>&1
   status=$?
   end=$(date +%s.%N)
-  echo "   statut $status, $(echo "$end - $start" | bc) s" |
+  echo "   status $status, $(echo "$end - $start" | bc) s" |
     tee -a "$out/summary.txt"
   /usr/bin/grep -E "^dofs|^time" "$out/$name.txt" | tee -a "$out/summary.txt"
 }
 {
-  echo "date : $(date '+%F %T')"
-  echo "machine : $(nproc --all) cœurs, $(free -g | awk '/^Mem/ {print $2}') Go"
-  echo "mfem-mgis : $(git -C "$P/mfem-mgis" log -1 --format=%h)"
+  echo "date: $(date '+%F %T')"
+  echo "machine: $(nproc --all) cores, $(free -g | awk '/^Mem/ {print $2}') GB"
+  echo "mfem-mgis: $(git -C "$P/mfem-mgis" log -1 --format=%h)"
 } | tee -a "$out/summary.txt"
 
-# 1. poutre en plasticité J2 (petites déformations, 3D), Newton de
-# mfem-mgis : 15 795 inconnues (r3) à 4 processus, 111 843 (r4) à 8
-poutre=$B/cases/beam
+# 1. beam in J2 plasticity (small strains, 3D), Newton of mfem-mgis:
+# 15,795 unknowns (r3) on 4 processes, 111,843 (r4) on 8
+beam=$B/cases/beam
 for ls in "pcg-amg" "pcg-amg -lt 1e-4" "mumps"; do
-  name=poutre-r3-np4-$(echo "$ls" | tr ' ' '_')
-  run "$name" "$poutre" mpirun -n 4 ./poutre -r 3 -n 10 -mi 3000 -ls $ls \
+  name=beam-r3-np4-$(echo "$ls" | tr ' ' '_')
+  run "$name" "$beam" mpirun -n 4 ./beam -r 3 -n 10 -mi 3000 -ls $ls \
     --profiling
 done
 for ls in "pcg-amg -lt 1e-4" "mumps"; do
-  name=poutre-r4-np8-$(echo "$ls" | tr ' ' '_')
-  run "$name" "$poutre" mpirun -n 8 ./poutre -r 4 -n 10 -mi 3000 -ls $ls \
+  name=beam-r4-np8-$(echo "$ls" | tr ' ' '_')
+  run "$name" "$beam" mpirun -n 8 ./beam -r 4 -n 10 -mi 3000 -ls $ls \
     --profiling
 done
 
-# 2. ssna303 en 3D (grandes déformations), FGMRES et BoomerAMG de hypre,
-# 10 pas jusqu'à la fin du chargement
+# 2. ssna303 in 3D (finite strain), FGMRES and BoomerAMG of hypre, 10 steps
+# until the end of the loading
 ex4=$B/mfem-mgis-examples/ex4
 run ssna303-3d-hypre-r0-np4 "$ex4" mpirun -n 4 ./ssna303_3d_hypre \
   -ns 10 -et 1 --profiling
 run ssna303-3d-hypre-r1-np8 "$ex4" mpirun -n 8 ./ssna303_3d_hypre \
   -ns 10 -et 1 -r 1 --profiling
 
-# 3. polycristal (5 grains, loi de monocristal), sans post-traitement
+# 3. polycrystal (5 grains, single crystal behaviour), without
+# post-processing
 poly=$B/mm-opera-hpc/polycrystal
-run polycristal-r0-np4 "$poly" mpirun -n 4 ./uniaxial-polycrystal \
+run polycrystal-r0-np4 "$poly" mpirun -n 4 ./uniaxial-polycrystal \
   --disable-post-processing --nstep 10 --duration 10
-run polycristal-r1-np8 "$poly" mpirun -n 8 ./uniaxial-polycrystal \
+run polycrystal-r1-np8 "$poly" mpirun -n 8 ./uniaxial-polycrystal \
   --disable-post-processing --nstep 10 --duration 10 -r 1
 
-# 4. thermomécanique (thermique non linéaire couplée), plaque de l'exemple
-# ex8, maillage complet, MUMPS pour la mécanique
+# 4. thermomechanics (coupled non linear heat transfer), plate of the
+# example ex8, complete mesh, MUMPS for the mechanics
 ex8=$B/mfem-mgis-examples/ex8
-run thermomecanique-np4 "$ex8" mpirun -n 4 ./rjh_plate \
+run thermomechanical-np4 "$ex8" mpirun -n 4 ./rjh_plate \
   -m assemblage_hexa.msh -lsMc MUMPSSolver
-echo "résultats dans $out"
+echo "results in $out"

@@ -3,8 +3,8 @@
 This page lists the pitfalls met during the work, each with its symptom
 and the workaround adopted. Compiler defects are worked around in a
 targeted way, never by removing a GPU feature, and each one has a
-reproducer in `results/nvhpc-bugs/` or `reproducers/`. The sources, in
-French, are `JOURNAL.md`, `results/nvhpc-bugs/README.md`,
+reproducer in `results/nvhpc-bugs/` or `reproducers/`. The sources
+are `JOURNAL.md`, `results/nvhpc-bugs/README.md`,
 `reproducers/README.md`, `deps/spack/README.md`, `docs/gpu-solvers.md`,
 `docs/plan-precision.md` and the header of `scripts/build-hip-amd.sh`.
 

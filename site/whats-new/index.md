@@ -7,7 +7,7 @@ the prototype changes, what it adds, the design choices behind it, the
 defects it found and corrected in the official code, the pitfalls met
 on the way, and the main milestones of the work.
 
-The detailed documents, in French, are in the repository: `README.md`
+The detailed documents are in the repository: `README.md`
 (start here), `docs/` and `JOURNAL.md`.
 
 ```{toctree}

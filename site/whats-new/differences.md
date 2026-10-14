@@ -4,7 +4,7 @@ Each library of the prototype starts from a commit of its official
 repository (its base). All changes are kept as a series of patches
 against this base. This page lists the bases, what changes in each
 library, how the series are organised and checked, and how they are
-meant to be proposed upstream. The sources, in French, are `README.md`
+meant to be proposed upstream. The sources are `README.md`
 and `docs/upstream-integration.md`.
 
 ## Library by library

@@ -1,99 +1,99 @@
-# Vue d'ensemble
+# Overview
 
-Ce document présente le prototype : son but, le rôle de chaque
-bibliothèque, les principes suivis et l'état d'avancement. Les détails
-techniques sont dans [tfel.md](tfel.md) et [mgis.md](mgis.md).
+This document presents the prototype: its goal, the role of each library,
+the principles followed and the progress. The technical details are in
+[tfel.md](tfel.md) and [mgis.md](mgis.md).
 
-## But
+## Goal
 
-Une simulation mécanique avec mfem-mgis passe beaucoup de temps dans les
-lois de comportement. Elles sont évaluées en chaque point d'intégration, à
-chaque itération. Ce calcul est très parallèle : les points sont
-indépendants.
+A mechanical simulation with mfem-mgis spends much time in the
+behaviours. They are evaluated at each integration point, at each
+iteration. This computation is highly parallel: the points are
+independent.
 
-Le prototype rend toute la chaîne MFront, MGIS et mfem-mgis capable de
-calculer sur GPU comme sur CPU. Le même fichier MFront doit servir partout.
-Le choix entre CPU et GPU se fait à la compilation de la loi ou à
-l'exécution, pas dans le code de la loi.
+The prototype makes the whole MFront, MGIS and mfem-mgis chain able to
+compute on GPU as well as on CPU. The same MFront file must serve
+everywhere. The choice between CPU and GPU is made when the behaviour is
+compiled or at run time, not in the code of the behaviour.
 
-## La chaîne et le rôle de chaque bibliothèque
+## The chain and the role of each library
 
-Chaque bibliothèque ne connaît que l'interface de la précédente.
+Each library only knows the interface of the previous one.
 
 | | TFEL/MFront | MGIS | mfem-mgis |
 |---|---|---|---|
-| Rôle | code d'un point matériel, traitement d'un lot de points | données matériau, chargement des bibliothèques, aiguillage | éléments finis, solveurs, orchestration |
-| Code GPU | noyaux des fonctions de lot (un backend par bibliothèque générée) | aucun dans la bibliothèque compilée ; copies et fin de pas sur GPU par des noyaux en en-têtes (`FieldOperations` : CUDA, HIP, Kokkos, SYCL, OpenMP déporté), compilés par l'appelant | noyaux de mfem-mgis (gradients, forces intérieures, tangente, prédiction, post-traitements), assemblage et solveurs de MFEM, hypre, AmgX et cuDSS |
-| Mémoire | n'alloue pas les données des points ; alloue une fois par périphérique les copies des données partagées et les blocs d'état et de statistiques, réutilisés d'un appel à l'autre (et, avec SYCL, les copies des valeurs inaccessibles) | utilise les tableaux de l'appelant, ou une ressource mémoire donnée par l'appelant | possède les données, décide où elles vivent |
-| Interface exposée | structures C versionnées, symboles de description | `MaterialDataManager`, fonctions de lot | formes non linéaires de MFEM |
+| Role | code of one material point, processing of a batch of points | material data, loading of the libraries, dispatch | finite elements, solvers, orchestration |
+| GPU code | kernels of the batch functions (one backend per generated library) | none in the compiled library; copies and end of step on the GPU by kernels in headers (`FieldOperations`: CUDA, HIP, Kokkos, SYCL, OpenMP offload), compiled by the caller | kernels of mfem-mgis (gradients, internal forces, tangent, prediction, post-processings), assembly and solvers of MFEM, hypre, AmgX and cuDSS |
+| Memory | does not allocate the data of the points; allocates once per device the copies of the shared data and the state and statistics blocks, reused from one call to the next (and, with SYCL, the copies of the inaccessible values) | uses the arrays of the caller, or a memory resource given by the caller | owns the data, decides where they live |
+| Exposed interface | versioned C structures, description symbols | `MaterialDataManager`, batch functions | nonlinear forms of MFEM |
 
-Un lot est un ensemble de points d'intégration d'un même matériau. Une
-fonction de lot traite tous ces points en un appel.
+A batch is a set of integration points of the same material. A batch
+function processes all these points in one call.
 
-## Principes
+## Principles
 
-1. **Même sens que l'interface `generic`.** Un appel sur un lot équivaut à
-   l'appel de la fonction `generic` sur chaque point. Les résultats de
-   l'interface `generic` sur CPU servent de référence à tous les tests.
-2. **Pas de physique dupliquée.** La classe générée par MFront pour une loi
-   sert telle quelle sur CPU et sur GPU. L'interface `generic-parallel`
-   n'ajoute qu'un constructeur et un peu de code d'adaptation.
-3. **Logique dans des en-têtes, code généré mince.** Le travail en un point
-   est écrit une fois, en gabarits utilisables sur hôte et sur GPU. Chaque
-   backend n'écrit que sa boucle parallèle.
-4. **Portabilité par backend.** Une bibliothèque générée vise un backend :
-   CUDA, HIP, algorithmes parallèles du C++, Kokkos, SYCL ou OpenMP.
-   Plusieurs bibliothèques d'une même loi peuvent être chargées ensemble.
-   Le choix entre CPU et GPU se fait alors à l'exécution.
-5. **L'appelant choisit la mémoire.** TFEL ne choisit ni le GPU ni la
-   mémoire. Chaque bibliothèque déclare seulement où les données doivent
-   être accessibles. MGIS vérifie que les tableaux de l'appelant
-   conviennent.
-6. **Erreurs sans coût en cas de succès.** Les noyaux n'écrivent rien
-   tant qu'aucun point n'échoue. Une erreur d'argument ou du backend lève
-   une exception. Un échec du calcul en un point est rapporté comme tel,
-   jamais confondu avec une erreur.
-7. **Symétrie.** Lois, modèles et propriétés matériau ont la même
-   interface d'exécution : file d'exécution, calcul synchrone ou
-   asynchrone, espace mémoire, version du contrat. Les différences
-   restantes sont justifiées dans [tfel.md](tfel.md#comparaison-entre-lois-et-propriétés-matériau).
-8. **Aucun changement des résultats CPU des interfaces existantes**, sauf
-   les corrections de défauts. Chaque correction est isolée et justifiée
-   dans [tfel.md](tfel.md#corrections-du-code-existant).
+1. **Same meaning as the `generic` interface.** A call on a batch is
+   equivalent to the call of the `generic` function on each point. The
+   results of the `generic` interface on CPU are the reference for all the
+   tests.
+2. **No duplicated physics.** The class generated by MFront for a
+   behaviour is used as is on CPU and on GPU. The `generic-parallel`
+   interface only adds a constructor and a little adaptation code.
+3. **Logic in headers, thin generated code.** The work at one point is
+   written once, in templates usable on the host and on the GPU. Each
+   backend only writes its parallel loop.
+4. **Portability by backend.** A generated library targets one backend:
+   CUDA, HIP, C++ parallel algorithms, Kokkos, SYCL or OpenMP. Several
+   libraries of the same behaviour can be loaded together. The choice
+   between CPU and GPU is then made at run time.
+5. **The caller chooses the memory.** TFEL chooses neither the GPU nor the
+   memory. Each library only declares where the data must be accessible.
+   MGIS checks that the arrays of the caller are suitable.
+6. **Errors at no cost on success.** The kernels write nothing as long as
+   no point fails. An argument error or a backend error throws an
+   exception. A failure of the computation at one point is reported as
+   such, never mistaken for an error.
+7. **Symmetry.** Behaviours, models and material properties have the same
+   execution interface: execution queue, synchronous or asynchronous
+   computation, memory space, version of the contract. The remaining
+   differences are justified in [tfel.md](tfel.md#comparison-between-behaviours-and-material-properties).
+8. **No change of the CPU results of the existing interfaces**, except
+   the fixes of defects. Each fix is isolated and justified in
+   [tfel.md](tfel.md#fixes-of-the-existing-code).
 
-## Vocabulaire
+## Vocabulary
 
-- **Lot** : ensemble de points d'intégration traités par un appel.
-- **Backend** : modèle de programmation visé par une bibliothèque générée
+- **Batch**: set of integration points processed by one call.
+- **Backend**: programming model targeted by a generated library
   (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl`, `openmp`).
-- **Champ** : valeurs d'une variable sur tous les points d'un lot, données
-  par un pointeur et des pas. Un pas nul entre points désigne une valeur
-  uniforme.
-- **Espace mémoire** d'une bibliothèque : où ses calculs lisent les
-  données (`host`, `device` ou `any`). Il est fixé à la compilation.
-- **Emplacement** des tableaux : où l'appelant les a placés (hôte, GPU ou
-  mémoire partagée). MGIS le compare à l'espace mémoire.
-- **File d'exécution** : flux CUDA ou HIP, file SYCL, instance Kokkos.
-- **Synchrone** : la fonction rend la main une fois le calcul fini.
-  **Asynchrone** : elle rend la main dès le calcul soumis à la file.
-  L'appelant synchronise la file avant de lire les résultats.
+- **Field**: values of a variable on all the points of a batch, given by
+  a pointer and strides. A zero stride between points denotes a uniform
+  value.
+- **Memory space** of a library: where its computations read the data
+  (`host`, `device` or `any`). It is fixed at compile time.
+- **Location** of the arrays: where the caller has placed them (host, GPU
+  or shared memory). MGIS compares it with the memory space.
+- **Execution queue**: CUDA or HIP stream, SYCL queue, Kokkos instance.
+- **Synchronous**: the function returns once the computation is finished.
+  **Asynchronous**: it returns as soon as the computation is submitted to
+  the queue. The caller synchronizes the queue before reading the results.
 
-## État d'avancement
+## Progress
 
-| Partie | État | Détails |
+| Part | Status | Details |
 |---|---|---|
-| TFEL/MFront : interface `generic-parallel` des lois et des modèles | fait, validé sur 14 configurations | [tfel.md](tfel.md) |
-| TFEL/MFront : interface `generic-parallel` des propriétés matériau | étendue (options d'exécution, asynchrone, nouveaux backends) | [tfel.md](tfel.md#interface-generic-parallel-des-propriétés-matériau) |
-| TFEL/MFront : code GPU et corrections | fait | [tfel.md](tfel.md#code-gpu-dans-tfel-et-mfront) |
-| MGIS : lots de lois, de modèles et de propriétés matériau | fait | [mgis.md](mgis.md) |
-| MGIS : calcul asynchrone | fait, synchrone par défaut | [mgis.md](mgis.md#calcul-asynchrone) |
-| MGIS : vues, rangement composante par composante, fin de pas sur GPU | fait | [mgis.md](mgis.md#vues-et-rangements) |
-| Documentation de TFEL et de MGIS (pages web, Doxygen, commentaires) | à jour avec les changements | [tfel.md](tfel.md#documentation-dans-larbre-de-tfel), [mgis.md](mgis.md#documentation-dans-larbre-de-mgis) |
-| mfem-mgis | lots L0 à L10 faits : données des matériaux dans la mémoire de MFEM, intégration par lots, mécanique par noyaux, point fixe et NewtonK0, thermique, micromorphe, FBar, Faltus, conditions aux limites et autres intégrateurs par noyaux, modèles point par point sur le GPU, post-traitements par noyaux, toute la suite de tests sur le GPU ; Kokkos et AmgX facultatifs ; mémoire de l'hôte standard sur le GPU. Depuis : solveur direct cuDSS et réutilisation de l'analyse de MUMPS, assemblage ordonné de la tangente (`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`), réglages d'exécution (`--execution cpu|gpu|mixed`, placement de chaque phase, de la loi de chaque matériau par `BehaviourExecutionLocation`), noyaux compilés pour HIP (GPU AMD : compilation vérifiée, sans essai). Tous les exemples de mfem-mgis-examples et les cas de mm-opera-hpc tournent par lots et sur le GPU | [plan-mfem-mgis-detailed.md](plan-mfem-mgis-detailed.md), [plan-execution.md](plan-execution.md), [gpu-solvers.md](gpu-solvers.md), [validation.md](validation.md) |
-| Simple précision (float) | toute la chaîne, le type réel étant celui du MFEM installé ; suites vertes en float sur le CPU et le GPU (MGIS 49/49 et 51/51 avec CUDA, mfem-mgis 219/219 sur le CPU et 276/276 sur le GPU, exemples 21/21, mm-opera-hpc 6/6, cas 134) ; sur la poutre r4, au même critère de Newton, le float est 1,11 fois plus rapide que le double sur le CPU et 1,37 fois sur le GPU | [plan-precision.md](plan-precision.md) |
-| Performance | poutre r4 sur une RTX 5080 : 1,96 s avec NewtonK0 contre 9,5 s sur 8 cœurs avec la même méthode (13,6 s avec Newton) ; polycristal 9,6 s sur le GPU avec NewtonK0 (8,8 s le 12/10) contre 23,5 s sur 8 cœurs avec la même méthode (29,6 s avec Newton) ; ex8 (5 pas) 2,6 s sur le GPU (solveur direct cuDSS pour les deux problèmes, analyse réutilisée) contre 19,2 s sur 2 cœurs par noyaux (MUMPS symétrique, analyse réutilisée) ; ex7 (40 pas) 2,0 s sur le GPU (cuDSS) contre 5,4 s sur 2 cœurs (MUMPS) ; bulle de mm-opera-hpc 5,3 s sur le GPU contre 25,2 s sur un cœur. Sur le GPU, les petits systèmes linéaires (moins de 10 000 inconnues) sont mieux traités par cuDSS que par GMRES et BoomerAMG | `results/`, [journal](../JOURNAL.md) |
+| TFEL/MFront: `generic-parallel` interface of behaviours and models | done, validated on 14 configurations | [tfel.md](tfel.md) |
+| TFEL/MFront: `generic-parallel` interface of material properties | extended (execution options, asynchronous, new backends) | [tfel.md](tfel.md#generic-parallel-interface-of-material-properties) |
+| TFEL/MFront: GPU code and fixes | done | [tfel.md](tfel.md#gpu-code-in-tfel-and-mfront) |
+| MGIS: batches of behaviours, models and material properties | done | [mgis.md](mgis.md) |
+| MGIS: asynchronous computation | done, synchronous by default | [mgis.md](mgis.md#asynchronous-computation) |
+| MGIS: views, component by component layout, end of step on the GPU | done | [mgis.md](mgis.md#views-and-layouts) |
+| Documentation of TFEL and MGIS (web pages, Doxygen, comments) | up to date with the changes | [tfel.md](tfel.md#documentation-in-the-tfel-tree), [mgis.md](mgis.md#documentation-in-the-mgis-tree) |
+| mfem-mgis | work packages L0 to L10 done: material data in the memory of MFEM, batch integration, mechanics by kernels, fixed point and NewtonK0, thermal, micromorphic, FBar, Faltus, boundary conditions and other integrators by kernels, point by point models on the GPU, post-processings by kernels, the whole test suite on the GPU; Kokkos and AmgX optional; standard host memory on the GPU. Since then: cuDSS direct solver and reuse of the MUMPS analysis, ordered assembly of the tangent (`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered`), execution settings (`--execution cpu|gpu|mixed`, placement of each phase, and of the behaviour of each material by `BehaviourExecutionLocation`), kernels compiled for HIP (AMD GPU: compilation checked, not run). All the examples of mfem-mgis-examples and the cases of mm-opera-hpc run by batches and on the GPU | [plan-mfem-mgis-detailed.md](plan-mfem-mgis-detailed.md), [plan-execution.md](plan-execution.md), [gpu-solvers.md](gpu-solvers.md), [validation.md](validation.md) |
+| Single precision (float) | the whole chain, the real type being the one of the installed MFEM; test suites green in float on the CPU and the GPU (MGIS 49/49 and 51/51 with CUDA, mfem-mgis 223/223 on the CPU and 276/276 on the GPU (before the ParaSails and stagnation tests), examples 21/21, mm-opera-hpc 6/6, cases 134); on the beam r4, at the same Newton criterion, float is 1.11 times faster than double on the CPU and 1.37 times on the GPU | [plan-precision.md](plan-precision.md) |
+| Performance | beam r4 on an RTX 5080: 1.96 s with NewtonK0 against 9.5 s on 8 cores with the same method (13.6 s with Newton); polycrystal 9.6 s on the GPU with NewtonK0 (8.8 s on 12/10) against 23.5 s on 8 cores with the same method (29.6 s with Newton); ex8 (5 steps) 2.6 s on the GPU (cuDSS direct solver for both problems, analysis reused) against 19.2 s on 2 cores by kernels (symmetric MUMPS, analysis reused); ex7 (40 steps) 2.0 s on the GPU (cuDSS) against 5.4 s on 2 cores (MUMPS); bubble of mm-opera-hpc 5.3 s on the GPU against 25.2 s on one core. On the GPU, the small linear systems (fewer than 10,000 unknowns) are better handled by cuDSS than by GMRES and BoomerAMG | `results/`, [log](../JOURNAL.md) |
 
-La validation est décrite dans [validation.md](validation.md). Le
-découpage en contributions pour les dépôts officiels est dans
-[upstream-integration.md](upstream-integration.md). Le cheminement, jour par
-jour, est dans le [journal](../JOURNAL.md).
+The validation is described in [validation.md](validation.md). The split
+into contributions for the official repositories is in
+[upstream-integration.md](upstream-integration.md). The path followed, day
+by day, is in the [log](../JOURNAL.md).

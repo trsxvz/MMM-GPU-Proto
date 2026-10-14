@@ -203,18 +203,26 @@ Stagnation of the residual
 The residual is computed with rounding errors: its norm cannot go below a
 floor, which grows with the size of the problem and with the level of the
 stresses, and which is much higher with ``float`` than with ``double``
-(about :math:`10^{-5}` of the initial residual of a time step for a beam of
-:math:`10^5` unknowns in small strain, :math:`3\,10^{-4}` in finite
-strain). A relative tolerance below this floor can't be reached.
+(about :math:`1.3\,10^{-5}` to :math:`2\,10^{-5}` of the reference
+residual for a beam of :math:`10^5` unknowns in small strain, :math:`3\,10^{-4}`
+to :math:`8\,10^{-4}` for a cube of one element in finite strain). A
+relative tolerance below this floor can't be reached.
 
-The Newton solver therefore accepts as converged a residual whose smallest
-value has not been halved during the last two iterations, when the norm of
-this residual, relative to the initial one, is below the option
-:cxx:`StagnationRelativeTolerance`. Its default value is :math:`10^4` times
-the machine epsilon of the numerical type: about :math:`1.2\,10^{-3}` with
-``float``, :math:`2.2\,10^{-12}` with ``double``. A null value disables
-this criterion. A message is printed when the criterion stops the
-iterations.
+The Newton solver therefore accepts as converged a residual which has not
+decreased by more than 10 % during the last two iterations, when its norm,
+relative to the reference residual (the residual of the prediction, if
+any, or else the initial residual of the time step), is below the option
+:cxx:`StagnationRelativeTolerance`. The best iterate of the resolution is
+then kept: the residual at the floor is noisy, and the last iterate may be
+worse than a previous one. A slow convergence, even with a factor 0.9 per
+iteration, is not taken for a stagnation. The default value of
+the option is :math:`10^4` times the machine epsilon of the numerical type:
+about :math:`1.2\,10^{-3}` with ``float``, :math:`2.2\,10^{-12}` with
+``double``. A null value disables this criterion. A message is printed
+when the criterion stops the iterations. Finite strain computations with
+``float`` on large meshes may have a floor close to this default value:
+the H = F - I formulation, not available yet, would lower it. The
+:cxx:`FixedPoint` solver does not have this criterion.
 
 .. code-block:: c++
 

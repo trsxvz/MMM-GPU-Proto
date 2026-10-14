@@ -21,15 +21,15 @@ if(_usable)
   set(_run ./uniaxial_tensile_test --no-post-processing
            --reference-file IsotropicLinearHardeningPlasticity.ref)
   set(_kernels "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
-  add_test(NAME ex1-point-par-point COMMAND ${_run}
+  add_test(NAME ex1-point-by-point COMMAND ${_run}
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX1_DIR}")
-  add_test(NAME ex1-noyaux COMMAND ${_run}
+  add_test(NAME ex1-kernels COMMAND ${_run}
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX1_DIR}")
-  set_tests_properties(ex1-point-par-point PROPERTIES
+  set_tests_properties(ex1-point-by-point PROPERTIES
     ENVIRONMENT "OMP_NUM_THREADS=1")
-  set_tests_properties(ex1-noyaux PROPERTIES
+  set_tests_properties(ex1-kernels PROPERTIES
     ENVIRONMENT "OMP_NUM_THREADS=1;${_kernels}")
-  set(_tests ex1-point-par-point ex1-noyaux)
+  set(_tests ex1-point-by-point ex1-kernels)
   foreach(_backend ${ex1-behaviours_BACKENDS})
     set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
     add_test(NAME ex1-batch-${_backend} COMMAND ${_run} -l "${_library}"

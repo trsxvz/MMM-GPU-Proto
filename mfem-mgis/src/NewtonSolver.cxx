@@ -136,10 +136,19 @@ namespace mfem_mgis {
     const auto norm_goal =
         std::max(rel_tol * (*(this->reference_residual_norm)), abs_tol);
     auto it = size_type{};
-    // smallest residual and number of iterations since it was last halved,
-    // to detect a stagnation of the residual
-    auto smallest_norm = norm;
+    // detection of a stagnation of the residual: residual at the beginning
+    // of the current window of iterations, number of iterations of this
+    // window (the window starts again when the residual decreases by more
+    // than 10 %), smallest residual and best iterate (restored when the
+    // stagnation is accepted at a worse one), and convergence by stagnation
+    constexpr auto window_decrease = real{9} / 10;
+    auto window_norm = norm;
     auto iterations_without_decrease = size_type{};
+    auto smallest_norm = norm;
+    auto best_x = mfem::Vector(x.Size());
+    best_x.UseDevice(true);
+    best_x = x;
+    auto converged_by_stagnation = false;
 
     this->converged = 0;
     while (true) {
@@ -161,15 +170,23 @@ namespace mfem_mgis {
         this->converged = 1;
         break;
       }
-      // the smallest residual has not been halved during the last two
+      // the residual has not decreased by more than 10 % during the last two
       // iterations, at a level of the order of the rounding errors: the
-      // floor of the residual is reached
-      if (2 * norm < smallest_norm) {
+      // floor of the residual is reached, whereas a slow convergence (even
+      // with a factor 0.9 per iteration) is not taken for a stagnation, the
+      // reference residual being possibly the one of the prediction, much
+      // larger than the residuals of the resolution. The residual at the
+      // floor is noisy: the best iterate of the resolution is kept
+      if (norm < window_decrease * window_norm) {
+        window_norm = norm;
         iterations_without_decrease = 0;
       } else if (it != 0) {
         ++iterations_without_decrease;
       }
-      smallest_norm = std::min(smallest_norm, norm);
+      if (norm < smallest_norm) {
+        smallest_norm = norm;
+        best_x = x;
+      }
       if ((iterations_without_decrease >= 2) &&
           (norm <= this->stagnation_relative_tolerance *
                        (*(this->reference_residual_norm)))) {
@@ -180,7 +197,21 @@ namespace mfem_mgis {
               << this->stagnation_relative_tolerance
               << ", accepted as convergence\n";
         }
+        if (norm > smallest_norm) {
+          // the best iterate is restored, the behaviours being integrated
+          // again
+          x = best_x;
+          if (!this->processNewUnknownsEstimate(x)) {
+            break;
+          }
+          norm = updateResidual();
+          if (shall_print) {
+            log << "Newton iteration " << std::setw(2) << it
+                << " : best iterate restored, ||r|| = " << norm << '\n';
+          }
+        }
         this->converged = 1;
+        converged_by_stagnation = true;
         break;
       }
       //
@@ -261,8 +292,10 @@ namespace mfem_mgis {
     this->final_iter = it;
     this->final_norm = norm;
     if (this->converged == 1) {
-      // estimation of the convergence order
-      if (shall_print) {
+      // estimation of the convergence order, meaningless after a stagnation
+      if (shall_print && converged_by_stagnation) {
+        log << "Convergence order undefined (stagnation)\n\n";
+      } else if (shall_print) {
         if ((it >= 2) && (norm > 100 * std::numeric_limits<real>::min()) &&
             (previous_norms[0] > 100 * std::numeric_limits<real>::min()) &&
             (previous_norms[1] > 100 * std::numeric_limits<real>::min())) {

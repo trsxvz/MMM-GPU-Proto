@@ -8,7 +8,7 @@
 # current directory.
 set(MM_OPERA_HPC_BUBBLE_DIR "${MM_OPERA_HPC_BINARY_DIR}/bubble"
   CACHE PATH "build directory of the bubble of mm-opera-hpc")
-add_generic_parallel_mfront_libraries(bulle-behaviours CUDA
+add_generic_parallel_mfront_libraries(bubble-behaviours CUDA
   "${MM_OPERA_HPC_SOURCE_DIR}/bubble/Elasticity.mfront")
 
 proto_check_executable(_usable "${MM_OPERA_HPC_BUBBLE_DIR}/test-bubble")
@@ -19,31 +19,31 @@ set(_run "${MM_OPERA_HPC_BUBBLE_DIR}/test-bubble"
   --mesh "${MM_OPERA_HPC_BUBBLE_DIR}/mesh/mesh_sphere.msh"
   --bubble-file "${MM_OPERA_HPC_BUBBLE_DIR}/mesh/single_bubble_ci.txt")
 set(_kernels "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
-set(_reference "${CMAKE_CURRENT_BINARY_DIR}/point-par-point")
+set(_reference "${CMAKE_CURRENT_BINARY_DIR}/point-by-point")
 
-# usage: add_bulle_test(name environment [options...])
-# Test bulle-<name>, run in <current binary dir>/<name>, and the comparisons
+# usage: add_bubble_test(name environment [options...])
+# Test bubble-<name>, run in <current binary dir>/<name>, and the comparisons
 # of its outputs (written with six significant digits, hence the relative
 # tolerance of 1e-4) to the ones of the integration point by point
-function(add_bulle_test name environment)
+function(add_bubble_test name environment)
   set(_directory "${CMAKE_CURRENT_BINARY_DIR}/${name}")
   file(MAKE_DIRECTORY "${_directory}")
-  add_test(NAME bulle-${name} COMMAND ${_run} ${ARGN}
+  add_test(NAME bubble-${name} COMMAND ${_run} ${ARGN}
     WORKING_DIRECTORY "${_directory}")
-  set_tests_properties(bulle-${name} PROPERTIES
+  set_tests_properties(bubble-${name} PROPERTIES
     ENVIRONMENT "${environment}"
-    FIXTURES_SETUP bulle-${name})
-  if(name STREQUAL "point-par-point")
+    FIXTURES_SETUP bubble-${name})
+  if(name STREQUAL "point-by-point")
     return()
   endif()
   foreach(_output sig_hydro bubbles_and_stresses_selected)
-    add_test(NAME bulle-comparison-${name}-${_output}
+    add_test(NAME bubble-comparison-${name}-${_output}
       COMMAND ${Python3_EXECUTABLE}
               "${CMAKE_CURRENT_SOURCE_DIR}/../compare-outputs.py" --csv
               "${_reference}/${_output}.txt" "${_directory}/${_output}.txt"
               --rtol 1e-4)
-    set_tests_properties(bulle-comparison-${name}-${_output} PROPERTIES
-      FIXTURES_REQUIRED "bulle-point-par-point;bulle-${name}")
+    set_tests_properties(bubble-comparison-${name}-${_output} PROPERTIES
+      FIXTURES_REQUIRED "bubble-point-by-point;bubble-${name}")
   endforeach()
 endfunction()
 
@@ -53,19 +53,19 @@ set(_generic "${MM_OPERA_HPC_BUBBLE_DIR}/BehavioursBubble/cpu/libBehaviour.so")
 if(NOT EXISTS "${_generic}")
   set(_generic "${MM_OPERA_HPC_BUBBLE_DIR}/src/libBehaviour.so")
 endif()
-add_bulle_test(point-par-point "MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint"
+add_bubble_test(point-by-point "MFEM_MGIS_BEHAVIOUR_INTEGRATION=PointByPoint"
   -l "${_generic}")
-add_bulle_test(noyaux "${_kernels}" -l "${_generic}")
-foreach(_backend ${bulle-behaviours_BACKENDS})
+add_bubble_test(kernels "${_kernels}" -l "${_generic}")
+foreach(_backend ${bubble-behaviours_BACKENDS})
   set(_library "${CMAKE_CURRENT_BINARY_DIR}/generic-parallel-${_backend}/src/libGenericParallelBehaviour-${_backend}.so")
   if(_backend STREQUAL "cuda")
     # behaviour integrated on the GPU, all the computations by kernels
-    add_bulle_test(batch-${_backend} "${_kernels}" --device cuda
+    add_bubble_test(batch-${_backend} "${_kernels}" --device cuda
       -l "${_library}")
-    set_tests_properties(bulle-batch-${_backend} PROPERTIES
+    set_tests_properties(bubble-batch-${_backend} PROPERTIES
       RESOURCE_LOCK gpu)
   else()
-    add_bulle_test(batch-${_backend}
+    add_bubble_test(batch-${_backend}
       "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;OMP_NUM_THREADS=2"
       -l "${_library}")
   endif()

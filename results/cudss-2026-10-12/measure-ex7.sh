@@ -8,7 +8,7 @@
 P=$(cd "$(dirname "$0")/../.." && pwd)
 source $P/scripts/env.sh > /dev/null
 out=$P/results/cudss-2026-10-12
-L=$P/build/cas-post/ex7/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
+L=$P/build/cases-post/ex7/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
 cd $P/build/examples-mumps/ex7
 export OMP_NUM_THREADS=1 MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch \
   MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels \
@@ -32,9 +32,9 @@ for pass in 1 2; do
     run np2-gmres-$pass taskset -c 0-3 mpirun -n 2 $EX7
     run np2-mumps-$pass taskset -c 0-3 mpirun -n 2 $EX7 -ls MUMPSSolver $DIRECT
   else
-    run gpu-gmres-hypre-hote-$pass taskset -c 0-3 mpirun -n 1 $EX7 -l $L \
+    run gpu-gmres-hypre-host-$pass taskset -c 0-3 mpirun -n 1 $EX7 -l $L \
       --device cuda --hypre-on-host
-    run gpu-cudss-hypre-hote-$pass taskset -c 0-3 mpirun -n 1 $EX7 -l $L \
+    run gpu-cudss-hypre-host-$pass taskset -c 0-3 mpirun -n 1 $EX7 -l $L \
       --device cuda --hypre-on-host -ls CuDSSSolver $DIRECT
     run gpu-cudss-hypre-gpu-$pass taskset -c 0-3 mpirun -n 1 $EX7 -l $L \
       --device cuda -ls CuDSSSolver $DIRECT

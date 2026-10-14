@@ -84,10 +84,12 @@ namespace mfem_mgis {
      * cannot go below a floor, which grows with the size of the problem and
      * with the level of the stresses, and which is larger in finite strain
      * with float (the deformation gradient, close to the identity, is
-     * rounded). Below this tolerance, a residual whose smallest value has not
-     * been halved during the last two iterations is considered at this
-     * floor. By default, 10^4 times the machine epsilon of the numerical
-     * type: about 1.2e-3 with float, 2.2e-12 with double.
+     * rounded). A residual is considered at this floor when it has not
+     * decreased by more than 10 % during the last two iterations, its norm
+     * relative to the reference residual being below this tolerance. The
+     * best iterate of the resolution is then kept. By default, 10^4 times
+     * the machine epsilon of the numerical type: about 1.2e-3 with float,
+     * 2.2e-12 with double.
      */
     real stagnation_relative_tolerance =
         10000 * std::numeric_limits<real>::epsilon();

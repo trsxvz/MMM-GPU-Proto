@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Résumé des mesures float contre double de cases/measure-precision-beam.sh.
+"""Summary of the measurements float against double of cases/measure-precision-beam.sh.
 
-Pour chaque calcul (précision et critère de Newton) : temps minimal et
-médian des répétitions, itérations de Newton, norme de la solution et son
-écart relatif à celle du double avec le même critère, puis le rapport des
-temps double / float.
+For each computation (precision and Newton criterion): minimum and median
+time of the repetitions, Newton iterations, norm of the solution and its
+relative gap to the one in double with the same criterion, then the ratio
+of the times double / float.
 
-usage : cases/summary-precision.py <dossier de résultats>
+usage: cases/summary-precision.py <results directory>
 """
 import re
 import statistics
@@ -20,7 +20,7 @@ NAME = re.compile(r"^(double|float)-(.+)-(\d+)\.txt$")
 
 
 def read(path):
-    """lit une sortie de la poutre : inconnues, norme, itérations, temps"""
+    """reads an output of the beam: unknowns, norm, iterations, time"""
     dofs = norm = total = time = None
     for line in path.read_text(errors="replace").splitlines():
         m = LINE.match(line)
@@ -43,14 +43,14 @@ def main():
             continue
         dofs, norm, total, time = read(path)
         if (time is None) or (norm is None):
-            print(f"{path.name} : pas de temps ou pas de norme "
-                  "(calcul en échec ?)")
+            print(f"{path.name}: no time or no norm "
+                  "(failed computation?)")
             continue
         runs.setdefault((m.group(2), m.group(1)), []).append(
             (time, norm, total, dofs))
     criteria = sorted({c for c, _ in runs})
-    print(f"{'calcul':38s} {'n':>2s} {'min (s)':>9s} {'médiane':>9s} "
-          f"{'itér.':>6s} {'||u||':>14s} {'écart':>9s}")
+    print(f"{'computation':38s} {'n':>2s} {'min (s)':>9s} {'median':>9s} "
+          f"{'iter.':>6s} {'||u||':>14s} {'gap':>9s}")
     for criterion in criteria:
         reference = runs.get((criterion, "double"))
         for precision in ("double", "float"):
@@ -68,7 +68,7 @@ def main():
         if (criterion, "double") in runs and (criterion, "float") in runs:
             d = min(v[0] for v in runs[(criterion, "double")])
             f = min(v[0] for v in runs[(criterion, "float")])
-            print(f"{'  double / float (temps minimaux)':38s} {d / f:9.2f}")
+            print(f"{'  double / float (minimum times)':38s} {d / f:9.2f}")
 
 
 if __name__ == "__main__":
