@@ -1,0 +1,7 @@
+# Python packages of the website (scripts/build-site.sh): the pages of the
+# prototype and the Sphinx documentation of mfem-mgis
+Sphinx==9.1.0
+sphinx_rtd_theme==3.1.0
+myst-parser==5.1.0
+sphinxcontrib-bibtex==2.7.0
+sphinx-reredirects==1.1.0

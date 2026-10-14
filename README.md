@@ -31,6 +31,10 @@ GPU.
   avec la même méthode (13,6 s avec Newton), et ex8 2,6 s contre 19,2 s
   sur 2 cœurs
   ([docs/vue-ensemble.md](docs/vue-ensemble.md#état-davancement)).
+- Toute la chaîne fonctionne aussi en simple précision (float), le type
+  réel étant celui du MFEM installé : sur la poutre, le float est 1,11
+  fois plus rapide que le double sur CPU et 1,37 fois sur GPU
+  ([docs/plan-precision.md](docs/plan-precision.md)).
 - Les changements ne sont pas encore proposés aux dépôts officiels. Leur
   découpage en contributions est décrit dans
   [docs/integration-amont.md](docs/integration-amont.md).
@@ -39,10 +43,10 @@ GPU.
 
 | Bibliothèque | Base officielle | Ce qui change | Détails |
 |---|---|---|---|
-| TFEL/MFront | master `ff0959ece` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, corrections du code existant ; 120 patchs | [docs/tfel.md](docs/tfel.md) |
-| MGIS | master `e8ef4b4` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, vues et rangements, fin de pas sur GPU, corrections ; 70 patchs | [docs/mgis.md](docs/mgis.md) |
+| TFEL/MFront | master `ff0959ece` | interface `generic-parallel` des lois et des modèles (6 backends, 14 configurations), interface des propriétés matériau étendue, code GPU dans TFEL et dans le code généré, simple précision (option de DSL `real_type`), corrections du code existant ; 120 patchs | [docs/tfel.md](docs/tfel.md) |
+| MGIS | master `e8ef4b4` | lots de lois, de modèles et de propriétés matériau, politique d'exécution, emplacement des tableaux, ressources mémoire, vues et rangements, fin de pas sur GPU, simple précision (option `MGIS_REAL_TYPE`), corrections ; 70 patchs | [docs/mgis.md](docs/mgis.md) |
 | mfem-mgis | master `8fac67336e` | intégration par lots sur CPU et GPU (données aux points dans la mémoire de MFEM), noyaux des gradients, des forces intérieures et de la tangente (assemblée ou sans matrice ; mécanique et thermique stationnaire), prédiction par noyaux, solveur `FixedPoint` (point fixe, accélérations de MTest, NewtonK0), Newton inexact, options de BoomerAMG, lisseurs sans matrice, réutilisation de l'analyse de MUMPS, solveur direct cuDSS sur le GPU, assemblage ordonné de la tangente (mêmes résultats à chaque passage sur le GPU), réglages d'exécution (`--execution cpu|gpu|mixed`, placement de chaque phase en mode `mixed` par `--finite-elements`, `--behaviours`, `--linear-solver-device` et `--post-processings`, placement de la loi de chaque matériau par le paramètre `BehaviourExecutionLocation`, copies hôte/GPU comptées, bibliothèques de lois pour le CPU et le GPU), noyaux compilés pour CUDA ou HIP (GPU AMD : compilation vérifiée, sans essai), précision float ou double donnée par MFEM (tests en float ; en float, noyaux de raideur du GPU sans contraction en FMA), corrections ; 176 patchs | [docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md), [JOURNAL.md](JOURNAL.md) |
-| mfem-mgis-examples | master `600da70` (dépôt `latug0/mfem-mgis-examples`) | options des exemples (bibliothèque de lois, périphérique, solveurs, profilage), synchronisations sur l'hôte pour le GPU, choix des solveurs directs, lois pour le CPU et le GPU choisies par `--execution`, tests sur GPU ; 31 patchs | `patches/mfem-mgis-examples/` |
+| mfem-mgis-examples | master `600da70` (dépôt `latug0/mfem-mgis-examples`) | options des exemples (bibliothèque de lois, périphérique, solveurs, profilage), synchronisations sur l'hôte pour le GPU, choix des solveurs directs, lois pour le CPU et le GPU choisies par `--execution`, tests sur GPU, exemples en float ; 31 patchs | `patches/mfem-mgis-examples/` |
 | mm-opera-hpc | main `49147f2` (dépôt `rprat-pro/mm-opera-hpc`) | polycristal : choix du solveur non linéaire (Newton, NewtonK0), de la tolérance adaptative et d'AmgX, loi intégrée sur le GPU ; bulle et cermet : options de mfem-mgis et de la loi, synchronisations sur l'hôte, profilage des post-traitements, solveurs directs, lois pour le CPU et le GPU choisies par `--execution`, tests sur GPU, cas en float ; 28 patchs | `patches/mm-opera-hpc/` ; mesure du polycristal : [results/L5-polycristal-2026-10-10-0502/README.md](results/L5-polycristal-2026-10-10-0502/README.md) |
 
 ## Documentation
@@ -64,9 +68,10 @@ GPU.
 7. [docs/plan-execution.md](docs/plan-execution.md) : choix de
    l'exécution sur CPU, sur GPU ou mixte (`--execution`), réalisé.
 8. [docs/plan-precision.md](docs/plan-precision.md) : précision float ou
-   double sur toute la chaîne, plan à valider.
+   double sur toute la chaîne, réalisée.
 9. [docs/plan-ci-site.md](docs/plan-ci-site.md) : intégration continue et
-   site du prototype, plan à valider.
+   site du prototype (décisions prises le 13/10 ; ébauches de la CI et du
+   site, à déclencher à la main, pas encore lancées).
 10. [docs/solveurs-gpu.md](docs/solveurs-gpu.md) : solveurs,
     préconditionneurs et techniques CPU et GPU retenus pour l'étude de
     mfem-mgis.
@@ -94,7 +99,8 @@ chaque bibliothèque : `tfel/docs/web/generic-parallel-*.md` pour TFEL,
 | `scratch/` | outils de développement suivis : validation complète (`validate3.sh`), tests avec l'arbre de développement (`dev-test.sh`, `targeted-test.sh`), configurations de développement (`b2/`) |
 | `reproducers/` | petits programmes autonomes qui vérifient un point précis |
 | `results/` | résultats des matrices et des balayages ; défauts de compilateurs et leurs reproducteurs (`results/nvhpc-bugs/`) |
-| `deps/spack/` | environnement spack du prototype (`mmm-gpu`) et recettes complémentaires |
+| `site/` | pages du site du prototype, en anglais (Sphinx, MyST) ; le site complet, avec les documentations de TFEL, de MGIS et de mfem-mgis, est construit par `scripts/build-site.sh` et publié par `.github/workflows/pages.yml` |
+| `deps/spack/` | environnements spack du prototype (`mmm-gpu` ; `mmm-float-cpu` et son jumeau en double `mmm-double-cpu` ; `mmm-float-gpu` ; `ci-cpu`) et recettes complémentaires |
 | `deps/spack-sycl/` | spécification du LLVM de l'ancien environnement |
 
 Les dépôts de travail sont des clones locaux. `tfel/`, `mfem-mgis/`,

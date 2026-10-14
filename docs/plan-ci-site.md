@@ -1,8 +1,9 @@
 # Plan : intégration continue et site du prototype
 
-Statut : plan du 13/10/2026 (tâches 9f et 9g), à valider avant de coder.
-Les deux tâches dépendent d'un même choix, la visibilité du dépôt
-(décision E1).
+Statut : plan du 13/10/2026 (tâches 9f et 9g), décisions prises le
+13/10 (voir plus bas) ; ébauches de la CI sur le CPU et du site le
+14/10, déclenchées à la main, pas encore lancées. Les deux tâches
+dépendent de la visibilité du dépôt (décision E1).
 
 ## Contraintes
 
@@ -115,11 +116,31 @@ lancés. Déclenchement manuel seulement tant que le dépôt est privé
 - Le float (9b) n'est pas encore couvert : un second job avec le jumeau de
   `deps/spack/mmm-float-cpu` viendra après le premier lancement réussi.
 
+## Ébauche du site (14/10/2026)
+
+- Générateur : Sphinx avec MyST (Markdown), thème `sphinx_rtd_theme`,
+  comme la documentation de mfem-mgis. Les pages du prototype, en
+  anglais, sont dans `site/` : accueil et onglet « What's new with this
+  prototype » (vue d'ensemble, différences avec les versions officielles,
+  ajouts, choix, défauts corrigés, pièges, jalons). Elles résument les
+  documents en français du dépôt, qui restent la référence.
+- `scripts/build-site.sh` construit le site complet dans
+  `build/site/html` : ces pages à la racine, les pages web de TFEL et de
+  MGIS (cible CMake `website`, pandoc 3.9 et pandoc-crossref 0.3.24, qui
+  doivent être construits avec la même version de pandoc), et la
+  documentation Sphinx et Doxygen de mfem-mgis. Rien n'est compilé : TFEL
+  et MGIS sont seulement configurés. Les sources de MGIS patchées doivent
+  être dans `mgis/` (la CI applique `patches/mgis`). Paquets Python :
+  `site/requirements.txt`. Construit en local sans avertissement des
+  pages du prototype (145 Mo).
+- `.github/workflows/pages.yml` installe les outils, applique les patchs
+  de MGIS, lance le script et publie sur GitHub Pages. Déclenchement
+  manuel seulement : Pages demande un dépôt public.
+
 ## Étapes, une fois E1 à E4 décidées
 
 1. Environnement `ci-cpu`, job CPU sans cache, puis avec le cache GHCR.
 2. Jobs CUDA et HIP de nuit.
-3. Construction du site (générateur à choisir : Sphinx, déjà utilisé par
-   mfem-mgis, peut porter l'accueil et l'onglet du prototype), publication
+3. Construction du site (Sphinx, voir « Ébauche du site »), publication
    par la CI.
 4. Documentation de la CI et du site dans `docs/`.

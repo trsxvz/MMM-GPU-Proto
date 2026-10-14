@@ -51,6 +51,13 @@ précédentes. Les détails techniques sont dans [tfel.md](tfel.md).
    et fonction de compte rendu, symboles de backend, de version et d'espace
    mémoire, code des noyaux partagé par les backends, statuts dans des blocs
    réutilisés, statut 1 avec la politique `Warning`.
+7. **Précision float** (option de DSL `real_type`, patchs 0112 à 0120) :
+   type numérique des interfaces `generic` et `generic-parallel`, symbole
+   `<f>_real_size` et versions d'API décalées, refus du float par les
+   autres interfaces et les modèles du DSL `Model`, `IsAssignableTo` vers
+   un flottant plus étroit, MTest qui contrôle le type, critères de
+   convergence bornés à la génération avec avertissements, documentation.
+   En double, le code généré ne change que par le symbole de taille.
 
 Le contrat de données des lois
 (`MFront/GenericParallelBehaviour/BatchData.h`) est versionné dès la
@@ -93,6 +100,10 @@ elles lisent le contrat. Les détails sont dans [mgis.md](mgis.md).
 6. **Profilage** : fonction de synchronisation appelée autour des
    sections mesurées, pour attendre les noyaux lancés sur un GPU.
 7. **Documentation** : page web des lots et notes de version.
+8. **Précision float** (option `MGIS_REAL_TYPE`, patchs 0064 à 0070) :
+   type contrôlé au chargement de chaque point d'entrée, tests en float
+   sur le CPU et avec CUDA, documentation. Elle suit la contribution 7 de
+   TFEL.
 
 Le test CUDA de MGIS demande un GPU NVIDIA. Il est désactivé par défaut
 (option `enable-generic-parallel-cuda-tests`), pour que l'intégration
@@ -232,7 +243,14 @@ Le plan d'ensemble est dans [plan-mfem-mgis.md](plan-mfem-mgis.md).
     des matériaux comptées, bibliothèques de lois pour le CPU et le GPU
     (`mfem_mgis_add_behaviours_library`, `getBehavioursLibrary`). Elle
     dépend des lots, des noyaux et des post-traitements.
-12. **Facultatif, à proposer plus tard** :
+12. **Précision float** (voir [plan-precision.md](plan-precision.md)) :
+    type réel donné par MFEM, configuration (refus d'un MGIS d'un autre
+    type et d'AmgX en float), paramètres stockés en `double`, types MPI,
+    tolérances des tests adaptées au float, régularisation d'Anderson
+    relevée à 10 ε, et, en float, noyaux de raideur du GPU compilés sans
+    contraction en multiplications-additions fusionnées. Elle suit les
+    contributions de précision de TFEL et de MGIS.
+13. **Facultatif, à proposer plus tard** :
     - Kokkos initialisé par mfem-mgis (option `enable-kokkos`), pour les
       lois compilées avec le backend Kokkos ;
     - solveurs AmgX, qui utilisent directement l'interface C d'AmgX :
@@ -279,7 +297,9 @@ thème :
   5) ;
 - choix du solveur non linéaire (Newton, NewtonK0) et de la tolérance
   adaptée (contributions 2 et 9), solveurs directs et réutilisation de
-  l'analyse (contributions 2 et 3), AmgX (contribution 12) ;
+  l'analyse (contributions 2 et 3), AmgX (contribution 13) ;
+- exemples et cas en float : types MPI, options typées, critères et
+  tolérances adaptés (contribution 12) ;
 - tests sur le GPU, enregistrés seulement quand la loi pour le GPU est
   construite ;
 - dans mm-opera-hpc, tests comparés aux solutions de référence (Cast3M,

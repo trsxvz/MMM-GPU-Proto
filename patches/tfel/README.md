@@ -58,5 +58,11 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
   isotropic DSLs (and the test Plasticity8, which depends on it), DDIF2
   brick (non constant fracture stresses and energies, checks of the
   options), error normalization factor of `rkCastem`.
+- single precision (patches 0112 to 0120): DSL option `real_type`
+  (numerical type of the `generic` and `generic-parallel` interfaces,
+  symbols `<f>_real_size`, API versions shifted for `float`), other
+  interfaces refusing `float`, `IsAssignableTo` for floating point types,
+  MTest checking the numerical type, convergence criteria bounded at the
+  generation with warnings, documentation;
 - documentation: the pages and comments of the changed code, checked
-  against it (last patch).
+  against it.

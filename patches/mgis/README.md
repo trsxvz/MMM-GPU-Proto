@@ -40,4 +40,7 @@ Patches, by subject (independently of their numbers; the details are in
   alignments, thread pools, copies of the rotation matrices, outputs of
   the failing points;
 - no allocation on the heap in the usual calls, tests (CPU and CUDA) and
-  documentation (headers and web pages).
+  documentation (headers and web pages);
+- single precision (patches 0064 to 0070): option `MGIS_REAL_TYPE`,
+  numerical type checked at the loading of each entry point, tests in
+  float on the CPU and with CUDA, documentation.

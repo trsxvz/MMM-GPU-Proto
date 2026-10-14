@@ -1,0 +1,6 @@
+/* the cells of the tables wrap their text instead of making the tables
+   scroll horizontally (sphinx_rtd_theme keeps them on one line) */
+.wy-table-responsive table td,
+.wy-table-responsive table th {
+  white-space: normal;
+}

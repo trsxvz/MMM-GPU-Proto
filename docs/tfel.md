@@ -21,6 +21,7 @@ dans l'arbre de TFEL (voir [la dernière section](#documentation-dans-larbre-de-
 7. [Incompatibilités](#incompatibilités)
 8. [Configurations et compilateurs](#configurations-et-compilateurs)
 9. [Documentation dans l'arbre de TFEL](#documentation-dans-larbre-de-tfel)
+10. [Simple précision](#simple-précision)
 
 ## Organisation des changements
 
@@ -655,3 +656,21 @@ Un défaut de CMake a été trouvé pendant cette relecture : les tests
 `sycl-gpu-acpp` utilisent les fichiers de configuration de
 `sycl-default-acpp`, qui n'étaient installés que si cette configuration
 était aussi choisie. Ils sont maintenant installés avec l'une ou l'autre.
+
+## Simple précision
+
+Les lois, les modèles et les propriétés matériau des interfaces `generic`
+et `generic-parallel` se génèrent en `float` avec l'option de DSL
+`real_type` (`double` par défaut), qui écrit les macros
+`MFRONT_GB_REAL_TYPE` et `MFRONT_GMP_REAL_TYPE` en tête des sources.
+Chaque fonction exporte le symbole `<f>_real_size`, et les versions
+d'API sont décalées de 1000 dans un autre type que `double` : un appelant
+plus ancien refuse la bibliothèque au lieu de la lire de travers. Les
+autres interfaces et les modèles du DSL `Model` refusent `float`.
+`IsAssignableTo` accepte un flottant vers un flottant plus étroit. MTest
+refuse une loi qui n'est pas en `double`. En `float`, les critères de
+convergence sont bornés à la génération, avec un avertissement, et
+MFront avertit quand le critère d'une loi est plus lâche que 1e-5. En
+double, le code généré ne change que par le symbole de taille. Les choix
+(décisions D1 à D9) et les mesures sont dans
+[plan-precision.md](plan-precision.md) ; patchs 0112 à 0120.

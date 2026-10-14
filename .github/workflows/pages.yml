@@ -1,0 +1,83 @@
+# Website of the prototype (docs/plan-ci-site.md, 9g): the pages of site/
+# and the documentation of TFEL, MGIS and mfem-mgis built from the sources
+# of the prototype by scripts/build-site.sh, published on GitHub Pages
+# (deployment from the default branch only, as the environment
+# github-pages requires).
+#
+# Started by hand only: GitHub Pages requires a public repository (or a
+# paid account); a push on main is added when the repository is public.
+name: Website
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - name: Install the tools
+      run: |
+        pip install -r site/requirements.txt
+        sudo apt-get update
+        sudo apt-get install -y doxygen
+        # pandoc and pandoc-crossref built with the same version of pandoc
+        cd "$RUNNER_TEMP"
+        wget -q https://github.com/jgm/pandoc/releases/download/3.9/pandoc-3.9-1-amd64.deb
+        sudo dpkg -i pandoc-3.9-1-amd64.deb
+        wget -q https://github.com/lierdakil/pandoc-crossref/releases/download/v0.3.24/pandoc-crossref-Linux-X64.tar.xz
+        mkdir -p "$HOME/bin"
+        tar -xJf pandoc-crossref-Linux-X64.tar.xz -C "$HOME/bin"
+        echo "$HOME/bin" >> "$GITHUB_PATH"
+
+    # only the series of patches of MGIS is in this repository
+    - name: Apply the patches of MGIS
+      run: |
+        git clone --quiet --filter=blob:none \
+          https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
+        git -C mgis checkout --quiet e8ef4b4
+        git -C mgis -c user.name=ci -c user.email=ci@localhost \
+          am --quiet --keep-cr $PWD/patches/mgis/*.patch
+
+    - name: Build the website
+      run: |
+        pandoc --version | head -1
+        pandoc-crossref --version
+        doxygen --version
+        scripts/build-site.sh build/site
+
+    - uses: actions/upload-pages-artifact@v5
+      with:
+        path: build/site/html
+
+    - name: Upload the logs of the build
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: website-logs
+        path: build/site/*.log
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - id: deployment
+      uses: actions/deploy-pages@v5

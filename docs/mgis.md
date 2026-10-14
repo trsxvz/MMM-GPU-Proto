@@ -27,6 +27,7 @@ propriétés matériau calculés par lots, sur CPU ou sur GPU.
 11. [Corrections de défauts existants](#corrections-de-défauts-existants)
 12. [Limites actuelles](#limites-actuelles)
 13. [Exemple](#exemple)
+14. [Simple précision](#simple-précision)
 
 ## Ce qui change en bref
 
@@ -512,3 +513,14 @@ La documentation de MGIS, en anglais, est à jour avec ces changements :
 La relecture a aussi corrigé des erreurs anciennes de la documentation :
 `update` décrit à l'envers, noms des rotations des lois en grandes
 déformations, paramètres mal annotés.
+
+## Simple précision
+
+MGIS se configure en `float` avec l'option `MGIS_REAL_TYPE` (`double` par
+défaut), qui génère l'en-tête `MGIS/RealType.h`. Le type numérique de
+chaque point d'entrée est contrôlé au chargement (symbole
+`<f>_real_size` de TFEL). Les tests passent en `float` (49/49) et avec
+CUDA (51/51, en double comme en float). Limite trouvée en `float` : la loi
+de Norton des tests n'est plus intégrable vers 3e9 Pa, et le cycle de
+FieldOperationsCUDATest fait trois pas au lieu de quatre. Détails dans
+[plan-precision.md](plan-precision.md) ; patchs 0064 à 0070.
