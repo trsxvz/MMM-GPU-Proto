@@ -23,18 +23,9 @@ target_compile_definitions(cermet PRIVATE
 add_dependencies(check cermet BehavioursCermet)
 # two time steps of 0.2 s, the axial stress Szz (column 7 of the output
 # file) being compared to the one computed by Cast3M at each step
-# (results/cermet_cast3m.csv). In single precision, the stress at 0.2 s
-# (axial strain of 1e-4) depends on the compiler of the behaviour (gap to
-# the solution in double: 0.15 % with gcc 13, 2.7 % with gcc 14), the
-# deformation gradient, stored in float close to the identity, being only
-# known within one ulp (1.2e-7, 1.2e-3 of the strain): only the stress at
-# 0.4 s is checked (gap below 0.25 % with both compilers).
-get_property(_real_type GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE)
-if(_real_type STREQUAL "float")
-  set(_cermet_checks CHECKS 0.4 7 2.9462e7 TOLERANCE 0.01)
-else()
-  set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
-endif()
+# (results/cermet_cast3m.csv), in double and in single precision (gap to
+# the solution in double below 0.25 % in float)
+set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
 set(_cermet_options --duration 0.4 --nstep 2 --postprocessing 0)
 mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY
   FILE cermet-test.res ${_cermet_checks}

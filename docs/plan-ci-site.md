@@ -91,8 +91,8 @@ pas de runner sur la machine de développement. E4 : site en anglais.
 
 ## Ébauche du niveau CPU (14/10/2026)
 
-`.github/workflows/cpu.yml` et `deps/spack/ci-cpu/spack.yaml`, pas encore
-lancés. Déclenchement manuel seulement tant que le dépôt est privé
+`.github/workflows/cpu.yml`, `deps/spack/ci-cpu/spack.yaml` et
+`deps/spack/ci-cpu-float/spack.yaml`, pas encore lancés. Déclenchement manuel seulement tant que le dépôt est privé
 (minutes des machines) ; poussées, demandes de fusion et lancement de nuit
 à ajouter une fois le dépôt public.
 
@@ -117,20 +117,33 @@ lancés. Déclenchement manuel seulement tant que le dépôt est privé
   simulation a trouvé un défaut, corrigé : la bibliothèque de lois des
   tests de mfem-mgis (cible `BehaviourTest`) n'était pas construite, d'où
   126 échecs sur 208.
-- Sans cache des dépendances, chaque lancement reconstruit OpenMPI,
-  hypre, MUMPS, SuiteSparse et MFEM, puis TFEL : plusieurs heures sur une
-  machine à deux cœurs. Le cache sur GHCR (comme mfem-mgis) vient ensuite.
+- Sans cache des dépendances, chaque job de la matrice reconstruit ses
+  propres dépendances, OpenMPI, hypre, MUMPS et MFEM (et SuiteSparse en
+  double seulement : MFEM le refuse en float), puis TFEL : plusieurs
+  heures sur une machine à deux cœurs. Le cache sur GHCR (comme
+  mfem-mgis) vient ensuite.
 - Float (9b) : le job `cpu` est une matrice sur la précision (`double`,
   `float`). L'environnement `deps/spack/ci-cpu-float` est le jumeau de
   `mmm-float-cpu`, et MGIS reçoit `MGIS_REAL_TYPE` de la matrice. Lancé à
   la main, le job ne prend que le double par défaut (entrée
   `precisions`) ; les deux précisions tourneront à chaque poussée une fois
   le dépôt public. Simulé en local en float : MGIS 49/49, mfem-mgis
-  204/204, exemples 21/21, mm-opera-hpc 6/6 après une correction du test
-  du cermet. En float, sa contrainte à 0,2 s (déformation de 1e-4) dépend
-  du compilateur de la loi : 0,15 % du double avec gcc 13, 2,7 % avec gcc
-  14 (quantification de F, voir results/precision-polycristal-2026-10-14).
-  Seule la contrainte à 0,4 s est donc vérifiée en float.
+  204/204, exemples 21/21, mm-opera-hpc 6/6. La simulation a trouvé un
+  défaut de mm-opera-hpc en float : avec la loi du cermet compilée par
+  gcc 14, le point fixe sur les contraintes latérales oscillait entre
+  1,5e4 et 1,7e4 Pa, au-dessus de son seuil de 1e4 Pa (les composantes
+  latérales de F, juste sous 1, ne bougent que d'un ulp, 6e-8, soit
+  environ 1e4 Pa). Le premier pas était coupé, et la contrainte axiale du
+  cermet à 0,2 s s'écartait de 2,7 % du double, effet du pas de temps et
+  non de l'arrondi (0,27 % du double aux mêmes pas). Le seuil vaut
+  maintenant 5e4 Pa en float (mm-opera-hpc 2e4881c) : 0,24 % du double
+  avec gcc 13 et 0,25 % avec gcc 14 à 0,2 s, et le test vérifie les mêmes
+  instants dans les deux précisions (`results/cermet-float-2026-10-14`).
+- Les lois générées par mfront dans les tests sont compilées avec
+  `tfel-config --oflags`, qui contient `-march=native` même en
+  construction portable : leurs résultats dépendent du processeur de la
+  machine de la CI. Les tolérances des tests restent larges devant les
+  écarts mesurés entre compilateurs (0,013 % sur le cermet en float).
 
 ## Ébauche du site (14/10/2026)
 

@@ -264,7 +264,9 @@ minutes and storage, and no GitHub Pages.
 
 The CPU level checks that the patch series apply, builds TFEL from the
 sources of the repository, applies MGIS from its patches, and builds and
-tests mfem-mgis, the examples and mm-opera-hpc on the CPU, with ccache.
+tests mfem-mgis, the examples and mm-opera-hpc on the CPU, with ccache,
+in double and in single precision (a matrix on the precision; double
+only when started by hand).
 It is a draft of 14/10/2026, started by hand and not launched yet. It
 reuses the lessons of the continuous integration of mfem-mgis: pinned
 versions of the spack packages (otherwise an update of autoconf

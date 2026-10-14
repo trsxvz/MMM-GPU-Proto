@@ -165,4 +165,6 @@ GPU.
 - The test suite of the cases of the prototype runs in float (134 tests),
   without losing any test in double (143/143).
 - Drafts of the CPU level of the continuous integration and of this
-  website (not yet launched).
+  website (not yet launched). The CPU level, simulated locally in double
+  and in float, found a threshold of mm-opera-hpc too tight for float
+  (fixed point on the lateral stresses of the cermet), corrected.

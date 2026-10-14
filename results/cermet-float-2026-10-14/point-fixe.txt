@@ -1,0 +1,96 @@
+# double, pas de 0,2 s
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.78048e+07
+Fixed Point iteration 1 : |res| = 664228
+Fixed Point iteration 2 : |res| = 22276.9
+Fixed Point iteration 3 : |res| = 683.478
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.5609e+06
+Fixed Point iteration 1 : |res| = 30883.8
+Fixed Point iteration 2 : |res| = 4359.47
+
+# double, pas de 0,1 s
+Solving time step from  0  to  0.1
+Fixed Point iteration 0 : |res| = 8.65991e+06
+Fixed Point iteration 1 : |res| = 555999
+Fixed Point iteration 2 : |res| = 35250.1
+Fixed Point iteration 3 : |res| = 2393.85
+Solving time step from  0.1  to  0.2
+Fixed Point iteration 0 : |res| = 707239
+Fixed Point iteration 1 : |res| = 27758.9
+Fixed Point iteration 2 : |res| = 1165.77
+Solving time step from  0.2  to  0.3
+Fixed Point iteration 0 : |res| = 755687
+Fixed Point iteration 1 : |res| = 20771.8
+Fixed Point iteration 2 : |res| = 693.222
+Solving time step from  0.3  to  0.4
+Fixed Point iteration 0 : |res| = 579019
+Fixed Point iteration 1 : |res| = 11416.4
+Fixed Point iteration 2 : |res| = 556.529
+
+# float, loi compilée par gcc 13, seuil 1e4 Pa
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.7836e+07
+Fixed Point iteration 1 : |res| = 664872
+Fixed Point iteration 2 : |res| = 32438.2
+Fixed Point iteration 3 : |res| = 17266.7
+Fixed Point iteration 4 : |res| = 15426.9
+Fixed Point iteration 5 : |res| = 5720.33
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.53653e+06
+Fixed Point iteration 1 : |res| = 29991
+Fixed Point iteration 2 : |res| = 5167.38
+
+# float, loi compilée par gcc 14, seuil 1e4 Pa
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.7836e+07
+Fixed Point iteration 1 : |res| = 664856
+Fixed Point iteration 2 : |res| = 32468.1
+Fixed Point iteration 3 : |res| = 17234.6
+Fixed Point iteration 4 : |res| = 15454.4
+Fixed Point iteration 5 : |res| = 17234.6
+Fixed Point iteration 6 : |res| = 15454.4
+Fixed Point iteration 7 : |res| = 17234.6
+Fixed Point iteration 8 : |res| = 15454.4
+Fixed Point iteration 9 : |res| = 17234.6
+Fixed Point iteration 10 : |res| = 15454.4
+Fixed Point iteration 11 : |res| = 17234.6
+Fixed Point iteration 12 : |res| = 15454.4
+Fixed Point iteration 13 : |res| = 17234.6
+Fixed Point iteration 14 : |res| = 15454.4
+Fixed Point iteration 15 : |res| = 17234.6
+Fixed Point iteration 16 : |res| = 15454.4
+Fixed Point iteration 17 : |res| = 17234.6
+Fixed Point iteration 18 : |res| = 15454.4
+Fixed Point iteration 19 : |res| = 17234.6
+Solving time step from  0  to  0.1
+Fixed Point iteration 0 : |res| = 8.6848e+06
+Fixed Point iteration 1 : |res| = 560398
+Fixed Point iteration 2 : |res| = 55447.4
+Fixed Point iteration 3 : |res| = 5065.48
+Solving time step from  0.1  to  0.2
+Fixed Point iteration 0 : |res| = 689276
+Fixed Point iteration 1 : |res| = 46973.2
+Fixed Point iteration 2 : |res| = 3876.03
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.28677e+06
+Fixed Point iteration 1 : |res| = 26521.5
+Fixed Point iteration 2 : |res| = 4062.21
+
+# float, loi compilée par gcc 13, seuil 5e4 Pa
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.7836e+07
+Fixed Point iteration 1 : |res| = 664957
+Fixed Point iteration 2 : |res| = 32323.3
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.53645e+06
+Fixed Point iteration 1 : |res| = 24419.7
+
+# float, loi compilée par gcc 14, seuil 5e4 Pa
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.78316e+07
+Fixed Point iteration 1 : |res| = 669379
+Fixed Point iteration 2 : |res| = 43484.4
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.57799e+06
+Fixed Point iteration 1 : |res| = 28796.2

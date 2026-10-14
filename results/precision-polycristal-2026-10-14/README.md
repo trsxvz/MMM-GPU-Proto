@@ -37,3 +37,7 @@ La déformation imposée elle-même est arrondie. Ces mesures plaident pour
 une interface en H = F - I (gradient du déplacement, petit, gardant toute
 la précision relative du float) pour les lois en grandes transformations
 en float ; décision à prendre (voir docs/plan-precision.md).
+
+Ces mesures ont été faites avec un seuil de 1e4 Pa pour le point fixe
+sur les contraintes latérales. Depuis mm-opera-hpc 2e4881c, il vaut
+5e4 Pa en float (results/cermet-float-2026-10-14).

@@ -72,8 +72,18 @@ namespace mm_opera_hpc {
       //! \brief macroscopic material parameters
       const MacroscropicElasticMaterialProperties
           macroscopic_elastic_material_properties;
+      /*!
+       * \brief absolute tolerance on the lateral macroscopic stresses, 1e4 Pa
+       * with double. With float, the lateral components of the macroscopic
+       * deformation gradient, just below 1, only move by steps of one ulp
+       * (6e-8), so the lateral stresses move by steps of about 1e4 Pa: the
+       * fixed point of the cermet oscillated between 1.5e4 and 1.7e4 Pa and
+       * the time step was divided. The tolerance is five times this step
+       * with float.
+       */
       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
-          mfem_mgis::real{1e4};
+          std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{1e4}
+                                                  : mfem_mgis::real{5e4};
       const size_t macroscopic_stress_maximum_number_of_iterations = 20;
     };
     //! \brief an internal auxiliary data structure

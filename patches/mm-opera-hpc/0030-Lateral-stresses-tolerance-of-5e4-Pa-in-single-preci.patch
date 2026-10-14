@@ -1,0 +1,81 @@
+From 2e4881c32550354ccbbce10a796a97942a928b23 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 13:31:22 +0200
+Subject: [PATCH] Lateral stresses: tolerance of 5e4 Pa in single precision
+
+In single precision, the lateral components of the macroscopic
+deformation gradient, just below 1, only move by steps of one ulp
+(6e-8), so the lateral stresses move by steps of about 1e4 Pa. With the
+behaviour of the cermet compiled by gcc 14, the fixed point of the first
+time step oscillated between 1.5e4 and 1.7e4 Pa, above the tolerance of
+1e4 Pa, and the time step was divided: the stress at 0.2 s came from two
+steps of 0.1 s. Its gap of 2.7 % to the solution in double was the
+effect of this smaller time step (2.46 % in double between steps of
+0.2 s and 0.1 s), not of the rounding of the deformation gradient as the
+previous commit stated: at the same time steps, float and double differ
+by 0.27 %.
+
+The tolerance on the lateral stresses is now 5e4 Pa in single precision
+(five times this step), and the stress at 0.2 s is checked again in
+float. Gap to the solution in double: 0.24 % at 0.2 s and 0.06 % at
+0.4 s with gcc 13, 0.25 % and 0.07 % with gcc 14; gap to the reference
+of Cast3M below 0.25 %. Nothing changes in double (same results bit for
+bit).
+---
+ cermet/CMakeLists.txt                             | 15 +++------------
+ ...niaxialMacroscopicStressPeriodicSimulation.hxx | 12 +++++++++++-
+ 2 files changed, 14 insertions(+), 13 deletions(-)
+
+diff --git a/cermet/CMakeLists.txt b/cermet/CMakeLists.txt
+index 859d77c..bf2f220 100644
+--- a/cermet/CMakeLists.txt
++++ b/cermet/CMakeLists.txt
+@@ -23,18 +23,9 @@ target_compile_definitions(cermet PRIVATE
+ add_dependencies(check cermet BehavioursCermet)
+ # two time steps of 0.2 s, the axial stress Szz (column 7 of the output
+ # file) being compared to the one computed by Cast3M at each step
+-# (results/cermet_cast3m.csv). In single precision, the stress at 0.2 s
+-# (axial strain of 1e-4) depends on the compiler of the behaviour (gap to
+-# the solution in double: 0.15 % with gcc 13, 2.7 % with gcc 14), the
+-# deformation gradient, stored in float close to the identity, being only
+-# known within one ulp (1.2e-7, 1.2e-3 of the strain): only the stress at
+-# 0.4 s is checked (gap below 0.25 % with both compilers).
+-get_property(_real_type GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE)
+-if(_real_type STREQUAL "float")
+-  set(_cermet_checks CHECKS 0.4 7 2.9462e7 TOLERANCE 0.01)
+-else()
+-  set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
+-endif()
++# (results/cermet_cast3m.csv), in double and in single precision (gap to
++# the solution in double below 0.25 % in float)
++set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
+ set(_cermet_options --duration 0.4 --nstep 2 --postprocessing 0)
+ mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY
+   FILE cermet-test.res ${_cermet_checks}
+diff --git a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+index 9aa269b..6fc14a8 100644
+--- a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
++++ b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+@@ -72,8 +72,18 @@ namespace mm_opera_hpc {
+       //! \brief macroscopic material parameters
+       const MacroscropicElasticMaterialProperties
+           macroscopic_elastic_material_properties;
++      /*!
++       * \brief absolute tolerance on the lateral macroscopic stresses, 1e4 Pa
++       * with double. With float, the lateral components of the macroscopic
++       * deformation gradient, just below 1, only move by steps of one ulp
++       * (6e-8), so the lateral stresses move by steps of about 1e4 Pa: the
++       * fixed point of the cermet oscillated between 1.5e4 and 1.7e4 Pa and
++       * the time step was divided. The tolerance is five times this step
++       * with float.
++       */
+       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
+-          mfem_mgis::real{1e4};
++          std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{1e4}
++                                                  : mfem_mgis::real{5e4};
+       const size_t macroscopic_stress_maximum_number_of_iterations = 20;
+     };
+     //! \brief an internal auxiliary data structure
+-- 
+2.43.0
+

@@ -454,6 +454,14 @@ Suite (13/10/2026, soir) :
   1000 itérations, ligne la plus proche choisie par les comparaisons, à
   1e-6 près sur le temps. Double : 6/6, mêmes fichiers au bit près. Float : 6/6, contraintes
   axiales à 0,06 % à 0,15 % du double et à 0,005 % à 0,23 % de Cast3M.
+  Le seuil du point fixe sur les contraintes latérales (1e4 Pa) vaut
+  5e4 Pa en float depuis 2e4881c : les composantes latérales de F, juste
+  sous 1, ne bougent que d'un ulp (6e-8), soit environ 1e4 Pa de
+  contrainte. Avec la loi du cermet compilée par gcc 14 (CI simulée), le
+  point fixe oscillait entre 1,5e4 et 1,7e4 Pa, le pas de 0,2 s était
+  coupé et la contrainte à 0,2 s s'écartait de 2,7 % du double, effet du
+  pas de temps (0,27 % du double aux mêmes pas). Avec 5e4 Pa : 0,24 % du
+  double avec gcc 13, 0,25 % avec gcc 14 (results/cermet-float-2026-10-14).
 - Exemples : 21/21 en float (satoh, qui demande SuiteSparse, et les
   variantes PETSc ne sont pas déclarées) et 24/24 en double contre les
   sources actuelles de mfem-mgis. Les tolérances de Newton et des comparaisons

@@ -4609,3 +4609,31 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   plus du double ; test `poutre-gpu-r4` dans cas/poutre. Mesure refaite
   (`results/precision-poutre-gpu-2026-10-14-0843`) : float 1,37 fois plus
   rapide que le double, à 3,4e-5 au plus du double.
+
+### 2026-10-14, cas en float, polycristal, site et CI sur le CPU
+
+- Suite des cas du prototype en float (racine 5d91ce18) : 134 tests verts,
+  double 143/143. Un exécutable des exemples ou de mm-opera-hpc n'est pris
+  que s'il est construit contre la même installation de mfem-mgis que les
+  cas.
+- Polycristal en float (`results/precision-polycristal-2026-10-14`) :
+  contrainte axiale à +6,1e-3 du double à 5e-5 de déformation, +1,0e-3 à
+  2e-4 ; sur un pas de 1 s, la loi échoue. Cause probable : F, stocké en
+  float près de l'identité, ne bouge que d'un ulp à la fois (argument pour
+  une interface en H = F - I).
+- Ébauche du site (`site/`, Sphinx et MyST, pages en anglais).
+- Job `cpu` de la CI simulé en local dans un environnement vide : la
+  bibliothèque de lois des tests de mfem-mgis n'était pas construite (126
+  échecs sur 208), corrigé. Puis matrice sur la précision
+  (`deps/spack/ci-cpu-float`), simulée en double et en float.
+- La simulation en float a trouvé un seuil trop serré dans mm-opera-hpc :
+  avec la loi du cermet compilée par gcc 14, le point fixe sur les
+  contraintes latérales oscillait entre 1,5e4 et 1,7e4 Pa, au-dessus de
+  son seuil de 1e4 Pa (un ulp des composantes latérales de F vaut environ
+  1e4 Pa de contrainte). Le premier pas était coupé, d'où 2,7 % d'écart au
+  double à 0,2 s, effet du pas de temps (0,27 % aux mêmes pas). Un premier
+  correctif (fdfdafd) ne vérifiait plus que 0,4 s en float, sur une
+  explication fausse (l'arrondi de F) relevée par la relecture. Remplacé
+  par un seuil de 5e4 Pa en float (2e4881c) : 0,24 à 0,25 % du double avec
+  les deux compilateurs, mêmes vérifications dans les deux précisions,
+  double inchangé au bit près (`results/cermet-float-2026-10-14`).

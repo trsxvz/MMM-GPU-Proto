@@ -59,6 +59,7 @@ jobs:
         # environment (ci-cpu or ci-cpu-float), given to MGIS
         precision: ${{ fromJSON(inputs.precisions || '["double", "float"]') }}
     env:
+      PRECISION: ${{ matrix.precision }}
       ENVIRONMENT: ${{ matrix.precision == 'float' && 'deps/spack/ci-cpu-float' || 'deps/spack/ci-cpu' }}
       CC: gcc-14
       CXX: g++-14
@@ -70,6 +71,13 @@ jobs:
       PRTE_MCA_rmaps_default_mapping_policy: :oversubscribe
     steps:
     - uses: actions/checkout@v7
+
+    - name: Check the precision
+      run: |
+        case "$PRECISION" in
+          double | float) ;;
+          *) echo "unknown precision '$PRECISION'" >&2; exit 1 ;;
+        esac
 
     - name: Set up Spack
       uses: spack/setup-spack@v3
@@ -139,7 +147,7 @@ jobs:
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
           -Denable-portable-build=ON -Denable-testing=ON \
           -Denable-mgis-function=ON -Denable-hdf5-automatic-support=OFF \
-          -DMGIS_REAL_TYPE=${{ matrix.precision }}
+          -DMGIS_REAL_TYPE=$PRECISION
         cmake --build build/mgis -j $(nproc)
         cmake --build build/mgis -j $(nproc) --target check
         cmake --install build/mgis
