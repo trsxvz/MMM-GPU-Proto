@@ -1,14 +1,20 @@
 # Continuous integration on the CPU (docs/plan-ci-site.md, 9f): TFEL and
 # MGIS built from the sources and the patches of the prototype, mfem-mgis,
-# mfem-mgis-examples and mm-opera-hpc built and tested on the CPU, and the
-# series of patches checked against the upstream repositories.
+# mfem-mgis-examples and mm-opera-hpc built and tested on the CPU, in double
+# and in single precision, and the series of patches checked against the
+# upstream repositories.
 #
 # Started by hand only while the repository is private (minutes of the
-# runners); push, pull_request and schedule are added when it is public.
+# runners), in double by default; push, pull_request and schedule are added
+# when it is public (both precisions).
 name: CPU
 
 on:
   workflow_dispatch:
+    inputs:
+      precisions:
+        description: 'Numerical types, as a JSON list ("double", "float")'
+        default: '["double"]'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -46,7 +52,14 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # numerical type of the whole chain: the one of the MFEM of the spack
+        # environment (ci-cpu or ci-cpu-float), given to MGIS
+        precision: ${{ fromJSON(inputs.precisions || '["double", "float"]') }}
     env:
+      ENVIRONMENT: ${{ matrix.precision == 'float' && 'deps/spack/ci-cpu-float' || 'deps/spack/ci-cpu' }}
       CC: gcc-14
       CXX: g++-14
       # concurrent mpirun of ctest -j: OpenMPI 5.0.10 may give the same job
@@ -80,11 +93,11 @@ jobs:
         nproc
         lscpu | head -20
         spack compiler find
-        spack -e deps/spack/ci-cpu config add "packages:c:require:[gcc@14]"
-        spack -e deps/spack/ci-cpu config add "packages:cxx:require:[gcc@14]"
-        spack -e deps/spack/ci-cpu config add "packages:fortran:require:[gcc@14]"
-        spack -e deps/spack/ci-cpu concretize
-        spack -e deps/spack/ci-cpu install -j $(nproc)
+        spack -e $ENVIRONMENT config add "packages:c:require:[gcc@14]"
+        spack -e $ENVIRONMENT config add "packages:cxx:require:[gcc@14]"
+        spack -e $ENVIRONMENT config add "packages:fortran:require:[gcc@14]"
+        spack -e $ENVIRONMENT concretize
+        spack -e $ENVIRONMENT install -j $(nproc)
         spack clean -a
         df -h .
 
@@ -92,7 +105,7 @@ jobs:
       id: ccache
       uses: ./mfem-mgis/.github/actions/setup-ccache
       with:
-        key: cpu
+        key: cpu-${{ matrix.precision }}
 
     # TFEL, MGIS, mfem-mgis, the examples and mm-opera-hpc: more than the
     # 500 MB chosen by setup-ccache for mfem-mgis alone
@@ -125,7 +138,8 @@ jobs:
           -DCMAKE_PREFIX_PATH=$PWD/install/tfel \
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
           -Denable-portable-build=ON -Denable-testing=ON \
-          -Denable-mgis-function=ON -Denable-hdf5-automatic-support=OFF
+          -Denable-mgis-function=ON -Denable-hdf5-automatic-support=OFF \
+          -DMGIS_REAL_TYPE=${{ matrix.precision }}
         cmake --build build/mgis -j $(nproc)
         cmake --build build/mgis -j $(nproc) --target check
         cmake --install build/mgis
@@ -133,7 +147,7 @@ jobs:
     - name: Build and test mfem-mgis
       shell: spack-sh {0}
       run: |
-        spack env activate deps/spack/ci-cpu
+        spack env activate $ENVIRONMENT
         export PATH=$PWD/install/tfel/bin:$PATH
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
         cmake -S mfem-mgis -B build/mfem-mgis -DCMAKE_BUILD_TYPE=Release \
@@ -154,7 +168,7 @@ jobs:
     - name: Build and test mfem-mgis-examples
       shell: spack-sh {0}
       run: |
-        spack env activate deps/spack/ci-cpu
+        spack env activate $ENVIRONMENT
         export PATH=$PWD/install/tfel/bin:$PATH
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
         cmake -S mfem-mgis-examples -B build/examples -DCMAKE_BUILD_TYPE=Release \
@@ -168,7 +182,7 @@ jobs:
     - name: Build and test mm-opera-hpc
       shell: spack-sh {0}
       run: |
-        spack env activate deps/spack/ci-cpu
+        spack env activate $ENVIRONMENT
         export PATH=$PWD/install/tfel/bin:$PATH
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib:$PWD/install/mgis/lib
         cmake -S mm-opera-hpc -B build/mm-opera-hpc -DCMAKE_BUILD_TYPE=Release \

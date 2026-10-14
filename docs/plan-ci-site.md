@@ -120,8 +120,17 @@ lancés. Déclenchement manuel seulement tant que le dépôt est privé
 - Sans cache des dépendances, chaque lancement reconstruit OpenMPI,
   hypre, MUMPS, SuiteSparse et MFEM, puis TFEL : plusieurs heures sur une
   machine à deux cœurs. Le cache sur GHCR (comme mfem-mgis) vient ensuite.
-- Le float (9b) n'est pas encore couvert : un second job avec le jumeau de
-  `deps/spack/mmm-float-cpu` viendra après le premier lancement réussi.
+- Float (9b) : le job `cpu` est une matrice sur la précision (`double`,
+  `float`). L'environnement `deps/spack/ci-cpu-float` est le jumeau de
+  `mmm-float-cpu`, et MGIS reçoit `MGIS_REAL_TYPE` de la matrice. Lancé à
+  la main, le job ne prend que le double par défaut (entrée
+  `precisions`) ; les deux précisions tourneront à chaque poussée une fois
+  le dépôt public. Simulé en local en float : MGIS 49/49, mfem-mgis
+  204/204, exemples 21/21, mm-opera-hpc 6/6 après une correction du test
+  du cermet. En float, sa contrainte à 0,2 s (déformation de 1e-4) dépend
+  du compilateur de la loi : 0,15 % du double avec gcc 13, 2,7 % avec gcc
+  14 (quantification de F, voir results/precision-polycristal-2026-10-14).
+  Seule la contrainte à 0,4 s est donc vérifiée en float.
 
 ## Ébauche du site (14/10/2026)
 

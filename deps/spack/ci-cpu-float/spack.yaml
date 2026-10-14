@@ -1,0 +1,31 @@
+# Environment of the continuous integration on the CPU in single precision
+# (plans docs/plan-ci-site.md, 9f, and docs/plan-precision.md): the
+# dependencies of mfem-mgis in float, as the environment mmm-float-cpu of
+# the prototype (MFEM 4.10 with precision=single, which requires hypre
+# precision=single and MUMPS +float; MFEM refuses SuiteSparse in single
+# precision). TFEL and MGIS are built from the sources of the prototype, not
+# by spack. Same packages as the environments of the prototype (develop
+# branch of spack-packages, commit 3b7fdffc24), the compilers being the ones
+# of the runner.
+spack:
+  specs:
+  - openmpi@5 +internal-hwloc +internal-pmix
+  - hypre@3.2.0 +mpi ~int64 precision=single
+  - mumps +mpi +float
+  # C++20, as mfem-mgis
+  - mfem@4.10.0 +mpi +shared ~static precision=single cxxstd=20 +mumps
+  # ccache is installed by the composite action setup-ccache of mfem-mgis
+  - cmake
+  view: true
+  concretizer:
+    unify: true
+    reuse: false
+  packages:
+    all:
+      require: [target=x86_64_v3]
+    mpi:
+      require: [openmpi@5]
+    blas:
+      require: [openblas]
+    lapack:
+      require: [openblas]
