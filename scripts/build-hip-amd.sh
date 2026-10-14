@@ -210,11 +210,18 @@ build_mfem_mgis() {
 # reproducers/hip-lost-kernel) : résidus faux (composantes imposées non
 # annulées) et fautes mémoire de hypre. Le chargement immédiat du code
 # (HIP_ENABLE_DEFERRED_LOADING=0) échoue, libhipblaslt n'ayant pas de code
-# pour gfx1036.
+# pour gfx1036. La sérialisation ne suffit pas toujours : rve et
+# ssna303_3d_hypre restent alors bloqués dans hipLaunchKernel, au premier
+# lancement d'un noyau de la bibliothèque des lois (attente d'un signal qui
+# ne vient jamais).
+#
+# L'OpenMPI de l'environnement mmm-gpu est construit avec CUDA : sans
+# OMPI_MCA_accelerator=null, chaque processus ouvre un contexte sur le GPU
+# NVIDIA de la machine, qui peut servir à d'autres travaux.
 run_tests() {
-  local serialize=
+  local serialize="export OMPI_MCA_accelerator=null; "
   if [ "$GPU_TESTS" = ON ]; then
-    serialize="export AMD_SERIALIZE_KERNEL=3 AMD_SERIALIZE_COPY=3; "
+    serialize="${serialize}export AMD_SERIALIZE_KERNEL=3 AMD_SERIALIZE_COPY=3; "
   fi
   local cmd="${serialize}cd '$1' && taskset -c '$CPUS' ctest --output-on-failure"
   if [ "$GPU_TESTS" = ON ] && ! id -nG | grep -qw render; then

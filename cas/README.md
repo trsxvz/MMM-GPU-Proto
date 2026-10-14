@@ -4,7 +4,8 @@ Cas propres au prototype, qui ne sont ni dans mfem-mgis-examples ni dans
 mm-opera-hpc. Ils se construisent contre le mfem-mgis installé par
 `build-mfem-mgis.sh` (`./build-mfem-mgis.sh cas`, dossier `build/cas`). Les
 lois sont générées dans le type numérique de ce mfem-mgis (`float` si son
-MFEM est en simple précision, option `real_type` de mfront).
+MFEM est en simple précision, option `real_type` de mfront). Les lois pour le GPU ne sont générées que si ce MFEM
+calcule sur un GPU avec CUDA.
 
 - `poutre/` : poutre encastrée en flexion, plasticité J2 en petites
   déformations, 3D (maillage `beam-tet.mesh` et loi
@@ -104,6 +105,8 @@ imposée, lot L7.6), `mesures-backends-gpu.sh` et
 tâche 9a), `mesures-precision-poutre.sh` (float contre double sur le CPU,
 environnements spack jumeaux, tâche 9b). Outils :
 `resume-profilage.py` (temps par phase des sorties `--profiling`),
+`resume-precision.py` (synthèse des mesures float contre double : temps,
+itérations, écart des normes),
 `comparer-sorties.py` (comparaison de sorties numériques, `--csv` pour
 les valeurs séparées par des virgules), `assemblage/` (programme qui
 chronomètre l'assemblage par noyaux des matrices de rigidité dans la

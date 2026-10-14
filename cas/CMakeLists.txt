@@ -19,6 +19,14 @@ set(MFRONT_DSL_OPTIONS)
 if(MFEM_MGIS_REAL_TYPE AND (NOT MFEM_MGIS_REAL_TYPE STREQUAL "double"))
   set(MFRONT_DSL_OPTIONS "--dsl-option=real_type:${MFEM_MGIS_REAL_TYPE}")
 endif()
+# the behaviours for the GPU are only generated if MFEM computes on a GPU
+# with CUDA (global property set by the configuration of mfem-mgis)
+get_property(_mfem_use_cuda GLOBAL PROPERTY MFEM_MGIS_MFEM_USE_CUDA)
+if(_mfem_use_cuda STREQUAL "YES")
+  set(PROTO_GPU_BEHAVIOURS ON)
+else()
+  set(PROTO_GPU_BEHAVIOURS OFF)
+endif()
 # the behaviours are generated again when MFront changes: its executable
 # and its library, which holds the code generators
 get_filename_component(_mfront_prefix "${MFRONT}" DIRECTORY)
@@ -115,7 +123,7 @@ endfunction()
 # Behaviours compiled by MFront with the generic-parallel interface (see
 # add_generic_parallel_mfront_library), on the host for each backend whose
 # configuration file is provided by TFEL (openmp, stlpar), and on the GPU
-# with the CUDA option if nvcc is found (cuda), in
+# with the CUDA option if MFEM computes on a GPU and nvcc is found (cuda), in
 # <current binary dir>/generic-parallel-<backend>/src/libGenericParallel<name>-<backend>.so
 # (targets <target>-<backend>). The backends are returned in the variable
 # <target>_BACKENDS.
@@ -123,7 +131,7 @@ function(add_generic_parallel_mfront_libraries target)
   cmake_parse_arguments(_gp "CUDA" "" "" ${ARGN})
   set(_configurations openmp:config-openmp-host-gcc.json
                       stlpar:config-stlpar-parunseq-gcc.json)
-  if(_gp_CUDA)
+  if(_gp_CUDA AND PROTO_GPU_BEHAVIOURS)
     find_program(_nvcc nvcc)
     if(_nvcc)
       list(APPEND _configurations cuda:config-cuda-nvcc.json)

@@ -22,3 +22,9 @@ Effets dans mfem-mgis : résidu de Newton faux au premier pas (composantes
 imposées non annulées, divergence), et fautes mémoire de hypre dans
 rocsparse ou rocprim quand ce sont des copies ou des remplissages de hypre
 qui sont perdus.
+
+Avec la sérialisation, certains cas ne donnent plus un résultat faux mais
+restent bloqués : dans les exemples rve et ssna303_3d_hypre sur le GPU, le
+premier lancement d'un noyau de la bibliothèque des lois attend sans fin un
+signal (`BusyWaitSignal::WaitAcquire` sous `hipLaunchKernel`, pile relevée
+sous gdb).
