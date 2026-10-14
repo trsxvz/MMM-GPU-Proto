@@ -9,14 +9,21 @@
  * At each time step, the first two components of the gradients, the first
  * component of the thermodynamic forces and an internal state variable are
  * extracted at the first integration point. They are saved in the file
- * UniaxialTensileTest-<behaviour>.txt and compared to the values of the
- * reference file, if any.
+ * UniaxialTensileTest-<behaviour>.txt (with the suffix
+ * -DisplacementGradient for the option --displacement-gradient) and
+ * compared to the values of the reference file, if any. For a finite strain
+ * behaviour given the displacement gradient, the gradients saved are the
+ * components of the deformation gradient, as with the deformation
+ * gradient. For a finite strain behaviour, the Cauchy stress
+ * computed by the post-processing of mfem-mgis at the end is also checked
+ * against the first Piola-Kirchhoff stress.
  *
  * \author Thomas Helfer
  * \date   14/12/2020
  */
 
 #include <array>
+#include <cmath>
 #include <string>
 #include <vector>
 #include <cstdlib>
@@ -28,8 +35,12 @@
 #include "MFEMMGIS/Profiler.hxx"
 #include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#if defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL)
+#include "MFEMMGIS/MechanicalPostProcessings.hxx"
+#endif /* defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL) */
 #include "Tolerance.hxx"
 
 /*!
@@ -78,6 +89,11 @@ struct TestParameters {
   bool parallel = false;
 #endif
   bool post_processing = true;
+  /*!
+   * give the displacement gradient instead of the deformation gradient to a
+   * finite strain behaviour
+   */
+  bool displacement_gradient = false;
 };
 
 //! \brief values extracted at the first integration point at each time step
@@ -131,6 +147,10 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
   args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
                  "--no-post-processing",
                  "Export or not the results to Paraview.");
+  args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
+                 "-no-dg", "--no-displacement-gradient",
+                 "Give the displacement gradient instead of the deformation "
+                 "gradient to a finite strain behaviour.");
   // options of mfem-mgis, such as --execution, handled by
   // mfem_mgis::initialize
   mfem_mgis::declareDefaultOptions(args);
@@ -226,8 +246,12 @@ static void extractResults(UniaxialTestResults& r,
   if (m.n == 0) {
     return;
   }
-  r.g0.push_back(s.gradients[0]);
-  r.g1.push_back(s.gradients[1]);
+  // components of the deformation gradient with the displacement gradient
+  const auto shift = mgis::behaviour::usesDisplacementGradient(m.b)
+                         ? mfem_mgis::real{1}
+                         : mfem_mgis::real{0};
+  r.g0.push_back(s.gradients[0] + shift);
+  r.g1.push_back(s.gradients[1] + shift);
   r.tf0.push_back(s.thermodynamic_forces[0]);
   if (std::string_view{p.isv_name}.empty()) {
     r.v.push_back(0);
@@ -267,6 +291,59 @@ static UniaxialTestResults readResults(const std::string& f) {
 }
 
 /*!
+ * \return if the axial Cauchy stress computed by the post-processing of
+ * mfem-mgis at the first integration point, at the end of the time step,
+ * matches the one computed from the first Piola-Kirchhoff stress and the
+ * deformation gradient (finite strain behaviours only, true otherwise)
+ * \param[in] m: material
+ */
+static bool checkCauchyStress([[maybe_unused]] const mfem_mgis::Material& m) {
+#if defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL)
+  if ((m.n == 0) ||
+      (m.b.btype !=
+       mgis::behaviour::Behaviour::STANDARDFINITESTRAINBEHAVIOUR)) {
+    return true;
+  }
+  auto ctx = mfem_mgis::Context{};
+  const auto osig = mfem_mgis::computeCauchyStress(
+      ctx, m, mfem_mgis::Material::END_OF_TIME_STEP);
+  if (!osig.has_value()) {
+    mfem_mgis::getErrorStream() << ctx.getErrorMessage() << '\n';
+    return false;
+  }
+  // deformation gradient and first Piola-Kirchhoff stress, components xx,
+  // yy, zz, xy, yx, xz, zx, yz, zy, in double
+  auto F = std::array<double, 9>{};
+  auto P = std::array<double, 9>{};
+  for (std::size_t i = 0; i != 9; ++i) {
+    F[i] = static_cast<double>(m.s1.gradients[i]);
+    P[i] = static_cast<double>(m.s1.thermodynamic_forces[i]);
+  }
+  if (mgis::behaviour::usesDisplacementGradient(m.b)) {
+    F[0] += 1;
+    F[1] += 1;
+    F[2] += 1;
+  }
+  const auto J = F[0] * (F[1] * F[2] - F[7] * F[8]) -
+                 F[3] * (F[4] * F[2] - F[7] * F[6]) +
+                 F[5] * (F[4] * F[8] - F[1] * F[6]);
+  const auto sxx = (P[0] * F[0] + P[3] * F[3] + P[5] * F[5]) / J;
+  const auto sxx_pp =
+      static_cast<double>(osig->getIntegrationPointValues(0)[0]);
+  const auto e = std::abs(sxx_pp - sxx);
+  const auto t =
+      static_cast<double>(mfem_mgis::unit_tests::tolerance(1e-10, 1e-5));
+  if (e > t * std::abs(sxx)) {
+    mfem_mgis::getErrorStream()
+        << "test failed (Cauchy stress of the post-processing " << sxx_pp
+        << " vs " << sxx << ")\n";
+    return false;
+  }
+#endif /* defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL) */
+  return true;
+}
+
+/*!
  * \return if the results match the reference values
  * \param[in] r: results
  * \param[in] m: material
@@ -282,7 +359,7 @@ static bool checkResults(const UniaxialTestResults& r,
   constexpr auto eeps = mfem_mgis::unit_tests::tolerance(1.e-10, 1.e-6);
   constexpr auto seps = mfem_mgis::unit_tests::tolerance(
       mfem_mgis::real(70.e9) * mfem_mgis::real(1.e-10), 5.e4);
-  auto success = true;
+  auto success = checkCauchyStress(m);
   if ((m.n != 0) && (!std::string_view{p.reference_file}.empty())) {
     const auto references = readResults(p.reference_file);
     if (references.g0.size() != r.g0.size()) {
@@ -383,8 +460,10 @@ int main(int argc, char** argv) {
               {"Parallel", p.parallel}}) |
       or_die;
   // material
-  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", p.behaviour_library,
-                                 p.behaviour) |
+  problem.addBehaviourIntegrator(
+      ctx, "Mechanics", "Cube", p.behaviour_library, p.behaviour,
+      mfem_mgis::Parameters{{mfem_mgis::displacement_gradient_parameter,
+                             p.displacement_gradient}}) |
       or_die;
   auto& m1 = problem.getMaterial(ctx, "Cube", 0) | or_die;
   mgis::behaviour::setExternalStateVariable(ctx, m1.s0, "Temperature", 293.15) |
@@ -441,20 +520,24 @@ int main(int argc, char** argv) {
                                       p.stagnation_relative_tolerance);
   }
   problem.setSolverParameters(ctx, solver_parameters) | or_die;
+  // name of the outputs, distinct for the cases with the displacement
+  // gradient, which may run at the same time
+  const auto name =
+      std::string(p.behaviour) +
+      std::string(p.displacement_gradient ? "-DisplacementGradient" : "");
   // post-processings
   if (p.post_processing) {
     problem.addPostProcessing(
         ctx, "ParaviewExportResults",
-        {{"OutputFileName",
-          "UniaxialTensileTestOutput-" + std::string(p.behaviour)}}) |
+        {{"OutputFileName", "UniaxialTensileTestOutput-" + name}}) |
         or_die;
     const auto& b = m1.b;
     if ((b.btype == mgis::behaviour::Behaviour::STANDARDSTRAINBASEDBEHAVIOUR) &&
         (b.kinematic == mgis::behaviour::Behaviour::SMALLSTRAINKINEMATIC)) {
       problem.addPostProcessing(
           ctx, "ParaviewExportIntegrationPointResultsAtNodes",
-          {{"OutputFileName", "UniaxialTensileTestIntegrationPointOutput-" +
-                                  std::string(p.behaviour)},
+          {{"OutputFileName",
+            "UniaxialTensileTestIntegrationPointOutput-" + name},
            {"Materials", {"Cube"}},
            {"Results", {"Strain"}}}) |
           or_die;
@@ -482,8 +565,7 @@ int main(int argc, char** argv) {
     extractResults(r, m1, m1.s1, p);
   }
   // save and compare the results
-  saveResults("UniaxialTensileTest-" + std::string(p.behaviour) + ".txt", r,
-              m1);
+  saveResults("UniaxialTensileTest-" + name + ".txt", r, m1);
   const auto success = checkResults(r, m1, p);
   mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
   return success ? EXIT_SUCCESS : EXIT_FAILURE;

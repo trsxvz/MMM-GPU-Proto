@@ -100,13 +100,15 @@ namespace mfem_mgis::batch {
     /*!
      * \brief deformation gradient in 3D: `(F11, F22, F33, F12, F21, F13,
      * F31, F23, F32)`, the identity being given by the macroscopic
-     * gradients
+     * gradients. Also used for the displacement gradient, whose
+     * macroscopic gradients do not contain the identity
      */
     DEFORMATION_GRADIENT_3D,
     /*!
      * \brief deformation gradient in 2D (plane strain and plane stress):
      * `(F11, F22, F33, F12, F21)`, `F33` and the identity being given by the
-     * macroscopic gradients
+     * macroscopic gradients. Also used for the displacement gradient, whose
+     * macroscopic gradients do not contain the identity
      */
     DEFORMATION_GRADIENT_2D,
     /*!

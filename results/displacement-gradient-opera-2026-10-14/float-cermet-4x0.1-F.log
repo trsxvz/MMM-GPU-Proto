@@ -1,0 +1,143 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --execution 
+   --finite-elements 
+   --behaviours 
+   --linear-solver-device 
+   --post-processings 
+   --device 
+   --hypre-device-pool-size 
+   --no-hypre-on-host
+   --no-kokkos
+   --macroscopic-stress-output-file /home/t/Documents/GitHub/mfem-mgis-gpu-proto/results/displacement-gradient-opera-2026-10-14/float-cermet-4x0.1-F.res
+   --mesh mesh/5grains.msh
+   --library 
+   --order 1
+   --refinement 0
+   --postprocessing 0
+   --verbosity-level 0
+   --duration 0.4
+   --nstep 4
+   --file vectors_5grains.txt
+   --no-displacement-gradient
+Info problem: number of vertices ->  12051
+Info problem: number of elements ->  67741
+Info problem: element size ->  0.0755212
+Info problem: number of finite element unknowns:  33015
+[Building problem]  memory footprint:  0.154844  GB
+GReuss = 6.37443e+10
+GVoigt = 6.73606e+10
+GHSl = 6.73606e+10
+GHSu = 7.4041e+10
+GK = 6.55495e+10
+checknorm : normalizing vector...
+checknorm : normalizing vector...
+checknorm : normalizing vector...
+checknorm : normalizing vector...
+checknorm : normalizing vector...
+checknorm : normalizing vector...
+Solving time step from  0  to  0.1
+Newton iteration  0 : ||r|| = 452443, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 19674.5, ||r||/||r_0|| = 0.0434849
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 8.68481e+06
+Newton iteration  0 : ||r|| = 271124, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6680.54, ||r||/||r_0|| = 0.0246402
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 560459
+Newton iteration  0 : ||r|| = 19351.6, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 2 : |res| = 55400.1
+Newton iteration  0 : ||r|| = 17519.7, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 3 : |res| = 13138.4
+Fixed Point converged within the resolution of the macroscopic gradients: tolerance raised to 30804.2
+Solution at time 0.1 : 1.00005 -3983.39 -12520 9.50627e+06
+[At end of temporal sequence: 0.100000]  memory footprint:  0.210056  GB
+Solving time step from  0.1  to  0.2
+Newton iteration  0 : ||r|| = 328101, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 18455.1, ||r||/||r_0|| = 0.0562483
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 673553
+Newton iteration  0 : ||r|| = 29509, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 46348.2
+Newton iteration  0 : ||r|| = 28698.3, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 2 : |res| = 13784.6
+Fixed Point converged within the resolution of the macroscopic gradients: tolerance raised to 30804.2
+Solution at time 0.2 : 1.0001 -7666.68 -11455.9 1.76828e+07
+[At end of temporal sequence: 0.200000]  memory footprint:  0.210184  GB
+Solving time step from  0.2  to  0.3
+Newton iteration  0 : ||r|| = 579917, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 79788.5, ||r||/||r_0|| = 0.137586
+Newton iteration  2 : ||r|| = 7002.64, ||r||/||r_0|| = 0.0120753
+Convergence order 1.22666
+
+Fixed Point iteration 0 : |res| = 806996
+Newton iteration  0 : ||r|| = 28900.9, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 41641.9
+Newton iteration  0 : ||r|| = 27828.6, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 2 : |res| = 9418.86
+Solution at time 0.3 : 1.00015 -4502.27 -8273.12 2.43799e+07
+[At end of temporal sequence: 0.300000]  memory footprint:  0.210568  GB
+Solving time step from  0.3  to  0.4
+Newton iteration  0 : ||r|| = 745621, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 135517, ||r||/||r_0|| = 0.18175
+Newton iteration  2 : ||r|| = 9182.56, ||r||/||r_0|| = 0.0123153
+Convergence order 1.57865
+
+Fixed Point iteration 0 : |res| = 627599
+Newton iteration  0 : ||r|| = 24081.5, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 24169.4
+Fixed Point converged within the resolution of the macroscopic gradients: tolerance raised to 30804.2
+Solution at time 0.4 : 1.0002 -12220.4 -20852.4 2.9956e+07
+[At end of temporal sequence: 0.400000]  memory footprint:  0.211464  GB
+[End]  memory footprint:  0.211464  GB
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |             min(s) |            mean(s) |             max(s) |            part(%) |             imb(%) |
+ |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |          10.964782 |          10.966700 |          10.968619 |        100.000000% |          0.017491% |
+ | |--> Mesh::Constructor                          |                  1 |           0.624127 |           0.626530 |           0.628933 |          5.733927% |          0.383542% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.437667 |           0.442324 |           0.446981 |          4.075086% |          1.052756% |
+ | |--> FED::Constructor                           |                  1 |           0.009748 |           0.010189 |           0.010629 |          0.096908% |          4.323948% |
+ | |--> PeriodicNonLinEvPB::constructor_with_bct   |                  1 |           0.023942 |           0.023970 |           0.023999 |          0.218797% |          0.118919% |
+ |    |--> PeriodicNonLinEvPB::set_bc              |                  1 |           0.023941 |           0.023970 |           0.023998 |          0.218788% |          0.118611% |
+ | |--> common::print_mesh_information             |                  1 |           0.000029 |           0.000040 |           0.000051 |          0.000462% |         27.831748% |
+ | |--> NLEPIB::updateLinearSolver                 |                  1 |           0.000002 |           0.000002 |           0.000002 |          0.000015% |          1.577287% |
+ | |--> NLEP::solve                                |                 12 |          10.291745 |          10.294813 |          10.297881 |         93.884943% |          0.029803% |
+ |    |--> NLEPIB::setup                           |                 12 |           0.000190 |           0.003722 |           0.007255 |          0.066142% |         94.901566% |
+ |    |--> NLEPIB::solve                           |                 12 |          10.290583 |          10.291051 |          10.291520 |         93.826946% |          0.004553% |
+ |       |--> NS::Mult                             |                 12 |          10.290551 |          10.291020 |          10.291489 |         93.826662% |          0.004557% |
+ |          |--> NS::processNewUnknownsEstimate    |                 12 |           3.694792 |           3.695215 |           3.695639 |         33.692837% |          0.011464% |
+ |          |--> NS::computeResidual               |                 12 |           0.262239 |           0.282146 |           0.302053 |          2.753797% |          7.055738% |
+ |          |--> NS::Mult::WhileLoop               |                 19 |           6.293068 |           6.293196 |           6.293323 |         57.375711% |          0.002022% |
+ |             |--> NS::computeNewtonCorrection    |                  7 |           4.023271 |           4.023340 |           4.023410 |         36.681098% |          0.001724% |
+ |                |--> NS::getJacobian             |                  7 |           1.379984 |           1.380053 |           1.380123 |         12.582464% |          0.005009% |
+ |                |--> NS::setLinearSolverOperator |                  7 |           0.000593 |           0.000593 |           0.000594 |          0.005413% |          0.066572% |
+ |                |--> MFEM::Mult(r,c)             |                  7 |           2.642623 |           2.642623 |           2.642623 |         24.092578% |          0.000001% |
+ |             |--> NS::processNewUnknownsEstimate |                  7 |           2.099948 |           2.101440 |           2.102933 |         19.172266% |          0.071021% |
+ |             |--> NS::computeResidual            |                  7 |           0.150125 |           0.158177 |           0.166228 |          1.515490% |          5.090271% |
+ | |--> NLEPIB::update                             |                  4 |           0.004248 |           0.005686 |           0.007124 |          0.064949% |         25.291346% |
+ |-- end timetable ---------------------------------------------------------------------------------------------------------------------------------------------------------------|

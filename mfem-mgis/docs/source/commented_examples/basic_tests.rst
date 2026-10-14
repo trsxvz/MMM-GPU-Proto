@@ -113,6 +113,13 @@ Available options
 | ``--post-processing`` or ``-pp``,      | Export or not the results to       | export                               |
 | ``--no-post-processing`` or ``-no-pp`` | Paraview                           |                                      |
 +----------------------------------------+------------------------------------+--------------------------------------+
+| ``--displacement-gradient`` or         | Give the displacement gradient     | deformation gradient                 |
+| ``-dg``,                               | instead of the deformation         |                                      |
+| ``--no-displacement-gradient`` or      | gradient to a finite strain        |                                      |
+| ``-no-dg``                             | behaviour (parameter               |                                      |
+|                                        | ``DisplacementGradient`` of the    |                                      |
+|                                        | behaviour integrators)             |                                      |
++----------------------------------------+------------------------------------+--------------------------------------+
 
 The example also accepts the options of mfem-mgis, declared by
 ``mfem_mgis::declareDefaultOptions``, in particular ``--execution`` (``cpu``,

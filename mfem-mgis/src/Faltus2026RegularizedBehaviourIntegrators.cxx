@@ -9,6 +9,7 @@
 #include <array>
 #include "mfem/fem/fe.hpp"
 #include "mfem/fem/eltrans.hpp"
+#include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx"
 
@@ -23,6 +24,11 @@ namespace mfem_mgis {
       const Parameters& params) noexcept {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
+    }
+    if (mgis::behaviour::usesDisplacementGradient(*b)) {
+      return ctx.registerErrorMessage(
+          "the Faltus2026 regularisation does not support the displacement "
+          "gradient");
     }
     if (b->symmetry != Behaviour::ISOTROPIC) {
       return ctx.registerErrorMessage(
@@ -50,6 +56,11 @@ namespace mfem_mgis {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }
+    if (mgis::behaviour::usesDisplacementGradient(*b)) {
+      return ctx.registerErrorMessage(
+          "the Faltus2026 regularisation does not support the displacement "
+          "gradient");
+    }
     if (b->symmetry != Behaviour::ISOTROPIC) {
       return ctx.registerErrorMessage(
           "only isotropic behaviours are supported");
@@ -75,6 +86,11 @@ namespace mfem_mgis {
       const Parameters& params) noexcept {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
+    }
+    if (mgis::behaviour::usesDisplacementGradient(*b)) {
+      return ctx.registerErrorMessage(
+          "the Faltus2026 regularisation does not support the displacement "
+          "gradient");
     }
     if (b->symmetry != Behaviour::ISOTROPIC) {
       return ctx.registerErrorMessage(

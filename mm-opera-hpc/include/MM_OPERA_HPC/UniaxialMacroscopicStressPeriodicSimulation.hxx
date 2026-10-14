@@ -37,6 +37,12 @@ namespace mm_opera_hpc {
    * - the off-diagonal components of the macroscopic deformation gradient are
    *   set to zero
    *
+   * The macroscopic unknowns are the diagonal components of the macroscopic
+   * displacement gradient H = F - I, which keeps the precision of small
+   * strains in single precision. The macroscopic gradients given to the
+   * behaviours are H if they are given the displacement gradient (option
+   * `DisplacementGradient` of mfem-mgis), F = I + H otherwise.
+   *
    * The loading is discretized by the user into temporal sequences. Each
    * temporal sequence can be automatically divided into smaller time steps in
    * case of divergence of the resolution.
@@ -76,9 +82,11 @@ namespace mm_opera_hpc {
       /*!
        * \brief absolute tolerance on the lateral macroscopic stresses. The
        * fixed point uses at least twice its resolution, below which the
-       * corrections of the lateral components of the deformation gradient
+       * corrections of the lateral components of the macroscopic gradients
        * are rounded to zero: negligible with double, about 1.5e4 Pa with
-       * float for the UO2 based cases in tension.
+       * float for the UO2 based cases in tension when the macroscopic
+       * gradients are the deformation gradient, negligible when they are
+       * the displacement gradient.
        */
       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
           mfem_mgis::real{1e4};
@@ -86,12 +94,11 @@ namespace mm_opera_hpc {
     };
     //! \brief an internal auxiliary data structure
     struct MM_OPERA_HPC_EXPORT MacroscopicUnknowns {
-      // diagonal part of the deformation gradient
-      std::array<mfem_mgis::real, 3u> F =
-          std::array<mfem_mgis::real, 3u>{1, 1, 1};
-      // increment of the diagonal part of the deformation gradient during the
-      // previous time step
-      std::array<mfem_mgis::real, 3u> dF = std::array<mfem_mgis::real, 3u>{};
+      // diagonal part of the displacement gradient H = F - I
+      std::array<mfem_mgis::real, 3u> H = std::array<mfem_mgis::real, 3u>{};
+      // increment of the diagonal part of the displacement gradient during
+      // the previous time step
+      std::array<mfem_mgis::real, 3u> dH = std::array<mfem_mgis::real, 3u>{};
       // diagonal components of the macroscropic Cauchy stress
       std::array<mfem_mgis::real, 3u> S = std::array<mfem_mgis::real, 3u>{};
       // previous succesful time step
@@ -100,11 +107,19 @@ namespace mm_opera_hpc {
     /*!
      * \brief constructor
      * \param[in] p: problem to be solved
+     * \param[in] Hzz: imposed axial component of the macroscopic
+     * displacement gradient, as a function of time
+     * \param[in] np: numerical parameters
+     * \param[in] b: perform the post-processings
+     * \param[in] dg: the behaviours are given the displacement gradient
+     * (option `DisplacementGradient` of mfem-mgis): the macroscopic
+     * gradients are the displacement gradient
      */
     UniaxialMacroscopicStressPeriodicSimulation(
         mfem_mgis::PeriodicNonLinearEvolutionProblem &,
         const std::function<mfem_mgis::real(mfem_mgis::real)>,
         const NumericalParameters &,
+        const bool,
         const bool) noexcept;
     /*!
      * \brief run the simulation over the given temporal sequences
@@ -124,15 +139,17 @@ namespace mm_opera_hpc {
    private:
     //! \brief underlying problem
     mfem_mgis::PeriodicNonLinearEvolutionProblem &problem;
-    //
+    //! \brief imposed axial component of the displacement gradient
     std::function<mfem_mgis::real(mfem_mgis::real)>
-        imposed_axial_deformation_gradient_value;
+        imposed_axial_displacement_gradient_value;
     //
     MacroscopicUnknowns macroscopic_unknowns;
     //
     const NumericalParameters numerical_parameters;
     //
     const bool post_processing;
+    //! \brief the macroscopic gradients are the displacement gradient
+    const bool displacement_gradient;
   };
 
 }  // namespace mm_opera_hpc

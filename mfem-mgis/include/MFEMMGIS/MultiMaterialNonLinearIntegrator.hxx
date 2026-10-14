@@ -494,8 +494,11 @@ namespace mfem_mgis {
      */
     void synchronizeOnHostForReading() const;
     /*!
-     * \brief set the macroscopic gradients
+     * \brief set the macroscopic gradients of all the materials
      * \param[in] g: macroscopic gradients
+     * \note an exception is thrown if some finite strain behaviours are
+     * given the deformation gradient and others the displacement gradient
+     * (see `BehaviourLoadingOptions`): their macroscopic gradients differ.
      */
     void setMacroscopicGradients(std::span<const real> g);
     /*!

@@ -299,11 +299,14 @@ symmetric tensor for `DS_DEGL`, of a tensor with respect to a tensor for
 `DPK1_DF`, and of a symmetric tensor with respect to a tensor otherwise.
 Those three kinds of finite strain behaviours (standard finite strain
 behaviours and small strain behaviours written in the Hencky or in the
-Green-Lagrange strain) are supported. Invalid options of a finite strain
-behaviour (invalid stress measure or tangent operator) are reported for
-the whole batch, as invalid arguments (status `-2`), whereas the function
-of the `generic` interface reports an integration failure (`-1`) at the
-point.
+Green-Lagrange strain) are supported, as well as the displacement
+gradient given instead of the deformation gradient (stress measure offset
+by `10`, see the [`generic` interface
+page](generic-behaviours-interface.html#sec:generic_behaviour_interface:displacement_gradient)).
+Invalid options of a finite strain behaviour (invalid stress measure or
+tangent operator) are reported for the whole batch, as invalid arguments
+(status `-2`), whereas the function of the `generic` interface reports an
+integration failure (`-1`) at the point.
 
 All the fields and the `statuses` array must be located in the memory
 space exported by the library (see the `<name>_generic_parallel_memory_space`

@@ -149,10 +149,10 @@ namespace mfem_mgis {
                  mgis::behaviour::getTangentOperatorArraySize(b)));
     // the deformation gradients are initialized to the identity, as MGIS
     // does for the arrays it allocates (the first three components are the
-    // diagonal ones)
+    // diagonal ones); the displacement gradients stay zero
     if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
         (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
-        (np != 0)) {
+        (!mgis::behaviour::usesDisplacementGradient(b)) && (np != 0)) {
       const auto pbp = l == mgis::FieldLayout::POINT_BY_POINT;
       const auto ps = pbp ? gs : std::size_t{1};
       const auto cs = pbp ? std::size_t{1} : np;

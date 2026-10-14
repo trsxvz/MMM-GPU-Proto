@@ -171,3 +171,12 @@ GPU.
 - ParaSails in float (a defect of hypre in single precision, worked
   around with its internal LAPACK), and a Newton criterion that accepts
   the stagnation of the residual at its floor.
+- Displacement gradient H = F - I given to the finite strain behaviours,
+  from TFEL to mm-opera-hpc: the Green-Lagrange and Hencky strains keep
+  the precision of small strains in float, and the macroscopic loading
+  of the cermet and of the polycrystal is no longer quantized. On the
+  way, the logarithmic strain handler of TFEL was made exact in float
+  when two eigenvalues are close.
+- Defects reported upstream: single precision with an external LAPACK
+  in hypre (issue and pull request), lost writes of an idle integrated
+  GPU in ROCm (issue).

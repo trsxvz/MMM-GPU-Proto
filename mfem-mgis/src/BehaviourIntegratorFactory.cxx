@@ -7,6 +7,7 @@
 
 #include <utility>
 #include "MGIS/Raise.hxx"
+#include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
 #include "MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
 #include "MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
@@ -73,6 +74,45 @@ namespace mfem_mgis {
     f.addGenerator(ctx, "TransientHeatTransfer", generator) | or_die;
   }  // end of fillWithDefaultBehaviourIntegrators
 
+  /*!
+   * \brief check that the behaviour is not given the displacement gradient,
+   * which the regularisations do not support
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in] b: behaviour
+   */
+  [[nodiscard]] static bool checkRegularizationSupport(
+      Context& ctx, const Behaviour& b) noexcept {
+    if (!mgis::behaviour::usesDisplacementGradient(b)) {
+      return true;
+    }
+    return ctx.registerErrorMessage(
+        "the regularisations do not support the displacement gradient "
+        "(parameter '" +
+        std::string{displacement_gradient_parameter} + "')");
+  }  // end of checkRegularizationSupport
+
+  /*!
+   * \brief set the macroscopic gradients of a finite strain behaviour
+   * integrator to their default values: the identity for the deformation
+   * gradient, zero for the displacement gradient
+   * \tparam N: number of components of the gradients
+   * \param[in, out] ctx: execution context
+   * \param[in, out] bi: behaviour integrator
+   */
+  template <std::size_t N>
+  static void setDefaultFiniteStrainMacroscopicGradients(
+      Context& ctx, AbstractBehaviourIntegrator& bi) {
+    // getMaterial can't fail here
+    auto m = bi.getMaterial(ctx);
+    auto g = std::array<real, N>{};
+    if (!mgis::behaviour::usesDisplacementGradient(m->b)) {
+      // the three first components are the diagonal ones
+      g[0] = g[1] = g[2] = real{1};
+    }
+    m->setMacroscopicGradients(g);
+  }  // end of setDefaultFiniteStrainMacroscopicGradients
+
   [[nodiscard]] static std::unique_ptr<AbstractBehaviourIntegrator>
   generateTridimensionalMechanicalBehaviourIntegrators(
       Context& ctx,
@@ -87,6 +127,9 @@ namespace mfem_mgis {
       return {};
     }
     if (contains(params, "Regularization")) {
+      if (!checkRegularizationSupport(ctx, *b)) {
+        return {};
+      }
       const auto oreg_params = get<Parameters>(ctx, params, "Regularization");
       if (isInvalid(oreg_params)) {
         return {};
@@ -138,9 +181,7 @@ namespace mfem_mgis {
     if (isInvalid(bi)) {
       return {};
     }
-    const auto F = std::array<real, 9u>{1, 1, 1, 0, 0, 0, 0, 0, 0};
-    // getMaterial can't fail here
-    bi->getMaterial(ctx)->setMacroscopicGradients(F);
+    setDefaultFiniteStrainMacroscopicGradients<9u>(ctx, *bi);
     return bi;
   }  // end of generateTridimensionalMechanicalBehaviourIntegrators
 
@@ -196,6 +237,9 @@ namespace mfem_mgis {
       return {};
     }
     if (contains(params, "Regularization")) {
+      if (!checkRegularizationSupport(ctx, *b)) {
+        return {};
+      }
       const auto oreg_params = get<Parameters>(ctx, params, "Regularization");
       if (isInvalid(oreg_params)) {
         return {};
@@ -247,9 +291,7 @@ namespace mfem_mgis {
     if (isInvalid(bi)) {
       return {};
     }
-    const auto F = std::array<real, 5u>{1, 1, 1, 0, 0};
-    // getMaterial can't fail here
-    bi->getMaterial(ctx)->setMacroscopicGradients(F);
+    setDefaultFiniteStrainMacroscopicGradients<5u>(ctx, *bi);
     return bi;
   }  // end of generatePlaneStrainMechanicalBehaviourIntegrators
 
@@ -313,6 +355,9 @@ namespace mfem_mgis {
       return {};
     }
     if (contains(params, "Regularization")) {
+      if (!checkRegularizationSupport(ctx, *b)) {
+        return {};
+      }
       const auto oreg_params = get<Parameters>(ctx, params, "Regularization");
       if (isInvalid(oreg_params)) {
         return {};
@@ -354,9 +399,7 @@ namespace mfem_mgis {
     if (isInvalid(bi)) {
       return {};
     }
-    const auto F = std::array<real, 5u>{1, 1, 1, 0, 0};
-    // getMaterial can't fail here
-    bi->getMaterial(ctx)->setMacroscopicGradients(F);
+    setDefaultFiniteStrainMacroscopicGradients<5u>(ctx, *bi);
     return bi;
   }  // end of generatePlaneStressMechanicalBehaviourIntegrators
 

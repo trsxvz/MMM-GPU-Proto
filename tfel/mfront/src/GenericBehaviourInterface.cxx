@@ -510,6 +510,13 @@ namespace mfront {
       }
       if (this->shallGenerateMTestFileOnFailure(bd)) {
         out << "using mfront::SupportedTypes;\n";
+        if ((type == BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) ||
+            (is_finite_strain_through_strain_measure)) {
+          // the options are decoded before the integration, which may
+          // overwrite the `K` array with the tangent operator
+          out << "const auto mfront_displacement_gradient = "
+              << "mfront::gb::decodeDisplacementGradient(d->K[1]);\n";
+        }
       }
       if ((type == BehaviourDescription::GENERALBEHAVIOUR) ||
           (type == BehaviourDescription::COHESIVEZONEMODEL)) {
@@ -734,10 +741,25 @@ namespace mfront {
          << "d->s0.thermodynamic_forces);\n";
     } else {
       if (fs) {
-        os << "mg.setDeformationGradientTensorAtTheBeginningOfTheTimeStep("
+        // the deformation gradient is computed from the displacement
+        // gradient if the caller gave it (see the generated code before the
+        // integration)
+        os << "mfront_gb_real mfront_F0[9];\n"
+           << "mfront_gb_real mfront_F1[9];\n"
+           << "const mfront_gb_real* mfront_g0 = d->s0.gradients;\n"
+           << "const mfront_gb_real* mfront_g1 = d->s1.gradients;\n"
+           << "if (mfront_displacement_gradient) {\n"
+           << "mfront::gb::computeDeformationGradient<h>(mfront_F0, "
            << "d->s0.gradients);\n"
+           << "mfront::gb::computeDeformationGradient<h>(mfront_F1, "
+           << "d->s1.gradients);\n"
+           << "mfront_g0 = mfront_F0;\n"
+           << "mfront_g1 = mfront_F1;\n"
+           << "}\n"
+           << "mg.setDeformationGradientTensorAtTheBeginningOfTheTimeStep("
+           << "mfront_g0);\n"
            << "mg.setDeformationGradientTensorAtTheEndOfTheTimeStep("
-           << "d->s1.gradients);\n";
+           << "mfront_g1);\n";
       } else {
         os << "mg.setStrainTensorAtTheBeginningOfTheTimeStep("
            << "d->s0.gradients);\n"

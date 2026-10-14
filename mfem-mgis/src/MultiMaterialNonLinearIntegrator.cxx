@@ -5,6 +5,7 @@
  * \date   8/06/2020
  */
 
+#include <optional>
 #include <limits>
 #include <string>
 #include <cstdint>
@@ -995,14 +996,25 @@ namespace mfem_mgis {
     }
     auto& bis = this->behaviour_integrators[m];
     const auto s = static_cast<size_type>(bis.size());
-    auto bptr = mfem_mgis::load(ctx, l, b, this->hypothesis);
+    // displacement gradient given to a finite strain behaviour, if
+    // requested
+    auto lopts = BehaviourLoadingOptions{};
+    if (contains(params, displacement_gradient_parameter)) {
+      const auto odg = get<bool>(ctx, params, displacement_gradient_parameter);
+      if (isInvalid(odg)) {
+        return {};
+      }
+      lopts.displacement_gradient = *odg;
+    }
+    auto bptr = mfem_mgis::load(ctx, l, b, this->hypothesis, lopts);
     if (isInvalid(bptr)) {
       return {};
     }
     // location of the behaviour of this material, if given, taking
     // precedence over the execution settings
-    const auto olocation =
-        internals::extractBehaviourExecutionLocation(ctx, params);
+    const auto olocation = internals::extractBehaviourExecutionLocation(
+        ctx, remove(params,
+                    std::vector<std::string>{displacement_gradient_parameter}));
     if (isInvalid(olocation)) {
       return {};
     }
@@ -1110,6 +1122,32 @@ namespace mfem_mgis {
 
   void MultiMaterialNonLinearIntegrator::setMacroscopicGradients(
       std::span<const real> g) {
+    // the same macroscopic gradients are given to all the materials: the
+    // finite strain behaviours shall all be given the deformation gradient,
+    // or all the displacement gradient (see `BehaviourLoadingOptions`)
+    auto ctx = Context{};
+    auto displacement_gradient = std::optional<bool>{};
+    for (const auto& bis : this->behaviour_integrators) {
+      for (const auto& bi : bis) {
+        if ((bi == nullptr) || (!bi->hasMaterial())) {
+          continue;
+        }
+        const auto& b = bi->getMaterial(ctx)->b;
+        if (b.btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+          continue;
+        }
+        const auto dg = mgis::behaviour::usesDisplacementGradient(b);
+        if (displacement_gradient.has_value() &&
+            (*displacement_gradient != dg)) {
+          mgis::raise(
+              "MultiMaterialNonLinearIntegrator::setMacroscopicGradients: "
+              "the same macroscopic gradients can't be given to finite "
+              "strain behaviours given the deformation gradient and to "
+              "finite strain behaviours given the displacement gradient");
+        }
+        displacement_gradient = dg;
+      }
+    }
     for (auto& bis : this->behaviour_integrators) {
       for (auto& bi : bis) {
         bi->setMacroscopicGradients(g);

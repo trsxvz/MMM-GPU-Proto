@@ -27,6 +27,7 @@
 #include "MFront/GenericBehaviour/GenericBehaviourTraits.hxx"
 #include "MFront/GenericBehaviour/Integrate.hxx"
 #include "MFront/GenericBehaviour/StressMeasures.hxx"
+#include "MFront/GenericBehaviour/DisplacementGradient.hxx"
 
 namespace mfront::gb::logarithmic_strain {
 
@@ -52,6 +53,49 @@ namespace mfront::gb::logarithmic_strain {
           ModellingHypothesisToTensorSize<Traits::hypothesis>::value;
       tfel::fsalgo::copy<TensorSize>::exe(gradients, F.begin());
     }  // end of getDeformationGradient
+
+    /*!
+     * \return the logarithmic strain handler associated with the gradients
+     * \tparam Behaviour: class implementing the behaviour
+     * \param[out] F: deformation gradient
+     * \param[in] setting: setting of the logarithmic strain handler
+     * \param[in] gradients: gradients
+     * \param[in] displacement_gradient: if true, the gradients are the
+     * displacement gradient \(H = F - I\): the handler is built from the
+     * Green-Lagrange strain computed from \(H\), and the logarithmic
+     * strain is computed without cancellation
+     */
+    template <typename Behaviour, unsigned short N>
+    TFEL_HOST_DEVICE LogarithmicStrainHandler<N> getLogarithmicStrainHandler(
+        tfel::math::tensor<N, real>& F,
+        const typename LogarithmicStrainHandler<N>::Setting setting,
+        const real* const gradients,
+        const bool displacement_gradient) {
+      using namespace tfel::material;
+      using Traits = GenericBehaviourTraits<Behaviour>;
+      constexpr auto hypothesis = Traits::hypothesis;
+      if (displacement_gradient) {
+        auto E = tfel::math::stensor<N, real>{};
+        computeGreenLagrangeStrainFromDisplacementGradient<hypothesis>(
+            E, F, gradients);
+        // in plane stress, the axial component of the deformation gradient
+        // is set by `updateAxialDeformationGradient` once the handler is
+        // built: as with the deformation gradient given by the callers, the
+        // handler is built with an axial component equal to one
+        if constexpr (hypothesis == ModellingHypothesis::PLANESTRESS) {
+          F[2] = real{1};
+          E[2] = real{0};
+        } else if constexpr (hypothesis ==
+                             ModellingHypothesis::
+                                 AXISYMMETRICALGENERALISEDPLANESTRESS) {
+          F[1] = real{1};
+          E[1] = real{0};
+        }
+        return LogarithmicStrainHandler<N>(setting, F, E);
+      }
+      getDeformationGradient<Behaviour>(F, gradients);
+      return LogarithmicStrainHandler<N>(setting, F);
+    }  // end of getLogarithmicStrainHandler
 
     /*!
      * \brief in plane stress, update the axial component of the deformation
@@ -211,7 +255,8 @@ namespace mfront::gb::logarithmic_strain {
    * \param[in,out] d: behaviour data.
    * \param[in] initialize_variables: pointer to the values of the
    * initialize function variables.
-   * \param[in] o: computation options (only the stress measure is used).
+   * \param[in] o: computation options (the stress measure and the
+   * kind of gradients are used).
    * \param[in] p: out of bounds policy.
    * \param[in] args: additional arguments of the constructor of the
    * behaviour
@@ -232,9 +277,9 @@ namespace mfront::gb::logarithmic_strain {
         ModellingHypothesisToSpaceDimension<Traits::hypothesis>::value;
     using LogarithmicStrainHandler = internals::LogarithmicStrainHandler<N>;
     auto F0 = tfel::math::tensor<N, real>{};
-    internals::getDeformationGradient<Behaviour>(F0, d.s0.gradients);
-    auto lgh0 =
-        LogarithmicStrainHandler(LogarithmicStrainHandler::LAGRANGIAN, F0);
+    auto lgh0 = internals::getLogarithmicStrainHandler<Behaviour>(
+        F0, LogarithmicStrainHandler::LAGRANGIAN, d.s0.gradients,
+        o.displacement_gradient);
     auto e0 = lgh0.getHenckyLogarithmicStrain();
     auto s0 = tfel::math::stensor<N, real>{};
     auto T0 = tfel::math::stensor<N, real>{};
@@ -308,7 +353,6 @@ namespace mfront::gb::logarithmic_strain {
     using Traits = GenericBehaviourTraits<Behaviour>;
     constexpr auto N =
         ModellingHypothesisToSpaceDimension<Traits::hypothesis>::value;
-    using LogarithmicStrainHandler = internals::LogarithmicStrainHandler<N>;
     const auto sm = o.stress_measure;
     if (sm == StressMeasure::INVALID_STRESS_MEASURE) {
       reportError(d, "invalid choice for the stress measure");
@@ -322,11 +366,11 @@ namespace mfront::gb::logarithmic_strain {
     auto K = tfel::math::st2tost2<N, real>{};
     auto F0 = tfel::math::tensor<N, real>{};
     auto F1 = tfel::math::tensor<N, real>{};
-    internals::getDeformationGradient<Behaviour>(F0, d.s0.gradients);
-    internals::getDeformationGradient<Behaviour>(F1, d.s1.gradients);
     const auto setting = internals::getSetting<N>(smf);
-    auto lgh0 = LogarithmicStrainHandler(setting, F0);
-    auto lgh1 = LogarithmicStrainHandler(setting, F1);
+    auto lgh0 = internals::getLogarithmicStrainHandler<Behaviour>(
+        F0, setting, d.s0.gradients, o.displacement_gradient);
+    auto lgh1 = internals::getLogarithmicStrainHandler<Behaviour>(
+        F1, setting, d.s1.gradients, o.displacement_gradient);
     auto e0 = lgh0.getHenckyLogarithmicStrain();
     auto e1 = lgh1.getHenckyLogarithmicStrain();
     auto s0 = tfel::math::stensor<N, real>{};
@@ -413,9 +457,9 @@ namespace mfront::gb::logarithmic_strain {
    * \param[out] post_processing_variables: pointer to the values of the
    * post-processing variables.
    * \param[in,out] d: behaviour data.
-   * \param[in] o: computation options (the stress measure and the tangent
-   * operator, which defines the setting of the logarithmic strain handler,
-   * are used).
+   * \param[in] o: computation options (the stress measure, the kind of
+   * gradients and the tangent operator, which defines the setting of the
+   * logarithmic strain handler, are used).
    * \param[in] p: out of bounds policy.
    * \param[in] args: additional arguments of the constructor of the
    * behaviour
@@ -435,7 +479,6 @@ namespace mfront::gb::logarithmic_strain {
     using Traits = GenericBehaviourTraits<Behaviour>;
     constexpr auto N =
         ModellingHypothesisToSpaceDimension<Traits::hypothesis>::value;
-    using LogarithmicStrainHandler = internals::LogarithmicStrainHandler<N>;
     const auto sm = o.stress_measure;
     const auto smf = o.tangent_operator;
     if (smf == FiniteStrainTangentOperator::C_TRUESDELL) {
@@ -444,11 +487,11 @@ namespace mfront::gb::logarithmic_strain {
     }
     auto F0 = tfel::math::tensor<N, real>{};
     auto F1 = tfel::math::tensor<N, real>{};
-    internals::getDeformationGradient<Behaviour>(F0, d.s0.gradients);
-    internals::getDeformationGradient<Behaviour>(F1, d.s1.gradients);
     const auto setting = internals::getSetting<N>(smf);
-    auto lgh0 = LogarithmicStrainHandler(setting, F0);
-    auto lgh1 = LogarithmicStrainHandler(setting, F1);
+    auto lgh0 = internals::getLogarithmicStrainHandler<Behaviour>(
+        F0, setting, d.s0.gradients, o.displacement_gradient);
+    auto lgh1 = internals::getLogarithmicStrainHandler<Behaviour>(
+        F1, setting, d.s1.gradients, o.displacement_gradient);
     auto e0 = lgh0.getHenckyLogarithmicStrain();
     auto e1 = lgh1.getHenckyLogarithmicStrain();
     auto s0 = tfel::math::stensor<N, real>{};

@@ -4720,3 +4720,30 @@ formula as MTest). All the others give the Newton solution to within
   It looks like the modified lines of the L2 cache are dropped when the GPU
   powers down on idle; not checked with GFXOFF disabled (reboot needed).
   No fix on our side beyond the serialisation of the tests.
+
+### 2026-10-14 (night), displacement gradient for the finite strain behaviours
+
+- Decided on 14/10: the solver may give H = F - I instead of F to the
+  finite strain behaviours (`docs/displacement-gradient.md`). Implemented
+  in TFEL (generic interfaces, Green-Lagrange strain from H, logarithmic
+  strain handler built from F and E), MGIS (option `gradient`, bindings),
+  mfem-mgis (parameter `DisplacementGradient`) and mm-opera-hpc (option
+  `--displacement-gradient`, macroscopic unknowns stored as H).
+- Three independent reviews. Found and fixed: Hencky strain in float with
+  two close eigenvalues (57 % of error on the first Piola-Kirchhoff
+  stress, tolerance of 1e-14 applied to the differences of eigenvalues),
+  plane stress in the Hencky framework (NaN), options never given to the
+  initialize functions and post-processings by MGIS (and a null `K` array
+  in the material data managers), macroscopic loading of mm-opera-hpc
+  still rounded as F.
+- Found on the way, in TFEL as it was: in float, the logarithmic strain
+  handler built from F loses all precision when two eigenvalues are close
+  (rotated uniaxial strain of 10 %, stress not coaxial with the strain:
+  1e-1 of error on the second Piola-Kirchhoff stress, 4.6e2 on its
+  derivative). Fixed by the same divided differences with `log1p`
+  (below 4e-6), the special cases for equal eigenvalues being removed.
+- Results: `results/displacement-gradient-cube-2026-10-14` and
+  `results/displacement-gradient-opera-2026-10-14`. Test suites: MGIS
+  50/50 in double and in float, with the bindings 99/99, mfem-mgis 227/227
+  in double and 230/230 in float, mm-opera-hpc 6/6 in double and in
+  float.

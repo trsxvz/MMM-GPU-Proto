@@ -1,0 +1,643 @@
+From 1322426bf2450c29d39c0391d66cb519396db1c7 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 20:39:32 +0200
+Subject: [PATCH] Option --displacement-gradient of the cermet and of the
+ polycrystal
+
+The option gives the displacement gradient H = F - I instead of the
+deformation gradient to the behaviours (parameter DisplacementGradient
+of mfem-mgis).
+
+The macroscopic unknowns of UniaxialMacroscopicStressPeriodicSimulation
+are now the diagonal components of the macroscopic displacement
+gradient, and the imposed axial loading is given as Hzz. The
+macroscopic gradients given to mfem-mgis are H with the option, F = I + H
+otherwise. In single precision, H keeps the precision of the
+macroscopic strain, and the resolution of the fixed point on the
+lateral stresses, computed on the gradients given to mfem-mgis, becomes
+negligible.
+
+The metallic interface of the cermet, written in the Hencky strain
+framework, computes its strain without cancellation. The grains,
+written with the deformation gradient, receive F = I + H.
+
+The tests CermetNullStrainXXYY-DisplacementGradient and
+UniaxialPolycrystalTest-DisplacementGradient run the two cases with the
+option, compared with Cast3M as without it.
+---
+ cermet/CMakeLists.txt                         |   6 +
+ cermet/README.md                              |   3 +-
+ cermet/cermet.cxx                             |  32 +++--
+ ...ialMacroscopicStressPeriodicSimulation.hxx |  37 +++--
+ polycrystal/CMakeLists.txt                    |   6 +
+ polycrystal/README.md                         |   3 +-
+ polycrystal/UniaxialPolycrystal.cxx           |  24 +++-
+ ...ialMacroscopicStressPeriodicSimulation.cxx | 128 +++++++++++-------
+ 8 files changed, 166 insertions(+), 73 deletions(-)
+
+diff --git a/cermet/CMakeLists.txt b/cermet/CMakeLists.txt
+index 083b5d9..ea12231 100644
+--- a/cermet/CMakeLists.txt
++++ b/cermet/CMakeLists.txt
+@@ -32,6 +32,12 @@ mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY
+   FILE cermet-test.res ${_cermet_checks}
+   COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
+           --macroscopic-stress-output-file cermet-test.res)
++# the same with the displacement gradient given to the behaviours
++mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY-DisplacementGradient
++  FILE cermet-test-dg.res ${_cermet_checks}
++  COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
++          --macroscopic-stress-output-file cermet-test-dg.res
++          --displacement-gradient)
+ add_test(NAME CermetImposeGradXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
+ if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursCermet_HAVE_GPU_BEHAVIOURS)
+   mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY-gpu
+diff --git a/cermet/README.md b/cermet/README.md
+index 83e4a1e..95973c5 100644
+--- a/cermet/README.md
++++ b/cermet/README.md
+@@ -115,6 +115,7 @@ Usage: ./cermet [options] ...
+ | `-d <double>, --duration <double>`          | double | `200`                 | Duration of the simulation.                                                                                                                                       |
+ | `-n <int>, --nstep <int>`                   | int    | `500`                 | Number of simulation steps.                                                                                                                                       |
+ | `-f <string>, --file <string>`              | string | `vectors_5grains.txt` | Vector file to use.                                                                                                                                               |
++| `-dg, --displacement-gradient`, `-no-dg, --no-displacement-gradient` | bool | `false` | Give the displacement gradient H = F - I instead of the deformation gradient to the behaviours (parameter `DisplacementGradient` of mfem-mgis). In single precision, the metallic interface (Hencky strain framework) then computes its strain without cancellation, and the macroscopic loading, kept as a displacement gradient, keeps its precision. The grains, written with the deformation gradient, receive F = I + H. |
+ | `--macroscopic-stress-output-file <string>` | string | `cermet.res`          | Main output file containing:<br>• Evolution of the diagonal components of the deformation gradient<br>• Evolution of the diagonal components of the Cauchy stress |
+ 
+ The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
+@@ -123,7 +124,7 @@ used (or `--execution mixed` to place each phase on the CPU or on the GPU).
+ 
+ ### Tests
+ 
+-`ctest` runs `CermetNullStrainXXYY`, two time steps of 0.2 s without post-processing, whose axial stress `Szz` at 0.2 s and 0.4 s is compared to the one computed by Cast3M (`results/cermet_cast3m.csv`) with a relative tolerance of 1 % (`cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `CermetImposeGradXXYY`, one time step of 0.4 s which is only run, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
++`ctest` runs `CermetNullStrainXXYY`, two time steps of 0.2 s without post-processing, whose axial stress `Szz` at 0.2 s and 0.4 s is compared to the one computed by Cast3M (`results/cermet_cast3m.csv`) with a relative tolerance of 1 % (`cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `CermetNullStrainXXYY-DisplacementGradient`, the same with `--displacement-gradient`, `CermetImposeGradXXYY`, one time step of 0.4 s which is only run, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
+ 
+ 
+ ### Run it
+diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
+index 7235a18..cafadfa 100644
+--- a/cermet/cermet.cxx
++++ b/cermet/cermet.cxx
+@@ -5,6 +5,7 @@
+ #include <optional>
+ #include <functional>
+ 
++#include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.hxx"
+@@ -67,6 +68,8 @@ struct TestParameters {
+   int verbosity_level = 0;  // default value : lower level
+   int nsteps = 500;
+   mfem_mgis::real duration = 200.;
++  //! \brief give the displacement gradient to the behaviours
++  bool displacement_gradient = false;
+ };
+ 
+ static void parseCommandLineOptions(mfem::OptionsParser &args,
+@@ -96,6 +99,14 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
+   args.AddOption(&p.nsteps, "-n", "--nstep",
+                  "choose the number of steps");
+   args.AddOption(&p.vector_file, "-f", "--file", "Vector file to use");
++  args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
++                 "-no-dg", "--no-displacement-gradient",
++                 "Give the displacement gradient instead of the deformation "
++                 "gradient to the behaviours (parameter DisplacementGradient "
++                 "of mfem-mgis). In single precision, the behaviours written "
++                 "in the Green-Lagrange or Hencky strain frameworks then "
++                 "compute their strain without cancellation, and the "
++                 "macroscopic loading keeps its precision.");
+   args.Parse();
+   if (!args.Good()) {
+     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
+@@ -185,16 +196,20 @@ static void setup_material_properties(
+ 
+   // TEST metal
+   {
+-    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.behaviour_library,
+-                                   p.behaviourMetal) |
++    problem.addBehaviourIntegrator(
++        ctx, "Mechanics", 1, p.behaviour_library, p.behaviourMetal,
++        {{mfem_mgis::displacement_gradient_parameter,
++          p.displacement_gradient}}) |
+         or_die;
+     auto &metal = problem.getMaterial(ctx, 1, 0) | or_die;
+     set_temperature(metal);
+   }
+ 
+   for (int grainID = 2; grainID <= nMat; grainID++) {
+-    problem.addBehaviourIntegrator(ctx, "Mechanics", grainID,
+-                                   p.behaviour_library, p.behaviourGrain) |
++    problem.addBehaviourIntegrator(
++        ctx, "Mechanics", grainID, p.behaviour_library, p.behaviourGrain,
++        {{mfem_mgis::displacement_gradient_parameter,
++          p.displacement_gradient}}) |
+         or_die;
+     auto &grain = problem.getMaterial(ctx, grainID, 0) | or_die;
+     set_properties_mono(grain, young1, young2, young3, poisson12, poisson23,
+@@ -271,9 +286,10 @@ int main(int argc, char **argv) {
+   // problem.setLinearSolver("MUMPSSolver", {});
+ 
+   //
+-  const auto Fzz = [](const mfem_mgis::real ets) {
++  // evolution of the axial component of the displacement gradient
++  const auto Hzz = [](const mfem_mgis::real ets) {
+     constexpr auto def = mfem_mgis::real{5e-4};
+-    return 1 + def * ets;
++    return def * ets;
+   };
+   //
+   mm_opera_hpc::MacroscropicElasticMaterialProperties mp;
+@@ -319,8 +335,8 @@ int main(int argc, char **argv) {
+   //
+   const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
+       NumericalParameters{.macroscopic_elastic_material_properties = mp};
+-  mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(problem, Fzz, np,
+-                                                              post_processing);
++  mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(
++      problem, Hzz, np, post_processing, p.displacement_gradient);
+   const auto success = s.run(ctx, out, temporal_sequences);
+   //
+   mm_opera_hpc::printMemoryFootprint("[End]");
+diff --git a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+index c6cb982..a33d1bd 100644
+--- a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
++++ b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+@@ -37,6 +37,12 @@ namespace mm_opera_hpc {
+    * - the off-diagonal components of the macroscopic deformation gradient are
+    *   set to zero
+    *
++   * The macroscopic unknowns are the diagonal components of the macroscopic
++   * displacement gradient H = F - I, which keeps the precision of small
++   * strains in single precision. The macroscopic gradients given to the
++   * behaviours are H if they are given the displacement gradient (option
++   * `DisplacementGradient` of mfem-mgis), F = I + H otherwise.
++   *
+    * The loading is discretized by the user into temporal sequences. Each
+    * temporal sequence can be automatically divided into smaller time steps in
+    * case of divergence of the resolution.
+@@ -76,9 +82,11 @@ namespace mm_opera_hpc {
+       /*!
+        * \brief absolute tolerance on the lateral macroscopic stresses. The
+        * fixed point uses at least twice its resolution, below which the
+-       * corrections of the lateral components of the deformation gradient
++       * corrections of the lateral components of the macroscopic gradients
+        * are rounded to zero: negligible with double, about 1.5e4 Pa with
+-       * float for the UO2 based cases in tension.
++       * float for the UO2 based cases in tension when the macroscopic
++       * gradients are the deformation gradient, negligible when they are
++       * the displacement gradient.
+        */
+       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
+           mfem_mgis::real{1e4};
+@@ -86,12 +94,11 @@ namespace mm_opera_hpc {
+     };
+     //! \brief an internal auxiliary data structure
+     struct MM_OPERA_HPC_EXPORT MacroscopicUnknowns {
+-      // diagonal part of the deformation gradient
+-      std::array<mfem_mgis::real, 3u> F =
+-          std::array<mfem_mgis::real, 3u>{1, 1, 1};
+-      // increment of the diagonal part of the deformation gradient during the
+-      // previous time step
+-      std::array<mfem_mgis::real, 3u> dF = std::array<mfem_mgis::real, 3u>{};
++      // diagonal part of the displacement gradient H = F - I
++      std::array<mfem_mgis::real, 3u> H = std::array<mfem_mgis::real, 3u>{};
++      // increment of the diagonal part of the displacement gradient during
++      // the previous time step
++      std::array<mfem_mgis::real, 3u> dH = std::array<mfem_mgis::real, 3u>{};
+       // diagonal components of the macroscropic Cauchy stress
+       std::array<mfem_mgis::real, 3u> S = std::array<mfem_mgis::real, 3u>{};
+       // previous succesful time step
+@@ -100,11 +107,19 @@ namespace mm_opera_hpc {
+     /*!
+      * \brief constructor
+      * \param[in] p: problem to be solved
++     * \param[in] Hzz: imposed axial component of the macroscopic
++     * displacement gradient, as a function of time
++     * \param[in] np: numerical parameters
++     * \param[in] b: perform the post-processings
++     * \param[in] dg: the behaviours are given the displacement gradient
++     * (option `DisplacementGradient` of mfem-mgis): the macroscopic
++     * gradients are the displacement gradient
+      */
+     UniaxialMacroscopicStressPeriodicSimulation(
+         mfem_mgis::PeriodicNonLinearEvolutionProblem &,
+         const std::function<mfem_mgis::real(mfem_mgis::real)>,
+         const NumericalParameters &,
++        const bool,
+         const bool) noexcept;
+     /*!
+      * \brief run the simulation over the given temporal sequences
+@@ -124,15 +139,17 @@ namespace mm_opera_hpc {
+    private:
+     //! \brief underlying problem
+     mfem_mgis::PeriodicNonLinearEvolutionProblem &problem;
+-    //
++    //! \brief imposed axial component of the displacement gradient
+     std::function<mfem_mgis::real(mfem_mgis::real)>
+-        imposed_axial_deformation_gradient_value;
++        imposed_axial_displacement_gradient_value;
+     //
+     MacroscopicUnknowns macroscopic_unknowns;
+     //
+     const NumericalParameters numerical_parameters;
+     //
+     const bool post_processing;
++    //! \brief the macroscopic gradients are the displacement gradient
++    const bool displacement_gradient;
+   };
+ 
+ }  // namespace mm_opera_hpc
+diff --git a/polycrystal/CMakeLists.txt b/polycrystal/CMakeLists.txt
+index 1489830..d655087 100755
+--- a/polycrystal/CMakeLists.txt
++++ b/polycrystal/CMakeLists.txt
+@@ -30,6 +30,12 @@ mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest
+   FILE polycrystal-test.res ${_polycrystal_checks}
+   COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+           --macroscopic-stress-output-file polycrystal-test.res)
++# the same with the displacement gradient given to the behaviour
++mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-DisplacementGradient
++  FILE polycrystal-test-dg.res ${_polycrystal_checks}
++  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
++          --macroscopic-stress-output-file polycrystal-test-dg.res
++          --displacement-gradient)
+ if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursPolycrystal_HAVE_GPU_BEHAVIOURS)
+   mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-gpu
+     FILE polycrystal-test-gpu.res ${_polycrystal_checks}
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index 32bf6a4..c3b8cfb 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -83,6 +83,7 @@ Usage: ./uniaxial-polycrystal --help
+ | `-v <int>, --verbosity-level <int>`         | int    | `0`                          | Verbosity level of the output.                                                                                                                |
+ | `-d <double>, --duration <double>`          | double | `200`                        | Duration of the simulation.                                                                                                                   |
+ | `-n <int>, --nstep <int>`                   | int    | `200`                        | Number of simulation steps.                                                                                                                   |
++| `-dg, --displacement-gradient`, `-no-dg, --no-displacement-gradient` | bool | `false` | Give the displacement gradient H = F - I instead of the deformation gradient to the behaviour (parameter `DisplacementGradient` of mfem-mgis). In single precision, the macroscopic loading, kept as a displacement gradient, keeps its precision. The behaviour, written with the deformation gradient, receives F = I + H. |
+ | `--linear-solver <string>`                  | string | `HyprePCG`                   | Linear solver of the Newton method: a Krylov solver of hypre (`HyprePCG`, `HypreGMRES` or `HypreFGMRES`, preconditioned by `--linear-solver-preconditioner`), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only), the matrices being given as general ones. Ignored by `NewtonK0`. |
+ | `--reuse-analysis`, `--no-reuse-analysis`   | bool   | `false`                      | Reuse the analysis of the direct solver for the matrices of the same pattern (parameter `ReuseAnalysis` of mfem-mgis). Ignored, with a warning, without a direct solver, with `NewtonK0` or with PETSc. |
+ | `--non-linear-solver <string>`              | string | `Newton`                     | Non linear solver: `Newton` or `NewtonK0` (tangent systems solved by a conjugate gradient preconditioned by the elastic operator).            |
+@@ -167,7 +168,7 @@ This table shows the comparison between the simulated Cauchy stress values and t
+ 
+ ## Tests
+ 
+-`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.2 s without post-processing, whose axial stress `Szz` is compared to the one computed by Cast3M, `results/polycrystal_cast3m.csv`, with a relative tolerance of 1 %, by `cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `UniaxialPolycrystalTestPar` (the same on 2 processes) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours cpu`.
++`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.2 s without post-processing, whose axial stress `Szz` is compared to the one computed by Cast3M, `results/polycrystal_cast3m.csv`, with a relative tolerance of 1 %, by `cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `UniaxialPolycrystalTest-DisplacementGradient` (the same with `--displacement-gradient`), `UniaxialPolycrystalTestPar` (the same on 2 processes) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours cpu`.
+ 
+ ## References
+ 
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 952c511..64b6668 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -18,6 +18,7 @@
+ #include <string_view>
+ 
+ #include "mfem/fem/datacollection.hpp"
++#include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/AnalyticalTests.hxx"
+ #include "MFEMMGIS/Config.hxx"
+@@ -122,6 +123,8 @@ struct MaterialParameters : ElasticMaterialPropertiesParameters {
+   const char *behaviour = "Mono_UO2_Cosh_Jaco3";
+   //! \brief default file name describing orientation vectors
+   const char *vect_file = "mesh/vectors_5crystals.txt";
++  //! \brief give the displacement gradient to the behaviour
++  bool displacement_gradient = false;
+ };
+ 
+ struct LoadingParameters {
+@@ -336,9 +339,9 @@ int main(int argc, char *argv[]) {
+     }
+     return times;
+   }();
+-  // evolution of the axial component of the deformation gradient
+-  const auto Fzz = [&p](const mfem_mgis::real ets) {
+-    return 1 + p.linear_strain_rate * ets;
++  // evolution of the axial component of the displacement gradient
++  const auto Hzz = [&p](const mfem_mgis::real ets) {
++    return p.linear_strain_rate * ets;
+   };
+   // main output file, written by the main process only
+   std::ofstream out;
+@@ -355,7 +358,7 @@ int main(int argc, char *argv[]) {
+   const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
+       NumericalParameters{.macroscopic_elastic_material_properties = mp};
+   mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(
+-      problem, Fzz, np, p.post_processings);
++      problem, Hzz, np, p.post_processings, p.displacement_gradient);
+   const auto success = s.run(ctx, out, temporal_sequences);
+ 
+   if (paraview_exporter != nullptr) {
+@@ -442,6 +445,13 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+                  "choose the duration");
+   args.AddOption(&p.nstep, "-n", "--nstep",
+                  "choose the number of steps");
++  args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
++                 "-no-dg", "--no-displacement-gradient",
++                 "Give the displacement gradient instead of the deformation "
++                 "gradient to the behaviour (parameter DisplacementGradient "
++                 "of mfem-mgis). In single precision, the macroscopic "
++                 "loading keeps its precision; the behaviour, written with "
++                 "the deformation gradient, receives F = I + H.");
+ 
+   args.Parse();
+ 
+@@ -487,8 +497,10 @@ static void setupMaterials(
+   mfem_mgis::Profiler::Utils::Message("Nombre de matériaux : ", nMat);
+ 
+   for (int i = 0; i < nMat; i++) {
+-    problem.addBehaviourIntegrator(ctx, "Mechanics", i + 1, p.behaviour_library,
+-                                   p.behaviour) |
++    problem.addBehaviourIntegrator(
++        ctx, "Mechanics", i + 1, p.behaviour_library, p.behaviour,
++        {{mfem_mgis::displacement_gradient_parameter,
++          p.displacement_gradient}}) |
+         or_die;
+   }
+ 
+diff --git a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+index 6077976..8c5c56a 100644
+--- a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
++++ b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+@@ -18,12 +18,27 @@
+ 
+ namespace mm_opera_hpc {
+ 
++  /*!
++   * \return the diagonal components of the macroscopic deformation gradient
++   * \param[in] H: diagonal components of the macroscopic displacement
++   * gradient
++   */
++  [[nodiscard]] static std::array<mfem_mgis::real, 3u> getDeformationGradient(
++      const std::array<mfem_mgis::real, 3u> &H) noexcept {
++    return {1 + H[0], 1 + H[1], 1 + H[2]};
++  }  // end of getDeformationGradient
++
++  /*!
++   * \return the diagonal components of the macroscopic Cauchy stress
++   * \param[in] H: diagonal components of the macroscopic displacement
++   * gradient
++   */
+   [[nodiscard]] static const std::array<mfem_mgis::real, 3u>
+   computeMacroscopicCauchyStress(
+       mfem_mgis::attributes::MayAbort,
+       mfem_mgis::Context &ctx,
+       mfem_mgis::PeriodicNonLinearEvolutionProblem &problem,
+-      const std::array<mfem_mgis::real, 3u> &F) {
++      const std::array<mfem_mgis::real, 3u> &H) {
+     auto or_die = ctx.getFatalFailureHandler();
+     // integrals of the diagonal components of the First Piola-Kirchhoff stress
+     auto pk1_integral = std::array<mfem_mgis::real, 3u>{};
+@@ -55,6 +70,7 @@ namespace mm_opera_hpc {
+                                                      pk1_integral[1] / volume,
+                                                      pk1_integral[2] / volume};
+     // macroscopic change of volume
++    const auto F = getDeformationGradient(H);
+     const auto det = F[0] * F[1] * F[2];
+     // computation of the diagonal components of the Cauchy stress
+     return {pk1[0] * F[0] / det, pk1[1] * F[1] / det, pk1[2] * F[2] / det};
+@@ -63,20 +79,22 @@ namespace mm_opera_hpc {
+   /*!
+    * \return the resolution of the fixed point on the lateral stresses: the
+    * largest residual for which the correction of the lateral components of
+-   * the deformation gradient may be rounded to zero. When both lateral
+-   * stresses are close to S, this correction is about
+-   * (1 + nu) (1 - 2 nu) S / E, and it is rounded to zero when it is smaller
+-   * than half the spacing of the floating point numbers around these
+-   * components: the fixed point then stagnates or oscillates. Negligible
+-   * with double. With float, about 1.5e4 Pa for the UO2 based cases in
+-   * tension (lateral components just below 1), twice as much in
+-   * compression.
++   * the macroscopic gradients given to the behaviours may be rounded to
++   * zero. When both lateral stresses are close to S, this correction is
++   * about (1 + nu) (1 - 2 nu) S / E, and it is rounded to zero when it is
++   * smaller than half the spacing of the floating point numbers around
++   * these components: the fixed point then stagnates or oscillates.
++   * Negligible with double. With float, about 1.5e4 Pa for the UO2 based
++   * cases in tension when the macroscopic gradients are the deformation
++   * gradient (lateral components just below 1), twice as much in
++   * compression, and negligible when they are the displacement gradient.
+    * \param[in] mp: macroscopic elastic material properties
+-   * \param[in] F: diagonal components of the deformation gradient
++   * \param[in] g: diagonal components of the macroscopic gradients given to
++   * the behaviours
+    */
+   [[nodiscard]] static mfem_mgis::real computeLateralStressResolution(
+       const MacroscropicElasticMaterialProperties &mp,
+-      const std::array<mfem_mgis::real, 3u> &F) noexcept {
++      const std::array<mfem_mgis::real, 3u> &g) noexcept {
+     constexpr auto infinity = std::numeric_limits<mfem_mgis::real>::infinity();
+     // smallest spacing of the floating point numbers around x, which differs
+     // from the spacing above x at a power of two, for instance at 1
+@@ -89,7 +107,7 @@ namespace mm_opera_hpc {
+     if (!(c > 0)) {
+       return mfem_mgis::real{0};
+     }
+-    const auto ds = std::max(spacing(F[0]), spacing(F[1]));
++    const auto ds = std::max(spacing(g[0]), spacing(g[1]));
+     return std::sqrt(mfem_mgis::real{2}) * (ds / 2) * mp.Eeff / c;
+   }  // end of computeLateralStressResolution
+ 
+@@ -100,10 +118,11 @@ namespace mm_opera_hpc {
+       UniaxialMacroscopicStressPeriodicSimulation::MacroscopicUnknowns
+           &macroscopic_unknowns,  //
+       const std::function<mfem_mgis::real(mfem_mgis::real)>
+-          &imposed_axial_deformation_gradient_value,
++          &imposed_axial_displacement_gradient_value,
+       const UniaxialMacroscopicStressPeriodicSimulation::NumericalParameters
+           &np,  //
+       const bool post_processing,
++      const bool displacement_gradient,
+       const mfem_mgis::real bts,  //
+       const mfem_mgis::real ets) {
+     using namespace mfem_mgis::Profiler::Utils;
+@@ -115,20 +134,20 @@ namespace mm_opera_hpc {
+     // Traction
+     const auto dt = ets - bts;
+ 
+-    auto &F = macroscopic_unknowns.F;
++    auto &H = macroscopic_unknowns.H;
+     auto &S = macroscopic_unknowns.S;
+-    // deformation gradient at the beginning of the time step
++    // displacement gradient at the beginning of the time step
+     auto S0 = S;
+-    auto F0 = F;
++    auto H0 = H;
+ 
+     if (macroscopic_unknowns.previous_time_increment.has_value()) {
+-      auto &dF = macroscopic_unknowns.dF;
++      auto &dH = macroscopic_unknowns.dH;
+       const auto pdt = *(macroscopic_unknowns.previous_time_increment);
+-      // -- update F from input data, here def = 5e-4. -- //
+-      F[0] += dF[0] * (dt / pdt);
+-      F[1] += dF[1] * (dt / pdt);
++      // -- update H from input data, here def = 5e-4. -- //
++      H[0] += dH[0] * (dt / pdt);
++      H[1] += dH[1] * (dt / pdt);
+     }
+-    F[2] = imposed_axial_deformation_gradient_value(ets);
++    H[2] = imposed_axial_displacement_gradient_value(ets);
+     // --- fixed point iteration number
+     int itFP = 0;
+     // --- fixed point loop --- //
+@@ -139,12 +158,12 @@ namespace mm_opera_hpc {
+       // -- compute correction -- //
+       // -- note that S[0] and S[1] are updated at the end of this loop section,
+       // default is 0 -- //
+-      F[0] += ((mp.nueff * mp.nueff - 1) * S[0]) / mp.Eeff +
++      H[0] += ((mp.nueff * mp.nueff - 1) * S[0]) / mp.Eeff +
+               (mp.nueff * (mp.nueff + 1) * S[1]) / mp.Eeff;
+-      F[1] += ((mp.nueff * mp.nueff - 1) * S[1]) / mp.Eeff +
++      H[1] += ((mp.nueff * mp.nueff - 1) * S[1]) / mp.Eeff +
+               (mp.nueff * (mp.nueff + 1) * S[0]) / mp.Eeff;
+       // -- note that MacroscopicGradientsEvolution takes into account of new
+-      // F[0] and F[1] -- //
++      // H[0] and H[1] -- //
+       if (itFP == 0) {
+         if (!problem.setSolverParameters(
+                 ctx,
+@@ -179,24 +198,25 @@ namespace mm_opera_hpc {
+       if (!statistics.status) {
+         Message("error: the resolution failed.");
+         S = S0;
+-        F = F0;
++        H = H0;
+         problem.revert(ctx) | or_die;
+         return false;
+       }
+       if (itFP == 0) {
+         initial_residual = statistics.initial_residual_norm;
+       }
+-      S = computeMacroscopicCauchyStress(mfem_mgis::may_abort, ctx, problem, F);
++      S = computeMacroscopicCauchyStress(mfem_mgis::may_abort, ctx, problem, H);
+       const auto r = std::sqrt(S[0] * S[0] + S[1] * S[1]);
+       //
+       Message("Fixed Point iteration", itFP, ": |res| =", r);
+       // the tolerance is at least twice the resolution of the fixed point
++      const auto g = displacement_gradient ? H : getDeformationGradient(H);
+       const auto tolerance =
+-          std::max(tolFP, 2 * computeLateralStressResolution(mp, F));
++          std::max(tolFP, 2 * computeLateralStressResolution(mp, g));
+       converged = std::abs(r) < tolerance;
+       if (converged && (std::abs(r) >= tolFP)) {
+         Message("Fixed Point converged within the resolution of the",
+-                "deformation gradient: tolerance raised to", tolerance);
++                "macroscopic gradients: tolerance raised to", tolerance);
+       }
+       itFP++;
+     }
+@@ -205,18 +225,23 @@ namespace mm_opera_hpc {
+           "error: maximum number of iterations for the "
+           "fixed-point algorithm reached");
+       S = S0;
+-      F = F0;
++      H = H0;
+       problem.revert(ctx) | or_die;
+       return false;
+     }
+     // the values of a rejected time step are not written. The macroscopic
+-    // values are the same on all the processes
++    // values are the same on all the processes. The deformation gradient
++    // written is computed in double, which keeps the precision of the
++    // displacement gradient in single precision
+     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+-      out << ets << " "                                 //
+-          << F[0] << " " << F[1] << " " << F[2] << " "  //
++      out << ets << " "                            //
++          << 1 + static_cast<double>(H[0]) << " "  //
++          << 1 + static_cast<double>(H[1]) << " "  //
++          << 1 + static_cast<double>(H[2]) << " "  //
+           << S[0] << " " << S[1] << " " << S[2] << std::endl;
+     }
+-    Message("Solution at time", ets, ":", F[2], S[0], S[1], S[2]);
++    Message("Solution at time", ets, ":", 1 + static_cast<double>(H[2]), S[0],
++            S[1], S[2]);
+     //
+     if (post_processing) {
+       // add postprocessing
+@@ -226,10 +251,10 @@ namespace mm_opera_hpc {
+     // update state variable for the next time step
+     problem.update(ctx) | or_die;
+     // update information for time extrapolation
+-    auto &dF = macroscopic_unknowns.dF;
++    auto &dH = macroscopic_unknowns.dH;
+     macroscopic_unknowns.previous_time_increment = dt;
+     for (std::size_t i = 0; i != 3; ++i) {
+-      dF[i] = F[i] - F0[i];
++      dH[i] = H[i] - H0[i];
+     }
+     return true;
+   }
+@@ -241,10 +266,11 @@ namespace mm_opera_hpc {
+       UniaxialMacroscopicStressPeriodicSimulation::MacroscopicUnknowns
+           &macroscopic_unknowns,  //
+       const std::function<mfem_mgis::real(mfem_mgis::real)>
+-          &imposed_axial_deformation_gradient_value,
++          &imposed_axial_displacement_gradient_value,
+       const UniaxialMacroscopicStressPeriodicSimulation::NumericalParameters
+           &np,  //
+       const bool post_processing,
++      const bool displacement_gradient,
+       const mfem_mgis::real bts,  //
+       const mfem_mgis::real ets) {
+     using namespace mfem_mgis::Profiler::Utils;
+@@ -257,8 +283,9 @@ namespace mm_opera_hpc {
+       const auto do_post_processing = post_processing && (nstep == 1);
+       const auto success =
+           simulateOverATimeStep(ctx, out, problem, macroscopic_unknowns,
+-                                imposed_axial_deformation_gradient_value, np,
+-                                do_post_processing, t, t + dt);
++                                imposed_axial_displacement_gradient_value, np,
++                                do_post_processing, displacement_gradient, t,
++                                t + dt);
+       if (success) {
+         t += dt;
+         --nstep;
+@@ -285,18 +312,24 @@ namespace mm_opera_hpc {
+   UniaxialMacroscopicStressPeriodicSimulation::
+       UniaxialMacroscopicStressPeriodicSimulation(
+           mfem_mgis::PeriodicNonLinearEvolutionProblem &p,
+-          const std::function<mfem_mgis::real(mfem_mgis::real)> Fzz,
++          const std::function<mfem_mgis::real(mfem_mgis::real)> Hzz,
+           const NumericalParameters &np,
+-          const bool b) noexcept
++          const bool b,
++          const bool dg) noexcept
+       : problem(p),
+-        imposed_axial_deformation_gradient_value(Fzz),
++        imposed_axial_displacement_gradient_value(Hzz),
+         numerical_parameters(np),
+-        post_processing(b) {
+-    // warning Fxx, F[1], and Fzz are defined during the following loop
++        post_processing(b),
++        displacement_gradient(dg) {
++    // warning Hxx, H[1], and Hzz are defined during the following loop. The
++    // macroscopic gradients are the displacement gradient H, kept without
++    // rounding, or the deformation gradient F = I + H
+     problem.setMacroscopicGradientsEvolution([this](const mfem_mgis::real) {
+-      const auto &F = this->macroscopic_unknowns.F;
++      const auto &H = this->macroscopic_unknowns.H;
++      const auto g =
++          this->displacement_gradient ? H : getDeformationGradient(H);
+       auto ret = std::vector<mfem_mgis::real>(9, mfem_mgis::real{});
+-      std::copy(F.begin(), F.end(), ret.begin());
++      std::copy(g.begin(), g.end(), ret.begin());
+       return ret;
+     });
+   }  // end of UniaxialMacroscopicStressPeriodicSimulation
+@@ -308,9 +341,10 @@ namespace mm_opera_hpc {
+     for (std::size_t i = 0; i + 1 != temporal_sequences.size(); i++) {
+       if (!simulateOverATemporalSequence(
+               ctx, out, this->problem, this->macroscopic_unknowns,
+-              this->imposed_axial_deformation_gradient_value,
++              this->imposed_axial_displacement_gradient_value,
+               this->numerical_parameters, this->post_processing,
+-              temporal_sequences[i], temporal_sequences[i + 1])) {
++              this->displacement_gradient, temporal_sequences[i],
++              temporal_sequences[i + 1])) {
+         return false;
+       }
+     }
+-- 
+2.43.0
+

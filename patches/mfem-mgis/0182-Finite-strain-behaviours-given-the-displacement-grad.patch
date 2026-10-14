@@ -1,0 +1,1446 @@
+From a42e0038da8841ca294746f6fb4d28962b4fdcb9 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 20:39:37 +0200
+Subject: [PATCH] Finite strain behaviours given the displacement gradient
+
+The new parameter DisplacementGradient of the behaviour integrators
+gives the displacement gradient H = F - I instead of the deformation
+gradient F to a finite strain behaviour (option gradient of the
+FiniteStrainBehaviourOptions of MGIS). In single precision, F is only
+known within about 6e-8, while H keeps the relative precision of small
+strains: the behaviours written in the Green-Lagrange or Hencky strain
+frameworks compute their strain from it without cancellation.
+
+With this parameter:
+- the gradients of the material are the displacement gradients, named
+  DisplacementGradient, and start from zero;
+- the macroscopic gradients are the macroscopic values of the gradients
+  of the behaviour: H, which a caller may keep without rounding, and
+  zero by default;
+- the mechanical post-processings use F = I + H;
+- small strain behaviours and the regularisations are refused, and so
+  are periodic problems mixing behaviours given F and behaviours given
+  H, whose macroscopic gradients differ.
+
+Tests: uniaxial tension with H against the references computed with
+F, for a Hencky behaviour (new) and a behaviour written with F; Cauchy
+stress of the post-processing; in float, convergence of the Hencky
+case with a relative tolerance of 1e-5, which F does not reach; the
+refusals.
+---
+ .../source/commented_examples/basic_tests.rst |   7 +
+ docs/source/commented_examples/cermet.rst     |  10 ++
+ .../source/commented_examples/polycrystal.rst |   9 +
+ .../user_guide/behaviour_integrators.rst      |  23 ++-
+ include/MFEMMGIS/Batch/Gradients.hxx          |   6 +-
+ include/MFEMMGIS/Behaviour.hxx                |  30 +++-
+ include/MFEMMGIS/Material.hxx                 |   8 +
+ .../MultiMaterialNonLinearIntegrator.hxx      |   5 +-
+ .../PeriodicNonLinearEvolutionProblem.hxx     |   6 +-
+ src/Behaviour.cxx                             |  12 +-
+ src/BehaviourIntegratorBase.cxx               |  22 ++-
+ src/BehaviourIntegratorFactory.cxx            |  61 ++++++-
+ src/FBarBehaviourIntegrators.cxx              |  11 ++
+ ...tus2026RegularizedBehaviourIntegrators.cxx |  16 ++
+ src/MaterialArrays.cxx                        |   4 +-
+ src/MechanicalPostProcessings.cxx             | 161 ++++++++++++------
+ src/MultiMaterialNonLinearIntegrator.cxx      |  44 ++++-
+ tests/AddBehaviourIntegratorTest.cxx          |  46 ++++-
+ tests/CMakeLists.txt                          |  50 +++++-
+ tests/LogarithmicStrainElasticity.mfront      |  42 +++++
+ tests/UniaxialTensileTest.cxx                 | 108 ++++++++++--
+ .../LogarithmicStrainElasticity.ref           | 101 +++++++++++
+ 22 files changed, 679 insertions(+), 103 deletions(-)
+ create mode 100644 tests/LogarithmicStrainElasticity.mfront
+ create mode 100644 tests/references/LogarithmicStrainElasticity.ref
+
+diff --git a/docs/source/commented_examples/basic_tests.rst b/docs/source/commented_examples/basic_tests.rst
+index 8aa976d338..ad5570bc6f 100644
+--- a/docs/source/commented_examples/basic_tests.rst
++++ b/docs/source/commented_examples/basic_tests.rst
+@@ -113,6 +113,13 @@ Available options
+ | ``--post-processing`` or ``-pp``,      | Export or not the results to       | export                               |
+ | ``--no-post-processing`` or ``-no-pp`` | Paraview                           |                                      |
+ +----------------------------------------+------------------------------------+--------------------------------------+
++| ``--displacement-gradient`` or         | Give the displacement gradient     | deformation gradient                 |
++| ``-dg``,                               | instead of the deformation         |                                      |
++| ``--no-displacement-gradient`` or      | gradient to a finite strain        |                                      |
++| ``-no-dg``                             | behaviour (parameter               |                                      |
++|                                        | ``DisplacementGradient`` of the    |                                      |
++|                                        | behaviour integrators)             |                                      |
+++----------------------------------------+------------------------------------+--------------------------------------+
+ 
+ The example also accepts the options of mfem-mgis, declared by
+ ``mfem_mgis::declareDefaultOptions``, in particular ``--execution`` (``cpu``,
+diff --git a/docs/source/commented_examples/cermet.rst b/docs/source/commented_examples/cermet.rst
+index 4088f15839..de7660fb1f 100644
+--- a/docs/source/commented_examples/cermet.rst
++++ b/docs/source/commented_examples/cermet.rst
+@@ -202,6 +202,16 @@ Command-line Usage
+       - int
+       - ``500``
+       - Number of simulation steps.
++    * - ``-dg, --displacement-gradient``, ``-no-dg, --no-displacement-gradient``
++      - bool
++      - ``false``
++      - Give the displacement gradient :math:`H = F - I` instead of the
++        deformation gradient to the behaviours (parameter
++        ``DisplacementGradient`` of mfem-mgis). In single precision, the
++        metallic interface (Hencky strain framework) then computes its
++        strain without cancellation, and the macroscopic loading, kept as a
++        displacement gradient, keeps its precision. The grains, written
++        with the deformation gradient, receive :math:`F = I + H`.
+     * - ``-f <string>, --file <string>``
+       - string
+       - ``vectors_5grains.txt``
+diff --git a/docs/source/commented_examples/polycrystal.rst b/docs/source/commented_examples/polycrystal.rst
+index 97c532b92c..cafb2bff87 100644
+--- a/docs/source/commented_examples/polycrystal.rst
++++ b/docs/source/commented_examples/polycrystal.rst
+@@ -146,6 +146,15 @@ Main options
+       - int
+       - ``200``
+       - Number of time steps.
++    * - ``-dg, --displacement-gradient``, ``-no-dg, --no-displacement-gradient``
++      - bool
++      - ``false``
++      - Give the displacement gradient :math:`H = F - I` instead of the
++        deformation gradient to the behaviour (parameter
++        ``DisplacementGradient`` of mfem-mgis). In single precision, the
++        macroscopic loading, kept as a displacement gradient, keeps its
++        precision. The behaviour, written with the deformation gradient,
++        receives :math:`F = I + H`.
+     * - ``--linear-solver <string>``
+       - string
+       - ``HyprePCG``
+diff --git a/docs/source/user_guide/behaviour_integrators.rst b/docs/source/user_guide/behaviour_integrators.rst
+index a705044da9..4ecc410beb 100644
+--- a/docs/source/user_guide/behaviour_integrators.rst
++++ b/docs/source/user_guide/behaviour_integrators.rst
+@@ -41,7 +41,28 @@ material. Behaviour integrators are associated with:
+    - :code:`BehaviourExecutionLocation` (:code:`cpu` or :code:`gpu`): the
+      location where the behaviour of this material is expected to be
+      integrated, checked against its library (see
+-     :ref:`mfem_mgis_batch_computations_execution`).
++     :ref:`mfem_mgis_batch_computations_execution`);
++   - :code:`DisplacementGradient` (boolean, :code:`false` by default):
++     give the displacement gradient :math:`H = F - I` instead of the
++     deformation gradient :math:`F` to a finite strain behaviour. The
++     deformation gradient being close to the identity, its components are
++     only known within about :math:`6 \cdot 10^{-8}` in single precision.
++     The displacement gradient keeps the relative precision of small
++     strains: the behaviours written in the Green-Lagrange or Hencky
++     strain frameworks compute their strain from it without cancellation
++     (the behaviours written with the deformation gradient receive
++     :math:`F = I + H`). The gradients of the material, named
++     :code:`DisplacementGradient`, are then the displacement gradients,
++     and so are its macroscopic gradients (for instance the ones given by
++     :code:`setMacroscopicGradientsEvolution` for a periodic problem): a
++     caller which keeps the macroscopic displacement gradient keeps the
++     precision of the macroscopic strain. The macroscopic gradients being
++     the same for all the materials, the finite strain behaviours of a
++     periodic problem shall all be given the deformation gradient, or all
++     the displacement gradient. The post-processings of
++     mfem-mgis use :math:`F = I + H`. This requires a behaviour generated
++     by a version of :code:`MFront` which accepts it, and is not supported
++     by the regularizations.
+ 
+    All the behaviour integrators described below support the integration
+    by batches and the computations by kernels, on the GPU if a GPU is used
+diff --git a/include/MFEMMGIS/Batch/Gradients.hxx b/include/MFEMMGIS/Batch/Gradients.hxx
+index e39d732042..f55b0a7139 100644
+--- a/include/MFEMMGIS/Batch/Gradients.hxx
++++ b/include/MFEMMGIS/Batch/Gradients.hxx
+@@ -100,13 +100,15 @@ namespace mfem_mgis::batch {
+     /*!
+      * \brief deformation gradient in 3D: `(F11, F22, F33, F12, F21, F13,
+      * F31, F23, F32)`, the identity being given by the macroscopic
+-     * gradients
++     * gradients. Also used for the displacement gradient, whose
++     * macroscopic gradients do not contain the identity
+      */
+     DEFORMATION_GRADIENT_3D,
+     /*!
+      * \brief deformation gradient in 2D (plane strain and plane stress):
+      * `(F11, F22, F33, F12, F21)`, `F33` and the identity being given by the
+-     * macroscopic gradients
++     * macroscopic gradients. Also used for the displacement gradient, whose
++     * macroscopic gradients do not contain the identity
+      */
+     DEFORMATION_GRADIENT_2D,
+     /*!
+diff --git a/include/MFEMMGIS/Behaviour.hxx b/include/MFEMMGIS/Behaviour.hxx
+index d8c4c3659d..1695a3ab96 100644
+--- a/include/MFEMMGIS/Behaviour.hxx
++++ b/include/MFEMMGIS/Behaviour.hxx
+@@ -19,6 +19,32 @@ namespace mfem_mgis {
+   //! \brief a simple alias
+   using Behaviour = mgis::behaviour::Behaviour;
+ 
++  /*!
++   * \brief name of the parameter of the behaviour integrators stating that
++   * a finite strain behaviour is given the displacement gradient
++   * \f$H = F - I\f$ instead of the deformation gradient \f$F\f$ (see
++   * `BehaviourLoadingOptions::displacement_gradient`)
++   */
++  inline constexpr const char* displacement_gradient_parameter =
++      "DisplacementGradient";
++
++  //! \brief options of the `load` function
++  struct BehaviourLoadingOptions {
++    /*!
++     * \brief give the displacement gradient \f$H = F - I\f$ instead of the
++     * deformation gradient \f$F\f$ to a finite strain behaviour.
++     *
++     * The deformation gradient being close to the identity, its components
++     * are only known within about 6e-8 in single precision. The displacement
++     * gradient keeps the relative precision of small strains: the behaviour
++     * computes its strain measure (Green-Lagrange or Hencky strain) from it
++     * without cancellation. This requires a behaviour generated by a version
++     * of `MFront` which accepts it (see the `gradient` option of
++     * `mgis::behaviour::FiniteStrainBehaviourOptions`).
++     */
++    bool displacement_gradient = false;
++  };
++
+   /*!
+    * \brief load a behaviour.
+    *
+@@ -29,13 +55,15 @@ namespace mfem_mgis {
+    * \param[in] l: library name
+    * \param[in] b: behaviour name
+    * \param[in] h: modelling hypothesis
++   * \param[in] o: options
+    * \return the loaded behaviour, a null pointer on failure
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] std::unique_ptr<Behaviour> load(
+       Context& ctx,
+       const std::string& l,
+       const std::string& b,
+-      const Hypothesis h) noexcept;
++      const Hypothesis h,
++      const BehaviourLoadingOptions& o = {}) noexcept;
+ 
+ }  // end of namespace mfem_mgis
+ 
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index fd19161135..93baff4870 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -74,6 +74,14 @@ namespace mfem_mgis {
+              const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief set the macroscopic gradients
++     *
++     * The macroscopic gradients are the macroscopic values of the gradients
++     * of the behaviour. For a finite strain behaviour, they are the
++     * macroscopic deformation gradient or, if the behaviour is given the
++     * displacement gradient (see `BehaviourLoadingOptions`), the
++     * macroscopic displacement gradient, which keeps the precision of small
++     * strains in single precision.
++     *
+      * \param[in] g: macroscopic gradients
+      */
+     void setMacroscopicGradients(std::span<const real> g);
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index 9e8974956d..2dfc717526 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -494,8 +494,11 @@ namespace mfem_mgis {
+      */
+     void synchronizeOnHostForReading() const;
+     /*!
+-     * \brief set the macroscopic gradients
++     * \brief set the macroscopic gradients of all the materials
+      * \param[in] g: macroscopic gradients
++     * \note an exception is thrown if some finite strain behaviours are
++     * given the deformation gradient and others the displacement gradient
++     * (see `BehaviourLoadingOptions`): their macroscopic gradients differ.
+      */
+     void setMacroscopicGradients(std::span<const real> g);
+     /*!
+diff --git a/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx b/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx
+index df98a8d5f8..4f7d58c3f4 100644
+--- a/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx
++++ b/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx
+@@ -157,7 +157,11 @@ namespace mfem_mgis {
+         std::unique_ptr<AbstractDirichletBoundaryCondition> bc) noexcept
+         override;
+     /*!
+-     * \brief set the evolution of the macroscopic gradients
++     * \brief set the evolution of the macroscopic gradients, which are the
++     * macroscopic values of the gradients of the behaviours: for finite
++     * strain behaviours, the deformation gradient or, for the behaviours
++     * given the displacement gradient (see `BehaviourLoadingOptions`), the
++     * displacement gradient (see `Material::setMacroscopicGradients`)
+      * \param[in] ev: function
+      */
+     virtual void setMacroscopicGradientsEvolution(
+diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
+index 1da8820026..1c2741fd1f 100644
+--- a/src/Behaviour.cxx
++++ b/src/Behaviour.cxx
+@@ -14,16 +14,26 @@ namespace mfem_mgis {
+   std::unique_ptr<Behaviour> load(Context& ctx,
+                                   const std::string& l,
+                                   const std::string& b,
+-                                  const Hypothesis h) noexcept {
++                                  const Hypothesis h,
++                                  const BehaviourLoadingOptions& o) noexcept {
+     using namespace mgis::behaviour;
+     try {
+       if (isStandardFiniteStrainBehaviour(l, b)) {
+         auto opts = FiniteStrainBehaviourOptions{};
+         opts.stress_measure = FiniteStrainBehaviourOptions::PK1;
+         opts.tangent_operator = FiniteStrainBehaviourOptions::DPK1_DF;
++        if (o.displacement_gradient) {
++          opts.gradient = FiniteStrainBehaviourOptions::DISPLACEMENT_GRADIENT;
++        }
+         return std::make_unique<Behaviour>(
+             mgis::behaviour::load(opts, l, b, h));
+       }
++      if (o.displacement_gradient) {
++        return ctx.registerErrorMessage(
++            "the behaviour '" + b + "' of library '" + l +
++            "' is not a finite strain behaviour: the displacement gradient "
++            "only applies to finite strain behaviours");
++      }
+       return std::make_unique<Behaviour>(mgis::behaviour::load(l, b, h));
+     } catch (...) {
+       std::ignore = registerExceptionInErrorBacktrace(ctx);
+diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
+index 51d5bf8bec..e112b373fb 100644
+--- a/src/BehaviourIntegratorBase.cxx
++++ b/src/BehaviourIntegratorBase.cxx
+@@ -83,8 +83,14 @@ namespace mfem_mgis {
+ 
+   void BehaviourIntegratorBase::checkIfAFiniteStrainBehaviourIsDeclared(
+       attributes::Throwing) const {
+-    auto isDeformationGradient = [](const mgis::behaviour::Variable& g) {
+-      if (g.name != "DeformationGradient") {
++    // the gradient is the displacement gradient for a finite strain
++    // behaviour loaded with this option (see `BehaviourLoadingOptions`)
++    const auto dg = mgis::behaviour::usesDisplacementGradient(this->b);
++    const auto gname = dg ? "DisplacementGradient" : "DeformationGradient";
++    const auto gdescription = std::string{dg ? "the displacement gradient"
++                                             : "the deformation gradient"};
++    auto isGradient = [gname](const mgis::behaviour::Variable& g) {
++      if (g.name != gname) {
+         return false;
+       }
+       if (g.type != mgis::behaviour::Variable::TENSOR) {
+@@ -114,12 +120,12 @@ namespace mfem_mgis {
+       }
+     }
+     if ((this->b.gradients.size() != 1) ||
+-        (!isDeformationGradient(this->b.gradients.at(0)))) {
++        (!isGradient(this->b.gradients.at(0)))) {
+       this->throwInvalidBehaviourType(
+           throwing,
+           "expected a finite strain behaviour or a general behaviour whose "
+-          "only gradient is the deformation gradient, a non symmetric "
+-          "tensor");
++          "only gradient is " +
++              gdescription + ", a non symmetric tensor");
+     }
+     if ((this->b.thermodynamic_forces.size() != 1) ||
+         (!isPK1(this->b.thermodynamic_forces.at(0)))) {
+@@ -131,13 +137,13 @@ namespace mfem_mgis {
+     }
+     if ((this->b.to_blocks.size() != 1) ||
+         (!isPK1(this->b.to_blocks.at(0).first)) ||
+-        (!isDeformationGradient(this->b.to_blocks.at(0).second))) {
++        (!isGradient(this->b.to_blocks.at(0).second))) {
+       this->throwInvalidBehaviourType(
+           throwing,
+           "expected a finite strain behaviour or a general behaviour whose "
+           "only tangent operator block is the derivative of the first "
+-          "Piola-Kirchhoff stress with respect to the deformation gradient, "
+-          "both being non symmetric tensors");
++          "Piola-Kirchhoff stress with respect to " +
++              gdescription + ", both being non symmetric tensors");
+     }
+   }  // end of checkIfAFiniteStrainBehaviourIsDeclared
+ 
+diff --git a/src/BehaviourIntegratorFactory.cxx b/src/BehaviourIntegratorFactory.cxx
+index 5283a79b0e..028e53ca0b 100644
+--- a/src/BehaviourIntegratorFactory.cxx
++++ b/src/BehaviourIntegratorFactory.cxx
+@@ -7,6 +7,7 @@
+ 
+ #include <utility>
+ #include "MGIS/Raise.hxx"
++#include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
+ #include "MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
+@@ -73,6 +74,45 @@ namespace mfem_mgis {
+     f.addGenerator(ctx, "TransientHeatTransfer", generator) | or_die;
+   }  // end of fillWithDefaultBehaviourIntegrators
+ 
++  /*!
++   * \brief check that the behaviour is not given the displacement gradient,
++   * which the regularisations do not support
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in] b: behaviour
++   */
++  [[nodiscard]] static bool checkRegularizationSupport(
++      Context& ctx, const Behaviour& b) noexcept {
++    if (!mgis::behaviour::usesDisplacementGradient(b)) {
++      return true;
++    }
++    return ctx.registerErrorMessage(
++        "the regularisations do not support the displacement gradient "
++        "(parameter '" +
++        std::string{displacement_gradient_parameter} + "')");
++  }  // end of checkRegularizationSupport
++
++  /*!
++   * \brief set the macroscopic gradients of a finite strain behaviour
++   * integrator to their default values: the identity for the deformation
++   * gradient, zero for the displacement gradient
++   * \tparam N: number of components of the gradients
++   * \param[in, out] ctx: execution context
++   * \param[in, out] bi: behaviour integrator
++   */
++  template <std::size_t N>
++  static void setDefaultFiniteStrainMacroscopicGradients(
++      Context& ctx, AbstractBehaviourIntegrator& bi) {
++    // getMaterial can't fail here
++    auto m = bi.getMaterial(ctx);
++    auto g = std::array<real, N>{};
++    if (!mgis::behaviour::usesDisplacementGradient(m->b)) {
++      // the three first components are the diagonal ones
++      g[0] = g[1] = g[2] = real{1};
++    }
++    m->setMacroscopicGradients(g);
++  }  // end of setDefaultFiniteStrainMacroscopicGradients
++
+   [[nodiscard]] static std::unique_ptr<AbstractBehaviourIntegrator>
+   generateTridimensionalMechanicalBehaviourIntegrators(
+       Context& ctx,
+@@ -87,6 +127,9 @@ namespace mfem_mgis {
+       return {};
+     }
+     if (contains(params, "Regularization")) {
++      if (!checkRegularizationSupport(ctx, *b)) {
++        return {};
++      }
+       const auto oreg_params = get<Parameters>(ctx, params, "Regularization");
+       if (isInvalid(oreg_params)) {
+         return {};
+@@ -138,9 +181,7 @@ namespace mfem_mgis {
+     if (isInvalid(bi)) {
+       return {};
+     }
+-    const auto F = std::array<real, 9u>{1, 1, 1, 0, 0, 0, 0, 0, 0};
+-    // getMaterial can't fail here
+-    bi->getMaterial(ctx)->setMacroscopicGradients(F);
++    setDefaultFiniteStrainMacroscopicGradients<9u>(ctx, *bi);
+     return bi;
+   }  // end of generateTridimensionalMechanicalBehaviourIntegrators
+ 
+@@ -196,6 +237,9 @@ namespace mfem_mgis {
+       return {};
+     }
+     if (contains(params, "Regularization")) {
++      if (!checkRegularizationSupport(ctx, *b)) {
++        return {};
++      }
+       const auto oreg_params = get<Parameters>(ctx, params, "Regularization");
+       if (isInvalid(oreg_params)) {
+         return {};
+@@ -247,9 +291,7 @@ namespace mfem_mgis {
+     if (isInvalid(bi)) {
+       return {};
+     }
+-    const auto F = std::array<real, 5u>{1, 1, 1, 0, 0};
+-    // getMaterial can't fail here
+-    bi->getMaterial(ctx)->setMacroscopicGradients(F);
++    setDefaultFiniteStrainMacroscopicGradients<5u>(ctx, *bi);
+     return bi;
+   }  // end of generatePlaneStrainMechanicalBehaviourIntegrators
+ 
+@@ -313,6 +355,9 @@ namespace mfem_mgis {
+       return {};
+     }
+     if (contains(params, "Regularization")) {
++      if (!checkRegularizationSupport(ctx, *b)) {
++        return {};
++      }
+       const auto oreg_params = get<Parameters>(ctx, params, "Regularization");
+       if (isInvalid(oreg_params)) {
+         return {};
+@@ -354,9 +399,7 @@ namespace mfem_mgis {
+     if (isInvalid(bi)) {
+       return {};
+     }
+-    const auto F = std::array<real, 5u>{1, 1, 1, 0, 0};
+-    // getMaterial can't fail here
+-    bi->getMaterial(ctx)->setMacroscopicGradients(F);
++    setDefaultFiniteStrainMacroscopicGradients<5u>(ctx, *bi);
+     return bi;
+   }  // end of generatePlaneStressMechanicalBehaviourIntegrators
+ 
+diff --git a/src/FBarBehaviourIntegrators.cxx b/src/FBarBehaviourIntegrators.cxx
+index 22d8fb8409..18169f30bb 100644
+--- a/src/FBarBehaviourIntegrators.cxx
++++ b/src/FBarBehaviourIntegrators.cxx
+@@ -6,6 +6,7 @@
+  * \date   22/03/2026
+  */
+ 
++#include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/FBarBehaviourIntegrators.hxx"
+ #include "MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx"
+@@ -28,6 +29,11 @@ namespace mfem_mgis {
+       return ctx.registerErrorMessage(
+           "invalid behaviour type: a finite strain behaviour is expected");
+     }
++    if (mgis::behaviour::usesDisplacementGradient(*b)) {
++      return ctx.registerErrorMessage(
++          "the FBar regularisation does not support the displacement "
++          "gradient");
++    }
+     if (b->symmetry == Behaviour::ISOTROPIC) {
+       auto bi = make_unique<FBarIsotropicPlaneStrainBehaviourIntegrator>(
+           ctx, fed, m, std::move(b));
+@@ -64,6 +70,11 @@ namespace mfem_mgis {
+       return ctx.registerErrorMessage(
+           "invalid behaviour type: a finite strain behaviour is expected");
+     }
++    if (mgis::behaviour::usesDisplacementGradient(*b)) {
++      return ctx.registerErrorMessage(
++          "the FBar regularisation does not support the displacement "
++          "gradient");
++    }
+     if (b->symmetry == Behaviour::ISOTROPIC) {
+       auto bi = make_unique<FBarIsotropicTridimensionalBehaviourIntegrator>(
+           ctx, fed, m, std::move(b));
+diff --git a/src/Faltus2026RegularizedBehaviourIntegrators.cxx b/src/Faltus2026RegularizedBehaviourIntegrators.cxx
+index 0907d63b39..b1cb8669bf 100644
+--- a/src/Faltus2026RegularizedBehaviourIntegrators.cxx
++++ b/src/Faltus2026RegularizedBehaviourIntegrators.cxx
+@@ -9,6 +9,7 @@
+ #include <array>
+ #include "mfem/fem/fe.hpp"
+ #include "mfem/fem/eltrans.hpp"
++#include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx"
+ 
+@@ -24,6 +25,11 @@ namespace mfem_mgis {
+     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+       return ctx.registerErrorMessage("invalid behaviour type");
+     }
++    if (mgis::behaviour::usesDisplacementGradient(*b)) {
++      return ctx.registerErrorMessage(
++          "the Faltus2026 regularisation does not support the displacement "
++          "gradient");
++    }
+     if (b->symmetry != Behaviour::ISOTROPIC) {
+       return ctx.registerErrorMessage(
+           "only isotropic behaviours are supported");
+@@ -50,6 +56,11 @@ namespace mfem_mgis {
+     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+       return ctx.registerErrorMessage("invalid behaviour type");
+     }
++    if (mgis::behaviour::usesDisplacementGradient(*b)) {
++      return ctx.registerErrorMessage(
++          "the Faltus2026 regularisation does not support the displacement "
++          "gradient");
++    }
+     if (b->symmetry != Behaviour::ISOTROPIC) {
+       return ctx.registerErrorMessage(
+           "only isotropic behaviours are supported");
+@@ -76,6 +87,11 @@ namespace mfem_mgis {
+     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+       return ctx.registerErrorMessage("invalid behaviour type");
+     }
++    if (mgis::behaviour::usesDisplacementGradient(*b)) {
++      return ctx.registerErrorMessage(
++          "the Faltus2026 regularisation does not support the displacement "
++          "gradient");
++    }
+     if (b->symmetry != Behaviour::ISOTROPIC) {
+       return ctx.registerErrorMessage(
+           "only isotropic behaviours are supported");
+diff --git a/src/MaterialArrays.cxx b/src/MaterialArrays.cxx
+index cf0a849aeb..6696fbb0fa 100644
+--- a/src/MaterialArrays.cxx
++++ b/src/MaterialArrays.cxx
+@@ -149,10 +149,10 @@ namespace mfem_mgis {
+                  mgis::behaviour::getTangentOperatorArraySize(b)));
+     // the deformation gradients are initialized to the identity, as MGIS
+     // does for the arrays it allocates (the first three components are the
+-    // diagonal ones)
++    // diagonal ones); the displacement gradients stay zero
+     if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+         (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
+-        (np != 0)) {
++        (!mgis::behaviour::usesDisplacementGradient(b)) && (np != 0)) {
+       const auto pbp = l == mgis::FieldLayout::POINT_BY_POINT;
+       const auto ps = pbp ? gs : std::size_t{1};
+       const auto cs = pbp ? std::size_t{1} : np;
+diff --git a/src/MechanicalPostProcessings.cxx b/src/MechanicalPostProcessings.cxx
+index 59a658ec36..4105062ddf 100644
+--- a/src/MechanicalPostProcessings.cxx
++++ b/src/MechanicalPostProcessings.cxx
+@@ -6,11 +6,57 @@
+  * \date   22/05/2025
+  */
+ 
++#include <utility>
++#include <algorithm>
+ #include "MGIS/Function/TFEL/Mechanics.hxx"
+ #include "MFEMMGIS/MechanicalPostProcessings.hxx"
+ 
+ namespace mfem_mgis {
+ 
++  /*!
++   * \brief call the given function with the deformation gradient of a
++   * material whose behaviour is a finite strain behaviour: a view of its
++   * gradients, or, if the behaviour is given the displacement gradient
++   * \f$H\f$, \f$F = I + H\f$ computed in a local function (the three first
++   * components of the tensors are the diagonal ones)
++   * \return the result of the function, false if the gradients can't be
++   * read
++   * \param[in, out] ctx: execution context
++   * \param[in] m: material
++   * \param[in] s: state selection
++   * \param[in] f: function
++   */
++  template <typename Function>
++  static bool withDeformationGradient(Context& ctx,
++                                      const Material& m,
++                                      const Material::StateSelection s,
++                                      const Function& f) {
++    if (!mgis::behaviour::usesDisplacementGradient(m.b)) {
++      const auto oF = getGradient(ctx, m, "DeformationGradient", s);
++      if (isInvalid(oF)) {
++        return false;
++      }
++      return f(*oF);
++    }
++    const auto oH = getGradient(ctx, m, "DisplacementGradient", s);
++    if (isInvalid(oH)) {
++      return false;
++    }
++    auto F = PartialQuadratureFunction(m.getPartialQuadratureSpacePointer(),
++                                       oH->getNumberOfComponents());
++    const auto n = m.getPartialQuadratureSpace().getNumberOfIntegrationPoints();
++    for (size_type i = 0; i != n; ++i) {
++      const auto H = oH->getIntegrationPointValues(i);
++      auto Fi = F.getIntegrationPointValues(i);
++      std::copy(H.begin(), H.end(), Fi.begin());
++      Fi[0] += real{1};
++      Fi[1] += real{1};
++      Fi[2] += real{1};
++    }
++    // immutable view, as the gradients of the material
++    return f(std::as_const(F).view());
++  }  // end of withDeformationGradient
++
+   template <unsigned short N>
+   static bool computeVonMisesEquivalentStressForSmallStrainBehaviours_impl(
+       Context& ctx,
+@@ -55,20 +101,21 @@ namespace mfem_mgis {
+       const Material& m,
+       const Material::StateSelection s) {
+     using namespace mgis::function;
+-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
+     const auto opk1 =
+         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
+-    if (!areValid(oF, opk1)) {
++    if (isInvalid(opk1)) {
+       return {};
+     }
+-    const auto ok = *opk1 | as_tensor<N> |
+-                    from_pk1_to_cauchy(*oF | as_tensor<N>) | vmis | seq;
+-    if (!ok) {
+-      return ctx.registerErrorMessage(
+-          "computeVonMisesEquivalentStress: computation of the von Mises "
+-          "stress failed");
+-    }
+-    return true;
++    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
++      const auto ok = *opk1 | as_tensor<N> |
++                      from_pk1_to_cauchy(F | as_tensor<N>) | vmis | seq;
++      if (!ok) {
++        return ctx.registerErrorMessage(
++            "computeVonMisesEquivalentStress: computation of the von Mises "
++            "stress failed");
++      }
++      return true;
++    });
+   }  // end of computeVonMisesEquivalentStressForFiniteStrainBehaviours
+ 
+   static bool computeVonMisesEquivalentStressForFiniteStrainBehaviours(
+@@ -166,21 +213,22 @@ namespace mfem_mgis {
+       const Material& m,
+       const Material::StateSelection s) {
+     using namespace mgis::function;
+-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
+     const auto opk1 =
+         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
+-    if (!areValid(oF, opk1)) {
++    if (isInvalid(opk1)) {
+       return {};
+     }
+-    auto svp_view = svp | as_tvector<3>;
+-    const auto ok = *opk1 | as_tensor<N> |
+-                    from_pk1_to_cauchy(*oF | as_tensor<N>) | eigen_values<> |
+-                    svp_view;
+-    if (!ok) {
+-      return ctx.registerErrorMessage(
+-          "computeEigenStresses: computation of the eigen stresses failed");
+-    }
+-    return true;
++    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
++      auto svp_view = svp | as_tvector<3>;
++      const auto ok = *opk1 | as_tensor<N> |
++                      from_pk1_to_cauchy(F | as_tensor<N>) | eigen_values<> |
++                      svp_view;
++      if (!ok) {
++        return ctx.registerErrorMessage(
++            "computeEigenStresses: computation of the eigen stresses failed");
++      }
++      return true;
++    });
+   }  // end of computeEigenStressesForFiniteStrainBehaviours
+ 
+   static bool computeEigenStressesForFiniteStrainBehaviours(
+@@ -278,21 +326,22 @@ namespace mfem_mgis {
+       const Material& m,
+       const Material::StateSelection s) {
+     using namespace mgis::function;
+-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
+     const auto opk1 =
+         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
+-    if (!areValid(oF, opk1)) {
++    if (isInvalid(opk1)) {
+       return {};
+     }
+-    const auto ok = *opk1 | as_tensor<N> |
+-                    from_pk1_to_cauchy(*oF | as_tensor<N>) | eigen_values<> |
+-                    maximum_component | s1;
+-    if (!ok) {
+-      return ctx.registerErrorMessage(
+-          "computeFirstEigenStress: computation of the first eigen stress "
+-          "failed");
+-    }
+-    return true;
++    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
++      const auto ok = *opk1 | as_tensor<N> |
++                      from_pk1_to_cauchy(F | as_tensor<N>) | eigen_values<> |
++                      maximum_component | s1;
++      if (!ok) {
++        return ctx.registerErrorMessage(
++            "computeFirstEigenStress: computation of the first eigen stress "
++            "failed");
++      }
++      return true;
++    });
+   }  // end of computeFirstEigenStressForFiniteStrainBehaviours
+ 
+   static bool computeFirstEigenStressForFiniteStrainBehaviours(
+@@ -488,23 +537,24 @@ namespace mfem_mgis {
+       const Material& m,
+       const Material::StateSelection s) {
+     using namespace mgis::function;
+-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
+     const auto opk1 =
+         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
+     const auto oR = construct<RotationMatrixEvaluator>(ctx, m);
+-    if (!areValid(oF, opk1, oR)) {
++    if (!areValid(opk1, oR)) {
+       return {};
+     }
+-    auto sview = sig | as_stensor<N>;
+-    const auto ok = *opk1 | as_tensor<N> |  //
+-                    from_pk1_to_cauchy(*oF | as_tensor<N>) |
+-                    rotate_backwards(*oR | as_tmatrix<3, 3>) | sview;
+-    if (!ok) {
+-      return ctx.registerErrorMessage(
+-          "computeCauchyStressInGlobalFrame: computation of the Cauchy "
+-          "stress in the global frame failed");
+-    }
+-    return true;
++    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
++      auto sview = sig | as_stensor<N>;
++      const auto ok = *opk1 | as_tensor<N> |  //
++                      from_pk1_to_cauchy(F | as_tensor<N>) |
++                      rotate_backwards(*oR | as_tmatrix<3, 3>) | sview;
++      if (!ok) {
++        return ctx.registerErrorMessage(
++            "computeCauchyStressInGlobalFrame: computation of the Cauchy "
++            "stress in the global frame failed");
++      }
++      return true;
++    });
+   }  // end of computeCauchyStressInGlobalFrame_impl
+ 
+   bool computeCauchyStressInGlobalFrame(Context& ctx,
+@@ -572,21 +622,22 @@ namespace mfem_mgis {
+                                        const Material& m,
+                                        const Material::StateSelection s) {
+     using namespace mgis::function;
+-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
+     const auto opk1 =
+         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
+-    if (!areValid(oF, opk1)) {
++    if (isInvalid(opk1)) {
+       return {};
+     }
+-    auto sview = sig | as_stensor<N>;
+-    const auto ok = *opk1 | as_tensor<N> |  //
+-                    from_pk1_to_cauchy(*oF | as_tensor<N>) | sview;
+-    if (!ok) {
+-      return ctx.registerErrorMessage(
+-          "computeCauchyStress: computation of the Cauchy "
+-          "stress in the global frame failed");
+-    }
+-    return true;
++    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
++      auto sview = sig | as_stensor<N>;
++      const auto ok = *opk1 | as_tensor<N> |  //
++                      from_pk1_to_cauchy(F | as_tensor<N>) | sview;
++      if (!ok) {
++        return ctx.registerErrorMessage(
++            "computeCauchyStress: computation of the Cauchy "
++            "stress in the global frame failed");
++      }
++      return true;
++    });
+   }  // end of computeCauchyStress_impl
+ 
+   bool computeCauchyStress(Context& ctx,
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 274ee5de78..611ad81dcf 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -5,6 +5,7 @@
+  * \date   8/06/2020
+  */
+ 
++#include <optional>
+ #include <limits>
+ #include <string>
+ #include <cstdint>
+@@ -995,14 +996,25 @@ namespace mfem_mgis {
+     }
+     auto& bis = this->behaviour_integrators[m];
+     const auto s = static_cast<size_type>(bis.size());
+-    auto bptr = mfem_mgis::load(ctx, l, b, this->hypothesis);
++    // displacement gradient given to a finite strain behaviour, if
++    // requested
++    auto lopts = BehaviourLoadingOptions{};
++    if (contains(params, displacement_gradient_parameter)) {
++      const auto odg = get<bool>(ctx, params, displacement_gradient_parameter);
++      if (isInvalid(odg)) {
++        return {};
++      }
++      lopts.displacement_gradient = *odg;
++    }
++    auto bptr = mfem_mgis::load(ctx, l, b, this->hypothesis, lopts);
+     if (isInvalid(bptr)) {
+       return {};
+     }
+     // location of the behaviour of this material, if given, taking
+     // precedence over the execution settings
+-    const auto olocation =
+-        internals::extractBehaviourExecutionLocation(ctx, params);
++    const auto olocation = internals::extractBehaviourExecutionLocation(
++        ctx, remove(params,
++                    std::vector<std::string>{displacement_gradient_parameter}));
+     if (isInvalid(olocation)) {
+       return {};
+     }
+@@ -1110,6 +1122,32 @@ namespace mfem_mgis {
+ 
+   void MultiMaterialNonLinearIntegrator::setMacroscopicGradients(
+       std::span<const real> g) {
++    // the same macroscopic gradients are given to all the materials: the
++    // finite strain behaviours shall all be given the deformation gradient,
++    // or all the displacement gradient (see `BehaviourLoadingOptions`)
++    auto ctx = Context{};
++    auto displacement_gradient = std::optional<bool>{};
++    for (const auto& bis : this->behaviour_integrators) {
++      for (const auto& bi : bis) {
++        if ((bi == nullptr) || (!bi->hasMaterial())) {
++          continue;
++        }
++        const auto& b = bi->getMaterial(ctx)->b;
++        if (b.btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
++          continue;
++        }
++        const auto dg = mgis::behaviour::usesDisplacementGradient(b);
++        if (displacement_gradient.has_value() &&
++            (*displacement_gradient != dg)) {
++          mgis::raise(
++              "MultiMaterialNonLinearIntegrator::setMacroscopicGradients: "
++              "the same macroscopic gradients can't be given to finite "
++              "strain behaviours given the deformation gradient and to "
++              "finite strain behaviours given the displacement gradient");
++        }
++        displacement_gradient = dg;
++      }
++    }
+     for (auto& bis : this->behaviour_integrators) {
+       for (auto& bi : bis) {
+         bi->setMacroscopicGradients(g);
+diff --git a/tests/AddBehaviourIntegratorTest.cxx b/tests/AddBehaviourIntegratorTest.cxx
+index f54ef86dbd..7f8da993ad 100644
+--- a/tests/AddBehaviourIntegratorTest.cxx
++++ b/tests/AddBehaviourIntegratorTest.cxx
+@@ -1,7 +1,10 @@
+ /*!
+  * \file   tests/AddBehaviourIntegratorTest.cxx
+  * \brief  This test checks that the non throwing version of the
+- * `addBehaviourIntegrator` method reports errors in the execution context.
++ * `addBehaviourIntegrator` method reports errors in the execution context,
++ * including the refusals of the displacement gradient (parameter
++ * `DisplacementGradient`) for a small strain behaviour and with a
++ * regularisation.
+  * \date   24/09/2026
+  */
+ 
+@@ -16,10 +19,13 @@
+ #include "TFEL/Tests/TestManager.hxx"
+ #include "mfem/general/optparser.hpp"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ 
+ struct {
+   const char* mesh_file = nullptr;
++  //! \brief library of the behaviours of the tests
++  const char* library = nullptr;
+   int parallel = 0;
+ } parameters;
+ 
+@@ -30,6 +36,8 @@ struct AddBehaviourIntegratorTest final : public tfel::tests::TestCase {
+   tfel::tests::TestResult execute() override {
+     this->test1();
+     this->test2();
++    this->test3();
++    this->test4();
+     return this->result;
+   }
+ 
+@@ -73,6 +81,37 @@ struct AddBehaviourIntegratorTest final : public tfel::tests::TestCase {
+                      "addBehaviourIntegrator: multi material support has been "
+                      "disabled");
+   }
++  //! \brief displacement gradient given to a small strain behaviour
++  void test3() {
++    using namespace mfem_mgis;
++    auto ctx = Context{};
++    auto oproblem =
++        construct<NonLinearEvolutionProblem>(ctx, getProblemParameters());
++    TFEL_TESTS_ASSERT(isValid(oproblem));
++    const auto r = oproblem->addBehaviourIntegrator(
++        ctx, "Mechanics", 1, parameters.library, "IsotropicLinearElasticity",
++        Parameters{{displacement_gradient_parameter, true}});
++    TFEL_TESTS_CHECK(isInvalid(r));
++    TFEL_TESTS_CHECK(
++        ctx.getErrorMessage().find("is not a finite strain behaviour") !=
++        std::string::npos);
++  }
++  //! \brief displacement gradient with a regularisation
++  void test4() {
++    using namespace mfem_mgis;
++    auto ctx = Context{};
++    auto oproblem =
++        construct<NonLinearEvolutionProblem>(ctx, getProblemParameters());
++    TFEL_TESTS_ASSERT(isValid(oproblem));
++    const auto r = oproblem->addBehaviourIntegrator(
++        ctx, "Mechanics", 1, parameters.library, "LogarithmicStrainElasticity",
++        Parameters{{displacement_gradient_parameter, true},
++                   {"Regularization", Parameters{{"FBar", Parameters{}}}}});
++    TFEL_TESTS_CHECK(isInvalid(r));
++    TFEL_TESTS_CHECK(ctx.getErrorMessage().find(
++                         "the regularisations do not support the "
++                         "displacement gradient") != std::string::npos);
++  }
+ };
+ 
+ TFEL_TESTS_GENERATE_PROXY(AddBehaviourIntegratorTest,
+@@ -84,10 +123,13 @@ int main(int argc, char** argv) {
+   // options treatment
+   mfem::OptionsParser args(argc, argv);
+   args.AddOption(&parameters.mesh_file, "-m", "--mesh", "Mesh file to use.");
++  args.AddOption(&parameters.library, "-l", "--library",
++                 "Library of the behaviours of the tests.");
+   args.AddOption(&parameters.parallel, "-p", "--parallel",
+                  "choose between serial (-p 0) and parallel (-p 1)");
+   args.Parse();
+-  if ((!args.Good()) || (parameters.mesh_file == nullptr)) {
++  if ((!args.Good()) || (parameters.mesh_file == nullptr) ||
++      (parameters.library == nullptr)) {
+     args.PrintUsage(mfem_mgis::getOutputStream());
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 54a5808ebc..1ab3295fb8 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -74,7 +74,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+     OrthotropicMicromorphicDamage
+     UO2Shrinkage_RAPHAEL2008
+     FailingIsotropicLinearElasticity
+-    OrthotropicSaintVenantKirchhoffElasticity)
++    OrthotropicSaintVenantKirchhoffElasticity
++    LogarithmicStrainElasticity)
+ 
+   # TwoLayerCube executable
+   add_test_executable(TwoLayerCube)
+@@ -119,9 +120,16 @@ if(MFEM_MGIS_HAVE_TFEL)
+   # UniaxialTensileTest executable
+   add_test_executable(UniaxialTensileTest)
+ 
+-  # Helper function for UniaxialTensileTest cases
++  # Helper function for UniaxialTensileTest cases. The optional arguments are
++  # a suffix of the name of the test and additional options of the test, the
++  # reference file being the one of the behaviour.
+   function(add_uniaxial_tensile_test behaviour internal_state_variable)
+     set(test "UniaxialTensileTest-${behaviour}")
++    set(options)
++    if(ARGC GREATER 2)
++      set(test "${test}-${ARGV2}")
++      list(SUBLIST ARGN 1 -1 options)
++    endif()
+     set(UniaxialTensileTestParameters
+         "--mesh"
+         "${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh"
+@@ -132,7 +140,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+         "--reference-file"
+         "${CMAKE_CURRENT_SOURCE_DIR}/references/${behaviour}.ref"
+         "--internal-state-variable"
+-        "${internal_state_variable}")
++        "${internal_state_variable}"
++        ${options})
+     add_test(NAME ${test}
+              COMMAND ./UniaxialTensileTest ${UniaxialTensileTestParameters}
+                      "--no-parallel")
+@@ -150,6 +159,17 @@ if(MFEM_MGIS_HAVE_TFEL)
+                             EquivalentPlasticStrain)
+   add_uniaxial_tensile_test(Mazars Damage)
+   add_uniaxial_tensile_test(SaintVenantKirchhoffElasticity EquivalentStrain)
++  add_uniaxial_tensile_test(LogarithmicStrainElasticity EquivalentStrain)
++  # finite strain behaviours given the displacement gradient H = F - I
++  # (parameter DisplacementGradient of the behaviour integrators), compared
++  # to the same reference values as with the deformation gradient: a
++  # behaviour written with the deformation gradient (which receives
++  # F = I + H) and a behaviour in the Hencky strain framework (whose strain
++  # is computed from H)
++  add_uniaxial_tensile_test(SaintVenantKirchhoffElasticity EquivalentStrain
++                            DisplacementGradient --displacement-gradient)
++  add_uniaxial_tensile_test(LogarithmicStrainElasticity EquivalentStrain
++                            DisplacementGradient --displacement-gradient)
+   # convergence of the Newton solver at the floor of the residual, in float
+   # only: with an unreachable relative tolerance, a stagnation of the
+   # residual is accepted as convergence (option StagnationRelativeTolerance
+@@ -181,6 +201,25 @@ if(MFEM_MGIS_HAVE_TFEL)
+     set_tests_properties(
+       UniaxialTensileTest-NoStagnation-SaintVenantKirchhoffElasticity
+       PROPERTIES PASS_REGULAR_EXPRESSION "the resolution failed")
++    # the displacement gradient keeps the precision of small strains: in the
++    # Hencky strain framework, the Newton solver converges at every step
++    # with a relative tolerance of 1e-5, below the floor of the residual
++    # reached with the deformation gradient (about 2e-5)
++    add_test(NAME UniaxialTensileTest-Precision-LogarithmicStrainElasticity-DisplacementGradient
++             COMMAND ./UniaxialTensileTest
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>
++                     --behaviour LogarithmicStrainElasticity
++                     --internal-state-variable EquivalentStrain
++                     --reference-file
++                     ${CMAKE_CURRENT_SOURCE_DIR}/references/LogarithmicStrainElasticity.ref
++                     --displacement-gradient --relative-tolerance 1e-5
++                     --stagnation-relative-tolerance 0
++                     --no-parallel --no-post-processing)
++    set_tests_properties(
++      UniaxialTensileTest-Precision-LogarithmicStrainElasticity-DisplacementGradient
++      PROPERTIES FAIL_REGULAR_EXPRESSION "the resolution failed;test failed"
++                 DEPENDS BehaviourTest)
+   endif()
+ 
+   # ImposedPressureTest executable
+@@ -344,12 +383,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+   # Helper function for AddBehaviourIntegratorTest cases
+   function(add_add_behaviour_integrator_test)
+     set(test "AddBehaviourIntegratorTest")
+-    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh")
++    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh"
++               "--library" "$<TARGET_FILE:BehaviourTest>")
+     add_test(NAME ${test}
+              COMMAND ./AddBehaviourIntegratorTest ${params} "--parallel" 0)
++    set_property(TEST ${test} PROPERTY DEPENDS BehaviourTest)
+     if(MFEM_USE_MPI)
+       add_test(NAME Parallel${test}
+                COMMAND mpirun -n 2 ./AddBehaviourIntegratorTest ${params} "--parallel" 1)
++      set_property(TEST Parallel${test} PROPERTY DEPENDS BehaviourTest)
+     endif(MFEM_USE_MPI)
+   endfunction()
+ 
+diff --git a/tests/LogarithmicStrainElasticity.mfront b/tests/LogarithmicStrainElasticity.mfront
+new file mode 100644
+index 0000000000..82849e7b70
+--- /dev/null
++++ b/tests/LogarithmicStrainElasticity.mfront
+@@ -0,0 +1,42 @@
++@DSL Default;
++@Behaviour LogarithmicStrainElasticity;
++@Date 14/10/2026;
++@Description {
++  "Isotropic linear elasticity in the logarithmic (Hencky) strain "
++  "framework, used to test the finite strain behaviours given the "
++  "displacement gradient"
++}
++
++@StrainMeasure Hencky;
++@ModellingHypotheses {Tridimensional, PlaneStrain, Axisymmetrical};
++@ProvidesSymmetricTangentOperator;
++
++@Parameter stress young = 70.e9;
++young.setGlossaryName("YoungModulus");
++@Parameter real nu = 0.34;
++nu.setGlossaryName("PoissonRatio");
++
++@LocalVariable stress lambda;
++@LocalVariable stress mu;
++
++@StateVariable real eeq;
++eeq.setGlossaryName("EquivalentStrain");
++
++@InitLocalVariables {
++  lambda = computeLambda(young, nu);
++  mu = computeMu(young, nu);
++}
++
++@PredictionOperator {
++  static_cast<void>(smt);
++  Dt = lambda * Stensor4::IxI() + 2 * mu * Stensor4::Id();
++}
++
++@Integrator {
++  const auto e = eval(eto + deto);
++  sig = lambda * trace(e) * StrainStensor::Id() + 2 * mu * e;
++  deeq = (e | e) - eeq;
++  if (computeTangentOperator_) {
++    Dt = lambda * Stensor4::IxI() + 2 * mu * Stensor4::Id();
++  }
++}
+diff --git a/tests/UniaxialTensileTest.cxx b/tests/UniaxialTensileTest.cxx
+index 5d9717719e..8f74baacca 100644
+--- a/tests/UniaxialTensileTest.cxx
++++ b/tests/UniaxialTensileTest.cxx
+@@ -9,14 +9,21 @@
+  * At each time step, the first two components of the gradients, the first
+  * component of the thermodynamic forces and an internal state variable are
+  * extracted at the first integration point. They are saved in the file
+- * UniaxialTensileTest-<behaviour>.txt and compared to the values of the
+- * reference file, if any.
++ * UniaxialTensileTest-<behaviour>.txt (with the suffix
++ * -DisplacementGradient for the option --displacement-gradient) and
++ * compared to the values of the reference file, if any. For a finite strain
++ * behaviour given the displacement gradient, the gradients saved are the
++ * components of the deformation gradient, as with the deformation
++ * gradient. For a finite strain behaviour, the Cauchy stress
++ * computed by the post-processing of mfem-mgis at the end is also checked
++ * against the first Piola-Kirchhoff stress.
+  *
+  * \author Thomas Helfer
+  * \date   14/12/2020
+  */
+ 
+ #include <array>
++#include <cmath>
+ #include <string>
+ #include <vector>
+ #include <cstdlib>
+@@ -28,8 +35,12 @@
+ #include "MFEMMGIS/Profiler.hxx"
+ #include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#if defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL)
++#include "MFEMMGIS/MechanicalPostProcessings.hxx"
++#endif /* defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL) */
+ #include "Tolerance.hxx"
+ 
+ /*!
+@@ -78,6 +89,11 @@ struct TestParameters {
+   bool parallel = false;
+ #endif
+   bool post_processing = true;
++  /*!
++   * give the displacement gradient instead of the deformation gradient to a
++   * finite strain behaviour
++   */
++  bool displacement_gradient = false;
+ };
+ 
+ //! \brief values extracted at the first integration point at each time step
+@@ -131,6 +147,10 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
+   args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
+                  "--no-post-processing",
+                  "Export or not the results to Paraview.");
++  args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
++                 "-no-dg", "--no-displacement-gradient",
++                 "Give the displacement gradient instead of the deformation "
++                 "gradient to a finite strain behaviour.");
+   // options of mfem-mgis, such as --execution, handled by
+   // mfem_mgis::initialize
+   mfem_mgis::declareDefaultOptions(args);
+@@ -226,8 +246,12 @@ static void extractResults(UniaxialTestResults& r,
+   if (m.n == 0) {
+     return;
+   }
+-  r.g0.push_back(s.gradients[0]);
+-  r.g1.push_back(s.gradients[1]);
++  // components of the deformation gradient with the displacement gradient
++  const auto shift = mgis::behaviour::usesDisplacementGradient(m.b)
++                         ? mfem_mgis::real{1}
++                         : mfem_mgis::real{0};
++  r.g0.push_back(s.gradients[0] + shift);
++  r.g1.push_back(s.gradients[1] + shift);
+   r.tf0.push_back(s.thermodynamic_forces[0]);
+   if (std::string_view{p.isv_name}.empty()) {
+     r.v.push_back(0);
+@@ -266,6 +290,59 @@ static UniaxialTestResults readResults(const std::string& f) {
+   return r;
+ }
+ 
++/*!
++ * \return if the axial Cauchy stress computed by the post-processing of
++ * mfem-mgis at the first integration point, at the end of the time step,
++ * matches the one computed from the first Piola-Kirchhoff stress and the
++ * deformation gradient (finite strain behaviours only, true otherwise)
++ * \param[in] m: material
++ */
++static bool checkCauchyStress([[maybe_unused]] const mfem_mgis::Material& m) {
++#if defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL)
++  if ((m.n == 0) ||
++      (m.b.btype !=
++       mgis::behaviour::Behaviour::STANDARDFINITESTRAINBEHAVIOUR)) {
++    return true;
++  }
++  auto ctx = mfem_mgis::Context{};
++  const auto osig = mfem_mgis::computeCauchyStress(
++      ctx, m, mfem_mgis::Material::END_OF_TIME_STEP);
++  if (!osig.has_value()) {
++    mfem_mgis::getErrorStream() << ctx.getErrorMessage() << '\n';
++    return false;
++  }
++  // deformation gradient and first Piola-Kirchhoff stress, components xx,
++  // yy, zz, xy, yx, xz, zx, yz, zy, in double
++  auto F = std::array<double, 9>{};
++  auto P = std::array<double, 9>{};
++  for (std::size_t i = 0; i != 9; ++i) {
++    F[i] = static_cast<double>(m.s1.gradients[i]);
++    P[i] = static_cast<double>(m.s1.thermodynamic_forces[i]);
++  }
++  if (mgis::behaviour::usesDisplacementGradient(m.b)) {
++    F[0] += 1;
++    F[1] += 1;
++    F[2] += 1;
++  }
++  const auto J = F[0] * (F[1] * F[2] - F[7] * F[8]) -
++                 F[3] * (F[4] * F[2] - F[7] * F[6]) +
++                 F[5] * (F[4] * F[8] - F[1] * F[6]);
++  const auto sxx = (P[0] * F[0] + P[3] * F[3] + P[5] * F[5]) / J;
++  const auto sxx_pp =
++      static_cast<double>(osig->getIntegrationPointValues(0)[0]);
++  const auto e = std::abs(sxx_pp - sxx);
++  const auto t =
++      static_cast<double>(mfem_mgis::unit_tests::tolerance(1e-10, 1e-5));
++  if (e > t * std::abs(sxx)) {
++    mfem_mgis::getErrorStream()
++        << "test failed (Cauchy stress of the post-processing " << sxx_pp
++        << " vs " << sxx << ")\n";
++    return false;
++  }
++#endif /* defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL) */
++  return true;
++}
++
+ /*!
+  * \return if the results match the reference values
+  * \param[in] r: results
+@@ -282,7 +359,7 @@ static bool checkResults(const UniaxialTestResults& r,
+   constexpr auto eeps = mfem_mgis::unit_tests::tolerance(1.e-10, 1.e-6);
+   constexpr auto seps = mfem_mgis::unit_tests::tolerance(
+       mfem_mgis::real(70.e9) * mfem_mgis::real(1.e-10), 5.e4);
+-  auto success = true;
++  auto success = checkCauchyStress(m);
+   if ((m.n != 0) && (!std::string_view{p.reference_file}.empty())) {
+     const auto references = readResults(p.reference_file);
+     if (references.g0.size() != r.g0.size()) {
+@@ -383,8 +460,10 @@ int main(int argc, char** argv) {
+               {"Parallel", p.parallel}}) |
+       or_die;
+   // material
+-  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", p.behaviour_library,
+-                                 p.behaviour) |
++  problem.addBehaviourIntegrator(
++      ctx, "Mechanics", "Cube", p.behaviour_library, p.behaviour,
++      mfem_mgis::Parameters{{mfem_mgis::displacement_gradient_parameter,
++                             p.displacement_gradient}}) |
+       or_die;
+   auto& m1 = problem.getMaterial(ctx, "Cube", 0) | or_die;
+   mgis::behaviour::setExternalStateVariable(ctx, m1.s0, "Temperature", 293.15) |
+@@ -441,20 +520,24 @@ int main(int argc, char** argv) {
+                                       p.stagnation_relative_tolerance);
+   }
+   problem.setSolverParameters(ctx, solver_parameters) | or_die;
++  // name of the outputs, distinct for the cases with the displacement
++  // gradient, which may run at the same time
++  const auto name =
++      std::string(p.behaviour) +
++      std::string(p.displacement_gradient ? "-DisplacementGradient" : "");
+   // post-processings
+   if (p.post_processing) {
+     problem.addPostProcessing(
+         ctx, "ParaviewExportResults",
+-        {{"OutputFileName",
+-          "UniaxialTensileTestOutput-" + std::string(p.behaviour)}}) |
++        {{"OutputFileName", "UniaxialTensileTestOutput-" + name}}) |
+         or_die;
+     const auto& b = m1.b;
+     if ((b.btype == mgis::behaviour::Behaviour::STANDARDSTRAINBASEDBEHAVIOUR) &&
+         (b.kinematic == mgis::behaviour::Behaviour::SMALLSTRAINKINEMATIC)) {
+       problem.addPostProcessing(
+           ctx, "ParaviewExportIntegrationPointResultsAtNodes",
+-          {{"OutputFileName", "UniaxialTensileTestIntegrationPointOutput-" +
+-                                  std::string(p.behaviour)},
++          {{"OutputFileName",
++            "UniaxialTensileTestIntegrationPointOutput-" + name},
+            {"Materials", {"Cube"}},
+            {"Results", {"Strain"}}}) |
+           or_die;
+@@ -482,8 +565,7 @@ int main(int argc, char** argv) {
+     extractResults(r, m1, m1.s1, p);
+   }
+   // save and compare the results
+-  saveResults("UniaxialTensileTest-" + std::string(p.behaviour) + ".txt", r,
+-              m1);
++  saveResults("UniaxialTensileTest-" + name + ".txt", r, m1);
+   const auto success = checkResults(r, m1, p);
+   mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
+   return success ? EXIT_SUCCESS : EXIT_FAILURE;
+diff --git a/tests/references/LogarithmicStrainElasticity.ref b/tests/references/LogarithmicStrainElasticity.ref
+new file mode 100644
+index 0000000000..717f4ecb40
+--- /dev/null
++++ b/tests/references/LogarithmicStrainElasticity.ref
+@@ -0,0 +1,101 @@
++1 1 0 0
++1.0003 0.9998980204972 20990553.463791 1.1077476673919e-07
++1.0006 0.99979608196964 41962227.7011 4.4296620698637e-07
++1.0009 0.99969418438857 62915043.459398 9.9637519506893e-07
++1.0012 0.99959232772527 83849021.457996 1.770802824114e-06
++1.0015 0.99949051195107 104764182.38797 2.7660504057579e-06
++1.0018 0.9993887370373 125660546.91214 3.981919469836e-06
++1.0021 0.99928700295535 146538135.66535 5.4182117641043e-06
++1.0024 0.99918530967661 167396969.2543 7.074729253923e-06
++1.0027 0.99908365717251 188237068.25767 8.951274121974e-06
++1.003 0.99898204541452 209058453.2262 1.1047648767962e-05
++1.0033 0.99888047437411 229861144.68263 1.3363655808321e-05
++1.0036 0.99877894402282 250645163.12187 1.589909807591e-05
++1.0039 0.99867745433217 271410529.0109 1.8653778619735e-05
++1.0042 0.99857600527375 292157262.78907 2.1627500704645e-05
++1.0045 0.99847459681915 312885384.86774 2.482006781103e-05
++1.0048 0.99837322894 333594915.63075 2.8231283634553e-05
++1.0051 0.99827190160797 354285875.43429 3.1860952085839e-05
++1.0054 0.99817061479473 374958284.60678 3.5708877290188e-05
++1.0057 0.99806936847201 395612163.44915 3.9774863587281e-05
++1.006 0.99796816261154 416247532.23488 4.4058715530902e-05
++1.0063 0.9978669971851 436864411.2099 4.8560237888631e-05
++1.0066 0.99776587216448 457462820.59268 5.3279235641561e-05
++1.0069 0.99766478752151 478042780.57432 5.8215513984005e-05
++1.0072 0.99756374322804 498604311.31852 6.3368878323227e-05
++1.0075 0.99746273925597 519147432.96186 6.8739134279116e-05
++1.0078 0.99736177557719 539672165.61347 7.4326087683938e-05
++1.0081 0.99726085216365 560178529.35533 8.0129544582027e-05
++1.0084 0.99715996898731 580666544.24231 8.6149311229492e-05
++1.0087 0.99705912602017 601136230.30202 9.2385194093954e-05
++1.009 0.99695832323425 621587607.53519 9.8836999854234e-05
++1.008 0.99729448882931 553345114.52614 7.8171014969487e-05
++1.007 0.99763110160846 484898670.85379 5.9909191034157e-05
++1.006 0.99796816261154 416247532.23488 4.4058715530902e-05
++1.005 0.99830567288183 347390951.01764 3.0626802183323e-05
++1.004 0.99864363346607 278328176.16296 1.9620691074798e-05
++1.003 0.99898204541452 209058453.2262 1.1047648767962e-05
++1.002 0.9993209097809 139581024.33845 4.9149684248271e-06
++1.001 0.99966022762246 69895128.187641 1.2299699275747e-06
++1 1 0 0
++0.999 1.0003402279778 -70105128.479289 1.2324323296274e-06
++0.998 1.0006809126238 -140421029.00515 4.9346676904916e-06
++0.997 1.0010220550095 -210948476.85145 1.1114134066602e-05
++0.996 1.0013636562099 -281688250.83104 1.9778286776075e-05
++0.995 1.0017057173036 -352641133.31469 3.093460859596e-05
++0.994 1.002048239373 -423807910.25091 4.4590609887742e-05
++0.993 1.002391223504 -495189371.18582 6.0753828723545e-05
++0.992 1.0027346707862 -566786309.28273 7.9431831013042e-05
++0.991 1.0030785823127 -638599521.34254 0.00010063221063103
++0.99 1.0034229591807 -710629807.82335 0.00012436258954578
++0.989 1.0037678024906 -782877972.86124 0.00015063061794799
++0.988 1.0041131133469 -855344824.2903 0.00017944397438057
++0.987 1.0044588928576 -928031173.66351 0.00021081036586906
++0.986 1.0048051421347 -1000937836.2729 0.00024473752805284
++0.985 1.0051518622937 -1074065631.1709 0.00028123322531701
++0.984 1.005499054454 -1147415381.1909 0.00032030525092501
++0.983 1.0058467197388 -1220987912.9684 0.00036196142715202
++0.982 1.0061948592753 -1294784056.9623 0.00040620960541913
++0.981 1.0065434741941 -1368804647.4763 0.00045305766642809
++0.98 1.0068925656302 -1443050522.68 0.0005025135202971
++0.979 1.0072421347219 -1517522524.6311 0.00055458510669698
++0.98 1.0068925656302 -1443050522.68 0.00050251352029709
++0.981 1.0065434741941 -1368804647.4762 0.00045305766642809
++0.982 1.0061948592753 -1294784056.9623 0.00040620960541913
++0.983 1.0058467197388 -1220987912.9684 0.00036196142715202
++0.984 1.005499054454 -1147415381.1909 0.000320305250925
++0.985 1.0051518622937 -1074065631.1709 0.000281233225317
++0.986 1.0048051421347 -1000937836.2729 0.00024473752805284
++0.987 1.0044588928576 -928031173.66351 0.00021081036586906
++0.988 1.0041131133469 -855344824.29032 0.00017944397438056
++0.989 1.0037678024906 -782877972.86118 0.00015063061794799
++0.99 1.0034229591807 -710629807.82335 0.00012436258954577
++0.991 1.0030785823127 -638599521.34254 0.00010063221063103
++0.992 1.0027346707862 -566786309.28276 7.943183101304e-05
++0.993 1.002391223504 -495189371.18581 6.0753828723544e-05
++0.994 1.002048239373 -423807910.25091 4.4590609887739e-05
++0.995 1.0017057173036 -352641133.31467 3.0934608595958e-05
++0.996 1.0013636562099 -281688250.83104 1.9778286776075e-05
++0.997 1.0010220550095 -210948476.85145 1.1114134066602e-05
++0.998 1.0006809126238 -140421029.00513 4.9346676904911e-06
++0.999 1.0003402279778 -70105128.479302 1.2324323296268e-06
++1 1 0 0
++1.001 0.99966022762246 69895128.187678 1.229969927575e-06
++1.002 0.9993209097809 139581024.33844 4.9149684248274e-06
++1.003 0.99898204541452 209058453.2262 1.1047648767962e-05
++1.004 0.99864363346607 278328176.16297 1.96206910748e-05
++1.005 0.99830567288183 347390951.01764 3.0626802183323e-05
++1.006 0.99796816261154 416247532.23491 4.4058715530904e-05
++1.007 0.99763110160846 484898670.85379 5.9909191034157e-05
++1.008 0.99729448882931 553345114.52614 7.8171014969487e-05
++1.009 0.99695832323425 621587607.53522 9.8836999854237e-05
++1.01 0.9966226037869 689626890.81366 0.00012189998432854
++1.011 0.99628732945429 757463701.96183 0.00014735283303775
++1.012 0.99595249920686 825098775.26599 0.00017518843651554
++1.013 0.99561811201847 892532841.71596 0.00020539971106766
++1.014 0.99528416686633 959766629.02311 0.00023797959865627
++1.015 0.99495066273103 1026800861.638 0.00027292106678494
++1.016 0.99461759859652 1093636260.768 0.00031021710838425
++1.017 0.99428497345007 1160273544.3949 0.00034986074169799
++1.018 0.99395278628229 1226713427.2919 0.00039184501017002
++1.019 0.99362103608709 1292956621.0414 0.00043616298233173
+-- 
+2.43.0
+

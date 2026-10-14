@@ -214,6 +214,39 @@ namespace tfel::math {
     }
   }  // end of computeGreenLagrangeTensor
 
+  TFEL_HOST_DEVICE constexpr auto
+  computeGreenLagrangeTensorFromDisplacementGradient(
+      const TensorConcept auto& t) noexcept {
+    using TensorType = decltype(t);
+    constexpr auto N = getSpaceDimension<TensorType>();
+    static_assert((N == 1) || (N == 2) || (N == 3), "invalid space dimension");
+    using Result = stensor<N, decltype(t(0) * t(0))>;
+    // the diagonal terms H_ii + (H^T H)_ii / 2 and the off-diagonal terms
+    // (H_ij + H_ji + (H^T H)_ij) / 2, stored multiplied by the square root
+    // of 2
+    if constexpr (N == 1u) {
+      return Result{t[0] + t[0] * t[0] / 2, t[1] + t[1] * t[1] / 2,
+                    t[2] + t[2] * t[2] / 2};
+    } else if constexpr (N == 2u) {
+      constexpr auto icste = Cste<numeric_type<TensorType>>::isqrt2;
+      return Result{t[0] + (t[0] * t[0] + t[4] * t[4]) / 2,
+                    t[1] + (t[1] * t[1] + t[3] * t[3]) / 2,  //
+                    t[2] + t[2] * t[2] / 2,                  //
+                    icste * (t[3] + t[4] + t[0] * t[3] + t[1] * t[4])};
+    } else if constexpr (N == 3u) {
+      constexpr auto icste = Cste<numeric_type<TensorType>>::isqrt2;
+      return Result{t[0] + (t[0] * t[0] + t[4] * t[4] + t[6] * t[6]) / 2,
+                    t[1] + (t[1] * t[1] + t[3] * t[3] + t[8] * t[8]) / 2,
+                    t[2] + (t[2] * t[2] + t[5] * t[5] + t[7] * t[7]) / 2,
+                    icste * (t[3] + t[4] +  //
+                             t[6] * t[8] + t[1] * t[4] + t[0] * t[3]),
+                    icste * (t[5] + t[6] +  //
+                             t[4] * t[7] + t[2] * t[6] + t[0] * t[5]),
+                    icste * (t[7] + t[8] +  //
+                             t[2] * t[8] + t[1] * t[7] + t[3] * t[5])};
+    }
+  }  // end of computeGreenLagrangeTensorFromDisplacementGradient
+
   TFEL_HOST_DEVICE constexpr auto pushForward(
       const StensorConcept auto& p, const TensorConcept auto& F) noexcept {
     return push_forward(p, F);

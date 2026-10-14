@@ -74,6 +74,14 @@ namespace mfem_mgis {
              const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \brief set the macroscopic gradients
+     *
+     * The macroscopic gradients are the macroscopic values of the gradients
+     * of the behaviour. For a finite strain behaviour, they are the
+     * macroscopic deformation gradient or, if the behaviour is given the
+     * displacement gradient (see `BehaviourLoadingOptions`), the
+     * macroscopic displacement gradient, which keeps the precision of small
+     * strains in single precision.
+     *
      * \param[in] g: macroscopic gradients
      */
     void setMacroscopicGradients(std::span<const real> g);

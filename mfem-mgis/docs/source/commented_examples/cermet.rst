@@ -202,6 +202,16 @@ Command-line Usage
       - int
       - ``500``
       - Number of simulation steps.
+    * - ``-dg, --displacement-gradient``, ``-no-dg, --no-displacement-gradient``
+      - bool
+      - ``false``
+      - Give the displacement gradient :math:`H = F - I` instead of the
+        deformation gradient to the behaviours (parameter
+        ``DisplacementGradient`` of mfem-mgis). In single precision, the
+        metallic interface (Hencky strain framework) then computes its
+        strain without cancellation, and the macroscopic loading, kept as a
+        displacement gradient, keeps its precision. The grains, written
+        with the deformation gradient, receive :math:`F = I + H`.
     * - ``-f <string>, --file <string>``
       - string
       - ``vectors_5grains.txt``

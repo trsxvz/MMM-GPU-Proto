@@ -40,7 +40,8 @@ namespace mfront::gpb {
 
   /*!
    * \brief integration strategy of finite strain behaviours (see
-   * `StandardIntegrator`). The gradients are the deformation gradient. The
+   * `StandardIntegrator`). The gradients are the deformation gradient or,
+   * if selected by the computation options, the displacement gradient. The
    * thermodynamic forces are the stress measure selected by the computation
    * options (Cauchy stress, first or second Piola-Kirchhoff stress) and the
    * tangent operator is the one selected by the computation options.

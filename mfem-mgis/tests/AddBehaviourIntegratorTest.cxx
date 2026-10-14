@@ -1,7 +1,10 @@
 /*!
  * \file   tests/AddBehaviourIntegratorTest.cxx
  * \brief  This test checks that the non throwing version of the
- * `addBehaviourIntegrator` method reports errors in the execution context.
+ * `addBehaviourIntegrator` method reports errors in the execution context,
+ * including the refusals of the displacement gradient (parameter
+ * `DisplacementGradient`) for a small strain behaviour and with a
+ * regularisation.
  * \date   24/09/2026
  */
 
@@ -16,10 +19,13 @@
 #include "TFEL/Tests/TestManager.hxx"
 #include "mfem/general/optparser.hpp"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 
 struct {
   const char* mesh_file = nullptr;
+  //! \brief library of the behaviours of the tests
+  const char* library = nullptr;
   int parallel = 0;
 } parameters;
 
@@ -30,6 +36,8 @@ struct AddBehaviourIntegratorTest final : public tfel::tests::TestCase {
   tfel::tests::TestResult execute() override {
     this->test1();
     this->test2();
+    this->test3();
+    this->test4();
     return this->result;
   }
 
@@ -73,6 +81,37 @@ struct AddBehaviourIntegratorTest final : public tfel::tests::TestCase {
                      "addBehaviourIntegrator: multi material support has been "
                      "disabled");
   }
+  //! \brief displacement gradient given to a small strain behaviour
+  void test3() {
+    using namespace mfem_mgis;
+    auto ctx = Context{};
+    auto oproblem =
+        construct<NonLinearEvolutionProblem>(ctx, getProblemParameters());
+    TFEL_TESTS_ASSERT(isValid(oproblem));
+    const auto r = oproblem->addBehaviourIntegrator(
+        ctx, "Mechanics", 1, parameters.library, "IsotropicLinearElasticity",
+        Parameters{{displacement_gradient_parameter, true}});
+    TFEL_TESTS_CHECK(isInvalid(r));
+    TFEL_TESTS_CHECK(
+        ctx.getErrorMessage().find("is not a finite strain behaviour") !=
+        std::string::npos);
+  }
+  //! \brief displacement gradient with a regularisation
+  void test4() {
+    using namespace mfem_mgis;
+    auto ctx = Context{};
+    auto oproblem =
+        construct<NonLinearEvolutionProblem>(ctx, getProblemParameters());
+    TFEL_TESTS_ASSERT(isValid(oproblem));
+    const auto r = oproblem->addBehaviourIntegrator(
+        ctx, "Mechanics", 1, parameters.library, "LogarithmicStrainElasticity",
+        Parameters{{displacement_gradient_parameter, true},
+                   {"Regularization", Parameters{{"FBar", Parameters{}}}}});
+    TFEL_TESTS_CHECK(isInvalid(r));
+    TFEL_TESTS_CHECK(ctx.getErrorMessage().find(
+                         "the regularisations do not support the "
+                         "displacement gradient") != std::string::npos);
+  }
 };
 
 TFEL_TESTS_GENERATE_PROXY(AddBehaviourIntegratorTest,
@@ -84,10 +123,13 @@ int main(int argc, char** argv) {
   // options treatment
   mfem::OptionsParser args(argc, argv);
   args.AddOption(&parameters.mesh_file, "-m", "--mesh", "Mesh file to use.");
+  args.AddOption(&parameters.library, "-l", "--library",
+                 "Library of the behaviours of the tests.");
   args.AddOption(&parameters.parallel, "-p", "--parallel",
                  "choose between serial (-p 0) and parallel (-p 1)");
   args.Parse();
-  if ((!args.Good()) || (parameters.mesh_file == nullptr)) {
+  if ((!args.Good()) || (parameters.mesh_file == nullptr) ||
+      (parameters.library == nullptr)) {
     args.PrintUsage(mfem_mgis::getOutputStream());
     mfem_mgis::abort(EXIT_FAILURE);
   }

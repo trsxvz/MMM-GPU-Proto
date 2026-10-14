@@ -30,6 +30,12 @@ mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest
   FILE polycrystal-test.res ${_polycrystal_checks}
   COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
           --macroscopic-stress-output-file polycrystal-test.res)
+# the same with the displacement gradient given to the behaviour
+mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-DisplacementGradient
+  FILE polycrystal-test-dg.res ${_polycrystal_checks}
+  COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+          --macroscopic-stress-output-file polycrystal-test-dg.res
+          --displacement-gradient)
 if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursPolycrystal_HAVE_GPU_BEHAVIOURS)
   mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTest-gpu
     FILE polycrystal-test-gpu.res ${_polycrystal_checks}

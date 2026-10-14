@@ -5,6 +5,7 @@
 #include <optional>
 #include <functional>
 
+#include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/ParaviewExportIntegrationPointResultsAtNodes.hxx"
@@ -67,6 +68,8 @@ struct TestParameters {
   int verbosity_level = 0;  // default value : lower level
   int nsteps = 500;
   mfem_mgis::real duration = 200.;
+  //! \brief give the displacement gradient to the behaviours
+  bool displacement_gradient = false;
 };
 
 static void parseCommandLineOptions(mfem::OptionsParser &args,
@@ -96,6 +99,14 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
   args.AddOption(&p.nsteps, "-n", "--nstep",
                  "choose the number of steps");
   args.AddOption(&p.vector_file, "-f", "--file", "Vector file to use");
+  args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
+                 "-no-dg", "--no-displacement-gradient",
+                 "Give the displacement gradient instead of the deformation "
+                 "gradient to the behaviours (parameter DisplacementGradient "
+                 "of mfem-mgis). In single precision, the behaviours written "
+                 "in the Green-Lagrange or Hencky strain frameworks then "
+                 "compute their strain without cancellation, and the "
+                 "macroscopic loading keeps its precision.");
   args.Parse();
   if (!args.Good()) {
     if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
@@ -185,16 +196,20 @@ static void setup_material_properties(
 
   // TEST metal
   {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, p.behaviour_library,
-                                   p.behaviourMetal) |
+    problem.addBehaviourIntegrator(
+        ctx, "Mechanics", 1, p.behaviour_library, p.behaviourMetal,
+        {{mfem_mgis::displacement_gradient_parameter,
+          p.displacement_gradient}}) |
         or_die;
     auto &metal = problem.getMaterial(ctx, 1, 0) | or_die;
     set_temperature(metal);
   }
 
   for (int grainID = 2; grainID <= nMat; grainID++) {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", grainID,
-                                   p.behaviour_library, p.behaviourGrain) |
+    problem.addBehaviourIntegrator(
+        ctx, "Mechanics", grainID, p.behaviour_library, p.behaviourGrain,
+        {{mfem_mgis::displacement_gradient_parameter,
+          p.displacement_gradient}}) |
         or_die;
     auto &grain = problem.getMaterial(ctx, grainID, 0) | or_die;
     set_properties_mono(grain, young1, young2, young3, poisson12, poisson23,
@@ -271,9 +286,10 @@ int main(int argc, char **argv) {
   // problem.setLinearSolver("MUMPSSolver", {});
 
   //
-  const auto Fzz = [](const mfem_mgis::real ets) {
+  // evolution of the axial component of the displacement gradient
+  const auto Hzz = [](const mfem_mgis::real ets) {
     constexpr auto def = mfem_mgis::real{5e-4};
-    return 1 + def * ets;
+    return def * ets;
   };
   //
   mm_opera_hpc::MacroscropicElasticMaterialProperties mp;
@@ -319,8 +335,8 @@ int main(int argc, char **argv) {
   //
   const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
       NumericalParameters{.macroscopic_elastic_material_properties = mp};
-  mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(problem, Fzz, np,
-                                                              post_processing);
+  mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(
+      problem, Hzz, np, post_processing, p.displacement_gradient);
   const auto success = s.run(ctx, out, temporal_sequences);
   //
   mm_opera_hpc::printMemoryFootprint("[End]");

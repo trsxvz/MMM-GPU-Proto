@@ -18,6 +18,7 @@
 #include <string_view>
 
 #include "mfem/fem/datacollection.hpp"
+#include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/AnalyticalTests.hxx"
 #include "MFEMMGIS/Config.hxx"
@@ -122,6 +123,8 @@ struct MaterialParameters : ElasticMaterialPropertiesParameters {
   const char *behaviour = "Mono_UO2_Cosh_Jaco3";
   //! \brief default file name describing orientation vectors
   const char *vect_file = "mesh/vectors_5crystals.txt";
+  //! \brief give the displacement gradient to the behaviour
+  bool displacement_gradient = false;
 };
 
 struct LoadingParameters {
@@ -336,9 +339,9 @@ int main(int argc, char *argv[]) {
     }
     return times;
   }();
-  // evolution of the axial component of the deformation gradient
-  const auto Fzz = [&p](const mfem_mgis::real ets) {
-    return 1 + p.linear_strain_rate * ets;
+  // evolution of the axial component of the displacement gradient
+  const auto Hzz = [&p](const mfem_mgis::real ets) {
+    return p.linear_strain_rate * ets;
   };
   // main output file, written by the main process only
   std::ofstream out;
@@ -355,7 +358,7 @@ int main(int argc, char *argv[]) {
   const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
       NumericalParameters{.macroscopic_elastic_material_properties = mp};
   mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(
-      problem, Fzz, np, p.post_processings);
+      problem, Hzz, np, p.post_processings, p.displacement_gradient);
   const auto success = s.run(ctx, out, temporal_sequences);
 
   if (paraview_exporter != nullptr) {
@@ -442,6 +445,13 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                  "choose the duration");
   args.AddOption(&p.nstep, "-n", "--nstep",
                  "choose the number of steps");
+  args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
+                 "-no-dg", "--no-displacement-gradient",
+                 "Give the displacement gradient instead of the deformation "
+                 "gradient to the behaviour (parameter DisplacementGradient "
+                 "of mfem-mgis). In single precision, the macroscopic "
+                 "loading keeps its precision; the behaviour, written with "
+                 "the deformation gradient, receives F = I + H.");
 
   args.Parse();
 
@@ -487,8 +497,10 @@ static void setupMaterials(
   mfem_mgis::Profiler::Utils::Message("Nombre de matériaux : ", nMat);
 
   for (int i = 0; i < nMat; i++) {
-    problem.addBehaviourIntegrator(ctx, "Mechanics", i + 1, p.behaviour_library,
-                                   p.behaviour) |
+    problem.addBehaviourIntegrator(
+        ctx, "Mechanics", i + 1, p.behaviour_library, p.behaviour,
+        {{mfem_mgis::displacement_gradient_parameter,
+          p.displacement_gradient}}) |
         or_die;
   }
 

@@ -25,10 +25,31 @@ namespace mfront {
   GenericBehaviourSymbolsGenerator::GenericBehaviourSymbolsGenerator() =
       default;
 
+  /*!
+   * \return true if the gradient of the behaviour is the deformation
+   * gradient: finite strain behaviours, and small strain behaviours written
+   * in the Green-Lagrange or Hencky strain frameworks
+   * \param[in] bd: behaviour description
+   */
+  static bool isDeformationGradientTheGradient(const BehaviourDescription& bd) {
+    if (bd.getBehaviourType() ==
+        BehaviourDescription::STANDARDFINITESTRAINBEHAVIOUR) {
+      return true;
+    }
+    if ((bd.getBehaviourType() ==
+         BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) &&
+        (bd.isStrainMeasureDefined())) {
+      const auto fs = bd.getStrainMeasure();
+      return (fs == BehaviourDescription::GREENLAGRANGE) ||
+             (fs == BehaviourDescription::HENCKY);
+    }
+    return false;
+  }  // end of isDeformationGradientTheGradient
+
   void GenericBehaviourSymbolsGenerator::writeSpecificSymbols(
       std::ostream& os,
       const BehaviourInterfaceBase& i,
-      const BehaviourDescription&,
+      const BehaviourDescription& bd,
       const FileDescription&,
       const std::string& name) const {
     const auto n = i.getFunctionNameBasis(name);
@@ -40,6 +61,12 @@ namespace mfront {
         os, "unsigned short", s,
         std::to_string(api) + " + MFRONT_GB_REAL_TYPE_API_VERSION_OFFSET");
     writeRealSizeSymbol(os, n, "mfront_gb_real");
+    // the caller may give the displacement gradient instead of the
+    // deformation gradient (see
+    // `mfront::gb::displacement_gradient_stress_measure_offset`)
+    if (isDeformationGradientTheGradient(bd)) {
+      exportUnsignedShortSymbol(os, n + "_AcceptsDisplacementGradient", 1u);
+    }
   }  // end of writeSpecificSymbols
 
   void GenericBehaviourSymbolsGenerator::writeBehaviourTypeSymbols(

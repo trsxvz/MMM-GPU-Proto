@@ -26,6 +26,7 @@
 #include "MFront/GenericBehaviour/GenericBehaviourTraits.hxx"
 #include "MFront/GenericBehaviour/Integrate.hxx"
 #include "MFront/GenericBehaviour/StressMeasures.hxx"
+#include "MFront/GenericBehaviour/DisplacementGradient.hxx"
 
 namespace mfront::gb::green_lagrange_strain {
 
@@ -38,16 +39,25 @@ namespace mfront::gb::green_lagrange_strain {
      * \param[out] e: Green-Lagrange strain
      * \param[out] F: deformation gradient
      * \param[in] gradients: gradients
+     * \param[in] displacement_gradient: if true, the gradients are the
+     * displacement gradient \(H = F - I\), from which the Green-Lagrange
+     * strain is computed without cancellation
      */
     template <typename Behaviour, unsigned short N>
     TFEL_HOST_DEVICE void computeGreenLagrangeStrain(
         tfel::math::stensor<N, real>& e,
         tfel::math::tensor<N, real>& F,
-        const real* const gradients) {
+        const real* const gradients,
+        const bool displacement_gradient) {
       using namespace tfel::material;
       using Traits = GenericBehaviourTraits<Behaviour>;
       constexpr auto TensorSize =
           ModellingHypothesisToTensorSize<Traits::hypothesis>::value;
+      if (displacement_gradient) {
+        computeGreenLagrangeStrainFromDisplacementGradient<Traits::hypothesis>(
+            e, F, gradients);
+        return;
+      }
       tfel::fsalgo::copy<TensorSize>::exe(gradients, F.begin());
       e = tfel::math::computeGreenLagrangeTensor(F);
     }  // end of computeGreenLagrangeStrain
@@ -195,7 +205,8 @@ namespace mfront::gb::green_lagrange_strain {
    * \param[in,out] d: behaviour data.
    * \param[in] initialize_variables: pointer to the values of the
    * initialize function variables.
-   * \param[in] o: computation options (only the stress measure is used).
+   * \param[in] o: computation options (the stress measure and the
+   * kind of gradients are used).
    * \param[in] p: out of bounds policy.
    * \param[in] args: additional arguments of the constructor of the
    * behaviour
@@ -218,7 +229,8 @@ namespace mfront::gb::green_lagrange_strain {
     auto e0 = tfel::math::stensor<N, real>{};
     auto s0 = tfel::math::stensor<N, real>{};
     auto S0 = tfel::math::stensor<N, real>{};
-    internals::computeGreenLagrangeStrain<Behaviour>(e0, F0, d.s0.gradients);
+    internals::computeGreenLagrangeStrain<Behaviour>(e0, F0, d.s0.gradients,
+                                                     o.displacement_gradient);
     if ((!internals::addAxialDeformationGradient<Behaviour>(
             F0, d, d.s0.internal_state_variables)) ||
         (!internals::convertToSecondPiolaKirchhoffStress(
@@ -313,8 +325,10 @@ namespace mfront::gb::green_lagrange_strain {
     auto s0 = tfel::math::stensor<N, real>{};
     auto S0 = tfel::math::stensor<N, real>{};
     auto S1 = tfel::math::stensor<N, real>{};
-    internals::computeGreenLagrangeStrain<Behaviour>(e0, F0, d.s0.gradients);
-    internals::computeGreenLagrangeStrain<Behaviour>(e1, F1, d.s1.gradients);
+    internals::computeGreenLagrangeStrain<Behaviour>(e0, F0, d.s0.gradients,
+                                                     o.displacement_gradient);
+    internals::computeGreenLagrangeStrain<Behaviour>(e1, F1, d.s1.gradients,
+                                                     o.displacement_gradient);
     if ((!internals::addAxialDeformationGradient<Behaviour>(
             F0, d, d.s0.internal_state_variables)) ||
         (!internals::convertToSecondPiolaKirchhoffStress(
@@ -395,7 +409,8 @@ namespace mfront::gb::green_lagrange_strain {
    * \param[out] post_processing_variables: pointer to the values of the
    * post-processing variables.
    * \param[in,out] d: behaviour data.
-   * \param[in] o: computation options (only the stress measure is used).
+   * \param[in] o: computation options (the stress measure and the
+   * kind of gradients are used).
    * \param[in] p: out of bounds policy.
    * \param[in] args: additional arguments of the constructor of the
    * behaviour
@@ -423,8 +438,10 @@ namespace mfront::gb::green_lagrange_strain {
     auto s1 = tfel::math::stensor<N, real>{};
     auto S0 = tfel::math::stensor<N, real>{};
     auto S1 = tfel::math::stensor<N, real>{};
-    internals::computeGreenLagrangeStrain<Behaviour>(e0, F0, d.s0.gradients);
-    internals::computeGreenLagrangeStrain<Behaviour>(e1, F1, d.s1.gradients);
+    internals::computeGreenLagrangeStrain<Behaviour>(e0, F0, d.s0.gradients,
+                                                     o.displacement_gradient);
+    internals::computeGreenLagrangeStrain<Behaviour>(e1, F1, d.s1.gradients,
+                                                     o.displacement_gradient);
     if ((!internals::addAxialDeformationGradient<Behaviour>(
             F0, d, d.s0.internal_state_variables)) ||
         (!internals::addAxialDeformationGradient<Behaviour>(

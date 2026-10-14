@@ -32,6 +32,12 @@ mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY
   FILE cermet-test.res ${_cermet_checks}
   COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
           --macroscopic-stress-output-file cermet-test.res)
+# the same with the displacement gradient given to the behaviours
+mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY-DisplacementGradient
+  FILE cermet-test-dg.res ${_cermet_checks}
+  COMMAND $<TARGET_FILE:cermet> ${_cermet_options}
+          --macroscopic-stress-output-file cermet-test-dg.res
+          --displacement-gradient)
 add_test(NAME CermetImposeGradXXYY COMMAND cermet --duration 0.4 --nstep 1 --postprocessing 0)
 if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursCermet_HAVE_GPU_BEHAVIOURS)
   mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY-gpu

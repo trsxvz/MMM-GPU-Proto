@@ -1,0 +1,570 @@
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --execution 
+   --finite-elements 
+   --behaviours 
+   --linear-solver-device 
+   --post-processings 
+   --device 
+   --hypre-device-pool-size 
+   --no-hypre-on-host
+   --no-kokkos
+   --macroscopic-stress-output-file /home/t/Documents/GitHub/mfem-mgis-gpu-proto/results/displacement-gradient-opera-2026-10-14/float-polycrystal-1x1-H.res
+   --mesh mesh/5crystals.msh
+   --mesh_mode FromScratch
+   --vect mesh/vectors_5crystals.txt
+   --library 
+   --behaviour Mono_UO2_Cosh_Jaco3
+   --linear-solver HyprePCG
+   --no-reuse-analysis
+   --linear-solver-preconditioner HypreBoomerAMG
+   --non-linear-solver Newton
+   --adaptive-linear-solver-tolerance None
+   --adaptive-linear-solver-initial-tolerance -1
+   --elastic-operator-linear-solver HypreBoomerAMG
+   --amgx-parameters 
+   --no-amgx-single-precision
+   --order 1
+   --refinement 0
+   --disable-export-von-Mises-stress
+   --disable-export-first_eigen_stress
+   --disable-post-processing
+   --verbosity-level 0
+   --duration 1
+   --nstep 1
+   --displacement-gradient
+Info problem: number of vertices ->  7629
+Info problem: number of elements ->  42593
+Info problem: element size ->  0.0741951
+Info problem: number of finite element unknowns:  20553
+Nombre de matériaux :  5
+checknorm : normalizing vector...
+checknorm : normalizing vector...
+checknorm : normalizing vector...
+GReuss = 6.37443e+10
+GVoigt = 6.73606e+10
+GHSl = 6.73606e+10
+GHSu = 7.4041e+10
+GK = 6.55495e+10
+checknorm : normalizing vector...
+checknorm : normalizing vector...
+checknorm : normalizing vector...
+Solving time step from  0  to  1
+Newton iteration  0 : ||r|| = 1.66188e+06, ||r||/||r_0|| = 1
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration  1: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration  2: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration  3: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration  4: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration  5: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration  6: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration  7: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration  8: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration  9: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration 10: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+Newton iteration 11: reducing the amplitude of the correction by a factor 2
+Newton iteration 12 : ||r|| = 1.66118e+06, ||r||/||r_0|| = 0.999577
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration 13: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration 14: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration 15: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration 16: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration 17: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration 18: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+Newton iteration 19: reducing the amplitude of the correction by a factor 2
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+dividing time step by 2
+Solving time step from  0  to  0.5
+Newton iteration  0 : ||r|| = 582682, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 25357.6, ||r||/||r_0|| = 0.0435187
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 4.09714e+07
+Newton iteration  0 : ||r|| = 334372, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 16430, ||r||/||r_0|| = 0.0491368
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 1.19696e+06
+Newton iteration  0 : ||r|| = 34576.9, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 2 : |res| = 68887.7
+Newton iteration  0 : ||r|| = 36217.3, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 3 : |res| = 4995.95
+Solution at time 0.5 : 1.00025 4968.77 -520.429 4.22102e+07
+Solving time step from  0.5  to  1
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+dividing time step by 2
+Solving time step from  0.5  to  0.75
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+dividing time step by 2
+Solving time step from  0.5  to  0.625
+Newton iteration  0 : ||r|| = 400216, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 26360.4, ||r||/||r_0|| = 0.0658654
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 1.35192e+06
+Newton iteration  0 : ||r|| = 40745.3, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 66949.3
+Newton iteration  0 : ||r|| = 42104, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 2 : |res| = 5508.92
+Solution at time 0.625 : 1.00031 5425.42 -955.553 5.02895e+07
+Solving time step from  0.625  to  0.75
+behaviour integration failed: (exit value: -1)
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+dividing time step by 2
+Solving time step from  0.625  to  0.6875
+Newton iteration  0 : ||r|| = 290983, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 19548.6, ||r||/||r_0|| = 0.0671812
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 496208
+Newton iteration  0 : ||r|| = 24394.6, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 24599
+Newton iteration  0 : ||r|| = 24793.4, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 2 : |res| = 1810.37
+Solution at time 0.6875 : 1.00034 1804.09 -150.695 5.34184e+07
+Solving time step from  0.6875  to  0.75
+Newton iteration  0 : ||r|| = 313831, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 22094.7, ||r||/||r_0|| = 0.0704032
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 316031
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+dividing time step by 2
+Solving time step from  0.6875  to  0.71875
+Newton iteration  0 : ||r|| = 176648, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 10215, ||r||/||r_0|| = 0.0578269
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 121740
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+dividing time step by 2
+Solving time step from  0.6875  to  0.703125
+Newton iteration  0 : ||r|| = 104495, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 5161.48, ||r||/||r_0|| = 0.0493945
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 51766
+Newton iteration  0 : ||r|| = 5503.22, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 1242.56
+Solution at time 0.703125 : 1.00035 1163.74 435.501 5.41075e+07
+Solving time step from  0.703125  to  0.71875
+Newton iteration  0 : ||r|| = 92960.9, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4416.24, ||r||/||r_0|| = 0.0475065
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 14268
+Newton iteration  0 : ||r|| = 4463.13, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 321.73
+Solution at time 0.71875 : 1.00036 310.702 83.5132 5.47705e+07
+Solving time step from  0.71875  to  0.734375
+Newton iteration  0 : ||r|| = 94548.9, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4498.68, ||r||/||r_0|| = 0.0475805
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 19385.4
+Newton iteration  0 : ||r|| = 4581.62, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 498.035
+Solution at time 0.734375 : 1.00037 469.877 165.089 5.53989e+07
+Solving time step from  0.734375  to  0.75
+Newton iteration  0 : ||r|| = 96777.3, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4621.26, ||r||/||r_0|| = 0.0477515
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 18512.6
+Newton iteration  0 : ||r|| = 4697.89, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 509.182
+Solution at time 0.75 : 1.00038 480.621 168.134 5.59963e+07
+Solving time step from  0.75  to  0.765625
+Newton iteration  0 : ||r|| = 98713.7, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4730.35, ||r||/||r_0|| = 0.0479199
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 16060.2
+Newton iteration  0 : ||r|| = 4843.57, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 489.994
+Solution at time 0.765625 : 1.00038 472.933 128.174 5.65663e+07
+Solving time step from  0.765625  to  0.78125
+Newton iteration  0 : ||r|| = 100382, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4876.18, ||r||/||r_0|| = 0.0485761
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 13783.4
+Newton iteration  0 : ||r|| = 4955.93, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 411.33
+Solution at time 0.78125 : 1.00039 394.046 117.981 5.71126e+07
+Solving time step from  0.78125  to  0.796875
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+dividing time step by 2
+Solving time step from  0.78125  to  0.789062
+Newton iteration  0 : ||r|| = 56839.4, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 63854.7
+Newton iteration  0 : ||r|| = 56382.8, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 556.762
+Solution at time 0.789062 : 1.00039 -551.22 -78.3647 5.75001e+07
+Solving time step from  0.789062  to  0.796875
+Newton iteration  0 : ||r|| = 104016, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 5133.9, ||r||/||r_0|| = 0.0493568
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 106258
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+dividing time step by 2
+Solving time step from  0.789062  to  0.792969
+Newton iteration  0 : ||r|| = 81418.1, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4406.88, ||r||/||r_0|| = 0.0541265
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 68714.4
+Newton iteration  0 : ||r|| = 4553.39, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 488.464
+Solution at time 0.792969 : 1.0004 419.506 250.223 5.75535e+07
+Solving time step from  0.792969  to  0.796875
+Newton iteration  0 : ||r|| = 31830.9, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 60294.7
+Newton iteration  0 : ||r|| = 31477.8, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 220.363
+Solution at time 0.796875 : 1.0004 -187.134 116.364 5.77305e+07
+Solving time step from  0.796875  to  0.800781
+Newton iteration  0 : ||r|| = 58657, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 7122.77
+Solution at time 0.800781 : 1.0004 -6622.95 -2621.14 5.79147e+07
+Solving time step from  0.800781  to  0.804688
+Newton iteration  0 : ||r|| = 84162.9, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4507.87, ||r||/||r_0|| = 0.0535613
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 65117.6
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+dividing time step by 2
+Solving time step from  0.800781  to  0.802734
+Newton iteration  0 : ||r|| = 72025.3, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4424.41, ||r||/||r_0|| = 0.0614286
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 47610.9
+Newton iteration  0 : ||r|| = 4441.76, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 107.455
+Solution at time 0.802734 : 1.0004 37.3018 100.773 5.78992e+07
+Solving time step from  0.802734  to  0.804688
+Newton iteration  0 : ||r|| = 17754, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 38034.1
+Newton iteration  0 : ||r|| = 17607.5, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 245.334
+Solution at time 0.804688 : 1.0004 97.1596 225.275 5.79796e+07
+Solving time step from  0.804688  to  0.806641
+Newton iteration  0 : ||r|| = 32743.7, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 2920.09
+Solution at time 0.806641 : 1.0004 -2703.78 -1102.95 5.80626e+07
+Solving time step from  0.806641  to  0.808594
+Newton iteration  0 : ||r|| = 47312.8, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 4524.23
+Solution at time 0.808594 : 1.0004 -4172.36 -1749.31 5.81492e+07
+Solving time step from  0.808594  to  0.810547
+Newton iteration  0 : ||r|| = 61280.8, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4357.89, ||r||/||r_0|| = 0.0711134
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 39665.5
+Newton iteration  0 : ||r|| = 4420.34, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 263.294
+Solution at time 0.810547 : 1.00041 174.824 196.875 5.81489e+07
+Solving time step from  0.810547  to  0.8125
+Newton iteration  0 : ||r|| = 17772, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 32174.3
+Newton iteration  0 : ||r|| = 17621.1, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 97.9742
+Solution at time 0.8125 : 1.00041 -88.568 -41.8885 5.82281e+07
+Solving time step from  0.8125  to  0.814453
+Newton iteration  0 : ||r|| = 32896.3, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 2757.79
+Solution at time 0.814453 : 1.00041 -2573.16 -992.109 5.83104e+07
+Solving time step from  0.814453  to  0.816406
+Newton iteration  0 : ||r|| = 47603.9, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 4501.46
+Solution at time 0.816406 : 1.00041 -4188.22 -1649.85 5.8396e+07
+Solving time step from  0.816406  to  0.818359
+Newton iteration  0 : ||r|| = 61688.9, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4451.75, ||r||/||r_0|| = 0.0721645
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 40271.8
+Newton iteration  0 : ||r|| = 4428, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 260.684
+Solution at time 0.818359 : 1.00041 179.729 188.822 5.83939e+07
+Solving time step from  0.818359  to  0.820312
+Newton iteration  0 : ||r|| = 17915.1, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 33190.4
+Newton iteration  0 : ||r|| = 17773.2, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 57.4936
+Solution at time 0.820312 : 1.00041 -35.8957 44.9112 5.8472e+07
+Solving time step from  0.820312  to  0.822266
+Newton iteration  0 : ||r|| = 33179, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 2378.75
+Solution at time 0.822266 : 1.00041 -2292.48 -634.786 5.85536e+07
+Solving time step from  0.822266  to  0.824219
+Newton iteration  0 : ||r|| = 47977.8, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 4229.61
+Solution at time 0.824219 : 1.00041 -4012.16 -1338.72 5.86385e+07
+Solving time step from  0.824219  to  0.826172
+Newton iteration  0 : ||r|| = 62134.5, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4408.06, ||r||/||r_0|| = 0.0709439
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 40958.7
+Newton iteration  0 : ||r|| = 4423.79, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 176.893
+Solution at time 0.826172 : 1.00041 72.5723 161.321 5.86344e+07
+Solving time step from  0.826172  to  0.828125
+Newton iteration  0 : ||r|| = 18073.5, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 34215.6
+Newton iteration  0 : ||r|| = 17894.4, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 80.7123
+Solution at time 0.828125 : 1.00041 -77.3209 23.1507 5.87118e+07
+Solving time step from  0.828125  to  0.830078
+Newton iteration  0 : ||r|| = 33425.2, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 2761.61
+Solution at time 0.830078 : 1.00042 -2599.04 -933.526 5.87923e+07
+Solving time step from  0.830078  to  0.832031
+Newton iteration  0 : ||r|| = 48296.2, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 4323.57
+Solution at time 0.832031 : 1.00042 -4069.98 -1458.95 5.88765e+07
+Solving time step from  0.832031  to  0.833984
+Newton iteration  0 : ||r|| = 62595.4, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4411.5, ||r||/||r_0|| = 0.0704765
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 41599.3
+Newton iteration  0 : ||r|| = 4435.62, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 162.803
+Solution at time 0.833984 : 1.00042 113.123 117.081 5.88707e+07
+Solving time step from  0.833984  to  0.835938
+Newton iteration  0 : ||r|| = 18156.7, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 34501.7
+Newton iteration  0 : ||r|| = 17996.8, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 82.3066
+Solution at time 0.835938 : 1.00042 -19.5567 79.9495 5.89473e+07
+Solving time step from  0.835938  to  0.837891
+Newton iteration  0 : ||r|| = 33646.8, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 2602.7
+Solution at time 0.837891 : 1.00042 -2511.9 -681.461 5.90272e+07
+Solving time step from  0.837891  to  0.839844
+Newton iteration  0 : ||r|| = 48574.9, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 4487.92
+Solution at time 0.839844 : 1.00042 -4253 -1432.96 5.91105e+07
+Solving time step from  0.839844  to  0.841797
+Newton iteration  0 : ||r|| = 62941.8, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4402.22, ||r||/||r_0|| = 0.0699411
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 41900.1
+Newton iteration  0 : ||r|| = 4388.89, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 153.181
+Solution at time 0.841797 : 1.00042 123.307 90.8842 5.91032e+07
+Solving time step from  0.841797  to  0.84375
+Newton iteration  0 : ||r|| = 18269.5, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 34910.5
+Newton iteration  0 : ||r|| = 18102.4, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 1 : |res| = 93.4297
+Solution at time 0.84375 : 1.00042 -61.5439 70.2954 5.91788e+07
+Solving time step from  0.84375  to  0.845703
+Newton iteration  0 : ||r|| = 33805.4, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 2638.64
+Solution at time 0.845703 : 1.00042 -2541.61 -708.968 5.92581e+07
+Solving time step from  0.845703  to  0.847656
+Newton iteration  0 : ||r|| = 48851, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 4516.67
+Solution at time 0.847656 : 1.00042 -4304.26 -1368.84 5.93407e+07
+Solving time step from  0.847656  to  0.849609
+Newton iteration  0 : ||r|| = 63281, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4379.06, ||r||/||r_0|| = 0.0692003
+Convergence order undefined
+
+Fixed Point iteration 0 : |res| = 42504.6
+behaviour integration failed: (exit value: -1)
+error: the resolution failed.
+Maximum number of substeps reached for temporal sequence from 0 to 1
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |             min(s) |            mean(s) |             max(s) |            part(%) |             imb(%) |
+ |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |         107.940519 |         107.946779 |         107.953039 |        100.000000% |          0.005799% |
+ | |--> Mesh::Constructor                          |                  1 |           0.690182 |           0.696347 |           0.702513 |          0.650758% |          0.885441% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.479667 |           0.481980 |           0.484292 |          0.448614% |          0.479853% |
+ | |--> FED::Constructor                           |                  1 |           0.006847 |           0.009772 |           0.012697 |          0.011761% |         29.929479% |
+ | |--> PeriodicNonLinEvPB::constructor_with_bct   |                  1 |           0.025925 |           0.028929 |           0.031933 |          0.029581% |         10.385160% |
+ |    |--> PeriodicNonLinEvPB::set_bc              |                  1 |           0.025923 |           0.028928 |           0.031932 |          0.029580% |         10.385561% |
+ | |--> common::print_mesh_information             |                  1 |           0.000030 |           0.000037 |           0.000044 |          0.000041% |         18.778833% |
+ | |--> set_mgis_stuff                             |                  1 |           0.006845 |           0.006945 |           0.007045 |          0.006526% |          1.441683% |
+ | |--> set_linear_solver                          |                  1 |           0.000123 |           0.000165 |           0.000206 |          0.000190% |         24.995289% |
+ |    |--> NLEPIB::updateLinearSolver              |                  1 |           0.000001 |           0.000001 |           0.000001 |          0.000001% |          4.526749% |
+ | |--> NLEP::solve                                |                 80 |         107.115215 |         107.147435 |         107.179654 |         99.283592% |          0.030070% |
+ |    |--> NLEPIB::setup                           |                 80 |           0.192356 |           0.246626 |           0.300896 |          0.278728% |         22.004907% |
+ |    |--> NLEPIB::solve                           |                 80 |         106.878422 |         106.900485 |         106.922548 |         99.045426% |          0.020639% |
+ |       |--> NS::Mult                             |                 80 |         106.878197 |         106.900267 |         106.922338 |         99.045232% |          0.020646% |
+ |          |--> NS::processNewUnknownsEstimate    |                 80 |          24.329279 |          24.421665 |          24.514051 |         22.708070% |          0.378295% |
+ |          |--> NS::computeResidual               |                 71 |           1.937930 |           1.959984 |           1.982037 |          1.836018% |          1.125202% |
+ |          |--> NS::Mult::WhileLoop               |                 94 |          80.293180 |          80.358784 |          80.424388 |         74.499420% |          0.081639% |
+ |             |--> NS::computeNewtonCorrection    |                 24 |          59.300806 |          59.363154 |          59.425503 |         55.047550% |          0.105029% |
+ |                |--> NS::getJacobian             |                 24 |           5.701669 |           5.704117 |           5.706565 |          5.286155% |          0.042920% |
+ |                |--> NS::setLinearSolverOperator |                 24 |           0.002121 |           0.002217 |           0.002312 |          0.002142% |          4.312143% |
+ |                |--> MFEM::Mult(r,c)             |                 24 |          53.591899 |          53.656612 |          53.721326 |         49.763607% |          0.120607% |
+ |             |--> NS::processNewUnknownsEstimate |                 42 |          20.249599 |          20.272210 |          20.294820 |         18.799675% |          0.111534% |
+ |             |--> NS::computeResidual            |                 23 |           0.589800 |           0.601595 |           0.613390 |          0.568201% |          1.960606% |
+ | |--> NLEPIB::revert                             |                 10 |           0.003736 |           0.003830 |           0.003924 |          0.003635% |          2.448131% |
+ | |--> NLEPIB::update                             |                 37 |           0.014563 |           0.014793 |           0.015023 |          0.013917% |          1.557063% |
+ |-- end timetable ---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+--------------------------------------------------------------------------
+prterun detected that one or more processes exited with non-zero status,
+thus causing the job to be terminated. The first process to do so was:
+
+   Process name: [prterun-t-MS-7E47-2879786@1,1]
+   Exit code:    1
+--------------------------------------------------------------------------

@@ -74,7 +74,8 @@ if(MFEM_MGIS_HAVE_TFEL)
     OrthotropicMicromorphicDamage
     UO2Shrinkage_RAPHAEL2008
     FailingIsotropicLinearElasticity
-    OrthotropicSaintVenantKirchhoffElasticity)
+    OrthotropicSaintVenantKirchhoffElasticity
+    LogarithmicStrainElasticity)
 
   # TwoLayerCube executable
   add_test_executable(TwoLayerCube)
@@ -119,9 +120,16 @@ if(MFEM_MGIS_HAVE_TFEL)
   # UniaxialTensileTest executable
   add_test_executable(UniaxialTensileTest)
 
-  # Helper function for UniaxialTensileTest cases
+  # Helper function for UniaxialTensileTest cases. The optional arguments are
+  # a suffix of the name of the test and additional options of the test, the
+  # reference file being the one of the behaviour.
   function(add_uniaxial_tensile_test behaviour internal_state_variable)
     set(test "UniaxialTensileTest-${behaviour}")
+    set(options)
+    if(ARGC GREATER 2)
+      set(test "${test}-${ARGV2}")
+      list(SUBLIST ARGN 1 -1 options)
+    endif()
     set(UniaxialTensileTestParameters
         "--mesh"
         "${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh"
@@ -132,7 +140,8 @@ if(MFEM_MGIS_HAVE_TFEL)
         "--reference-file"
         "${CMAKE_CURRENT_SOURCE_DIR}/references/${behaviour}.ref"
         "--internal-state-variable"
-        "${internal_state_variable}")
+        "${internal_state_variable}"
+        ${options})
     add_test(NAME ${test}
              COMMAND ./UniaxialTensileTest ${UniaxialTensileTestParameters}
                      "--no-parallel")
@@ -150,6 +159,17 @@ if(MFEM_MGIS_HAVE_TFEL)
                             EquivalentPlasticStrain)
   add_uniaxial_tensile_test(Mazars Damage)
   add_uniaxial_tensile_test(SaintVenantKirchhoffElasticity EquivalentStrain)
+  add_uniaxial_tensile_test(LogarithmicStrainElasticity EquivalentStrain)
+  # finite strain behaviours given the displacement gradient H = F - I
+  # (parameter DisplacementGradient of the behaviour integrators), compared
+  # to the same reference values as with the deformation gradient: a
+  # behaviour written with the deformation gradient (which receives
+  # F = I + H) and a behaviour in the Hencky strain framework (whose strain
+  # is computed from H)
+  add_uniaxial_tensile_test(SaintVenantKirchhoffElasticity EquivalentStrain
+                            DisplacementGradient --displacement-gradient)
+  add_uniaxial_tensile_test(LogarithmicStrainElasticity EquivalentStrain
+                            DisplacementGradient --displacement-gradient)
   # convergence of the Newton solver at the floor of the residual, in float
   # only: with an unreachable relative tolerance, a stagnation of the
   # residual is accepted as convergence (option StagnationRelativeTolerance
@@ -181,6 +201,25 @@ if(MFEM_MGIS_HAVE_TFEL)
     set_tests_properties(
       UniaxialTensileTest-NoStagnation-SaintVenantKirchhoffElasticity
       PROPERTIES PASS_REGULAR_EXPRESSION "the resolution failed")
+    # the displacement gradient keeps the precision of small strains: in the
+    # Hencky strain framework, the Newton solver converges at every step
+    # with a relative tolerance of 1e-5, below the floor of the residual
+    # reached with the deformation gradient (about 2e-5)
+    add_test(NAME UniaxialTensileTest-Precision-LogarithmicStrainElasticity-DisplacementGradient
+             COMMAND ./UniaxialTensileTest
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>
+                     --behaviour LogarithmicStrainElasticity
+                     --internal-state-variable EquivalentStrain
+                     --reference-file
+                     ${CMAKE_CURRENT_SOURCE_DIR}/references/LogarithmicStrainElasticity.ref
+                     --displacement-gradient --relative-tolerance 1e-5
+                     --stagnation-relative-tolerance 0
+                     --no-parallel --no-post-processing)
+    set_tests_properties(
+      UniaxialTensileTest-Precision-LogarithmicStrainElasticity-DisplacementGradient
+      PROPERTIES FAIL_REGULAR_EXPRESSION "the resolution failed;test failed"
+                 DEPENDS BehaviourTest)
   endif()
 
   # ImposedPressureTest executable
@@ -344,12 +383,15 @@ if(MFEM_MGIS_HAVE_TFEL)
   # Helper function for AddBehaviourIntegratorTest cases
   function(add_add_behaviour_integrator_test)
     set(test "AddBehaviourIntegratorTest")
-    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh")
+    set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh"
+               "--library" "$<TARGET_FILE:BehaviourTest>")
     add_test(NAME ${test}
              COMMAND ./AddBehaviourIntegratorTest ${params} "--parallel" 0)
+    set_property(TEST ${test} PROPERTY DEPENDS BehaviourTest)
     if(MFEM_USE_MPI)
       add_test(NAME Parallel${test}
                COMMAND mpirun -n 2 ./AddBehaviourIntegratorTest ${params} "--parallel" 1)
+      set_property(TEST Parallel${test} PROPERTY DEPENDS BehaviourTest)
     endif(MFEM_USE_MPI)
   endfunction()
 

@@ -41,7 +41,28 @@ material. Behaviour integrators are associated with:
    - :code:`BehaviourExecutionLocation` (:code:`cpu` or :code:`gpu`): the
      location where the behaviour of this material is expected to be
      integrated, checked against its library (see
-     :ref:`mfem_mgis_batch_computations_execution`).
+     :ref:`mfem_mgis_batch_computations_execution`);
+   - :code:`DisplacementGradient` (boolean, :code:`false` by default):
+     give the displacement gradient :math:`H = F - I` instead of the
+     deformation gradient :math:`F` to a finite strain behaviour. The
+     deformation gradient being close to the identity, its components are
+     only known within about :math:`6 \cdot 10^{-8}` in single precision.
+     The displacement gradient keeps the relative precision of small
+     strains: the behaviours written in the Green-Lagrange or Hencky
+     strain frameworks compute their strain from it without cancellation
+     (the behaviours written with the deformation gradient receive
+     :math:`F = I + H`). The gradients of the material, named
+     :code:`DisplacementGradient`, are then the displacement gradients,
+     and so are its macroscopic gradients (for instance the ones given by
+     :code:`setMacroscopicGradientsEvolution` for a periodic problem): a
+     caller which keeps the macroscopic displacement gradient keeps the
+     precision of the macroscopic strain. The macroscopic gradients being
+     the same for all the materials, the finite strain behaviours of a
+     periodic problem shall all be given the deformation gradient, or all
+     the displacement gradient. The post-processings of
+     mfem-mgis use :math:`F = I + H`. This requires a behaviour generated
+     by a version of :code:`MFront` which accepts it, and is not supported
+     by the regularizations.
 
    All the behaviour integrators described below support the integration
    by batches and the computations by kernels, on the GPU if a GPU is used

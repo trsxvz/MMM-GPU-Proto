@@ -83,8 +83,14 @@ namespace mfem_mgis {
 
   void BehaviourIntegratorBase::checkIfAFiniteStrainBehaviourIsDeclared(
       attributes::Throwing) const {
-    auto isDeformationGradient = [](const mgis::behaviour::Variable& g) {
-      if (g.name != "DeformationGradient") {
+    // the gradient is the displacement gradient for a finite strain
+    // behaviour loaded with this option (see `BehaviourLoadingOptions`)
+    const auto dg = mgis::behaviour::usesDisplacementGradient(this->b);
+    const auto gname = dg ? "DisplacementGradient" : "DeformationGradient";
+    const auto gdescription = std::string{dg ? "the displacement gradient"
+                                             : "the deformation gradient"};
+    auto isGradient = [gname](const mgis::behaviour::Variable& g) {
+      if (g.name != gname) {
         return false;
       }
       if (g.type != mgis::behaviour::Variable::TENSOR) {
@@ -114,12 +120,12 @@ namespace mfem_mgis {
       }
     }
     if ((this->b.gradients.size() != 1) ||
-        (!isDeformationGradient(this->b.gradients.at(0)))) {
+        (!isGradient(this->b.gradients.at(0)))) {
       this->throwInvalidBehaviourType(
           throwing,
           "expected a finite strain behaviour or a general behaviour whose "
-          "only gradient is the deformation gradient, a non symmetric "
-          "tensor");
+          "only gradient is " +
+              gdescription + ", a non symmetric tensor");
     }
     if ((this->b.thermodynamic_forces.size() != 1) ||
         (!isPK1(this->b.thermodynamic_forces.at(0)))) {
@@ -131,13 +137,13 @@ namespace mfem_mgis {
     }
     if ((this->b.to_blocks.size() != 1) ||
         (!isPK1(this->b.to_blocks.at(0).first)) ||
-        (!isDeformationGradient(this->b.to_blocks.at(0).second))) {
+        (!isGradient(this->b.to_blocks.at(0).second))) {
       this->throwInvalidBehaviourType(
           throwing,
           "expected a finite strain behaviour or a general behaviour whose "
           "only tangent operator block is the derivative of the first "
-          "Piola-Kirchhoff stress with respect to the deformation gradient, "
-          "both being non symmetric tensors");
+          "Piola-Kirchhoff stress with respect to " +
+              gdescription + ", both being non symmetric tensors");
     }
   }  // end of checkIfAFiniteStrainBehaviourIsDeclared
 

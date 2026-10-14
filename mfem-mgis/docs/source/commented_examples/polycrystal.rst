@@ -146,6 +146,15 @@ Main options
       - int
       - ``200``
       - Number of time steps.
+    * - ``-dg, --displacement-gradient``, ``-no-dg, --no-displacement-gradient``
+      - bool
+      - ``false``
+      - Give the displacement gradient :math:`H = F - I` instead of the
+        deformation gradient to the behaviour (parameter
+        ``DisplacementGradient`` of mfem-mgis). In single precision, the
+        macroscopic loading, kept as a displacement gradient, keeps its
+        precision. The behaviour, written with the deformation gradient,
+        receives :math:`F = I + H`.
     * - ``--linear-solver <string>``
       - string
       - ``HyprePCG``

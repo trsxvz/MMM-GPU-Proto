@@ -115,6 +115,7 @@ Usage: ./cermet [options] ...
 | `-d <double>, --duration <double>`          | double | `200`                 | Duration of the simulation.                                                                                                                                       |
 | `-n <int>, --nstep <int>`                   | int    | `500`                 | Number of simulation steps.                                                                                                                                       |
 | `-f <string>, --file <string>`              | string | `vectors_5grains.txt` | Vector file to use.                                                                                                                                               |
+| `-dg, --displacement-gradient`, `-no-dg, --no-displacement-gradient` | bool | `false` | Give the displacement gradient H = F - I instead of the deformation gradient to the behaviours (parameter `DisplacementGradient` of mfem-mgis). In single precision, the metallic interface (Hencky strain framework) then computes its strain without cancellation, and the macroscopic loading, kept as a displacement gradient, keeps its precision. The grains, written with the deformation gradient, receive F = I + H. |
 | `--macroscopic-stress-output-file <string>` | string | `cermet.res`          | Main output file containing:<br>• Evolution of the diagonal components of the deformation gradient<br>• Evolution of the diagonal components of the Cauchy stress |
 
 The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
@@ -123,7 +124,7 @@ used (or `--execution mixed` to place each phase on the CPU or on the GPU).
 
 ### Tests
 
-`ctest` runs `CermetNullStrainXXYY`, two time steps of 0.2 s without post-processing, whose axial stress `Szz` at 0.2 s and 0.4 s is compared to the one computed by Cast3M (`results/cermet_cast3m.csv`) with a relative tolerance of 1 % (`cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `CermetImposeGradXXYY`, one time step of 0.4 s which is only run, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
+`ctest` runs `CermetNullStrainXXYY`, two time steps of 0.2 s without post-processing, whose axial stress `Szz` at 0.2 s and 0.4 s is compared to the one computed by Cast3M (`results/cermet_cast3m.csv`) with a relative tolerance of 1 % (`cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `CermetNullStrainXXYY-DisplacementGradient`, the same with `--displacement-gradient`, `CermetImposeGradXXYY`, one time step of 0.4 s which is only run, and, with the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `CermetNullStrainXXYY-gpu`, the first one with `--execution gpu`.
 
 
 ### Run it

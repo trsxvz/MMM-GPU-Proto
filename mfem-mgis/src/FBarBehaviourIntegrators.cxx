@@ -6,6 +6,7 @@
  * \date   22/03/2026
  */
 
+#include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/FBarBehaviourIntegrators.hxx"
 #include "MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx"
 #include "MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx"
@@ -27,6 +28,11 @@ namespace mfem_mgis {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage(
           "invalid behaviour type: a finite strain behaviour is expected");
+    }
+    if (mgis::behaviour::usesDisplacementGradient(*b)) {
+      return ctx.registerErrorMessage(
+          "the FBar regularisation does not support the displacement "
+          "gradient");
     }
     if (b->symmetry == Behaviour::ISOTROPIC) {
       auto bi = make_unique<FBarIsotropicPlaneStrainBehaviourIntegrator>(
@@ -63,6 +69,11 @@ namespace mfem_mgis {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage(
           "invalid behaviour type: a finite strain behaviour is expected");
+    }
+    if (mgis::behaviour::usesDisplacementGradient(*b)) {
+      return ctx.registerErrorMessage(
+          "the FBar regularisation does not support the displacement "
+          "gradient");
     }
     if (b->symmetry == Behaviour::ISOTROPIC) {
       auto bi = make_unique<FBarIsotropicTridimensionalBehaviourIntegrator>(

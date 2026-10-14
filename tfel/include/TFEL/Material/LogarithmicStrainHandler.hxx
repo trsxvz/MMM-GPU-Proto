@@ -96,6 +96,20 @@ namespace tfel::material {
     TFEL_HOST_DEVICE LogarithmicStrainHandler(
         const Setting, const DeformationGradient&) noexcept;
     /*!
+     * \brief constructor from the deformation gradient and the
+     * Green-Lagrange strain, computed by the caller with a better precision
+     * than from the deformation gradient, for instance from the displacement
+     * gradient (see `computeGreenLagrangeTensorFromDisplacementGradient`).
+     * The logarithmic strain is computed from the Green-Lagrange strain
+     * without cancellation.
+     * \param[in] c:  setting
+     * \param[in] F1: deformation gradient
+     * \param[in] E1: Green-Lagrange strain
+     */
+    TFEL_HOST_DEVICE LogarithmicStrainHandler(const Setting,
+                                              const DeformationGradient&,
+                                              const StrainStensor&) noexcept;
+    /*!
      * \brief update the axial deformation gradient
      * \param[in] Fzz: axial deformation gradient
      * \note This only updates the deformation gradient, not the
@@ -234,7 +248,11 @@ namespace tfel::material {
     using TangentOperator = tfel::math::st2tost2<2u, stress>;
     //! a simple alias
     using size_type = unsigned short;
-    //! criterion used to check if eigenvalues are equal.
+    /*!
+     * \brief criterion formerly used to check if eigenvalues are equal,
+     * unused since the divided differences of the logarithm are computed
+     * without cancellation, kept for compatibility
+     */
     static constexpr real eps = 1.e-14;
     /*!
      * \brief constructor
@@ -245,6 +263,23 @@ namespace tfel::material {
      */
     TFEL_HOST_DEVICE LogarithmicStrainHandler(const Setting,
                                               const DeformationGradient&,
+                                              const bool = true);
+    /*!
+     * \brief constructor from the deformation gradient and the
+     * Green-Lagrange strain, computed by the caller with a better precision
+     * than from the deformation gradient, for instance from the displacement
+     * gradient (see `computeGreenLagrangeTensorFromDisplacementGradient`).
+     * The logarithmic strain is computed from the Green-Lagrange strain
+     * without cancellation.
+     * \param[in] c:  setting
+     * \param[in] F1: deformation gradient
+     * \param[in] E1: Green-Lagrange strain
+     * \param[in] b: compute the axial component. This component is
+     * unused in plane stress analyses.
+     */
+    TFEL_HOST_DEVICE LogarithmicStrainHandler(const Setting,
+                                              const DeformationGradient&,
+                                              const StrainStensor&,
                                               const bool = true);
     /*!
      * \brief update the axial deformation gradient
@@ -407,6 +442,27 @@ namespace tfel::material {
                                const DeformationGradient&,
                                const bool);
       /*!
+       * \brief constructor from the deformation gradient and the
+       * Green-Lagrange strain
+       * \param[in] c:  setting
+       * \param[in] F1: deformation gradient
+       * \param[in] E1: Green-Lagrange strain
+       * \param[in] b: compute the axial component. This component is
+       * unused in plane stress analyses.
+       */
+      TFEL_HOST_DEVICE Builder(const Setting,
+                               const DeformationGradient&,
+                               const StrainStensor&,
+                               const bool);
+      /*!
+       * \brief compute the derivative of the logarithmic strain, once the
+       * eigenvalues, the eigenvectors and the logarithmic strain are known
+       * \param[in] c:  setting
+       * \param[in] F1: deformation gradient
+       */
+      TFEL_HOST_DEVICE void computeDerivative(const Setting,
+                                              const DeformationGradient&);
+      /*!
        * derivative of the logarithmic strain with respect to the
        * right Cauchy-Green tensor
        */
@@ -415,6 +471,8 @@ namespace tfel::material {
       tfel::math::tmatrix<3u, 3u, real> m;
       //! eigenvalues of the right Cauchy-Green tensor
       tfel::math::tvector<3u, real> vp;
+      //! eigenvalues of \(C - I\) (see the `svp` member of the handler)
+      tfel::math::tvector<3u, real> svp;
       //! half the logarithm of the eigenvalues
       tfel::math::tvector<3u, real> e;
     };
@@ -453,7 +511,16 @@ namespace tfel::material {
     const tfel::math::tmatrix<3u, 3u, real> m;
     //! eigenvalues of the right Cauchy-Green tensor
     const tfel::math::tvector<3u, real> vp;
-    //! eigenvalues of the right Cauchy-Green tensor
+    /*!
+     * \brief eigenvalues of \(C - I\), computed from the Green-Lagrange
+     * strain when the handler is built from it. The divided differences of
+     * the logarithm, used by the derivatives, are computed from them with
+     * `std::log1p`, without cancellation: this matters when two eigenvalues
+     * are close, their differences being then of the order of the rounding
+     * errors
+     */
+    const tfel::math::tvector<3u, real> svp;
+    //! half the logarithm of the eigenvalues
     const tfel::math::tvector<3u, real> e;
   };
 
@@ -478,7 +545,11 @@ namespace tfel::material {
     using TangentOperator = tfel::math::st2tost2<3u, stress>;
     //! a simple alias
     using size_type = unsigned short;
-    //! numerical parameter used to distinguish egal eigenvalues.
+    /*!
+     * \brief criterion formerly used to check if eigenvalues are equal,
+     * unused since the divided differences of the logarithm are computed
+     * without cancellation, kept for compatibility
+     */
     static constexpr real eps = 1.e-14;
     /*!
      * \brief constructor
@@ -487,6 +558,20 @@ namespace tfel::material {
      */
     TFEL_HOST_DEVICE LogarithmicStrainHandler(const Setting,
                                               const DeformationGradient&);
+    /*!
+     * \brief constructor from the deformation gradient and the
+     * Green-Lagrange strain, computed by the caller with a better precision
+     * than from the deformation gradient, for instance from the displacement
+     * gradient (see `computeGreenLagrangeTensorFromDisplacementGradient`).
+     * The logarithmic strain is computed from the Green-Lagrange strain
+     * without cancellation.
+     * \param[in] c:  setting
+     * \param[in] F1: deformation gradient
+     * \param[in] E1: Green-Lagrange strain
+     */
+    TFEL_HOST_DEVICE LogarithmicStrainHandler(const Setting,
+                                              const DeformationGradient&,
+                                              const StrainStensor&);
     //! \return the the logarithmic strain
     [[nodiscard]] TFEL_HOST_DEVICE StrainStensor
     getHenckyLogarithmicStrain() const;
@@ -606,15 +691,6 @@ namespace tfel::material {
     const DeformationGradient F;
 
    private:
-    //! \return true if all eigenvalues are equal
-    [[nodiscard]] TFEL_HOST_DEVICE static bool areEigenValuesEqual(
-        const tfel::math::tvector<3u, real>&);
-    /*!
-     * \return the index of the single value if two eigenvalues are
-     * equal, 3 otherwise.
-     */
-    [[nodiscard]] TFEL_HOST_DEVICE static size_type findSingleEigenValue(
-        const tfel::math::tvector<3u, real>&);
     /*!
      * \brief compute the N tensors
      * \param[in] m: eigenvectors of the right Cauchy-Green tensor
@@ -644,6 +720,24 @@ namespace tfel::material {
        */
       TFEL_HOST_DEVICE Builder(const Setting, const DeformationGradient&);
       /*!
+       * \brief constructor from the deformation gradient and the
+       * Green-Lagrange strain
+       * \param[in] c:  setting
+       * \param[in] F1: deformation gradient
+       * \param[in] E1: Green-Lagrange strain
+       */
+      TFEL_HOST_DEVICE Builder(const Setting,
+                               const DeformationGradient&,
+                               const StrainStensor&);
+      /*!
+       * \brief compute the derivative of the logarithmic strain, once the
+       * eigenvalues, the eigenvectors and the logarithmic strain are known
+       * \param[in] c:  setting
+       * \param[in] F1: deformation gradient
+       */
+      TFEL_HOST_DEVICE void computeDerivative(const Setting,
+                                              const DeformationGradient&);
+      /*!
        * derivative of the logarithmic strain with respect to the
        * right Cauchy-Green tensor
        */
@@ -652,6 +746,8 @@ namespace tfel::material {
       tfel::math::tmatrix<3u, 3u, real> m;
       //! eigenvalues of the right Cauchy-Green tensor
       tfel::math::tvector<3u, real> vp;
+      //! eigenvalues of \(C - I\) (see the `svp` member of the handler)
+      tfel::math::tvector<3u, real> svp;
       //! half the logarithm of the eigenvalues
       tfel::math::tvector<3u, real> e;
     };
@@ -691,7 +787,16 @@ namespace tfel::material {
     const tfel::math::tmatrix<3u, 3u, real> m;
     //! eigenvalues of the right Cauchy-Green tensor
     const tfel::math::tvector<3u, real> vp;
-    //! eigenvalues of the right Cauchy-Green tensor
+    /*!
+     * \brief eigenvalues of \(C - I\), computed from the Green-Lagrange
+     * strain when the handler is built from it. The divided differences of
+     * the logarithm, used by the derivatives, are computed from them with
+     * `std::log1p`, without cancellation: this matters when two eigenvalues
+     * are close, their differences being then of the order of the rounding
+     * errors
+     */
+    const tfel::math::tvector<3u, real> svp;
+    //! half the logarithm of the eigenvalues
     const tfel::math::tvector<3u, real> e;
   };
 

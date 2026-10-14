@@ -189,6 +189,23 @@ namespace tfel::math {
   TFEL_HOST_DEVICE constexpr auto computeGreenLagrangeTensor(
       const TensorConcept auto&) noexcept;
   /*!
+   * \return the Green-Lagrange tensor computed from the displacement
+   * gradient \(H = F - I\):
+   *
+   * \[
+   * \frac{1}{2}\,\left(H + H^{T} + H^{T}\,H\right)
+   * \]
+   *
+   * This expression has no cancellation when \(F\) is close to the
+   * identity, contrary to \(\left(F^{T}\,F - I\right)/2\): the strain is
+   * computed with the relative precision of \(H\).
+   *
+   * \param[in] H: displacement gradient
+   */
+  TFEL_HOST_DEVICE constexpr auto
+  computeGreenLagrangeTensorFromDisplacementGradient(
+      const TensorConcept auto&) noexcept;
+  /*!
    * compute the product:
    * \[F.s.F^{T}\]
    * \param[in] p: a symmetric tensor

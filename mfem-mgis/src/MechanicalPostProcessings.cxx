@@ -6,10 +6,56 @@
  * \date   22/05/2025
  */
 
+#include <utility>
+#include <algorithm>
 #include "MGIS/Function/TFEL/Mechanics.hxx"
 #include "MFEMMGIS/MechanicalPostProcessings.hxx"
 
 namespace mfem_mgis {
+
+  /*!
+   * \brief call the given function with the deformation gradient of a
+   * material whose behaviour is a finite strain behaviour: a view of its
+   * gradients, or, if the behaviour is given the displacement gradient
+   * \f$H\f$, \f$F = I + H\f$ computed in a local function (the three first
+   * components of the tensors are the diagonal ones)
+   * \return the result of the function, false if the gradients can't be
+   * read
+   * \param[in, out] ctx: execution context
+   * \param[in] m: material
+   * \param[in] s: state selection
+   * \param[in] f: function
+   */
+  template <typename Function>
+  static bool withDeformationGradient(Context& ctx,
+                                      const Material& m,
+                                      const Material::StateSelection s,
+                                      const Function& f) {
+    if (!mgis::behaviour::usesDisplacementGradient(m.b)) {
+      const auto oF = getGradient(ctx, m, "DeformationGradient", s);
+      if (isInvalid(oF)) {
+        return false;
+      }
+      return f(*oF);
+    }
+    const auto oH = getGradient(ctx, m, "DisplacementGradient", s);
+    if (isInvalid(oH)) {
+      return false;
+    }
+    auto F = PartialQuadratureFunction(m.getPartialQuadratureSpacePointer(),
+                                       oH->getNumberOfComponents());
+    const auto n = m.getPartialQuadratureSpace().getNumberOfIntegrationPoints();
+    for (size_type i = 0; i != n; ++i) {
+      const auto H = oH->getIntegrationPointValues(i);
+      auto Fi = F.getIntegrationPointValues(i);
+      std::copy(H.begin(), H.end(), Fi.begin());
+      Fi[0] += real{1};
+      Fi[1] += real{1};
+      Fi[2] += real{1};
+    }
+    // immutable view, as the gradients of the material
+    return f(std::as_const(F).view());
+  }  // end of withDeformationGradient
 
   template <unsigned short N>
   static bool computeVonMisesEquivalentStressForSmallStrainBehaviours_impl(
@@ -55,20 +101,21 @@ namespace mfem_mgis {
       const Material& m,
       const Material::StateSelection s) {
     using namespace mgis::function;
-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
     const auto opk1 =
         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
-    if (!areValid(oF, opk1)) {
+    if (isInvalid(opk1)) {
       return {};
     }
-    const auto ok = *opk1 | as_tensor<N> |
-                    from_pk1_to_cauchy(*oF | as_tensor<N>) | vmis | seq;
-    if (!ok) {
-      return ctx.registerErrorMessage(
-          "computeVonMisesEquivalentStress: computation of the von Mises "
-          "stress failed");
-    }
-    return true;
+    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
+      const auto ok = *opk1 | as_tensor<N> |
+                      from_pk1_to_cauchy(F | as_tensor<N>) | vmis | seq;
+      if (!ok) {
+        return ctx.registerErrorMessage(
+            "computeVonMisesEquivalentStress: computation of the von Mises "
+            "stress failed");
+      }
+      return true;
+    });
   }  // end of computeVonMisesEquivalentStressForFiniteStrainBehaviours
 
   static bool computeVonMisesEquivalentStressForFiniteStrainBehaviours(
@@ -166,21 +213,22 @@ namespace mfem_mgis {
       const Material& m,
       const Material::StateSelection s) {
     using namespace mgis::function;
-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
     const auto opk1 =
         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
-    if (!areValid(oF, opk1)) {
+    if (isInvalid(opk1)) {
       return {};
     }
-    auto svp_view = svp | as_tvector<3>;
-    const auto ok = *opk1 | as_tensor<N> |
-                    from_pk1_to_cauchy(*oF | as_tensor<N>) | eigen_values<> |
-                    svp_view;
-    if (!ok) {
-      return ctx.registerErrorMessage(
-          "computeEigenStresses: computation of the eigen stresses failed");
-    }
-    return true;
+    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
+      auto svp_view = svp | as_tvector<3>;
+      const auto ok = *opk1 | as_tensor<N> |
+                      from_pk1_to_cauchy(F | as_tensor<N>) | eigen_values<> |
+                      svp_view;
+      if (!ok) {
+        return ctx.registerErrorMessage(
+            "computeEigenStresses: computation of the eigen stresses failed");
+      }
+      return true;
+    });
   }  // end of computeEigenStressesForFiniteStrainBehaviours
 
   static bool computeEigenStressesForFiniteStrainBehaviours(
@@ -278,21 +326,22 @@ namespace mfem_mgis {
       const Material& m,
       const Material::StateSelection s) {
     using namespace mgis::function;
-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
     const auto opk1 =
         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
-    if (!areValid(oF, opk1)) {
+    if (isInvalid(opk1)) {
       return {};
     }
-    const auto ok = *opk1 | as_tensor<N> |
-                    from_pk1_to_cauchy(*oF | as_tensor<N>) | eigen_values<> |
-                    maximum_component | s1;
-    if (!ok) {
-      return ctx.registerErrorMessage(
-          "computeFirstEigenStress: computation of the first eigen stress "
-          "failed");
-    }
-    return true;
+    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
+      const auto ok = *opk1 | as_tensor<N> |
+                      from_pk1_to_cauchy(F | as_tensor<N>) | eigen_values<> |
+                      maximum_component | s1;
+      if (!ok) {
+        return ctx.registerErrorMessage(
+            "computeFirstEigenStress: computation of the first eigen stress "
+            "failed");
+      }
+      return true;
+    });
   }  // end of computeFirstEigenStressForFiniteStrainBehaviours
 
   static bool computeFirstEigenStressForFiniteStrainBehaviours(
@@ -488,23 +537,24 @@ namespace mfem_mgis {
       const Material& m,
       const Material::StateSelection s) {
     using namespace mgis::function;
-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
     const auto opk1 =
         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
     const auto oR = construct<RotationMatrixEvaluator>(ctx, m);
-    if (!areValid(oF, opk1, oR)) {
+    if (!areValid(opk1, oR)) {
       return {};
     }
-    auto sview = sig | as_stensor<N>;
-    const auto ok = *opk1 | as_tensor<N> |  //
-                    from_pk1_to_cauchy(*oF | as_tensor<N>) |
-                    rotate_backwards(*oR | as_tmatrix<3, 3>) | sview;
-    if (!ok) {
-      return ctx.registerErrorMessage(
-          "computeCauchyStressInGlobalFrame: computation of the Cauchy "
-          "stress in the global frame failed");
-    }
-    return true;
+    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
+      auto sview = sig | as_stensor<N>;
+      const auto ok = *opk1 | as_tensor<N> |  //
+                      from_pk1_to_cauchy(F | as_tensor<N>) |
+                      rotate_backwards(*oR | as_tmatrix<3, 3>) | sview;
+      if (!ok) {
+        return ctx.registerErrorMessage(
+            "computeCauchyStressInGlobalFrame: computation of the Cauchy "
+            "stress in the global frame failed");
+      }
+      return true;
+    });
   }  // end of computeCauchyStressInGlobalFrame_impl
 
   bool computeCauchyStressInGlobalFrame(Context& ctx,
@@ -572,21 +622,22 @@ namespace mfem_mgis {
                                        const Material& m,
                                        const Material::StateSelection s) {
     using namespace mgis::function;
-    const auto oF = getGradient(ctx, m, "DeformationGradient", s);
     const auto opk1 =
         getThermodynamicForce(ctx, m, "FirstPiolaKirchhoffStress", s);
-    if (!areValid(oF, opk1)) {
+    if (isInvalid(opk1)) {
       return {};
     }
-    auto sview = sig | as_stensor<N>;
-    const auto ok = *opk1 | as_tensor<N> |  //
-                    from_pk1_to_cauchy(*oF | as_tensor<N>) | sview;
-    if (!ok) {
-      return ctx.registerErrorMessage(
-          "computeCauchyStress: computation of the Cauchy "
-          "stress in the global frame failed");
-    }
-    return true;
+    return withDeformationGradient(ctx, m, s, [&](const auto& F) -> bool {
+      auto sview = sig | as_stensor<N>;
+      const auto ok = *opk1 | as_tensor<N> |  //
+                      from_pk1_to_cauchy(F | as_tensor<N>) | sview;
+      if (!ok) {
+        return ctx.registerErrorMessage(
+            "computeCauchyStress: computation of the Cauchy "
+            "stress in the global frame failed");
+      }
+      return true;
+    });
   }  // end of computeCauchyStress_impl
 
   bool computeCauchyStress(Context& ctx,

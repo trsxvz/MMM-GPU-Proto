@@ -88,6 +88,12 @@ struct mfront_gb_BehaviourData {
    * - if 0.5 < K[1] < 1.5, the second Piola-Kirchoff stress is used
    * - if 1.5 < K[1] < 2.5, the first Piola-Kirchoff stress is used
    *
+   * K[1] is increased by 10 when the gradients are the displacement
+   * gradient \(H = F - I\) rather than the deformation gradient (see
+   * `mfront::gb::displacement_gradient_stress_measure_offset`). This is
+   * only allowed if the behaviour exports the
+   * `<function>_AcceptsDisplacementGradient` symbol.
+   *
    * For finite strain behaviours, K[2] holds the consistent tangent
    * operator returned by the behaviour:
    *

@@ -43,12 +43,45 @@ namespace mfront::gb {
     INVALID_STRESS_MEASURE  //!< \brief invalid value
   };
   /*!
-   * \return the stress measure encoded by the given value (second value of
-   * the `K` array of the `mfront_gb_BehaviourData` structure)
+   * \brief offset added to the encoded stress measure (second value of the
+   * `K` array of the `mfront_gb_BehaviourData` structure) when the gradients
+   * given to a finite strain behaviour are the displacement gradient
+   * \(H = F - I\) instead of the deformation gradient \(F\).
+   *
+   * The deformation gradient being close to the identity, its components
+   * are only known within the precision of the numerical type near 1 (about
+   * 6e-8 in single precision): the displacement gradient keeps the relative
+   * precision of small strains. The strain measures (Green-Lagrange, Hencky)
+   * are then computed from \(H\) without cancellation.
+   *
+   * A library generated before this option reports an invalid stress
+   * measure for an offset value.
+   */
+  inline constexpr int displacement_gradient_stress_measure_offset = 10;
+
+  /*!
+   * \return true if the given value (second value of the `K` array of the
+   * `mfront_gb_BehaviourData` structure) states that the gradients of a
+   * finite strain behaviour are the displacement gradient
    * \param[in] v: encoded value
    */
-  TFEL_HOST_DEVICE constexpr StressMeasure decodeStressMeasure(
+  TFEL_HOST_DEVICE constexpr bool decodeDisplacementGradient(
       const real v) noexcept {
+    return v > real{displacement_gradient_stress_measure_offset} - real{0.5};
+  }  // end of decodeDisplacementGradient
+
+  /*!
+   * \return the stress measure encoded by the given value (second value of
+   * the `K` array of the `mfront_gb_BehaviourData` structure), whether it is
+   * offset by `displacement_gradient_stress_measure_offset` or not
+   * \param[in] ev: encoded value
+   */
+  TFEL_HOST_DEVICE constexpr StressMeasure decodeStressMeasure(
+      const real ev) noexcept {
+    const auto v =
+        decodeDisplacementGradient(ev)
+            ? ev - real{displacement_gradient_stress_measure_offset}
+            : ev;
     if (v < real{0.5}) {
       return StressMeasure::CAUCHY;
     } else if (v < real{1.5}) {
@@ -118,7 +151,9 @@ namespace mfront::gb {
    *   value greater than 50 (offset of 100) also requests the speed of
    *   sound;
    * - the second and third values give the stress measure and the tangent
-   *   operator of finite strain behaviours.
+   *   operator of finite strain behaviours. The stress measure is offset by
+   *   `displacement_gradient_stress_measure_offset` when the gradients are
+   *   the displacement gradient.
    */
   struct ComputationOptions {
     /*!
@@ -141,6 +176,7 @@ namespace mfront::gb {
         : speed_of_sound(o0 > real{50}),
           type(o0 > real{50} ? o0 - real{100} : o0),
           stress_measure(decodeStressMeasure(o1)),
+          displacement_gradient(decodeDisplacementGradient(o1)),
           tangent_operator(decodeFiniteStrainTangentOperator(
               o0 > real{50} ? o0 - real{100} : o0, o2)) {}
     //! \return true if only the prediction operator is requested
@@ -184,6 +220,12 @@ namespace mfront::gb {
     real type;
     //! \brief stress measure (finite strain behaviours)
     StressMeasure stress_measure;
+    /*!
+     * \brief true if the gradients are the displacement gradient \(H\)
+     * rather than the deformation gradient \(F = I + H\) (finite strain
+     * behaviours)
+     */
+    bool displacement_gradient;
     //! \brief tangent operator (finite strain behaviours)
     FiniteStrainTangentOperator tangent_operator;
   };

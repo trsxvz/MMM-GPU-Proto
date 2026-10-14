@@ -274,7 +274,7 @@ be rebuilt from the final state, by pieces of files.
 ## mfem-mgis-examples and mm-opera-hpc
 
 The changes of the examples (31 patches since `600da70`) and of
-mm-opera-hpc (33 patches since `49147f2`) follow the contributions of
+mm-opera-hpc (34 patches since `49147f2`) follow the contributions of
 mfem-mgis that they use. They will be proposed after them, by topic:
 
 - options of mfem-mgis and of the behaviour in each example and each case

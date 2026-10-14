@@ -590,10 +590,36 @@ Continuation (14/10/2026):
   in the test suites, and the results of mm-opera-hpc are the same bit for
   bit. Float suite of mfem-mgis on the CPU: 223/223.
 
+- Displacement gradient H = F - I given to the finite strain behaviours
+  (decided on 14/10, see `docs/displacement-gradient.md`):
+  - TFEL: option selected at runtime (stress measure K[1] offset by 10,
+    symbol `<function>_AcceptsDisplacementGradient`), Green-Lagrange strain
+    computed from H, `LogarithmicStrainHandler` built from F and from the
+    Green-Lagrange strain; the divided differences of the logarithm are
+    now computed with `log1p`, also from F (in float, with two equal
+    principal values and a stress not coaxial with the strain, the error
+    of the former formulas reached 1e-1 on the second Piola-Kirchhoff
+    stress and 4.6e2 on its derivative at 10 % of strain; now below 4e-6);
+  - MGIS: `FiniteStrainBehaviourOptions::gradient`, initial states at
+    zero, options passed to the initialize functions and
+    post-processings, bindings;
+  - mfem-mgis: parameter `DisplacementGradient` of the behaviour
+    integrators; the macroscopic gradients are then H;
+  - mm-opera-hpc: option `--displacement-gradient`, macroscopic unknowns
+    stored as H.
+
+  Results: cube of the uniaxial test (Hencky behaviour) converging down to
+  1e-8 in float with H, against a floor of 2e-5 with F
+  (`results/displacement-gradient-cube-2026-10-14`); cermet and
+  polycrystal (`results/displacement-gradient-opera-2026-10-14`): the
+  quantization of the macroscopic loading and of the fixed point
+  disappears (gap of the cermet to the double divided by 3 with two
+  steps, of the polycrystal at 0.4 s by 2.4), the remaining error comes
+  from the grains, written with F.
+
 Remaining:
 
-- for the finite strain behaviours in float, an interface based on
-  H = F - I (decision to take) would avoid the quantification of F; the
-  floor of the residual of a cube of one element is already 3e-4 to 8e-4,
-  close to the default stagnation tolerance;
+- the behaviours of the grains of the cermet and of the polycrystal are
+  written with the deformation gradient: rewriting them with H, or in a
+  strain framework, is needed to benefit from the displacement gradient;
 - the `FixedPoint` solver (NewtonK0...) has no stagnation criterion;

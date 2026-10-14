@@ -77,6 +77,56 @@ The following tangent operators are available:
 - the derivative of the Kirchhoff stress with respect to the spatial
   increment of the deformation gradient.
 
+### Displacement gradient {#sec:generic_behaviour_interface:displacement_gradient}
+
+By default, the gradient of a finite strain behaviour is the deformation
+gradient $\tenseur{F}$. The calling solver may give the displacement
+gradient $\tenseur{H}=\tenseur{F}-\tenseur{I}$ instead. The
+deformation gradient being close to the identity, its components are
+only known within the precision of the numerical type near $1$: about
+$6\,10^{-8}$ in single precision, i.e. $10^{-3}$ in relative value
+for a strain of $5\,10^{-5}$. The displacement gradient keeps the
+relative precision of small strains:
+
+- the behaviours written in the Green-Lagrange strain framework receive
+  $\tenseur{\varepsilon}^{\mathrm{GL}}=\left(\tenseur{H}+\tenseur{H}^{T}+\tenseur{H}^{T}\,\cdot\,\tenseur{H}\right)/2$,
+  computed without the cancellation of
+  $\left(\tenseur{F}^{T}\,\cdot\,\tenseur{F}-\tenseur{I}\right)/2$
+  (see the `computeGreenLagrangeTensorFromDisplacementGradient`
+  function);
+- the behaviours written in the Hencky strain framework receive a
+  logarithmic strain computed from the eigenvalues of
+  $\tenseur{C}-\tenseur{I}=2\,\tenseur{\varepsilon}^{\mathrm{GL}}$ (the
+  `LogarithmicStrainHandler` class can be built from the deformation
+  gradient and the Green-Lagrange strain). The divided differences of
+  the logarithm used by the conversions of the stresses and of the
+  tangent operators are also computed from these eigenvalues, without
+  cancellation, even when two of them are equal;
+- the behaviours written with the deformation gradient receive
+  $\tenseur{F}=\tenseur{I}+\tenseur{H}$, computed by the interface.
+
+The tangent operators are unchanged: the derivatives with respect to the
+deformation gradient are the derivatives with respect to the
+displacement gradient.
+
+In plane stress, the axial component of the displacement gradient given
+by the caller is zero: the axial component of the deformation gradient
+is computed by the behaviour. The interface adds it to the deformation
+gradient for the behaviours written with the deformation gradient and
+in the Green-Lagrange strain framework, and sets it in the
+`LogarithmicStrainHandler` class in the Hencky strain framework.
+
+This option is given at runtime: the stress measure, second value of
+the `K` array, is offset by `10` (constant
+`mfront::gb::displacement_gradient_stress_measure_offset`), as the type
+of computation, first value of the `K` array, is offset by `100` to
+request the speed of sound. A library generated before this option
+reports an invalid stress measure. The behaviours which accept the
+displacement gradient export the symbol
+`<behaviour_function_name>_AcceptsDisplacementGradient`, an
+`unsigned short` equal to `1`. This holds for the `generic` and
+`generic-parallel` interfaces.
+
 ## Support of orthotropic behaviours
 
 Orthotropic behaviours require to:

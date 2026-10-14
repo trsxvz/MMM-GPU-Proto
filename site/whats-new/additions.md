@@ -162,6 +162,17 @@ without changing CPU results:
   (decision D3 (a)).
 - In `float`, MFront warns when the criterion of a behaviour
   (`@Epsilon`) is looser than 1e-5.
+- **Displacement gradient** (`docs/displacement-gradient.md`): the caller
+  may give H = F - I instead of F to a finite strain behaviour (stress
+  measure offset by 10 in the `K` array, symbol
+  `<f>_AcceptsDisplacementGradient`). The Green-Lagrange and Hencky
+  strains are then computed from H without cancellation, which keeps the
+  relative precision of small strains in `float`.
+- The `LogarithmicStrainHandler` computes the divided differences of the
+  logarithm with `log1p`, without cancellation when two eigenvalues are
+  close: in `float`, the error on the derivative of the second
+  Piola-Kirchhoff stress drops from 4.6e2 to 4e-6 in the worst case
+  measured.
 
 ### Configurations
 
@@ -226,6 +237,10 @@ compilation and linking only).
 - **Single precision**: CMake option `MGIS_REAL_TYPE`, generated header
   `MGIS/RealType.h`, and a check of the real type of each entry point
   at load time.
+- **Displacement gradient**: option `gradient` of
+  `FiniteStrainBehaviourOptions` and its bindings; the options of the
+  behaviour are now given to the initialize functions and
+  post-processings.
 - **MGIS has no dependency on any GPU library.** The CUDA test needs an
   NVIDIA GPU and is disabled by default
   (`enable-generic-parallel-cuda-tests`).
@@ -335,6 +350,11 @@ an environment variable.
   the beam r4 on the CPU).
 - **Whole test suite on the GPU** (variable `MFEM_MGIS_DEVICE`), except
   the two tests that require the absence of a GPU.
+- **Displacement gradient**: parameter `DisplacementGradient` of the
+  behaviour integrators of finite strain behaviours; the macroscopic
+  gradients are then displacement gradients. A test checks that the
+  Newton solver converges in `float` below the floor reached with the
+  deformation gradient.
 - **Documentation** in the tree of mfem-mgis, for example
   `docs/source/user_guide/batch_computations.rst`.
 
@@ -346,7 +366,7 @@ an environment variable.
   libraries for the CPU and the GPU chosen by `--execution`, tests on
   the GPU. Tests on the GPU are registered only when the GPU behaviour
   library is built.
-- **mm-opera-hpc** (33 patches): for the polycrystal, choice of the
+- **mm-opera-hpc** (34 patches): for the polycrystal, choice of the
   nonlinear solver (Newton, NewtonK0), of the adaptive tolerance and of
   AmgX, behaviour integrated on the GPU; for the bubble and the cermet,
   options of mfem-mgis and of the behaviour, synchronisations on the
@@ -356,6 +376,9 @@ an environment variable.
   analytical solution of the bubble).
 - All examples and all cases (polycrystal, cermet, bubble) run by
   batches and on the GPU.
+- The cermet and the polycrystal accept `--displacement-gradient`; their
+  macroscopic unknowns are displacement gradients, which removes the
+  quantization of the macroscopic loading in `float`.
 
 ## Prototype repository
 

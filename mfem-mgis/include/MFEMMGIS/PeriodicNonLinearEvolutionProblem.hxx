@@ -157,7 +157,11 @@ namespace mfem_mgis {
         std::unique_ptr<AbstractDirichletBoundaryCondition> bc) noexcept
         override;
     /*!
-     * \brief set the evolution of the macroscopic gradients
+     * \brief set the evolution of the macroscopic gradients, which are the
+     * macroscopic values of the gradients of the behaviours: for finite
+     * strain behaviours, the deformation gradient or, for the behaviours
+     * given the displacement gradient (see `BehaviourLoadingOptions`), the
+     * displacement gradient (see `Material::setMacroscopicGradients`)
      * \param[in] ev: function
      */
     virtual void setMacroscopicGradientsEvolution(
