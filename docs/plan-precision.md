@@ -525,6 +525,17 @@ Suite (13/10/2026, soir) :
   (results/precision-poutre-gpu-2026-10-14-0843) : float 1,37 fois plus
   rapide que le double, mêmes itérations, à 3,4e-5 au plus du double.
 
+- Polycristal en float (results/precision-polycristal-2026-10-14) : sur
+  un pas, la contrainte axiale s'écarte du double de 6,1e-3 à 5e-5 de
+  déformation et de 1,0e-3 à 2e-4 ; sur un pas plus grand (1 s), la loi
+  échoue et le calcul s'arrête. Cause probable : F, stocké en float près
+  de l'identité, ne bouge que par pas d'un ulp (1e-3 d'une déformation de
+  5e-5, quantum de contrainte d'environ 1,5e4 Pa, du même ordre que le
+  seuil du point fixe sur la contrainte). La cancellation de
+  `cosh(x) - 1` dans la loi n'est pas en cause (forme en `expm1` essayée).
+
 Reste : le plancher du résidu du float croît avec la taille du problème
 (1,3e-5 à r4 sur le CPU) ; un critère de Newton adapté à la précision
-serait utile sur les grands maillages.
+serait utile sur les grands maillages. Pour les lois en grandes
+transformations en float, une interface en H = F - I (décision à
+prendre) éviterait la quantification de F.
