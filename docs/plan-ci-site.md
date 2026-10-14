@@ -132,26 +132,24 @@ dépôt public.
   le dépôt public. Simulé en local en float : MGIS 49/49, mfem-mgis
   204/204, exemples 21/21, mm-opera-hpc 6/6. La simulation a trouvé un
   défaut de mm-opera-hpc en float : le point fixe sur les contraintes
-  latérales du premier pas du cermet ne descendait pas sous son seuil de
-  1e4 Pa (stagnation vers 1,1e4 Pa ou oscillation entre 1,5e4 et
-  1,7e4 Pa, selon l'exécutable et le nombre de processus). Les
-  composantes latérales de F, juste sous 1, ne sont connues qu'à un ulp
-  près (6e-8), et la correction du point fixe s'arrondit à zéro sous
+  latérales du premier pas du cermet ne descendait pas sous sa tolérance
+  de 1e4 Pa (stagnation vers 1,1e4 Pa ou oscillation entre 1,5e4 et
+  1,7e4 Pa, selon l'arrondi de tout le calcul). La correction des
+  composantes latérales de F, juste sous 1, s'arrondit à zéro sous
   environ 1,5e4 Pa de résidu. Le pas était coupé, et la contrainte axiale
   du cermet à 0,2 s s'écartait de 2,7 % du double, effet du pas de temps
-  et non de l'arrondi (0,27 % du double aux mêmes pas). Le seuil vaut
-  maintenant 3e4 Pa en float : écart au double de 0,10 à 0,16 % à 0,2 s
-  (surtout l'arrondi de la déformation imposée, 1 + 1e-4 en float), et le
-  test vérifie les mêmes instants dans les deux précisions
-  (`results/cermet-float-2026-10-14`).
+  et non de l'arrondi (0,24 à 0,27 % du double aux mêmes pas). Le point
+  fixe prend maintenant au moins deux fois sa résolution, calculée à
+  partir de F et des modules (30 804 Pa ici, négligeable en double) :
+  écart au double de 0,10 à 0,16 % à 0,2 s, et le test vérifie les mêmes
+  instants dans les deux précisions (`results/cermet-float-2026-10-14`).
 - Les lois générées par mfront dans les tests sont compilées avec
   `tfel-config --oflags`, qui contient `-march=native` même en
   construction portable : leurs résultats dépendent du processeur de la
   machine de la CI. Sur le cermet en float, les lois compilées par gcc 13
   et par gcc 14 donnent les mêmes contraintes à 1e-5 près ; le point
   d'arrêt du point fixe dépend de l'arrondi, ce qui déplace la contrainte
-  axiale d'au plus 0,08 % avec le seuil de 3e4 Pa, loin de la tolérance
-  de 1 % du test.
+  axiale d'au plus 0,08 %, loin de la tolérance de 1 % du test.
 
 ## Ébauche du site (14/10/2026)
 

@@ -340,9 +340,10 @@ against deliberately wrong code revealed them.
   float. Too loose a criterion (100 ε) declared a Norton increment
   converged before the first iteration, with a zero stress.
 - **Residual floor.** In finite strain, the deformation gradient, close
-  to identity, is rounded to about 1e-7, so stresses are only known to
-  about ε E: a residual relative to the initial residual of a step cannot
-  be reached. The relative floor also grows with the problem size.
+  to identity, is only known within one ulp (6e-8 below 1, 1.2e-7 above),
+  so stresses are only known within about 1.5e4 to 3e4 Pa for UO2: a
+  residual relative to the initial residual of a step cannot be reached.
+  The relative floor also grows with the problem size.
   Workaround: an absolute tolerance about ten times the floor.
 - **Small strains in finite strain.** In the polycrystal of mm-opera-hpc,
   in float, the axial stress exceeds the double one by 6.1e-3 at an
@@ -359,6 +360,7 @@ against deliberately wrong code revealed them.
   float, this correction is rounded to zero below a residual of about
   1.5e4 Pa, above the tolerance of 1e4 Pa: the first step of the cermet
   stagnated or oscillated, was cut in two, and the stress at 0.2 s was
-  2.7 % away from double, an effect of the time step. Workaround: a
-  tolerance of 3e4 Pa in float, twice the floor
+  2.7 % away from double, an effect of the time step. Workaround: the
+  fixed point takes at least twice its resolution, computed from F and
+  the elastic moduli (30 804 Pa here, negligible in double)
   (`results/cermet-float-2026-10-14`).

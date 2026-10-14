@@ -1,0 +1,150 @@
+From 05358bd9fffd8071376df88665f7235c14d5fe1d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 14:22:38 +0200
+Subject: [PATCH] Lateral stresses: tolerance of at least twice the resolution
+
+The constant tolerance of 3e4 Pa in single precision was tied to the
+moduli of the UO2 based cases and to tension: in compression, the
+lateral components of the deformation gradient are above 1, where the
+spacing of floating point numbers doubles. The tolerance on the lateral
+stresses is now 1e4 Pa again in both precisions, and the fixed point
+uses at least twice its resolution: when both lateral stresses are close
+to S, the correction of the lateral components of the deformation
+gradient is about (1 + nu) (1 - 2 nu) S / E, rounded to zero when it is
+smaller than half the spacing of the floating point numbers around these
+components. A message tells when the raised tolerance decides the
+convergence.
+
+With double, the resolution is about 3e-5 Pa: nothing changes (same
+results bit for bit). With float, in tension, the tolerance is 30804 Pa
+for the UO2 based cases: the cermet gives the same results bit for bit
+as with 3e4 Pa (executable of the CI at one and two processes, executable
+of the prototype at two processes, behaviours compiled by gcc 13 and gcc
+14). The polycrystal results in float are unchanged for steps of 0.1 and
+0.4 s; with a step of 1 s, the behaviour still fails, and a genuine
+stagnation of the fixed point at 7e4 Pa (behaviour with a loose
+criterion) is still rejected.
+
+The comment of the cermet test is corrected: the rounding of the imposed
+axial strain (1 + 1e-4 in float) is +0.017 %, not +0.17 %. The gap to
+the solution in double is at most 0.17 % at 0.2 s, about 0.07 % being
+due to the absolute tolerance of the microscopic equilibrium in float
+(measured in double with this tolerance).
+---
+ cermet/CMakeLists.txt                         |  5 +--
+ ...ialMacroscopicStressPeriodicSimulation.hxx | 16 +++-----
+ ...ialMacroscopicStressPeriodicSimulation.cxx | 39 ++++++++++++++++++-
+ 3 files changed, 46 insertions(+), 14 deletions(-)
+
+diff --git a/cermet/CMakeLists.txt b/cermet/CMakeLists.txt
+index f07ac7b..083b5d9 100644
+--- a/cermet/CMakeLists.txt
++++ b/cermet/CMakeLists.txt
+@@ -24,9 +24,8 @@ add_dependencies(check cermet BehavioursCermet)
+ # two time steps of 0.2 s, the axial stress Szz (column 7 of the output
+ # file) being compared to the one computed by Cast3M at each step
+ # (results/cermet_cast3m.csv), in double and in single precision. In float,
+-# the gap to the solution in double is at most 0.16 % at 0.2 s, the imposed
+-# axial strain of 1e-4 being itself rounded by 0.17 % (1 + 1e-4 in float),
+-# and 0.07 % at 0.4 s.
++# the gap to the solution in double is at most 0.17 % at 0.2 s and 0.07 %
++# at 0.4 s.
+ set(_cermet_checks CHECKS 0.2 7 1.7246e7 0.4 7 2.9462e7 TOLERANCE 0.01)
+ set(_cermet_options --duration 0.4 --nstep 2 --postprocessing 0)
+ mm_opera_hpc_add_checked_test(NAME CermetNullStrainXXYY
+diff --git a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+index dcc1dcf..c6cb982 100644
+--- a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
++++ b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+@@ -74,18 +74,14 @@ namespace mm_opera_hpc {
+       const MacroscropicElasticMaterialProperties
+           macroscopic_elastic_material_properties;
+       /*!
+-       * \brief absolute tolerance on the lateral macroscopic stresses, 1e4 Pa
+-       * with double. With float, the lateral components of the macroscopic
+-       * deformation gradient, just below 1, are only known within one ulp
+-       * (6e-8). When both lateral stresses are close to S, the correction of
+-       * the fixed point is about (1 + nu) (1 - 2 nu) S / E, and it is rounded
+-       * to zero below about 1.5e4 Pa for the residual of the UO2 based
+-       * cases: the fixed point then stagnates or oscillates between 1.1e4
+-       * and 1.7e4 Pa. The tolerance is twice this floor with float.
++       * \brief absolute tolerance on the lateral macroscopic stresses. The
++       * fixed point uses at least twice its resolution, below which the
++       * corrections of the lateral components of the deformation gradient
++       * are rounded to zero: negligible with double, about 1.5e4 Pa with
++       * float for the UO2 based cases in tension.
+        */
+       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
+-          std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{1e4}
+-                                                  : mfem_mgis::real{3e4};
++          mfem_mgis::real{1e4};
+       const size_t macroscopic_stress_maximum_number_of_iterations = 20;
+     };
+     //! \brief an internal auxiliary data structure
+diff --git a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+index bf36ea4..c7f5c06 100644
+--- a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
++++ b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include <cmath>
++#include <limits>
+ #include <algorithm>
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Profiler.hxx"
+@@ -59,6 +60,35 @@ namespace mm_opera_hpc {
+     return {pk1[0] * F[0] / det, pk1[1] * F[1] / det, pk1[2] * F[2] / det};
+   }  // end of computeMacroscopicCauchyStress
+ 
++  /*!
++   * \return the smallest residual on the lateral stresses that the fixed
++   * point can reduce. When both lateral stresses are close to S, the
++   * correction of the lateral components of the deformation gradient is
++   * about (1 + nu) (1 - 2 nu) S / E: it is rounded to zero when it is smaller
++   * than half the spacing of the floating point numbers around these
++   * components, and the fixed point then stagnates or oscillates.
++   * Negligible with double. With float, about 1.5e4 Pa for the UO2 based
++   * cases in tension (lateral components just below 1), twice more in
++   * compression.
++   * \param[in] mp: macroscopic elastic material properties
++   * \param[in] F: diagonal components of the deformation gradient
++   */
++  [[nodiscard]] static mfem_mgis::real computeLateralStressResolution(
++      const MacroscropicElasticMaterialProperties &mp,
++      const std::array<mfem_mgis::real, 3u> &F) noexcept {
++    constexpr auto infinity = std::numeric_limits<mfem_mgis::real>::infinity();
++    const auto spacing = [](const mfem_mgis::real x) {
++      const auto ax = std::abs(x);
++      return std::nextafter(ax, infinity) - ax;
++    };
++    const auto c = (1 + mp.nueff) * (1 - 2 * mp.nueff);
++    if (!(c > 0)) {
++      return mfem_mgis::real{0};
++    }
++    const auto ds = std::max(spacing(F[0]), spacing(F[1]));
++    return std::sqrt(mfem_mgis::real{2}) * (ds / 2) * mp.Eeff / c;
++  }  // end of computeLateralStressResolution
++
+   [[nodiscard]] static bool simulateOverATimeStep(
+       mgis::Context &ctx,
+       std::ostream &out,
+@@ -156,7 +186,14 @@ namespace mm_opera_hpc {
+       const auto r = std::sqrt(S[0] * S[0] + S[1] * S[1]);
+       //
+       Message("Fixed Point iteration", itFP, ": |res| =", r);
+-      converged = std::abs(r) < tolFP;
++      // the tolerance is at least twice the resolution of the fixed point
++      const auto tolerance =
++          std::max(tolFP, 2 * computeLateralStressResolution(mp, F));
++      converged = std::abs(r) < tolerance;
++      if (converged && (std::abs(r) >= tolFP)) {
++        Message("Fixed Point converged within the resolution of the",
++                "deformation gradient: tolerance raised to", tolerance);
++      }
+       itFP++;
+     }
+     if (!converged) {
+-- 
+2.43.0
+

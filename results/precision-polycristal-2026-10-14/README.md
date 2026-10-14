@@ -32,14 +32,28 @@ temps, F11, F22, F33, puis σ11, σ22, σ33 (Pa) à la fin du calcul.
 Interprétation : F est stocké en float près de l'identité. Il ne bouge
 que par pas d'un ulp (6e-8 sous 1, 1,2e-7 au-dessus), soit 1e-3 d'une
 déformation de 5e-5, et un quantum de contrainte d'environ 1,5e4 Pa pour
-un module de 2,5e11 Pa, du même ordre que le seuil du point fixe (1e4 Pa).
+un module de 2,5e11 Pa, du même ordre que la tolérance du point fixe de
+ces mesures (1e4 Pa).
 La déformation imposée elle-même est arrondie. Ces mesures plaident pour
 une interface en H = F - I (gradient du déplacement, petit, gardant toute
 la précision relative du float) pour les lois en grandes transformations
 en float ; décision à prendre (voir docs/plan-precision.md).
 
-Ces mesures ont été faites avec un seuil de 1e4 Pa pour le point fixe
-sur les contraintes latérales. Depuis mm-opera-hpc 19d64ba, il vaut
-3e4 Pa en float (results/cermet-float-2026-10-14) : les calculs float à
-d = 0,1 et 0,4, refaits avec ce seuil, donnent les mêmes fichiers au bit
-près (le point fixe s'arrête aux mêmes itérations).
+Ces mesures ont été faites avec une tolérance de 1e4 Pa pour le point
+fixe sur les contraintes latérales. Depuis mm-opera-hpc 05358bd, il prend
+au moins deux fois sa résolution, soit 30 804 Pa en float ici
+(results/cermet-float-2026-10-14). Refaites avec cette règle (fichiers
+`*-resolution.res`) :
+
+- d = 0,1 et 0,4 : mêmes fichiers au bit près (le point fixe s'arrête aux
+  mêmes itérations) ;
+- d = 1, loi telle qu'écrite : arrêt à 0,82 s, par les seuls échecs de
+  l'intégration de la loi (50 messages), sans échec du point fixe (avant,
+  deux échecs du point fixe s'y ajoutaient) ; forme en `expm1` : arrêt à
+  0,57 s, même cause ;
+- `@Epsilon 1e-6` : à d = 0,1, le pas n'est plus coupé et l'écart devient
+  -1,3e-2 ; à d = 1, le point fixe stagne encore vers 69 660 Pa, au-dessus
+  de la tolérance (arrêt à 0,66 s) : vraie non-convergence, due au
+  critère lâche de la loi.
+
+La conclusion ne change pas : avec un pas de 1 s, la loi échoue en float.

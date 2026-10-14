@@ -74,18 +74,14 @@ namespace mm_opera_hpc {
       const MacroscropicElasticMaterialProperties
           macroscopic_elastic_material_properties;
       /*!
-       * \brief absolute tolerance on the lateral macroscopic stresses, 1e4 Pa
-       * with double. With float, the lateral components of the macroscopic
-       * deformation gradient, just below 1, are only known within one ulp
-       * (6e-8). When both lateral stresses are close to S, the correction of
-       * the fixed point is about (1 + nu) (1 - 2 nu) S / E, and it is rounded
-       * to zero below about 1.5e4 Pa for the residual of the UO2 based
-       * cases: the fixed point then stagnates or oscillates between 1.1e4
-       * and 1.7e4 Pa. The tolerance is twice this floor with float.
+       * \brief absolute tolerance on the lateral macroscopic stresses. The
+       * fixed point uses at least twice its resolution, below which the
+       * corrections of the lateral components of the deformation gradient
+       * are rounded to zero: negligible with double, about 1.5e4 Pa with
+       * float for the UO2 based cases in tension.
        */
       const mfem_mgis::real macroscopic_stress_absolute_tolerance =
-          std::is_same_v<mfem_mgis::real, double> ? mfem_mgis::real{1e4}
-                                                  : mfem_mgis::real{3e4};
+          mfem_mgis::real{1e4};
       const size_t macroscopic_stress_maximum_number_of_iterations = 20;
     };
     //! \brief an internal auxiliary data structure

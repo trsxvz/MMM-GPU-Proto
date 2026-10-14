@@ -360,3 +360,86 @@ Fixed Point iteration 3 : |res| = 17234.6
 Solving time step from  0.2  to  0.4
 Fixed Point iteration 0 : |res| = 2.52123e+06
 Fixed Point iteration 1 : |res| = 24055.2
+
+# double, pas de 0,2 s, exécutable de la CI, 1 processus, tolérance absolue de l'équilibre microscopique de 6e4 (celle du float)
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.77989e+07
+Fixed Point iteration 1 : |res| = 677974
+Fixed Point iteration 2 : |res| = 42375.5
+Fixed Point iteration 3 : |res| = 2627.72
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.54408e+06
+Fixed Point iteration 1 : |res| = 26198.3
+Fixed Point iteration 2 : |res| = 2039.41
+
+# float, exécutable de la CI, 1 processus, loi gcc 13, tolérance d'au moins deux fois la résolution
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.78316e+07
+Fixed Point iteration 1 : |res| = 669378
+Fixed Point iteration 2 : |res| = 43500.2
+Fixed Point iteration 3 : |res| = 10830.5
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.54688e+06
+Fixed Point iteration 1 : |res| = 28726
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+
+# float, exécutable de la CI, 1 processus, loi gcc 14, tolérance d'au moins deux fois la résolution
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.78316e+07
+Fixed Point iteration 1 : |res| = 669379
+Fixed Point iteration 2 : |res| = 43484.4
+Fixed Point iteration 3 : |res| = 10825.6
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.54708e+06
+Fixed Point iteration 1 : |res| = 28720.5
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+
+# float, exécutable de la CI, 2 processus, loi gcc 13, tolérance d'au moins deux fois la résolution
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.78316e+07
+Fixed Point iteration 1 : |res| = 669445
+Fixed Point iteration 2 : |res| = 43305.6
+Fixed Point iteration 3 : |res| = 10684
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.54732e+06
+Fixed Point iteration 1 : |res| = 28783.8
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+
+# float, exécutable de la CI, 2 processus, loi gcc 14, tolérance d'au moins deux fois la résolution
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.78316e+07
+Fixed Point iteration 1 : |res| = 669437
+Fixed Point iteration 2 : |res| = 43326.6
+Fixed Point iteration 3 : |res| = 10713
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.54714e+06
+Fixed Point iteration 1 : |res| = 28770.5
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+
+# float, exécutable float du prototype, 2 processus, loi gcc 13, tolérance d'au moins deux fois la résolution
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.7836e+07
+Fixed Point iteration 1 : |res| = 664872
+Fixed Point iteration 2 : |res| = 32438.2
+Fixed Point iteration 3 : |res| = 17266.7
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.52126e+06
+Fixed Point iteration 1 : |res| = 24025.4
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+
+# float, exécutable float du prototype, 2 processus, loi gcc 14, tolérance d'au moins deux fois la résolution
+Solving time step from  0  to  0.2
+Fixed Point iteration 0 : |res| = 1.7836e+07
+Fixed Point iteration 1 : |res| = 664856
+Fixed Point iteration 2 : |res| = 32468.1
+Fixed Point iteration 3 : |res| = 17234.6
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2
+Solving time step from  0.2  to  0.4
+Fixed Point iteration 0 : |res| = 2.52123e+06
+Fixed Point iteration 1 : |res| = 24055.2
+Fixed Point converged within the resolution of the deformation gradient: tolerance raised to 30804.2

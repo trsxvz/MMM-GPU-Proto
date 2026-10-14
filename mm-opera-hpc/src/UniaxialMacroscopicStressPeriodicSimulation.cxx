@@ -6,6 +6,7 @@
  */
 
 #include <cmath>
+#include <limits>
 #include <algorithm>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Profiler.hxx"
@@ -58,6 +59,35 @@ namespace mm_opera_hpc {
     // computation of the diagonal components of the Cauchy stress
     return {pk1[0] * F[0] / det, pk1[1] * F[1] / det, pk1[2] * F[2] / det};
   }  // end of computeMacroscopicCauchyStress
+
+  /*!
+   * \return the smallest residual on the lateral stresses that the fixed
+   * point can reduce. When both lateral stresses are close to S, the
+   * correction of the lateral components of the deformation gradient is
+   * about (1 + nu) (1 - 2 nu) S / E: it is rounded to zero when it is smaller
+   * than half the spacing of the floating point numbers around these
+   * components, and the fixed point then stagnates or oscillates.
+   * Negligible with double. With float, about 1.5e4 Pa for the UO2 based
+   * cases in tension (lateral components just below 1), twice more in
+   * compression.
+   * \param[in] mp: macroscopic elastic material properties
+   * \param[in] F: diagonal components of the deformation gradient
+   */
+  [[nodiscard]] static mfem_mgis::real computeLateralStressResolution(
+      const MacroscropicElasticMaterialProperties &mp,
+      const std::array<mfem_mgis::real, 3u> &F) noexcept {
+    constexpr auto infinity = std::numeric_limits<mfem_mgis::real>::infinity();
+    const auto spacing = [](const mfem_mgis::real x) {
+      const auto ax = std::abs(x);
+      return std::nextafter(ax, infinity) - ax;
+    };
+    const auto c = (1 + mp.nueff) * (1 - 2 * mp.nueff);
+    if (!(c > 0)) {
+      return mfem_mgis::real{0};
+    }
+    const auto ds = std::max(spacing(F[0]), spacing(F[1]));
+    return std::sqrt(mfem_mgis::real{2}) * (ds / 2) * mp.Eeff / c;
+  }  // end of computeLateralStressResolution
 
   [[nodiscard]] static bool simulateOverATimeStep(
       mgis::Context &ctx,
@@ -156,7 +186,14 @@ namespace mm_opera_hpc {
       const auto r = std::sqrt(S[0] * S[0] + S[1] * S[1]);
       //
       Message("Fixed Point iteration", itFP, ": |res| =", r);
-      converged = std::abs(r) < tolFP;
+      // the tolerance is at least twice the resolution of the fixed point
+      const auto tolerance =
+          std::max(tolFP, 2 * computeLateralStressResolution(mp, F));
+      converged = std::abs(r) < tolerance;
+      if (converged && (std::abs(r) >= tolFP)) {
+        Message("Fixed Point converged within the resolution of the",
+                "deformation gradient: tolerance raised to", tolerance);
+      }
       itFP++;
     }
     if (!converged) {

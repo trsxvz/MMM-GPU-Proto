@@ -4626,23 +4626,30 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   bibliothèque de lois des tests de mfem-mgis n'était pas construite (126
   échecs sur 208), corrigé. Puis matrice sur la précision
   (`deps/spack/ci-cpu-float`), simulée en double et en float.
-- La simulation en float a trouvé un seuil trop serré dans mm-opera-hpc :
-  à 1e4 Pa, le point fixe sur les contraintes latérales du premier pas du
-  cermet stagnait vers 1,1e4 Pa ou oscillait entre 1,5e4 et 1,7e4 Pa (cinq
-  calculs sur six, selon l'exécutable et le nombre de processus, pas
-  selon le compilateur de la loi). Les composantes latérales de F, juste
-  sous 1, ne sont connues qu'à un ulp près (6e-8) ; quand les deux
-  contraintes latérales sont proches, la correction du point fixe,
-  environ (1 + ν) (1 - 2 ν) S / E, s'arrondit à zéro sous environ 1,5e4 Pa
-  de résidu. Le pas coupé donnait 2,7 % d'écart au double à 0,2 s, effet
-  du pas de temps (0,27 % aux mêmes pas).
-- Deux correctifs successifs, chacun relevé par une relecture : fdfdafd
+- La simulation en float a trouvé une tolérance trop serrée dans
+  mm-opera-hpc : à 1e4 Pa, le point fixe sur les contraintes latérales du
+  premier pas du cermet stagnait vers 1,1e4 Pa ou oscillait entre 1,5e4
+  et 1,7e4 Pa (cinq calculs sur six, selon l'arrondi de tout le calcul,
+  loi comprise). Quand les deux contraintes latérales sont proches de S,
+  la correction des composantes latérales de F, environ
+  (1 + ν) (1 - 2 ν) S / E, s'arrondit à zéro sous la moitié de l'écart
+  entre deux flottants voisins (6e-8 juste sous 1), soit 1,54e4 Pa de
+  résidu. Le pas coupé donnait 2,7 % d'écart au double à 0,2 s, effet du
+  pas de temps (0,24 à 0,27 % aux mêmes pas).
+- Trois correctifs successifs, chacun relevé par une relecture : fdfdafd
   ne vérifiait plus que 0,4 s en float, sur une explication fausse
-  (l'arrondi de F) ; 2e4881c prenait un seuil de 5e4 Pa d'après un
-  plancher sous-estimé et des mesures de provenance mêlée. Balayage
-  refait avec un seul exécutable, à un et deux processus
-  (`results/cermet-float-2026-10-14`) : seuil de 3e4 Pa en float
-  (19d64ba), deux fois le plancher. Écart au double de 0,10 à 0,16 % à
-  0,2 s, surtout dû à l'arrondi de la déformation imposée (1 + 1e-4 en
-  float), et de 0,06 à 0,07 % à 0,4 s ; mêmes vérifications dans les deux
-  précisions ; double et mesures du polycristal inchangés au bit près.
+  (l'arrondi de F) ; 2e4881c prenait 5e4 Pa d'après un plancher
+  sous-estimé et des mesures de provenance mêlée ; 19d64ba prenait
+  3e4 Pa, constante liée à l'UO2 et à la traction, avec une explication
+  de l'écart fausse d'un facteur dix (l'arrondi de 1 + 1e-4 en float ne
+  fait que +0,017 % sur la déformation). Balayage refait avec un seul
+  exécutable, à un et deux processus (`results/cermet-float-2026-10-14`).
+  Règle finale (05358bd) : la tolérance reste 1e4 Pa, et le point fixe
+  prend au moins deux fois sa résolution, calculée à partir de F et des
+  modules (30 804 Pa ici, le double en compression, négligeable en
+  double). Écart au double de 0,10 à 0,16 % à 0,2 s, dont environ 0,07 %
+  dû à la tolérance absolue de l'équilibre microscopique en float
+  (mesuré en double avec cette tolérance), et de 0,06 à 0,07 % à 0,4 s ;
+  mêmes vérifications dans les deux précisions ; double inchangé au bit
+  près ; polycristal inchangé à 0,1 et 0,4 s, toujours en échec de la loi
+  avec un pas de 1 s (results/precision-polycristal-2026-10-14).

@@ -443,10 +443,11 @@ Suite (13/10/2026, soir) :
   commandes). `Tolerance.hxx` est installé avec ex1 et ex3, dont les
   sources sont des tests.
 - Plancher du résidu en grandes transformations : le gradient de la
-  transformation, proche de l'identité, est arrondi à environ 1e-7 en
-  float, donc les contraintes ne sont connues qu'à environ ε E (2e4 Pa
-  pour l'UO2). Le résidu du polycristal et du cermet de mm-opera-hpc
-  stagne vers 6e3 quel que soit le chargement : une tolérance relative au
+  transformation, proche de l'identité, n'est connu en float qu'à un ulp
+  près (6e-8 sous 1, 1,2e-7 au-dessus), donc les contraintes ne sont
+  connues qu'à environ 1,5e4 à 3e4 Pa pour l'UO2. Le résidu du
+  polycristal et du cermet de mm-opera-hpc stagne vers 6e3 quel que soit
+  le chargement : une tolérance relative au
   résidu initial d'un pas ne peut pas l'atteindre. mm-opera-hpc (9b31d94)
   prend en float une tolérance absolue de dix fois ce plancher, gardée
   quand le critère des itérations de point fixe change ; types MPI de
@@ -536,22 +537,25 @@ Suite (14/10/2026) :
   de l'identité, ne bouge que par pas d'un ulp (1e-3 d'une déformation de
   5e-5, quantum de contrainte d'environ 1,5e4 Pa). La cancellation de
   `cosh(x) - 1` dans la loi n'est pas en cause (forme en `expm1` essayée).
-- Seuil du point fixe sur les contraintes latérales de mm-opera-hpc
+- Tolérance du point fixe sur les contraintes latérales de mm-opera-hpc
   (results/cermet-float-2026-10-14), défaut trouvé par la CI simulée en
   float : à 1e4 Pa, le premier pas du cermet ne convergeait pas dans cinq
   calculs sur six (stagnation vers 1,1e4 Pa, ou oscillation entre 1,5e4
-  et 1,7e4 Pa), selon l'exécutable et le nombre de processus, pas selon
-  le compilateur de la loi. Le pas coupé en deux donnait 2,7 % d'écart au
-  double à 0,2 s, effet du pas de temps (0,27 % du double aux mêmes pas).
-  Cause : les composantes latérales de F, juste sous 1, ne sont connues
-  qu'à un ulp près (6e-8) ; quand les deux contraintes latérales sont
-  proches, la correction du point fixe, environ (1 + ν) (1 - 2 ν) S / E,
-  s'arrondit à zéro sous environ 1,5e4 Pa de résidu. Le seuil vaut
-  maintenant 3e4 Pa en float, deux fois ce plancher : écart au double de
-  0,10 à 0,16 % à 0,2 s, surtout dû à l'arrondi de la déformation imposée
-  (1 + 1e-4 vaut 1,000100017 en float), et de 0,06 à 0,07 % à 0,4 s ; le
-  test vérifie les mêmes instants dans les deux précisions. Polycristal
-  et double inchangés au bit près.
+  et 1,7e4 Pa), selon l'arrondi de tout le calcul, loi comprise. Le pas
+  coupé en deux donnait 2,7 % d'écart au double à 0,2 s, effet du pas de
+  temps (0,24 à 0,27 % du double aux mêmes pas). Cause : quand les deux
+  contraintes latérales sont proches de S, la correction des composantes
+  latérales de F, environ (1 + ν) (1 - 2 ν) S / E, s'arrondit à zéro sous
+  la moitié de l'écart entre deux flottants voisins (6e-8 juste sous 1),
+  soit 1,54e4 Pa de résidu pour l'UO2. Le point fixe prend maintenant au
+  moins deux fois cette résolution, calculée à partir de F et des modules
+  (mm-opera-hpc 05358bd) : 30 804 Pa ici, le double de plus en
+  compression, négligeable en double. Écart au double de 0,10 à 0,16 % à
+  0,2 s, dont environ 0,07 % dû à la tolérance absolue de l'équilibre
+  microscopique en float (mesuré en double avec cette tolérance), et de
+  0,06 à 0,07 % à 0,4 s ; le test vérifie les mêmes instants dans les
+  deux précisions. Double inchangé au bit près ; polycristal inchangé à
+  0,1 et 0,4 s, et toujours en échec de la loi avec un pas de 1 s.
 
 Reste : le plancher du résidu du float croît avec la taille du problème
 (1,3e-5 à r4 sur le CPU) ; un critère de Newton adapté à la précision
