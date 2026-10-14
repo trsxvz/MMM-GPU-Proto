@@ -325,6 +325,15 @@ against deliberately wrong code revealed them.
   `HIP_PLATFORM=nvidia`, which hipcc follows: MFEM is compiled with
   `HIP_PLATFORM=amd`. Access to the integrated AMD GPU is reserved to the
   `render` group.
+- **Integrated AMD GPU (gfx1036, ROCm 10.1).** The writes of a finished
+  kernel to device memory are lost when the GPU stays idle about 300 µs
+  before the next operation, for instance while the code of a shared
+  library is loaded at the first launch of one of its kernels. In
+  mfem-mgis, imposed components were not zeroed and hypre faulted.
+  Workaround for the tests: kernels and copies serialised
+  (`AMD_SERIALIZE_KERNEL=3`, `AMD_SERIALIZE_COPY=3`). Reproducer
+  `reproducers/hip-idle-write-loss`, reported as
+  [ROCm/rocm-systems#13469](https://github.com/ROCm/rocm-systems/issues/13469).
 
 ## Single precision
 

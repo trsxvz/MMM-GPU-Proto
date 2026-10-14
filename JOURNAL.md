@@ -4694,3 +4694,29 @@ formula as MTest). All the others give the Newton solution to within
   numbers of iterations of BatchIntegrationTest may differ by two in
   float; on the GPU, a time step converged once in 1 iteration instead of
   3, one run out of ten); examples 21/21, mm-opera-hpc 6/6, cases 134/134.
+
+### 2026-10-14 (evening), defects of hypre and of ROCm reported
+
+- hypre: issue [hypre-space/hypre#1634](https://github.com/hypre-space/hypre/issues/1634)
+  and fix [#1635](https://github.com/hypre-space/hypre/pull/1635) (single
+  precision names of the LAPACK routines). Checked on the master branch of
+  hypre with OpenBLAS: the `ij` driver (ParaSails and PCG, 100³ unknowns, two
+  processes) crashes in `ParaSailsSetupValues` without the fix and converges
+  in 211 iterations with it. On master, single precision with an external
+  BLAS does not even compile with GCC 14: `ParaSails/ConjGrad.c` calls
+  `dcopy_`, `dscal_` and `daxpy_` without prototype (spack patches it); the
+  same pull request fixes it.
+- ROCm on the integrated GPU gfx1036: the diagnosis of 13/10 (a kernel lost
+  at the first launch of a kernel of a shared library) was wrong. The
+  kernel runs (7 to 15 µs after its launch), but its writes to device
+  memory are lost when the GPU stays idle about 300 µs before the next
+  operation: 0 trials out of 20 with 100 µs, 20 out of 20 from 300 µs on;
+  none with a synchronisation right after the launch, with
+  `AMD_SERIALIZE_KERNEL=3` or with pinned host buffers; rare when a host
+  thread keeps the GPU busy. Loading the code of libmfem (2 ms) and large
+  allocations give this idle time. Plain HIP reproducer in
+  `reproducers/hip-idle-write-loss` (renamed from `hip-lost-kernel`),
+  reported as [ROCm/rocm-systems#13469](https://github.com/ROCm/rocm-systems/issues/13469).
+  It looks like the modified lines of the L2 cache are dropped when the GPU
+  powers down on idle; not checked with GFXOFF disabled (reboot needed).
+  No fix on our side beyond the serialisation of the tests.

@@ -1,10 +1,9 @@
-// A kernel which is still pending when a kernel of another shared library
-// (here libmfem) is launched for the first time is lost: its writes never
-// happen. Observed with ROCm 10.1 (HIP 7.16, packages of TheRock) on the
-// integrated GPU gfx1036. The pending kernel cancels the entries of a vector
-// whose indices are given by an array, as mfem::ParNonlinearForm::Mult does
-// for the essential degrees of freedom; the following kernel is the first
-// kernel of libmfem launched by the program.
+// The writes of a kernel are lost when the next kernel is the first kernel
+// of libmfem launched by the program, whose code object is then loaded
+// (about 2 ms): the GPU stays idle long enough to drop them (idle-loss.cpp,
+// ROCm 10.1 on the integrated GPU gfx1036). The pending kernel cancels the
+// entries of a vector whose indices are given by an array, as
+// mfem::ParNonlinearForm::Mult does for the essential degrees of freedom.
 //
 // usage: lost-kernel [warm-up]
 // with any argument, a kernel of libmfem is launched once before: nothing is

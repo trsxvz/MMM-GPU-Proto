@@ -558,7 +558,8 @@ Continuation (14/10/2026):
   0.1 and 0.4 s, and the behaviour still fails with a step of 1 s.
 
 - ParaSails in float (mfem-mgis 3ba3b6e729): a defect of hypre 3.2.0,
-  also on its master branch and not yet reported. With an external
+  also on its master branch, reported on 14/10 as
+  [hypre-space/hypre#1634](https://github.com/hypre-space/hypre/issues/1634), fix proposed in [#1635](https://github.com/hypre-space/hypre/pull/1635). With an external
   LAPACK in single precision, `src/lapack/_hypre_lapack.h` keeps the
   names of the double type (`dpotrf`, `dgetrf`, `dgels`, `dsygv`...),
   whereas `src/blas/_hypre_blas.h` maps the BLAS names to the single
@@ -596,4 +597,3 @@ Remaining:
   floor of the residual of a cube of one element is already 3e-4 to 8e-4,
   close to the default stagnation tolerance;
 - the `FixedPoint` solver (NewtonK0...) has no stagnation criterion;
-- the defect of hypre is not reported upstream yet.

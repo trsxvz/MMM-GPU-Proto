@@ -205,15 +205,15 @@ build_mfem_mgis() {
 # removes LD_LIBRARY_PATH from the environment: it is given again)
 #
 # On the GPU, the kernels and the copies are serialised: with ROCm 10.1
-# (HIP 7.16, packages of TheRock) on the integrated GPU gfx1036, a kernel
-# still pending is lost when a kernel of a shared library whose code is not
-# loaded yet is launched for the first time (reproducer
-# reproducers/hip-lost-kernel): wrong residuals (imposed components not
-# zeroed) and memory faults of hypre. The immediate loading of the code
-# (HIP_ENABLE_DEFERRED_LOADING=0) fails, libhipblaslt having no code for
-# gfx1036. Serialisation is not always enough: rve and ssna303_3d_hypre then
-# stay blocked in hipLaunchKernel, at the first launch of a kernel of the
-# library of behaviours (waiting for a signal that never comes).
+# (HIP 7.16, packages of TheRock) on the integrated GPU gfx1036, the writes
+# of a finished kernel to device memory are lost when the GPU stays idle
+# about 300 us before the next operation, for instance while the code of a
+# shared library is loaded at the first launch of one of its kernels
+# (reproducers/hip-idle-write-loss, ROCm/rocm-systems#13469): wrong
+# residuals (imposed components not zeroed) and memory faults of hypre.
+# Serialisation is not always enough: rve and ssna303_3d_hypre then stay
+# blocked in hipLaunchKernel, at the first launch of a kernel of the library
+# of behaviours (waiting for a signal that never comes).
 #
 # The OpenMPI of the environment mmm-gpu is built with CUDA: without
 # OMPI_MCA_accelerator=null, each process opens a context on the NVIDIA GPU

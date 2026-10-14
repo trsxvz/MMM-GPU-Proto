@@ -19,8 +19,8 @@ the caller, etc.): the test must detect it.
 ## Environment
 
 - Machine: NVIDIA RTX 5080 GPU (architecture `sm_120`); the AMD GPU
-  integrated in the processor (gfx1036) is not used (access restricted to the
-  render group).
+  integrated in the processor (gfx1036, access through the render group)
+  only checks that HIP runs (see the end of "AMD GPU" below).
 - Spack environment `mmm-gpu` (`deps/spack/`): NVIDIA HPC SDK 25.11
   (nvc++ and CUDA 13.0.2), LLVM 20.1.8, AdaptiveCpp 25.10, Kokkos 5.2.2,
   HIP 7.2.3 (NVIDIA platform), MFEM 4.10 with hypre 3.2.0, and the
@@ -253,7 +253,20 @@ compiled with HIP for gfx90a) builds mfem-mgis in
 the tests that require a GPU, then runs the others: 213/213 for
 mfem-mgis and 15/15 for the examples on 13/10, build redone from
 scratch (mfem-mgis 7db41904c0, examples a48701a). Nothing runs on an
-AMD GPU.
+AMD GPU there.
+
+The same script with `HIP_ARCH=gfx1036 GPU_TESTS=ON` also runs the tests
+on the AMD GPU integrated in the processor (13 and 14/10). With ROCm 10.1
+(packages of TheRock), the writes of a finished kernel to device memory
+are lost when this GPU stays idle about 300 µs before the next operation
+(`reproducers/hip-idle-write-loss`, reported as
+[ROCm/rocm-systems#13469](https://github.com/ROCm/rocm-systems/issues/13469)).
+The tests therefore run with the kernels and the copies serialised
+(`AMD_SERIALIZE_KERNEL=3`, `AMD_SERIALIZE_COPY=3`):
+ExecutionSettingsTest 33/33; on the GPU, the examples rve and
+ssna303_3d_hypre stay blocked at the first launch of a kernel of their
+library of behaviours, the other nine pass (mox2 failed once on 13/10,
+then passed four times out of four).
 
 The option `enable-kokkos` (initialization of Kokkos by mfem-mgis) is
 validated in two separate builds: `build/mfem-mgis-kokkos-off`

@@ -249,8 +249,8 @@ merge upstream, then in spack-packages.
 - **Symptom.** In float, ParaSails did not converge: no convergence in
   1000 iterations of the conjugate gradient on a small elasticity
   problem.
-- **Cause.** A defect of hypre 3.2.0, also present on its master branch
-  and not yet reported. With an external LAPACK in single precision,
+- **Cause.** A defect of hypre 3.2.0, also present on its master branch,
+  reported on 14/10 as [hypre-space/hypre#1634](https://github.com/hypre-space/hypre/issues/1634), fix proposed in [#1635](https://github.com/hypre-space/hypre/pull/1635). With an external LAPACK in single precision,
   `src/blas/_hypre_blas.h` maps the `hypre_d*` names to the single
   precision BLAS routines, but `src/lapack/_hypre_lapack.h` has no such
   case: hypre calls `dpotrf`, `dgetrf`, `dgels`, `dsygv`... of the double
