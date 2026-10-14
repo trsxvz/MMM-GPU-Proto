@@ -4809,3 +4809,9 @@ formula as MTest). All the others give the Newton solution to within
   of the initializer, layout component by component), filled. In plane
   stress, MFront converts no tangent operator of the behaviours written
   with F: a behaviour used by mfem-mgis must compute `DPK1_DF`.
+- Axisymmetrical generalised plane stress (axial component second, not
+  third) added to the test behaviours of MGIS: analytical solution with
+  F and with H in the three frameworks, integration with F and with H for
+  all the stress measures and tangent operators, initialize functions and
+  post-processings. TFEL was right in this hypothesis (never tested
+  before).
