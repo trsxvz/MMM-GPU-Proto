@@ -61,14 +61,15 @@ namespace mm_opera_hpc {
   }  // end of computeMacroscopicCauchyStress
 
   /*!
-   * \return the smallest residual on the lateral stresses that the fixed
-   * point can reduce. When both lateral stresses are close to S, the
-   * correction of the lateral components of the deformation gradient is
-   * about (1 + nu) (1 - 2 nu) S / E: it is rounded to zero when it is smaller
+   * \return the resolution of the fixed point on the lateral stresses: the
+   * largest residual for which the correction of the lateral components of
+   * the deformation gradient may be rounded to zero. When both lateral
+   * stresses are close to S, this correction is about
+   * (1 + nu) (1 - 2 nu) S / E, and it is rounded to zero when it is smaller
    * than half the spacing of the floating point numbers around these
-   * components, and the fixed point then stagnates or oscillates.
-   * Negligible with double. With float, about 1.5e4 Pa for the UO2 based
-   * cases in tension (lateral components just below 1), twice more in
+   * components: the fixed point then stagnates or oscillates. Negligible
+   * with double. With float, about 1.5e4 Pa for the UO2 based cases in
+   * tension (lateral components just below 1), twice as much in
    * compression.
    * \param[in] mp: macroscopic elastic material properties
    * \param[in] F: diagonal components of the deformation gradient
@@ -77,9 +78,12 @@ namespace mm_opera_hpc {
       const MacroscropicElasticMaterialProperties &mp,
       const std::array<mfem_mgis::real, 3u> &F) noexcept {
     constexpr auto infinity = std::numeric_limits<mfem_mgis::real>::infinity();
+    // smallest spacing of the floating point numbers around x, which differs
+    // from the spacing above x at a power of two, for instance at 1
     const auto spacing = [](const mfem_mgis::real x) {
       const auto ax = std::abs(x);
-      return std::nextafter(ax, infinity) - ax;
+      return std::min(std::nextafter(ax, infinity) - ax,
+                      ax - std::nextafter(ax, mfem_mgis::real{0}));
     };
     const auto c = (1 + mp.nueff) * (1 - 2 * mp.nueff);
     if (!(c > 0)) {

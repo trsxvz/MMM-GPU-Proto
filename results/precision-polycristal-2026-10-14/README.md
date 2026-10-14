@@ -16,14 +16,14 @@ temps, F11, F22, F33, puis σ11, σ22, σ33 (Pa) à la fin du calcul.
 |---|---|---|---|---|
 | 0,1 | 8 997 894 | 9 053 098 | +6,1e-3 | F33 - 1 vaut 4,9949e-5 en float au lieu de 5e-5 (arrondi de F) |
 | 0,4 | 35 338 761 | 35 373 936 | +1,0e-3 | |
-| 1 | 60 410 661 | arrêt à 0,86 s | | échecs répétés de l'intégration de la loi (51 messages sur les deux processus), pas coupé jusqu'à 0,002 s, nombre maximal de sous-pas atteint ; même comportement dans un premier essai (arrêt à 0,85 s) |
+| 1 | 60 410 661 | arrêt à 0,86 s | | échecs répétés de l'intégration de la loi (51 messages sur les deux processus) et deux échecs du point fixe à 1e4 Pa (voir la fin), pas coupé jusqu'à 0,002 s, nombre maximal de sous-pas atteint ; même comportement dans un premier essai (arrêt à 0,85 s) |
 
 - L'écart en float décroît quand la déformation croît (6,1e-3 à 5e-5 de
   déformation axiale, 1,0e-3 à 2e-4).
 - La forme en `expm1` donne le même résultat à d = 0,1 et presque le
   même à d = 0,4 (écart 1,0e-3) : la cancellation de `cosh(x) - 1` n'est
   pas en cause. En double, elle ne change rien. À d = 1, elle échoue aussi
-  (arrêt à 0,53 s).
+  (arrêt à 0,53 s, avec un échec du point fixe à 1e4 Pa, voir la fin).
 - Avec `@Epsilon 1e-6`, la loi ne s'arrête plus, mais l'écart à d = 0,1
   devient -1,5e-2, et à d = 1 le point fixe sur la contrainte
   macroscopique stagne à 78 000 Pa, au-dessus de son seuil de 1e4 Pa
@@ -51,9 +51,14 @@ au moins deux fois sa résolution, soit 30 804 Pa en float ici
   l'intégration de la loi (50 messages), sans échec du point fixe (avant,
   deux échecs du point fixe s'y ajoutaient) ; forme en `expm1` : arrêt à
   0,57 s, même cause ;
-- `@Epsilon 1e-6` : à d = 0,1, le pas n'est plus coupé et l'écart devient
-  -1,3e-2 ; à d = 1, le point fixe stagne encore vers 69 660 Pa, au-dessus
+- `@Epsilon 1e-6` : à d = 0,1, le pas de 0,1 s échoue toujours et il est
+  coupé en deux pas de 0,05 s ; le second n'est plus coupé à son tour (le
+  point fixe s'arrête à 12 316 Pa, sous la tolérance), et l'écart devient
+  -1,3e-2. À d = 1, le point fixe stagne encore vers 69 660 Pa, au-dessus
   de la tolérance (arrêt à 0,66 s) : vraie non-convergence, due au
-  critère lâche de la loi.
+  critère lâche de la loi (la contrainte ne bouge que d'environ 20 Pa
+  quand F bouge d'au moins deux ulps, et l'équilibre microscopique ne
+  fait aucune itération de Newton, son résidu de 55 165 étant sous la
+  tolérance absolue de 6e4).
 
 La conclusion ne change pas : avec un pas de 1 s, la loi échoue en float.

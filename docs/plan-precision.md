@@ -549,8 +549,8 @@ Suite (14/10/2026) :
   la moitié de l'écart entre deux flottants voisins (6e-8 juste sous 1),
   soit 1,54e4 Pa de résidu pour l'UO2. Le point fixe prend maintenant au
   moins deux fois cette résolution, calculée à partir de F et des modules
-  (mm-opera-hpc 05358bd) : 30 804 Pa ici, le double de plus en
-  compression, négligeable en double. Écart au double de 0,10 à 0,16 % à
+  (mm-opera-hpc 05358bd) : 30 804 Pa ici, deux fois plus en compression,
+  négligeable en double. Écart au double de 0,10 à 0,16 % à
   0,2 s, dont environ 0,07 % dû à la tolérance absolue de l'équilibre
   microscopique en float (mesuré en double avec cette tolérance), et de
   0,06 à 0,07 % à 0,4 s ; le test vérifie les mêmes instants dans les

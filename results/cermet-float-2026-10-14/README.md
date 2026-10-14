@@ -20,9 +20,9 @@ chaque pas. `point-fixe.txt` : résidu du point fixe,
 ## Règle retenue
 
 La tolérance sur les contraintes latérales vaut 1e4 Pa, et le point fixe
-prend au moins deux fois sa résolution (mm-opera-hpc 05358bd). Quand les
-deux contraintes latérales sont proches d'une même valeur S, la
-correction des composantes latérales de F vaut environ
+prend au moins deux fois sa résolution (mm-opera-hpc 05358bd et
+ae5768b). Quand les deux contraintes latérales sont proches d'une même
+valeur S, la correction des composantes latérales de F vaut environ
 (1 + ν) (1 - 2 ν) S / E. Elle s'arrondit à zéro quand elle est plus petite
 que la moitié de l'écart entre deux flottants voisins de ces composantes.
 Avec les modules effectifs de Kröner des grains d'UO2 (E = 173 GPa,

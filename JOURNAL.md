@@ -4644,9 +4644,10 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   de l'écart fausse d'un facteur dix (l'arrondi de 1 + 1e-4 en float ne
   fait que +0,017 % sur la déformation). Balayage refait avec un seul
   exécutable, à un et deux processus (`results/cermet-float-2026-10-14`).
-  Règle finale (05358bd) : la tolérance reste 1e4 Pa, et le point fixe
+  Règle finale (05358bd, puis ae5768b pour l'écart entre flottants pris
+  du côté le plus petit) : la tolérance reste 1e4 Pa, et le point fixe
   prend au moins deux fois sa résolution, calculée à partir de F et des
-  modules (30 804 Pa ici, le double en compression, négligeable en
+  modules (30 804 Pa ici, deux fois plus en compression, négligeable en
   double). Écart au double de 0,10 à 0,16 % à 0,2 s, dont environ 0,07 %
   dû à la tolérance absolue de l'équilibre microscopique en float
   (mesuré en double avec cette tolérance), et de 0,06 à 0,07 % à 0,4 s ;

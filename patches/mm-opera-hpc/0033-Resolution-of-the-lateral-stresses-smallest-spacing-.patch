@@ -1,0 +1,64 @@
+From ae5768b8ef0464f8e473305ecf52495ddbedc267 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 14:41:34 +0200
+Subject: [PATCH] Resolution of the lateral stresses: smallest spacing around F
+
+At a power of two, for instance at 1, the spacing of the floating point
+numbers above a value is twice the spacing below it: the resolution of
+the fixed point is now computed with the smallest of the two, so that it
+is not doubled when a lateral component of the deformation gradient is
+exactly 1 (first iteration of the first step). The documentation of
+computeLateralStressResolution now states what it returns: the largest
+residual for which the correction may be rounded to zero.
+
+Same results bit for bit in double and in float (cermet with the
+executables of the CI and of the prototype, at one and two processes;
+polycrystal).
+---
+ ...ialMacroscopicStressPeriodicSimulation.cxx | 20 +++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+index c7f5c06..6077976 100644
+--- a/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
++++ b/src/UniaxialMacroscopicStressPeriodicSimulation.cxx
+@@ -61,14 +61,15 @@ namespace mm_opera_hpc {
+   }  // end of computeMacroscopicCauchyStress
+ 
+   /*!
+-   * \return the smallest residual on the lateral stresses that the fixed
+-   * point can reduce. When both lateral stresses are close to S, the
+-   * correction of the lateral components of the deformation gradient is
+-   * about (1 + nu) (1 - 2 nu) S / E: it is rounded to zero when it is smaller
++   * \return the resolution of the fixed point on the lateral stresses: the
++   * largest residual for which the correction of the lateral components of
++   * the deformation gradient may be rounded to zero. When both lateral
++   * stresses are close to S, this correction is about
++   * (1 + nu) (1 - 2 nu) S / E, and it is rounded to zero when it is smaller
+    * than half the spacing of the floating point numbers around these
+-   * components, and the fixed point then stagnates or oscillates.
+-   * Negligible with double. With float, about 1.5e4 Pa for the UO2 based
+-   * cases in tension (lateral components just below 1), twice more in
++   * components: the fixed point then stagnates or oscillates. Negligible
++   * with double. With float, about 1.5e4 Pa for the UO2 based cases in
++   * tension (lateral components just below 1), twice as much in
+    * compression.
+    * \param[in] mp: macroscopic elastic material properties
+    * \param[in] F: diagonal components of the deformation gradient
+@@ -77,9 +78,12 @@ namespace mm_opera_hpc {
+       const MacroscropicElasticMaterialProperties &mp,
+       const std::array<mfem_mgis::real, 3u> &F) noexcept {
+     constexpr auto infinity = std::numeric_limits<mfem_mgis::real>::infinity();
++    // smallest spacing of the floating point numbers around x, which differs
++    // from the spacing above x at a power of two, for instance at 1
+     const auto spacing = [](const mfem_mgis::real x) {
+       const auto ax = std::abs(x);
+-      return std::nextafter(ax, infinity) - ax;
++      return std::min(std::nextafter(ax, infinity) - ax,
++                      ax - std::nextafter(ax, mfem_mgis::real{0}));
+     };
+     const auto c = (1 + mp.nueff) * (1 - 2 * mp.nueff);
+     if (!(c > 0)) {
+-- 
+2.43.0
+
