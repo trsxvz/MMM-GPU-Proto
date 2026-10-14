@@ -6,7 +6,7 @@
 # build directory, the behaviour libraries being given by its options -lU
 # and -lA; the mode of integration is given by the environment variables of
 # mfem-mgis.
-set(MFEM_MGIS_EXAMPLES_EX8_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex8"
+set(MFEM_MGIS_EXAMPLES_EX8_DIR "${MFEM_MGIS_EXAMPLES_BINARY_DIR}/ex8"
   CACHE PATH "build directory of the example ex8 of mfem-mgis-examples")
 set(_mfront_directory "${MFEM_MGIS_EXAMPLES_SOURCE_DIR}/ex8/MFront")
 file(GLOB _sources CONFIGURE_DEPENDS "${_mfront_directory}/*.mfront")
@@ -18,7 +18,8 @@ add_generic_parallel_mfront_libraries(ex8-behaviours CUDA ${_sources}
 # computations by kernels, with the behaviours of each backend, the
 # statistics of the fields being compared to the reference values of the
 # example
-if(EXISTS "${MFEM_MGIS_EXAMPLES_EX8_DIR}/rjh_plate")
+proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX8_DIR}/rjh_plate")
+if(_usable)
   set(_run mpirun -n 2 ./rjh_plate -m assemblage_hexa_coarse.msh
            -lsMc MUMPSSolver -no-pp
            -rf assemblage_hexa_coarse-statistics.ref)

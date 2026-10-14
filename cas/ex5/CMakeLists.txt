@@ -5,7 +5,7 @@
 # The executable is the one of mfem-mgis-examples, run in its build
 # directory, the behaviour library being given by its option -l; the mode
 # of integration is given by the environment variables of mfem-mgis.
-set(MFEM_MGIS_EXAMPLES_EX5_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex5"
+set(MFEM_MGIS_EXAMPLES_EX5_DIR "${MFEM_MGIS_EXAMPLES_BINARY_DIR}/ex5"
   CACHE PATH "build directory of the example ex5 of mfem-mgis-examples")
 add_generic_parallel_mfront_libraries(ex5-behaviours CUDA
   "${MFEM_MGIS_EXAMPLES_SOURCE_DIR}/ex5/IsotropicLinearThermoElasticity.mfront")
@@ -15,7 +15,8 @@ add_generic_parallel_mfront_libraries(ex5-behaviours CUDA
 # point (generic library of the example), all the computations by kernels
 # with the generic library and by batches with each backend. All the tests
 # write their results in the build directory of the example.
-if(EXISTS "${MFEM_MGIS_EXAMPLES_EX5_DIR}/satoh")
+proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX5_DIR}/satoh")
+if(_usable)
   set(_kernels "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
   add_test(NAME ex5-point-par-point COMMAND ./satoh
     WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX5_DIR}")

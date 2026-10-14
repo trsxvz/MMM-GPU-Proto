@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 #include "mfem/general/optparser.hpp"
 #include "MGIS/Behaviour/Behaviour.hxx"
@@ -70,7 +71,10 @@ int main(int argc, char** argv) {
   auto linear_tolerance = real{1e-10};
   auto adaptive_initial_tolerance = real{-1};
   auto expected_norm = real{-1};
-  auto norm_tolerance = real{1e-6};
+  // relative tolerance on the norm of the solution: the short tests compare
+  // to a solution computed in double precision, from which the computations
+  // in single precision differ by 4e-6
+  auto norm_tolerance = std::is_same_v<real, float> ? real{2e-5} : real{1e-6};
   mfem::OptionsParser args(argc, argv);
   declareDefaultOptions(args);
   args.AddOption(&mesh, "-m", "--mesh", "Mesh file.");

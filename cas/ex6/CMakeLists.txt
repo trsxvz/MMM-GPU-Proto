@@ -5,7 +5,7 @@
 # mfem-mgis-examples, run in its build directory, the behaviour library
 # being given by its option -l; the mode of integration is given by the
 # environment variables of mfem-mgis.
-set(MFEM_MGIS_EXAMPLES_EX6_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex6"
+set(MFEM_MGIS_EXAMPLES_EX6_DIR "${MFEM_MGIS_EXAMPLES_BINARY_DIR}/ex6"
   CACHE PATH "build directory of the example ex6 of mfem-mgis-examples")
 add_generic_parallel_mfront_libraries(ex6-behaviours CUDA
   "${MFEM_MGIS_EXAMPLES_SOURCE_DIR}/ex6/SaintVenantKirchhoffElasticity.mfront")
@@ -15,7 +15,8 @@ add_generic_parallel_mfront_libraries(ex6-behaviours CUDA
 # example, point by point (generic library of the example), all the
 # computations by kernels with the generic library and by batches with
 # each backend
-if(EXISTS "${MFEM_MGIS_EXAMPLES_EX6_DIR}/rve")
+proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX6_DIR}/rve")
+if(_usable)
   set(_run mpirun -n 2 ./rve --no-post-processing --verbosity-level 0)
   set(_kernels "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")
   add_test(NAME ex6-point-par-point COMMAND ${_run}

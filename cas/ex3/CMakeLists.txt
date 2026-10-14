@@ -6,7 +6,7 @@
 # being given by its option -l; the mode of integration and the device are
 # given by the environment variables of mfem-mgis (the example has no
 # --device option).
-set(MFEM_MGIS_EXAMPLES_EX3_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex3"
+set(MFEM_MGIS_EXAMPLES_EX3_DIR "${MFEM_MGIS_EXAMPLES_BINARY_DIR}/ex3"
   CACHE PATH "build directory of the example ex3 of mfem-mgis-examples")
 
 # tests of the six loading cases of the example on one process, the
@@ -15,7 +15,8 @@ set(MFEM_MGIS_EXAMPLES_EX3_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex3"
 # with the generic library and by batches with each backend. The tests of
 # a case write the same ParaView files in the build directory of the
 # example.
-if(EXISTS "${MFEM_MGIS_EXAMPLES_EX3_DIR}/two_layer_cube")
+proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX3_DIR}/two_layer_cube")
+if(_usable)
   add_generic_parallel_mfront_libraries(ex3-behaviours CUDA
     "${MFEM_MGIS_EXAMPLES_EX3_DIR}/IsotropicLinearElasticity.mfront")
   set(_kernels "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")

@@ -5,7 +5,7 @@
 # interface. The executable is the one of mfem-mgis-examples, run in its
 # build directory, the behaviour library being given by its option -l; the
 # mode of integration is given by the environment variables of mfem-mgis.
-set(MFEM_MGIS_EXAMPLES_EX7_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex7"
+set(MFEM_MGIS_EXAMPLES_EX7_DIR "${MFEM_MGIS_EXAMPLES_BINARY_DIR}/ex7"
   CACHE PATH "build directory of the example ex7 of mfem-mgis-examples")
 add_generic_parallel_mfront_libraries(ex7-behaviours CUDA
   "${MFEM_MGIS_EXAMPLES_SOURCE_DIR}/ex7/NortonViscoplasticityWithThreshold.mfront")
@@ -16,7 +16,8 @@ add_generic_parallel_mfront_libraries(ex7-behaviours CUDA
 # library of the example), all the computations by kernels with the generic
 # library and by batches with each backend. All the tests write the mean
 # stresses in the same file of the build directory of the example.
-if(EXISTS "${MFEM_MGIS_EXAMPLES_EX7_DIR}/mox2")
+proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX7_DIR}/mox2")
+if(_usable)
   set(_run mpirun -n 2 ./mox2 --no-post-processing --order 2
            --mesh mesh/OneSphere.msh --nbsteps 5
            --reference-file OneSphere-avgStress-5steps.ref)

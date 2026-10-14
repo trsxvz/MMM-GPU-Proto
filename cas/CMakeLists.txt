@@ -58,6 +58,73 @@ set(MFEM_MGIS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../mfem-mgis"
 set(MFEM_MGIS_EXAMPLES_SOURCE_DIR
   "${CMAKE_CURRENT_SOURCE_DIR}/../mfem-mgis-examples"
   CACHE PATH "sources of mfem-mgis-examples")
+# build directory of mfem-mgis-examples, whose executables are run by the
+# cases ex1 to ex8 and ssna303 (example ex4). The directory of each example
+# is given by the variable MFEM_MGIS_EXAMPLES_EX<n>_DIR, in this directory by
+# default: these variables are cached at the first configuration, a change
+# of MFEM_MGIS_EXAMPLES_BINARY_DIR requires to remove them (-U).
+set(MFEM_MGIS_EXAMPLES_BINARY_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples"
+  CACHE PATH "build directory of mfem-mgis-examples")
+
+# usage: proto_check_executable(<variable> <executable>)
+# Sets <variable> to true if the executable of another project (the
+# examples, mm-opera-hpc) exists and is built against the installation of
+# mfem-mgis of the cases (MFEMMGIS_DIR in the cache of its build tree, found
+# in the directory of the executable or in one of its parents): it loads the
+# behaviour libraries of the cases, which must have the same numerical type
+# and the same interfaces.
+function(proto_check_executable variable executable)
+  set(${variable} FALSE PARENT_SCOPE)
+  if(NOT EXISTS "${executable}")
+    return()
+  endif()
+  get_filename_component(_directory "${executable}" DIRECTORY)
+  while(NOT EXISTS "${_directory}/CMakeCache.txt")
+    get_filename_component(_parent "${_directory}" DIRECTORY)
+    if(_parent STREQUAL _directory)
+      message(WARNING "${executable}: build tree not found, not used")
+      return()
+    endif()
+    set(_directory "${_parent}")
+  endwhile()
+  # the cases are configured again when the other build tree changes
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${_directory}/CMakeCache.txt")
+  file(STRINGS "${_directory}/CMakeCache.txt" _line REGEX "^MFEMMGIS_DIR:")
+  if(NOT _line)
+    message(WARNING "${executable}: MFEMMGIS_DIR not found in the cache of "
+            "its build tree (${_directory}), not used")
+    return()
+  endif()
+  string(REGEX REPLACE "^MFEMMGIS_DIR:[A-Z]*=" "" _mfem_mgis "${_line}")
+  # a relative path is relative to the source directory of each project
+  file(STRINGS "${_directory}/CMakeCache.txt" _line
+    REGEX "^CMAKE_HOME_DIRECTORY:")
+  string(REGEX REPLACE "^CMAKE_HOME_DIRECTORY:[A-Z]*=" "" _home "${_line}")
+  get_filename_component(_mfem_mgis "${_mfem_mgis}" REALPATH
+    BASE_DIR "${_home}")
+  get_filename_component(_expected "${MFEMMGIS_DIR}" REALPATH
+    BASE_DIR "${CMAKE_SOURCE_DIR}")
+  if(NOT _mfem_mgis STREQUAL _expected)
+    message(WARNING "${executable}: built against the mfem-mgis of "
+            "${_mfem_mgis}, not the one of the cases (${_expected}): its "
+            "tests are not added")
+    return()
+  endif()
+  set(${variable} TRUE PARENT_SCOPE)
+endfunction(proto_check_executable)
+
+# usage: proto_select_tolerance(<variable> <double> <float>)
+# Sets <variable> to <float> if the cases are built in single precision, to
+# <double> otherwise (tolerances of the comparisons between two
+# computations of a case, justified where they are used).
+function(proto_select_tolerance variable double_tolerance float_tolerance)
+  if(MFEM_MGIS_REAL_TYPE STREQUAL "float")
+    set(${variable} "${float_tolerance}" PARENT_SCOPE)
+  else()
+    set(${variable} "${double_tolerance}" PARENT_SCOPE)
+  endif()
+endfunction(proto_select_tolerance)
 
 # usage: add_mfront_library(target sources...)
 # Behaviours compiled by MFront (generic interface) in

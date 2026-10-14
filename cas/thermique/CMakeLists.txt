@@ -8,16 +8,28 @@ configure_file("${MFEM_MGIS_SOURCE_DIR}/tests/beam-tet.mesh"
 # short tests: two steps on a coarse mesh; the linear solvers give the same
 # temperature
 set(norm 7227.044268)
-add_test(NAME thermique-umfpack
-  COMMAND ./thermique -r 1 -n 2 -ls umfpack -no-p -en ${norm})
 add_test(NAME thermique-mumps
   COMMAND mpirun -n 2 ./thermique -r 1 -n 2 -ls mumps -en ${norm})
 add_test(NAME thermique-gmres-amg
   COMMAND mpirun -n 2 ./thermique -r 1 -n 2 -ls gmres-amg -en ${norm})
-# the comparison detects a wrong solution
-add_test(NAME thermique-wrong-norm
-  COMMAND ./thermique -r 1 -n 2 -ls umfpack -no-p -en 1)
-set_tests_properties(thermique-wrong-norm PROPERTIES WILL_FAIL TRUE)
+# sequential computations: with UMFPACK, which is not available with MFEM in
+# single precision (no SuiteSparse), or with the GMRES of MFEM and a Jacobi
+# preconditioner. The comparison of the norm detects a wrong solution (the
+# message of the program is checked, whatever its exit status).
+if(NOT MFEM_USE_SUITESPARSE STREQUAL "NO")
+  add_test(NAME thermique-umfpack
+    COMMAND ./thermique -r 1 -n 2 -ls umfpack -no-p -en ${norm})
+  add_test(NAME thermique-wrong-norm
+    COMMAND ./thermique -r 1 -n 2 -ls umfpack -no-p -en 1)
+else()
+  add_test(NAME thermique-sequentiel
+    COMMAND ./thermique -r 1 -n 2 -ls gmres-jacobi -lt 1e-12 -no-p
+            -en ${norm})
+  add_test(NAME thermique-wrong-norm
+    COMMAND ./thermique -r 1 -n 2 -ls gmres-jacobi -lt 1e-12 -no-p -en 1)
+endif()
+set_tests_properties(thermique-wrong-norm PROPERTIES
+  PASS_REGULAR_EXPRESSION "differs from the expected one")
 
 # the integration by batches with the gradients, the inner forces and the
 # stiffness matrices computed by kernels (options given by the environment)
@@ -32,8 +44,14 @@ set_tests_properties(thermique-noyaux PROPERTIES ENVIRONMENT
 # and by kernels, the contributions of the boundary face integrator being
 # added to the inner forces and to the local matrix computed by kernels
 set(robin_norm 5502.767622)
-add_test(NAME thermique-robin-umfpack
-  COMMAND ./thermique -r 1 -n 2 -ls umfpack -no-p -hc 1 -en ${robin_norm})
+if(NOT MFEM_USE_SUITESPARSE STREQUAL "NO")
+  add_test(NAME thermique-robin-umfpack
+    COMMAND ./thermique -r 1 -n 2 -ls umfpack -no-p -hc 1 -en ${robin_norm})
+else()
+  add_test(NAME thermique-robin-mumps
+    COMMAND mpirun -n 2 ./thermique -r 1 -n 2 -ls mumps -hc 1
+            -en ${robin_norm})
+endif()
 add_test(NAME thermique-robin-noyaux
   COMMAND mpirun -n 2 ./thermique -r 1 -n 2 -ls gmres-amg -hc 1
           -en ${robin_norm})

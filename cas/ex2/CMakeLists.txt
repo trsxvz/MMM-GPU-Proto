@@ -4,7 +4,7 @@
 # interface. The executable is the one of mfem-mgis-examples, run in its
 # build directory, the behaviour library being given by its option -l; the
 # mode of integration is given by the environment variables of mfem-mgis.
-set(MFEM_MGIS_EXAMPLES_EX2_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex2"
+set(MFEM_MGIS_EXAMPLES_EX2_DIR "${MFEM_MGIS_EXAMPLES_BINARY_DIR}/ex2"
   CACHE PATH "build directory of the example ex2 of mfem-mgis-examples")
 add_generic_parallel_mfront_libraries(ex2-behaviours CUDA
   "${MFEM_MGIS_EXAMPLES_SOURCE_DIR}/ex2/IsotropicLinearHardeningPlasticity.mfront")
@@ -18,7 +18,8 @@ add_generic_parallel_mfront_libraries(ex2-behaviours CUDA
 # the tests write the resultant forces and the ParaView files in the build
 # directory of the example. One OpenMP thread per process, MUMPS
 # oversubscribing the cores otherwise.
-if(EXISTS "${MFEM_MGIS_EXAMPLES_EX2_DIR}/ssna303")
+proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX2_DIR}/ssna303")
+if(_usable)
   set(_run mpirun -n 2 ./ssna303 --nbsteps 2 --end-time 0.05
            --reference-file ssna303-force.ref)
   set(_run_fbar mpirun -n 2 ./ssna303 --nbsteps 2 --end-time 0.05

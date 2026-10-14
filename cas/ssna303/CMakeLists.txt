@@ -5,7 +5,7 @@
 # batches. The executable is the one of mfem-mgis-examples, run in its build
 # directory; the mode of integration is given by the environment variables
 # of mfem-mgis.
-set(MFEM_MGIS_EXAMPLES_EX4_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex4"
+set(MFEM_MGIS_EXAMPLES_EX4_DIR "${MFEM_MGIS_EXAMPLES_BINARY_DIR}/ex4"
   CACHE PATH "build directory of the example ex4 of mfem-mgis-examples")
 add_generic_parallel_mfront_libraries(ssna303-behaviours CUDA
   "${MFEM_MGIS_EXAMPLES_SOURCE_DIR}/ex4/IsotropicLinearHardeningPlasticity.mfront")
@@ -14,7 +14,8 @@ add_generic_parallel_mfront_libraries(ssna303-behaviours CUDA
 # resultant force on the upper boundary being compared to the reference
 # values of the example, point by point (generic library of the example), by
 # batches with each backend, all the computations by kernels
-if(EXISTS "${MFEM_MGIS_EXAMPLES_EX4_DIR}/ssna303_3d_hypre")
+proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX4_DIR}/ssna303_3d_hypre")
+if(_usable)
   set(_run mpirun -n 2 ./ssna303_3d_hypre --no-paraview --nbsteps 1
            --end-time 0.1 --reference-file ssna303_3d-force-10steps.ref)
   set(_kernels "MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels;MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels;MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels")

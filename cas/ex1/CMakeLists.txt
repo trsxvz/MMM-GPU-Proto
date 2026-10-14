@@ -5,7 +5,7 @@
 # build directory, the behaviour library being given by its option -l; the
 # mode of integration and the device are given by the environment variables
 # of mfem-mgis (the example has no --device option).
-set(MFEM_MGIS_EXAMPLES_EX1_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex1"
+set(MFEM_MGIS_EXAMPLES_EX1_DIR "${MFEM_MGIS_EXAMPLES_BINARY_DIR}/ex1"
   CACHE PATH "build directory of the example ex1 of mfem-mgis-examples")
 
 # tests of the example on one process, the gradient, the thermodynamic
@@ -13,7 +13,9 @@ set(MFEM_MGIS_EXAMPLES_EX1_DIR "${CMAKE_BINARY_DIR}/../mfem-mgis-examples/ex1"
 # to the reference values of the example, point by point (generic library
 # of the example), all the computations by kernels with the generic library
 # and by batches with each backend
-if(EXISTS "${MFEM_MGIS_EXAMPLES_EX1_DIR}/uniaxial_tensile_test")
+proto_check_executable(_usable
+  "${MFEM_MGIS_EXAMPLES_EX1_DIR}/uniaxial_tensile_test")
+if(_usable)
   add_generic_parallel_mfront_libraries(ex1-behaviours CUDA
     "${MFEM_MGIS_EXAMPLES_EX1_DIR}/IsotropicLinearHardeningPlasticity.mfront")
   set(_run ./uniaxial_tensile_test --no-post-processing

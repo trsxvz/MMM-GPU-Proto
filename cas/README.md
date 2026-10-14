@@ -62,7 +62,25 @@ le GPU ne sont générées que si ce MFEM calcule sur un GPU avec CUDA.
   pour ex1 et ex3). Chaque test garde la vérification de l'exemple
   (référence ou solution analytique) : point par point, par noyaux, par
   lots avec chaque backend et sur le GPU. Les dossiers de construction des
-  exemples sont donnés par `MFEM_MGIS_EXAMPLES_EX<n>_DIR`.
+  exemples sont donnés par `MFEM_MGIS_EXAMPLES_EX<n>_DIR`, dans
+  `MFEM_MGIS_EXAMPLES_BINARY_DIR` par défaut (`build/mfem-mgis-examples`).
+  Ces variables sont gardées en cache dès la première configuration.
+
+Un cas qui lance un exécutable d'un autre projet (exemples, mm-opera-hpc)
+n'est ajouté que si cet exécutable est construit contre la même
+installation de mfem-mgis que les cas. Il charge en effet les lois des
+cas, qui doivent avoir le même type numérique et les mêmes interfaces. La
+fonction `proto_check_executable` de `CMakeLists.txt` lit pour cela
+`MFEMMGIS_DIR` dans le cache de la construction de l'exécutable.
+`MFEM_MGIS_EXAMPLES_BINARY_DIR` et `MM_OPERA_HPC_BINARY_DIR` désignent donc
+des constructions contre le même mfem-mgis.
+
+En float, MFEM n'a ni SuiteSparse ni AmgX : les tests UMFPACK, AmgX et ex5
+(satoh) sont absents. Les calculs séquentiels de la poutre et de la
+thermique, et les tests `wrong-norm`, passent par un solveur itératif de
+MFEM. Le polycristal et le cermet ont leurs tolérances en float
+(`proto_select_tolerance`, justifiées dans leurs `CMakeLists.txt`). La
+norme de la poutre est comparée à 2e-5 près par défaut (1e-6 en double).
 
 Options de la poutre ajoutées par les lots suivants : point fixe et
 NewtonK0 (`-nls fixed-point -fpm newton-k0 -k0 -pk0`), tolérance
