@@ -8,7 +8,12 @@
 spack:
   specs:
   - openmpi@5 +internal-hwloc +internal-pmix
-  - hypre@3.2.0 +mpi ~int64 precision=single
+  # internal BLAS and LAPACK of hypre: with an external LAPACK, hypre 3.2.0
+  # in single precision calls the LAPACK routines of the double type on
+  # float arrays (src/lapack/_hypre_lapack.h has no single precision names,
+  # unlike src/blas/_hypre_blas.h), which breaks ParaSails, the Gaussian
+  # elimination 99 and 199 of BoomerAMG, Schwarz, FSAI, MGR, AIR and LOBPCG
+  - hypre@3.2.0 +mpi ~int64 ~lapack precision=single
   - mumps +mpi +float
   # C++20, as mfem-mgis
   - mfem@4.10.0 +mpi +shared ~static precision=single cxxstd=20 +mumps

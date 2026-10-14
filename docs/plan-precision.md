@@ -557,8 +557,30 @@ Suite (14/10/2026) :
   deux précisions. Double inchangé au bit près ; polycristal inchangé à
   0,1 et 0,4 s, et toujours en échec de la loi avec un pas de 1 s.
 
-Reste : le plancher du résidu du float croît avec la taille du problème
-(1,3e-5 à r4 sur le CPU) ; un critère de Newton adapté à la précision
-serait utile sur les grands maillages. Pour les lois en grandes
-transformations en float, une interface en H = F - I (décision à
-prendre) éviterait la quantification de F.
+- ParaSails in float (mfem-mgis 3ba3b6e729): a defect of hypre 3.2.0,
+  also on its master branch and not yet reported. With an external
+  LAPACK in single precision, `src/lapack/_hypre_lapack.h` keeps the
+  names of the double type (`dpotrf`, `dgetrf`, `dgels`, `dsygv`...),
+  whereas `src/blas/_hypre_blas.h` maps the BLAS names to the single
+  precision routines. This also breaks the Gaussian elimination 99 and
+  199 of BoomerAMG, Schwarz, FSAI, MGR, AIR, GSMG and LOBPCG. Two fixes
+  compared (`scratch/parasails-float`): a header with the single
+  precision names, and the internal LAPACK of hypre. Both converge in 8
+  iterations (no convergence in 1000 before), with the same times for the
+  `ij` driver of hypre (ParaSails and PCG, 100³ unknowns). Chosen:
+  `hypre ~lapack` in the float environments, no patch to maintain. The
+  configuration of mfem-mgis warns about a hypre in single precision with
+  an external LAPACK, and the ParaSails tests run in float.
+- Newton criterion adapted to the precision (mfem-mgis 11fda6426e):
+  option `StagnationRelativeTolerance` of the Newton solver (10⁴ ε by
+  default, 1.2e-3 in float, 2.2e-12 in double). Below it, a residual whose
+  smallest value has not been halved during the last two iterations is
+  accepted as converged. Beam r4 in float with the criterion of the case
+  (1e-8): 27 iterations instead of no convergence, 7.0e-5 away from the
+  solution in double (8.0e-5 with a criterion of 1e-4), floor at 1.6e-5 to
+  2.0e-5 of the reference residual (`results/newton-stagnation-beam-2026-10-14`).
+  In double, the criterion is never triggered in the test suites, and the
+  results of mm-opera-hpc are the same bit for bit.
+
+Remaining: for the finite strain behaviours in float, an interface based
+on H = F - I (decision to take) would avoid the quantification of F.

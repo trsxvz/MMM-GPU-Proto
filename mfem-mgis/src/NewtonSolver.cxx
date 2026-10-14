@@ -6,6 +6,7 @@
  */
 
 #include <array>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <iomanip>
@@ -135,6 +136,10 @@ namespace mfem_mgis {
     const auto norm_goal =
         std::max(rel_tol * (*(this->reference_residual_norm)), abs_tol);
     auto it = size_type{};
+    // smallest residual and number of iterations since it was last halved,
+    // to detect a stagnation of the residual
+    auto smallest_norm = norm;
+    auto iterations_without_decrease = size_type{};
 
     this->converged = 0;
     while (true) {
@@ -153,6 +158,28 @@ namespace mfem_mgis {
       this->Monitor(it, norm, r, x);
       //
       if (norm <= norm_goal) {
+        this->converged = 1;
+        break;
+      }
+      // the smallest residual has not been halved during the last two
+      // iterations, at a level of the order of the rounding errors: the
+      // floor of the residual is reached
+      if (2 * norm < smallest_norm) {
+        iterations_without_decrease = 0;
+      } else if (it != 0) {
+        ++iterations_without_decrease;
+      }
+      smallest_norm = std::min(smallest_norm, norm);
+      if ((iterations_without_decrease >= 2) &&
+          (norm <= this->stagnation_relative_tolerance *
+                       (*(this->reference_residual_norm)))) {
+        if (shall_print) {
+          log << "Newton iteration " << std::setw(2) << it
+              << " : stagnation of the residual below the relative "
+                 "tolerance "
+              << this->stagnation_relative_tolerance
+              << ", accepted as convergence\n";
+        }
         this->converged = 1;
         break;
       }
@@ -264,12 +291,25 @@ namespace mfem_mgis {
       }
       t = *ot;
     }
-    const auto others = remove(
-        params, std::vector<std::string>{"AdaptiveLinearSolverTolerance"});
+    const auto ostagnation = get_if<double>(
+        ctx, params, "StagnationRelativeTolerance",
+        static_cast<double>(this->stagnation_relative_tolerance));
+    if (isInvalid(ostagnation)) {
+      return false;
+    }
+    if ((*ostagnation < 0) || (*ostagnation >= 1)) {
+      return ctx.registerErrorMessage(
+          "NewtonSolver: the option StagnationRelativeTolerance must be in "
+          "[0, 1[");
+    }
+    const auto others =
+        remove(params, std::vector<std::string>{"AdaptiveLinearSolverTolerance",
+                                                "StagnationRelativeTolerance"});
     if (!NonLinearSolverBase::setSolverParameters(ctx, others)) {
       return false;
     }
     this->adaptive_linear_solver_tolerance = t;
+    this->stagnation_relative_tolerance = static_cast<real>(*ostagnation);
     return true;
   }  // end of setSolverParameters
 

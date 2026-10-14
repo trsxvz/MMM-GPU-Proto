@@ -1,0 +1,352 @@
+From 11fda6426ea701da39b3c8a6a30e0f817831dd91 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 15:31:56 +0200
+Subject: [PATCH] Newton solver: stagnation of the residual accepted at its
+ floor
+
+The residual is computed with rounding errors: its norm cannot go below a
+floor, which grows with the size of the problem and with the level of the
+stresses, and which is much higher in single precision (about 1.6e-5 to
+2e-5 of the reference residual for a beam of 111,843 unknowns in small
+strain, 3e-4 in finite strain). A relative tolerance below this floor
+can't be reached: in float, the Newton solver of the beam stopped after 50
+iterations without convergence with the criterion of the case (1e-8).
+
+New option StagnationRelativeTolerance of the Newton solver: below this
+relative residual, a residual whose smallest value has not been halved
+during the last two iterations is accepted as converged, with a message.
+Its default value is 1e4 times the machine epsilon of the numerical type
+(about 1.2e-3 with float, 2.2e-12 with double); a null value disables it.
+With float, the beam now converges in 27 iterations, 7.0e-5 away from the
+solution in double (8.0e-5 with a criterion of 1e-4). With double, the
+criterion is not triggered by the test suites of mfem-mgis, of the
+examples and of mm-opera-hpc, whose results are the same bit for bit.
+
+Tests (float only, where the floor is reached in a few iterations; in
+double, the residual of these tests keeps decreasing slowly): with a
+relative tolerance of 1e-30, UniaxialTensileTest converges with the
+stagnation criterion and fails without it. UniaxialTensileTest gets the
+options --relative-tolerance and --stagnation-relative-tolerance, and ends
+with a failure, not an abort, when a resolution does not converge.
+Documentation in the user guide (Newton algorithm) and in the installation
+guide.
+---
+ .../installation_guide/installation_guide.rst |  5 +-
+ .../user_guide/nonlinear_algorithms.rst       | 25 ++++++++++
+ .../NonLinearSolvers/NewtonSolver.hxx         | 20 +++++++-
+ src/NewtonSolver.cxx                          | 44 +++++++++++++++++-
+ tests/CMakeLists.txt                          | 41 +++++++++++++++++
+ tests/UniaxialTensileTest.cxx                 | 46 +++++++++++++++----
+ 6 files changed, 167 insertions(+), 14 deletions(-)
+
+diff --git a/docs/source/installation_guide/installation_guide.rst b/docs/source/installation_guide/installation_guide.rst
+index ad1cffc3d9..05ffcec26d 100644
+--- a/docs/source/installation_guide/installation_guide.rst
++++ b/docs/source/installation_guide/installation_guide.rst
+@@ -301,7 +301,10 @@ With ``float``, the residuals of the nonlinear problems stagnate at about
+ ``1e-5`` of the scale of the internal forces: a tolerance relative to the
+ initial residual of a time step, small at the end of a loading or of the
+ iterations of a coupling, may be out of reach, and an absolute tolerance
+-of about ten times this floor is then needed. For finite strain
++of about ten times this floor is then needed, unless the Newton solver
++accepts the stagnation of the residual at this floor (option
++``StagnationRelativeTolerance``, see :doc:`../user_guide/nonlinear_algorithms`).
++For finite strain
+ behaviours, the deformation gradient, close to the identity, is rounded
+ to about ``1e-7``, so that the stresses are only known to about
+ ``1e-7`` times the elastic moduli. The convergence criteria of the
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index 8e555d97f1..fc5f7bc07c 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -197,6 +197,31 @@ solution that does not lead to an integration failure is found, or until
+ the maximum number of iterations is reached (each reduction counts as an
+ iteration).
+ 
++Stagnation of the residual
++--------------------------
++
++The residual is computed with rounding errors: its norm cannot go below a
++floor, which grows with the size of the problem and with the level of the
++stresses, and which is much higher with ``float`` than with ``double``
++(about :math:`10^{-5}` of the initial residual of a time step for a beam of
++:math:`10^5` unknowns in small strain, :math:`3\,10^{-4}` in finite
++strain). A relative tolerance below this floor can't be reached.
++
++The Newton solver therefore accepts as converged a residual whose smallest
++value has not been halved during the last two iterations, when the norm of
++this residual, relative to the initial one, is below the option
++:cxx:`StagnationRelativeTolerance`. Its default value is :math:`10^4` times
++the machine epsilon of the numerical type: about :math:`1.2\,10^{-3}` with
++``float``, :math:`2.2\,10^{-12}` with ``double``. A null value disables
++this criterion. A message is printed when the criterion stops the
++iterations.
++
++.. code-block:: c++
++
++   problem.setSolverParameters(ctx, {{"RelativeTolerance", 1e-8},
++                                     {"StagnationRelativeTolerance", 1e-4}}) |
++       or_die;
++
+ .. _mfem_mgis_fixed_point_algorithm:
+ 
+ Fixed point algorithm
+diff --git a/include/MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx b/include/MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx
+index 3db71a0838..0bcbb9bb3e 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx
+@@ -8,6 +8,7 @@
+ #ifndef LIB_MFEM_MGIS_NONLINEARSOLVERS_NEWTONSOLVER_HXX
+ #define LIB_MFEM_MGIS_NONLINEARSOLVERS_NEWTONSOLVER_HXX
+ 
++#include <limits>
+ #include <vector>
+ #include <optional>
+ #include <functional>
+@@ -26,9 +27,10 @@ namespace mfem_mgis {
+    *
+    * Options: the ones of the iterative solvers (`RelativeTolerance`,
+    * `AbsoluteTolerance`, `MaximumNumberOfIterations`, `VerbosityLevel`),
+-   * `DiscardLinearSolverFailure` and `AdaptiveLinearSolverTolerance`
++   * `DiscardLinearSolverFailure`, `AdaptiveLinearSolverTolerance`
+    * (relative tolerance of the iterative linear solver adapted to the
+-   * decrease of the residual, see `AdaptiveLinearSolverTolerance`).
++   * decrease of the residual, see `AdaptiveLinearSolverTolerance`) and
++   * `StagnationRelativeTolerance` (see `stagnation_relative_tolerance`).
+    */
+   struct MFEM_MGIS_EXPORT NewtonSolver : public NonLinearSolverBase {
+ #ifdef MFEM_USE_MPI
+@@ -75,6 +77,20 @@ namespace mfem_mgis {
+      * `AdaptiveLinearSolverTolerance`), disabled by default
+      */
+     AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
++    /*!
++     * \brief relative residual below which a stagnation of the residual is
++     * accepted as convergence (option `StagnationRelativeTolerance`, zero
++     * disables it). The residual is computed with rounding errors: it
++     * cannot go below a floor, which grows with the size of the problem and
++     * with the level of the stresses, and which is larger in finite strain
++     * with float (the deformation gradient, close to the identity, is
++     * rounded). Below this tolerance, a residual whose smallest value has not
++     * been halved during the last two iterations is considered at this
++     * floor. By default, 10^4 times the machine epsilon of the numerical
++     * type: about 1.2e-3 with float, 2.2e-12 with double.
++     */
++    real stagnation_relative_tolerance =
++        10000 * std::numeric_limits<real>::epsilon();
+   };  // end of struct NewtonSolver
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/NewtonSolver.cxx b/src/NewtonSolver.cxx
+index af082fe790..4213143a4f 100644
+--- a/src/NewtonSolver.cxx
++++ b/src/NewtonSolver.cxx
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include <array>
++#include <algorithm>
+ #include <string>
+ #include <vector>
+ #include <iomanip>
+@@ -135,6 +136,10 @@ namespace mfem_mgis {
+     const auto norm_goal =
+         std::max(rel_tol * (*(this->reference_residual_norm)), abs_tol);
+     auto it = size_type{};
++    // smallest residual and number of iterations since it was last halved,
++    // to detect a stagnation of the residual
++    auto smallest_norm = norm;
++    auto iterations_without_decrease = size_type{};
+ 
+     this->converged = 0;
+     while (true) {
+@@ -156,6 +161,28 @@ namespace mfem_mgis {
+         this->converged = 1;
+         break;
+       }
++      // the smallest residual has not been halved during the last two
++      // iterations, at a level of the order of the rounding errors: the
++      // floor of the residual is reached
++      if (2 * norm < smallest_norm) {
++        iterations_without_decrease = 0;
++      } else if (it != 0) {
++        ++iterations_without_decrease;
++      }
++      smallest_norm = std::min(smallest_norm, norm);
++      if ((iterations_without_decrease >= 2) &&
++          (norm <= this->stagnation_relative_tolerance *
++                       (*(this->reference_residual_norm)))) {
++        if (shall_print) {
++          log << "Newton iteration " << std::setw(2) << it
++              << " : stagnation of the residual below the relative "
++                 "tolerance "
++              << this->stagnation_relative_tolerance
++              << ", accepted as convergence\n";
++        }
++        this->converged = 1;
++        break;
++      }
+       //
+       if (it >= this->max_iter) {
+         break;
+@@ -264,12 +291,25 @@ namespace mfem_mgis {
+       }
+       t = *ot;
+     }
+-    const auto others = remove(
+-        params, std::vector<std::string>{"AdaptiveLinearSolverTolerance"});
++    const auto ostagnation = get_if<double>(
++        ctx, params, "StagnationRelativeTolerance",
++        static_cast<double>(this->stagnation_relative_tolerance));
++    if (isInvalid(ostagnation)) {
++      return false;
++    }
++    if ((*ostagnation < 0) || (*ostagnation >= 1)) {
++      return ctx.registerErrorMessage(
++          "NewtonSolver: the option StagnationRelativeTolerance must be in "
++          "[0, 1[");
++    }
++    const auto others =
++        remove(params, std::vector<std::string>{"AdaptiveLinearSolverTolerance",
++                                                "StagnationRelativeTolerance"});
+     if (!NonLinearSolverBase::setSolverParameters(ctx, others)) {
+       return false;
+     }
+     this->adaptive_linear_solver_tolerance = t;
++    this->stagnation_relative_tolerance = static_cast<real>(*ostagnation);
+     return true;
+   }  // end of setSolverParameters
+ 
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index c70d8ff11a..dfc283df6d 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -150,6 +150,47 @@ if(MFEM_MGIS_HAVE_TFEL)
+                             EquivalentPlasticStrain)
+   add_uniaxial_tensile_test(Mazars Damage)
+   add_uniaxial_tensile_test(SaintVenantKirchhoffElasticity EquivalentStrain)
++  # convergence of the Newton solver at the floor of the residual, in float
++  # only: with an unreachable relative tolerance, a stagnation of the
++  # residual is accepted as convergence (option StagnationRelativeTolerance
++  # of the Newton solver), and the resolution fails when this option is
++  # disabled. The relative tolerance is bounded below by 100 times the
++  # machine epsilon, and the floor of the residual is reached with the finite
++  # strain behaviour (about 3e-4). In double, the residual of these tests
++  # keeps decreasing slowly (factor 0.5 per iteration at 5e-19 of the
++  # initial residual): the floor is not reached in ten iterations
++  if(MFEM_MGIS_REAL_TYPE STREQUAL "float")
++    foreach(behaviour IsotropicLinearHardeningPlasticity
++                      SaintVenantKirchhoffElasticity)
++      if(behaviour STREQUAL "IsotropicLinearHardeningPlasticity")
++        set(isv EquivalentPlasticStrain)
++      else()
++        set(isv EquivalentStrain)
++      endif()
++      add_test(NAME UniaxialTensileTest-Stagnation-${behaviour}
++               COMMAND ./UniaxialTensileTest
++                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                       --library $<TARGET_FILE:BehaviourTest>
++                       --behaviour ${behaviour}
++                       --reference-file
++                       ${CMAKE_CURRENT_SOURCE_DIR}/references/${behaviour}.ref
++                       --internal-state-variable ${isv}
++                       --relative-tolerance 1e-30 --no-parallel
++                       --no-post-processing)
++    endforeach()
++    add_test(NAME UniaxialTensileTest-NoStagnation-SaintVenantKirchhoffElasticity
++             COMMAND ./UniaxialTensileTest
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>
++                     --behaviour SaintVenantKirchhoffElasticity
++                     --internal-state-variable EquivalentStrain
++                     --relative-tolerance 1e-30
++                     --stagnation-relative-tolerance 0 --no-parallel
++                     --no-post-processing)
++    set_tests_properties(
++      UniaxialTensileTest-NoStagnation-SaintVenantKirchhoffElasticity
++      PROPERTIES WILL_FAIL ON)
++  endif()
+ 
+   # ImposedPressureTest executable
+   add_test_executable(ImposedPressureTest)
+diff --git a/tests/UniaxialTensileTest.cxx b/tests/UniaxialTensileTest.cxx
+index 42a8df15dd..3212f19374 100644
+--- a/tests/UniaxialTensileTest.cxx
++++ b/tests/UniaxialTensileTest.cxx
+@@ -64,6 +64,14 @@ struct TestParameters {
+   int order = 1;
+   int refinement = 0;
+   int nbsteps = 100;
++  // relative tolerance of the Newton solver, the default one of the test if
++  // negative
++  mfem_mgis::real relative_tolerance = -1;
++  /*!
++   * option `StagnationRelativeTolerance` of the Newton solver, the default
++   * one of the solver if negative
++   */
++  mfem_mgis::real stagnation_relative_tolerance = -1;
+ #ifdef MFEM_USE_MPI
+   bool parallel = true;
+ #else
+@@ -110,6 +118,14 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
+                  "(sequential only), MUMPSSolver, HypreFGMRES with the "
+                  "HypreILU preconditioner, HyprePCG with the HypreDiagScale "
+                  "preconditioner or HypreGMRES (parallel only).");
++  args.AddOption(&p.relative_tolerance, "-rt", "--relative-tolerance",
++                 "Relative tolerance of the Newton solver, the default one "
++                 "of the test if negative.");
++  args.AddOption(&p.stagnation_relative_tolerance, "-srt",
++                 "--stagnation-relative-tolerance",
++                 "Relative residual below which a stagnation of the residual "
++                 "is accepted as convergence by the Newton solver, its "
++                 "default value if negative, disabled if null.");
+   args.AddOption(&p.parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                  "Perform parallel computations.");
+   args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
+@@ -411,14 +427,20 @@ int main(int argc, char** argv) {
+   setLinearSolver(ctx, problem, p.linearsolver) | or_die;
+   const auto finite_strain =
+       m1.b.btype == mgis::behaviour::Behaviour::STANDARDFINITESTRAINBEHAVIOUR;
+-  problem.setSolverParameters(
+-      ctx, {{"VerbosityLevel", 0},
+-            {"RelativeTolerance",
+-             finite_strain ? mfem_mgis::unit_tests::tolerance(1e-12, 1e-3)
+-                           : mfem_mgis::real(1e-12)},
+-            {"AbsoluteTolerance", 0.},
+-            {"MaximumNumberOfIterations", 10}}) |
+-      or_die;
++  auto solver_parameters = mfem_mgis::Parameters{
++      {"VerbosityLevel", 0},
++      {"RelativeTolerance",
++       p.relative_tolerance >= 0
++           ? p.relative_tolerance
++           : (finite_strain ? mfem_mgis::unit_tests::tolerance(1e-12, 1e-3)
++                            : mfem_mgis::real(1e-12))},
++      {"AbsoluteTolerance", 0.},
++      {"MaximumNumberOfIterations", 10}};
++  if (p.stagnation_relative_tolerance >= 0) {
++    solver_parameters.replaceOrInsert("StagnationRelativeTolerance",
++                                      p.stagnation_relative_tolerance);
++  }
++  problem.setSolverParameters(ctx, solver_parameters) | or_die;
+   // post-processings
+   if (p.post_processing) {
+     problem.addPostProcessing(
+@@ -446,7 +468,13 @@ int main(int argc, char** argv) {
+   for (int i = 0; i != p.nbsteps; ++i) {
+     mfem_mgis::getOutputStream()
+         << "time step " << i + 1 << " from " << t << " to " << t + dt << '\n';
+-    problem.solve(ctx, t, dt) | or_die;
++    // a resolution which does not converge ends the test with a failure
++    // (expected by UniaxialTensileTest-NoStagnation-*), not with an abort
++    if (!problem.solve(ctx, t, dt).status) {
++      mfem_mgis::getErrorStream() << "the resolution failed\n";
++      mfem_mgis::finalize();
++      return EXIT_FAILURE;
++    }
+     problem.executePostProcessings(ctx, t, dt) | or_die;
+     problem.update(ctx) | or_die;
+     t += dt;
+-- 
+2.43.0
+

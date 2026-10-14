@@ -272,7 +272,13 @@ Numerical type
 ``mfem_mgis::real``: ``double``, or ``float`` when ``MFEM`` is compiled
 in single precision (``MFEM_USE_SINGLE``, variant ``precision=single`` of
 the Spack package, which requires ``hypre`` in single precision and
-``MUMPS`` with ``+float``). Then:
+``MUMPS`` with ``+float``). ``hypre`` must then use its internal ``LAPACK``
+(variant ``~lapack`` of the Spack package): with an external ``LAPACK``,
+``hypre`` 3.2.0 in single precision calls the ``LAPACK`` routines of the
+``double`` type on ``float`` arrays, which breaks ``ParaSails``, the
+Gaussian elimination of types 99 and 199 of ``BoomerAMG`` and other
+solvers of ``hypre``. The configuration of ``mfem-mgis`` warns about such
+a ``hypre``. Then:
 
 - ``MGIS`` must be configured with the same type
   (``-DMGIS_REAL_TYPE=float``), which the configuration checks;
@@ -295,7 +301,10 @@ With ``float``, the residuals of the nonlinear problems stagnate at about
 ``1e-5`` of the scale of the internal forces: a tolerance relative to the
 initial residual of a time step, small at the end of a loading or of the
 iterations of a coupling, may be out of reach, and an absolute tolerance
-of about ten times this floor is then needed. For finite strain
+of about ten times this floor is then needed, unless the Newton solver
+accepts the stagnation of the residual at this floor (option
+``StagnationRelativeTolerance``, see :doc:`../user_guide/nonlinear_algorithms`).
+For finite strain
 behaviours, the deformation gradient, close to the identity, is rounded
 to about ``1e-7``, so that the stresses are only known to about
 ``1e-7`` times the elastic moduli. The convergence criteria of the

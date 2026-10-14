@@ -244,6 +244,30 @@ Corrections proposed to MFEM and AmgX during the work (open on
 The rebuild of MFEM and AmgX in the spack environment waits for their
 merge upstream, then in spack-packages.
 
+## hypre in single precision (14/10/2026)
+
+- **Symptom.** In float, ParaSails did not converge: no convergence in
+  1000 iterations of the conjugate gradient on a small elasticity
+  problem.
+- **Cause.** A defect of hypre 3.2.0, also present on its master branch
+  and not yet reported. With an external LAPACK in single precision,
+  `src/blas/_hypre_blas.h` maps the `hypre_d*` names to the single
+  precision BLAS routines, but `src/lapack/_hypre_lapack.h` has no such
+  case: hypre calls `dpotrf`, `dgetrf`, `dgels`, `dsygv`... of the double
+  type on float arrays. Besides ParaSails, this breaks the Gaussian
+  elimination of types 99 and 199 of BoomerAMG, the Schwarz smoothers,
+  FSAI, MGR, the AIR restrictions, GSMG and LOBPCG. The default BoomerAMG
+  of MFEM (relaxation 8 or 18) does not use LAPACK.
+- **Variants compared.** A fixed header mapping each name to the single
+  precision routine, and the internal LAPACK of hypre: both converge in 8
+  iterations, and the `ij` driver of hypre (ParaSails and PCG, 100³
+  unknowns) gives the same times for both.
+- **Choice.** hypre is built with its internal BLAS and LAPACK in the float
+  environments (`hypre ~lapack` in `mmm-float-cpu`, `mmm-float-gpu` and
+  `ci-cpu-float`): no patch to maintain. The configuration of mfem-mgis
+  warns when hypre is in single precision with an external LAPACK, and the
+  ParaSails tests now run in float.
+
 ## Single precision on the GPU (14/10/2026)
 
 Source: `results/diagnostic-float-gpu-2026-10-14/README.md`.

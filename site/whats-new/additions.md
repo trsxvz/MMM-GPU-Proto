@@ -325,12 +325,14 @@ an environment variable.
   regularisation of the Anderson acceleration is raised to 10 ε in
   float. The tests are adapted to float (tolerances of
   `tests/Tolerance.hxx`, from the measured errors): 219/219 in float on
-  the CPU and 276/276 on the GPU. Twelve tests stay in double only:
-  ParaSails (hypre in single precision calls LAPACK in double), and
-  UMFPACK, GSLIB, Umpire, cuDSS and CUDA, absent from MFEM in float. A
-  Newton criterion adapted to the precision remains to be done: the floor
-  of the relative residual grows with the size of the problem (1.3e-5
-  for the beam r4 on the CPU).
+  the CPU and 276/276 on the GPU. Ten tests stay in double only: UMFPACK,
+  GSLIB, Umpire, cuDSS and CUDA, absent from MFEM in float. ParaSails
+  runs in float since hypre is built with its internal LAPACK (see the
+  defect of hypre in single precision in "Defects found and corrected").
+  The Newton solver accepts a stagnation of the residual at its floor
+  (option `StagnationRelativeTolerance`, 10⁴ ε by default): the floor of
+  the relative residual grows with the size of the problem (1.3e-5 for
+  the beam r4 on the CPU).
 - **Whole test suite on the GPU** (variable `MFEM_MGIS_DEVICE`), except
   the two tests that require the absence of a GPU.
 - **Documentation** in the tree of mfem-mgis, for example

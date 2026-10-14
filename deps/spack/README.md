@@ -18,7 +18,11 @@ Contenu :
   cuDSS) ; `mmm-double-cpu` est le jumeau en double de `mmm-float-cpu`,
   pour comparer les deux précisions à environnement égal (dans `mmm-gpu`,
   hypre est construit pour CUDA). Ils partagent l'instance de spack, les
-  paquets et les externes de `mmm-gpu`, qui n'est pas modifié ;
+  paquets et les externes de `mmm-gpu`, qui n'est pas modifié. In float,
+  hypre is built with its internal BLAS and LAPACK (`~lapack`): with an
+  external LAPACK, hypre 3.2.0 in single precision calls the LAPACK
+  routines of the double type on float arrays (ParaSails, Gaussian
+  elimination 99 and 199 of BoomerAMG, Schwarz, FSAI, MGR, AIR, LOBPCG) ;
 - `ci-cpu/spack.yaml` et `ci-cpu-float/spack.yaml` : environnements de la
   CI sur le CPU (`.github/workflows/cpu.yml`,
   [docs/plan-ci-site.md](../../docs/plan-ci-site.md)), en double (MFEM 4.10

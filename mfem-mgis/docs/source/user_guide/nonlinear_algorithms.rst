@@ -197,6 +197,31 @@ solution that does not lead to an integration failure is found, or until
 the maximum number of iterations is reached (each reduction counts as an
 iteration).
 
+Stagnation of the residual
+--------------------------
+
+The residual is computed with rounding errors: its norm cannot go below a
+floor, which grows with the size of the problem and with the level of the
+stresses, and which is much higher with ``float`` than with ``double``
+(about :math:`10^{-5}` of the initial residual of a time step for a beam of
+:math:`10^5` unknowns in small strain, :math:`3\,10^{-4}` in finite
+strain). A relative tolerance below this floor can't be reached.
+
+The Newton solver therefore accepts as converged a residual whose smallest
+value has not been halved during the last two iterations, when the norm of
+this residual, relative to the initial one, is below the option
+:cxx:`StagnationRelativeTolerance`. Its default value is :math:`10^4` times
+the machine epsilon of the numerical type: about :math:`1.2\,10^{-3}` with
+``float``, :math:`2.2\,10^{-12}` with ``double``. A null value disables
+this criterion. A message is printed when the criterion stops the
+iterations.
+
+.. code-block:: c++
+
+   problem.setSolverParameters(ctx, {{"RelativeTolerance", 1e-8},
+                                     {"StagnationRelativeTolerance", 1e-4}}) |
+       or_die;
+
 .. _mfem_mgis_fixed_point_algorithm:
 
 Fixed point algorithm

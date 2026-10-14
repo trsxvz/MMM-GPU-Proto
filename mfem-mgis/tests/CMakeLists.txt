@@ -150,6 +150,47 @@ if(MFEM_MGIS_HAVE_TFEL)
                             EquivalentPlasticStrain)
   add_uniaxial_tensile_test(Mazars Damage)
   add_uniaxial_tensile_test(SaintVenantKirchhoffElasticity EquivalentStrain)
+  # convergence of the Newton solver at the floor of the residual, in float
+  # only: with an unreachable relative tolerance, a stagnation of the
+  # residual is accepted as convergence (option StagnationRelativeTolerance
+  # of the Newton solver), and the resolution fails when this option is
+  # disabled. The relative tolerance is bounded below by 100 times the
+  # machine epsilon, and the floor of the residual is reached with the finite
+  # strain behaviour (about 3e-4). In double, the residual of these tests
+  # keeps decreasing slowly (factor 0.5 per iteration at 5e-19 of the
+  # initial residual): the floor is not reached in ten iterations
+  if(MFEM_MGIS_REAL_TYPE STREQUAL "float")
+    foreach(behaviour IsotropicLinearHardeningPlasticity
+                      SaintVenantKirchhoffElasticity)
+      if(behaviour STREQUAL "IsotropicLinearHardeningPlasticity")
+        set(isv EquivalentPlasticStrain)
+      else()
+        set(isv EquivalentStrain)
+      endif()
+      add_test(NAME UniaxialTensileTest-Stagnation-${behaviour}
+               COMMAND ./UniaxialTensileTest
+                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                       --library $<TARGET_FILE:BehaviourTest>
+                       --behaviour ${behaviour}
+                       --reference-file
+                       ${CMAKE_CURRENT_SOURCE_DIR}/references/${behaviour}.ref
+                       --internal-state-variable ${isv}
+                       --relative-tolerance 1e-30 --no-parallel
+                       --no-post-processing)
+    endforeach()
+    add_test(NAME UniaxialTensileTest-NoStagnation-SaintVenantKirchhoffElasticity
+             COMMAND ./UniaxialTensileTest
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>
+                     --behaviour SaintVenantKirchhoffElasticity
+                     --internal-state-variable EquivalentStrain
+                     --relative-tolerance 1e-30
+                     --stagnation-relative-tolerance 0 --no-parallel
+                     --no-post-processing)
+    set_tests_properties(
+      UniaxialTensileTest-NoStagnation-SaintVenantKirchhoffElasticity
+      PROPERTIES WILL_FAIL ON)
+  endif()
 
   # ImposedPressureTest executable
   add_test_executable(ImposedPressureTest)
@@ -1393,15 +1434,14 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif()
     # HypreParaSailsTest executable: ParaSails preconditioner given a new
     # operator after the destruction of the previous one, refused when hypre
-    # computes on a GPU. Not run in float: ParaSails gives NaN values from
-    # the first iteration with hypre in single precision (whose library
-    # imports the LAPACK routines dpotrf and dpotrs of the double type)
+    # computes on a GPU. In float, hypre must be built with its internal
+    # LAPACK: with an external LAPACK, hypre 3.2.0 in single precision calls
+    # the LAPACK routines of the double type (dpotrf, dpotrs) on float arrays
+    # and ParaSails does not converge
     add_test_executable(HypreParaSailsTest)
-    if(MFEM_MGIS_REAL_TYPE STREQUAL "double")
-      add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
-      add_test(NAME HypreParaSailsTestP
-               COMMAND mpirun -n 2 ./HypreParaSailsTest)
-    endif()
+    add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
+    add_test(NAME HypreParaSailsTestP
+             COMMAND mpirun -n 2 ./HypreParaSailsTest)
   endif(MFEM_USE_MPI)
 
 endif(MFEM_MGIS_HAVE_TFEL)

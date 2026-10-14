@@ -4654,3 +4654,22 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   mêmes vérifications dans les deux précisions ; double inchangé au bit
   près ; polycristal inchangé à 0,1 et 0,4 s, toujours en échec de la loi
   avec un pas de 1 s (results/precision-polycristal-2026-10-14).
+
+### 2026-10-14, ParaSails in float and Newton criterion at the floor of the residual
+
+- ParaSails in float: a defect of hypre 3.2.0 (also on master, not yet
+  reported). With an external LAPACK in single precision, hypre calls the
+  LAPACK routines of the double type on float arrays: the LAPACK header
+  has no single precision names, unlike the BLAS header. Two fixes
+  compared: a fixed header, and the internal LAPACK of hypre, both
+  correct, same times. Chosen: `hypre ~lapack` in the float environments
+  (`mmm-float-cpu` rebuilt). mfem-mgis 3ba3b6e729: warning at the
+  configuration, ParaSails tests in float. Draft of the upstream report
+  ready, not published.
+- Newton criterion adapted to the precision: mfem-mgis 11fda6426e, option
+  `StagnationRelativeTolerance` (10⁴ ε by default). In float, the beam r4
+  converges with the criterion of the case (1e-8) in 27 iterations, 7.0e-5
+  away from double; in double, nothing changes (mm-opera-hpc bit for bit,
+  no stagnation in the test suites).
+- Float suite of mfem-mgis on the CPU: 224/224. CI simulated in double:
+  mfem-mgis 208/208, examples 22/22, mm-opera-hpc 6/6.

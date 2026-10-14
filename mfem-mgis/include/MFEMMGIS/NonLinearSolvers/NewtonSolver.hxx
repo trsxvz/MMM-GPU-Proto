@@ -8,6 +8,7 @@
 #ifndef LIB_MFEM_MGIS_NONLINEARSOLVERS_NEWTONSOLVER_HXX
 #define LIB_MFEM_MGIS_NONLINEARSOLVERS_NEWTONSOLVER_HXX
 
+#include <limits>
 #include <vector>
 #include <optional>
 #include <functional>
@@ -26,9 +27,10 @@ namespace mfem_mgis {
    *
    * Options: the ones of the iterative solvers (`RelativeTolerance`,
    * `AbsoluteTolerance`, `MaximumNumberOfIterations`, `VerbosityLevel`),
-   * `DiscardLinearSolverFailure` and `AdaptiveLinearSolverTolerance`
+   * `DiscardLinearSolverFailure`, `AdaptiveLinearSolverTolerance`
    * (relative tolerance of the iterative linear solver adapted to the
-   * decrease of the residual, see `AdaptiveLinearSolverTolerance`).
+   * decrease of the residual, see `AdaptiveLinearSolverTolerance`) and
+   * `StagnationRelativeTolerance` (see `stagnation_relative_tolerance`).
    */
   struct MFEM_MGIS_EXPORT NewtonSolver : public NonLinearSolverBase {
 #ifdef MFEM_USE_MPI
@@ -75,6 +77,20 @@ namespace mfem_mgis {
      * `AdaptiveLinearSolverTolerance`), disabled by default
      */
     AdaptiveLinearSolverTolerance adaptive_linear_solver_tolerance;
+    /*!
+     * \brief relative residual below which a stagnation of the residual is
+     * accepted as convergence (option `StagnationRelativeTolerance`, zero
+     * disables it). The residual is computed with rounding errors: it
+     * cannot go below a floor, which grows with the size of the problem and
+     * with the level of the stresses, and which is larger in finite strain
+     * with float (the deformation gradient, close to the identity, is
+     * rounded). Below this tolerance, a residual whose smallest value has not
+     * been halved during the last two iterations is considered at this
+     * floor. By default, 10^4 times the machine epsilon of the numerical
+     * type: about 1.2e-3 with float, 2.2e-12 with double.
+     */
+    real stagnation_relative_tolerance =
+        10000 * std::numeric_limits<real>::epsilon();
   };  // end of struct NewtonSolver
 
 }  // end of namespace mfem_mgis

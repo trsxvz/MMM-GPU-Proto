@@ -297,9 +297,11 @@ un fichier de sortie ou le GPU étant sérialisés par des verrous.
 Chaque bibliothèque se construit et se teste aussi en `float`, avec les
 environnements spack jumeaux `mmm-float-cpu` et `mmm-double-cpu`, et
 `mmm-float-gpu` (MFEM et hypre en simple avec CUDA). Résultats : MGIS
-49/49, et 51/51 avec CUDA ; mfem-mgis 219/219 sur le CPU et 276/276 sur
-le GPU (douze tests restent en double seulement : ParaSails, UMFPACK,
-GSLIB, Umpire, cuDSS et CUDA, absents du MFEM en float) ; exemples 21/21 ;
+49/49, et 51/51 avec CUDA ; mfem-mgis 224/224 sur le CPU (avec les tests
+ParaSails, hypre utilisant son LAPACK interne, et les tests du critère de
+stagnation de Newton) et 276/276 sur le GPU (dix tests restent en double
+seulement : UMFPACK, GSLIB, Umpire, cuDSS et CUDA, absents du MFEM en
+float) ; exemples 21/21 ;
 mm-opera-hpc 6/6 ; cas de `cas/` 134 en float (143 en double). Mesures et
 diagnostic : [plan-precision.md](plan-precision.md),
 `results/precision-poutre-*`, `results/diagnostic-float-gpu-2026-10-14`.

@@ -168,3 +168,6 @@ GPU.
   website (not yet launched). The CPU level, simulated locally in double
   and in float, found a threshold of mm-opera-hpc too tight for float
   (fixed point on the lateral stresses of the cermet), corrected.
+- ParaSails in float (a defect of hypre in single precision, worked
+  around with its internal LAPACK), and a Newton criterion that accepts
+  the stagnation of the residual at its floor.

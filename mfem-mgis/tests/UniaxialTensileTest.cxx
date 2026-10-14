@@ -64,6 +64,14 @@ struct TestParameters {
   int order = 1;
   int refinement = 0;
   int nbsteps = 100;
+  // relative tolerance of the Newton solver, the default one of the test if
+  // negative
+  mfem_mgis::real relative_tolerance = -1;
+  /*!
+   * option `StagnationRelativeTolerance` of the Newton solver, the default
+   * one of the solver if negative
+   */
+  mfem_mgis::real stagnation_relative_tolerance = -1;
 #ifdef MFEM_USE_MPI
   bool parallel = true;
 #else
@@ -110,6 +118,14 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
                  "(sequential only), MUMPSSolver, HypreFGMRES with the "
                  "HypreILU preconditioner, HyprePCG with the HypreDiagScale "
                  "preconditioner or HypreGMRES (parallel only).");
+  args.AddOption(&p.relative_tolerance, "-rt", "--relative-tolerance",
+                 "Relative tolerance of the Newton solver, the default one "
+                 "of the test if negative.");
+  args.AddOption(&p.stagnation_relative_tolerance, "-srt",
+                 "--stagnation-relative-tolerance",
+                 "Relative residual below which a stagnation of the residual "
+                 "is accepted as convergence by the Newton solver, its "
+                 "default value if negative, disabled if null.");
   args.AddOption(&p.parallel, "-p", "--parallel", "-no-p", "--no-parallel",
                  "Perform parallel computations.");
   args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
@@ -411,14 +427,20 @@ int main(int argc, char** argv) {
   setLinearSolver(ctx, problem, p.linearsolver) | or_die;
   const auto finite_strain =
       m1.b.btype == mgis::behaviour::Behaviour::STANDARDFINITESTRAINBEHAVIOUR;
-  problem.setSolverParameters(
-      ctx, {{"VerbosityLevel", 0},
-            {"RelativeTolerance",
-             finite_strain ? mfem_mgis::unit_tests::tolerance(1e-12, 1e-3)
-                           : mfem_mgis::real(1e-12)},
-            {"AbsoluteTolerance", 0.},
-            {"MaximumNumberOfIterations", 10}}) |
-      or_die;
+  auto solver_parameters = mfem_mgis::Parameters{
+      {"VerbosityLevel", 0},
+      {"RelativeTolerance",
+       p.relative_tolerance >= 0
+           ? p.relative_tolerance
+           : (finite_strain ? mfem_mgis::unit_tests::tolerance(1e-12, 1e-3)
+                            : mfem_mgis::real(1e-12))},
+      {"AbsoluteTolerance", 0.},
+      {"MaximumNumberOfIterations", 10}};
+  if (p.stagnation_relative_tolerance >= 0) {
+    solver_parameters.replaceOrInsert("StagnationRelativeTolerance",
+                                      p.stagnation_relative_tolerance);
+  }
+  problem.setSolverParameters(ctx, solver_parameters) | or_die;
   // post-processings
   if (p.post_processing) {
     problem.addPostProcessing(
@@ -446,7 +468,13 @@ int main(int argc, char** argv) {
   for (int i = 0; i != p.nbsteps; ++i) {
     mfem_mgis::getOutputStream()
         << "time step " << i + 1 << " from " << t << " to " << t + dt << '\n';
-    problem.solve(ctx, t, dt) | or_die;
+    // a resolution which does not converge ends the test with a failure
+    // (expected by UniaxialTensileTest-NoStagnation-*), not with an abort
+    if (!problem.solve(ctx, t, dt).status) {
+      mfem_mgis::getErrorStream() << "the resolution failed\n";
+      mfem_mgis::finalize();
+      return EXIT_FAILURE;
+    }
     problem.executePostProcessings(ctx, t, dt) | or_die;
     problem.update(ctx) | or_die;
     t += dt;
