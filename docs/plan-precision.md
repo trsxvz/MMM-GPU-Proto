@@ -391,10 +391,14 @@ Ce que les essais ont appris :
 
 Suite (13/10/2026, soir) :
 
-- D7 retenue avec des valeurs mesurées : le critère `epsilon` des lois est
-  borné à ε/10 (1,2e-8) par MFront à la génération, avec un avertissement,
-  et `numerical_jacobian_epsilon` à ε (1,2e-7), y compris sa valeur par
-  défaut (le dixième du critère). Une première version bornait au
+- D7 retenue avec des valeurs mesurées : le critère donné par `@Epsilon`
+  est borné à ε/10 (1,2e-8) par MFront à la génération, avec un
+  avertissement, et `numerical_jacobian_epsilon` à ε (1,2e-7), y compris sa
+  valeur par défaut (le dixième du critère, relevée sans avertissement).
+  Le critère par défaut, sans `@Epsilon` (1e-8), proche de la borne, est
+  gardé. Les avertissements écrits pour le double (« 1e-14 est un bon
+  choix ») ne sont plus donnés en float ; tests de mfront-query sur les
+  valeurs bornées (TFEL a84f8012e). Une première version bornait au
   chargement dans MGIS, par `setParameter` : elle écrasait les valeurs
   données à l'exécution (fichier de paramètres, `setParameter`), d'où le
   déplacement dans MFront. Seuls les paramètres `epsilon` et
@@ -423,13 +427,16 @@ Suite (13/10/2026, soir) :
   écrits avec un DSL de lois (`RungeKuttaModelDSL`) se génèrent en float.
 - mfem-mgis : configuration (type de MFEM, refus d'un MGIS d'un autre type
   et d'AmgX en float), paramètres stockés en `double`, types MPI, tests
-  compilés en float ; double inchangé (216/216). Tests adaptés au float
+  compilés en float ; double inchangé (216/216 tests sur le CPU ; les tests
+  sur le GPU en double sont repassés à la fin, voir plus bas). Tests adaptés au float
   (`tests/Tolerance.hxx` : tolérance du double bornée à 10 ε, ou donnée
-  explicitement pour le float, d'après l'erreur mesurée) : 204/204 en
-  float sur le CPU, avec les lois régénérées par le mfront courant. Douze
+  explicitement pour le float, d'après l'erreur mesurée, avec une marge
+  d'environ dix) : 204/204 en float sur le CPU, avec les lois régénérées
+  par le mfront courant. Douze
   tests restent en double seulement : ParaSails (NaN dès la première
   itération : hypre en simple appelle `dpotrf_` et `dpotrs_` de LAPACK en
-  double, défaut de hypre), UMFPACK, GSLIB, Umpire, cuDSS et CUDA absents
+  double ; libHYPRE.so en simple importe sept routines LAPACK en double,
+  défaut de hypre), UMFPACK, GSLIB, Umpire, cuDSS et CUDA absents
   du MFEM en float. Défaut trouvé dans les tests : quatre réductions MPI
   en `MPI_DOUBLE` sur des `real` (« stack smashing » en parallèle). Les
   sources de mfront sont régénérées quand mfront change (dépendance des
@@ -443,11 +450,13 @@ Suite (13/10/2026, soir) :
   résidu initial d'un pas ne peut pas l'atteindre. mm-opera-hpc (9b31d94)
   prend en float une tolérance absolue de dix fois ce plancher, gardée
   quand le critère des itérations de point fixe change ; types MPI de
-  `real`, boucle de Kröner bornée par ε, temps des lignes comparés à 1e-6
-  près. Double : 6/6, mêmes fichiers au bit près. Float : 6/6, contraintes
+  `real`, tolérance de la boucle de Kröner `max(1e-10, 10 ε)` et au plus
+  1000 itérations, ligne la plus proche choisie par les comparaisons, à
+  1e-6 près sur le temps. Double : 6/6, mêmes fichiers au bit près. Float : 6/6, contraintes
   axiales à 0,06 % à 0,15 % du double et à 0,005 % à 0,23 % de Cast3M.
-- Exemples : tous passent en float sauf ex1 et ex3, dont les sources sont
-  des tests de mfem-mgis. Les tolérances de Newton et des comparaisons
+- Exemples : 21/21 en float (satoh, qui demande SuiteSparse, et les
+  variantes PETSc ne sont pas déclarées) et 24/24 en double contre les
+  sources actuelles de mfem-mgis. Les tolérances de Newton et des comparaisons
   restent celles du double, et sont données explicitement pour le float
   d'après les résidus et les erreurs mesurés : le plancher du résidu suit
   l'échelle des efforts (environ 1e-5 de celle-ci), si bien qu'une
@@ -455,12 +464,18 @@ Suite (13/10/2026, soir) :
   chargement ou d'itérations de couplage, ne peut pas être atteinte : une
   tolérance absolue à environ dix fois ce plancher est nécessaire. ex8
   génère aussi ses lois en double pour MTest (D4, dans son propre
-  `CMakeLists.txt`). Après les tests de mfem-mgis : exemples 21/21 en
-  float (ex1 et ex3 compris ; satoh, qui demande SuiteSparse, et les
-  variantes PETSc ne sont pas déclarées) et 24/24 en double contre les
-  sources actuelles de mfem-mgis.
+  `CMakeLists.txt`).
 - MTest contrôle aussi le type des propriétés matériau et des évolutions
   `generic`.
+- Deuxième relecture indépendante (scratch/plan-precision/relecture-9b-2.md,
+  aucun défaut grave, 3 moyens, 24 remarques, 5 mutations) traitée :
+  seuils de TwoLayerCube par solveur (un module faux de 2 % échappait à deux
+  cas sur cinq), mesures et intégrales sommées en double dans mfem-mgis et
+  comparées au volume calculé par MFEM (une réduction MPI de mauvais type
+  dans `computeMeasure` passait inaperçue, avec des mesures de 1e37),
+  marges des tolérances remesurées, contrôle du niveau de remplissage
+  d'ILU par le résidu après un nombre fixe d'itérations, sources de mfront
+  dépendant aussi de libTFELMFront, option de type pour la bibliothèque
+  Kokkos des tests et les bancs d'essai.
 
-Restent : le GPU en float, les mesures et la documentation des
-bibliothèques.
+Restent : le GPU en float et les mesures.

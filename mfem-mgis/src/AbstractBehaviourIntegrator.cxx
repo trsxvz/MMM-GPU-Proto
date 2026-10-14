@@ -192,14 +192,15 @@ namespace mfem_mgis {
     if (rk.has_value()) {
       return *rk;
     }
-    auto r = real{};
+    // contributions accumulated in double, as by the kernels
+    auto r = double{};
     auto integrate =
         [&r, &bi](const mfem::FiniteElement&, mfem::ElementTransformation& tr,
                   const mfem::IntegrationPoint& ip, const size_type) {
           r += bi.getIntegrationPointWeight(tr, ip);
         };
     performLoopOverIntegrationPoints<parallel>(integrate, bi);
-    return r;
+    return static_cast<real>(r);
   }  // end of BehaviourIntegrator_computeMeasure
 
   real computeMeasure(const AbstractBehaviourIntegrator& bi) {
@@ -228,7 +229,8 @@ namespace mfem_mgis {
       return *rk;
     }
     const auto* const values = f.getValues().data() + f.getDataOffset();
-    auto r = real{};
+    // contributions accumulated in double, as by the kernels
+    auto r = double{};
     if (f.getDataStride() == 1) {
       auto integrate = [&r, &bi, values](const mfem::FiniteElement&,
                                          mfem::ElementTransformation& tr,
@@ -249,7 +251,7 @@ namespace mfem_mgis {
       };
       performLoopOverIntegrationPoints<parallel>(integrate, bi);
     }
-    return r;
+    return static_cast<real>(r);
   }  // end of BehaviourIntegrator_computeScalarIntegral
 
   template <>

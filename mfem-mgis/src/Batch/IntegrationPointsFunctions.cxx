@@ -146,8 +146,9 @@ namespace mfem_mgis::batch {
       }
       // geometric data of the elements of the space only
       a.compact_geometry = (g.ne == qs.getElements().Size());
-      auto w = mfem::Array<real>{};
-      return internals::launchIntegralKernel(a, w, use_device);
+      auto w = mfem::Array<double>{};
+      return static_cast<real>(
+          internals::launchIntegralKernel(a, w, use_device));
     } catch (...) {
       return ctx.registerErrorMessage(getExceptionMessage("computeIntegral"));
     }

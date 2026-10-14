@@ -1,0 +1,237 @@
+From 64ebd438e434b48caf82478265659adbe21d2be4 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 04:01:39 +0200
+Subject: [PATCH] Measures and integrals summed in double, checked against MFEM
+
+- computeMeasure and computeIntegral accumulate the contributions of the
+  integration points in double, whatever the numerical type, element by
+  element as in the kernel (mfem::reduce with a double reducer): in float,
+  the sums over all the points lost about the machine epsilon times the
+  number of points (relative differences of 4.4e-6 and 6.8e-6 between the
+  two computations of PostProcessingsKernelsTest, below 1e-6 now). The
+  results keep the numerical type of mfem-mgis; unchanged in double.
+- PostProcessingsKernelsTest compares the measure of each material to its
+  volume computed independently (determinant of the jacobian integrated
+  exactly with the transformations of MFEM, summed in double over the
+  processes). The two computations of mfem-mgis share the reduction over
+  the processes: a wrong MPI type in it (MPI_DOUBLE on a float) gave
+  measures of 1e37 in both, without failure; it now makes the parallel
+  variants fail. The float tolerance of the comparisons of the measures and
+  integrals is 1e-4.
+---
+ .../Batch/IntegrationPointsFunctions.hxx      |  3 +-
+ src/AbstractBehaviourIntegrator.cxx           | 10 ++--
+ src/Batch/IntegrationPointsFunctions.cxx      |  5 +-
+ .../IntegrationPointsFunctionsKernels.cxx     | 13 ++---
+ .../IntegrationPointsFunctionsKernels.hxx     |  9 ++--
+ tests/PostProcessingsKernelsTest.cxx          | 51 ++++++++++++++++++-
+ 6 files changed, 73 insertions(+), 18 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+index cd9dc213e8..77c8316f07 100644
+--- a/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
++++ b/include/MFEMMGIS/Batch/IntegrationPointsFunctions.hxx
+@@ -47,7 +47,8 @@ namespace mfem_mgis::batch {
+    * owned by this process, of a scalar function given by its values at the
+    * integration points (`w det J` being the weight of a point), or the
+    * measure of these elements if no values are given, computed on the device
+-   * if a device is enabled, or an empty value on failure
++   * if a device is enabled (the contributions of the points being accumulated
++   * in double), or an empty value on failure
+    * \param[in, out] ctx: execution context
+    * \param[in] qs: partial quadrature space. All its elements must use the
+    * integration rule of the geometric data.
+diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
+index 10bfe5b2ed..6e05b596ff 100644
+--- a/src/AbstractBehaviourIntegrator.cxx
++++ b/src/AbstractBehaviourIntegrator.cxx
+@@ -192,14 +192,15 @@ namespace mfem_mgis {
+     if (rk.has_value()) {
+       return *rk;
+     }
+-    auto r = real{};
++    // contributions accumulated in double, as by the kernels
++    auto r = double{};
+     auto integrate =
+         [&r, &bi](const mfem::FiniteElement&, mfem::ElementTransformation& tr,
+                   const mfem::IntegrationPoint& ip, const size_type) {
+           r += bi.getIntegrationPointWeight(tr, ip);
+         };
+     performLoopOverIntegrationPoints<parallel>(integrate, bi);
+-    return r;
++    return static_cast<real>(r);
+   }  // end of BehaviourIntegrator_computeMeasure
+ 
+   real computeMeasure(const AbstractBehaviourIntegrator& bi) {
+@@ -228,7 +229,8 @@ namespace mfem_mgis {
+       return *rk;
+     }
+     const auto* const values = f.getValues().data() + f.getDataOffset();
+-    auto r = real{};
++    // contributions accumulated in double, as by the kernels
++    auto r = double{};
+     if (f.getDataStride() == 1) {
+       auto integrate = [&r, &bi, values](const mfem::FiniteElement&,
+                                          mfem::ElementTransformation& tr,
+@@ -249,7 +251,7 @@ namespace mfem_mgis {
+       };
+       performLoopOverIntegrationPoints<parallel>(integrate, bi);
+     }
+-    return r;
++    return static_cast<real>(r);
+   }  // end of BehaviourIntegrator_computeScalarIntegral
+ 
+   template <>
+diff --git a/src/Batch/IntegrationPointsFunctions.cxx b/src/Batch/IntegrationPointsFunctions.cxx
+index dc59ce9417..579f21560f 100644
+--- a/src/Batch/IntegrationPointsFunctions.cxx
++++ b/src/Batch/IntegrationPointsFunctions.cxx
+@@ -146,8 +146,9 @@ namespace mfem_mgis::batch {
+       }
+       // geometric data of the elements of the space only
+       a.compact_geometry = (g.ne == qs.getElements().Size());
+-      auto w = mfem::Array<real>{};
+-      return internals::launchIntegralKernel(a, w, use_device);
++      auto w = mfem::Array<double>{};
++      return static_cast<real>(
++          internals::launchIntegralKernel(a, w, use_device));
+     } catch (...) {
+       return ctx.registerErrorMessage(getExceptionMessage("computeIntegral"));
+     }
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.cxx b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+index 8566d09844..75b7392c6e 100644
+--- a/src/Batch/IntegrationPointsFunctionsKernels.cxx
++++ b/src/Batch/IntegrationPointsFunctionsKernels.cxx
+@@ -17,13 +17,14 @@
+ 
+ namespace mfem_mgis::batch::internals {
+ 
+-  real launchIntegralKernel(const IntegrationPointsFunctionsKernelArguments& a,
+-                            mfem::Array<real>& w,
+-                            const bool use_device) {
+-    auto r = real{};
++  double launchIntegralKernel(
++      const IntegrationPointsFunctionsKernelArguments& a,
++      mfem::Array<double>& w,
++      const bool use_device) {
++    auto r = double{};
+     mfem::reduce(
+         a.number_of_elements, r,
+-        [a] MFEM_HOST_DEVICE(const int k, real& s) {
++        [a] MFEM_HOST_DEVICE(const int k, double& s) {
+           const auto ke = static_cast<std::size_t>(k);
+           const auto e =
+               a.compact_geometry ? ke : static_cast<std::size_t>(a.elements[k]);
+@@ -37,7 +38,7 @@ namespace mfem_mgis::batch::internals {
+             }
+           }
+         },
+-        mfem::SumReducer<real>{}, use_device, w);
++        mfem::SumReducer<double>{}, use_device, w);
+     return r;
+   }  // end of launchIntegralKernel
+ 
+diff --git a/src/Batch/IntegrationPointsFunctionsKernels.hxx b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+index 29dd0c0886..05660fa2d2 100644
+--- a/src/Batch/IntegrationPointsFunctionsKernels.hxx
++++ b/src/Batch/IntegrationPointsFunctionsKernels.hxx
+@@ -57,15 +57,18 @@ namespace mfem_mgis::batch::internals {
+ 
+   /*!
+    * \return the integral of a scalar function over the elements of a
+-   * material, or their measure if no values are given
++   * material, or their measure if no values are given. The contributions of
++   * the points are accumulated in double, whatever the numerical type of
++   * mfem-mgis: in float, a sum over all the points would lose about the
++   * machine epsilon times the number of points.
+    * \param[in] a: arguments
+    * \param[in, out] w: workspace of the reduction
+    * \param[in] use_device: if true, the kernel runs on the device (if a device
+    * is enabled), and the pointers of the arguments are located on the device
+    */
+-  [[nodiscard]] real launchIntegralKernel(
++  [[nodiscard]] double launchIntegralKernel(
+       const IntegrationPointsFunctionsKernelArguments& a,
+-      mfem::Array<real>& w,
++      mfem::Array<double>& w,
+       const bool use_device);
+ 
+   /*!
+diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
+index 1d31a25cfa..703c8a9553 100644
+--- a/tests/PostProcessingsKernelsTest.cxx
++++ b/tests/PostProcessingsKernelsTest.cxx
+@@ -148,6 +148,40 @@ static bool check(mfem_mgis::Context& ctx,
+   return true;
+ }  // end of check
+ 
++/*!
++ * \return the volume of the elements of a material over all the processes,
++ * computed independently of mfem-mgis: integral of the determinant of the
++ * jacobian of each element with an integration rule exact for it, summed in
++ * double. It checks the measures, including their reduction over the
++ * processes, which the comparison of the two computations of mfem-mgis does
++ * not check, since they share this reduction.
++ * \param[in] mesh: mesh
++ * \param[in] m: material identifier
++ */
++template <bool parallel>
++static double computeMaterialVolume(const mfem_mgis::Mesh<parallel>& mesh,
++                                    const int m) {
++  auto v = double{};
++  auto tr = mfem::IsoparametricTransformation{};
++  for (int i = 0; i != mesh.GetNE(); ++i) {
++    if (mesh.GetAttribute(i) != m) {
++      continue;
++    }
++    mesh.GetElementTransformation(i, &tr);
++    const auto& ir =
++        mfem::IntRules.Get(mesh.GetElementBaseGeometry(i), tr.OrderW());
++    for (int q = 0; q != ir.GetNPoints(); ++q) {
++      const auto& ip = ir.IntPoint(q);
++      tr.SetIntPoint(&ip);
++      v += static_cast<double>(ip.weight) * static_cast<double>(tr.Weight());
++    }
++  }
++  if constexpr (parallel) {
++    MPI_Allreduce(MPI_IN_PLACE, &v, 1, MPI_DOUBLE, MPI_SUM, mesh.GetComm());
++  }
++  return v;
++}  // end of computeMaterialVolume
++
+ //! \brief results of the computations
+ template <bool parallel>
+ struct Results {
+@@ -345,14 +379,27 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
+   // gradient with a relative tolerance bounded to 1.2e-5)
+   using mfem_mgis::unit_tests::tolerance;
+   auto success = true;
++  // measures and integrals: sums over all the points, accumulated in double
++  // by mfem-mgis. In float, the relative differences are below 1e-6 (4.4e-6
++  // for the measures and 6.8e-6 for the integrals with sums in float)
+   for (size_type i = 0; i != materials.size(); ++i) {
+     const auto m = std::to_string(materials[i]);
+     success = check(ctx, "measure of material " + m, r1->measures[i],
+-                    r2->measures[i], tolerance(1e-12, 1e-5)) &&
++                    r2->measures[i], tolerance(1e-12, 1e-4)) &&
+               success;
+     success = check(ctx, "integral on material " + m, r1->integrals[i],
+-                    r2->integrals[i], tolerance(1e-12, 1e-5)) &&
++                    r2->integrals[i], tolerance(1e-12, 1e-4)) &&
+               success;
++    const auto volume = computeMaterialVolume<parallel>(mesh, materials[i]);
++    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
++      std::cout << "volume of material " << m << " computed by MFEM: " << volume
++                << '\n';
++    }
++    if (!(std::abs(r1->measures[i] - volume) <=
++          tolerance(1e-10, 1e-4) * volume)) {
++      success = ctx.registerErrorMessage("measure of material " + m +
++                                         ": wrong value");
++    }
+   }
+   for (size_type i = 0; i != 2; ++i) {
+     const auto f = std::string{i == 0 ? "scalar" : "vector"} + " function";
+-- 
+2.43.0
+

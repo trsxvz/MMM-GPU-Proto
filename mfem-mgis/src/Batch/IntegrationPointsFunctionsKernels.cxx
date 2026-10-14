@@ -17,13 +17,14 @@
 
 namespace mfem_mgis::batch::internals {
 
-  real launchIntegralKernel(const IntegrationPointsFunctionsKernelArguments& a,
-                            mfem::Array<real>& w,
-                            const bool use_device) {
-    auto r = real{};
+  double launchIntegralKernel(
+      const IntegrationPointsFunctionsKernelArguments& a,
+      mfem::Array<double>& w,
+      const bool use_device) {
+    auto r = double{};
     mfem::reduce(
         a.number_of_elements, r,
-        [a] MFEM_HOST_DEVICE(const int k, real& s) {
+        [a] MFEM_HOST_DEVICE(const int k, double& s) {
           const auto ke = static_cast<std::size_t>(k);
           const auto e =
               a.compact_geometry ? ke : static_cast<std::size_t>(a.elements[k]);
@@ -37,7 +38,7 @@ namespace mfem_mgis::batch::internals {
             }
           }
         },
-        mfem::SumReducer<real>{}, use_device, w);
+        mfem::SumReducer<double>{}, use_device, w);
     return r;
   }  // end of launchIntegralKernel
 

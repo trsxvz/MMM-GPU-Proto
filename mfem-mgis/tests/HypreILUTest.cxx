@@ -11,6 +11,7 @@
  * \date   10/10/2026
  */
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include "mfem/mesh/pmesh.hpp"
@@ -74,6 +75,46 @@ static std::vector<int> solve(mfem_mgis::FiniteElementSpace<true>& fespace,
   return n;
 }  // end of solve
 
+/*!
+ * \return the norm of the residual after a fixed number of iterations of
+ * the flexible GMRES of hypre preconditioned by its incomplete
+ * factorisation (null tolerance, kept by mfem-mgis), or a negative value if
+ * the solver is refused
+ * \param[in] fespace: finite element space
+ * \param[in] A: matrix
+ * \param[in] B: right hand side
+ * \param[in] ilu: options of the incomplete factorisation
+ * \param[in] n: number of iterations
+ */
+static mfem_mgis::real residualAfterIterations(
+    mfem_mgis::FiniteElementSpace<true>& fespace,
+    mfem::HypreParMatrix& A,
+    const mfem::Vector& B,
+    const mfem_mgis::Parameters& ilu,
+    const int n) {
+  using namespace mfem_mgis;
+  auto ctx = Context{};
+  auto& factory = LinearSolverFactory<true>::getFactory();
+  auto h = factory.generate(
+      ctx, "HypreFGMRES", fespace,
+      Parameters{{"Tolerance", 0.},
+                 {"MaximumNumberOfIterations", n},
+                 {"VerbosityLevel", 0},
+                 {"Preconditioner",
+                  Parameters{{"Name", "HypreILU"}, {"Options", ilu}}}});
+  if (isInvalid(h)) {
+    return -1;
+  }
+  auto X = mfem::Vector(B.Size());
+  X = 0.0;
+  h.linear_solver->SetOperator(A);
+  h.linear_solver->Mult(B, X);
+  auto R = mfem::Vector(B.Size());
+  A.Mult(X, R);
+  R -= B;
+  return std::sqrt(mfem::InnerProduct(fespace.GetComm(), R, R));
+}  // end of residualAfterIterations
+
 int main(int argc, char** argv) {
   using namespace mfem_mgis;
   initialize(argc, argv);
@@ -127,11 +168,25 @@ int main(int argc, char** argv) {
   } else {
     // ILU(1) by default. In float, the iterations stop at a relative
     // residual of 1.2e-5 (see `mfem_mgis::boundRelativeTolerance`), where
-    // ILU(0) and ILU(1) need the same number of iterations (9): the default
-    // level of fill can not be distinguished from zero
+    // ILU(0) and ILU(1) need the same number of iterations (9): on one
+    // process, the default level of fill is then distinguished from zero by
+    // the residuals after three iterations (2.3e-5 with ILU(0), 5.6e-7 with
+    // ILU(1), in float). On two processes, both levels of fill give close
+    // residuals, in no stable order.
     if constexpr (sizeof(real) == sizeof(double)) {
       check((nd.size() == 2) && (n0.size() == 2) && (nd[0] < n0[0]),
             "the default level of fill is not the one of MFEM");
+    }
+    if (fespace.GetNRanks() == 1) {
+      const auto r0 = residualAfterIterations(fespace, A, B,
+                                              {{"HypreILULevelOfFill", 0}}, 3);
+      const auto rd = residualAfterIterations(fespace, A, B, {}, 3);
+      if (verbose) {
+        std::cout << "residuals after 3 iterations: " << r0
+                  << " (level of fill 0), " << rd << " (default)\n";
+      }
+      check((r0 > 0) && (rd >= 0) && (10 * rd < r0),
+            "the default level of fill does not reduce the residual");
     }
     check((n2.size() == 2) && (n2[0] > 0) && (n2[1] == n2[0]),
           "level of fill 2: numbers of iterations");

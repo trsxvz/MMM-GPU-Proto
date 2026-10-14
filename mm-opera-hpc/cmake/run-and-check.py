@@ -72,11 +72,14 @@ def main():
         if row == "first":
             selected = rows[0] if rows else None
         else:
-            # times are compared up to the rounding of the float type, the
-            # time 0.2 being written 0.20000000298023 with float
-            selected = next((r for r in rows
-                             if abs(float(r[0]) - float(row)) <=
-                             1e-6 * max(1, abs(float(row)))), None)
+            # the closest row, its time being equal to the given one up to
+            # the rounding of the float type (the time 0.2 is written
+            # 0.20000000298023 with float)
+            closest = min(rows, key=lambda r: abs(float(r[0]) - float(row)),
+                          default=None)
+            selected = closest if (closest is not None and
+                                   abs(float(closest[0]) - float(row)) <=
+                                   1e-6 * max(1, abs(float(row)))) else None
         if selected is None:
             print(f"no row '{row}' in '{args.file}'")
             success = False

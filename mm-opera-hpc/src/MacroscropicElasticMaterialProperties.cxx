@@ -46,7 +46,16 @@ namespace mm_opera_hpc {
     constexpr auto kroener_tolerance =
         std::max(mfem_mgis::real{1e-10},
                  10 * std::numeric_limits<mfem_mgis::real>::epsilon());
+    // the fixed point converges in a few tens of iterations
+    constexpr auto kroener_maximum_number_of_iterations = 1000;
+    auto kroener_iterations = 0;
     do {
+      if (kroener_iterations == kroener_maximum_number_of_iterations) {
+        mfem_mgis::abort(
+            "MacroscropicElasticMaterialProperties::update: the computation "
+            "of the Kroener shear modulus did not converge");
+      }
+      ++kroener_iterations;
       m0 = GK;
       D1 = Keff + 2 * GK;
       sD1 = 6 * D1;

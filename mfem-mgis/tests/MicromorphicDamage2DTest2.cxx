@@ -250,7 +250,13 @@ int main(int argc, char** argv) {
     // tolerances of the alternate minimisation: absolute at the first
     // iteration, relative to the initial residuals then. In float, the
     // residual of the micromorphic problem stagnates between 1.7e-9 and
-    // 2.6e-8 (absolute), increasing with the damage
+    // 2.6e-8 (absolute), increasing with the damage. Measured in float: the
+    // initial residuals of the first iteration are 56.6 (mechanical problem)
+    // and 3.6e-6 to 3.2e-5 (micromorphic problem, increasing with the
+    // damage); at the second iteration, the residuals are 1.8e-5 and 0.9 %
+    // of them, so that the relative tolerance 1e-2 accepts the second
+    // iteration (with a margin of 1.1 for the micromorphic problem; a
+    // smaller residual only requires one more iteration)
     constexpr auto first_iteration_tolerance =
         mfem_mgis::unit_tests::tolerance(1e-10, 1e-6);
     constexpr auto relative_tolerance =

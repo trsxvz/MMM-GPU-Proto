@@ -57,15 +57,18 @@ namespace mfem_mgis::batch::internals {
 
   /*!
    * \return the integral of a scalar function over the elements of a
-   * material, or their measure if no values are given
+   * material, or their measure if no values are given. The contributions of
+   * the points are accumulated in double, whatever the numerical type of
+   * mfem-mgis: in float, a sum over all the points would lose about the
+   * machine epsilon times the number of points.
    * \param[in] a: arguments
    * \param[in, out] w: workspace of the reduction
    * \param[in] use_device: if true, the kernel runs on the device (if a device
    * is enabled), and the pointers of the arguments are located on the device
    */
-  [[nodiscard]] real launchIntegralKernel(
+  [[nodiscard]] double launchIntegralKernel(
       const IntegrationPointsFunctionsKernelArguments& a,
-      mfem::Array<real>& w,
+      mfem::Array<double>& w,
       const bool use_device);
 
   /*!

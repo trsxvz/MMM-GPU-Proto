@@ -3,10 +3,13 @@ macro(mfront_query_test args mfront_file file)
     set(MFRONT_QUERY_TEST_ID 0)
   endif(NOT MFRONT_QUERY_TEST_ID)
   set(test "mfront-query-test-${MFRONT_QUERY_TEST_ID}")
+  # several arguments are given as a list, whose separators are kept for
+  # the script
+  string(REPLACE ";" "\\;" _mfront_query_test_args "${args}")
   add_test(NAME ${test}
       COMMAND ${CMAKE_COMMAND}
       -D TEST_PROGRAM=$<TARGET_FILE:mfront-query>
-      -D TEST_ARGS=${args}
+      -D TEST_ARGS=${_mfront_query_test_args}
       -D MFRONT_FILE=${PROJECT_SOURCE_DIR}/mfront/tests/behaviours/${mfront_file}
       -D TEST_OUTPUT=mfront-query-result-${MFRONT_QUERY_TEST_ID}.txt
       -D REFERENCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/references/${file}
@@ -33,5 +36,22 @@ mfront_query_test("--material-properties"
 mfront_query_test("--slip-systems-by-index"
   "FiniteStrainSingleCrystal/FiniteStrainSingleCrystal.mfront"
   "mfront-query-finitestrainsinglecrystal.ref")
+# convergence criterion and perturbation of the numerical jacobian
+# (@Epsilon 1e-11, default perturbation): unchanged with double, raised to
+# a tenth of the machine epsilon of float and to this epsilon with the float
+# numerical type (real_type DSL option)
+mfront_query_test(
+  "--parameter-default-value=epsilon;--parameter-default-value=numerical_jacobian_epsilon"
+  "AgeingBurger.mfront"
+  "mfront-query-ageingburger-convergence-criteria.ref")
+mfront_query_test(
+  "--dsl-option=real_type:float;--parameter-default-value=epsilon;--parameter-default-value=numerical_jacobian_epsilon"
+  "AgeingBurger.mfront"
+  "mfront-query-ageingburger-convergence-criteria-float.ref")
+# default convergence criterion of the isotropic DSLs, kept with float
+mfront_query_test(
+  "--dsl-option=real_type:float;--parameter-default-value=epsilon"
+  "Norton.mfront"
+  "mfront-query-norton-convergence-criterion-float.ref")
 # mfront_query_test("--state-variables" "Norton.mfront"
 #   "mfront-query-norton-material-properites.ref")

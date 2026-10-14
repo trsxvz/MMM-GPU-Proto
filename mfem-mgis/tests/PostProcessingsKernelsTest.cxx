@@ -148,6 +148,40 @@ static bool check(mfem_mgis::Context& ctx,
   return true;
 }  // end of check
 
+/*!
+ * \return the volume of the elements of a material over all the processes,
+ * computed independently of mfem-mgis: integral of the determinant of the
+ * jacobian of each element with an integration rule exact for it, summed in
+ * double. It checks the measures, including their reduction over the
+ * processes, which the comparison of the two computations of mfem-mgis does
+ * not check, since they share this reduction.
+ * \param[in] mesh: mesh
+ * \param[in] m: material identifier
+ */
+template <bool parallel>
+static double computeMaterialVolume(const mfem_mgis::Mesh<parallel>& mesh,
+                                    const int m) {
+  auto v = double{};
+  auto tr = mfem::IsoparametricTransformation{};
+  for (int i = 0; i != mesh.GetNE(); ++i) {
+    if (mesh.GetAttribute(i) != m) {
+      continue;
+    }
+    mesh.GetElementTransformation(i, &tr);
+    const auto& ir =
+        mfem::IntRules.Get(mesh.GetElementBaseGeometry(i), tr.OrderW());
+    for (int q = 0; q != ir.GetNPoints(); ++q) {
+      const auto& ip = ir.IntPoint(q);
+      tr.SetIntPoint(&ip);
+      v += static_cast<double>(ip.weight) * static_cast<double>(tr.Weight());
+    }
+  }
+  if constexpr (parallel) {
+    MPI_Allreduce(MPI_IN_PLACE, &v, 1, MPI_DOUBLE, MPI_SUM, mesh.GetComm());
+  }
+  return v;
+}  // end of computeMaterialVolume
+
 //! \brief results of the computations
 template <bool parallel>
 struct Results {
@@ -345,14 +379,27 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
   // gradient with a relative tolerance bounded to 1.2e-5)
   using mfem_mgis::unit_tests::tolerance;
   auto success = true;
+  // measures and integrals: sums over all the points, accumulated in double
+  // by mfem-mgis. In float, the relative differences are below 1e-6 (4.4e-6
+  // for the measures and 6.8e-6 for the integrals with sums in float)
   for (size_type i = 0; i != materials.size(); ++i) {
     const auto m = std::to_string(materials[i]);
     success = check(ctx, "measure of material " + m, r1->measures[i],
-                    r2->measures[i], tolerance(1e-12, 1e-5)) &&
+                    r2->measures[i], tolerance(1e-12, 1e-4)) &&
               success;
     success = check(ctx, "integral on material " + m, r1->integrals[i],
-                    r2->integrals[i], tolerance(1e-12, 1e-5)) &&
+                    r2->integrals[i], tolerance(1e-12, 1e-4)) &&
               success;
+    const auto volume = computeMaterialVolume<parallel>(mesh, materials[i]);
+    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
+      std::cout << "volume of material " << m << " computed by MFEM: " << volume
+                << '\n';
+    }
+    if (!(std::abs(r1->measures[i] - volume) <=
+          tolerance(1e-10, 1e-4) * volume)) {
+      success = ctx.registerErrorMessage("measure of material " + m +
+                                         ": wrong value");
+    }
   }
   for (size_type i = 0; i != 2; ++i) {
     const auto f = std::string{i == 0 ? "scalar" : "vector"} + " function";

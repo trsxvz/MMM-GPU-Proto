@@ -202,7 +202,11 @@ namespace mfront {
       this->throwRuntimeError("IsotropicBehaviourDSLBase::treatEpsilon",
                               "Epsilon value must be positive");
     }
-    if ((!safe) && (epsilon < 1e-18)) {
+    // the advice below is written for double: with the float numerical
+    // type, the value is bounded below by getConvergenceCriterionForRealType,
+    // which reports its own warning
+    const auto check_value = (!safe) && (getRealType(this->mb) != "float");
+    if (check_value && (epsilon < 1e-18)) {
       auto converter = std::ostringstream{};
       converter << std::scientific << epsilon;
       reportWarning(
@@ -212,7 +216,7 @@ namespace mfront {
           "). You may want to consider a more stringent value (1e-14 "
           "is generally a good choice).");
     }
-    if ((!safe) && (epsilon > 1e-12)) {
+    if (check_value && (epsilon > 1e-12)) {
       auto converter = std::ostringstream{};
       converter << std::scientific << epsilon;
       reportWarning(
@@ -658,11 +662,16 @@ namespace mfront {
           uh, VariableDescription("real", "\u03B5", "epsilon", 1u, 0u),
           BehaviourData::ALREADYREGISTRED);
       this->mb.setParameterDefaultValue(uh, "epsilon", 1.e-8);
-      reportWarning(
-          "using the default value for the convergence threshold. "
-          "This value is generally considered too loose. You may "
-          "want to consider a more stringent value (1e-14 is a good choice). "
-          "See the `@Epsilon` keyword for details");
+      // with the float numerical type, the default value is close to the
+      // lower bound of the convergence criteria (a tenth of the machine
+      // epsilon, see getConvergenceCriterionForRealType) and is kept
+      if (getRealType(this->mb) != "float") {
+        reportWarning(
+            "using the default value for the convergence threshold. "
+            "This value is generally considered too loose. You may "
+            "want to consider a more stringent value (1e-14 is a good "
+            "choice). See the `@Epsilon` keyword for details");
+      }
     }
     if (!this->mb.hasParameter(uh, "iterMax")) {
       unsigned short iterMax = 100u;

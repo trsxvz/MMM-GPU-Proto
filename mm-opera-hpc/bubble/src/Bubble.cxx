@@ -454,7 +454,7 @@ int main(int argc, char** argv) {
   // stops at 1.2e-5 (tolerance bounded by mfem-mgis) and the relative
   // residual reaches 2.8e-5
   constexpr auto relative_tolerance =
-      std::is_same_v<mfem_mgis::real, double> ? 1e-8 : 1e-4;
+      std::is_same_v<mfem_mgis::real, double> ? 1e-8 : 3e-4;
   problem.setSolverParameters(ctx, {{"VerbosityLevel", 1},
                                     {"RelativeTolerance", relative_tolerance},
                                     {"AbsoluteTolerance", 0.},

@@ -1,0 +1,163 @@
+From 85d7eabc7ca2cbaa64f29fb5d187c6f02137b131 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 04:01:39 +0200
+Subject: [PATCH] MFront sources depend on libTFELMFront, real type everywhere
+
+- mfem_mgis_get_mfront_dependencies gives the executable mfront and the
+  library holding its code generators (libTFELMFront, next to the bin
+  directory of mfront): every command calling mfront depends on both
+  (MFEM_MGIS_MFRONT_DEPENDENCIES in the build, computed in
+  mfem_mgis_add_behaviours_library for the installed module), so that the
+  sources are generated again when MFront changes.
+- the Kokkos library of the tests (UO2Shrinkage_RAPHAEL2008) and the
+  behaviour of the benchmarks are generated with the numerical type of
+  mfem-mgis (MFEM_MGIS_MFRONT_REAL_TYPE_OPTION); the benchmarks call
+  ${MFRONT} instead of the mfront found in the path.
+---
+ benchmarks/CMakeLists.txt              |  5 ++++-
+ cmake/modules/MFEMMGISBehaviours.cmake | 26 ++++++++++++++++++++++++--
+ cmake/modules/mfront-behaviours.cmake  |  2 +-
+ cmake/modules/tfel.cmake               |  7 ++++++-
+ tests/CMakeLists.txt                   |  6 ++++--
+ 5 files changed, 39 insertions(+), 7 deletions(-)
+
+diff --git a/benchmarks/CMakeLists.txt b/benchmarks/CMakeLists.txt
+index 36b3f22315..6e0cc2a496 100644
+--- a/benchmarks/CMakeLists.txt
++++ b/benchmarks/CMakeLists.txt
+@@ -11,8 +11,11 @@ mfront_behaviours_check_library(BehaviourBenchmarks  IsotropicLinearElasticity)
+       MFEMMGISLinearElasticityBenchmark.cxx)
+   add_custom_command(
+       OUTPUT "src/libBehaviour.so"
+-      COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
++      COMMAND "${MFRONT}" --obuild --interface=generic
++              ${MFEM_MGIS_MFRONT_REAL_TYPE_OPTION}
++              ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
+       DEPENDS ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
++              ${MFEM_MGIS_MFRONT_DEPENDENCIES}
+       COMMENT "Performing mfront code generation")
+ 
+   target_link_libraries(MFEMMGISLinearElasticityBenchmark
+diff --git a/cmake/modules/MFEMMGISBehaviours.cmake b/cmake/modules/MFEMMGISBehaviours.cmake
+index 17bba2460b..cf9cd55c4e 100644
+--- a/cmake/modules/MFEMMGISBehaviours.cmake
++++ b/cmake/modules/MFEMMGISBehaviours.cmake
+@@ -61,6 +61,7 @@ function(mfem_mgis_add_behaviours_library target)
+       message(FATAL_ERROR "mfem_mgis_add_behaviours_library: mfront not found")
+     endif()
+   endif()
++  mfem_mgis_get_mfront_dependencies(_mfront_dependencies "${MFRONT}")
+   set(_names ${_b_LIBRARIES})
+   if(NOT _names)
+     set(_names Behaviour)
+@@ -161,7 +162,7 @@ function(mfem_mgis_add_behaviours_library target)
+             ${_include} ${_sources}
+     ${_links}
+     WORKING_DIRECTORY "${_directory}/cpu-build"
+-    DEPENDS ${_sources} ${_b_DEPENDS} "${MFRONT}"
++    DEPENDS ${_sources} ${_b_DEPENDS} ${_mfront_dependencies}
+     COMMENT "MFront: behaviours of ${target} (CPU)")
+   set(_all ${_outputs})
+   # libraries for the GPU: generic-parallel interface
+@@ -185,7 +186,7 @@ function(mfem_mgis_add_behaviours_library target)
+               ${_sources}
+       ${_links}
+       WORKING_DIRECTORY "${_directory}/gpu-build"
+-      DEPENDS ${_sources} ${_b_DEPENDS} "${MFRONT}"
++      DEPENDS ${_sources} ${_b_DEPENDS} ${_mfront_dependencies}
+       COMMENT "MFront: behaviours of ${target} (GPU, ${_gpu_backend})")
+     list(APPEND _all ${_outputs})
+     set(${target}_HAVE_GPU_BEHAVIOURS TRUE PARENT_SCOPE)
+@@ -199,3 +200,24 @@ function(mfem_mgis_add_behaviours_library target)
+   endif()
+   set(${target}_BEHAVIOURS_DIRECTORY "${_directory}" PARENT_SCOPE)
+ endfunction()
++
++# usage: mfem_mgis_get_mfront_dependencies(<variable> <mfront>)
++#
++# sets <variable> to the files of MFront on which the generated sources
++# depend: the executable <mfront> and the library holding the code
++# generators (libTFELMFront, in the lib or lib64 directory next to the bin
++# directory of mfront), so that the sources are generated again when MFront
++# changes.
++function(mfem_mgis_get_mfront_dependencies variable mfront)
++  set(_dependencies "${mfront}")
++  get_filename_component(_prefix "${mfront}" DIRECTORY)
++  get_filename_component(_prefix "${_prefix}" DIRECTORY)
++  foreach(_directory lib lib64)
++    set(_name "${CMAKE_SHARED_LIBRARY_PREFIX}TFELMFront")
++    set(_library "${_prefix}/${_directory}/${_name}${CMAKE_SHARED_LIBRARY_SUFFIX}")
++    if(EXISTS "${_library}")
++      list(APPEND _dependencies "${_library}")
++    endif()
++  endforeach()
++  set(${variable} ${_dependencies} PARENT_SCOPE)
++endfunction()
+diff --git a/cmake/modules/mfront-behaviours.cmake b/cmake/modules/mfront-behaviours.cmake
+index 74098b0ba3..5fe0b21a1d 100644
+--- a/cmake/modules/mfront-behaviours.cmake
++++ b/cmake/modules/mfront-behaviours.cmake
+@@ -8,7 +8,7 @@ function(add_mfront_behaviour_sources lib  file)
+     COMMAND "${MFRONT}"
+     ARGS    "--interface=generic" ${MFEM_MGIS_MFRONT_REAL_TYPE_OPTION}
+     ARGS     "${mfront_file}"
+-    DEPENDS "${mfront_file}" "${MFRONT}"
++    DEPENDS "${mfront_file}" ${MFEM_MGIS_MFRONT_DEPENDENCIES}
+     COMMENT "mfront source ${mfront_file}")
+   set(${lib}_SOURCES ${mfront_output1} ${mfront_output2}
+     ${${lib}_SOURCES} PARENT_SCOPE)
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index c0a171fecc..197f155c41 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -25,6 +25,11 @@ find_program(MFRONT_QUERY  mfront-query
+ 
+ IF(TFEL_CONFIG AND MFRONT AND MFRONT_QUERY)
+ 
++  # the sources generated by mfront depend on mfront and on the library
++  # holding its code generators
++  include(cmake/modules/MFEMMGISBehaviours.cmake)
++  mfem_mgis_get_mfront_dependencies(MFEM_MGIS_MFRONT_DEPENDENCIES "${MFRONT}")
++
+   # `tfel-config --includes` and `tfel-config --libs` may return several
+   # directories (for instance the headers of TDLS): each `-I` or `-L` flag
+   # gives one element of the list, the other flags are ignored
+@@ -114,7 +119,7 @@ IF(TFEL_CONFIG AND MFRONT AND MFRONT_QUERY)
+       COMMAND "${MFRONT}"
+       ARGS    "--search-path=${CMAKE_CURRENT_SOURCE_DIR}"
+       ARGS    "--interface=mfront" "${mfront_file}"
+-      DEPENDS "${mfront_file}" "${MFRONT}"
++      DEPENDS "${mfront_file}" ${MFEM_MGIS_MFRONT_DEPENDENCIES}
+       WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+       COMMENT "mfront source ${mfront_file}")
+     set(${name}_dependencies_SOURCES
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 162de02776..1e117606ea 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -904,7 +904,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+                 "--configuration-file=${_configuration}"
+                 ${batch_integration_test_behaviours}
+         WORKING_DIRECTORY "${_directory}"
+-        DEPENDS ${batch_integration_test_behaviours} "${MFRONT}"
++        DEPENDS ${batch_integration_test_behaviours}
++                ${MFEM_MGIS_MFRONT_DEPENDENCIES}
+         COMMENT "MFront: generic-parallel behaviour (${_backend})")
+       add_custom_target(GenericParallelBehaviour-${_backend}
+                         DEPENDS "${_library}" "${_uo2_library}")
+@@ -1166,10 +1167,11 @@ if(MFEM_MGIS_HAVE_TFEL)
+         OUTPUT "${_library}"
+         COMMAND "${MFRONT}" --obuild --interface=generic-parallel
+                 --configuration-file=config-kokkos.json
++                ${MFEM_MGIS_MFRONT_REAL_TYPE_OPTION}
+                 "${CMAKE_CURRENT_SOURCE_DIR}/UO2Shrinkage_RAPHAEL2008.mfront"
+         WORKING_DIRECTORY "${_directory}"
+         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/UO2Shrinkage_RAPHAEL2008.mfront"
+-                "${MFRONT}"
++                ${MFEM_MGIS_MFRONT_DEPENDENCIES}
+         COMMENT "MFront: generic-parallel model (kokkos)")
+       add_custom_target(GenericParallelBehaviour-kokkos DEPENDS "${_library}")
+       add_dependencies(build-tests GenericParallelBehaviour-kokkos)
+-- 
+2.43.0
+

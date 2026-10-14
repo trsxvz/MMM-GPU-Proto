@@ -1,0 +1,80 @@
+From 6182b9f9b9dab40d38204f234b02acba8e39e8e7 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 04:09:29 +0200
+Subject: [PATCH] Review of the float cases: Kroener loop, bubble, row matching
+
+- The loop computing the Kroener shear modulus stops after 1000 iterations
+  with an error message (it converges in a few tens).
+- The relative tolerance of the bubble case with float is 3e-4, about ten
+  times the 2.8e-5 measured.
+- run-and-check.py selects the row whose time is the closest to the given
+  one, within 1e-6, instead of the first one within 1e-6.
+Double: the 6 CPU tests pass with the same output files, to the bit.
+Float: 6/6.
+---
+ bubble/src/Bubble.cxx                         |  2 +-
+ cmake/run-and-check.py                        | 13 ++++++++-----
+ src/MacroscropicElasticMaterialProperties.cxx |  9 +++++++++
+ 3 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index 4b9921c..f00c582 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -454,7 +454,7 @@ int main(int argc, char** argv) {
+   // stops at 1.2e-5 (tolerance bounded by mfem-mgis) and the relative
+   // residual reaches 2.8e-5
+   constexpr auto relative_tolerance =
+-      std::is_same_v<mfem_mgis::real, double> ? 1e-8 : 1e-4;
++      std::is_same_v<mfem_mgis::real, double> ? 1e-8 : 3e-4;
+   problem.setSolverParameters(ctx, {{"VerbosityLevel", 1},
+                                     {"RelativeTolerance", relative_tolerance},
+                                     {"AbsoluteTolerance", 0.},
+diff --git a/cmake/run-and-check.py b/cmake/run-and-check.py
+index e16b450..fe21eef 100755
+--- a/cmake/run-and-check.py
++++ b/cmake/run-and-check.py
+@@ -72,11 +72,14 @@ def main():
+         if row == "first":
+             selected = rows[0] if rows else None
+         else:
+-            # times are compared up to the rounding of the float type, the
+-            # time 0.2 being written 0.20000000298023 with float
+-            selected = next((r for r in rows
+-                             if abs(float(r[0]) - float(row)) <=
+-                             1e-6 * max(1, abs(float(row)))), None)
++            # the closest row, its time being equal to the given one up to
++            # the rounding of the float type (the time 0.2 is written
++            # 0.20000000298023 with float)
++            closest = min(rows, key=lambda r: abs(float(r[0]) - float(row)),
++                          default=None)
++            selected = closest if (closest is not None and
++                                   abs(float(closest[0]) - float(row)) <=
++                                   1e-6 * max(1, abs(float(row)))) else None
+         if selected is None:
+             print(f"no row '{row}' in '{args.file}'")
+             success = False
+diff --git a/src/MacroscropicElasticMaterialProperties.cxx b/src/MacroscropicElasticMaterialProperties.cxx
+index 1fe0930..5cdf5f2 100644
+--- a/src/MacroscropicElasticMaterialProperties.cxx
++++ b/src/MacroscropicElasticMaterialProperties.cxx
+@@ -46,7 +46,16 @@ namespace mm_opera_hpc {
+     constexpr auto kroener_tolerance =
+         std::max(mfem_mgis::real{1e-10},
+                  10 * std::numeric_limits<mfem_mgis::real>::epsilon());
++    // the fixed point converges in a few tens of iterations
++    constexpr auto kroener_maximum_number_of_iterations = 1000;
++    auto kroener_iterations = 0;
+     do {
++      if (kroener_iterations == kroener_maximum_number_of_iterations) {
++        mfem_mgis::abort(
++            "MacroscropicElasticMaterialProperties::update: the computation "
++            "of the Kroener shear modulus did not converge");
++      }
++      ++kroener_iterations;
+       m0 = GK;
+       D1 = Keff + 2 * GK;
+       sD1 = 6 * D1;
+-- 
+2.43.0
+

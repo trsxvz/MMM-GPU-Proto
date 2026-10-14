@@ -572,11 +572,14 @@ namespace mfront {
      * \return the perturbation used to compute the numerical jacobian,
      * bounded below, with the float numerical type (`real_type` DSL
      * option), by the machine epsilon of this type (1.2e-7): smaller
-     * perturbations of the unknowns are lost in their rounding. A warning
-     * is reported when the value is changed.
+     * perturbations of the unknowns are lost in their rounding.
      * \param[in] v: value
+     * \param[in] report: if true, a warning is reported when the value is
+     * changed (false for the default value, a tenth of the convergence
+     * criterion)
      */
-    double getNumericalJacobianPerturbationForRealType(const double) const;
+    double getNumericalJacobianPerturbationForRealType(const double,
+                                                       const bool = true) const;
     /*!
      * \brief treat the `@TangentOperator` keyword
      * \note this method read the code block options and determines

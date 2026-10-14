@@ -61,6 +61,7 @@ function(mfem_mgis_add_behaviours_library target)
       message(FATAL_ERROR "mfem_mgis_add_behaviours_library: mfront not found")
     endif()
   endif()
+  mfem_mgis_get_mfront_dependencies(_mfront_dependencies "${MFRONT}")
   set(_names ${_b_LIBRARIES})
   if(NOT _names)
     set(_names Behaviour)
@@ -161,7 +162,7 @@ function(mfem_mgis_add_behaviours_library target)
             ${_include} ${_sources}
     ${_links}
     WORKING_DIRECTORY "${_directory}/cpu-build"
-    DEPENDS ${_sources} ${_b_DEPENDS} "${MFRONT}"
+    DEPENDS ${_sources} ${_b_DEPENDS} ${_mfront_dependencies}
     COMMENT "MFront: behaviours of ${target} (CPU)")
   set(_all ${_outputs})
   # libraries for the GPU: generic-parallel interface
@@ -185,7 +186,7 @@ function(mfem_mgis_add_behaviours_library target)
               ${_sources}
       ${_links}
       WORKING_DIRECTORY "${_directory}/gpu-build"
-      DEPENDS ${_sources} ${_b_DEPENDS} "${MFRONT}"
+      DEPENDS ${_sources} ${_b_DEPENDS} ${_mfront_dependencies}
       COMMENT "MFront: behaviours of ${target} (GPU, ${_gpu_backend})")
     list(APPEND _all ${_outputs})
     set(${target}_HAVE_GPU_BEHAVIOURS TRUE PARENT_SCOPE)
@@ -198,4 +199,25 @@ function(mfem_mgis_add_behaviours_library target)
     add_custom_target(${target} ALL DEPENDS ${_all})
   endif()
   set(${target}_BEHAVIOURS_DIRECTORY "${_directory}" PARENT_SCOPE)
+endfunction()
+
+# usage: mfem_mgis_get_mfront_dependencies(<variable> <mfront>)
+#
+# sets <variable> to the files of MFront on which the generated sources
+# depend: the executable <mfront> and the library holding the code
+# generators (libTFELMFront, in the lib or lib64 directory next to the bin
+# directory of mfront), so that the sources are generated again when MFront
+# changes.
+function(mfem_mgis_get_mfront_dependencies variable mfront)
+  set(_dependencies "${mfront}")
+  get_filename_component(_prefix "${mfront}" DIRECTORY)
+  get_filename_component(_prefix "${_prefix}" DIRECTORY)
+  foreach(_directory lib lib64)
+    set(_name "${CMAKE_SHARED_LIBRARY_PREFIX}TFELMFront")
+    set(_library "${_prefix}/${_directory}/${_name}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    if(EXISTS "${_library}")
+      list(APPEND _dependencies "${_library}")
+    endif()
+  endforeach()
+  set(${variable} ${_dependencies} PARENT_SCOPE)
 endfunction()

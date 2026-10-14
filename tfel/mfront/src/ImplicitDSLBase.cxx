@@ -665,7 +665,11 @@ namespace mfront {
       this->throwRuntimeError("ImplicitDSLBase::treatEpsilon",
                               "Epsilon value must be positive.");
     }
-    if ((!safe) && (epsilon < 1e-18)) {
+    // the advice below is written for double: with the float numerical
+    // type, the value is bounded below by getConvergenceCriterionForRealType,
+    // which reports its own warning
+    const auto check_value = (!safe) && (getRealType(this->mb) != "float");
+    if (check_value && (epsilon < 1e-18)) {
       auto converter = std::ostringstream{};
       converter << std::scientific << epsilon;
       reportWarning(
@@ -675,7 +679,7 @@ namespace mfront {
           "). You may want to consider a more stringent value (1e-14 "
           "is generally a good choice).");
     }
-    if ((!safe) && (epsilon > 1e-12)) {
+    if (check_value && (epsilon > 1e-12)) {
       auto converter = std::ostringstream{};
       converter << std::scientific << epsilon;
       reportWarning(
@@ -1471,11 +1475,16 @@ namespace mfront {
       this->mb.addParameter(uh, e, BehaviourData::ALREADYREGISTRED);
       this->mb.setEntryName(uh, "epsilon", "epsilon");
       this->mb.setParameterDefaultValue(uh, "epsilon", 1.e-8);
-      reportWarning(
-          "using the default value for the convergence threshold (1e-8). "
-          "This value is generally considered too loose. You may "
-          "want to consider a more stringent value (1e-14 is a good choice). "
-          "See the `@Epsilon` keyword for details");
+      // with the float numerical type, the default value is close to the
+      // lower bound of the convergence criteria (a tenth of the machine
+      // epsilon, see getConvergenceCriterionForRealType) and is kept
+      if (getRealType(this->mb) != "float") {
+        reportWarning(
+            "using the default value for the convergence threshold (1e-8). "
+            "This value is generally considered too loose. You may "
+            "want to consider a more stringent value (1e-14 is a good "
+            "choice). See the `@Epsilon` keyword for details");
+      }
     }
     if (!this->mb.hasParameter(uh, "theta")) {
       VariableDescription tv("NumericType", "\u03B8", "theta", 1u, 0u);
@@ -1492,7 +1501,8 @@ namespace mfront {
       if (!this->mb.hasParameter(uh, nje)) {
         const auto eps = this->getNumericalJacobianPerturbationForRealType(
             0.1 *
-            this->mb.getFloattingPointParameterDefaultValue(uh, "epsilon"));
+                this->mb.getFloattingPointParameterDefaultValue(uh, "epsilon"),
+            false);
         VariableDescription v("NumericType", nje, 1u, 0u);
         v.description =
             "perturbation value used to compute a numerical "

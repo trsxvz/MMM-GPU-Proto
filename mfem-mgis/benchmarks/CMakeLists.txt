@@ -11,8 +11,11 @@ mfront_behaviours_check_library(BehaviourBenchmarks  IsotropicLinearElasticity)
       MFEMMGISLinearElasticityBenchmark.cxx)
   add_custom_command(
       OUTPUT "src/libBehaviour.so"
-      COMMAND mfront --obuild --interface=generic ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
+      COMMAND "${MFRONT}" --obuild --interface=generic
+              ${MFEM_MGIS_MFRONT_REAL_TYPE_OPTION}
+              ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
       DEPENDS ${PROJECT_BINARY_DIR}/IsotropicLinearElasticity.mfront
+              ${MFEM_MGIS_MFRONT_DEPENDENCIES}
       COMMENT "Performing mfront code generation")
 
   target_link_libraries(MFEMMGISLinearElasticityBenchmark

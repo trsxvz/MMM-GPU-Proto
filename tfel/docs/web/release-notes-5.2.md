@@ -834,7 +834,14 @@ $ mfront --obuild --interface=generic --dsl-option=real_type:float \
   warning: the values chosen for `double` (`1e-14` or less) can't be
   reached. The criteria of these DSLs are absolute and their residuals are
   expressed in strains: a looser criterion leaves errors on the stresses
-  of the order of the criterion times the elastic moduli.
+  of the order of the criterion times the elastic moduli. The default
+  criterion (`1e-8`, when `@Epsilon` is not used), close to this bound, is
+  kept, and the default perturbation (a tenth of the criterion) is raised
+  without warning. The comparison to a numerical jacobian
+  (`@CompareToNumericalJacobian`) uses by default the convergence
+  criterion, which is too strict for finite differences computed in
+  `float`: its criterion must then be given explicitly
+  (`@JacobianComparisonCriterion`).
 - an expression of a floating-point type can be assigned to a
   mathematical object of `TFEL` of another floating-point type, possibly
   narrower (`IsAssignableTo`), so that the existing behaviours, which use

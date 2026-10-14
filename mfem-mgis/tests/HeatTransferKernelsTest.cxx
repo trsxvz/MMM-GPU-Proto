@@ -423,10 +423,11 @@ static void compare(const Results& a,
   std::cout << name << ": relative differences " << du << " (temperature), "
             << dj << " (heat flux), " << dT
             << " (temperature at the integration points)\n";
-  // relative differences: in float, they reach 2.6e-7 (roundings, and
-  // linear solvers stopping at a relative residual of 1.2e-5)
+  // relative differences: in float, they reach 1.1e-6 (heat flux, matrix
+  // free computations in parallel; roundings, and linear solvers stopping
+  // at a relative residual of 1.2e-5)
   constexpr auto relative_tolerance =
-      mfem_mgis::unit_tests::tolerance(1e-10, 5e-6);
+      mfem_mgis::unit_tests::tolerance(1e-10, 1e-5);
   check(du < relative_tolerance, name + ": temperature");
   check(dj < relative_tolerance, name + ": heat flux");
   check(dT < relative_tolerance,

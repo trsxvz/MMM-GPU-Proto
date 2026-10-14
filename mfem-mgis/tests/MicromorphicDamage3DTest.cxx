@@ -296,7 +296,11 @@ int main(int argc, char** argv) {
     // iteration, relative to the initial residuals then. In float, the
     // residual of the micromorphic problem stagnates at 1.7e-9 (absolute),
     // and at 1.5e-11 for a solve close to convergence whose initial residual
-    // of the first iteration is 2e-8
+    // of the first iteration is 2e-8. Measured in float: the initial
+    // residuals of the first iteration are 4.0e-2 (mechanical problem) and
+    // 2.2e-8 to 2.0e-7 (micromorphic problem, increasing with the damage);
+    // at the second iteration, the residuals are 1.6e-5 to 2.1e-5 and
+    // 1.0e-3 to 1.4e-3 of them, accepted by the relative tolerance 1e-2
     constexpr auto first_iteration_tolerance =
         mfem_mgis::unit_tests::tolerance(1e-10, 2e-8);
     constexpr auto relative_tolerance =

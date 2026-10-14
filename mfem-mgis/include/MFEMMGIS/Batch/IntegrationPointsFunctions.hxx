@@ -47,7 +47,8 @@ namespace mfem_mgis::batch {
    * owned by this process, of a scalar function given by its values at the
    * integration points (`w det J` being the weight of a point), or the
    * measure of these elements if no values are given, computed on the device
-   * if a device is enabled, or an empty value on failure
+   * if a device is enabled (the contributions of the points being accumulated
+   * in double), or an empty value on failure
    * \param[in, out] ctx: execution context
    * \param[in] qs: partial quadrature space. All its elements must use the
    * integration rule of the geometric data.

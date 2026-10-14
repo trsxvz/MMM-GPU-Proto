@@ -904,7 +904,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                 "--configuration-file=${_configuration}"
                 ${batch_integration_test_behaviours}
         WORKING_DIRECTORY "${_directory}"
-        DEPENDS ${batch_integration_test_behaviours} "${MFRONT}"
+        DEPENDS ${batch_integration_test_behaviours}
+                ${MFEM_MGIS_MFRONT_DEPENDENCIES}
         COMMENT "MFront: generic-parallel behaviour (${_backend})")
       add_custom_target(GenericParallelBehaviour-${_backend}
                         DEPENDS "${_library}" "${_uo2_library}")
@@ -1166,10 +1167,11 @@ if(MFEM_MGIS_HAVE_TFEL)
         OUTPUT "${_library}"
         COMMAND "${MFRONT}" --obuild --interface=generic-parallel
                 --configuration-file=config-kokkos.json
+                ${MFEM_MGIS_MFRONT_REAL_TYPE_OPTION}
                 "${CMAKE_CURRENT_SOURCE_DIR}/UO2Shrinkage_RAPHAEL2008.mfront"
         WORKING_DIRECTORY "${_directory}"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/UO2Shrinkage_RAPHAEL2008.mfront"
-                "${MFRONT}"
+                ${MFEM_MGIS_MFRONT_DEPENDENCIES}
         COMMENT "MFront: generic-parallel model (kokkos)")
       add_custom_target(GenericParallelBehaviour-kokkos DEPENDS "${_library}")
       add_dependencies(build-tests GenericParallelBehaviour-kokkos)

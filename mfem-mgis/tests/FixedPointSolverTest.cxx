@@ -53,7 +53,7 @@ static int failures = 0;
 
 /*!
  * \brief tolerance on the relative difference between the solutions of the
- * methods and the one of the Newton solver. In float, it reaches 2.8e-5,
+ * methods and the one of the Newton solver. In float, it reaches 4.4e-5,
  * the non linear solvers stopping at a relative residual of 1.2e-5 (see
  * `mfem_mgis::boundRelativeTolerance`)
  */

@@ -1684,19 +1684,24 @@ namespace mfront {
    * \param[in] n: name of the parameter
    * \param[in] v: value
    * \param[in] vmin: lower bound
+   * \param[in] report: if true, a warning is reported when the value is
+   * raised
    */
   static double raiseForFloatRealType(const BehaviourDescription& bd,
                                       const std::string_view n,
                                       const double v,
-                                      const double vmin) {
+                                      const double vmin,
+                                      const bool report) {
     if ((getRealType(bd) != "float") || (v >= vmin)) {
       return v;
     }
-    auto msg = std::ostringstream{};
-    msg << std::scientific << "the value of '" << n << "' (" << v
-        << ") is raised to " << vmin
-        << " for the float numerical type (real_type option)";
-    reportWarning(msg.str());
+    if (report) {
+      auto msg = std::ostringstream{};
+      msg << std::scientific << "the value of '" << n << "' (" << v
+          << ") is raised to " << vmin
+          << " for the float numerical type (real_type option)";
+      reportWarning(msg.str());
+    }
     return vmin;
   }  // end of raiseForFloatRealType
 
@@ -1704,15 +1709,15 @@ namespace mfront {
       const std::string_view n, const double v) const {
     const auto vmin =
         static_cast<double>(std::numeric_limits<float>::epsilon()) / 10;
-    return raiseForFloatRealType(this->mb, n, v, vmin);
+    return raiseForFloatRealType(this->mb, n, v, vmin, true);
   }  // end of getConvergenceCriterionForRealType
 
   double BehaviourDSLCommon::getNumericalJacobianPerturbationForRealType(
-      const double v) const {
+      const double v, const bool report) const {
     const auto vmin =
         static_cast<double>(std::numeric_limits<float>::epsilon());
     return raiseForFloatRealType(this->mb, "numerical_jacobian_epsilon", v,
-                                 vmin);
+                                 vmin, report);
   }  // end of getNumericalJacobianPerturbationForRealType
 
   void BehaviourDSLCommon::treatStrainMeasure() {

@@ -170,15 +170,34 @@ static bool setSolverParameters(
        {"MaximumNumberOfIterations", 10}});
 }  // end of setSolverParmeters
 
+/*!
+ * \return the threshold of the L2 error to the analytical solution: 1e-7
+ * with double; with float, about ten times the largest error measured with
+ * the given linear solver over the cases, sequential and parallel (the L2
+ * norms of the solutions are 0.038 to 0.096). The relative tolerances of the
+ * iterative solvers are bounded to 1.2e-5 by mfem-mgis in float.
+ * \param[in] s: linear solver
+ */
+static mfem_mgis::real getThreshold(const std::string_view s) noexcept {
+  // largest errors measured in float: 1.2e-4 (HypreFGMRES), 3.7e-5
+  // (GMRESSolver, HypreGMRES), 3.5e-6 (CGSolver, HyprePCG, MUMPSSolver)
+  if (s == "HypreFGMRES") {
+    return mfem_mgis::unit_tests::tolerance(1e-7, 1.2e-3);
+  }
+  if ((s == "GMRESSolver") || (s == "HypreGMRES")) {
+    return mfem_mgis::unit_tests::tolerance(1e-7, 4e-4);
+  }
+  return mfem_mgis::unit_tests::tolerance(1e-7, 4e-5);
+}  // end of getThreshold
+
 std::optional<bool> checkSolution(mfem_mgis::Context& ctx,
                                   mfem_mgis::NonLinearEvolutionProblem& problem,
-                                  const std::size_t i) {
+                                  const std::size_t i,
+                                  const std::string_view s) {
+  // the L2 error is printed (verbosity level 2)
   const auto ob = mfem_mgis::compareToAnalyticalSolution(
       ctx, problem, getSolution(i),
-      // in float, the L2 errors measured go from 2e-7 (conjugate gradient)
-      // to 1.2e-4 (GMRES and FGMRES of hypre, whose relative tolerance is
-      // bounded to 1.2e-5 by mfem-mgis)
-      {{"CriterionThreshold", mfem_mgis::unit_tests::tolerance(1e-7, 1e-3)}});
+      {{"VerbosityLevel", 2}, {"CriterionThreshold", getThreshold(s)}});
   if (mfem_mgis::isInvalid(ob)) {
     return {};
   }
@@ -379,7 +398,8 @@ int executeMFEMMGISTest(mfem_mgis::Context& ctx, const TestParameters& p) {
   problem.executePostProcessings(ctx, 0, 1) | or_die;
   //
   const auto b =
-      p.check ? (checkSolution(ctx, problem, p.tcase) | or_die) : true;
+      p.check ? (checkSolution(ctx, problem, p.tcase, p.linearsolver) | or_die)
+              : true;
   mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
   return b ? EXIT_SUCCESS : EXIT_FAILURE;
 }
