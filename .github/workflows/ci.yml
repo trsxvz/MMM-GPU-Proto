@@ -19,10 +19,14 @@
 name: CI
 
 on:
+  # not for the changes of the documentation only (the website is rebuilt
+  # by its own workflow)
   push:
     branches: [ "main" ]
+    paths-ignore: [ "docs/**", "site/**", "*.md" ]
   pull_request:
     branches: [ "main" ]
+    paths-ignore: [ "docs/**", "site/**", "*.md" ]
   # keep the build cache up to date with the latest dependencies, not at the
   # start of an hour, when GitHub delays the scheduled runs the most
   schedule:
