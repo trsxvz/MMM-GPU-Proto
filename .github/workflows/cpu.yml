@@ -144,7 +144,9 @@ jobs:
           -DMFrontGenericInterface_DIR=$PWD/install/mgis/share/mgis/cmake \
           -DTFEL_DIR=$PWD/install/tfel/share/tfel/cmake
         cmake --build build/mfem-mgis -j $(nproc) --target install
-        cmake --build build/mfem-mgis -j $(nproc) --target build-tests
+        # the behaviour library of the tests depends on the target check,
+        # not on build-tests
+        cmake --build build/mfem-mgis -j $(nproc) --target build-tests BehaviourTest
         cd build/mfem-mgis
         ctest -j $(nproc) --timeout 900 --output-on-failure \
           -E "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"

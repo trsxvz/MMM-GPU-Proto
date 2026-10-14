@@ -110,6 +110,13 @@ lancés. Déclenchement manuel seulement tant que le dépôt est privé
   OpenMPI 5.0.10 : `OMPI_MCA_btl=self,tcp` contre la collision des
   identifiants de travaux des `mpirun` concurrents, et surallocation
   permise (un test lance trois processus).
+- Job `cpu` simulé en local le 14/10, de bout en bout, dans un
+  environnement vide : même spack (1.2.2) et même commit de
+  spack-packages, copie de `ci-cpu` avec gcc 14, puis TFEL, MGIS (49/49),
+  mfem-mgis (208/208), exemples (22/22) et mm-opera-hpc (6/6). La
+  simulation a trouvé un défaut, corrigé : la bibliothèque de lois des
+  tests de mfem-mgis (cible `BehaviourTest`) n'était pas construite, d'où
+  126 échecs sur 208.
 - Sans cache des dépendances, chaque lancement reconstruit OpenMPI,
   hypre, MUMPS, SuiteSparse et MFEM, puis TFEL : plusieurs heures sur une
   machine à deux cœurs. Le cache sur GHCR (comme mfem-mgis) vient ensuite.
