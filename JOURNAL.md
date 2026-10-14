@@ -4688,3 +4688,9 @@ formula as MTest). All the others give the Newton solution to within
   105/105 on the CPU and 41/41 on the GPU, examples 21/21, mm-opera-hpc 6/6,
   site built without warning, no broken link; independent review (no
   grave defect) handled.
+- Float chain on the GPU after the rebuild of `mmm-float-gpu` (hypre with
+  its internal LAPACK): mfem-mgis 280/280 on the GPU, with the ParaSails
+  and stagnation tests, after a fix of a test (mfem-mgis 73055c8ca6: the
+  numbers of iterations of BatchIntegrationTest may differ by two in
+  float; on the GPU, a time step converged once in 1 iteration instead of
+  3, one run out of ten); examples 21/21, mm-opera-hpc 6/6, cases 134/134.

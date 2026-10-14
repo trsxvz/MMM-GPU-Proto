@@ -596,6 +596,4 @@ Remaining:
   floor of the residual of a cube of one element is already 3e-4 to 8e-4,
   close to the default stagnation tolerance;
 - the `FixedPoint` solver (NewtonK0...) has no stagnation criterion;
-- the float suite on the GPU is to run again with the new tests and the
-  rebuilt environment `mmm-float-gpu`;
 - the defect of hypre is not reported upstream yet.

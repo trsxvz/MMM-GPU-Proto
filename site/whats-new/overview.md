@@ -142,7 +142,7 @@ mfem-mgis, in detail:
 Single precision: the real type of the whole chain is the one of the
 installed MFEM (`double` by default, or `float`). In float, the test
 suites pass: MGIS 49/49, and 51/51 with CUDA; mfem-mgis 223/223 on the
-CPU and 276/276 on the GPU (before the ParaSails and stagnation tests); the examples 21/21; mm-opera-hpc 6/6.
+CPU and 280/280 on the GPU; the examples 21/21; mm-opera-hpc 6/6.
 
 ## Performance
 

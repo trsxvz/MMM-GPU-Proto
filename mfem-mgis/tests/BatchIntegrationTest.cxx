@@ -43,6 +43,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -1252,7 +1253,7 @@ static mfem_mgis::real getComparisonTolerance(const ComputationOptions& opts) {
  * \param[in] name: name of the comparison
  * \param[in] eps: tolerance on the relative differences. If null, the
  * numbers of iterations must be the same; otherwise, they may differ by one
- * at each time step.
+ * at each time step, two in single precision.
  */
 static void compare(const Results& r1,
                     const Results& r2,
@@ -1279,10 +1280,17 @@ static void compare(const Results& r1,
   } else {
     // rounding errors may move the convergence by one iteration, the
     // relative tolerance of the Newton algorithm being close to the
-    // precision of the computations
+    // precision of the computations. In single precision, the relative
+    // tolerance is bounded by 100 times the machine epsilon, close to the
+    // residual after the first iteration: on the GPU, whose assembly is not
+    // reproducible bit for bit, a time step converged once in 1 iteration
+    // instead of 3 (BatchIntegrationTestP-cuda, one run out of ten)
+    constexpr auto maximum_difference =
+        std::is_same_v<mfem_mgis::real, double> ? 1 : 2;
     auto close = r1.iterations.size() == r2.iterations.size();
     for (std::size_t i = 0; close && (i != r1.iterations.size()); ++i) {
-      close = std::abs(r1.iterations[i] - r2.iterations[i]) <= 1;
+      close =
+          std::abs(r1.iterations[i] - r2.iterations[i]) <= maximum_difference;
     }
     check(close, name + ": numbers of iterations");
   }

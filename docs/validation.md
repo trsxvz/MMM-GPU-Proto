@@ -299,7 +299,7 @@ twin spack environments `mmm-float-cpu` and `mmm-double-cpu`, and
 `mmm-float-gpu` (MFEM and hypre in single with CUDA). Results: MGIS
 49/49, and 51/51 with CUDA; mfem-mgis 223/223 on the CPU (with the
 ParaSails tests, hypre using its internal LAPACK, and the tests of the Newton
-stagnation criterion) and 276/276 on the GPU (ten tests remain in double
+stagnation criterion) and 280/280 on the GPU (ten tests remain in double
 only: UMFPACK, GSLIB, Umpire, cuDSS and CUDA, absent from the MFEM in
 float); examples 21/21;
 mm-opera-hpc 6/6; cases of `cases/` 134 in float (143 in double). Measurements and
