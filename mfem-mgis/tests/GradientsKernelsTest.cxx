@@ -940,7 +940,8 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
       static_cast<std::size_t>(m2->NumNonZeroElems()) == reference.size();
   for (std::size_t i = 0; same && (i != reference.size()); ++i) {
     same = std::abs(v[i] - reference[i]) <=
-           1e-14 * std::max(std::abs(reference[i]), real{1});
+           mfem_mgis::unit_tests::tolerance(1e-14) *
+               std::max(std::abs(reference[i]), real{1});
   }
   check(same, "integrator positions: assembled values");
   // ordered assembly (see `setOrderedStiffnessMatricesAssembly`), in the
@@ -965,7 +966,8 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
     auto close = true;
     for (std::size_t i = 0; close && (i != values.size()); ++i) {
       close = std::abs(values[i] - atomic_values[i]) <=
-              1e-14 * std::max(std::abs(atomic_values[i]), real{1});
+              mfem_mgis::unit_tests::tolerance(1e-14) *
+                  std::max(std::abs(atomic_values[i]), real{1});
     }
     check(close, "integrator positions: ordered assembly, assembled values");
     mi.setOrderedStiffnessMatricesAssembly(false);

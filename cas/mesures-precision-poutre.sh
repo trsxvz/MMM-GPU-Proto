@@ -19,25 +19,48 @@
 # 100 ε = 1,2e-5 par mfem-mgis, n'est pas atteint à r4 : le résidu relatif
 # plafonne vers 1,3e-5 et Newton s'arrête au bout de 50 itérations.
 #
+# Avec `PERIPHERIQUE=gpu` : tout sur le GPU (`--execution gpu`, loi du
+# backend `cuda`), un processus sur le cœur `CPUS` (0), constructions
+# build/cas-9b (double, mfem-mgis installé à part dans install/mfem-mgis-9b,
+# environnement mmm-gpu) et build/cas-float-gpu (float, environnement
+# mmm-float-gpu : MFEM et hypre en simple avec CUDA).
+#
 # usage : cas/mesures-precision-poutre.sh [dossier de résultats]
 set -u
 P=$(cd "$(dirname "$0")/.." && pwd)
 out=${1:-$P/results/precision-poutre-$(date +%Y-%m-%d-%H%M)}
 mkdir -p "$out"
 SPACK=${SPACK:-$HOME/Bureau/spack-mmm/bin/spack}
-np=${PROCESSUS:-2}
-cpus=${CPUS:-0,1}
+device=${PERIPHERIQUE:-cpu}
+if [ "$device" = gpu ]; then
+  np=${PROCESSUS:-1}
+  cpus=${CPUS:-0}
+else
+  np=${PROCESSUS:-2}
+  cpus=${CPUS:-0,1}
+fi
 repetitions=${REPETITIONS:-3}
 refinements=${RAFFINEMENTS:-4}
 steps=${PAS:-10}
 criterion=${CRITERE:-1e-4}
-declare -A cas=([double]=${CAS_DOUBLE:-$P/build/cas-double-cpu}
-                [float]=${CAS_FLOAT:-$P/build/cas-float})
 declare -A mgis=([double]=$P/install/mgis [float]=$P/install/mgis-float)
-declare -A environment=([double]=$P/deps/spack/mmm-double-cpu
-                        [float]=$P/deps/spack/mmm-float-cpu)
+if [ "$device" = gpu ]; then
+  declare -A cas=([double]=${CAS_DOUBLE:-$P/build/cas-9b}
+                  [float]=${CAS_FLOAT:-$P/build/cas-float-gpu})
+  declare -A environment=([double]=$P/deps/spack/mmm-gpu
+                          [float]=$P/deps/spack/mmm-float-gpu)
+  # loi générée par le backend cuda de l'interface generic-parallel
+  device_options=(--execution gpu
+    -l generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so)
+else
+  declare -A cas=([double]=${CAS_DOUBLE:-$P/build/cas-double-cpu}
+                  [float]=${CAS_FLOAT:-$P/build/cas-float})
+  declare -A environment=([double]=$P/deps/spack/mmm-double-cpu
+                          [float]=$P/deps/spack/mmm-float-cpu)
+  device_options=()
+fi
 {
-  echo "poutre r$refinements, $steps pas, $np processus sur les cœurs $cpus,"
+  echo "poutre r$refinements, $steps pas, $device, $np processus sur les cœurs $cpus,"
   echo "$repetitions répétitions ; $(date)"
   echo "machine : $(nproc) fils ; charge : $(cut -d' ' -f1-3 /proc/loadavg)"
 } | tee "$out/resume.txt"
@@ -60,7 +83,8 @@ run() {
   (cd "$B" && env -i HOME="$HOME" PATH="$mpi/bin:/usr/bin:/bin" \
     LD_LIBRARY_PATH="$P/install/tfel-mmm-gpu/lib:${mgis[$precision]}/lib" \
     taskset -c "$cpus" timeout 3600 mpirun -n "$np" ./poutre \
-    -r "$refinements" -n "$steps" -ls pcg-amg -lt 1e-4 -prof "$@") \
+    -r "$refinements" -n "$steps" -ls pcg-amg -lt 1e-4 -prof \
+    "${device_options[@]}" "$@") \
     < /dev/null > "$out/$name-$i.txt" 2>&1
   echo "   statut $?" | tee -a "$out/resume.txt"
   /usr/bin/grep -E "^dofs|^time" "$out/$name-$i.txt" | sed 's/^/   /' |

@@ -647,7 +647,7 @@ static void testRotation(
           "rotation of the thermodynamic forces written on the device" + name);
       // a rotation which is not a symmetry of the material, nor its own
       // inverse
-      const auto theta = 0.3;
+      const auto theta = real{0.3};
       const auto cs = std::cos(theta);
       const auto sn = std::sin(theta);
       m.setRotationMatrix(RotationMatrix3D{

@@ -1,0 +1,65 @@
+From 1c3996848907c90dc86f12e240748678281fd775 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 05:36:40 +0200
+Subject: [PATCH] Anderson: regularization raised to ten times epsilon with
+ float
+
+The relative regularization of the normal equations of Anderson's method
+(1e-12 by default, at least 1e-14) is below the rounding errors of their
+terms with float (about the machine epsilon times their largest diagonal
+term): it is raised to ten times the machine epsilon of the numerical type.
+Unchanged with double, the regularization being at least 1e-14. The
+documentation of the option tells it. FixedPointSolverTest: 5/5 in double
+and in float.
+---
+ .../NonLinearSolvers/AccelerationAlgorithm.hxx         |  3 ++-
+ src/AndersonAccelerationAlgorithm.cxx                  | 10 +++++++++-
+ 2 files changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx b/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
+index 07a2943556..cf988223e5 100644
+--- a/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
++++ b/include/MFEMMGIS/NonLinearSolvers/AccelerationAlgorithm.hxx
+@@ -86,7 +86,8 @@ namespace mfem_mgis {
+    *   default), `Residuals` (`Unknowns`, by default, the fixed point
+    *   residuals, or `Forces`, the residuals of the problem) and
+    *   `Regularization` (relative regularization of the least squares
+-   *   problem, at least 1e-14, 1e-12 by default);
++   *   problem, at least 1e-14, 1e-12 by default, raised to ten times the
++   *   machine epsilon with float);
+    * - `UAnderson` and `FAnderson`: Anderson's method on the fixed point
+    *   residuals and on the residuals of the problem, accelerating every two
+    *   iterations by default, as MTest (same options as `Anderson`, except
+diff --git a/src/AndersonAccelerationAlgorithm.cxx b/src/AndersonAccelerationAlgorithm.cxx
+index 0d1b1a052c..2dfb323bc1 100644
+--- a/src/AndersonAccelerationAlgorithm.cxx
++++ b/src/AndersonAccelerationAlgorithm.cxx
+@@ -11,6 +11,7 @@
+ #include <string>
+ #include <optional>
+ #include <algorithm>
++#include <limits>
+ #include "mfem/linalg/densemat.hpp"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "AccelerationAlgorithms.hxx"
+@@ -225,9 +226,16 @@ namespace mfem_mgis::internals {
+                                       *oresiduals +
+                                       "' (expected 'Unknowns' or 'Forces')");
+     }
++    // with float, the rounding errors of the terms of the normal equations
++    // are about the machine epsilon times their largest diagonal term: the
++    // regularization is raised to ten times the machine epsilon (unchanged
++    // with double, the regularization being at least 1e-14)
++    const auto regularization = std::max(
++        *oregularization,
++        10 * static_cast<double>(std::numeric_limits<real>::epsilon()));
+     return std::make_unique<AndersonAccelerationAlgorithm>(
+         static_cast<size_type>(*odepth), static_cast<size_type>(*operiod),
+-        *oresiduals == "Forces", *oregularization);
++        *oresiduals == "Forces", static_cast<real>(regularization));
+   }  // end of makeAnderson
+ 
+   std::unique_ptr<AccelerationAlgorithm> makeAndersonAccelerationAlgorithm(
+-- 
+2.43.0
+

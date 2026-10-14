@@ -498,4 +498,17 @@ Suite (13/10/2026, soir) :
   cycle de FieldOperationsCUDATest fait trois pas en float au lieu de
   quatre.
 
-Restent : mfem-mgis en float sur le GPU.
+- mfem-mgis en float sur le GPU (environnement spack `mmm-float-gpu`) :
+  suite 270/270 après adaptation de quatre tests (tolérances écrites pour
+  le double, écarts plus grands avec un MFEM compilé par nvcc, solveur
+  séquentiel non reproductible au bit près sur le GPU sans solveur
+  direct). Régularisation d'Anderson relevée à 10 ε en float.
+- Poutre sur le GPU (results/precision-poutre-gpu-2026-10-14-0604) : le
+  float est 1,31 fois plus rapide quand il converge, mais un calcul sur
+  trois diverge, et les calculs convergés s'écartent du double de 3e-4.
+  Le défaut est dans le chemin des éléments finis sur GPU en float (le
+  calcul converge avec les éléments finis sur le CPU, et les mêmes noyaux
+  en float sur le CPU convergent) : la convergence de Newton se dégrade de
+  pas en pas. À analyser.
+
+Restent : le défaut du chemin des éléments finis sur GPU en float.

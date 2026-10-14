@@ -11,6 +11,7 @@
 #include <string>
 #include <optional>
 #include <algorithm>
+#include <limits>
 #include "mfem/linalg/densemat.hpp"
 #include "MFEMMGIS/Parameters.hxx"
 #include "AccelerationAlgorithms.hxx"
@@ -225,9 +226,16 @@ namespace mfem_mgis::internals {
                                       *oresiduals +
                                       "' (expected 'Unknowns' or 'Forces')");
     }
+    // with float, the rounding errors of the terms of the normal equations
+    // are about the machine epsilon times their largest diagonal term: the
+    // regularization is raised to ten times the machine epsilon (unchanged
+    // with double, the regularization being at least 1e-14)
+    const auto regularization = std::max(
+        *oregularization,
+        10 * static_cast<double>(std::numeric_limits<real>::epsilon()));
     return std::make_unique<AndersonAccelerationAlgorithm>(
         static_cast<size_type>(*odepth), static_cast<size_type>(*operiod),
-        *oresiduals == "Forces", *oregularization);
+        *oresiduals == "Forces", static_cast<real>(regularization));
   }  // end of makeAnderson
 
   std::unique_ptr<AccelerationAlgorithm> makeAndersonAccelerationAlgorithm(

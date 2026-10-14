@@ -1,0 +1,37 @@
+poutre r4, 10 pas, gpu, 1 processus sur les cœurs 0,
+3 répétitions ; mer. 14 oct. 2026 06:04:23 CEST
+machine : 16 fils ; charge : 2.07 3.88 4.88
+== double-critere-du-cas-1 : 
+   statut 0
+   dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+   time 3.073 s
+== double-critere-1e-4-1 : -rt 1e-4
+   statut 0
+   dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83715008 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
+   time 1.862 s
+== float-critere-1e-4-1 : -rt 1e-4
+   statut 0
+   dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.85159302 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
+   time 1.429 s
+== double-critere-du-cas-2 : 
+   statut 0
+   dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+   time 3.020 s
+== double-critere-1e-4-2 : -rt 1e-4
+   statut 0
+   dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83714466 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
+   time 1.862 s
+== float-critere-1e-4-2 : -rt 1e-4
+   statut 1
+== double-critere-du-cas-3 : 
+   statut 0
+   dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+   time 2.910 s
+== double-critere-1e-4-3 : -rt 1e-4
+   statut 0
+   dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83716437 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
+   time 1.878 s
+== float-critere-1e-4-3 : -rt 1e-4
+   statut 0
+   dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.84963608 | iterations per step: 1 1 1 1 2 2 2 2 2 2 | total 16
+   time 1.417 s

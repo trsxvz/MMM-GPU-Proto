@@ -224,9 +224,11 @@ static void compare(mfem::Mesh& mesh,
               << dw << " (weights)\n";
   }
   // in float, the relative differences reach 3.5e-7 (inverses of the
-  // jacobians) and 2e-7 (determinants)
+  // jacobians) and 2e-7 (determinants) with a MFEM compiled for the CPU,
+  // and 5.6e-6 and 2.4e-6 with a MFEM compiled with CUDA (contractions of
+  // the floating point operations by nvcc)
   constexpr auto geometry_tolerance =
-      mfem_mgis::unit_tests::tolerance(1e-13, 3e-6);
+      mfem_mgis::unit_tests::tolerance(1e-13, 6e-5);
   check(finite && (diJ < geometry_tolerance),
         name + ": inverses of the jacobians");
   check(ddet < geometry_tolerance, name + ": determinants");

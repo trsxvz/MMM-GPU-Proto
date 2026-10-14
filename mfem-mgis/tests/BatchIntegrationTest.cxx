@@ -2383,7 +2383,14 @@ int main(int argc, char** argv) {
       const auto results = compute(ctx, m, library, b, "Batch", opts);
       compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
               b + " (kernels" + name + ")", getComparisonTolerance(opts));
-      if ((opts.ordered_assembly) && (!parallel)) {
+      // the linear solver of the sequential computations is reproducible
+      // to the last bit if it is a direct solver, or if it runs on the host
+      // (with float, MFEM has no sequential direct solver, and the
+      // reductions of GMRES on a GPU are not reproducible)
+      const auto reproducible_solver =
+          mfem_mgis::unit_tests::has_sequential_direct_solver ||
+          !mfem::Device::Allows(mfem::Backend::DEVICE_MASK);
+      if ((opts.ordered_assembly) && (!parallel) && reproducible_solver) {
         // the same results, bit for bit, at each run, also on a GPU, where
         // the atomic additions give other roundings at each run. Not checked
         // in parallel, where MUMPS is not reproducible to the last bit

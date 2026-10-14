@@ -1,0 +1,29 @@
+From 56dfc4e586272e828efb72ea4ac3146b0aa118af Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 06:04:07 +0200
+Subject: [PATCH] MaterialArraysTest: angle of the rotation in the numerical
+ type
+
+The part of the test run on a GPU built the rotation matrix from a double
+angle: with float, the list initialization of an array of real from these
+values is a narrowing conversion, refused by nvcc. Unchanged with double.
+---
+ tests/MaterialArraysTest.cxx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
+index 06d6cfd48d..16eb654db4 100644
+--- a/tests/MaterialArraysTest.cxx
++++ b/tests/MaterialArraysTest.cxx
+@@ -647,7 +647,7 @@ static void testRotation(
+           "rotation of the thermodynamic forces written on the device" + name);
+       // a rotation which is not a symmetry of the material, nor its own
+       // inverse
+-      const auto theta = 0.3;
++      const auto theta = real{0.3};
+       const auto cs = std::cos(theta);
+       const auto sn = std::sin(theta);
+       m.setRotationMatrix(RotationMatrix3D{
+-- 
+2.43.0
+
