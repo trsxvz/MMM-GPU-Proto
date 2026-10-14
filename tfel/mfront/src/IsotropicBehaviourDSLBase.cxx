@@ -226,6 +226,17 @@ namespace mfront {
           "). You may want to consider a more stringent value (1e-14 "
           "is generally a good choice).");
     }
+    // with the float numerical type, only a value much looser than the
+    // precision of this type is reported
+    if ((!safe) && (getRealType(this->mb) == "float") && (epsilon > 1e-5)) {
+      auto converter = std::ostringstream{};
+      converter << std::scientific << epsilon;
+      reportWarning(
+          "the choosen value for the convergence threshold could be too "
+          "loose for the float numerical type (" +
+          converter.str() +
+          "). You may want to consider a value of the order of 1e-8.");
+    }
     ++(this->current);
     this->readSpecifiedToken("IsotropicBehaviourDSLBase::treatEpsilon", ";");
     this->mb.addParameter(

@@ -837,7 +837,9 @@ $ mfront --obuild --interface=generic --dsl-option=real_type:float \
   of the order of the criterion times the elastic moduli. The default
   criterion (`1e-8`, when `@Epsilon` is not used), close to this bound, is
   kept, and the default perturbation (a tenth of the criterion) is raised
-  without warning. The comparison to a numerical jacobian
+  without warning. The warnings advising more stringent criteria are
+  written for `double`: with `float`, only a criterion looser than `1e-5`
+  is reported. The comparison to a numerical jacobian
   (`@CompareToNumericalJacobian`) uses by default the convergence
   criterion, which is too strict for finite differences computed in
   `float`: its criterion must then be given explicitly
