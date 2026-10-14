@@ -1,7 +1,0 @@
-fichier : total, couplage, préparation des solveurs linéaires (setLinearSolverOperator : thermique, 35 appels ; mécanique, factorisations, 29 appels), en s
-ex8-gpu-cudss-avec-1.txt : 4.374546, 4.188471, 0.002258 0.690516 
-ex8-gpu-cudss-avec-2.txt : 4.378822, 4.193476, 0.002153 0.695943 
-ex8-gpu-cudss-sans-1.txt : 7.121765, 6.934587, 0.002203 3.470382 
-ex8-gpu-cudss-sans-2.txt : 7.137413, 6.951917, 0.002152 3.470824 
-ex8-gpu-mumps-avec-1.txt : 9.795818, 9.602473, 0.002173 5.868622 
-ex8-gpu-mumps-avec-2.txt : 9.729566, 9.546026, 0.002128 5.831656 

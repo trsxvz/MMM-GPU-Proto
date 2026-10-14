@@ -2,8 +2,8 @@
 
 This page lists what the prototype adds to each library. The sources,
 in French, are `docs/tfel.md`, `docs/mgis.md`,
-`docs/plan-mfem-mgis-detaille.md`, `docs/plan-execution.md`,
-`docs/plan-precision.md` and `docs/solveurs-gpu.md`. The documentation
+`docs/plan-mfem-mgis-detailed.md`, `docs/plan-execution.md`,
+`docs/plan-precision.md` and `docs/gpu-solvers.md`. The documentation
 of the interfaces, in English, is in the tree of each library:
 `tfel/docs/web/generic-parallel-behaviour-interface.md`,
 `tfel/docs/web/generic-parallel-material-property-interface.md`,
@@ -233,7 +233,7 @@ compilation and linking only).
 ## mfem-mgis
 
 The work is organised in work packages L0 to L10
-(`docs/plan-mfem-mgis-detaille.md`), all done. The default path of
+(`docs/plan-mfem-mgis-detailed.md`), all done. The default path of
 mfem-mgis does not change: each new path is chosen by a parameter or
 an environment variable.
 
@@ -362,7 +362,7 @@ an environment variable.
 - Build scripts: `build-tfel.sh`, `build-mgis.sh`, `build-mfem-mgis.sh`,
   and `scripts/build-hip-amd.sh` for an AMD GPU (compilation and
   linking only).
-- Measurement cases in `cas/` (beam, thermal, polycrystal, bubble,
+- Measurement cases in `cases/` (beam, thermal, polycrystal, bubble,
   cermet, ssna303, examples) and their results in `results/`. Their
   test suite also runs in float: an executable of the examples or of
   mm-opera-hpc is only used if it is built against the same installation

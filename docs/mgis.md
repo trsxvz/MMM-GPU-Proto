@@ -380,7 +380,7 @@ n'est pas couvert : il demanderait un troisième pas et un contrat TFEL
 couvrent.
 
 La conception, ses variantes écartées et les relectures sont dans
-[historique/conception-vues-mgis-2026-10-08.md](historique/conception-vues-mgis-2026-10-08.md).
+[history/design-views-mgis-2026-10-08.md](history/design-views-mgis-2026-10-08.md).
 
 ## Erreurs
 

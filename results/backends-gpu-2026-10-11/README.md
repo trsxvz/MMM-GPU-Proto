@@ -1,11 +1,11 @@
 # Backends GPU de l'interface generic-parallel dans mfem-mgis (11/10/2026)
 
-Script : `cas/mesures-backends-gpu.sh`. Poutre r4 (111 843 inconnues, 10
+Script : `cases/measure-backends-gpu.sh`. Poutre r4 (111 843 inconnues, 10
 pas) sur un processus et le GPU, tout par noyaux, tangente assemblée,
 Newton et PCG + BoomerAMG ; loi IsotropicLinearHardeningPlasticity générée
 par l'interface generic-parallel avec chaque configuration de TFEL pour le
 GPU. mfem-mgis 517e33cde4 (`build/cas-autres` ; la ligne « mfem-mgis » de
-`resume.txt` donne la version des sources, pas celle de la bibliothèque
+`summary.txt` donne la version des sources, pas celle de la bibliothèque
 liée). Bibliothèques de la mesure générées à la main avec les mêmes
 configurations (variable `libs` du script), puis construites par CMake
 dans `build/cas-autres/poutre/generic-parallel-*`. Machine calme, deux
@@ -19,7 +19,7 @@ passages.
 | cuda-clang | fonctionne |
 | hip-clang-nvidia-platform | fonctionne |
 | hip-hipcc | fonctionne |
-| kokkos | fonctionne si le programme initialise Kokkos (option `--kokkos` de la poutre, `cas/commun/KokkosRuntime`) ; sinon « Kokkos is not initialized » |
+| kokkos | fonctionne si le programme initialise Kokkos (option `--kokkos` de la poutre, `cases/common/KokkosRuntime`) ; sinon « Kokkos is not initialized » |
 | sycl-default-acpp | refusé : « no SYCL queue given », le programme doit fournir une file SYCL dans les options d'exécution |
 | stlpar-parunseq-nvhpc-gpu | échoue (« libgomp: TODO ») : le support d'exécution d'OpenMP de nvhpc entre en conflit avec libgomp, chargé par MFEM et mfem-mgis compilés par GCC |
 | openmp-offload-nvhpc-gpu | idem |

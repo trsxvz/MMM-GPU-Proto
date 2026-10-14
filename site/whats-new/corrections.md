@@ -8,7 +8,7 @@ In mfem-mgis, some commits still mix several subjects and some
 corrections have no test yet: they will be separated in the upstream
 contributions. Some corrections change CPU results: that was their
 purpose. The sources, in French, are
-`docs/tfel.md`, `docs/mgis.md`, `docs/integration-amont.md`,
+`docs/tfel.md`, `docs/mgis.md`, `docs/upstream-integration.md`,
 `docs/plan-precision.md` and `JOURNAL.md`.
 
 Compiler defects and defects of other libraries that were worked around
@@ -298,6 +298,6 @@ Source: `results/diagnostic-float-gpu-2026-10-14/README.md`.
   assembly of the beam was 13 to 16 % slower without them.
 - **Result.** 31 computations out of 31 converge, within 4.2e-5 of
   double, at the same assembly cost. Measurement redone
-  (`results/precision-poutre-gpu-2026-10-14-0843`): float 1.37 times
+  (`results/precision-beam-gpu-2026-10-14-0843`): float 1.37 times
   faster than double, same iterations, within 3.4e-5 of double. A
-  reproducer test, `poutre-gpu-r4`, is in `cas/poutre`.
+  reproducer test, `poutre-gpu-r4`, is in `cases/beam`.

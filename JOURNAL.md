@@ -3,7 +3,7 @@
 Ce journal raconte le travail jour par jour : ce qui a été fait, les
 défauts trouvés, les décisions et leurs raisons. Chaque entrée décrit
 l'état au moment où elle a été écrite. Des choix ont pu changer ensuite :
-l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
+l'état actuel est décrit dans [docs/](docs/overview.md).
 
 ## Phases
 
@@ -32,11 +32,11 @@ l'état actuel est décrit dans [docs/](docs/vue-ensemble.md).
 - Les chemins cités sont ceux du moment. Plusieurs documents ont été
   déplacés depuis :
   - `DESIGN.md` est devenu [docs/tfel.md](docs/tfel.md) ;
-  - `UPSTREAM.md` est devenu [docs/integration-amont.md](docs/integration-amont.md) ;
+  - `UPSTREAM.md` est devenu [docs/upstream-integration.md](docs/upstream-integration.md) ;
   - `scratch/review-tfel-2026-10-06.md` est dans
-    [docs/historique/](docs/historique/relecture-tfel-2026-10-06.md) ;
+    [docs/history/](docs/history/review-tfel-2026-10-06.md) ;
   - `scratch/d1-mgis-design.md` est dans
-    [docs/historique/](docs/historique/conception-mgis-2026-10-08.md) ;
+    [docs/history/](docs/history/design-mgis-2026-10-08.md) ;
   - `scratch/d2-mfem-mgis-design.md` est devenu
     [docs/plan-mfem-mgis.md](docs/plan-mfem-mgis.md).
 - `tfel/` désigne le dépôt TFEL du prototype, `tfel-dev/` sa copie de
@@ -2119,7 +2119,7 @@ relue en entier et mise à jour, en trois parties.
 **Documentation du prototype** (`docs/`). Restructurée : vue d'ensemble,
 détails de TFEL, détails de MGIS, validation, découpage pour les dépôts
 officiels, plan pour mfem-mgis. Les anciens documents de travail sont
-dans `docs/historique/`. Ce journal a reçu un index et la table des
+dans `docs/history/`. Ce journal a reçu un index et la table des
 phases.
 
 **TFEL** (`tfel-dev`). Trois relectures indépendantes, puis corrections :
@@ -2392,7 +2392,7 @@ Première étape du plan de mfem-mgis : MGIS accepte des tableaux rangés
 composante par composante, ou appartenant à l'appelant, décrits par des
 vues à pas quelconques. La proposition (version 4, après trois relectures)
 est versionnée dans
-[docs/historique/conception-vues-mgis-2026-10-08.md](docs/historique/conception-vues-mgis-2026-10-08.md).
+[docs/history/design-views-mgis-2026-10-08.md](docs/history/design-views-mgis-2026-10-08.md).
 L'état est décrit dans [docs/mgis.md](docs/mgis.md#vues-et-rangements).
 
 Ce qui est fait, dans `mgis/` (patchs `0024` à `0033`) :
@@ -2496,7 +2496,7 @@ volontaires détectées par les nouveaux tests.
   options de la configuration `cuda-nvcc` de TFEL (avertissements de nvcc
   sur les en-têtes de TFEL masqués, appels de fonctions hôte depuis le GPU
   en erreur). Plus aucun avertissement de nvcc.
-- **Liste des solveurs** : [docs/solveurs-gpu.md](docs/solveurs-gpu.md).
+- **Liste des solveurs** : [docs/gpu-solvers.md](docs/gpu-solvers.md).
   Points notables, vérifiés dans les sources : la stratégie
   « Elasticity » de BoomerAMG dans mfem-mgis arrête le programme avec
   hypre GPU (`SetElasticityOptions`) ; MFEM 4.10 enveloppe cuDSS et les
@@ -2519,7 +2519,7 @@ volontaires détectées par les nouveaux tests.
 - **Cartographie de mfem-mgis** (lecture seule) : boucle de résolution,
   intégrateurs, données aux points, solveurs, paramètres, tests, avec les
   références `fichier:ligne`. Elle sert de base au plan.
-- **Plan détaillé** : [docs/plan-mfem-mgis-detaille.md](docs/plan-mfem-mgis-detaille.md),
+- **Plan détaillé** : [docs/plan-mfem-mgis-detailed.md](docs/plan-mfem-mgis-detailed.md),
   onze lots (L0 à L10) avec fichiers touchés, tests et critères de fin,
   paramètres proposés, stratégie de test, campagne de mesures.
 - **Relecture indépendante** de la liste des solveurs et du plan : 50
@@ -2703,11 +2703,11 @@ nouveaux défauts mineurs (gravité 1 ou 2). Tous sont traités :
 - `build-mfem-mgis.sh` retire du cache les compilateurs CUDA d'un ancien
   dossier.
 
-Nouveau dossier `cas/` : cas de la campagne propres au prototype. `poutre`
+Nouveau dossier `cases/` : cas de la campagne propres au prototype. `poutre`
 (plasticité J2, Newton de mfem-mgis) ; ses tests comparent la norme de la
 solution finale, identique pour PCG et BoomerAMG, MUMPS et UMFPACK, et un
 test vérifie que la comparaison détecte une solution fausse.
-`cas/mesures-reference.sh` mesure les temps de référence du lot L0.
+`cases/measure-reference.sh` mesure les temps de référence du lot L0.
 
 Suites : mfem-mgis 132/132, exemples 20/20, mm-opera-hpc 6/6, cas 4/4.
 
@@ -2938,8 +2938,8 @@ Tests :
   `tfel-config --oflags`, dont `-ftree-vectorize`). Les autres fichiers de
   configuration (GPU) n'ont pas non plus `-DNDEBUG` : à vérifier en L6.
 
-Mesures sur machine calme (`results/L2-polycristal-2026-10-09/`,
-`results/L2-poutre-2026-10-09/`) : sur le polycristal, la loi pèse 70 % du
+Mesures sur machine calme (`results/L2-polycrystal-2026-10-09/`,
+`results/L2-beam-2026-10-09/`) : sur le polycristal, la loi pèse 70 % du
 calcul sur un processus ; par lots, elle passe de 104,9 s à 17,8 s avec
 `openmp` à 8 fils et à 13,9 s avec `stlpar` (calcul complet : 150 s puis
 59 s). À 8 processus d'un fil, 14,5 s dans tous les modes. Sur la poutre,
@@ -3026,7 +3026,7 @@ noyaux), puis la thermique et FBar.
   refus de `Faltus2026`, `BatchIntegrationTest` sur `debug` et `cuda`,
   poutre et polycristal (périodique) en mode noyaux sur 2 processus.
 
-Mesures (`results/L3-poutre-2026-10-09/`, `results/L3-polycristal-2026-10-09/`) :
+Mesures (`results/L3-beam-2026-10-09/`, `results/L3-polycrystal-2026-10-09/`) :
 gradients par noyaux, phase d'intégration de la poutre divisée par 2,5 à
 3,4 ; résidu par noyaux divisé par 2,1 (poutre) et 2,8 (polycristal), avant
 la suppression de la boucle de MFEM ; matrices élémentaires par noyaux plus
@@ -3076,7 +3076,7 @@ GPU égaux au calcul point par point (`BatchIntegrationTest-cuda`).
   aussi sourcer `scripts/env.sh` (le `LD_LIBRARY_PATH` du profil charge un
   autre TFEL).
 
-Mesures : `results/L3-poutre-assemblage-2026-10-09/`. Suite : motif
+Mesures : `results/L3-beam-assembly-2026-10-09/`. Suite : motif
 construit à partir des ddl des éléments (premier appel sans boucle de
 MFEM, colonnes triées), variante du noyau adaptée au CPU (un fil par
 élément), test MPI des noyaux dans mfem-mgis.
@@ -3139,7 +3139,7 @@ MFEM, colonnes triées), variante du noyau adaptée au CPU (un fil par
   enveloppait la mémoire d'un `std::vector` ; lue sur le périphérique
   `debug`, elle faisait planter le test une fois sur quelques-unes (selon
   la disposition de la mémoire). Copie allouée par MFEM.
-- Poutre r4, 10 pas (`results/L6-poutre-2026-10-09/`) : **4,06 s sur un
+- Poutre r4, 10 pas (`results/L6-beam-2026-10-09/`) : **4,06 s sur un
   GPU** contre 17,54 s sur 8 cœurs (point par point) et 14,68 s sur 8
   cœurs avec les mêmes noyaux. Il reste la résolution de hypre (61 %) et
   la prédiction (21 %, dont sa résolution). Deux processus sur le même
@@ -3182,7 +3182,7 @@ GPU, ce qui pourrait expliquer la lenteur de deux processus sur un GPU.
 ### 2026-10-09 (nuit), polycristal sur GPU
 
 Polycristal de mm-opera-hpc (loi de monocristal de l'UO2 compilée pour
-`cuda`, 10 pas, `results/L6-polycristal-2026-10-09/`) : **13,18 s sur un
+`cuda`, 10 pas, `results/L6-polycrystal-2026-10-09/`) : **13,18 s sur un
 GPU contre 31,65 s sur 8 cœurs** (151 s sur un cœur), mêmes contraintes
 macroscopiques à 4e-13 près de l'échelle des contraintes. La loi, qui
 domine sur CPU, prend 5,7 s sur le GPU, autant que la résolution. Avec la
@@ -3207,7 +3207,7 @@ sur 3 pas, surtout des données de mise en place ; un ou deux vecteurs par
 itération). Le GPU calcule 0,71 s sur 1,8 s, en 95 000 lancements de
 noyaux, dont 65 % de produits matrice-vecteur de hypre : la résolution est
 limitée par la latence des lancements. Détails dans
-`results/L6-poutre-2026-10-09/README.md`.
+`results/L6-beam-2026-10-09/README.md`.
 
 ### 2026-10-10 (nuit), action de la tangente sans assemblage
 
@@ -3383,7 +3383,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   garde qu'une partie des réglages de hypre). Sur le GPU, le lisseur de
   Chebyshev (`RelaxationType=16`) rend un cycle de BoomerAMG bien plus
   efficace pour le point fixe (438 itérations au lieu de 1 231).
-- Mesures L5 (`results/L5-poutre-2026-10-10-0250/`) : sur 8 cœurs, le
+- Mesures L5 (`results/L5-beam-2026-10-10-0250/`) : sur 8 cœurs, le
   point fixe (Anderson 8, un cycle d'AMG, K0 gardé) bat Newton (13,3 s
   contre 20,3 s sur machine chargée ; 9,4 s contre 16,6 s sur machine
   calme, ×1,7) ; sur le GPU, égalité (3,4 s) avec Chebyshev.
@@ -3419,7 +3419,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   son solveur remplacés sans état intermédiaire (N2), test du solveur de
   prédiction par un solveur linéaire qui compte ses résolutions (mutation
   détectée).
-- Mesures (`results/L5-poutre-2026-10-10-0250/README.md`) : sur le GPU,
+- Mesures (`results/L5-beam-2026-10-10-0250/README.md`) : sur le GPU,
   NewtonK0 2,6 s contre 3,16 s pour Newton (stable) ; sur 8 cœurs, point
   fixe accéléré 9,5 s, NewtonK0 11,6 s, Newton 13,5 s.
 
@@ -3430,8 +3430,8 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   6fdd03c puis 155202f : option `--non-linear-solver` du polycristal
   (`Newton` ou `NewtonK0`, K0 obtenu par une intégration de la loi, qui ne
   fournit pas d'opérateur de prédiction).
-- Mesures (`results/L5-polycristal-2026-10-10-0340/README.md`, script
-  `cas/mesures-L5-polycristal.sh`) : sur 8 cœurs, NewtonK0 24,9 s contre
+- Mesures (`results/L5-polycrystal-2026-10-10-0340/README.md`, script
+  `cases/measure-L5-polycrystal.sh`) : sur 8 cœurs, NewtonK0 24,9 s contre
   29,6 s (×1,19, résolution -36 %) ; sur le GPU, 11,3 s contre 11,9 s
   (×1,06), la loi domine. Mêmes itérations de Newton, contraintes égales à
   2e-13 près.
@@ -3465,8 +3465,8 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   contre la sur-résolution, tolérance du solveur linéaire restaurée après
   chaque résolution, norme du résidu linéaire dans les informations
   d'itération) ; test unitaire `AdaptiveLinearSolverToleranceTest`.
-- Mesures (`results/L5-poutre-2026-10-10-0429/README.md`, script
-  `cas/mesures-L5-ew.sh`, options `-alst` et `-alsti` de la poutre) : sur
+- Mesures (`results/L5-beam-2026-10-10-0429/README.md`, script
+  `cases/measure-L5-ew.sh`, options `-alst` et `-alsti` de la poutre) : sur
   le GPU, NewtonK0 avec Eisenstat-Walker 1 et une tolérance initiale de
   0,1 prend 1,96 s contre 3,12 s pour Newton (×1,59) et 2,57 s pour
   NewtonK0 à tolérance fixe ; sur 8 cœurs, 9,46 s, au niveau du meilleur
@@ -3482,13 +3482,13 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   (`OperatorChebyshevSmoother`, ordres 1 à 5) dans la fabrique, test
   `OperatorSmoothersTest` (Laplacien : 46 itérations de CG avec Jacobi, 27
   et 17 avec Chebyshev d'ordre 2 et 4). Mesures sans matrice sur le GPU
-  (`results/L5-poutre-2026-10-10-0456/README.md`, option `-ls cg-chebyshev`
+  (`results/L5-beam-2026-10-10-0456/README.md`, option `-ls cg-chebyshev`
   de la poutre) : Chebyshev plus lent que Jacobi (chaque ordre ajoute une
   action sans matrice) ; NewtonK0 + Eisenstat-Walker 1 sans matrice à 3 %
   de la tangente assemblée (2,05 s contre 1,99 s).
 - Polycristal (mm-opera-hpc, options `--adaptive-linear-solver-tolerance`
   et `--adaptive-linear-solver-initial-tolerance`), mesures
-  `results/L5-polycristal-2026-10-10-0502/README.md` : NewtonK0 avec
+  `results/L5-polycrystal-2026-10-10-0502/README.md` : NewtonK0 avec
   Eisenstat-Walker 1 est le meilleur sur le GPU (9,58 s contre 11,88 s pour
   Newton, ×1,24) et sur 8 cœurs (23,46 s contre 29,60 s) ; la résolution
   devient négligeable sur le GPU et la loi domine (7,1 s sur 9,6 s).
@@ -3520,9 +3520,9 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 ### 2026-10-10 (matin), mesures thermiques, jacobiens par noyau
 
-- Mesures de la thermique stationnaire par noyaux (`cas/thermique`, r5,
-  279 873 inconnues, script `cas/mesures-L7-thermique.sh`,
-  `results/L7-thermique-2026-10-10-0542/README.md`) : sur le GPU, la
+- Mesures de la thermique stationnaire par noyaux (`cases/thermal`, r5,
+  279 873 inconnues, script `cases/measure-L7-thermal.sh`,
+  `results/L7-thermal-2026-10-10-0542/README.md`) : sur le GPU, la
   première intégration coûtait 1,76 s, calcul unique de la géométrie sur
   l'hôte (espace d'éléments finis d'ordre un : 1,0 s ; projection des
   coordonnées : 0,83 s ; facteurs géométriques de MFEM sur le GPU :
@@ -3535,10 +3535,10 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   un et deux, maillage courbe, hôte, `debug` et GPU, écarts aux
   transformations de MFEM au plus 2e-15 ; six mutations détectées.
   Thermique sur le GPU : 3,01 s vers 1,25 s, ×3,8 contre 8 processus avec
-  les noyaux (`results/L7-thermique-2026-10-10-0606/README.md`). Poutre
+  les noyaux (`results/L7-thermal-2026-10-10-0606/README.md`). Poutre
   r4 : NewtonK0 + Eisenstat-Walker 1 de 2,14 s à 1,90 s sur le GPU
-  (`results/L5-poutre-2026-10-10-0610/README.md`) ; polycristal inchangé
-  (`results/L5-polycristal-2026-10-10-0612/README.md`). Relecture
+  (`results/L5-beam-2026-10-10-0610/README.md`) ; polycristal inchangé
+  (`results/L5-polycrystal-2026-10-10-0612/README.md`). Relecture
   indépendante faite (`scratch/nuit-2026-10-10/relecture-G.md`, rien
   au-dessus de la sévérité 3).
 - mfem-mgis fbac8c024a : corrections de la relecture H de la thermique
@@ -3589,7 +3589,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   en cache par adresse de règle. Le test thermique comparait les
   températures initiales (mode de stockage par copie) : mode externe et
   température de référence non uniforme. Sept mutations détectées.
-  Polycristal inchangé (`results/L5-polycristal-2026-10-10-0752/README.md`,
+  Polycristal inchangé (`results/L5-polycrystal-2026-10-10-0752/README.md`,
   tangente CPU de 2,01 à 1,60 s).
 - mfem-mgis 9b93bc8c36 : micromorphe par noyaux (lot L7.8). Les trois
   intégrateurs micromorphes passent sur la base CRTP (résultats point par
@@ -3631,7 +3631,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   l'absence de périphérique), avec et sans les noyaux forcés ; 157/157 sur
   CPU. Procédure dans `docs/validation.md`.
 - Balayage des options de BoomerAMG pour NewtonK0 + Eisenstat-Walker 1
-  (`cas/mesures-L5-amg.sh`, `results/L5-poutre-2026-10-10-1034/README.md`) :
+  (`cases/measure-L5-amg.sh`, `results/L5-beam-2026-10-10-1034/README.md`) :
   le grossissement agressif sur un niveau est le meilleur réglage, 7,22 s
   sur 8 cœurs (-18 %, avec un seuil de 0,5) et 1,71 s sur le GPU (-5 à
   -8 %) ; le Jacobi simple de hypre fait échouer le gradient conjugué.
@@ -3728,7 +3728,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   la norme (15/15). Reproducteur `amgx-classical-cuda13` : compare les
   installations d'AmgX données (sans patch, classique en échec ; avec le
   patch installé par spack, 14 itérations).
-- Mesures AmgX (`cas/mesures-L5-amgx.sh`, results/L5-poutre-2026-10-10-2259) :
+- Mesures AmgX (`cases/measure-L5-amgx.sh`, results/L5-beam-2026-10-10-2259) :
   sur K0 seul, AmgX réglé (seuil 0,8, interpolation MULTIPASS) en simple
   précision résout en 53 à 61 ms (110 itérations) contre 70 ms pour
   BoomerAMG (70 itérations) ; réglage par défaut de MFEM 1078 itérations.
@@ -3745,8 +3745,8 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   `scripts/env.sh` fixe `AMGX_DIR` sur l'AmgX patché.
 - Polycristal avec AmgX (mm-opera-hpc 838144c : options
   `--elastic-operator-linear-solver`, `--amgx-parameters`,
-  `--amgx-single-precision` ; `cas/mesures-L5-polycristal-amgx.sh`,
-  results/L5-polycristal-2026-10-10-2341) : BoomerAMG reste meilleur
+  `--amgx-single-precision` ; `cases/measure-L5-polycrystal-amgx.sh`,
+  results/L5-polycrystal-2026-10-10-2341) : BoomerAMG reste meilleur
   (9,04 s contre 10,70 s pour AmgX réglé en simple précision). Le
   multigrille d'AmgX ajoute des itérations de Newton (245 intégrations
   contre 225), et l'intégration de la loi domine (75 %). Le gain d'AmgX
@@ -3794,7 +3794,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   exception au lieu de `std::exit`, pour détruire les solveurs avant la
   sortie (double copie d'AmgX, Y4).
 - Documentation (Y3, Y4, Y9, Y10, Y12) : en-tête de l'enveloppe et
-  docs/solveurs-gpu.md (ordre d'édition de liens, destruction avant
+  docs/gpu-solvers.md (ordre d'édition de liens, destruction avant
   `MPI_Finalize`, sortie avec un solveur vivant, planchers), chiffres du
   README des mesures de la poutre corrigés, avertissement de
   build-mfem-mgis.sh quand l'AmgX utilisé n'a pas le patch pour CUDA 13
@@ -3832,8 +3832,8 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 ### 2026-10-11 (nuit), transferts entre l'hôte et le GPU (L7.3)
 
-- Profil des copies (`cas/profil-transferts.sh`,
-  results/L7-transferts-2026-10-11) : 8 % du temps de la thermique r5,
+- Profil des copies (`cases/transfers-profile.sh`,
+  results/L7-transfers-2026-10-11) : 8 % du temps de la thermique r5,
   3 % de la poutre r4. Origine donnée par gdb : surtout la fin de pas,
   qui ramène les tableaux d'état sur l'hôte et invalide leur copie sur
   le GPU (renvoyée à l'intégration suivante), puis la température aux
@@ -3848,7 +3848,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 ### 2026-10-11 (nuit), passage à l'échelle de la poutre
 
-- `cas/mesures-echelle-poutre.sh`, results/echelle-poutre-2026-10-11-0247 :
+- `cases/measure-beam-scaling.sh`, results/beam-scaling-2026-10-11-0247 :
   poutre raffinée 3, 4 et 5 fois (16 000 à 840 000 inconnues), NewtonK0 et
   Eisenstat-Walker 1. Gain du GPU sur 8 cœurs : ×1,8, ×4,5 puis ×10,9
   (9,86 s contre 107,9 s à 840 000 inconnues). AmgX réglé en simple
@@ -3867,7 +3867,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   comme l'écrit le message du commit). HypreDevicePoolSizeTest (7 cas, 5 mutations détectées) ; suites
   165/165 CPU, 15/15 GPU, cas 33/33.
 - Les mesures sur 8 cœurs du premier passage
-  (results/echelle-poutre-2026-10-11-0233) sont 13 à 43 % plus lentes que
+  (results/beam-scaling-2026-10-11-0233) sont 13 à 43 % plus lentes que
   celles du second, pour une cause non établie (des compilations d'une
   autre session tournaient, mais la reprise à charge 1,1 a donné les mêmes
   temps).
@@ -4060,30 +4060,30 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   ×1,9 sur le GPU (thermique ×0,94). Relecture N traitée (rien au-dessus
   de 2/5 ; contrôle à la compilation exact, diagonales seules),
   12 mutations détectées.
-- Banc `cas/assemblage` (assemblage de toutes les matrices, avec et sans
+- Banc `cases/assembly` (assemblage de toutes les matrices, avec et sans
   positions, mécanique en petites et grandes transformations, thermique,
   hôte ou GPU, écriture des valeurs pour comparer deux versions).
-  Résultats : `results/assemblage-positions-2026-10-11-0901`,
-  `results/registres-noyaux-2026-10-11`. Suites 185/185.
+  Résultats : `results/assembly-positions-2026-10-11-0901`,
+  `results/registers-kernels-2026-10-11`. Suites 185/185.
 
 ### 2026-10-11 (matin), matrice globale et inverses des jacobiennes
 
-- Banc `cas/assemblage` en parallèle (`--parallel`) : assemblage local par
+- Banc `cases/assembly` en parallèle (`--parallel`) : assemblage local par
   noyaux, puis matrice globale comme mfem-mgis (bloc diagonal, `Pᵀ A P` de
   hypre, élimination). Sur 8 processus, le produit de hypre coûte plus que
   l'assemblage local (thermique r5 : 36,5 contre 14,8 ms ; poutre r4 :
   15,4 contre 9,5 ms) ; sur le GPU à un processus, il est faible
-  (`results/assemblage-globale-2026-10-11`). Piste : motif et échanges de
+  (`results/global-assembly-2026-10-11`). Piste : motif et échanges de
   la matrice globale gardés.
 - Nsight Compute : les noyaux des matrices sur le GPU sont limités par le
   calcul (85 à 89 % du débit des multiprocesseurs). Chaque fil inversait la
   jacobienne à chaque point. mfem-mgis 7af829b3a5 : le noyau de géométrie
   range les inverses des jacobiennes à la place des jacobiennes (même
   mémoire), tous les noyaux les lisent. Assemblage sur le GPU ×1,7 à ×2,2
-  en mécanique, ×5,9 en thermique (`results/jacobiennes-inverses-2026-10-11`) ;
+  en mécanique, ×5,9 en thermique (`results/jacobians-inverses-2026-10-11`) ;
   sur l'hôte, mêmes valeurs au bit près. De bout en bout sur le GPU :
   thermique ×1,22, poutre ×1,05, la résolution dominant
-  (`results/jacobiennes-gpu-2026-10-11`). Suite 185/185, 9 mutations
+  (`results/jacobians-gpu-2026-10-11`). Suite 185/185, 9 mutations
   détectées, relecture O traitée (rien au-dessus de 1/5).
 
 ### 2026-10-11 (fin de matinée), matrice globale avec motif et échanges gardés
@@ -4097,9 +4097,9 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   valeurs. Si le motif local (tableaux) ou l'espace change sur un
   processus, tous refont la mise en place. Utilisé par la tangente
   assemblée par noyaux quand hypre n'utilise pas le GPU.
-- Banc sur 8 processus (`results/matrice-globale-2026-10-11`) : poutre
+- Banc sur 8 processus (`results/global-matrix-2026-10-11`) : poutre
   15,4 -> 2,5 ms, thermique 36,8 -> 1,7 ms. Bout en bout
-  (`results/matrice-globale-bout-en-bout-2026-10-11`) : tangente ×2,4
+  (`results/global-matrix-end-to-end-2026-10-11`) : tangente ×2,4
   (thermique) et ×1,8 (poutre), mêmes solutions. Suite 188/188,
   GlobalStiffnessMatrixTest sur 1, 2 et 4 processus, 9 mutations
   détectées (la mutation qui n'utilise pas la classe ne change que le
@@ -4143,7 +4143,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   parallèle si un seul processus échouait avant la prolongation).
 - Cas thermique : option `-hc` (échange convectif à la seconde extrémité,
   intégrateur de faces de bord). Sur 8 processus (thermique r5,
-  `results/autres-integrateurs-2026-10-11`) : boucle sur les pas 4,17 ->
+  `results/other-integrators-2026-10-11`) : boucle sur les pas 4,17 ->
   2,70 s, tangente ×3,3, résidu ×2, mêmes solutions et itérations.
 
 ### 2026-10-11 (après-midi), ex8 tout par noyaux, sur CPU et sur GPU
@@ -4165,7 +4165,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 - Les lois d'ex8 se compilent avec l'interface generic-parallel (openmp,
   stlpar, cuda), une fois `computeHardeningModulus` rendu `constexpr`
-  (mfem-mgis-examples 89718dd). Nouveau cas `cas/ex8` (bibliothèques
+  (mfem-mgis-examples 89718dd). Nouveau cas `cases/ex8` (bibliothèques
   GenericParallelU3SI2 et GenericParallelALFENI de chaque backend, tests
   ex8-batch-*), `add_generic_parallel_mfront_libraries` accepte plusieurs
   bibliothèques et un dossier d'inclusion.
@@ -4183,7 +4183,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   mécanique est intégrée sur le GPU, il faut les synchroniser
   (FieldUpdaterModel, mfem-mgis-examples 6505b78 ; sans cela, écart de 3e-5
   à la référence).
-- Mesure (`results/ex8-lois-cuda-2026-10-11`) : ex8 sur le GPU en 18,5 s
+- Mesure (`results/ex8-behaviours-cuda-2026-10-11`) : ex8 sur le GPU en 18,5 s
   avec les lois cuda, contre 37,8 s avec les lois sur l'hôte, 166 s point
   par point sur le GPU et 22,1 s tout par noyaux sur 2 processus CPU.
   L'intégration passe de 19,6 à 0,66 s ; MUMPS fait maintenant 15 s sur
@@ -4211,16 +4211,16 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 - Dans mfem-mgis, fonctionnent : cuda (nvcc, clang), hip (clang, hipcc sur
   la plateforme NVIDIA) et kokkos si le programme initialise Kokkos
-  (`cas/commun/KokkosRuntime`, option `--kokkos` de la poutre, Kokkos
+  (`cases/common/KokkosRuntime`, option `--kokkos` de la poutre, Kokkos
   facultatif). Échouent : sycl (le programme doit fournir une file SYCL),
   nvhpc stdpar et openmp offload (support d'exécution d'OpenMP de nvhpc en
   conflit avec libgomp de MFEM et mfem-mgis compilés par GCC).
-- `cas/CMakeLists.txt` : `add_generic_parallel_mfront_library` (une
+- `cases/CMakeLists.txt` : `add_generic_parallel_mfront_library` (une
   configuration, nom explicite) sous `add_generic_parallel_mfront_libraries` ;
   la poutre et le polycristal ont les bibliothèques et les tests courts de
   ces backends (poutre-gpu-*, polycristal-batch-* et comparaisons).
 - Poutre r4 (`results/backends-gpu-2026-10-11`) : loi à 1 ms par
-  intégration, aucun écart. Polycristal (`results/backends-polycristal-2026-10-11`) :
+  intégration, aucun écart. Polycristal (`results/backends-polycrystal-2026-10-11`) :
   intégration 5,6 s avec nvcc ou hipcc, 7,7 s avec clang (cuda ou hip),
   102 s sur l'hôte ; contraintes identiques à 2,4e-13.
 
@@ -4241,16 +4241,16 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   `MFEMMGIS`, statique, à Kokkos avec `$<LINK_ONLY:...>` : les options
   d'édition de liens de Kokkos (`-DKOKKOS_DEPENDENCE -arch=sm_120`)
   passaient alors à tous les programmes clients, dont les
-  `check_cxx_source_compiles` de `cas/` échouaient hors du lanceur de
-  Kokkos. Les clients (mm-opera-hpc, `cas/`) ne cherchent plus Kokkos. Le
+  `check_cxx_source_compiles` de `cases/` échouaient hors du lanceur de
+  Kokkos. Les clients (mm-opera-hpc, `cases/`) ne cherchent plus Kokkos. Le
   lanceur de Kokkos ne vaut que pour cette cible (composant
   `separable_compilation`), compilée sans `CMAKE_CXX_COMPILER_LAUNCHER` :
   ccache reste utilisable pour le reste. Kokkos doit être une bibliothèque
   partagée (vérifié à la configuration).
-- `cas/` détecte l'option de mfem-mgis (`MFEM_MGIS_HAS_KOKKOS_OPTION`) :
+- `cases/` détecte l'option de mfem-mgis (`MFEM_MGIS_HAS_KOKKOS_OPTION`) :
   la poutre utilise alors celle de mfem-mgis au lieu de la sienne. Le
   polycristal a un test kokkos (`MM_OPERA_HPC_POLYCRYSTAL_WITH_KOKKOS`).
-- Polycristal (`results/kokkos-polycristal-2026-10-11`) : la loi kokkos
+- Polycristal (`results/kokkos-polycrystal-2026-10-11`) : la loi kokkos
   intègre en 5,62 et 5,69 s, la loi cuda en 5,61 s (les deux passent par
   nvcc) ; contraintes identiques à 2,8e-13. mm-opera-hpc n'a pas été
   modifié.
@@ -4262,7 +4262,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   sur le chemin par lots : point par point, par lots, tout par noyaux, sur
   le CPU (1 et 2 processus) et sur le GPU (lois `generic` sur l'hôte et
   lois cuda) : mêmes résultats (cermet à 8,6e-15 au plus). Tests dans
-  `cas/bulle` et `cas/cermet`, comme le polycristal ; `comparer-sorties.py
+  `cases/bubble` et `cases/cermet`, comme le polycristal ; `compare-outputs.py
   --csv` pour les sorties de la bulle. mm-opera-hpc : options de
   mfem-mgis (`--device`...) dans les deux programmes, option `-l` du
   cermet, option `--linear-solver-preconditioner` de la bulle : son cas
@@ -4277,7 +4277,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   CUDA ne comptaient que pour 1 s). Correctif dans mfem-mgis (branche
   memoire-hote) : mémoire standard pour l'hôte, Umpire gardé pour le GPU,
   sauf `MFEM_MEMORY`.
-- Mesures (`results/memoire-hote-2026-10-11`) : bulle 69,2 -> 14,0 s,
+- Mesures (`results/host-memory-2026-10-11`) : bulle 69,2 -> 14,0 s,
   ex8 point par point 164,6 -> 57,3 s, cermet point par point 28,1 ->
   14,8 s ; peu d'effet quand tout est calculé par noyaux (poutre,
   polycristal, ex8 avec les lois cuda : 18,6 -> 16,9 s, la condition de
@@ -4303,7 +4303,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   tétraèdres, quadrangles ; hôte, débogage, deux processus, GPU), écarts
   de l'ordre de 1e-14 ; suites complètes 181/181 (noyaux forcés) et
   174/174 ; six mutations détectées.
-- Bulle (`results/post-traitements-noyaux-2026-10-11`) : GPU 14,8 ->
+- Bulle (`results/post-processings-kernels-2026-10-11`) : GPU 14,8 ->
   5,3 s (post-traitements 11,3 -> 1,9 s), un cœur du CPU 33,2 -> 25,2 s.
   Avec le correctif de la mémoire de l'hôte, la bulle sur le GPU est
   passée de 69 s à 5,3 s. mm-opera-hpc : sections de profilage des
@@ -4321,7 +4321,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 ### 2026-10-11 (soir), ex8 : BoomerAMG avec les options d'élasticité
 
-- Résultat négatif (`results/ex8-amg-elasticite-2026-10-11`) : pour la
+- Résultat négatif (`results/ex8-amg-elasticity-2026-10-11`) : pour la
   mécanique d'ex8, PCG et BoomerAMG avec les options d'élasticité
   (rangement byVDIM) demandent 441 itérations en moyenne, 201 s contre
   23,5 s avec MUMPS (2 processus). Options `-oMc` et `-amgMc` ajoutées à
@@ -4334,7 +4334,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   `Symmetric` et `PositiveDefinite` du solveur MUMPS de mfem-mgis), mêmes
   itérations et résultats, factorisations 29 % plus rapides sur le CPU
   (2 processus) et 36 % sur le GPU (sur l'hôte). ex8 tout sur le GPU :
-  16,5 -> 12,4 s (`results/ex8-mumps-symetrique-2026-10-11`).
+  16,5 -> 12,4 s (`results/ex8-mumps-symmetric-2026-10-11`).
 - Relecture courte traitée : option `-msMc` aussi pour l'opérateur
   élastique de NewtonK0, avertissements des options sans effet, README
   d'ex8, test `rjh_plate-mumps-spd` (mfem-mgis-examples 03c347e). Sur le
@@ -4343,7 +4343,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 ### 2026-10-11 (soir), ex8 : solveur de la thermique sur le GPU, ParaSails
 
-- Thermique d'ex8 sur le GPU (`results/ex8-thermique-gpu-2026-10-11`) :
+- Thermique d'ex8 sur le GPU (`results/ex8-thermal-gpu-2026-10-11`) :
   MUMPS sur l'hôte (`-lsTh MUMPSSolver`) est le plus rapide, ex8 12,6 ->
   11,5 s (thermique 4,26 -> 3,03 s). GMRES de hypre sur le GPU met 100 ms
   par résolution pour 9 516 inconnues, avec BoomerAMG comme avec
@@ -4362,7 +4362,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 ### 2026-10-11 (soir), intégration amont de mfem-mgis
 
-- `docs/integration-amont.md` : section mfem-mgis, découpage des 115
+- `docs/upstream-integration.md` : section mfem-mgis, découpage des 115
   commits de `gpu-proto` en onze contributions ordonnées par dépendances
   (corrections, fonctionnalités sans GPU, configuration GPU, chemin GPU
   du code existant, données des matériaux, lots, noyaux, point fixe,
@@ -4373,10 +4373,10 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 ### 2026-10-12 (nuit), exemples ex1, ex2, ex3, ex5, ex6 et ex7 par lots et sur le GPU
 
-- Six exemples de mfem-mgis-examples suivis par le prototype (`cas/ex1`,
-  `cas/ex2`, `cas/ex3`, `cas/ex5`, `cas/ex6`, `cas/ex7`) : point par
+- Six exemples de mfem-mgis-examples suivis par le prototype (`cases/ex1`,
+  `cases/ex2`, `cases/ex3`, `cases/ex5`, `cases/ex6`, `cases/ex7`) : point par
   point, par noyaux, par lots openmp et stlpar, sur le GPU ; CPU 48/48,
-  GPU 12/12 (`results/exemples-gpu-2026-10-12`). Options ajoutées aux
+  GPU 12/12 (`results/examples-gpu-2026-10-12`). Options ajoutées aux
   exemples : `-l` (ex2, ex5), `--device` (ex5, ex6).
 - ex7 complet : CPU 2 processus 10,4 s point par point, 6,2 s par noyaux ;
   GPU 6,5 à 6,8 s, limité par GMRES et BoomerAMG sur un système de 2 634
@@ -4426,7 +4426,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   l'hôte. La demande est lue avant l'initialisation de hypre ; le drapeau
   de MFEM et la politique hôte sont tous deux nécessaires (mutations).
   Tests GPU 18/18.
-- Mesures (`results/hypre-hote-2026-10-12`) : ex7 complet 6,7 -> 4,4 s
+- Mesures (`results/hypre-host-2026-10-12`) : ex7 complet 6,7 -> 4,4 s
   sur le GPU (CPU 2 cœurs 6,3 s), ex8 12,5 -> 11,6 s (thermique 4,0 ->
   2,8 s, comme avec MUMPS). Pour les petits systèmes, le GPU passe devant
   le CPU.
@@ -4463,7 +4463,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   colonnes hors diagonale ou leurs indices globaux, nombre d'analyses
   vérifié après chaque matrice ; sept mutations détectées.
   mfem-mgis-examples : option `-mra` d'ex8.
-- Mesures (`results/mumps-analyse-2026-10-12`) : sur la matrice
+- Mesures (`results/mumps-analysis-2026-10-12`) : sur la matrice
   d'élasticité d'ex8, factorisations −20 % sur un processus, −28 % sur
   deux ; ordonnancements et factorisation approchée BLR sans gain. ex8 sur
   le GPU 11,1 -> 9,7 s, sur CPU (2 processus) 20,5 -> 19,2 s, mêmes
@@ -4509,7 +4509,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   4,6 s avec GMRES et BoomerAMG ; sur CPU (2 processus), MUMPS 5,4 s
   contre 6,1 s ; mêmes itérations et même comparaison à la référence.
 - Poutre r4 (111 843 inconnues) avec cuDSS (options `-ls cudss`, `-mra`,
-  `-els cudss` du cas, `results/cudss-poutre-2026-10-12`) : le solveur
+  `-els cudss` du cas, `results/cudss-beam-2026-10-12`) : le solveur
   direct ne paie pas à cette taille. Newton avec cuDSS 9,6 s contre 3,1 s
   avec PCG et BoomerAMG (factorisation 0,235 s contre 68 ms par
   résolution) ; NewtonK0 avec K0 factorisé une fois par cuDSS 2,7 à 3,0 s
@@ -4522,11 +4522,11 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   d'ex8, commande GPU complète d'ex8 et référence comparable, test
   `mox2-mumps`) ; cas poutre : `-mra` transmis à l'opérateur élastique
   (`-els mumps|cudss`), symétries décrites dans l'aide, avertissement sans
-  solveur direct, liste complète des solveurs dans `cas/README.md`. Tests
+  solveur direct, liste complète des solveurs dans `cases/README.md`. Tests
   d'ex7 et d'ex8 sur CPU 6/6.
 - Polycristal de mm-opera-hpc (20 553 inconnues, cellule périodique, non
   symétrique) avec cuDSS (`--linear-solver CuDSSSolver --reuse-analysis`,
-  mm-opera-hpc 556b3e5, `results/cudss-polycristal-2026-10-12`) : 19,1 s
+  mm-opera-hpc 556b3e5, `results/cudss-polycrystal-2026-10-12`) : 19,1 s
   contre 11,4 s avec PCG et BoomerAMG et 8,8 s avec NewtonK0 et
   Eisenstat-Walker. Factorisation de 132 ms (réutilisation effective :
   222 ms sans), contre 24 ms pour la matrice d'ex8 de taille voisine :
@@ -4564,17 +4564,17 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   noyau contre 0,48 ms pour l'atomique (profil Nsight Systems). Version par
   valeur : tangente de la poutre r4 en 6 ms contre 4,3 ms en atomique, plus
   0,13 s au premier assemblage ; NewtonK0 2,2 à 2,35 s contre 1,9 s.
-  Sur CPU, même coût que l'atomique (`results/assemblage-ordonne-2026-10-12`).
+  Sur CPU, même coût que l'atomique (`results/ordered-assembly-2026-10-12`).
 
 ### 2026-10-13, mesures de la pression et des post-traitements, suite GPU ordonnée
 
 - Pression imposée sur la poutre r4 (lot L7.6,
-  `results/pression-poutre-2026-10-13-1030`) : sur le GPU, avec pression,
+  `results/pressure-beam-2026-10-13-1030`) : sur le GPU, avec pression,
   17,6 s avant le lot (intégrateur de bord sur l'hôte, tangente assemblée
   par MFEM sur l'hôte) contre 1,70 s après ; sur 8 cœurs, le surcoût de la
   pression disparaît (9,88 contre 5,68 s).
 - Post-traitements du polycristal (lot L8,
-  `results/L8-polycristal-2026-10-13-1027`) : 1,5 s sur 11 s sur le GPU,
+  `results/L8-polycrystal-2026-10-13-1027`) : 1,5 s sur 11 s sur le GPU,
   sans gain par noyaux (l'export ParaView domine), contre ×2,8 sur le
   temps total de la bulle (projections).
 - Suite de mfem-mgis sur le GPU avec l'assemblage ordonné
@@ -4588,7 +4588,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
 
 - Sur le GPU en float, au critère 1e-4, la poutre r4 divergeait dans un
   calcul sur trois à un sur deux en assemblage atomique
-  (`results/precision-poutre-gpu-2026-10-14-0604`). En assemblage ordonné à
+  (`results/precision-beam-gpu-2026-10-14-0604`). En assemblage ordonné à
   n = 10, tous les calculs par noyaux avec un solveur itératif divergeaient
   (`results/diagnostic-float-gpu-2026-10-14`). Avec PCG et BoomerAMG, seule
   la tangente élément par élément (assemblée sur l'hôte) convergeait.
@@ -4606,8 +4606,8 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   GPU sans contraction (`mfem_mgis_disable_device_floating_point_contraction`),
   même coût d'assemblage ; contractions gardées en double (assemblage 13 à
   16 % plus lent sans elles). 31 calculs sur 31 convergent, à 4,2e-5 au
-  plus du double ; test `poutre-gpu-r4` dans cas/poutre. Mesure refaite
-  (`results/precision-poutre-gpu-2026-10-14-0843`) : float 1,37 fois plus
+  plus du double ; test `poutre-gpu-r4` dans cases/beam. Mesure refaite
+  (`results/precision-beam-gpu-2026-10-14-0843`) : float 1,37 fois plus
   rapide que le double, à 3,4e-5 au plus du double.
 
 ### 2026-10-14, cas en float, polycristal, site et CI sur le CPU
@@ -4616,7 +4616,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   double 143/143. Un exécutable des exemples ou de mm-opera-hpc n'est pris
   que s'il est construit contre la même installation de mfem-mgis que les
   cas.
-- Polycristal en float (`results/precision-polycristal-2026-10-14`) :
+- Polycristal en float (`results/precision-polycrystal-2026-10-14`) :
   contrainte axiale à +6,1e-3 du double à 5e-5 de déformation, +1,0e-3 à
   2e-4 ; sur un pas de 1 s, la loi échoue. Cause probable : F, stocké en
   float près de l'identité, ne bouge que d'un ulp à la fois (argument pour
@@ -4653,7 +4653,7 @@ formule que MTest). Toutes les autres donnent la solution de Newton à
   (mesuré en double avec cette tolérance), et de 0,06 à 0,07 % à 0,4 s ;
   mêmes vérifications dans les deux précisions ; double inchangé au bit
   près ; polycristal inchangé à 0,1 et 0,4 s, toujours en échec de la loi
-  avec un pas de 1 s (results/precision-polycristal-2026-10-14).
+  avec un pas de 1 s (results/precision-polycrystal-2026-10-14).
 
 ### 2026-10-14, ParaSails in float and Newton criterion at the floor of the residual
 

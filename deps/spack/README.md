@@ -9,7 +9,7 @@ Contenu :
   bibliothèques de solveurs de l'étude (hypre 3.2.0, Ginkgo 1.11.0 avec
   MPI, PETSc 3.26.0 avec Kokkos, SUNDIALS, AmgX, SuperLU_DIST, STRUMPACK,
   MUMPS, UMFPACK), cuDSS 0.7.1, OpenMPI 5, OpenBLAS. Le choix des
-  solveurs est expliqué dans [docs/solveurs-gpu.md](../../docs/solveurs-gpu.md) ;
+  solveurs est expliqué dans [docs/gpu-solvers.md](../../docs/gpu-solvers.md) ;
 - `mmm-float-cpu/spack.yaml`, `mmm-double-cpu/spack.yaml` et
   `mmm-float-gpu/spack.yaml` : environnements de la précision float (tâche
   9b, [docs/plan-precision.md](../../docs/plan-precision.md)). MFEM 4.10 en

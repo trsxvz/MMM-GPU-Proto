@@ -483,7 +483,7 @@ Suite (13/10/2026, soir) :
 
 Suite (14/10/2026) :
 
-- Mesures sur le CPU (results/precision-poutre-2026-10-14-0514, poutre
+- Mesures sur le CPU (results/precision-beam-2026-10-14-0514, poutre
   r4, 111 843 inconnues, deux processus, environnements spack jumeaux
   `mmm-double-cpu` et `mmm-float-cpu`) : à critère de Newton égal (1e-4),
   le float est 1,11 fois plus rapide (20,7 s contre 23,1 s), avec les
@@ -508,7 +508,7 @@ Suite (14/10/2026) :
   le double, écarts plus grands avec un MFEM compilé par nvcc, solveur
   séquentiel non reproductible au bit près sur le GPU sans solveur
   direct). Régularisation d'Anderson relevée à 10 ε en float.
-- Poutre sur le GPU (results/precision-poutre-gpu-2026-10-14-0604) : le
+- Poutre sur le GPU (results/precision-beam-gpu-2026-10-14-0604) : le
   float est 1,31 fois plus rapide quand il converge, mais un calcul sur
   trois diverge, et les calculs convergés s'écartent du double de 3e-4.
 - Diagnostic (results/diagnostic-float-gpu-2026-10-14) : nvcc contracte
@@ -525,12 +525,12 @@ Suite (14/10/2026) :
   coût d'assemblage. En double, les contractions sont gardées (assemblage
   13 à 16 % plus lent sans elles, convergence inchangée). Après correction, 31
   calculs sur 31 convergent, à 4,2e-5 au plus du double ; test
-  reproducteur `poutre-gpu-r4` dans cas/poutre.
+  reproducteur `poutre-gpu-r4` dans cases/beam.
 - Mesure refaite après correction
-  (results/precision-poutre-gpu-2026-10-14-0843) : float 1,37 fois plus
+  (results/precision-beam-gpu-2026-10-14-0843) : float 1,37 fois plus
   rapide que le double, mêmes itérations, à 3,4e-5 au plus du double.
 
-- Polycristal en float (results/precision-polycristal-2026-10-14) : sur
+- Polycristal en float (results/precision-polycrystal-2026-10-14) : sur
   un pas, la contrainte axiale s'écarte du double de 6,1e-3 à 5e-5 de
   déformation et de 1,0e-3 à 2e-4 ; sur un pas plus grand (1 s), la loi
   échoue et le calcul s'arrête. Cause probable : F, stocké en float près

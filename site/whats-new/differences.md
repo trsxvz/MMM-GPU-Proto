@@ -5,7 +5,7 @@ repository (its base). All changes are kept as a series of patches
 against this base. This page lists the bases, what changes in each
 library, how the series are organised and checked, and how they are
 meant to be proposed upstream. The sources, in French, are `README.md`
-and `docs/integration-amont.md`.
+and `docs/upstream-integration.md`.
 
 ## Library by library
 
@@ -27,7 +27,7 @@ precision, the tests run in float, and the stiffness kernels of the GPU
 are compiled without contraction into fused multiply-add (FMA).
 
 The details are in `docs/tfel.md` (TFEL), `docs/mgis.md` (MGIS) and
-`docs/plan-mfem-mgis-detaille.md` (mfem-mgis).
+`docs/plan-mfem-mgis-detailed.md` (mfem-mgis).
 
 ## How the patch series are organised
 
@@ -68,7 +68,7 @@ root.
 ## How the changes are to be proposed upstream
 
 The changes are not yet proposed to the official repositories.
-`docs/integration-amont.md` splits them into contributions that can
+`docs/upstream-integration.md` splits them into contributions that can
 each be reviewed and tested alone. Some commits of the prototype mix
 several subjects, so the contributions will be rebuilt from the final
 state of the branches, file by file, rather than by picking commits.

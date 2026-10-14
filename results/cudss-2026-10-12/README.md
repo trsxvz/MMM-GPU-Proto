@@ -5,17 +5,17 @@ Solveur `CuDSSSolver` de la fabrique de solveurs linéaires de mfem-mgis
 `mfem::CuDSSSolver` (MFEM 4.10, cuDSS 0.7.1). Paramètres `Symmetric`, `PositiveDefinite` (les modes
 symétriques lisent le triangle inférieur, comme MUMPS) et `ReuseAnalysis`
 (analyse réutilisée tant que le motif ne change sur aucun processus, comme
-pour MUMPS, `results/mumps-analyse-2026-10-12`). Le solveur est refusé sans
+pour MUMPS, `results/mumps-analysis-2026-10-12`). Le solveur est refusé sans
 périphérique sur un GPU CUDA. ex8 le choisit par `-lsMc CuDSSSolver`
 (mfem-mgis-examples efeb8b8).
 
 ## Matrice d'élasticité d'ex8 seule
 
-Programme `programme/cudss-bench.cpp` (MFEM seul) : élasticité linéaire
+Programme `program/cudss-bench.cpp` (MFEM seul) : élasticité linéaire
 sur le maillage d'ex8 (28 548 inconnues, éléments linéaires, rangement par
 nœuds, tous les bords encastrés), un processus, six matrices de même motif
 et de valeurs différentes. Temps moyen des factorisations après la
-première, en secondes (`matrice-elasticite-np1-hypre-gpu.txt`) :
+première, en secondes (`elasticity-matrix-np1-hypre-gpu.txt`) :
 
 | Solveur | Sans réutilisation | Avec réutilisation |
 |---|---|---|
@@ -26,7 +26,7 @@ première, en secondes (`matrice-elasticite-np1-hypre-gpu.txt`) :
 - Avec la réutilisation de l'analyse, cuDSS factorise 11 fois plus vite
   que MUMPS sur l'hôte.
 - Résidus relatifs de l'ordre de 6e-15 dans tous les cas.
-- Avec hypre sur l'hôte (`matrice-elasticite-np1-hypre-hote.txt`), mêmes
+- Avec hypre sur l'hôte (`elasticity-matrix-np1-hypre-host.txt`), mêmes
   ordres de grandeur (0,022 s pour cuDSS symétrique avec réutilisation) :
   MFEM copie la matrice vers cuDSS depuis la mémoire de l'hôte.
 - Ce programme se bloque sur deux processus avant même la construction de
@@ -40,7 +40,7 @@ première, en secondes (`matrice-elasticite-np1-hypre-gpu.txt`) :
 lois cuda, hypre sur l'hôte (thermique par GMRES et BoomerAMG), mécanique
 symétrique définie positive. Construction `build/examples-mumps`, liée à
 `install/mfem-mgis-mumps` (branche cudss). Deux passages alternés
-(`resume.txt`, commandes dans `mesure-ex8-gpu.sh`). Temps en secondes :
+(`summary.txt`, commandes dans `measure-ex8-gpu.sh`). Temps en secondes :
 
 | Mécanique | Total | Couplage | Factorisations (29) |
 |---|---|---|---|
@@ -51,8 +51,8 @@ symétrique définie positive. Construction `build/examples-mumps`, liée à
 - ex8 sur le GPU passe de 11,1 s (MUMPS sans réutilisation, avant ce lot
   et le précédent) à 4,4 s, soit ×2,5.
 - Après la relecture (45afaa0653 : solutions contrôlées par leur résidu,
-  motif comparé sans les valeurs ; `resume-relecture.txt`, commandes dans
-  `mesure-ex8-gpu-relecture.sh`, cœurs 0 à 3) : 4,52 et 4,41 s avec hypre
+  motif comparé sans les valeurs ; `summary-review.txt`, commandes dans
+  `measure-ex8-gpu-review.sh`, cœurs 0 à 3) : 4,52 et 4,41 s avec hypre
   sur l'hôte (le contrôle coûte au plus 0,1 s) ; 5,63 et 5,58 s avec hypre
   sur le GPU (thermique plus lente, factorisations 0,63 s, la comparaison
   des motifs ne lit plus que les indices) ; 8,38 et 8,45 s avec hypre sur
@@ -65,8 +65,8 @@ symétrique définie positive. Construction `build/examples-mumps`, liée à
 
 Avec les deux solveurs directs sur le GPU (`-lsTh CuDSSSolver -lsMc
 CuDSSSolver -mra`, matrices thermiques données entières, mécaniques par
-leur triangle inférieur ; `resume-thermique.txt`, commandes dans
-`mesure-ex8-gpu-thermique.sh`, cœurs 0 à 3), en secondes :
+leur triangle inférieur ; `summary-thermal.txt`, commandes dans
+`measure-ex8-gpu-thermal.sh`, cœurs 0 à 3), en secondes :
 
 | hypre | Total | Couplage | Factorisations thermiques (35) | Résolutions thermiques (35) | Factorisations mécaniques (29) |
 |---|---|---|---|---|---|
@@ -89,7 +89,7 @@ ex7 complet (40 pas, 2 634 inconnues, cellule périodique), tout par
 noyaux, matrices symétriques définies positives, analyse réutilisée
 (options `-ls`, `-ms` et `-mra` ajoutées à ex7, mfem-mgis-examples
 e98e259). Construction `build/examples-mumps/ex7`, commandes dans
-`mesure-ex7.sh`, durées totales dans `durees-ex7.txt`, en secondes :
+`measure-ex7.sh`, durées totales dans `durations-ex7.txt`, en secondes :
 
 | Cas | GMRES et BoomerAMG | Solveur direct |
 |---|---|---|

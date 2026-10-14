@@ -2,7 +2,7 @@
 
 This page presents the prototype: its goal, the role of each library,
 the principles it follows, its vocabulary and its status. The source
-document, in French, is `docs/vue-ensemble.md`.
+document, in French, is `docs/overview.md`.
 
 ## Goal
 
@@ -37,12 +37,12 @@ is compiled or at run time, not in the code of the law.
   are added to Newton: accelerated fixed point, NewtonK0, inexact
   Newton, cuDSS direct solver. The whole test suite passes on the GPU,
   except the two tests that require the absence of a GPU. The plan
-  followed is split into work packages (`docs/plan-mfem-mgis-detaille.md`).
+  followed is split into work packages (`docs/plan-mfem-mgis-detailed.md`).
 - **mfem-mgis-examples** and **mm-opera-hpc**: all examples and all
   cases (polycrystal, cermet, bubble) run by batches and on the GPU.
 - The changes are not yet proposed to the official repositories. How
   they are split into contributions is described in
-  `docs/integration-amont.md`.
+  `docs/upstream-integration.md`.
 
 ## The chain and the role of each library
 
@@ -146,7 +146,7 @@ CPU and 276/276 on the GPU; the examples 21/21; mm-opera-hpc 6/6.
 
 ## Performance
 
-The figures below come from `docs/vue-ensemble.md` and the measurement
+The figures below come from `docs/overview.md` and the measurement
 folders in `results/`. The GPU is an RTX 5080.
 
 | Case | GPU | CPU |
@@ -162,17 +162,17 @@ better handled by cuDSS than by GMRES and BoomerAMG.
 
 In single precision, at the same Newton criterion (1e-4), the beam r4 is
 1.11 times faster than in double on the CPU
-(`results/precision-poutre-2026-10-14-0514`), and 1.37 times faster on the
+(`results/precision-beam-2026-10-14-0514`), and 1.37 times faster on the
 GPU, with the same iterations, 3.4e-5 away from the solution in double
-(`results/precision-poutre-gpu-2026-10-14-0843`).
+(`results/precision-beam-gpu-2026-10-14-0843`).
 
 ## Where to read more
 
-The repository documents, in French, in reading order: `docs/vue-ensemble.md`,
+The repository documents, in French, in reading order: `docs/overview.md`,
 `docs/tfel.md`, `docs/mgis.md`, `docs/validation.md`,
-`docs/integration-amont.md`, `docs/plan-mfem-mgis.md` and
-`docs/plan-mfem-mgis-detaille.md`, `docs/plan-execution.md`,
-`docs/plan-precision.md`, `docs/plan-ci-site.md`, `docs/solveurs-gpu.md`
+`docs/upstream-integration.md`, `docs/plan-mfem-mgis.md` and
+`docs/plan-mfem-mgis-detailed.md`, `docs/plan-execution.md`,
+`docs/plan-precision.md`, `docs/plan-ci-site.md`, `docs/gpu-solvers.md`
 and `JOURNAL.md`. The documentation of the interfaces, in English, is
 also in the tree of each library: `tfel/docs/web/generic-parallel-*.md`
 for TFEL and `mgis/docs/web/` for MGIS.

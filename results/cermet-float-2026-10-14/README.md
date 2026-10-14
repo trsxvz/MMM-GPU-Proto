@@ -14,7 +14,7 @@ deux cas avec les options de `tfel-config --oflags`. Exécutables :
 
 Fichiers `<exécutable>-<n>p-<loi>-<tolérance>.res` (n processus) et
 `double-*.res` : temps, F11, F22, F33, puis σ11, σ22, σ33 (Pa) à la fin de
-chaque pas. `point-fixe.txt` : résidu du point fixe,
+chaque pas. `fixed-point.txt` : résidu du point fixe,
 |res| = (σ11² + σ22²)^½, à chaque itération de chaque calcul.
 
 ## Règle retenue
@@ -78,7 +78,7 @@ calculs de la CI (+0,16 %), à peu près :
 
 - +0,07 % : tolérance absolue de l'équilibre microscopique en float
   (6e4), mesurée en double avec cette tolérance
-  (`double-tolerance-microscopique-6e4.res` : +0,072 % à 0,2 s, +0,023 %
+  (`double-microscopic-tolerance-6e4.res` : +0,072 % à 0,2 s, +0,023 %
   à 0,4 s) ;
 - +0,03 % : contraintes latérales laissées par le point fixe, qui
   décalent σ33 de ν (σ11 + σ22) (-0,045 % sur les calculs du prototype) ;
@@ -89,6 +89,6 @@ calculs de la CI (+0,16 %), à peu près :
 ## Polycristal
 
 Il utilise la même classe et les mêmes modules. Ses mesures en float
-(results/precision-polycristal-2026-10-14), refaites avec la règle
+(results/precision-polycrystal-2026-10-14), refaites avec la règle
 retenue : mêmes fichiers au bit près pour des pas de 0,1 et 0,4 s ; pour
 les autres, voir le README de ce dossier.

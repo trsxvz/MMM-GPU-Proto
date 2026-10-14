@@ -2,10 +2,10 @@
 
 Statut : choix retenus le 08/10/2026, première étape (API de vues de MGIS)
 faite le 09/10/2026, plan détaillé le 09/10/2026
-([plan-mfem-mgis-detaille.md](plan-mfem-mgis-detaille.md)).
+([plan-mfem-mgis-detailed.md](plan-mfem-mgis-detailed.md)).
 Les lots L0 à L10 sont faits (base master `a011d97d6f`, branche rebasée
 le 13/10/2026 sur master `8fac67336e`, dépôt `mfem-mgis/` ; état dans
-[vue-ensemble.md](vue-ensemble.md#état-davancement)). Ce plan s'appuie sur
+[overview.md](overview.md#état-davancement)). Ce plan s'appuie sur
 TFEL et MGIS tels que décrits dans [tfel.md](tfel.md) et
 [mgis.md](mgis.md).
 
@@ -45,7 +45,7 @@ pas assez, tant que le code reste propre.
 ### mfem-mgis au départ (base `a011d97d6f`, 06/10/2026)
 
 Cette section décrit le code avant le prototype. L'état actuel est dans
-[vue-ensemble.md](vue-ensemble.md#état-davancement).
+[overview.md](overview.md#état-davancement).
 
 - Assemblage élément par élément sur l'hôte. Un intégrateur MFEM par
   matériau (`MultiMaterialNonLinearIntegrator`, `AssembleElementVector`,
@@ -148,7 +148,7 @@ prend 22,6 s, le point fixe 67 s. Aucune méthode ne gagne partout.
 8. **Version de MFEM : 4.10** pour tout le prototype (décision du
    09/10/2026 ; mfem-mgis était utilisé avec 4.9). MFEM 4.10 apporte
    cuDSS, Ginkgo distribué et `GroupCommunicator` sur le périphérique
-   (voir [solveurs-gpu.md](solveurs-gpu.md#mfem-410)). Compilé avec CUDA,
+   (voir [gpu-solvers.md](gpu-solvers.md#mfem-410)). Compilé avec CUDA,
    Ginkgo, PETSc, SUNDIALS, AmgX, cuDSS, SuperLU_DIST, STRUMPACK, MUMPS et
    SuiteSparse dans `deps/spack/mmm-gpu`, avec un OpenMPI compatible GPU.
 9. **Mesures fines plus tard.** Priorité à un cadre propre qui marche.
@@ -262,7 +262,7 @@ Ajoutés depuis par le prototype : solveurs `FGMRESSolver`, `AmgX`,
 `AmgXPCG` et `CuDSSSolver`, paramètre `ReuseAnalysis` de `MUMPSSolver`,
 préconditionneurs `OperatorJacobiSmoother`, `OperatorChebyshevSmoother`
 et `AssembledOperator`, options de `HypreBoomerAMG` (voir
-[solveurs-gpu.md](solveurs-gpu.md)).
+[gpu-solvers.md](gpu-solvers.md)).
 
 ### Portabilité sur GPU
 
@@ -296,8 +296,8 @@ hypre calcule sur le GPU.
 La liste complète des solveurs, préconditionneurs et techniques retenus
 pour l'étude (CPU et GPU, ou GPU seul), avec leur intérêt, ce qui a été
 vérifié et les paquets de l'environnement correspondants, est dans
-[solveurs-gpu.md](solveurs-gpu.md). L'ordre dans lequel ils entrent dans
-mfem-mgis est donné par le [plan détaillé](plan-mfem-mgis-detaille.md).
+[gpu-solvers.md](gpu-solvers.md). L'ordre dans lequel ils entrent dans
+mfem-mgis est donné par le [plan détaillé](plan-mfem-mgis-detailed.md).
 
 Référence principale : Ratel (`https://gitlab.com/micromorph/ratel`,
 arXiv 2204.01722). p-multigrille sans matrice avec lisseurs Chebyshev ou
@@ -333,8 +333,8 @@ profil `nsys`.
   le noyau J2 écrit à la main des essais préalables, rangement point par
   point contre composante par composante, puis des lois plus lourdes
   (Norton implicite, monocristal). Mesurés depuis : par exemple
-  `results/L2-poutre-2026-10-09`, `results/backends-gpu-2026-10-11` et
-  `results/backends-polycristal-2026-10-11`.
+  `results/L2-beam-2026-10-09`, `results/backends-gpu-2026-10-11` et
+  `results/backends-polycrystal-2026-10-11`.
 - Plusieurs matériaux : soumission asynchrone et une seule
   synchronisation.
 - MPI : un processus par GPU (pile des polycristaux), MPI compatible GPU si
@@ -354,7 +354,7 @@ profil `nsys`.
 
 Le découpage détaillé de ces étapes en lots (fichiers touchés, tests,
 critères de fin, paramètres proposés) est dans
-[plan-mfem-mgis-detaille.md](plan-mfem-mgis-detaille.md).
+[plan-mfem-mgis-detailed.md](plan-mfem-mgis-detailed.md).
 
 1. **MGIS : API sur des vues** pour les deux rangements des données aux
    points (lois, modèles, propriétés matériau ; synchrone et asynchrone),
@@ -377,7 +377,7 @@ critères de fin, paramètres proposés) est dans
 6. **Fin de pas sans copie vers l'hôte**, plusieurs matériaux en
    asynchrone. En partie : la fin de pas est faite sur le GPU, mais les
    états reviennent ensuite sur l'hôte, comme le veut le contrat de
-   `MaterialArrays` (`results/L7-transferts-2026-10-11`) ; mfem-mgis
+   `MaterialArrays` (`results/L7-transfers-2026-10-11`) ; mfem-mgis
    n'utilise pas les calculs asynchrones de MGIS.
 7. **Tout mfem-mgis** : hypothèses, cinématiques, rotations orthotropes,
    propriétés matériau, variables externes. Fait (lot L7, restes dans le
@@ -386,7 +386,7 @@ critères de fin, paramètres proposés) est dans
    CPU/GPU et les autres options ; mesures et comparaison des variantes.
    Fait (lot L9).
 9. **Documentation** du prototype et préparation des propositions amont
-   ([integration-amont.md](integration-amont.md)). Fait ; rien n'est
+   ([upstream-integration.md](upstream-integration.md)). Fait ; rien n'est
    encore proposé.
 
 À chaque étape : tests verts (passe ciblée), relecture indépendante avant
@@ -407,7 +407,7 @@ Questions du 08/10, tranchées depuis :
   `update` avec les opérations de mfem-mgis (`MFEMFieldOperations`).
 - Proposition amont : un chemin parallèle activé par option, acceptable
   par les mainteneurs de mfem-mgis. Découpage proposé dans
-  [integration-amont.md](integration-amont.md).
+  [upstream-integration.md](upstream-integration.md).
 
 ## Risques
 

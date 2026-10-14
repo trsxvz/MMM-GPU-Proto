@@ -188,7 +188,7 @@ l'assemblage de la tangente sur le GPU).
   (`cmake/modules/MFEMMGISBehaviours.cmake` de mfem-mgis).
 - Étape 4 : tous les exemples, mm-opera-hpc, ex1 et ex3 ; tests sur GPU par
   `--execution`.
-- Étape 5 : `results/execution-poutre-2026-10-13-1432`. Les copies des
+- Étape 5 : `results/execution-beam-2026-10-13-1432`. Les copies des
   tableaux coûtent au plus 0,42 s (de 0,2 % à 4,5 % du calcul selon le
   placement) ; le coût d'un placement mixte vient du processeur qui
   calcule. Les copies asynchrones ne sont donc pas faites : le gain
@@ -203,6 +203,6 @@ l'assemblage de la tangente sur le GPU).
   tel GPU.
 - Pistes : garder les états sur le GPU après la mise à jour de fin de pas
   (faite sur le GPU, mais suivie d'un retour sur l'hôte voulu par le
-  contrat de `MaterialArrays`, voir `results/L7-transferts-2026-10-11`),
+  contrat de `MaterialArrays`, voir `results/L7-transfers-2026-10-11`),
   avec des écritures sur l'hôte synchronisées explicitement (120 copies
   évitables sur la poutre, 0,07 s) ; compter les autres transferts.

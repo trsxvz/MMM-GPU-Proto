@@ -2,10 +2,10 @@
 
 This page gathers the main design choices of the prototype and the
 reasons given for them. The sources, in French, are
-`docs/vue-ensemble.md`, `docs/tfel.md`, `docs/mgis.md`,
-`docs/plan-mfem-mgis.md`, `docs/plan-mfem-mgis-detaille.md`,
+`docs/overview.md`, `docs/tfel.md`, `docs/mgis.md`,
+`docs/plan-mfem-mgis.md`, `docs/plan-mfem-mgis-detailed.md`,
 `docs/plan-execution.md`, `docs/plan-precision.md`,
-`docs/plan-ci-site.md` and `docs/solveurs-gpu.md`.
+`docs/plan-ci-site.md` and `docs/gpu-solvers.md`.
 
 ## Overall approach
 

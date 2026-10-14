@@ -1,16 +1,16 @@
 # Tangente par noyaux de bout en bout, 8 processus (11/10/2026)
 
-Script : `cas/mesures-positions.sh`. Thermique stationnaire r5 (279 873
+Script : `cases/measure-positions.sh`. Thermique stationnaire r5 (279 873
 inconnues, 5 pas) et poutre r4 (10 pas), 8 processus d'un fil, GMRES ou
 gradient conjugué de hypre avec BoomerAMG. Trois calculs par cas : point
 par point, par noyaux avec mfem-mgis installé dans `install/mfem-mgis`
 (8a6325335e, avant), par noyaux avec mfem-mgis installé dans
 `install/mfem-mgis-registres` (4a007e85f2 : positions des entrées dans la
 matrice creuse et matrices sans former B, après). La ligne « mfem-mgis »
-de `resume.txt` donne la version des sources, pas celle des installations.
+de `summary.txt` donne la version des sources, pas celle des installations.
 Machine calme, GPU inutilisé.
 
-Temps en secondes (`cas/resume-profilage.py`, nombre d'appels entre
+Temps en secondes (`cases/summary-profiling.py`, nombre d'appels entre
 parenthèses) :
 
 | Cas | Total | Intégration | Résidu | Tangente | Résolution | Prédiction |

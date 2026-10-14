@@ -1,6 +1,6 @@
 # ex8 point par point et tout par noyaux, CPU et GPU (11/10/2026)
 
-Script : `cas/mesures-ex8.sh` (cas `ex8` de `cas/mesures-commun.sh`).
+Script : `cases/measure-ex8.sh` (cas `ex8` de `cases/measure-common.sh`).
 Exemple ex8 de mfem-mgis-examples (plaque thermomécanique : thermique avec
 condition de Robin en faces de bord, mécanique avec gonflement, couplage
 itératif), maillage d'origine (8424 hexaèdres), 5 pas, MUMPS pour la
@@ -9,7 +9,7 @@ mécanique, GMRES et BoomerAMG pour la thermique. Construction séparée
 (`install/mfem-mgis-autres`), mfem-mgis-examples 3a907f1. CPU : 2
 processus d'un fil, comme le test de l'exemple ; GPU : un processus,
 `--device cuda`, lois de l'exemple compilées par l'interface `generic`
-(intégrées sur l'hôte). Deux passages (`resume.txt`, `repetition-2`) ;
+(intégrées sur l'hôte). Deux passages (`summary.txt`, `repetition-2`) ;
 au premier, la charge moyenne valait encore 6 (fin d'un essai précédent),
 au second 1 ; les deux concordent à 2 % près.
 
@@ -20,7 +20,7 @@ Couplage sur les 5 pas, en secondes :
 | CPU, 2 processus | 30,97 et 30,62 | 22,35 et 22,25 | ×1,38 à ×1,39 |
 | GPU, 1 processus | 167,66 et 166,04 | 38,32 et 37,59 | ×4,4 |
 
-Phases du premier passage (`cas/resume-profilage.py`, deux problèmes
+Phases du premier passage (`cases/summary-profiling.py`, deux problèmes
 cumulés) :
 
 | Cas | Intégration | Résidu | Tangente | Factorisation (MUMPS) et préconditionneur | Résolution |

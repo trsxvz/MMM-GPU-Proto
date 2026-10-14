@@ -8,7 +8,7 @@ dans l'arbre de TFEL (voir [la dernière section](#documentation-dans-larbre-de-
 - Base : TFEL master `ff0959ece` (12/10/2026).
 - Sources modifiées : `tfel/` (copie du dernier commit, sans l'historique de
   TFEL). Série de patchs : `patches/tfel/` (`git am --keep-cr`).
-- Découpage prévu en contributions amont : [integration-amont.md](integration-amont.md).
+- Découpage prévu en contributions amont : [upstream-integration.md](upstream-integration.md).
 
 ## Sommaire
 
@@ -188,7 +188,7 @@ Quelques choix méritent une explication :
   Kokkos. La fonction générée vérifie que Kokkos est initialisé, elle ne
   l'initialise jamais. mfem-mgis construit avec l'option `enable-kokkos`
   l'initialise à la demande (option `--kokkos` ou variable
-  `MFEM_MGIS_KOKKOS`, voir `results/kokkos-polycristal-2026-10-11`). Les
+  `MFEM_MGIS_KOKKOS`, voir `results/kokkos-polycrystal-2026-10-11`). Les
   statistiques d'un calcul synchrone sont dans
   `Kokkos::SharedSpace`, comme pour les propriétés matériau. Les backends
   `OpenACC` et `OpenMPTarget` de Kokkos n'ont pas cet espace : une

@@ -3,8 +3,8 @@
 Chemin actuel de mfem-mgis (branche `gpu-proto`, 373550f0d0), MFEM 4.10
 de l'environnement `mmm-gpu`, sur CPU (pas de périphérique), un fil
 OpenMP par processus. Machine : AMD Ryzen 7 9800X3D (8 cœurs, 16 fils),
-30 Go, machine calme. Script : `cas/mesures-reference.sh` ; résumé par
-phase : `cas/resume-profilage.py *.txt`.
+30 Go, machine calme. Script : `cases/measure-reference.sh` ; résumé par
+phase : `cases/summary-profiling.py *.txt`.
 
 ## Cas
 

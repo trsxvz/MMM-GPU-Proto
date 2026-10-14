@@ -1,0 +1,5 @@
+fichier : total, couplage, préparation des solveurs linéaires (setLinearSolverOperator : thermique, 35 appels ; mécanique, factorisations MUMPS, 29 appels), en s
+ex8-np2-kernels-with-1.txt : 19.145351, 19.032813, 0.002704 4.082959 
+ex8-np2-kernels-with-2.txt : 19.205405, 19.082410, 0.002758 4.069882 
+ex8-np2-kernels-without-1.txt : 20.419613, 20.304592, 0.002597 5.473872 
+ex8-np2-kernels-without-2.txt : 20.630753, 20.518624, 0.002808 5.574212 

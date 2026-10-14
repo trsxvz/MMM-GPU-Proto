@@ -6,7 +6,7 @@ mémoire). Exemple ex4 de mfem-mgis-examples, variante résolue par hypre
 (Newton, FGMRES de hypre préconditionné par BoomerAMG), plasticité en
 grandes transformations (déformation logarithmique de Hencky), chargement
 complet en 10 pas, maillage raffiné zéro, une et deux fois. Script :
-`cas/mesures-ssna303.sh`, avec `examples_build=build/examples-f57072220f`
+`cases/measure-ssna303.sh`, avec `examples_build=build/examples-f57072220f`
 (ex4 construit contre une installation séparée de mfem-mgis f57072220f,
 `install/mfem-mgis-f57072220f`). Une RTX 5080 (16 Go), 8 cœurs (16 fils),
 30 Go de mémoire ; une autre session de travail sur la machine, sans

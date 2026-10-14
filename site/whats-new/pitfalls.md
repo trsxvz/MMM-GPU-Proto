@@ -5,7 +5,7 @@ and the workaround adopted. Compiler defects are worked around in a
 targeted way, never by removing a GPU feature, and each one has a
 reproducer in `results/nvhpc-bugs/` or `reproducers/`. The sources, in
 French, are `JOURNAL.md`, `results/nvhpc-bugs/README.md`,
-`reproducers/README.md`, `deps/spack/README.md`, `docs/solveurs-gpu.md`,
+`reproducers/README.md`, `deps/spack/README.md`, `docs/gpu-solvers.md`,
 `docs/plan-precision.md` and the header of `scripts/build-hip-amd.sh`.
 
 A general lesson: several of these defects give **wrong results without
@@ -349,7 +349,7 @@ against deliberately wrong code revealed them.
   in float, the axial stress exceeds the double one by 6.1e-3 at an
   axial strain of 5e-5, and by 1.0e-3 at 2e-4; with a step of 1 s, the
   behaviour fails and the computation stops
-  (`results/precision-polycristal-2026-10-14`). The deformation gradient,
+  (`results/precision-polycrystal-2026-10-14`). The deformation gradient,
   stored in float close to identity, only moves by one ulp (1e-3 of a
   strain of 5e-5, a stress quantum of about 1.5e4 Pa). No workaround yet:
   an interface based on the displacement gradient H = F - I is a pending

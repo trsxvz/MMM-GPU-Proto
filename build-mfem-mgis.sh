@@ -1,6 +1,6 @@
 #!/bin/bash
 # Compile, teste et installe mfem-mgis, puis compile et teste
-# mfem-mgis-examples, mm-opera-hpc et les cas de cas/ (dépôts `mfem-mgis/`,
+# mfem-mgis-examples, mm-opera-hpc et les cas de cases/ (dépôts `mfem-mgis/`,
 # `mfem-mgis-examples/` et `mm-opera-hpc/`, branche `gpu-proto`), contre
 # MFEM 4.10 de l'environnement spack `mmm-gpu`, le MGIS installé par
 # build-mgis.sh et le TFEL installé par build-tfel.sh.
@@ -13,7 +13,7 @@
 # usage : ./build-mfem-mgis.sh [mfem-mgis|examples|opera|cas ...]
 # Sans argument : les quatre, dans cet ordre. mfem-mgis est installé dans
 # install/mfem-mgis, où les autres le trouvent. `cas` : cas de la campagne
-# de mesures propres au prototype (dossier cas/).
+# de mesures propres au prototype (dossier cases/).
 #
 # Un dossier de construction existant est réutilisé, et reconfiguré avec
 # les options de ce script à chaque appel. Pour repartir de zéro, le

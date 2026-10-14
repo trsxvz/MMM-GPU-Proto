@@ -12,7 +12,7 @@
 # for A100 (Kokkos supports one architecture per build).
 #
 # Solvers and preconditioners: MFEM 4.10 with CUDA and with all the libraries of interest for the study of the solvers
-# on CPU and GPU (see docs/solveurs-gpu.md): hypre, Ginkgo, PETSc (with
+# on CPU and GPU (see docs/gpu-solvers.md): hypre, Ginkgo, PETSc (with
 # Kokkos, for GAMG), SUNDIALS (KINSOL), AmgX, SuperLU_DIST, STRUMPACK, and
 # the direct solvers of mfem-mgis on CPU (MUMPS, UMFPACK), and cuDSS.
 # The packages of the repository mmm_gpu (deps/spack/repos) replace the

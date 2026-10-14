@@ -226,7 +226,7 @@ chiffres datés ci-dessous sont ceux des passages notés au journal) :
   avec un périphérique, matrices élémentaires stockées, puis ajoutées par
   un fil par valeur de la matrice, dans un ordre fixe ; sans périphérique,
   le chemin de l'hôte ajoute déjà les éléments l'un après l'autre (coût
-  mesuré sur la poutre r4 : `results/assemblage-ordonne-2026-10-12`). Avec lui, quatre passages de
+  mesuré sur la poutre r4 : `results/ordered-assembly-2026-10-12`). Avec lui, quatre passages de
   `FixedPointSolverTest` sur le GPU, noyaux forcés, donnent des historiques
   identiques bit à bit (les deux variantes du diagnostic), contre trois
   historiques différents en trois passages avec l'assemblage atomique
@@ -262,7 +262,7 @@ variable ignorée avec un avertissement) et `build/mfem-mgis-kokkos` (avec
 le Kokkos de l'environnement, construit pour CUDA, installé dans
 `install/mfem-mgis-kokkos` : `ctest -R "KokkosOptionTest|-kokkos"`, 7
 tests dont 4 sur le GPU). Côté clients, mm-opera-hpc
-(`build/mm-opera-hpc-kokkos`) et `cas/` (`build/cas-kokkos`, avec
+(`build/mm-opera-hpc-kokkos`) et `cases/` (`build/cas-kokkos`, avec
 `MM_OPERA_HPC_POLYCRYSTAL_WITH_KOKKOS=ON`) se construisent contre cette
 installation sans chercher Kokkos ; leurs tests `poutre-gpu-kokkos` et
 `polycristal-batch-kokkos` (avec sa comparaison) utilisent la loi générée
@@ -283,7 +283,7 @@ le nouvel opérateur avant l'appel (mfem-mgis 52bfb818b0, reproducteur
 `reproducers/hypre-parasails-operator`).
 
 Les exemples de mfem-mgis-examples et les cas de mm-opera-hpc se valident
-dans `cas/` (construction `build/cas-post`, liée à une installation de
+dans `cases/` (construction `build/cas-post`, liée à une installation de
 mfem-mgis et aux constructions des exemples et de mm-opera-hpc) : chaque
 cas garde la vérification de l'exemple (référence ou solution analytique)
 et passe point par point, par noyaux, par lots avec chaque backend de
@@ -302,7 +302,7 @@ ParaSails, hypre utilisant son LAPACK interne, et les tests du critère de
 stagnation de Newton) et 276/276 sur le GPU (dix tests restent en double
 seulement : UMFPACK, GSLIB, Umpire, cuDSS et CUDA, absents du MFEM en
 float) ; exemples 21/21 ;
-mm-opera-hpc 6/6 ; cas de `cas/` 134 en float (143 en double). Mesures et
+mm-opera-hpc 6/6 ; cas de `cases/` 134 en float (143 en double). Mesures et
 diagnostic : [plan-precision.md](plan-precision.md),
 `results/precision-poutre-*`, `results/diagnostic-float-gpu-2026-10-14`.
 

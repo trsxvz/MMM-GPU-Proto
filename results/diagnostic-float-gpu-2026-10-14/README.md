@@ -1,6 +1,6 @@
 # Divergence du float sur le GPU, poutre (14/10/2026)
 
-Suite de results/precision-poutre-gpu-2026-10-14-0604 : sur le GPU, en
+Suite de results/precision-beam-gpu-2026-10-14-0604 : sur le GPU, en
 float, au critère de Newton 1e-4, un calcul de la poutre sur trois divergeait
 et les calculs convergés s'écartaient du double de 3e-4. Poutre r4 (111 843
 inconnues), plasticité J2, PCG de hypre et BoomerAMG (tolérance 1e-4), un
@@ -34,9 +34,9 @@ Après correction, 31 calculs sur 31 convergent (28 en assemblage atomique,
 n = 8 à 14 pas, et 3 calculs identiques en assemblage ordonné), à 4,2e-5 au
 plus du double. En float, l'assemblage coûte autant qu'avant (83 à 85 ms
 pour 16 assemblages, avant comme après). Mesure de performance refaite :
-results/precision-poutre-gpu-2026-10-14-0843 (float 1,37 fois plus rapide
+results/precision-beam-gpu-2026-10-14-0843 (float 1,37 fois plus rapide
 que le double, 3 calculs sur 3 convergés, à 3,4e-5 au plus du double). Test
-reproducteur : `poutre-gpu-r4` dans cas/poutre (assemblage ordonné, n = 10,
+reproducteur : `poutre-gpu-r4` dans cases/beam (assemblage ordonné, n = 10,
 norme comparée au double à 5e-5 près).
 
 ## Étapes
@@ -50,7 +50,7 @@ norme comparée au double à 5e-5 près).
    assemblage ordonné à n = 10 divergent (PCG de hypre, gradient conjugué
    de MFEM, tolérance linéaire 1e-6). Un calcul avec MUMPS (sur le CPU)
    converge.
-2. Tangentes (`tangentes.txt`). Assemblées par noyaux (K) et élément par
+2. Tangentes (`tangents.txt`). Assemblées par noyaux (K) et élément par
    élément (E) au même état, en fin des pas 1, 5, 7 et 8 (le pas 8 étant
    non convergé, après 50 itérations) : écart maximal 2e-7 du plus grand
    terme de la matrice, écart de Frobenius 4e-8, soit l'arrondi du float.
@@ -82,7 +82,7 @@ norme comparée au double à 5e-5 près).
    les calculs qui divergent, le résidu relatif atteint son minimum à la
    deuxième itération (1,0e-4 à 1,5e-4, juste au-dessus du critère), puis
    croît de 1,5 à 2 fois par itération jusqu'à 3e-3.
-4. Sensibilité (`ecarts.txt`), n = 8 à 14 pas, critère 1e-4, assemblage
+4. Sensibilité (`gaps.txt`), n = 8 à 14 pas, critère 1e-4, assemblage
    atomique (non déterministe, un calcul par n), écart de la norme des
    déplacements au double sur le GPU au même nombre de pas :
 
@@ -98,20 +98,20 @@ norme comparée au double à 5e-5 près).
    assemblage atomique (n = 8 à 14, mesure 0604, profilage), 5 calculs sur
    11 divergent (4 sur 8 dans une première série).
 5. Sans contraction. mfem-mgis entièrement compilé avec `-fmad=false`
-   (`ecarts-sans-contraction.txt`) : 7 calculs sur 7 convergent par noyaux,
+   (`gaps-without-contraction.txt`) : 7 calculs sur 7 convergent par noyaux,
    à 3,7e-5 au plus du double. Élément par élément, les résultats sont
    identiques à 10 chiffres avec et sans contraction : sur ce cas, seuls
    les noyaux de raideur influent. Au premier état du pas 8 de cette trajectoire
-   (`directions-pas8-sans-contraction.txt`) : résidu linéaire vrai 5e-4, pas
+   (`directions-pas8-without-contraction.txt`) : résidu linéaire vrai 5e-4, pas
    de MUMPS qui réduit le résidu de 20 fois, K et E équivalents, et
    translations rigides mieux respectées par K (4,2e-8 du terme maximal
    contre 5,1e-8 avec contraction). Correction ciblée sur les noyaux de
-   raideur (`ecarts-correctif.txt`, première version puis version finale) :
+   raideur (`gaps-fix.txt`, première version puis version finale) :
    31 calculs sur 31, dont 3 identiques en assemblage ordonné.
 
 ## Méthode
 
-Programme de diagnostic (brouillon, non suivi) : copie de cas/poutre avec
+Programme de diagnostic (brouillon, non suivi) : copie de cases/beam avec
 deux crochets. Le premier agit après la résolution des pas listés dans
 `COMPARE_TANGENT_STEPS`. Il assemble la tangente par noyaux
 (`GetGradient`), puis élément par élément (`ParNonlinearForm::GetGradient`,
