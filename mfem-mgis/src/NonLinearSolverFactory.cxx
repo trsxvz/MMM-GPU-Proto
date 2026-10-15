@@ -9,6 +9,7 @@
 #include "MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx"
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
 #include "KINSOLSolver.hxx"
+#include "PETScSNESSolver.hxx"
 
 namespace mfem_mgis {
 
@@ -37,6 +38,13 @@ namespace mfem_mgis {
         or_die;
     this->add(ctx, "KINSOL", std::move(g3)) | or_die;
 #endif /* MFEM_USE_SUNDIALS */
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+    auto g4 = make_unique<
+                  StandardNonLinearSolverGenerator<internals::PETScSNESSolver>>(
+                  ctx) |
+              or_die;
+    this->add(ctx, "SNES", std::move(g4)) | or_die;
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
   }  // end of NonLinearSolverFactory
 
   bool NonLinearSolverFactory::add(

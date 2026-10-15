@@ -1,0 +1,1177 @@
+From 58b6663a7b0d277f97014d690436c65dbb252cf5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 13:59:13 +0200
+Subject: [PATCH] Solvers of PETSc on a GPU, SNES: remarks of the review
+
+When MFEM computes on a GPU, the Krylov solvers of PETSc of the factory of
+linear solvers gave wrong results (one iteration, relative residual close
+to one): MFEM 4.10 places the memory of its vectors in the vectors of
+PETSc by setting their internal offload mask, and PETSc 3.26 built with
+CUDA saw null vectors; the shell preconditioners of MFEM wrap the vectors
+of PETSc the same way. Moreover, the vectors of PETSc of the GPU made
+PetscFinalize abort the program when freeing the memory pool of PETSc on
+the GPU. With a GPU, the solvers and the preconditioners of PETSc now
+compute on the host: the matrices are converted to the AIJ format of the
+host, the vectors of PETSc of the host are written and read through
+their arrays, and the preconditioners of mfem-mgis given to the Krylov
+solvers of PETSc are shell preconditioners of mfem-mgis (on the host
+too). PETScSolversTest runs on a GPU (one and two processes); the
+linear solvers of PETSc of SNES are accepted on a GPU.
+
+SNES, after the independent review: a resolution which SNES stops for a
+reason which the convergence test does not give (the length of the step
+when the line search fails, ksponly) is only accepted below the
+tolerance or the stagnation tolerance, the criterion on the step being
+disabled; the failure of the shell preconditioner of the linear solver of
+the problem is reset before each application, and only reported when it
+is applied once (a Krylov solver of PETSc which it preconditions checks
+its own convergence), its transposed application failing; `preonly` is
+set in the code, not in the options database (where the methods of SNES
+without linear solver left it unread); DiscardLinearSolverFailure also
+applies to the Krylov solvers of PETSc; the stagnation window and the
+information on the iterations do not count the initial residual nor the
+rejected trial steps; the behaviours are integrated at the unknowns of
+the tangent operator if their last integration was made elsewhere; the
+products by the tangent operator called by PETSc do not let exceptions
+through; an invalid option of PETSc is a failure instead of an abort;
+the trust region methods are refused with a tangent operator applied
+without assembly (they need its transposed product), and the option
+snes_convergence_test is refused. Docs: line searches none and secant,
+the claims of the docs match the checks of the test.
+---
+ docs/source/user_guide/linear_solvers.rst     |  12 +
+ .../user_guide/nonlinear_algorithms.rst       |  51 +--
+ src/PETScLinearSolvers.cxx                    | 145 ++++++++-
+ src/PETScSNESSolver.cxx                       | 291 ++++++++++++------
+ src/PETScSNESSolver.hxx                       |  11 +-
+ src/PETScSupport.cxx                          |  60 ++++
+ src/PETScSupport.hxx                          |  45 +++
+ tests/CMakeLists.txt                          |  17 +
+ tests/SNESSolverTest.cxx                      |  63 ++--
+ 9 files changed, 545 insertions(+), 150 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index fd36ccb691..acc50bb13f 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -540,6 +540,18 @@ PETSc ignores the options it does not know: the options which PETSc never
+ read (for instance a misspelt option) are reported when a solver which
+ has been used is destroyed.
+ 
++When :code:`MFEM` computes on a GPU, the solvers and the preconditioners
++of PETSc compute on the host: the matrices are converted to the AIJ format
++of the host, and the vectors copied from and to the vectors of
++:code:`MFEM`, the preconditioners of mfem-mgis given to the Krylov solvers
++of PETSc being applied on the vectors of :code:`MFEM`. With :code:`MFEM`
++4.10 and :code:`PETSc` 3.26 built with CUDA, the vectors of :code:`MFEM`
++placed in the vectors of PETSc (whose internal offload mask :code:`MFEM`
++sets) were seen as null by the Krylov solvers of PETSc and by the shell
++preconditioners, and the vectors of PETSc of the GPU made
++:code:`PetscFinalize` abort the program when freeing the memory of PETSc on
++the GPU.
++
+ Without options, the defaults of PETSc apply: the GMRES solver restarted
+ every 30 iterations, preconditioned by an incomplete LU factorization in
+ sequential, and by the block Jacobi method with incomplete LU
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index ca972dc0ff..cf927833a0 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -453,8 +453,12 @@ leading dash: by default, Newton's method with a backtracking line search
+ (:cxx:`snes_type` :cxx:`newtonls`, :cxx:`snes_linesearch_type`
+ :cxx:`bt`); the other methods of SNES (trust region :cxx:`newtontr`,
+ quasi-Newton :cxx:`qn`, nonlinear GMRES :cxx:`ngmres`, ...) and line
+-searches (:cxx:`basic`, which is Newton's method without line search,
+-:cxx:`l2`, ...) are selected by these options. The options are written in
++searches (:cxx:`none`, which is Newton's method without line search,
++:cxx:`secant`, ...) are selected by these options. The trust region
++methods, which multiply the residual by the transposed tangent operator,
++require an assembled tangent operator. The convergence test is the one of
++mfem-mgis (see below: the option :cxx:`snes_convergence_test` is refused).
++The options are written in
+ the options database of :code:`PETSc` with a prefix which is unique to the
+ resolution, and removed after it; the options which :code:`PETSc` never
+ read are reported.
+@@ -470,19 +474,24 @@ systems:
+   :code:`PETSc` as a shell matrix, without copy, which the line search
+   multiplies by the Newton step; it may be applied without assembly (see
+   :ref:`mfem_mgis_batch_computations_matrix_free`). The options of the
+-  preconditioner of :code:`PETSc` (:cxx:`pc_...`) are refused. A failure of
+-  the linear solver stops the resolution, unless the option
+-  :cxx:`DiscardLinearSolverFailure` is true;
++  preconditioner of :code:`PETSc` (:cxx:`pc_...`) are refused. When it is
++  applied once, a failure of the linear solver stops the resolution, unless
++  the option :cxx:`DiscardLinearSolverFailure` is true; when it
++  preconditions a Krylov solver of :code:`PETSc`, this solver checks its own
++  convergence (the linear solvers of mfem-mgis having no transposed
++  application, the Krylov solvers which need it fail);
+ - :cxx:`PETSc`: the tangent operator, which must then be assembled, is
+   converted to the AIJ format of :code:`PETSc` at each update, and the
+   Krylov solver and the preconditioner are the ones of :code:`PETSc` given
+-  by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...). This choice is
+-  refused when :code:`hypre` computes on a GPU: the Newton steps were
+-  wrong (:code:`MFEM` 4.10, :code:`PETSc` 3.26 built with CUDA).
+-
+-With a GPU, SNES computes on vectors of :code:`PETSc` of the host, which
+-the functions called by :code:`PETSc` copy from and to the vectors of
+-mfem-mgis on the device: the vectors of :code:`PETSc` of the GPU, whose
++  by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...). The option
++  :cxx:`DiscardLinearSolverFailure` lets SNES go on after a failure of the
++  Krylov solver.
++
++With a GPU, SNES and the solvers of :code:`PETSc` compute on the host: the
++functions called by :code:`PETSc` copy its vectors from and to the vectors
++of mfem-mgis on the device, and the tangent operator given to the linear
++solvers of :code:`PETSc` is converted to the AIJ format of the host (see
++:ref:`petsc_linear_solvers`). The vectors of :code:`PETSc` of the GPU, whose
+ memory :code:`MFEM` places in the vectors of :code:`PETSc`, were left by
+ :code:`MFEM` 4.10 in states unknown to its memory manager (with the memory
+ of :code:`MFEM` managed by Umpire).
+@@ -490,17 +499,20 @@ of :code:`MFEM` managed by Umpire).
+ When the integration of the behaviours fails at a new estimate, the failure
+ is reported to SNES as a domain error: the backtracking line search reduces
+ its step, the other methods stop. The behaviours are integrated again at
+-the solution returned by SNES when their last integration was made
+-elsewhere.
++the solution returned by SNES, and at the estimate where SNES asks for the
++tangent operator, when their last integration was made elsewhere.
+ 
+ SNES stops when the euclidean norm of the residual is lower than
+ :math:`\max\left(\varepsilon_{r}\,r_{\mathrm{ref}},\varepsilon_{a}\right)`,
+ :math:`r_{\mathrm{ref}}` being the reference norm of the residual (the
+ norm of the residual of the prediction, if any, or of the initial
+ residual), as the Newton solver of mfem-mgis; the other criteria of SNES
+-(length of the step, divergence) are not used. The resolution is stopped
++(length of the step, divergence) are not used, and a resolution which SNES
++stops for another reason is only accepted if its residual is below the
++tolerance or the stagnation tolerance. The resolution is stopped
+ when the residual stagnates (three iterations without a decrease of more
+-than 10 %) below the option :cxx:`StagnationRelativeTolerance`
++than 10 %, the initial residual not being counted) below the option
++:cxx:`StagnationRelativeTolerance`
+ (:math:`10^{4}` times the machine epsilon by default) times the reference
+ norm, and is then accepted. The other options are the ones of the
+ iterative solvers (:cxx:`RelativeTolerance`, :cxx:`AbsoluteTolerance`,
+@@ -509,6 +521,7 @@ which prints each iteration).
+ 
+ On the uniaxial tension of a plastic cube in two time steps (test
+ :file:`tests/SNESSolverTest.cxx`, two processes), Newton's method of SNES,
+-with or without line search, and its trust region method, make the 9
+-iterations of the Newton solver of mfem-mgis, with the same norms of the
+-residual.
++with or without line search, and its trust region method, give the
++solution of the Newton solver of mfem-mgis in its 9 iterations (8 on a
++GPU), the test checking the solution and the number of iterations within
++two.
+diff --git a/src/PETScLinearSolvers.cxx b/src/PETScLinearSolvers.cxx
+index 1f2346cecf..1e564688ed 100644
+--- a/src/PETScLinearSolvers.cxx
++++ b/src/PETScLinearSolvers.cxx
+@@ -3,7 +3,17 @@
+  * \brief  This file implements the module of the linear solvers and of the
+  * preconditioners of PETSc (see `LinearSolverModules.hxx`): a Krylov
+  * solver (`KSP`) and a preconditioner (`PC`) of PETSc, configured by the
+- * options database of PETSc
++ * options database of PETSc.
++ *
++ * When MFEM computes on a GPU, the solvers and the preconditioners of PETSc
++ * compute on the host: the matrices are converted to the AIJ format of the
++ * host, and the vectors copied from and to the vectors of MFEM through the
++ * arrays of the host of PETSc. With MFEM 4.10 and PETSc 3.26 built with
++ * CUDA, the vectors of MFEM placed by MFEM in the vectors of PETSc, whose
++ * internal offload mask MFEM sets, were seen as null by the Krylov solvers
++ * of PETSc and by the shell preconditioners, and the vectors of PETSc of
++ * the GPU made `PetscFinalize` abort the program when freeing the memory
++ * pool of PETSc on the GPU.
+  * \date   15/10/2026
+  */
+ 
+@@ -12,6 +22,7 @@
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+ 
+ #include <memory>
++#include <algorithm>
+ #include <tuple>
+ #include <string>
+ #include <vector>
+@@ -20,8 +31,10 @@
+ #include <string_view>
+ #include "petscsys.h"
+ #include "petscksp.h"
++#include "mfem/general/device.hpp"
+ #include "mfem/linalg/petsc.hpp"
+ #include "mfem/fem/pfespace.hpp"
++#include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+@@ -59,13 +72,30 @@ namespace mfem_mgis::internals {
+      * (`PETScPreconditioner`) becomes the preconditioner of the Krylov
+      * solver, the others are seen by PETSc as shell preconditioners. This
+      * method hides the one of MFEM, which is not virtual.
++     *
++     * The shell preconditioners are the ones of mfem-mgis, whose vectors
++     * are copied from and to the vectors of PETSc through their arrays of
++     * the host: the shell preconditioners of MFEM wrap the vectors of PETSc
++     * by setting their internal offload mask, which, when MFEM computes on
++     * a GPU, gave null vectors to the preconditioner (MFEM 4.10, PETSc
++     * 3.26 built with CUDA).
+      * \param[in] p: preconditioner
+      */
+     void SetPreconditioner(mfem::Solver& p) {
+-      if (dynamic_cast<mfem::PetscPreconditioner*>(&p) == nullptr) {
+-        this->shell_preconditioner = &p;
++      if (dynamic_cast<mfem::PetscPreconditioner*>(&p) != nullptr) {
++        mfem::PetscLinearSolver::SetPreconditioner(p);
++        return;
++      }
++      this->shell_preconditioner = &p;
++      auto pc = PC{};
++      if ((KSPGetPC(static_cast<KSP>(*this), &pc) != 0) ||
++          (PCSetType(pc, PCSHELL) != 0) || (PCShellSetContext(pc, this) != 0) ||
++          (PCShellSetApply(pc, applyShellPreconditioner) != 0) ||
++          (PCShellSetName(pc, "preconditioner of mfem-mgis") != 0)) {
++        mgis::raise(
++            "PETScKrylovSolver::SetPreconditioner: the shell preconditioner "
++            "can't be set");
+       }
+-      mfem::PetscLinearSolver::SetPreconditioner(p);
+     }
+     void SetOperator(const mfem::Operator& op) override {
+       // unlike the Krylov solvers of MFEM, the solver of PETSc does not give
+@@ -75,10 +105,45 @@ namespace mfem_mgis::internals {
+         this->shell_preconditioner->SetOperator(op);
+       }
+       mfem::PetscLinearSolver::SetOperator(op);
++      if (mfem::Device::IsEnabled()) {
++        // see the description of this file
++        auto a = Mat{};
++        auto p = Mat{};
++        if (KSPGetOperators(static_cast<KSP>(*this), &a, &p) != 0) {
++          mgis::raise("PETScKrylovSolver::SetOperator: KSPGetOperators failed");
++        }
++        convertToHostMatrix(a);
++        if (p != a) {
++          convertToHostMatrix(p);
++        }
++      }
+     }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+       this->markAsUsed();
+-      mfem::PetscLinearSolver::Mult(b, x);
++      if (!mfem::Device::IsEnabled()) {
++        mfem::PetscLinearSolver::Mult(b, x);
++        return;
++      }
++      // see the description of this file
++      auto* const ksp = static_cast<KSP>(*this);
++      auto vx = PETScVector{};
++      auto vb = PETScVector{};
++      createHostVector(vb, this->GetComm(), b.Size());
++      createHostVector(vx, this->GetComm(), x.Size());
++      copyToPETScVector(vb.v, b);
++      auto guess = PetscBool{};
++      if (KSPGetInitialGuessNonzero(ksp, &guess) != 0) {
++        mgis::raise(
++            "PETScKrylovSolver::Mult: KSPGetInitialGuessNonzero failed");
++      }
++      if (guess == PETSC_TRUE) {
++        copyToPETScVector(vx.v, x);
++      }
++      this->Customize();
++      if (KSPSolve(ksp, vb.v, vx.v) != 0) {
++        mgis::raise("PETScKrylovSolver::Mult: KSPSolve failed");
++      }
++      copyFromPETScVector(x, vx.v);
+     }
+     [[nodiscard]] bool hasConverged() const noexcept override {
+       // the accessors of MFEM are not constant
+@@ -102,8 +167,45 @@ namespace mfem_mgis::internals {
+     }
+ 
+    private:
++    /*!
++     * \brief apply the shell preconditioner
++     * \return 0 on success, an error of PETSc otherwise (the exceptions do
++     * not cross PETSc)
++     * \param[in] pc: preconditioner of PETSc
++     * \param[in] x: vector
++     * \param[out] y: result
++     */
++    static PetscErrorCode applyShellPreconditioner(PC pc,
++                                                   Vec x,
++                                                   Vec y) noexcept {
++      try {
++        auto* d = static_cast<void*>(nullptr);
++        if (PCShellGetContext(pc, &d) != 0) {
++          return PETSC_ERR_LIB;
++        }
++        const auto& s = *static_cast<const PETScKrylovSolver*>(d);
++        auto n = PetscInt{};
++        if (VecGetLocalSize(x, &n) != 0) {
++          return PETSC_ERR_LIB;
++        }
++        s.shell_rhs.UseDevice(true);
++        s.shell_rhs.SetSize(static_cast<int>(n));
++        s.shell_solution.UseDevice(true);
++        s.shell_solution.SetSize(static_cast<int>(n));
++        copyFromPETScVector(s.shell_rhs, x);
++        s.shell_preconditioner->Mult(s.shell_rhs, s.shell_solution);
++        copyToPETScVector(y, s.shell_solution);
++        return PETSC_SUCCESS;
++      } catch (...) {
++      }
++      return PETSC_ERR_LIB;
++    }  // end of applyShellPreconditioner
+     //! \brief shell preconditioner, if any (not owned)
+     mfem::Solver* shell_preconditioner = nullptr;
++    //! \brief right hand side of the shell preconditioner
++    mutable mfem::Vector shell_rhs;
++    //! \brief result of the shell preconditioner
++    mutable mfem::Vector shell_solution;
+   };  // end of struct PETScKrylovSolver
+ 
+   //! \brief preconditioner of PETSc (`PC`) configured by the options database
+@@ -115,9 +217,40 @@ namespace mfem_mgis::internals {
+     explicit PETScPreconditioner(MPI_Comm comm)
+         : PETScOptions(comm, "pc"),
+           mfem::PetscPreconditioner(comm, this->prefix) {}
++    void SetOperator(const mfem::Operator& op) override {
++      mfem::PetscPreconditioner::SetOperator(op);
++      if (mfem::Device::IsEnabled()) {
++        // see the description of this file
++        auto a = Mat{};
++        auto p = Mat{};
++        if (PCGetOperators(static_cast<PC>(*this), &a, &p) != 0) {
++          mgis::raise(
++              "PETScPreconditioner::SetOperator: PCGetOperators failed");
++        }
++        convertToHostMatrix(a);
++        if (p != a) {
++          convertToHostMatrix(p);
++        }
++      }
++    }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+       this->markAsUsed();
+-      mfem::PetscPreconditioner::Mult(b, x);
++      if (!mfem::Device::IsEnabled()) {
++        mfem::PetscPreconditioner::Mult(b, x);
++        return;
++      }
++      // see the description of this file
++      auto* const pc = static_cast<PC>(*this);
++      auto vx = PETScVector{};
++      auto vb = PETScVector{};
++      createHostVector(vb, this->GetComm(), b.Size());
++      createHostVector(vx, this->GetComm(), x.Size());
++      copyToPETScVector(vb.v, b);
++      this->Customize();
++      if ((PCSetUp(pc) != 0) || (PCApply(pc, vb.v, vx.v) != 0)) {
++        mgis::raise("PETScPreconditioner::Mult: PCApply failed");
++      }
++      copyFromPETScVector(x, vx.v);
+     }
+   };  // end of struct PETScPreconditioner
+ 
+diff --git a/src/PETScSNESSolver.cxx b/src/PETScSNESSolver.cxx
+index 2e0fe424e1..5201b424c8 100644
+--- a/src/PETScSNESSolver.cxx
++++ b/src/PETScSNESSolver.cxx
+@@ -16,8 +16,10 @@
+ #include <vector>
+ #include <iomanip>
+ #include <utility>
++#include <string_view>
+ #include <algorithm>
+ #include "petscsnes.h"
++#include "mfem/general/device.hpp"
+ #include "mfem/linalg/hypre.hpp"
+ #include "mfem/linalg/petsc.hpp"
+ #include "MGIS/Raise.hxx"
+@@ -47,6 +49,8 @@ namespace mfem_mgis::internals {
+     //! \brief the operator of the linear solver is set elsewhere
+     void SetOperator(const mfem::Operator&) override {}
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override;
++    //! \brief not available: reported as a failure of the preconditioner
++    void MultTranspose(const mfem::Vector& b, mfem::Vector& x) const override;
+ 
+    private:
+     //! \brief implementation of the non linear solver
+@@ -79,8 +83,13 @@ namespace mfem_mgis::internals {
+    * `PETScSNESSolverImplementation::copyFromPETSc`)
+    */
+   struct TangentOperatorForPETSc final : public mfem::Operator {
+-    //! \param[in] n: size
+-    explicit TangentOperatorForPETSc(const int n) : mfem::Operator(n) {}
++    /*!
++     * \param[in] s: non linear solver (which handles the failures of the
++     * products, see `callAndHandleFailures`: the products are called by
++     * PETSc, and fill the result with NaN on failure)
++     */
++    explicit TangentOperatorForPETSc(const PETScSNESSolver& s)
++        : mfem::Operator(s.Height()), solver(s) {}
+     //! \param[in] op: tangent operator
+     void setOperator(const mfem::Operator& op) noexcept { this->tangent = &op; }
+     void Mult(const mfem::Vector& px, mfem::Vector& py) const override;
+@@ -92,6 +101,8 @@ namespace mfem_mgis::internals {
+     void MultTranspose(const mfem::Vector& px, mfem::Vector& py) const override;
+ 
+    private:
++    //! \brief non linear solver
++    const PETScSNESSolver& solver;
+     //! \brief tangent operator
+     const mfem::Operator* tangent = nullptr;
+     //! \brief copy of the argument
+@@ -100,23 +111,6 @@ namespace mfem_mgis::internals {
+     mutable mfem::Vector y;
+   };  // end of struct TangentOperatorForPETSc
+ 
+-  //! \brief vector of PETSc, destroyed with this object
+-  struct PETScVector {
+-    PETScVector() = default;
+-    PETScVector(PETScVector&&) = delete;
+-    PETScVector(const PETScVector&) = delete;
+-    PETScVector& operator=(PETScVector&&) = delete;
+-    PETScVector& operator=(const PETScVector&) = delete;
+-    //! \brief destructor
+-    ~PETScVector() {
+-      if (this->v != nullptr) {
+-        std::ignore = VecDestroy(&(this->v));
+-      }
+-    }
+-    //! \brief vector
+-    Vec v = nullptr;
+-  };  // end of struct PETScVector
+-
+   /*!
+    * \brief the operator of the non linear problem given to the SNES of MFEM
+    * (residual and tangent operator) and the SNES itself, built for one
+@@ -136,7 +130,7 @@ namespace mfem_mgis::internals {
+           options(c, "snes"),
+           factory(*this),
+           identity(s.Height()),
+-          tangent_operator(s.Height()) {}
++          tangent_operator(s) {}
+     /*!
+      * \brief create the SNES of MFEM, with the options of PETSc
+      * \param[in] t: tolerance on the norm of the residual
+@@ -152,26 +146,33 @@ namespace mfem_mgis::internals {
+                     const real norm) {
+       const auto& s = this->solver;
+       auto ctx = Context{};
+-      // the shell preconditioner of the linear solver of the problem is
+-      // applied once, unless the options give a Krylov solver
+-      if ((!s.petsc_linear_solver) && (!contains(s.options, "ksp_type"))) {
+-        if (!this->options.setOptions(ctx,
+-                                      Parameters{{"ksp_type", "preonly"}})) {
+-          throw CollectiveFailure("SNES: " + ctx.getErrorMessage());
+-        }
+-      }
+       if (!this->options.setOptions(ctx, s.options)) {
+         throw CollectiveFailure("SNES: " + ctx.getErrorMessage());
+       }
+       this->snes = std::make_unique<mfem::PetscNonlinearSolver>(
+           this->communicator, *this, this->options.prefix);
+-      this->snes->iterative_mode = true;
+-      this->snes->SetMaxIter(s.max_iter);
++      // the criterion on the length of the step is disabled: newtonls
++      // reports a convergence on it when its line search fails
++      check(SNESSetTolerances(*(this->snes), PETSC_CURRENT, PETSC_CURRENT, 0,
++                              s.max_iter, PETSC_CURRENT),
++            "SNESSetTolerances");
++      if (s.isLinearSolverFailureDiscarded()) {
++        check(SNESSetMaxLinearSolveFailures(
++                  *(this->snes), std::numeric_limits<PetscInt>::max()),
++              "SNESSetMaxLinearSolveFailures");
++      }
+       if (s.petsc_linear_solver) {
+         this->snes->SetJacobianType(mfem::Operator::PETSC_MATAIJ);
+       } else {
+         this->snes->SetJacobianType(mfem::Operator::PETSC_MATSHELL);
+         this->snes->SetPreconditionerFactory(&(this->factory));
++        // the shell preconditioner of the linear solver of the problem is
++        // applied once, unless the options give a Krylov solver (set in the
++        // code, not in the options database, where the methods of SNES
++        // without linear solver would leave it unread)
++        auto ksp = KSP{};
++        check(SNESGetKSP(*(this->snes), &ksp), "SNESGetKSP");
++        check(KSPSetType(ksp, KSPPREONLY), "KSPSetType");
+       }
+       check(SNESSetConvergenceTest(*(this->snes), checkConvergence, this,
+                                    nullptr),
+@@ -211,21 +212,19 @@ namespace mfem_mgis::internals {
+       check(VecCreate(this->communicator, &(y.v)), "VecCreate");
+       check(VecSetSizes(y.v, size, PETSC_DECIDE), "VecSetSizes");
+       check(VecSetType(y.v, VECSTANDARD), "VecSetType");
+-      {
+-        auto* a = static_cast<PetscScalar*>(nullptr);
+-        check(VecGetArrayWrite(y.v, &a), "VecGetArrayWrite");
+-        const auto* const px = x.HostRead();
+-        std::copy(px, px + size, a);
+-        check(VecRestoreArrayWrite(y.v, &a), "VecRestoreArrayWrite");
+-      }
+-      this->snes->Customize();
++      copyToPETScVector(y.v, x);
++      // the options are read here (as `mfem::PetscSolver::Customize`, which
++      // stops the program on an invalid option)
++      check(SNESSetFromOptions(*(this->snes)),
++            "SNESSetFromOptions (invalid option of PETSc ?)");
++      // the trust region methods multiply the residual by the transposed
++      // tangent operator, which is not available without assembly (see
++      // `GetGradient`)
++      auto type = SNESType{};
++      check(SNESGetType(*(this->snes), &type), "SNESGetType");
++      this->trust_region = std::string_view{type}.starts_with(SNESNEWTONTR);
+       check(SNESSolve(*(this->snes), nullptr, y.v), "SNESSolve");
+-      {
+-        const auto* a = static_cast<const PetscScalar*>(nullptr);
+-        check(VecGetArrayRead(y.v, &a), "VecGetArrayRead");
+-        std::copy(a, a + size, x.HostWrite());
+-        check(VecRestoreArrayRead(y.v, &a), "VecRestoreArrayRead");
+-      }
++      copyFromPETScVector(x, y.v);
+       auto reason = SNESConvergedReason{};
+       auto n = PetscInt{};
+       check(SNESGetConvergedReason(*(this->snes), &reason),
+@@ -301,24 +300,55 @@ namespace mfem_mgis::internals {
+         copyFromPETSc(pu, this->jacobian_unknowns);
+         const auto& u = this->jacobian_unknowns;
+         const auto& s = this->solver;
++        // the tangent operator is the one of the last integration of the
++        // behaviours, which may have been made elsewhere (last trial point
++        // of a line search stopped on a small step, for instance)
++        const auto integrated =
++            this->last_evaluation_succeeded &&
++            (!(this->getMaximumDifference(u, this->last_unknowns) > 0));
+         auto* j = static_cast<mfem::Operator*>(nullptr);
+-        const auto success = s.callAndHandleFailures([&s, &u, &j] {
+-          j = &(s.getJacobian(u));
+-          if (s.petsc_linear_solver) {
+-            if (dynamic_cast<mfem::HypreParMatrix*>(j) == nullptr) {
+-              throw CollectiveFailure(
+-                  "SNES: the linear solvers of PETSc require an assembled "
+-                  "tangent operator");
+-            }
+-          } else {
+-            s.prec->SetOperator(*j);
+-          }
+-          return true;
+-        });
++        const auto tr = this->trust_region;
++        const auto success =
++            s.callAndHandleFailures([&s, &u, &j, integrated, tr] {
++              if ((!integrated) && (!s.processNewUnknownsEstimate(u))) {
++                return false;
++              }
++              j = &(s.getJacobian(u));
++              if ((tr) && (dynamic_cast<mfem::HypreParMatrix*>(j) == nullptr)) {
++                throw CollectiveFailure(
++                    "SNES: the trust region methods require an assembled "
++                    "tangent operator");
++              }
++              if (s.petsc_linear_solver) {
++                if (dynamic_cast<mfem::HypreParMatrix*>(j) == nullptr) {
++                  throw CollectiveFailure(
++                      "SNES: the linear solvers of PETSc require an assembled "
++                      "tangent operator");
++                }
++              } else {
++                s.prec->SetOperator(*j);
++              }
++              return true;
++            });
+         ++(this->number_of_setups);
++        if (!integrated) {
++          this->last_unknowns = u;
++          this->last_evaluation_succeeded = success;
++        }
+         if (success) {
+           if (s.petsc_linear_solver) {
+-            return *j;
++            if (!mfem::Device::IsEnabled()) {
++              return *j;
++            }
++            // when MFEM computes on a GPU, the tangent operator is converted
++            // to the AIJ format of PETSc of the host here (MFEM chooses the
++            // format of the GPU), the solvers of PETSc computing on the host
++            // (see the description of PETScLinearSolvers.cxx)
++            this->petsc_tangent_operator =
++                std::make_unique<mfem::PetscParMatrix>(
++                    this->communicator, j, mfem::Operator::PETSC_MATAIJ);
++            convertToHostMatrix(*(this->petsc_tangent_operator));
++            return *(this->petsc_tangent_operator);
+           }
+           this->tangent_operator.setOperator(*j);
+           return this->tangent_operator;
+@@ -329,24 +359,38 @@ namespace mfem_mgis::internals {
+       return this->identity;
+     }  // end of GetGradient
+     /*!
+-     * \brief report a failure of the linear solver of the problem to PETSc,
+-     * as a failure of the preconditioner
++     * \brief set or reset the failure of the shell preconditioner of the
++     * linear solver of the problem, as a failure of the preconditioner of
++     * PETSc
++     * \param[in] f: if true, failure
+      */
+-    void reportLinearSolverFailure() const noexcept {
++    void setPreconditionerFailure(const bool f) const noexcept {
+       auto ksp = KSP{};
+       auto pc = PC{};
+       if ((SNESGetKSP(*(this->snes), &ksp) == 0) && (KSPGetPC(ksp, &pc) == 0)) {
+-        std::ignore = PCSetFailedReason(pc, PC_SUBPC_ERROR);
++        std::ignore = PCSetFailedReason(pc, f ? PC_SUBPC_ERROR : PC_NOERROR);
+       }
+-    }  // end of reportLinearSolverFailure
++    }  // end of setPreconditionerFailure
++    //! \return if the linear solver of the problem is applied once
++    [[nodiscard]] bool isPreconditionerAppliedOnce() const noexcept {
++      auto ksp = KSP{};
++      auto type = KSPType{};
++      return (SNESGetKSP(*(this->snes), &ksp) == 0) &&
++             (KSPGetType(ksp, &type) == 0) && (type != nullptr) &&
++             (std::string_view{type} == KSPPREONLY);
++    }  // end of isPreconditionerAppliedOnce
+     /*!
+      * \return the maximum absolute value of the difference of two vectors,
+      * on all the processes
+      */
+     [[nodiscard]] real getMaximumDifference(const mfem::Vector& a,
+                                             const mfem::Vector& b) const {
++      // the maximum is reduced on all the processes, even if the sizes
++      // differ on some of them
+       if (a.Size() != b.Size()) {
+-        return std::numeric_limits<real>::max();
++        auto d = mfem::Vector(1);
++        d = std::numeric_limits<real>::max();
++        return this->getMaximumNorm(d);
+       }
+       auto d = mfem::Vector(a.Size());
+       d.UseDevice(true);
+@@ -429,10 +473,19 @@ namespace mfem_mgis::internals {
+       const auto norm = static_cast<real>(fnorm);
+       i.last_norm = norm;
+       *reason = SNES_CONVERGED_ITERATING;
++      // the initial residual (iteration 0), already known, and the trial
++      // steps rejected by the trust region methods, which test the
++      // convergence at the same iteration, are not counted
++      const auto new_iteration = (it != 0) && (it > i.last_iteration);
++      if (new_iteration) {
++        i.last_iteration = it;
++      }
+       try {
+-        auto iteration = Parameters{};
+-        iteration.replaceOrInsert("Norm", norm);
+-        s.iterations_information.push_back(iteration);
++        if (new_iteration) {
++          auto iteration = Parameters{};
++          iteration.replaceOrInsert("Norm", norm);
++          s.iterations_information.push_back(iteration);
++        }
+         if (s.shallPrint()) {
+           s.getLogStream() << "SNES, iteration " << std::setw(2) << it
+                            << " : ||r|| = " << norm << ", ||r||/||r_0|| = "
+@@ -455,7 +508,7 @@ namespace mfem_mgis::internals {
+       if (norm < window_decrease * i.window_norm) {
+         i.window_norm = norm;
+         i.iterations_without_decrease = 0;
+-      } else {
++      } else if (new_iteration) {
+         ++(i.iterations_without_decrease);
+       }
+       if ((i.iterations_without_decrease >= 3) &&
+@@ -483,6 +536,12 @@ namespace mfem_mgis::internals {
+     mutable mfem::IdentityOperator identity;
+     //! \brief tangent operator given to PETSc as a shell matrix
+     mutable TangentOperatorForPETSc tangent_operator;
++    /*!
++     * \brief tangent operator converted to the AIJ format of PETSc of the
++     * host, when MFEM computes on a GPU and the linear solvers of PETSc are
++     * used
++     */
++    mutable std::unique_ptr<mfem::PetscParMatrix> petsc_tangent_operator;
+ 
+     //! \brief SNES of MFEM
+     std::unique_ptr<mfem::PetscNonlinearSolver> snes;
+@@ -508,31 +567,58 @@ namespace mfem_mgis::internals {
+     real window_norm = std::numeric_limits<real>::max();
+     //! \brief number of iterations of the current window
+     int iterations_without_decrease = 0;
++    //! \brief last iteration given to the convergence test
++    PetscInt last_iteration = 0;
++    //! \brief if true, the method of SNES is a trust region method
++    bool trust_region = false;
+   };  // end of struct PETScSNESSolverImplementation
+ 
++  //! \brief fill a vector given by MFEM for PETSc with NaN
++  static void fillWithNaN(mfem::Vector& v) noexcept {
++    auto* const p = v.HostWrite();
++    std::fill(p, p + v.Size(), std::numeric_limits<real>::quiet_NaN());
++  }  // end of fillWithNaN
++
+   void TangentOperatorForPETSc::Mult(const mfem::Vector& px,
+                                      mfem::Vector& py) const {
+-    PETScSNESSolverImplementation::copyFromPETSc(px, this->x);
+-    this->y.UseDevice(true);
+-    this->y.SetSize(this->Height());
+-    this->tangent->Mult(this->x, this->y);
+-    PETScSNESSolverImplementation::copyToPETSc(this->y, py);
++    try {
++      const auto success = this->solver.callAndHandleFailures([this, &px] {
++        PETScSNESSolverImplementation::copyFromPETSc(px, this->x);
++        this->y.UseDevice(true);
++        this->y.SetSize(this->Height());
++        this->tangent->Mult(this->x, this->y);
++        return true;
++      });
++      if (success) {
++        PETScSNESSolverImplementation::copyToPETSc(this->y, py);
++        return;
++      }
++    } catch (...) {
++    }
++    fillWithNaN(py);
+   }  // end of Mult
+ 
+   void TangentOperatorForPETSc::MultTranspose(const mfem::Vector& px,
+                                               mfem::Vector& py) const {
+-    const auto* const a =
+-        dynamic_cast<const mfem::HypreParMatrix*>(this->tangent);
+-    if (a == nullptr) {
+-      auto* const r = py.HostWrite();
+-      std::fill(r, r + py.Size(), std::numeric_limits<real>::quiet_NaN());
+-      return;
++    try {
++      const auto* const a =
++          dynamic_cast<const mfem::HypreParMatrix*>(this->tangent);
++      if (a != nullptr) {
++        const auto success = this->solver.callAndHandleFailures([this, a, &px] {
++          PETScSNESSolverImplementation::copyFromPETSc(px, this->x);
++          this->y.UseDevice(true);
++          this->y.SetSize(this->Width());
++          a->MultTranspose(this->x, this->y);
++          return true;
++        });
++        if (success) {
++          PETScSNESSolverImplementation::copyToPETSc(this->y, py);
++          return;
++        }
++      }
++    } catch (...) {
+     }
+-    PETScSNESSolverImplementation::copyFromPETSc(px, this->x);
+-    this->y.UseDevice(true);
+-    this->y.SetSize(this->Width());
+-    a->MultTranspose(this->x, this->y);
+-    PETScSNESSolverImplementation::copyToPETSc(this->y, py);
++    fillWithNaN(py);
+   }  // end of MultTranspose
+ 
+   ProblemLinearSolverPreconditioner::ProblemLinearSolverPreconditioner(
+@@ -541,6 +627,9 @@ namespace mfem_mgis::internals {
+ 
+   void ProblemLinearSolverPreconditioner::Mult(const mfem::Vector& pb,
+                                                mfem::Vector& px) const {
++    // the failure of a previous application is forgotten (a shell
++    // preconditioner of PETSc keeps it)
++    this->implementation.setPreconditionerFailure(false);
+     auto failed = true;
+     try {
+       // copies of the vectors of PETSc (see
+@@ -561,11 +650,22 @@ namespace mfem_mgis::internals {
+                               (!hasConverged(*(s.prec))));
+     } catch (...) {
+     }
+-    if (failed) {
+-      this->implementation.reportLinearSolverFailure();
++    // a failure stops the resolution if the linear solver of the problem is
++    // applied once; a Krylov solver of PETSc which it preconditions checks
++    // its own convergence
++    if (failed && this->implementation.isPreconditionerAppliedOnce()) {
++      this->implementation.setPreconditionerFailure(true);
+     }
+   }  // end of Mult
+ 
++  void ProblemLinearSolverPreconditioner::MultTranspose(
++      const mfem::Vector&, mfem::Vector& px) const {
++    // the linear solvers of mfem-mgis are not transposed: the Krylov
++    // solvers of PETSc which need it (bicg, cgne, lsqr...) fail
++    this->implementation.setPreconditionerFailure(true);
++    fillWithNaN(px);
++  }  // end of MultTranspose
++
+   PETScSNESSolver::PETScSNESSolver(
+       NonLinearEvolutionProblemImplementation<true>& p)
+       : NonLinearSolverBase(p) {
+@@ -659,8 +759,10 @@ namespace mfem_mgis::internals {
+     const auto stagnation =
+         this->final_norm <= this->stagnation_relative_tolerance *
+                                 (*(this->reference_residual_norm));
+-    this->converged =
+-        (reason > 0) || (this->final_norm <= tolerance) || stagnation;
++    // the positive reasons of SNES which the convergence test does not give
++    // (for instance the convergence on the length of the step of the
++    // method ksponly) are not accepted if the residual is too large
++    this->converged = (this->final_norm <= tolerance) || stagnation;
+     if (shall_print) {
+       log << "SNES : " << SNESConvergedReasons[reason] << " after "
+           << iterations << " iterations (" << i->number_of_setups
+@@ -688,14 +790,6 @@ namespace mfem_mgis::internals {
+                                         "' (expected 'Problem' or 'PETSc')");
+       }
+       new_petsc_linear_solver = *ov == "PETSc";
+-      // when hypre computes on a GPU, the Newton steps computed by the
+-      // Krylov solvers of PETSc on the tangent operator converted to the AIJ
+-      // format were wrong (MFEM 4.10, PETSc 3.26 built with CUDA)
+-      if (new_petsc_linear_solver && isHypreUsingGPU()) {
+-        return ctx.registerErrorMessage(
+-            "SNES: the linear solvers of PETSc (option LinearSolver set to "
+-            "'PETSc') are not available when hypre computes on a GPU");
+-      }
+     }
+     auto new_options = this->options;
+     if (contains(params, "Options")) {
+@@ -711,6 +805,11 @@ namespace mfem_mgis::internals {
+             "SNES: invalid option '" + n +
+             "' of PETSc (the options are given without the leading dash)");
+       }
++      if (n.starts_with("snes_convergence_test")) {
++        return ctx.registerErrorMessage(
++            "SNES: the option '" + n +
++            "' is refused (the convergence test is the one of mfem-mgis)");
++      }
+       if ((!new_petsc_linear_solver) && (n.starts_with("pc_"))) {
+         return ctx.registerErrorMessage(
+             "SNES: the option '" + n +
+diff --git a/src/PETScSNESSolver.hxx b/src/PETScSNESSolver.hxx
+index 10133a4197..67683017ab 100644
+--- a/src/PETScSNESSolver.hxx
++++ b/src/PETScSNESSolver.hxx
+@@ -31,6 +31,11 @@ namespace mfem_mgis::internals {
+    * instance `{"snes_type", "newtontr"}`, the options being given without
+    * the leading dash).
+    *
++   * The convergence test of SNES is the one of mfem-mgis (the option
++   * `snes_convergence_test` is refused), and the trust region methods,
++   * which multiply the residual by the transposed tangent operator, require
++   * an assembled tangent operator.
++   *
+    * Linear systems: by default (option `LinearSolver` set to `Problem`),
+    * the tangent operator is inverted by the linear solver of the problem,
+    * seen by PETSc as a shell preconditioner applied once (`ksp_type
+@@ -41,7 +46,10 @@ namespace mfem_mgis::internals {
+    * `PETSc`, the tangent operator, which must then be assembled, is
+    * converted to the AIJ format of PETSc at each update, and the Krylov
+    * solver and the preconditioner are the ones of PETSc given by the
+-   * options (`ksp_type`, `pc_type`, ...).
++   * options (`ksp_type`, `pc_type`, ...). With a GPU, SNES and the solvers
++   * of PETSc compute on the host, the vectors being copied from and to the
++   * vectors of mfem-mgis, and the tangent operator given to the solvers of
++   * PETSc being converted to the AIJ format of the host.
+    *
+    * The residual is the one of the problem. A failure of the integration of
+    * the behaviours is reported to SNES as a domain error: the backtracking
+@@ -96,6 +104,7 @@ namespace mfem_mgis::internals {
+    private:
+     friend struct PETScSNESSolverImplementation;
+     friend struct ProblemLinearSolverPreconditioner;
++    friend struct TangentOperatorForPETSc;
+     //! \brief options of PETSc
+     Parameters options;
+     /*!
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+index dbc3de47d0..f8fde044e9 100644
+--- a/src/PETScSupport.cxx
++++ b/src/PETScSupport.cxx
+@@ -16,7 +16,11 @@
+ #include <sstream>
+ #include <optional>
+ #include <utility>
++#include <algorithm>
+ #include "petscsys.h"
++#include "petscvec.h"
++#include "petscmat.h"
++#include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "PETScSupport.hxx"
+ 
+@@ -138,6 +142,62 @@ namespace mfem_mgis::internals {
+     }
+   }  // end of ~PETScOptions
+ 
++  PETScVector::~PETScVector() {
++    if (this->v != nullptr) {
++      std::ignore = VecDestroy(&(this->v));
++    }
++  }  // end of ~PETScVector
++
++  void copyToPETScVector(Vec dst, const mfem::Vector& src) {
++    auto* a = static_cast<PetscScalar*>(nullptr);
++    if (VecGetArrayWrite(dst, &a) != 0) {
++      mgis::raise("copyToPETScVector: VecGetArrayWrite failed");
++    }
++    const auto* const s = src.HostRead();
++    std::copy(s, s + src.Size(), a);
++    if (VecRestoreArrayWrite(dst, &a) != 0) {
++      mgis::raise("copyToPETScVector: VecRestoreArrayWrite failed");
++    }
++  }  // end of copyToPETScVector
++
++  void copyFromPETScVector(mfem::Vector& dst, Vec src) {
++    const auto* a = static_cast<const PetscScalar*>(nullptr);
++    if (VecGetArrayRead(src, &a) != 0) {
++      mgis::raise("copyFromPETScVector: VecGetArrayRead failed");
++    }
++    std::copy(a, a + dst.Size(), dst.HostWrite());
++    if (VecRestoreArrayRead(src, &a) != 0) {
++      mgis::raise("copyFromPETScVector: VecRestoreArrayRead failed");
++    }
++  }  // end of copyFromPETScVector
++
++  void createHostVector(PETScVector& v, MPI_Comm c, const int n) {
++    if ((VecCreate(c, &(v.v)) != 0) ||
++        (VecSetSizes(v.v, static_cast<PetscInt>(n), PETSC_DECIDE) != 0) ||
++        (VecSetType(v.v, VECSTANDARD) != 0)) {
++      mgis::raise("createHostVector: the vector can't be created");
++    }
++  }  // end of createHostVector
++
++  void convertToHostMatrix(Mat a) {
++    if (a == nullptr) {
++      return;
++    }
++    auto device = PetscBool{};
++    if (PetscObjectTypeCompareAny(
++            reinterpret_cast<PetscObject>(a), &device, MATSEQAIJCUSPARSE,
++            MATMPIAIJCUSPARSE, MATAIJCUSPARSE, MATSEQAIJHIPSPARSE,
++            MATMPIAIJHIPSPARSE, MATAIJHIPSPARSE, "") != 0) {
++      mgis::raise("convertToHostMatrix: PetscObjectTypeCompareAny failed");
++    }
++    if (device == PETSC_FALSE) {
++      return;
++    }
++    if (MatConvert(a, MATAIJ, MAT_INPLACE_MATRIX, &a) != 0) {
++      mgis::raise("convertToHostMatrix: MatConvert failed");
++    }
++  }  // end of convertToHostMatrix
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+index f5fad4a6e2..13b7e860b3 100644
+--- a/src/PETScSupport.hxx
++++ b/src/PETScSupport.hxx
+@@ -14,6 +14,9 @@
+ #include <vector>
+ #include <string_view>
+ #include <mpi.h>
++#include "petscvec.h"
++#include "petscmat.h"
++#include "mfem/linalg/vector.hpp"
+ #include "MFEMMGIS/Parameters.hxx"
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+ #include "MFEMMGIS/Config.hxx"
+@@ -87,6 +90,48 @@ namespace mfem_mgis::internals {
+     mutable bool used = false;
+   };  // end of struct PETScOptions
+ 
++  //! \brief vector of PETSc, destroyed with this object
++  struct PETScVector {
++    PETScVector() = default;
++    PETScVector(PETScVector&&) = delete;
++    PETScVector(const PETScVector&) = delete;
++    PETScVector& operator=(PETScVector&&) = delete;
++    PETScVector& operator=(const PETScVector&) = delete;
++    //! \brief destructor
++    ~PETScVector();
++    //! \brief vector
++    Vec v = nullptr;
++  };  // end of struct PETScVector
++
++  /*!
++   * \brief copy a vector of MFEM in a vector of PETSc, through the array of
++   * the host of PETSc (PETSc then synchronizes its arrays, whatever the type
++   * of the vector)
++   * \param[out] dst: vector of PETSc
++   * \param[in] src: vector of MFEM
++   */
++  void copyToPETScVector(Vec dst, const mfem::Vector& src);
++  /*!
++   * \brief copy a vector of PETSc in a vector of MFEM, through the array of
++   * the host of PETSc
++   * \param[out] dst: vector of MFEM
++   * \param[in] src: vector of PETSc
++   */
++  void copyFromPETScVector(mfem::Vector& dst, Vec src);
++  /*!
++   * \brief create a vector of PETSc of the host
++   * \param[out] v: vector
++   * \param[in] c: communicator
++   * \param[in] n: local size
++   */
++  void createHostVector(PETScVector& v, MPI_Comm c, const int n);
++  /*!
++   * \brief convert a matrix of PETSc of the GPU (AIJ formats of CUDA or HIP)
++   * to the AIJ format of the host, in place
++   * \param[in, out] a: matrix
++   */
++  void convertToHostMatrix(Mat a);
++
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+ 
+ }  // end of namespace mfem_mgis::internals
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 9f4fe1a600..1eed8ced0a 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1920,6 +1920,23 @@ if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
+   add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
+   set_tests_properties(PETScSolversTest PETScSolversTestP PROPERTIES
+     FAIL_REGULAR_EXPRESSION "check failed")
++  # with MFEM on a GPU, the solvers of PETSc compute on the host
++  if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
++     enable-gpu-tests)
++    if(MFEM_USE_CUDA STREQUAL "YES")
++      set(petsc_solvers_test_device cuda)
++    else()
++      set(petsc_solvers_test_device hip)
++    endif()
++    add_test(NAME PETScSolversTest-gpu
++             COMMAND PETScSolversTest --device ${petsc_solvers_test_device})
++    add_test(NAME PETScSolversTestP-gpu
++             COMMAND mpirun -n 2 ./PETScSolversTest
++                     --device ${petsc_solvers_test_device})
++    set_tests_properties(PETScSolversTest-gpu PETScSolversTestP-gpu
++      PROPERTIES FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu
++                 TIMEOUT 600)
++  endif()
+ endif()
+ 
+ # AmgXSolverTest executable: solvers of AmgX built by the factory of linear
+diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
+index 0901d58822..54ba7d29b5 100644
+--- a/tests/SNESSolverTest.cxx
++++ b/tests/SNESSolverTest.cxx
+@@ -9,14 +9,15 @@
+  *   problem (MUMPS) applied once or preconditioning a Krylov solver of
+  *   PETSc, and with the Krylov solver and the preconditioner of PETSc,
+  *   given by the option `LinearSolver` or as the linear solver of the
+- *   problem (on the host only), gives the solution of the Newton solver of
+- *   mfem-mgis;
+- * - Newton's method of SNES without line search makes the iterations of
+- *   the Newton solver (same criterion), within one iteration per time
+- *   step, and with the line search at most as many plus two;
++ *   problem, gives the solution of the Newton solver of mfem-mgis;
++ * - Newton's method of SNES without line search, and the trust region
++ *   method, make the iterations of the Newton solver (same criterion),
++ *   within two iterations, and with the line search at most as many plus
++ *   two;
+  * - with the tangent operator applied without assembly, SNES gives the
+  *   solution of the Newton solver with the same operator, the linear
+- *   solvers of PETSc being refused (they require an assembled operator);
++ *   solvers of PETSc and the trust region method being refused (they
++ *   require an assembled operator);
+  * - with a relative tolerance below the floor of the rounding errors, the
+  *   resolution is stopped by the stagnation of the residual and accepted;
+  * - a failure of the integration of the behaviours at the Newton step is
+@@ -26,11 +27,10 @@
+  *   being below it, fails after at least one iteration;
+  * - a failure of the linear solver stops the resolution at the first
+  *   iteration;
+- * - the invalid options are refused, SNES in sequential, and, when hypre
+- *   computes on a GPU, the linear solvers of PETSc.
++ * - the invalid options are refused, and SNES in sequential.
+  *
+- * With a GPU, SNES computes on the vectors of PETSc of the host, copied
+- * from and to the vectors of mfem-mgis on the device.
++ * With a GPU, SNES and the solvers of PETSc compute on the host, the
++ * vectors being copied from and to the vectors of mfem-mgis on the device.
+  * \date   15/10/2026
+  */
+ 
+@@ -342,35 +342,31 @@ int main(int argc, char** argv) {
+         "SNES, line search: more iterations than the Newton solver");
+   const auto newton =
+       run("SNES, no line search", reference,
+-          snes({{"Options", Parameters{{"snes_linesearch_type", "basic"}}}}));
++          snes({{"Options", Parameters{{"snes_linesearch_type", "none"}}}}));
+   check((newton.iterations + 2 >= reference.iterations) &&
+             (newton.iterations <= reference.iterations + 2),
+         "SNES, no line search: not the iterations of the Newton solver");
+-  std::ignore = run("SNES, trust region", reference,
+-                    snes({{"Options", Parameters{{"snes_type", "newtontr"}}}}));
++  const auto trust_region =
++      run("SNES, trust region", reference,
++          snes({{"Options", Parameters{{"snes_type", "newtontr"}}}}));
++  check((trust_region.iterations + 2 >= reference.iterations) &&
++            (trust_region.iterations <= reference.iterations + 2),
++        "SNES, trust region: not the iterations of the Newton solver");
+   // the linear solver of the problem preconditioning a Krylov solver of
+   // PETSc
+   std::ignore = run("SNES, GMRES of PETSc preconditioned by MUMPS", reference,
+                     snes({{"Options", Parameters{{"ksp_type", "gmres"},
+                                                  {"ksp_rtol", 1e-12}}}}));
+-  // the Krylov solver and the preconditioner of PETSc, refused when hypre
+-  // computes on a GPU
++  // the Krylov solver and the preconditioner of PETSc
+   const auto petsc_options = Parameters{{"ksp_type", "gmres"},
+                                         {"ksp_rtol", 1e-12},
+                                         {"ksp_max_it", 1000},
+                                         {"pc_type", "gamg"}};
+-  if (isHypreUsingGPU()) {
+-    checkRefusal(mesh, Parameters{{"LinearSolver", "PETSc"}},
+-                 "not available when hypre computes on a GPU");
+-  } else {
+-    std::ignore =
+-        run("SNES, GMRES and GAMG of PETSc", reference,
+-            snes({{"LinearSolver", "PETSc"}, {"Options", petsc_options}}));
+-  }
+-  // the same solvers of PETSc as the linear solver of the problem (on the
+-  // host only: on a GPU, the Krylov solvers of PETSc of the factory of
+-  // linear solvers give wrong results)
+-  if (!isHypreUsingGPU()) {
++  std::ignore =
++      run("SNES, GMRES and GAMG of PETSc", reference,
++          snes({{"LinearSolver", "PETSc"}, {"Options", petsc_options}}));
++  // the same solvers of PETSc as the linear solver of the problem
++  {
+     auto s = snes({});
+     s.linear_solver = "PETScLinearSolver";
+     s.linear_solver_options = Parameters{{"Options", petsc_options}};
+@@ -395,12 +391,19 @@ int main(int argc, char** argv) {
+     const auto mf_reference = compute(mesh, library, matrix_free(Settings{}));
+     check(mf_reference.status, "Newton, matrix free: resolution failed");
+     std::ignore = run("SNES, matrix free", mf_reference, matrix_free(snes({})));
+-    if (!isHypreUsingGPU()) {
++    {
+       const auto r = compute(mesh, library,
+                              matrix_free(snes({{"LinearSolver", "PETSc"}})));
+       check((!r.status) && (r.failed_iterations == 0),
+             "SNES, matrix free: the linear solvers of PETSc are not refused");
+     }
++    // the trust region methods need the transposed tangent operator
++    const auto r = compute(
++        mesh, library,
++        matrix_free(
++            snes({{"Options", Parameters{{"snes_type", "newtontr"}}}})));
++    check((!r.status) && (r.failed_iterations == 0),
++          "SNES, matrix free: the trust region method is not refused");
+   }
+   // a relative tolerance below the floor of the rounding errors: the
+   // resolution is stopped by the stagnation of the residual, and accepted
+@@ -449,6 +452,10 @@ int main(int argc, char** argv) {
+   checkRefusal(mesh,
+                Parameters{{"Options", Parameters{{"-snes_type", "newtontr"}}}},
+                "without the leading dash");
++  checkRefusal(
++      mesh,
++      Parameters{{"Options", Parameters{{"snes_convergence_test", "skip"}}}},
++      "the convergence test is the one of mfem-mgis");
+   checkRefusal(mesh, Parameters{{"StagnationRelativeTolerance", 1.}},
+                "StagnationRelativeTolerance");
+   checkRefusal(mesh, Parameters{{"MaximumNumberOfIterations", 0}},
+-- 
+2.43.0
+

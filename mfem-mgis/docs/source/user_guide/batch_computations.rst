@@ -848,11 +848,21 @@ host at each setup, and the resolutions start from a zero initial guess.
    * - :code:`Configuration`
      - Configuration of :code:`AmgX`, as a string (:code:`AmgX` only).
        Exclusive with :code:`ConfigurationFile`. A configuration given
-       defines all the parameters of :code:`AmgX`: :code:`VerbosityLevel`
-       and :code:`AmgXParameters` are then refused.
+       defines all the parameters of :code:`AmgX`: :code:`VerbosityLevel`,
+       :code:`Multigrid` and :code:`AmgXParameters` are then refused.
    * - :code:`ConfigurationFile`
      - File containing the configuration of :code:`AmgX` (:code:`AmgX`
        only), with the same restrictions as :code:`Configuration`.
+   * - :code:`Multigrid`
+     - Algebraic multigrid of the default configuration:
+       :code:`Classical` (default; one V-cycle, L1-Jacobi smoother, D2
+       interpolation) or :code:`Aggregation` (one V-cycle of the
+       aggregation multigrid of the configuration
+       :code:`PCG_AGGREGATION_JACOBI` of :code:`AmgX`: aggregates of size
+       two, three post-smoothing sweeps of a damped Jacobi smoother and no
+       pre-smoothing sweep, a cycle which is not symmetric, but with which
+       the conjugate gradients converge, as in the configuration of
+       :code:`AmgX`).
    * - :code:`AmgXParameters`
      - Parameters of :code:`AmgX`, with their names in :code:`AmgX`, which
        complete or override the default configuration. A name without

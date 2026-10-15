@@ -1,0 +1,491 @@
+From 68084527ea762399eef4fd3c1fbccca6a8262b49 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 13:40:45 +0200
+Subject: [PATCH] SNES on a GPU
+
+With a GPU (vectors of PETSc of the GPU, memory of MFEM managed by
+Umpire), mfem::PetscNonlinearSolver::Mult placed the memory of the
+unknowns in the vector of PETSc and left it in a state unknown to the
+memory manager of MFEM, and __mfem_snes_jacobian gave to GetGradient the
+array of the host of PETSc, unknown to it: the program stopped. SNES now
+computes on vectors of PETSc of the host, created and read through their
+arrays, and the functions called by PETSc (residual, tangent operator
+seen as a shell matrix, with its transposed product for the trust region
+methods, shell preconditioner) copy the vectors given by MFEM from and
+to vectors of mfem-mgis on the host. The linear solvers of PETSc (option
+LinearSolver set to PETSc) are refused when hypre computes on a GPU: the
+Newton steps computed with the tangent operator converted to the AIJ
+format were wrong (the Krylov solvers of PETSc of the factory of linear
+solvers are also wrong on a GPU, to be investigated).
+
+SNESSolverTestP-gpu: all the cases of SNESSolverTest but the linear
+solvers of PETSc give the solution and the iterations of the Newton
+solver on a GPU.
+---
+ .../user_guide/nonlinear_algorithms.rst       |  11 +-
+ src/PETScSNESSolver.cxx                       | 192 +++++++++++++++++-
+ tests/CMakeLists.txt                          |  16 ++
+ tests/SNESSolverTest.cxx                      |  52 +++--
+ 4 files changed, 246 insertions(+), 25 deletions(-)
+
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index 6c1c95b543..ca972dc0ff 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -476,7 +476,16 @@ systems:
+ - :cxx:`PETSc`: the tangent operator, which must then be assembled, is
+   converted to the AIJ format of :code:`PETSc` at each update, and the
+   Krylov solver and the preconditioner are the ones of :code:`PETSc` given
+-  by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...).
++  by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...). This choice is
++  refused when :code:`hypre` computes on a GPU: the Newton steps were
++  wrong (:code:`MFEM` 4.10, :code:`PETSc` 3.26 built with CUDA).
++
++With a GPU, SNES computes on vectors of :code:`PETSc` of the host, which
++the functions called by :code:`PETSc` copy from and to the vectors of
++mfem-mgis on the device: the vectors of :code:`PETSc` of the GPU, whose
++memory :code:`MFEM` places in the vectors of :code:`PETSc`, were left by
++:code:`MFEM` 4.10 in states unknown to its memory manager (with the memory
++of :code:`MFEM` managed by Umpire).
+ 
+ When the integration of the behaviours fails at a new estimate, the failure
+ is reported to SNES as a domain error: the backtracking line search reduces
+diff --git a/src/PETScSNESSolver.cxx b/src/PETScSNESSolver.cxx
+index a3a326ea40..2e0fe424e1 100644
+--- a/src/PETScSNESSolver.cxx
++++ b/src/PETScSNESSolver.cxx
+@@ -18,6 +18,7 @@
+ #include <utility>
+ #include <algorithm>
+ #include "petscsnes.h"
++#include "mfem/linalg/hypre.hpp"
+ #include "mfem/linalg/petsc.hpp"
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/MPI.hxx"
+@@ -50,6 +51,10 @@ namespace mfem_mgis::internals {
+    private:
+     //! \brief implementation of the non linear solver
+     const PETScSNESSolverImplementation& implementation;
++    //! \brief right hand side
++    mutable mfem::Vector rhs;
++    //! \brief solution
++    mutable mfem::Vector solution;
+   };  // end of struct ProblemLinearSolverPreconditioner
+ 
+   //! \brief factory of the shell preconditioners of PETSc
+@@ -68,6 +73,50 @@ namespace mfem_mgis::internals {
+     const PETScSNESSolverImplementation& implementation;
+   };  // end of struct ProblemLinearSolverFactory
+ 
++  /*!
++   * \brief tangent operator seen by PETSc as a shell matrix: the vectors of
++   * PETSc are copied into vectors of mfem-mgis on the host (see
++   * `PETScSNESSolverImplementation::copyFromPETSc`)
++   */
++  struct TangentOperatorForPETSc final : public mfem::Operator {
++    //! \param[in] n: size
++    explicit TangentOperatorForPETSc(const int n) : mfem::Operator(n) {}
++    //! \param[in] op: tangent operator
++    void setOperator(const mfem::Operator& op) noexcept { this->tangent = &op; }
++    void Mult(const mfem::Vector& px, mfem::Vector& py) const override;
++    /*!
++     * \brief product by the transposed tangent operator (trust region
++     * methods of SNES), only available for an assembled tangent operator:
++     * otherwise, the result is filled with NaN, which stops SNES
++     */
++    void MultTranspose(const mfem::Vector& px, mfem::Vector& py) const override;
++
++   private:
++    //! \brief tangent operator
++    const mfem::Operator* tangent = nullptr;
++    //! \brief copy of the argument
++    mutable mfem::Vector x;
++    //! \brief result
++    mutable mfem::Vector y;
++  };  // end of struct TangentOperatorForPETSc
++
++  //! \brief vector of PETSc, destroyed with this object
++  struct PETScVector {
++    PETScVector() = default;
++    PETScVector(PETScVector&&) = delete;
++    PETScVector(const PETScVector&) = delete;
++    PETScVector& operator=(PETScVector&&) = delete;
++    PETScVector& operator=(const PETScVector&) = delete;
++    //! \brief destructor
++    ~PETScVector() {
++      if (this->v != nullptr) {
++        std::ignore = VecDestroy(&(this->v));
++      }
++    }
++    //! \brief vector
++    Vec v = nullptr;
++  };  // end of struct PETScVector
++
+   /*!
+    * \brief the operator of the non linear problem given to the SNES of MFEM
+    * (residual and tangent operator) and the SNES itself, built for one
+@@ -86,7 +135,8 @@ namespace mfem_mgis::internals {
+           communicator(c),
+           options(c, "snes"),
+           factory(*this),
+-          identity(s.Height()) {}
++          identity(s.Height()),
++          tangent_operator(s.Height()) {}
+     /*!
+      * \brief create the SNES of MFEM, with the options of PETSc
+      * \param[in] t: tolerance on the norm of the residual
+@@ -145,9 +195,37 @@ namespace mfem_mgis::internals {
+      */
+     SNESConvergedReason solve(mfem::Vector& x, int& iterations) {
+       this->options.markAsUsed();
+-      // no right hand side: an empty vector, as for `usePETSc`
+-      const auto b = mfem::Vector{};
+-      this->snes->Mult(b, x);
++      // the vectors of SNES are vectors of PETSc of the host, whatever the
++      // device of MFEM: the functions called by PETSc copy them into
++      // vectors of mfem-mgis (see `copyFromPETSc`). On a device, the vectors
++      // of PETSc of the GPU (memory of MFEM managed by Umpire) were not
++      // handled by MFEM 4.10: `mfem::PetscNonlinearSolver::Mult`, which
++      // places the memory of the unknowns in the vector of PETSc, left it in
++      // a state unknown to the memory manager of MFEM, and so did the
++      // destruction of a vector of MFEM wrapping a vector of PETSc whose
++      // arrays PETSc changed; the trust region method of SNES and the
++      // Krylov solvers of PETSc failed. SNES is thus called on a vector of
++      // the host owned by PETSc, written and read through its array
++      const auto size = x.Size();
++      auto y = PETScVector{};
++      check(VecCreate(this->communicator, &(y.v)), "VecCreate");
++      check(VecSetSizes(y.v, size, PETSC_DECIDE), "VecSetSizes");
++      check(VecSetType(y.v, VECSTANDARD), "VecSetType");
++      {
++        auto* a = static_cast<PetscScalar*>(nullptr);
++        check(VecGetArrayWrite(y.v, &a), "VecGetArrayWrite");
++        const auto* const px = x.HostRead();
++        std::copy(px, px + size, a);
++        check(VecRestoreArrayWrite(y.v, &a), "VecRestoreArrayWrite");
++      }
++      this->snes->Customize();
++      check(SNESSolve(*(this->snes), nullptr, y.v), "SNESSolve");
++      {
++        const auto* a = static_cast<const PetscScalar*>(nullptr);
++        check(VecGetArrayRead(y.v, &a), "VecGetArrayRead");
++        std::copy(a, a + size, x.HostWrite());
++        check(VecRestoreArrayRead(y.v, &a), "VecRestoreArrayRead");
++      }
+       auto reason = SNESConvergedReason{};
+       auto n = PetscInt{};
+       check(SNESGetConvergedReason(*(this->snes), &reason),
+@@ -165,20 +243,25 @@ namespace mfem_mgis::internals {
+      * \param[in] u: unknowns
+      * \param[out] r: residual
+      */
+-    void Mult(const mfem::Vector& u, mfem::Vector& r) const override {
++    void Mult(const mfem::Vector& pu, mfem::Vector& pr) const override {
+       try {
++        copyFromPETSc(pu, this->unknowns);
++        const auto& u = this->unknowns;
+         this->last_unknowns = u;
+         this->last_evaluation_succeeded = false;
+         // first evaluation, at the initial guess (collective test)
+         if (this->initial_residual_available) {
+           this->initial_residual_available = false;
+           if (!(this->getMaximumDifference(u, this->initial_unknowns) > 0)) {
+-            r = this->initial_residual;
++            copyToPETSc(this->initial_residual, pr);
+             this->last_evaluation_succeeded = true;
+             return;
+           }
+         }
+         const auto& s = this->solver;
++        auto& r = this->residual;
++        r.UseDevice(true);
++        r.SetSize(u.Size());
+         const auto success = s.callAndHandleFailures([&s, &u, &r] {
+           if (!s.processNewUnknownsEstimate(u)) {
+             return false;
+@@ -188,6 +271,7 @@ namespace mfem_mgis::internals {
+         });
+         ++(this->number_of_evaluations);
+         if (success) {
++          copyToPETSc(r, pr);
+           this->last_evaluation_succeeded = true;
+           return;
+         }
+@@ -199,7 +283,8 @@ namespace mfem_mgis::internals {
+       } catch (...) {
+       }
+       std::ignore = SNESSetFunctionDomainError(*(this->snes));
+-      r = std::numeric_limits<real>::quiet_NaN();
++      auto* const r = pr.HostWrite();
++      std::fill(r, r + pr.Size(), std::numeric_limits<real>::quiet_NaN());
+     }  // end of Mult
+     /*!
+      * \brief compute the tangent operator, called by SNES, and give it to
+@@ -207,8 +292,14 @@ namespace mfem_mgis::internals {
+      * SNES as a domain error, the identity being returned.
+      * \param[in] u: unknowns
+      */
+-    mfem::Operator& GetGradient(const mfem::Vector& u) const override {
++    mfem::Operator& GetGradient(const mfem::Vector& pu) const override {
++      // the linear solvers of PETSc need the assembled operator, converted
++      // by MFEM; otherwise, the products by the tangent operator made by
++      // PETSc (shell matrix) are given to `tangent_operator`, which copies
++      // the vectors of PETSc
+       try {
++        copyFromPETSc(pu, this->jacobian_unknowns);
++        const auto& u = this->jacobian_unknowns;
+         const auto& s = this->solver;
+         auto* j = static_cast<mfem::Operator*>(nullptr);
+         const auto success = s.callAndHandleFailures([&s, &u, &j] {
+@@ -226,7 +317,11 @@ namespace mfem_mgis::internals {
+         });
+         ++(this->number_of_setups);
+         if (success) {
+-          return *j;
++          if (s.petsc_linear_solver) {
++            return *j;
++          }
++          this->tangent_operator.setOperator(*j);
++          return this->tangent_operator;
+         }
+       } catch (...) {
+       }
+@@ -266,6 +361,31 @@ namespace mfem_mgis::internals {
+                     this->communicator);
+       return n;
+     }  // end of getMaximumNorm
++    /*!
++     * \brief copy a vector given by MFEM for PETSc (the vectors given to the
++     * functions called by PETSc wrap the arrays of PETSc) into a vector of
++     * mfem-mgis, on the host: `__mfem_snes_jacobian` (MFEM 4.10) gives to
++     * `GetGradient` the array of the host of PETSc, unknown to the memory
++     * manager of MFEM, which stops the program when it is read on a device
++     * \param[in] src: vector given by MFEM
++     * \param[out] dst: vector of mfem-mgis
++     */
++    static void copyFromPETSc(const mfem::Vector& src, mfem::Vector& dst) {
++      dst.UseDevice(true);
++      dst.SetSize(src.Size());
++      const auto* const s = src.HostRead();
++      std::copy(s, s + src.Size(), dst.HostWrite());
++    }  // end of copyFromPETSc
++    /*!
++     * \brief copy a vector of mfem-mgis into a vector given by MFEM for
++     * PETSc, on the host
++     * \param[in] src: vector of mfem-mgis
++     * \param[out] dst: vector given by MFEM
++     */
++    static void copyToPETSc(const mfem::Vector& src, mfem::Vector& dst) {
++      const auto* const s = src.HostRead();
++      std::copy(s, s + src.Size(), dst.HostWrite());
++    }  // end of copyToPETSc
+     //! \brief non linear solver
+     const PETScSNESSolver& solver;
+     //! \brief unknowns of the last evaluation of the residual
+@@ -361,6 +481,9 @@ namespace mfem_mgis::internals {
+     ProblemLinearSolverFactory factory;
+     //! \brief operator returned when the tangent operator can't be computed
+     mutable mfem::IdentityOperator identity;
++    //! \brief tangent operator given to PETSc as a shell matrix
++    mutable TangentOperatorForPETSc tangent_operator;
++
+     //! \brief SNES of MFEM
+     std::unique_ptr<mfem::PetscNonlinearSolver> snes;
+     //! \brief tolerance on the norm of the residual
+@@ -371,6 +494,12 @@ namespace mfem_mgis::internals {
+     mfem::Vector initial_residual;
+     //! \brief if true, the initial residual is given to SNES
+     mutable bool initial_residual_available = false;
++    //! \brief unknowns given by SNES to the evaluation of the residual
++    mutable mfem::Vector unknowns;
++    //! \brief residual
++    mutable mfem::Vector residual;
++    //! \brief unknowns given by SNES to the computation of the tangent
++    mutable mfem::Vector jacobian_unknowns;
+     /*!
+      * \brief norm of the residual at the beginning of the current window of
+      * iterations without a decrease of more than 10 % (detection of a
+@@ -381,19 +510,52 @@ namespace mfem_mgis::internals {
+     int iterations_without_decrease = 0;
+   };  // end of struct PETScSNESSolverImplementation
+ 
++  void TangentOperatorForPETSc::Mult(const mfem::Vector& px,
++                                     mfem::Vector& py) const {
++    PETScSNESSolverImplementation::copyFromPETSc(px, this->x);
++    this->y.UseDevice(true);
++    this->y.SetSize(this->Height());
++    this->tangent->Mult(this->x, this->y);
++    PETScSNESSolverImplementation::copyToPETSc(this->y, py);
++  }  // end of Mult
++
++  void TangentOperatorForPETSc::MultTranspose(const mfem::Vector& px,
++                                              mfem::Vector& py) const {
++    const auto* const a =
++        dynamic_cast<const mfem::HypreParMatrix*>(this->tangent);
++    if (a == nullptr) {
++      auto* const r = py.HostWrite();
++      std::fill(r, r + py.Size(), std::numeric_limits<real>::quiet_NaN());
++      return;
++    }
++    PETScSNESSolverImplementation::copyFromPETSc(px, this->x);
++    this->y.UseDevice(true);
++    this->y.SetSize(this->Width());
++    a->MultTranspose(this->x, this->y);
++    PETScSNESSolverImplementation::copyToPETSc(this->y, py);
++  }  // end of MultTranspose
++
+   ProblemLinearSolverPreconditioner::ProblemLinearSolverPreconditioner(
+       const PETScSNESSolverImplementation& i)
+       : mfem::Solver(i.Height()), implementation(i) {}
+ 
+-  void ProblemLinearSolverPreconditioner::Mult(const mfem::Vector& b,
+-                                               mfem::Vector& x) const {
++  void ProblemLinearSolverPreconditioner::Mult(const mfem::Vector& pb,
++                                               mfem::Vector& px) const {
+     auto failed = true;
+     try {
++      // copies of the vectors of PETSc (see
++      // `PETScSNESSolverImplementation::copyFromPETSc`)
++      PETScSNESSolverImplementation::copyFromPETSc(pb, this->rhs);
++      this->solution.UseDevice(true);
++      this->solution.SetSize(pb.Size());
+       const auto& s = this->implementation.solver;
++      const auto& b = this->rhs;
++      auto& x = this->solution;
+       const auto success = s.callAndHandleFailures([&s, &b, &x] {
+         s.prec->Mult(b, x);
+         return true;
+       });
++      PETScSNESSolverImplementation::copyToPETSc(x, px);
+       clearHypreErrors();
+       failed = (!success) || ((!s.isLinearSolverFailureDiscarded()) &&
+                               (!hasConverged(*(s.prec))));
+@@ -526,6 +688,14 @@ namespace mfem_mgis::internals {
+                                         "' (expected 'Problem' or 'PETSc')");
+       }
+       new_petsc_linear_solver = *ov == "PETSc";
++      // when hypre computes on a GPU, the Newton steps computed by the
++      // Krylov solvers of PETSc on the tangent operator converted to the AIJ
++      // format were wrong (MFEM 4.10, PETSc 3.26 built with CUDA)
++      if (new_petsc_linear_solver && isHypreUsingGPU()) {
++        return ctx.registerErrorMessage(
++            "SNES: the linear solvers of PETSc (option LinearSolver set to "
++            "'PETSc') are not available when hypre computes on a GPU");
++      }
+     }
+     auto new_options = this->options;
+     if (contains(params, "Options")) {
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 7fe3662e38..9f4fe1a600 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1204,6 +1204,22 @@ if(MFEM_MGIS_HAVE_TFEL)
+                      --library $<TARGET_FILE:BehaviourTest>)
+     set_tests_properties(SNESSolverTestP PROPERTIES
+       ENVIRONMENT OMP_NUM_THREADS=1 FAIL_REGULAR_EXPRESSION "check failed")
++    if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
++       enable-gpu-tests)
++      if(MFEM_USE_CUDA STREQUAL "YES")
++        set(snes_solver_test_device cuda)
++      else()
++        set(snes_solver_test_device hip)
++      endif()
++      add_test(NAME SNESSolverTestP-gpu
++               COMMAND mpirun -n 2 ./SNESSolverTest
++                       --device ${snes_solver_test_device}
++                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                       --library $<TARGET_FILE:BehaviourTest>)
++      set_tests_properties(SNESSolverTestP-gpu PROPERTIES
++        ENVIRONMENT OMP_NUM_THREADS=1 FAIL_REGULAR_EXPRESSION "check failed"
++        RESOURCE_LOCK gpu TIMEOUT 600)
++    endif()
+   endif()
+ 
+   # FixedPointSolverTest executable: fixed point solver (methods,
+diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
+index 97872c0f7d..0901d58822 100644
+--- a/tests/SNESSolverTest.cxx
++++ b/tests/SNESSolverTest.cxx
+@@ -8,7 +8,9 @@
+  *   without line search, with a trust region, with the linear solver of the
+  *   problem (MUMPS) applied once or preconditioning a Krylov solver of
+  *   PETSc, and with the Krylov solver and the preconditioner of PETSc,
+- *   gives the solution of the Newton solver of mfem-mgis;
++ *   given by the option `LinearSolver` or as the linear solver of the
++ *   problem (on the host only), gives the solution of the Newton solver of
++ *   mfem-mgis;
+  * - Newton's method of SNES without line search makes the iterations of
+  *   the Newton solver (same criterion), within one iteration per time
+  *   step, and with the line search at most as many plus two;
+@@ -24,7 +26,11 @@
+  *   being below it, fails after at least one iteration;
+  * - a failure of the linear solver stops the resolution at the first
+  *   iteration;
+- * - the invalid options are refused, and SNES in sequential.
++ * - the invalid options are refused, SNES in sequential, and, when hypre
++ *   computes on a GPU, the linear solvers of PETSc.
++ *
++ * With a GPU, SNES computes on the vectors of PETSc of the host, copied
++ * from and to the vectors of mfem-mgis on the device.
+  * \date   15/10/2026
+  */
+ 
+@@ -347,13 +353,31 @@ int main(int argc, char** argv) {
+   std::ignore = run("SNES, GMRES of PETSc preconditioned by MUMPS", reference,
+                     snes({{"Options", Parameters{{"ksp_type", "gmres"},
+                                                  {"ksp_rtol", 1e-12}}}}));
+-  // the Krylov solver and the preconditioner of PETSc
+-  std::ignore = run("SNES, GMRES and GAMG of PETSc", reference,
+-                    snes({{"LinearSolver", "PETSc"},
+-                          {"Options", Parameters{{"ksp_type", "gmres"},
+-                                                 {"ksp_rtol", 1e-12},
+-                                                 {"ksp_max_it", 1000},
+-                                                 {"pc_type", "gamg"}}}}));
++  // the Krylov solver and the preconditioner of PETSc, refused when hypre
++  // computes on a GPU
++  const auto petsc_options = Parameters{{"ksp_type", "gmres"},
++                                        {"ksp_rtol", 1e-12},
++                                        {"ksp_max_it", 1000},
++                                        {"pc_type", "gamg"}};
++  if (isHypreUsingGPU()) {
++    checkRefusal(mesh, Parameters{{"LinearSolver", "PETSc"}},
++                 "not available when hypre computes on a GPU");
++  } else {
++    std::ignore =
++        run("SNES, GMRES and GAMG of PETSc", reference,
++            snes({{"LinearSolver", "PETSc"}, {"Options", petsc_options}}));
++  }
++  // the same solvers of PETSc as the linear solver of the problem (on the
++  // host only: on a GPU, the Krylov solvers of PETSc of the factory of
++  // linear solvers give wrong results)
++  if (!isHypreUsingGPU()) {
++    auto s = snes({});
++    s.linear_solver = "PETScLinearSolver";
++    s.linear_solver_options = Parameters{{"Options", petsc_options}};
++    std::ignore =
++        run("SNES, GMRES and GAMG of PETSc, linear solver of the problem",
++            reference, s);
++  }
+   // tangent operator applied without assembly, compared to the Newton
+   // solver with the same operator (conjugate gradient and Jacobi smoother)
+   {
+@@ -371,10 +395,12 @@ int main(int argc, char** argv) {
+     const auto mf_reference = compute(mesh, library, matrix_free(Settings{}));
+     check(mf_reference.status, "Newton, matrix free: resolution failed");
+     std::ignore = run("SNES, matrix free", mf_reference, matrix_free(snes({})));
+-    const auto r =
+-        compute(mesh, library, matrix_free(snes({{"LinearSolver", "PETSc"}})));
+-    check((!r.status) && (r.failed_iterations == 0),
+-          "SNES, matrix free: the linear solvers of PETSc are not refused");
++    if (!isHypreUsingGPU()) {
++      const auto r = compute(mesh, library,
++                             matrix_free(snes({{"LinearSolver", "PETSc"}})));
++      check((!r.status) && (r.failed_iterations == 0),
++            "SNES, matrix free: the linear solvers of PETSc are not refused");
++    }
+   }
+   // a relative tolerance below the floor of the rounding errors: the
+   // resolution is stopped by the stagnation of the residual, and accepted
+-- 
+2.43.0
+

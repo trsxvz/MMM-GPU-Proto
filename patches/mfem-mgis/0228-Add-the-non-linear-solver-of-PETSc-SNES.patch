@@ -1,0 +1,1395 @@
+From de13f38147b7745b6645a1bc639006a9f046f143 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 13:27:34 +0200
+Subject: [PATCH] Add the non linear solver of PETSc (SNES)
+
+The SNES entry of the factory of non linear solvers uses the non linear
+solvers of PETSc through mfem::PetscNonlinearSolver, in parallel, per
+problem (unlike the global mode of setPETSc): Newton's method with a
+backtracking line search by default, and the other methods of SNES
+selected by the options of PETSc (option Options, written with a prefix
+which is unique to the resolution). The residual and the tangent
+operator are the ones of the problem; the linear systems are solved by
+the linear solver of the problem, seen by PETSc as a shell
+preconditioner applied once (or preconditioning a Krylov solver of
+PETSc), the tangent operator being a shell matrix (no copy, possibly
+applied without assembly), or, with the option LinearSolver set to
+PETSc, by the Krylov solvers and preconditioners of PETSc, the tangent
+operator being converted to the AIJ format.
+
+The functions called by PETSc do not throw: a failure of the integration
+of the behaviours is reported as a domain error of the residual (the
+backtracking line search reduces its step), a failure of the tangent
+operator as a domain error of the Jacobian (checked, which only the
+debug builds of PETSc do by default), and a failure of the linear solver
+as a failure of the preconditioner, unless the failures of the linear
+solver are discarded. SNES stops on the euclidean norm of the residual
+relative to the reference norm, as the Newton solver, or when the
+residual stagnates at the floor of the rounding errors; the behaviours
+are integrated again at the solution if needed.
+
+SNESSolverTest (two processes): Newton's method of SNES with and without
+line search and its trust region method make the 9 iterations of the
+Newton solver, with the same norms of the residual; the linear solver of
+the problem preconditioning GMRES of PETSc, GMRES and GAMG of PETSc, and
+the tangent operator applied without assembly give the same solution;
+the linear solvers of PETSc are refused with the tangent operator
+applied without assembly; the stagnation of the residual, the failures
+of the integration and of the linear solver, the invalid options and the
+sequential problems are checked.
+---
+ docs/source/user_guide/glossary.rst           |   4 +-
+ .../user_guide/nonlinear_algorithms.rst       |  76 +++
+ .../release_notes/release_notes-1.1.0.rst     |  11 +
+ src/CMakeLists.txt                            |   1 +
+ src/NonLinearSolverFactory.cxx                |   8 +
+ src/PETScSNESSolver.cxx                       | 583 ++++++++++++++++++
+ src/PETScSNESSolver.hxx                       | 120 ++++
+ tests/CMakeLists.txt                          |  12 +
+ tests/SNESSolverTest.cxx                      | 435 +++++++++++++
+ 9 files changed, 1248 insertions(+), 2 deletions(-)
+ create mode 100644 src/PETScSNESSolver.cxx
+ create mode 100644 src/PETScSNESSolver.hxx
+ create mode 100644 tests/SNESSolverTest.cxx
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index d97dce543d..5c6c688323 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -982,8 +982,8 @@ ones:
+ +-------------------------------------+-------------------------------------------------------------+
+ | UseMultiMaterialNonLinearIntegrator | Use the multi-material non linear integrator [bool]         |
+ +-------------------------------------+-------------------------------------------------------------+
+-| NonLinearSolver                     | Non linear solver, Newton (default), FixedPoint or KINSOL,  |
+-|                                     | see :doc:`nonlinear_algorithms`                             |
++| NonLinearSolver                     | Non linear solver, Newton (default), FixedPoint, KINSOL or  |
++|                                     | SNES, see :doc:`nonlinear_algorithms`                       |
+ +-------------------------------------+-------------------------------------------------------------+
+ | BehaviourIntegration                | PointByPoint or Batch [string]                              |
+ +-------------------------------------+-------------------------------------------------------------+
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index 3071534bd8..6c1c95b543 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -427,3 +427,79 @@ makes the 8 iterations of the Newton solver, the tangent operator updated
+ every three iterations 14 iterations, Picard's method 59 iterations,
+ reduced to 32 by Anderson's acceleration and to 17 by an update of the
+ tangent operator every five iterations.
++
++Solver of PETSc (SNES)
++======================
++
++When :code:`MFEM` is built with :code:`PETSc`, the :cxx:`SNES` nonlinear
++solver, only available in parallel, uses the nonlinear solvers of
++:code:`PETSc` (SNES), through the :cxx:`mfem::PetscNonlinearSolver` class
++of :code:`MFEM`. Unlike the global mode selected by :cxx:`setPETSc`, which
++replaces the nonlinear and linear solvers of all the problems by the ones
++of :code:`PETSc` configured by a file, it is selected per problem, and
++uses the residual, the tangent operator and, by default, the linear solver
++of the problem:
++
++.. code-block:: c++
++
++   {"NonLinearSolver",
++    mfem_mgis::Parameters{
++        {"SNES", mfem_mgis::Parameters{
++                     {"Options", mfem_mgis::Parameters{
++                                     {"snes_type", "newtontr"}}}}}}}
++
++The option :cxx:`Options` gives the options of :code:`PETSc`, without the
++leading dash: by default, Newton's method with a backtracking line search
++(:cxx:`snes_type` :cxx:`newtonls`, :cxx:`snes_linesearch_type`
++:cxx:`bt`); the other methods of SNES (trust region :cxx:`newtontr`,
++quasi-Newton :cxx:`qn`, nonlinear GMRES :cxx:`ngmres`, ...) and line
++searches (:cxx:`basic`, which is Newton's method without line search,
++:cxx:`l2`, ...) are selected by these options. The options are written in
++the options database of :code:`PETSc` with a prefix which is unique to the
++resolution, and removed after it; the options which :code:`PETSc` never
++read are reported.
++
++The option :cxx:`LinearSolver` selects the resolution of the linear
++systems:
++
++- :cxx:`Problem` (default): the tangent operator is inverted by the linear
++  solver of the problem, seen by :code:`PETSc` as a shell preconditioner
++  applied once (:cxx:`ksp_type` :cxx:`preonly`, unless the options give
++  another Krylov solver of :code:`PETSc`, which the linear solver of the
++  problem then preconditions). The tangent operator is seen by
++  :code:`PETSc` as a shell matrix, without copy, which the line search
++  multiplies by the Newton step; it may be applied without assembly (see
++  :ref:`mfem_mgis_batch_computations_matrix_free`). The options of the
++  preconditioner of :code:`PETSc` (:cxx:`pc_...`) are refused. A failure of
++  the linear solver stops the resolution, unless the option
++  :cxx:`DiscardLinearSolverFailure` is true;
++- :cxx:`PETSc`: the tangent operator, which must then be assembled, is
++  converted to the AIJ format of :code:`PETSc` at each update, and the
++  Krylov solver and the preconditioner are the ones of :code:`PETSc` given
++  by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...).
++
++When the integration of the behaviours fails at a new estimate, the failure
++is reported to SNES as a domain error: the backtracking line search reduces
++its step, the other methods stop. The behaviours are integrated again at
++the solution returned by SNES when their last integration was made
++elsewhere.
++
++SNES stops when the euclidean norm of the residual is lower than
++:math:`\max\left(\varepsilon_{r}\,r_{\mathrm{ref}},\varepsilon_{a}\right)`,
++:math:`r_{\mathrm{ref}}` being the reference norm of the residual (the
++norm of the residual of the prediction, if any, or of the initial
++residual), as the Newton solver of mfem-mgis; the other criteria of SNES
++(length of the step, divergence) are not used. The resolution is stopped
++when the residual stagnates (three iterations without a decrease of more
++than 10 %) below the option :cxx:`StagnationRelativeTolerance`
++(:math:`10^{4}` times the machine epsilon by default) times the reference
++norm, and is then accepted. The other options are the ones of the
++iterative solvers (:cxx:`RelativeTolerance`, :cxx:`AbsoluteTolerance`,
++:cxx:`MaximumNumberOfIterations`, strictly positive, :cxx:`VerbosityLevel`,
++which prints each iteration).
++
++On the uniaxial tension of a plastic cube in two time steps (test
++:file:`tests/SNESSolverTest.cxx`, two processes), Newton's method of SNES,
++with or without line search, and its trust region method, make the 9
++iterations of the Newton solver of mfem-mgis, with the same norms of the
++residual.
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 14f50bc555..12bd9978d5 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -216,6 +216,17 @@ The :cxx:`KINSOL` nonlinear solver uses KINSOL (:code:`SUNDIALS`) when
+ search, modified Newton method, Picard's method with Anderson's
+ acceleration. See :doc:`../nonlinear_algorithms`.
+ 
++Nonlinear solvers of PETSc
++--------------------------
++
++The :cxx:`SNES` nonlinear solver uses the nonlinear solvers of PETSc
++(SNES) when :code:`MFEM` is built with it, in parallel: Newton's method
++with or without line search, trust region, quasi-Newton and the other
++methods of SNES, selected by the options of PETSc, with the linear solver
++of the problem or the Krylov solvers and preconditioners of PETSc. Unlike
++the global mode of :cxx:`setPETSc`, it is selected per problem. See
++:doc:`../nonlinear_algorithms`.
++
+ Preconditioners of the sparse matrices of MFEM, options of MUMPS
+ ----------------------------------------------------------------
+ 
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 062245e507..ba26612cda 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -80,6 +80,7 @@ list(APPEND MFEMMGIS_SOURCES
+   SecantAccelerationAlgorithms.cxx
+   FixedPointSolver.cxx
+   KINSOLSolver.cxx
++  PETScSNESSolver.cxx
+   AdaptiveLinearSolverTolerance.cxx
+   AnalyticalTests.cxx
+   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+diff --git a/src/NonLinearSolverFactory.cxx b/src/NonLinearSolverFactory.cxx
+index d7f1b19e0c..143bf3a137 100644
+--- a/src/NonLinearSolverFactory.cxx
++++ b/src/NonLinearSolverFactory.cxx
+@@ -9,6 +9,7 @@
+ #include "MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
+ #include "KINSOLSolver.hxx"
++#include "PETScSNESSolver.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -37,6 +38,13 @@ namespace mfem_mgis {
+         or_die;
+     this->add(ctx, "KINSOL", std::move(g3)) | or_die;
+ #endif /* MFEM_USE_SUNDIALS */
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++    auto g4 = make_unique<
++                  StandardNonLinearSolverGenerator<internals::PETScSNESSolver>>(
++                  ctx) |
++              or_die;
++    this->add(ctx, "SNES", std::move(g4)) | or_die;
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+   }  // end of NonLinearSolverFactory
+ 
+   bool NonLinearSolverFactory::add(
+diff --git a/src/PETScSNESSolver.cxx b/src/PETScSNESSolver.cxx
+new file mode 100644
+index 0000000000..a3a326ea40
+--- /dev/null
++++ b/src/PETScSNESSolver.cxx
+@@ -0,0 +1,583 @@
++/*!
++ * \file   src/PETScSNESSolver.cxx
++ * \brief  This file implements the `PETScSNESSolver` class
++ * \date   15/10/2026
++ */
++
++#include "mfem/config/config.hpp"
++
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++
++#include <cmath>
++#include <tuple>
++#include <limits>
++#include <memory>
++#include <string>
++#include <vector>
++#include <iomanip>
++#include <utility>
++#include <algorithm>
++#include "petscsnes.h"
++#include "mfem/linalg/petsc.hpp"
++#include "MGIS/Raise.hxx"
++#include "MFEMMGIS/MPI.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
++#include "PETScSupport.hxx"
++#include "PETScSNESSolver.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief the linear solver of the problem, seen by PETSc as a shell
++   * preconditioner, built by `ProblemLinearSolverFactory` at each setup of
++   * the preconditioner by PETSc. The operator of the linear solver is set
++   * when the tangent operator is computed
++   * (`PETScSNESSolverImplementation::GetGradient`). A failure of the linear
++   * solver is reported to PETSc as a failure of the preconditioner, which
++   * stops the resolution, unless the failures of the linear solver are
++   * discarded.
++   */
++  struct ProblemLinearSolverPreconditioner final : public mfem::Solver {
++    //! \param[in] i: implementation of the non linear solver
++    explicit ProblemLinearSolverPreconditioner(
++        const PETScSNESSolverImplementation& i);
++    //! \brief the operator of the linear solver is set elsewhere
++    void SetOperator(const mfem::Operator&) override {}
++    void Mult(const mfem::Vector& b, mfem::Vector& x) const override;
++
++   private:
++    //! \brief implementation of the non linear solver
++    const PETScSNESSolverImplementation& implementation;
++  };  // end of struct ProblemLinearSolverPreconditioner
++
++  //! \brief factory of the shell preconditioners of PETSc
++  struct ProblemLinearSolverFactory final
++      : public mfem::PetscPreconditionerFactory {
++    //! \param[in] i: implementation of the non linear solver
++    explicit ProblemLinearSolverFactory(const PETScSNESSolverImplementation& i)
++        : mfem::PetscPreconditionerFactory("linear solver of mfem-mgis"),
++          implementation(i) {}
++    mfem::Solver* NewPreconditioner(const mfem::OperatorHandle&) override {
++      return new ProblemLinearSolverPreconditioner(this->implementation);
++    }
++
++   private:
++    //! \brief implementation of the non linear solver
++    const PETScSNESSolverImplementation& implementation;
++  };  // end of struct ProblemLinearSolverFactory
++
++  /*!
++   * \brief the operator of the non linear problem given to the SNES of MFEM
++   * (residual and tangent operator) and the SNES itself, built for one
++   * resolution. The functions called by PETSc report the failures to SNES
++   * (domain errors, failure of the preconditioner) instead of throwing
++   * through it (see `callAndHandleFailures`).
++   */
++  struct PETScSNESSolverImplementation final : public mfem::Operator {
++    /*!
++     * \param[in] s: non linear solver
++     * \param[in] c: communicator
++     */
++    PETScSNESSolverImplementation(const PETScSNESSolver& s, MPI_Comm c)
++        : mfem::Operator(s.Height()),
++          solver(s),
++          communicator(c),
++          options(c, "snes"),
++          factory(*this),
++          identity(s.Height()) {}
++    /*!
++     * \brief create the SNES of MFEM, with the options of PETSc
++     * \param[in] t: tolerance on the norm of the residual
++     * \param[in] u0: initial guess
++     * \param[in] r0: residual at the initial guess, given to SNES at its
++     * first evaluation of the residual, instead of integrating the
++     * behaviours again
++     * \param[in] norm: norm of the residual at the initial guess
++     */
++    void initialize(const real t,
++                    const mfem::Vector& u0,
++                    const mfem::Vector& r0,
++                    const real norm) {
++      const auto& s = this->solver;
++      auto ctx = Context{};
++      // the shell preconditioner of the linear solver of the problem is
++      // applied once, unless the options give a Krylov solver
++      if ((!s.petsc_linear_solver) && (!contains(s.options, "ksp_type"))) {
++        if (!this->options.setOptions(ctx,
++                                      Parameters{{"ksp_type", "preonly"}})) {
++          throw CollectiveFailure("SNES: " + ctx.getErrorMessage());
++        }
++      }
++      if (!this->options.setOptions(ctx, s.options)) {
++        throw CollectiveFailure("SNES: " + ctx.getErrorMessage());
++      }
++      this->snes = std::make_unique<mfem::PetscNonlinearSolver>(
++          this->communicator, *this, this->options.prefix);
++      this->snes->iterative_mode = true;
++      this->snes->SetMaxIter(s.max_iter);
++      if (s.petsc_linear_solver) {
++        this->snes->SetJacobianType(mfem::Operator::PETSC_MATAIJ);
++      } else {
++        this->snes->SetJacobianType(mfem::Operator::PETSC_MATSHELL);
++        this->snes->SetPreconditionerFactory(&(this->factory));
++      }
++      check(SNESSetConvergenceTest(*(this->snes), checkConvergence, this,
++                                   nullptr),
++            "SNESSetConvergenceTest");
++      // the domain errors of the tangent operator are only checked by
++      // default by the debug builds of PETSc
++      check(SNESSetCheckJacobianDomainError(*(this->snes), PETSC_TRUE),
++            "SNESSetCheckJacobianDomainError");
++      this->tolerance = t;
++      this->initial_unknowns = u0;
++      this->initial_residual = r0;
++      this->initial_residual_available = true;
++      this->window_norm = norm;
++      this->last_norm = norm;
++    }  // end of initialize
++    /*!
++     * \brief solve the non linear problem
++     * \return the reason of the end of the resolution given by SNES
++     * \param[in, out] x: initial guess, then solution
++     * \param[out] iterations: number of iterations
++     */
++    SNESConvergedReason solve(mfem::Vector& x, int& iterations) {
++      this->options.markAsUsed();
++      // no right hand side: an empty vector, as for `usePETSc`
++      const auto b = mfem::Vector{};
++      this->snes->Mult(b, x);
++      auto reason = SNESConvergedReason{};
++      auto n = PetscInt{};
++      check(SNESGetConvergedReason(*(this->snes), &reason),
++            "SNESGetConvergedReason");
++      check(SNESGetIterationNumber(*(this->snes), &n),
++            "SNESGetIterationNumber");
++      iterations = static_cast<int>(n);
++      return reason;
++    }  // end of solve
++    /*!
++     * \brief compute the residual, called by SNES. A failure of the
++     * integration of the behaviours is reported to SNES as a domain error,
++     * the residual being filled with NaN (a norm which no criterion
++     * accepts)
++     * \param[in] u: unknowns
++     * \param[out] r: residual
++     */
++    void Mult(const mfem::Vector& u, mfem::Vector& r) const override {
++      try {
++        this->last_unknowns = u;
++        this->last_evaluation_succeeded = false;
++        // first evaluation, at the initial guess (collective test)
++        if (this->initial_residual_available) {
++          this->initial_residual_available = false;
++          if (!(this->getMaximumDifference(u, this->initial_unknowns) > 0)) {
++            r = this->initial_residual;
++            this->last_evaluation_succeeded = true;
++            return;
++          }
++        }
++        const auto& s = this->solver;
++        const auto success = s.callAndHandleFailures([&s, &u, &r] {
++          if (!s.processNewUnknownsEstimate(u)) {
++            return false;
++          }
++          s.computeResidual(r, u);
++          return true;
++        });
++        ++(this->number_of_evaluations);
++        if (success) {
++          this->last_evaluation_succeeded = true;
++          return;
++        }
++        if (s.shallPrint()) {
++          s.getLogStream() << "SNES, evaluation " << std::setw(2)
++                           << this->number_of_evaluations
++                           << " : integration failure\n";
++        }
++      } catch (...) {
++      }
++      std::ignore = SNESSetFunctionDomainError(*(this->snes));
++      r = std::numeric_limits<real>::quiet_NaN();
++    }  // end of Mult
++    /*!
++     * \brief compute the tangent operator, called by SNES, and give it to
++     * the linear solver of the problem, if used. A failure is reported to
++     * SNES as a domain error, the identity being returned.
++     * \param[in] u: unknowns
++     */
++    mfem::Operator& GetGradient(const mfem::Vector& u) const override {
++      try {
++        const auto& s = this->solver;
++        auto* j = static_cast<mfem::Operator*>(nullptr);
++        const auto success = s.callAndHandleFailures([&s, &u, &j] {
++          j = &(s.getJacobian(u));
++          if (s.petsc_linear_solver) {
++            if (dynamic_cast<mfem::HypreParMatrix*>(j) == nullptr) {
++              throw CollectiveFailure(
++                  "SNES: the linear solvers of PETSc require an assembled "
++                  "tangent operator");
++            }
++          } else {
++            s.prec->SetOperator(*j);
++          }
++          return true;
++        });
++        ++(this->number_of_setups);
++        if (success) {
++          return *j;
++        }
++      } catch (...) {
++      }
++      std::ignore = SNESSetJacobianDomainError(*(this->snes));
++      return this->identity;
++    }  // end of GetGradient
++    /*!
++     * \brief report a failure of the linear solver of the problem to PETSc,
++     * as a failure of the preconditioner
++     */
++    void reportLinearSolverFailure() const noexcept {
++      auto ksp = KSP{};
++      auto pc = PC{};
++      if ((SNESGetKSP(*(this->snes), &ksp) == 0) && (KSPGetPC(ksp, &pc) == 0)) {
++        std::ignore = PCSetFailedReason(pc, PC_SUBPC_ERROR);
++      }
++    }  // end of reportLinearSolverFailure
++    /*!
++     * \return the maximum absolute value of the difference of two vectors,
++     * on all the processes
++     */
++    [[nodiscard]] real getMaximumDifference(const mfem::Vector& a,
++                                            const mfem::Vector& b) const {
++      if (a.Size() != b.Size()) {
++        return std::numeric_limits<real>::max();
++      }
++      auto d = mfem::Vector(a.Size());
++      d.UseDevice(true);
++      subtract(a, b, d);
++      return this->getMaximumNorm(d);
++    }  // end of getMaximumDifference
++    //! \return the maximum norm of a vector, on all the processes
++    [[nodiscard]] real getMaximumNorm(const mfem::Vector& v) const {
++      auto n = static_cast<real>(v.Normlinf());
++      auto l = n;
++      MPI_Allreduce(&l, &n, 1, mfem::MPITypeMap<real>::mpi_type, MPI_MAX,
++                    this->communicator);
++      return n;
++    }  // end of getMaximumNorm
++    //! \brief non linear solver
++    const PETScSNESSolver& solver;
++    //! \brief unknowns of the last evaluation of the residual
++    mutable mfem::Vector last_unknowns;
++    //! \brief if false, the last evaluation of the residual failed
++    mutable bool last_evaluation_succeeded = true;
++    //! \brief number of evaluations of the residual
++    mutable int number_of_evaluations = 0;
++    //! \brief number of updates of the tangent operator
++    mutable int number_of_setups = 0;
++    //! \brief if true, the stagnation of the residual stopped SNES
++    bool stagnated = false;
++    //! \brief norm of the residual given to the last convergence test
++    real last_norm = 0;
++
++   private:
++    /*!
++     * \brief throw a failure, on all the processes, if a function of PETSc
++     * failed
++     * \param[in] e: error code
++     * \param[in] n: name of the function
++     */
++    static void check(const PetscErrorCode e, const char* const n) {
++      if (e != 0) {
++        throw CollectiveFailure("SNES: " + std::string{n} + " failed");
++      }
++    }  // end of check
++    /*!
++     * \brief convergence test of SNES (see `PETScSNESSolver`)
++     * \return 0
++     */
++    static PetscErrorCode checkConvergence(SNES,
++                                           PetscInt it,
++                                           PetscReal,
++                                           PetscReal,
++                                           PetscReal fnorm,
++                                           SNESConvergedReason* reason,
++                                           void* const d) noexcept {
++      auto& i = *static_cast<PETScSNESSolverImplementation*>(d);
++      const auto& s = i.solver;
++      const auto norm = static_cast<real>(fnorm);
++      i.last_norm = norm;
++      *reason = SNES_CONVERGED_ITERATING;
++      try {
++        auto iteration = Parameters{};
++        iteration.replaceOrInsert("Norm", norm);
++        s.iterations_information.push_back(iteration);
++        if (s.shallPrint()) {
++          s.getLogStream() << "SNES, iteration " << std::setw(2) << it
++                           << " : ||r|| = " << norm << ", ||r||/||r_0|| = "
++                           << norm / (*(s.reference_residual_norm)) << '\n';
++        }
++      } catch (...) {
++      }
++      if (!std::isfinite(norm)) {
++        *reason = SNES_DIVERGED_FNORM_NAN;
++        return 0;
++      }
++      if (norm <= i.tolerance) {
++        *reason = SNES_CONVERGED_FNORM_ABS;
++        return 0;
++      }
++      // stagnation of the residual at the floor of the rounding errors:
++      // three iterations without a decrease of more than 10 %, below the
++      // stagnation tolerance
++      constexpr auto window_decrease = real{9} / 10;
++      if (norm < window_decrease * i.window_norm) {
++        i.window_norm = norm;
++        i.iterations_without_decrease = 0;
++      } else {
++        ++(i.iterations_without_decrease);
++      }
++      if ((i.iterations_without_decrease >= 3) &&
++          (norm <=
++           s.stagnation_relative_tolerance * (*(s.reference_residual_norm)))) {
++        i.stagnated = true;
++        *reason = SNES_CONVERGED_FNORM_ABS;
++        return 0;
++      }
++      if (it >= s.max_iter) {
++        *reason = SNES_DIVERGED_MAX_IT;
++      }
++      return 0;
++    }  // end of checkConvergence
++    //! \brief communicator
++    const MPI_Comm communicator;
++    /*!
++     * \brief options of PETSc (declared before the SNES, which is destroyed
++     * before the options are removed from the options database of PETSc)
++     */
++    PETScOptions options;
++    //! \brief factory of the shell preconditioners
++    ProblemLinearSolverFactory factory;
++    //! \brief operator returned when the tangent operator can't be computed
++    mutable mfem::IdentityOperator identity;
++    //! \brief SNES of MFEM
++    std::unique_ptr<mfem::PetscNonlinearSolver> snes;
++    //! \brief tolerance on the norm of the residual
++    real tolerance = 0;
++    //! \brief initial guess
++    mfem::Vector initial_unknowns;
++    //! \brief residual at the initial guess
++    mfem::Vector initial_residual;
++    //! \brief if true, the initial residual is given to SNES
++    mutable bool initial_residual_available = false;
++    /*!
++     * \brief norm of the residual at the beginning of the current window of
++     * iterations without a decrease of more than 10 % (detection of a
++     * stagnation of the residual)
++     */
++    real window_norm = std::numeric_limits<real>::max();
++    //! \brief number of iterations of the current window
++    int iterations_without_decrease = 0;
++  };  // end of struct PETScSNESSolverImplementation
++
++  ProblemLinearSolverPreconditioner::ProblemLinearSolverPreconditioner(
++      const PETScSNESSolverImplementation& i)
++      : mfem::Solver(i.Height()), implementation(i) {}
++
++  void ProblemLinearSolverPreconditioner::Mult(const mfem::Vector& b,
++                                               mfem::Vector& x) const {
++    auto failed = true;
++    try {
++      const auto& s = this->implementation.solver;
++      const auto success = s.callAndHandleFailures([&s, &b, &x] {
++        s.prec->Mult(b, x);
++        return true;
++      });
++      clearHypreErrors();
++      failed = (!success) || ((!s.isLinearSolverFailureDiscarded()) &&
++                              (!hasConverged(*(s.prec))));
++    } catch (...) {
++    }
++    if (failed) {
++      this->implementation.reportLinearSolverFailure();
++    }
++  }  // end of Mult
++
++  PETScSNESSolver::PETScSNESSolver(
++      NonLinearEvolutionProblemImplementation<true>& p)
++      : NonLinearSolverBase(p) {
++    initializePETSc();
++  }  // end of PETScSNESSolver
++
++  PETScSNESSolver::PETScSNESSolver(
++      NonLinearEvolutionProblemImplementation<false>& p)
++      : NonLinearSolverBase(p) {
++    mgis::raise("SNES: the non linear solver is only available in parallel");
++  }  // end of PETScSNESSolver
++
++  void PETScSNESSolver::Mult(const mfem::Vector&, mfem::Vector& x) const {
++    MFEM_ASSERT(this->petsc_linear_solver || (this->prec != nullptr),
++                "the Solver is not set (use setLinearSolver).");
++    this->iterations_information.clear();
++    this->converged = 0;
++    this->final_iter = 0;
++    this->final_norm = std::numeric_limits<real>::max();
++    auto& log = this->getLogStream();
++    const auto shall_print = this->shallPrint();
++    // initial residual
++    auto r = mfem::Vector(this->Height());
++    r.UseDevice(true);
++    const auto initialized = this->callAndHandleFailures([this, &x, &r] {
++      if (!this->processNewUnknownsEstimate(x)) {
++        return false;
++      }
++      this->computeResidual(r, x);
++      return true;
++    });
++    if (!initialized) {
++      return;
++    }
++    const auto norm = this->Norm(r);
++    if (!this->reference_residual_norm.has_value()) {
++      this->reference_residual_norm = norm;
++    }
++    this->initial_norm = *(this->reference_residual_norm);
++    if (shall_print) {
++      log << "SNES, initial residual : ||r|| = " << norm
++          << ", ||r||/||r_0|| = " << norm / (*(this->reference_residual_norm))
++          << '\n';
++    }
++    const auto tolerance =
++        std::max(this->rel_tol * (*(this->reference_residual_norm)),
++                 static_cast<real>(this->abs_tol));
++    if (norm <= tolerance) {
++      this->converged = 1;
++      this->final_norm = norm;
++      return;
++    }
++    // resolution
++    auto i = std::unique_ptr<PETScSNESSolverImplementation>{};
++    auto reason = SNESConvergedReason{};
++    auto iterations = int{};
++    const auto solved = this->callAndHandleFailures([&] {
++      i = std::make_unique<PETScSNESSolverImplementation>(*this,
++                                                          this->GetComm());
++      i->initialize(tolerance, x, r, norm);
++      reason = i->solve(x, iterations);
++      return true;
++    });
++    if (!solved) {
++      return;
++    }
++    this->final_iter = iterations;
++    // the behaviours are integrated again if the last evaluation of the
++    // residual failed or was not made at the solution (a trial point of the
++    // line search)
++    const auto evaluated_at_solution =
++        (i->last_evaluation_succeeded) &&
++        (!(i->getMaximumDifference(x, i->last_unknowns) > 0));
++    if (!evaluated_at_solution) {
++      const auto updated = this->callAndHandleFailures([this, &x, &r] {
++        if (!this->processNewUnknownsEstimate(x)) {
++          return false;
++        }
++        this->computeResidual(r, x);
++        return true;
++      });
++      if (!updated) {
++        return;
++      }
++      this->final_norm = this->Norm(r);
++    } else {
++      // the residual of the last evaluation is the one of the solution:
++      // its norm is the last one given to the convergence test
++      this->final_norm = i->last_norm;
++    }
++    const auto stagnation =
++        this->final_norm <= this->stagnation_relative_tolerance *
++                                (*(this->reference_residual_norm));
++    this->converged =
++        (reason > 0) || (this->final_norm <= tolerance) || stagnation;
++    if (shall_print) {
++      log << "SNES : " << SNESConvergedReasons[reason] << " after "
++          << iterations << " iterations (" << i->number_of_setups
++          << " updates of the tangent operator"
++          << (i->stagnated ? ", stagnation of the residual" : "")
++          << "), ||r|| = " << this->final_norm << " (tolerance " << tolerance
++          << ")" << (this->converged ? "" : ", not converged") << "\n\n";
++    }
++  }  // end of Mult
++
++  bool PETScSNESSolver::setSolverParameters(Context& ctx,
++                                            const Parameters& params) noexcept {
++    const auto own = std::vector<std::string>{"LinearSolver", "Options",
++                                              "StagnationRelativeTolerance"};
++    // the options are read and checked before being applied: a refused call
++    // leaves the solver unchanged
++    auto new_petsc_linear_solver = this->petsc_linear_solver;
++    if (contains(params, "LinearSolver")) {
++      const auto ov = get<std::string>(ctx, params, "LinearSolver");
++      if (isInvalid(ov)) {
++        return false;
++      }
++      if ((*ov != "Problem") && (*ov != "PETSc")) {
++        return ctx.registerErrorMessage("SNES: invalid linear solver '" + *ov +
++                                        "' (expected 'Problem' or 'PETSc')");
++      }
++      new_petsc_linear_solver = *ov == "PETSc";
++    }
++    auto new_options = this->options;
++    if (contains(params, "Options")) {
++      const auto ov = get<Parameters>(ctx, params, "Options");
++      if (isInvalid(ov)) {
++        return false;
++      }
++      new_options = *ov;
++    }
++    for (const auto& [n, p] : new_options) {
++      if (n.empty() || n.starts_with('-')) {
++        return ctx.registerErrorMessage(
++            "SNES: invalid option '" + n +
++            "' of PETSc (the options are given without the leading dash)");
++      }
++      if ((!new_petsc_linear_solver) && (n.starts_with("pc_"))) {
++        return ctx.registerErrorMessage(
++            "SNES: the option '" + n +
++            "' of the preconditioner of PETSc is refused with the linear "
++            "solver of the problem (option LinearSolver set to 'Problem')");
++      }
++    }
++    const auto ostagnation = get_if<double>(
++        ctx, params, "StagnationRelativeTolerance",
++        static_cast<double>(this->stagnation_relative_tolerance));
++    if (isInvalid(ostagnation)) {
++      return false;
++    }
++    if ((*ostagnation < 0) || (*ostagnation >= 1)) {
++      return ctx.registerErrorMessage(
++          "SNES: the option StagnationRelativeTolerance must be in [0, 1[");
++    }
++    const auto oiterations =
++        get_if<int>(ctx, params, "MaximumNumberOfIterations", this->max_iter);
++    if (isInvalid(oiterations)) {
++      return false;
++    }
++    if (*oiterations < 1) {
++      return ctx.registerErrorMessage(
++          "SNES: the maximum number of iterations must be strictly positive");
++    }
++    if (!NonLinearSolverBase::setSolverParameters(ctx, remove(params, own))) {
++      return false;
++    }
++    this->petsc_linear_solver = new_petsc_linear_solver;
++    this->options = std::move(new_options);
++    this->stagnation_relative_tolerance = static_cast<real>(*ostagnation);
++    return true;
++  }  // end of setSolverParameters
++
++  PETScSNESSolver::~PETScSNESSolver() = default;
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+diff --git a/src/PETScSNESSolver.hxx b/src/PETScSNESSolver.hxx
+new file mode 100644
+index 0000000000..10133a4197
+--- /dev/null
++++ b/src/PETScSNESSolver.hxx
+@@ -0,0 +1,120 @@
++/*!
++ * \file   src/PETScSNESSolver.hxx
++ * \brief  This file declares the `PETScSNESSolver` class, the non linear
++ * solver based on the SNES of PETSc
++ * \date   15/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_PETSCSNESSOLVER_HXX
++#define LIB_MFEM_MGIS_PETSCSNESSOLVER_HXX
++
++#include "mfem/config/config.hpp"
++
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++
++#include <limits>
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/NonLinearSolvers/NonLinearSolverBase.hxx"
++
++namespace mfem_mgis::internals {
++
++  // forward declaration
++  struct PETScSNESSolverImplementation;
++
++  /*!
++   * \brief non linear solver based on the SNES of PETSc, through the
++   * `mfem::PetscNonlinearSolver` class of MFEM, only available in parallel:
++   * Newton's method with a backtracking line search, by default, or the
++   * other methods of SNES (trust region, quasi-Newton, nonlinear Krylov
++   * methods...), selected by the options of PETSc (option `Options`, for
++   * instance `{"snes_type", "newtontr"}`, the options being given without
++   * the leading dash).
++   *
++   * Linear systems: by default (option `LinearSolver` set to `Problem`),
++   * the tangent operator is inverted by the linear solver of the problem,
++   * seen by PETSc as a shell preconditioner applied once (`ksp_type
++   * preonly`, unless the options of PETSc give another Krylov solver,
++   * which the linear solver of the problem then preconditions); the tangent
++   * operator is seen by PETSc as a shell matrix, without copy (the line
++   * search multiplies it by the Newton step). With `LinearSolver` set to
++   * `PETSc`, the tangent operator, which must then be assembled, is
++   * converted to the AIJ format of PETSc at each update, and the Krylov
++   * solver and the preconditioner are the ones of PETSc given by the
++   * options (`ksp_type`, `pc_type`, ...).
++   *
++   * The residual is the one of the problem. A failure of the integration of
++   * the behaviours is reported to SNES as a domain error: the backtracking
++   * line search then reduces its step, other methods stop. A failure of the
++   * linear solver of the problem stops the resolution, unless the option
++   * `DiscardLinearSolverFailure` is true.
++   *
++   * SNES stops when the euclidean norm of the residual is lower than
++   * `max(RelativeTolerance * r_ref, AbsoluteTolerance)`, `r_ref` being the
++   * reference norm of the residual (the norm of the residual of the
++   * prediction, if any, or of the initial residual), as the Newton solver.
++   * The resolution is stopped and accepted when the residual stagnates
++   * (three iterations without a decrease of more than 10 %) below
++   * `StagnationRelativeTolerance` times the reference norm. The other
++   * criteria of SNES (length of the step, divergence) are not used.
++   *
++   * The behaviours are integrated again at the solution returned by SNES if
++   * their last integration was made elsewhere (a trial point of the line
++   * search), so that the state of the materials matches the solution.
++   *
++   * Options: the ones of the iterative solvers (`RelativeTolerance`,
++   * `AbsoluteTolerance`, `MaximumNumberOfIterations`, strictly positive,
++   * `VerbosityLevel`), `DiscardLinearSolverFailure`, `LinearSolver`
++   * (`Problem`, by default, or `PETSc`), `Options` (the options of PETSc,
++   * for SNES, its line search and its Krylov solver; the options of the
++   * preconditioner, `pc_...`, are refused with the linear solver of the
++   * problem), `StagnationRelativeTolerance` (10^4 times the machine epsilon
++   * by default, as for the Newton solver).
++   */
++  struct PETScSNESSolver final : public NonLinearSolverBase {
++    /*!
++     * \brief constructor
++     * \param[in] p: non linear evolution problem
++     */
++    PETScSNESSolver(NonLinearEvolutionProblemImplementation<true>& p);
++    /*!
++     * \brief constructor, which throws: SNES is only available in parallel
++     * \param[in] p: non linear evolution problem
++     */
++    PETScSNESSolver(NonLinearEvolutionProblemImplementation<false>& p);
++    /*!
++     * \brief solve the non linear problem
++     * \param[in] b: right hand side, unused
++     * \param[in, out] x: initial guess, then solution
++     */
++    void Mult(const mfem::Vector& b, mfem::Vector& x) const override;
++    [[nodiscard]] bool setSolverParameters(Context&,
++                                           const Parameters&) noexcept override;
++    //! \brief destructor
++    ~PETScSNESSolver() override;
++
++   private:
++    friend struct PETScSNESSolverImplementation;
++    friend struct ProblemLinearSolverPreconditioner;
++    //! \brief options of PETSc
++    Parameters options;
++    /*!
++     * \brief if true, the linear systems are solved by the Krylov solver and
++     * the preconditioner of PETSc, and by the linear solver of the problem
++     * otherwise
++     */
++    bool petsc_linear_solver = false;
++    /*!
++     * \brief relative residual below which a stagnating resolution is
++     * stopped and accepted (see the option `StagnationRelativeTolerance` of
++     * `NewtonSolver`)
++     */
++    real stagnation_relative_tolerance =
++        10000 * std::numeric_limits<real>::epsilon();
++  };  // end of struct PETScSNESSolver
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
++
++#endif /* LIB_MFEM_MGIS_PETSCSNESSOLVER_HXX */
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 42a5c34ee2..7fe3662e38 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1194,6 +1194,18 @@ if(MFEM_MGIS_HAVE_TFEL)
+     endif()
+   endif()
+ 
++  # SNESSolverTest executable: non linear solver based on the SNES of
++  # PETSc, compared to the Newton solver, in parallel
++  if(MFEM_USE_MPI AND MFEM_USE_MUMPS AND (MFEM_USE_PETSC STREQUAL "YES"))
++    add_test_executable(SNESSolverTest)
++    add_test(NAME SNESSolverTestP
++             COMMAND mpirun -n 2 ./SNESSolverTest
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>)
++    set_tests_properties(SNESSolverTestP PROPERTIES
++      ENVIRONMENT OMP_NUM_THREADS=1 FAIL_REGULAR_EXPRESSION "check failed")
++  endif()
++
+   # FixedPointSolverTest executable: fixed point solver (methods,
+   # accelerations, linear solvers of the elastic operator) compared to the
+   # Newton solver
+diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
+new file mode 100644
+index 0000000000..97872c0f7d
+--- /dev/null
++++ b/tests/SNESSolverTest.cxx
+@@ -0,0 +1,435 @@
++/*!
++ * \file   SNESSolverTest.cxx
++ * \brief  Test of the non linear solver based on the SNES of PETSc (`SNES`
++ * non linear solver), in parallel: uniaxial tension of a cube made of a
++ * plastic material with a linear hardening, in two time steps:
++ *
++ * - Newton's method of SNES with its backtracking line search (default),
++ *   without line search, with a trust region, with the linear solver of the
++ *   problem (MUMPS) applied once or preconditioning a Krylov solver of
++ *   PETSc, and with the Krylov solver and the preconditioner of PETSc,
++ *   gives the solution of the Newton solver of mfem-mgis;
++ * - Newton's method of SNES without line search makes the iterations of
++ *   the Newton solver (same criterion), within one iteration per time
++ *   step, and with the line search at most as many plus two;
++ * - with the tangent operator applied without assembly, SNES gives the
++ *   solution of the Newton solver with the same operator, the linear
++ *   solvers of PETSc being refused (they require an assembled operator);
++ * - with a relative tolerance below the floor of the rounding errors, the
++ *   resolution is stopped by the stagnation of the residual and accepted;
++ * - a failure of the integration of the behaviours at the Newton step is
++ *   reported to SNES, whose line search reduces the step: a traction of
++ *   a cube made of a linear elastic material whose integration fails above
++ *   a trace of the strain which the solution exceeds, the initial guess
++ *   being below it, fails after at least one iteration;
++ * - a failure of the linear solver stops the resolution at the first
++ *   iteration;
++ * - the invalid options are refused, and SNES in sequential.
++ * \date   15/10/2026
++ */
++
++#include <array>
++#include <cmath>
++#include <tuple>
++#include <string>
++#include <vector>
++#include <cstdlib>
++#include <iostream>
++#include <algorithm>
++#include "mfem/general/optparser.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
++#include "Tolerance.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief rank of the process
++static int rank = 0;
++/*!
++ * \brief tolerance on the relative difference between the solutions of
++ * SNES and the one of the Newton solver
++ */
++static constexpr auto solution_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-8, 3e-4);
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    if (rank == 0) {
++      std::cerr << "check failed: " << msg << '\n';
++    }
++    ++failures;
++  }
++}  // end of check
++
++//! \brief results of a computation
++struct Results {
++  //! \brief status
++  bool status = false;
++  //! \brief unknowns at the end of the computation (local part)
++  std::vector<mfem_mgis::real> u;
++  //! \brief total number of iterations
++  mfem_mgis::size_type iterations = 0;
++  //! \brief number of iterations of the time step which failed, if any
++  mfem_mgis::size_type failed_iterations = 0;
++};
++
++//! \brief settings of a computation
++struct Settings {
++  //! \brief value of the `NonLinearSolver` parameter, the Newton solver
++  //! being used if empty
++  mfem_mgis::Parameters solver;
++  //! \brief linear solver
++  const char* linear_solver = "MUMPSSolver";
++  //! \brief options of the linear solver
++  mfem_mgis::Parameters linear_solver_options;
++  //! \brief relative tolerance of the non linear solver
++  mfem_mgis::real relative_tolerance = 1e-12;
++  //! \brief if true, the tangent operator is applied without assembly
++  bool matrix_free = false;
++};
++
++/*!
++ * \return the results of the computation
++ * \param[in] mesh: mesh of a cube
++ * \param[in] library: behaviour library
++ * \param[in] s: settings
++ */
++static Results compute(const char* const mesh,
++                       const char* const library,
++                       const Settings& s) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto or_die = ctx.getFatalFailureHandler();
++  auto params = Parameters{
++      {"MeshFileName", mesh},
++      {"FiniteElementFamily", "H1"},
++      {"FiniteElementOrder", 1},
++      {"UnknownsSize", 3},
++      {"NumberOfUniformRefinements", 1},
++      {"Materials", Parameters{{"Cube", 1}}},
++      {"Boundaries",
++       Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
++      {"Hypothesis", "Tridimensional"},
++      {"Parallel", true}};
++  if (s.matrix_free) {
++    params.insert(throwing, {{"BehaviourIntegration", "Batch"},
++                             {"GradientsComputation", "Kernels"},
++                             {"InnerForcesComputation", "Kernels"},
++                             {"TangentOperatorComputation", "MatrixFree"}});
++  }
++  if (!s.solver.empty()) {
++    params.insert(throwing, {{"NonLinearSolver", s.solver}});
++  }
++  auto problem = construct<NonLinearEvolutionProblem>(ctx, params) | or_die;
++  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
++                                 "IsotropicLinearHardeningPlasticity") |
++      or_die;
++  auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
++  for (auto* st : {&m.s0, &m.s1}) {
++    mgis::behaviour::setExternalStateVariable(ctx, *st, "Temperature", 293.15) |
++        or_die;
++  }
++  for (const auto& [boundary, component] :
++       {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
++    problem.addUniformDirichletBoundaryCondition(
++        ctx, {{"Boundary", boundary}, {"Component", component}}) |
++        or_die;
++  }
++  problem.addUniformDirichletBoundaryCondition(
++      ctx,
++      {{"Boundary", "Xmax"},
++       {"Component", 0},
++       {"LoadingEvolution", [](const real t) noexcept { return 1e-2 * t; }}}) |
++      or_die;
++  problem.setLinearSolver(ctx, s.linear_solver, s.linear_solver_options) |
++      or_die;
++  problem.setSolverParameters(
++      ctx, Parameters{{"VerbosityLevel", 0},
++                      {"RelativeTolerance", s.relative_tolerance},
++                      {"AbsoluteTolerance", 0.},
++                      {"MaximumNumberOfIterations", 100}}) |
++      or_die;
++  auto r = Results{};
++  constexpr auto nsteps = 2;
++  const auto dt = real{1} / nsteps;
++  auto t = real{0};
++  for (int i = 0; i != nsteps; ++i) {
++    auto c = Context{};
++    const auto o = problem.solve(c, t, dt);
++    if (!o.status) {
++      r.failed_iterations = o.iterations;
++      return r;
++    }
++    r.iterations += o.iterations;
++    problem.update(ctx) | or_die;
++    t += dt;
++  }
++  const auto& u = problem.getUnknowns(ets);
++  r.u.assign(u.HostRead(), u.HostRead() + u.Size());
++  r.status = true;
++  return r;
++}  // end of compute
++
++/*!
++ * \return the results of a traction of a cube made of the
++ * `FailingIsotropicLinearElasticity` behaviour (whose integration fails
++ * above a trace of the strain of 1e-3), in one time step: the solution has
++ * a trace of the strain of 1.9e-3, the initial guess (no displacement) a
++ * null one
++ * \param[in] mesh: mesh of a cube
++ * \param[in] library: behaviour library
++ * \param[in] solver: value of the `NonLinearSolver` parameter
++ */
++static Results computeFailingIntegration(const char* const mesh,
++                                         const char* const library,
++                                         const mfem_mgis::Parameters& solver) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto or_die = ctx.getFatalFailureHandler();
++  auto problem =
++      construct<NonLinearEvolutionProblem>(
++          ctx,
++          Parameters{
++              {"MeshFileName", mesh},
++              {"FiniteElementFamily", "H1"},
++              {"FiniteElementOrder", 1},
++              {"UnknownsSize", 3},
++              {"NumberOfUniformRefinements", 1},
++              {"Materials", Parameters{{"Cube", 1}}},
++              {"Boundaries",
++               Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
++              {"Hypothesis", "Tridimensional"},
++              {"NonLinearSolver", solver},
++              {"Parallel", true}}) |
++      or_die;
++  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
++                                 "FailingIsotropicLinearElasticity") |
++      or_die;
++  auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
++  for (auto* st : {&m.s0, &m.s1}) {
++    mgis::behaviour::setExternalStateVariable(ctx, *st, "Temperature", 293.15) |
++        or_die;
++  }
++  for (const auto& [boundary, component] :
++       {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
++    problem.addUniformDirichletBoundaryCondition(
++        ctx, {{"Boundary", boundary}, {"Component", component}}) |
++        or_die;
++  }
++  // uniaxial stress of 1 GPa: trace of the strain 1e9 (1 - 2 nu) / E,
++  // nu = 0.3, E = 208 GPa
++  problem.addBoundaryCondition(
++      ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
++               problem.getFiniteElementDiscretizationPointer(), "Xmax",
++               [](const real t) noexcept { return -1e9 * t; })) |
++      or_die;
++  problem.setLinearSolver(ctx, "MUMPSSolver", Parameters{}) | or_die;
++  problem.setSolverParameters(ctx,
++                              Parameters{{"VerbosityLevel", 0},
++                                         {"RelativeTolerance", 1e-12},
++                                         {"AbsoluteTolerance", 0.},
++                                         {"MaximumNumberOfIterations", 20}}) |
++      or_die;
++  auto r = Results{};
++  auto c = Context{};
++  const auto o = problem.solve(c, 0, 1);
++  r.status = o.status;
++  r.iterations = o.iterations;
++  r.failed_iterations = o.status ? 0 : o.iterations;
++  return r;
++}  // end of computeFailingIntegration
++
++/*!
++ * \return the maximum difference between two arrays, relative to the
++ * maximum absolute value of the first one, on all the processes
++ */
++static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
++                                    const std::vector<mfem_mgis::real>& b) {
++  auto values = std::array<double, 2>{0, 0};
++  if (a.size() != b.size()) {
++    values[0] = 1;
++  } else {
++    for (std::size_t i = 0; i != a.size(); ++i) {
++      values[0] =
++          std::max(values[0], static_cast<double>(std::abs(a[i] - b[i])));
++      values[1] = std::max(values[1], static_cast<double>(std::abs(a[i])));
++    }
++  }
++  MPI_Allreduce(MPI_IN_PLACE, values.data(), 2, MPI_DOUBLE, MPI_MAX,
++                MPI_COMM_WORLD);
++  return values[1] <= 0 ? values[0] : values[0] / values[1];
++}  // end of getRelativeDifference
++
++/*!
++ * \brief an invalid option of SNES is refused
++ * \param[in] mesh: mesh
++ * \param[in] options: options of SNES
++ * \param[in] message: part of the expected error message
++ * \param[in] parallel: parallel computation
++ */
++static void checkRefusal(const char* const mesh,
++                         const mfem_mgis::Parameters& options,
++                         const std::string& message,
++                         const bool parallel = true) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  const auto o = construct<NonLinearEvolutionProblem>(
++      ctx, Parameters{{"MeshFileName", mesh},
++                      {"FiniteElementFamily", "H1"},
++                      {"FiniteElementOrder", 1},
++                      {"UnknownsSize", 3},
++                      {"Hypothesis", "Tridimensional"},
++                      {"NonLinearSolver", Parameters{{"SNES", options}}},
++                      {"Parallel", parallel}});
++  check(isInvalid(o), message + ": not refused");
++  // reading the error message clears it
++  const auto e = ctx.getErrorMessage();
++  check(e.find(message) != std::string::npos,
++        message + ": unexpected error message (" + e + ")");
++}  // end of checkRefusal
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* mesh = "cube.mesh";
++  const char* library = "src/libBehaviourTest.so";
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&mesh, "-m", "--mesh", "mesh of a cube");
++  args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
++  auto print = [](const std::string& msg) {
++    if (rank == 0) {
++      std::cout << msg << '\n';
++    }
++  };
++  const auto reference = compute(mesh, library, Settings{});
++  check(reference.status, "Newton: resolution failed");
++  print("Newton: " + std::to_string(reference.iterations) + " iterations");
++  // settings of a computation with SNES, given its options
++  const auto snes = [](const Parameters& options) {
++    auto s = Settings{};
++    s.solver = Parameters{{"SNES", options}};
++    return s;
++  };
++  // a computation with SNES, compared to a reference
++  auto run = [mesh, library, &print](const std::string& name,
++                                     const Results& ref, const Settings& s) {
++    const auto r = compute(mesh, library, s);
++    const auto d = getRelativeDifference(ref.u, r.u);
++    print(name + ": " + std::to_string(r.iterations) +
++          " iterations, relative difference with Newton " + std::to_string(d));
++    check(r.status, name + ": resolution failed");
++    check(d < solution_tolerance, name + ": solution differs from Newton's");
++    return r;
++  };
++  const auto line_search = run("SNES, line search", reference, snes({}));
++  check(line_search.iterations <= reference.iterations + 2,
++        "SNES, line search: more iterations than the Newton solver");
++  const auto newton =
++      run("SNES, no line search", reference,
++          snes({{"Options", Parameters{{"snes_linesearch_type", "basic"}}}}));
++  check((newton.iterations + 2 >= reference.iterations) &&
++            (newton.iterations <= reference.iterations + 2),
++        "SNES, no line search: not the iterations of the Newton solver");
++  std::ignore = run("SNES, trust region", reference,
++                    snes({{"Options", Parameters{{"snes_type", "newtontr"}}}}));
++  // the linear solver of the problem preconditioning a Krylov solver of
++  // PETSc
++  std::ignore = run("SNES, GMRES of PETSc preconditioned by MUMPS", reference,
++                    snes({{"Options", Parameters{{"ksp_type", "gmres"},
++                                                 {"ksp_rtol", 1e-12}}}}));
++  // the Krylov solver and the preconditioner of PETSc
++  std::ignore = run("SNES, GMRES and GAMG of PETSc", reference,
++                    snes({{"LinearSolver", "PETSc"},
++                          {"Options", Parameters{{"ksp_type", "gmres"},
++                                                 {"ksp_rtol", 1e-12},
++                                                 {"ksp_max_it", 1000},
++                                                 {"pc_type", "gamg"}}}}));
++  // tangent operator applied without assembly, compared to the Newton
++  // solver with the same operator (conjugate gradient and Jacobi smoother)
++  {
++    const auto matrix_free = [](Settings s) {
++      s.linear_solver = "CGSolver";
++      s.linear_solver_options = Parameters{
++          {"VerbosityLevel", 0},
++          {"RelativeTolerance", 1e-14},
++          {"AbsoluteTolerance", 0.},
++          {"MaximumNumberOfIterations", 10000},
++          {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}};
++      s.matrix_free = true;
++      return s;
++    };
++    const auto mf_reference = compute(mesh, library, matrix_free(Settings{}));
++    check(mf_reference.status, "Newton, matrix free: resolution failed");
++    std::ignore = run("SNES, matrix free", mf_reference, matrix_free(snes({})));
++    const auto r =
++        compute(mesh, library, matrix_free(snes({{"LinearSolver", "PETSc"}})));
++    check((!r.status) && (r.failed_iterations == 0),
++          "SNES, matrix free: the linear solvers of PETSc are not refused");
++  }
++  // a relative tolerance below the floor of the rounding errors: the
++  // resolution is stopped by the stagnation of the residual, and accepted
++  {
++    auto s = snes({});
++    s.relative_tolerance = 1e-20;
++    const auto r = compute(mesh, library, s);
++    const auto d = getRelativeDifference(reference.u, r.u);
++    print("SNES, stagnation: " + std::to_string(r.iterations) +
++          " iterations, relative difference with Newton " + std::to_string(d));
++    check(r.status && (r.iterations < 50) && (d < solution_tolerance),
++          "SNES: resolution not accepted at the floor of the rounding errors");
++  }
++  // a failure of the integration of the behaviours at the Newton step,
++  // reported to SNES: the line search reduces the step, and the resolution
++  // fails after at least one iteration
++  {
++    const auto r = computeFailingIntegration(
++        mesh, library, Parameters{{"SNES", Parameters{}}});
++    print(std::string{"SNES, failure of the integration: "} +
++          (r.status ? "converged" : "failed") + " after " +
++          std::to_string(r.failed_iterations) + " iteration(s)");
++    check((!r.status) && (r.failed_iterations >= 1),
++          "SNES: failure of the integration not handled by the line search");
++  }
++  // a failure of the linear solver (the conjugate gradient stopped after
++  // two iterations) stops the resolution at the first iteration
++  {
++    auto s = snes({});
++    s.linear_solver = "CGSolver";
++    s.linear_solver_options = Parameters{{"VerbosityLevel", 0},
++                                         {"RelativeTolerance", 1e-12},
++                                         {"MaximumNumberOfIterations", 2}};
++    const auto r = compute(mesh, library, s);
++    print(std::string{"SNES, failure of the linear solver: "} +
++          (r.status ? "converged" : "failed") + " after " +
++          std::to_string(r.failed_iterations) + " iteration(s)");
++    check((!r.status) && (r.failed_iterations <= 1),
++          "SNES: failure of the linear solver not reported");
++  }
++  // refusals
++  checkRefusal(mesh, Parameters{{"LinearSolver", "Ginkgo"}},
++               "invalid linear solver");
++  checkRefusal(mesh, Parameters{{"Options", Parameters{{"pc_type", "gamg"}}}},
++               "is refused with the linear solver of the problem");
++  checkRefusal(mesh,
++               Parameters{{"Options", Parameters{{"-snes_type", "newtontr"}}}},
++               "without the leading dash");
++  checkRefusal(mesh, Parameters{{"StagnationRelativeTolerance", 1.}},
++               "StagnationRelativeTolerance");
++  checkRefusal(mesh, Parameters{{"MaximumNumberOfIterations", 0}},
++               "maximum number of iterations");
++  checkRefusal(mesh, Parameters{{"MaximumNewtonStep", 1.}},
++               "MaximumNewtonStep");
++  checkRefusal(mesh, Parameters{}, "only available in parallel", false);
++  print(failures == 0 ? "success" : "failure");
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

@@ -5031,3 +5031,48 @@ formula as MTest). All the others give the Newton solution to within
   the device the diagonal block given by `HypreParMatrix::GetDiag` ended
   with an invalid `cudaFree`: the arrays of hypre are now read directly.
   Upstream notes written, nothing posted.
+
+### 2026-10-15, end of phase 1: MUMPS, AmgX, MGR of hypre, SNES of PETSc
+
+- The remaining items of phase 1 are done: the factorization of MUMPS as a
+  preconditioner (`MUMPSPreconditioner`, the block low-rank factorization
+  being checked on a cube large enough for MUMPS to compress fronts: 10
+  iterations of the conjugate gradient instead of one), the aggregation
+  multigrid of AmgX in the default configurations (`Multigrid` option),
+  the generic test of all the linear solvers on a beam in linear
+  elasticity (double and single precision, with the entries which do not
+  converge on this problem listed with their reason), the multigrid
+  reduction of hypre (`HypreMGR`) and the non linear solvers of PETSc in
+  the factory of non linear solvers (`SNES`). `AMGFSolver`, `LORSolver`
+  and the p-multigrid of MFEM are not applicable as is to the tangent
+  operators of mfem-mgis: AMGF needs a filtered subspace (contact), LOR a
+  high order bilinear form to refine, the p-multigrid the operators of each
+  level.
+- MGR: with the Jacobi F-relaxation of hypre (default), MGR is slower than
+  the Jacobi preconditioner on the beam; with an F-relaxation by algebraic
+  multigrid, GMRES needs about 35 iterations on the host and 50 on a GPU,
+  against 150 to 300 with Jacobi. The points which are not kept at a level
+  must be eliminated explicitly (`HYPRE_MGRSetNonCpointsToFpoints`): by
+  default hypre added coarse points, and two levels needed 87 iterations
+  on a GPU instead of 41 and did not converge in single precision. Several
+  options of hypre 3.2.0 crash or give wrong results (relaxations of the
+  host applied to the matrices on the GPU, block interpolations and
+  restrictions): they are refused with a reason, and a workaround avoids
+  the crash of the Jacobi relaxation with the block interpolation on a GPU.
+- SNES: Newton's method with and without line search, the trust region
+  method, the linear solver of the problem or the solvers of PETSc, the
+  tangent operator assembled or applied without assembly, on the host and
+  on a GPU; the failures of the integration are domain errors of SNES
+  (the line search reduces its step). On the uniaxial tension of a plastic
+  cube, SNES gives the solution of the Newton solver of mfem-mgis in the
+  same number of iterations.
+- Found on the way: the solvers of PETSc of the factory of linear solvers
+  gave wrong results as soon as MFEM computes on a GPU (MFEM 4.10 sets an
+  internal flag of the vectors of PETSc 3.26, which then saw null vectors),
+  and the vectors of PETSc of the GPU made `PetscFinalize` abort the
+  program: with a GPU, the solvers of PETSc now compute on the host. The
+  test of the solvers of PETSc now also runs on a GPU.
+- Independent reviews: the lot of the morning (no finding rated 4 or 5),
+  MGR (one 4/5 reproduced, one 3/5, handled), SNES (one 4/5 already fixed
+  by the GPU commit, the 3/5 and 2/5 handled). Upstream notes written for
+  hypre, MFEM and PETSc, nothing posted.

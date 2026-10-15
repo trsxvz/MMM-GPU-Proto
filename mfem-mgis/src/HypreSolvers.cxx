@@ -346,6 +346,102 @@ namespace mfem_mgis::internals {
 
   HypreFSAI::~HypreFSAI() { HYPRE_FSAIDestroy(this->solver); }
 
+  HypreMGR::HypreMGR(std::vector<HypreSetting> s,
+                     std::vector<std::vector<HYPRE_Int>> c,
+                     const int vdim,
+                     const bool by_nodes,
+                     std::vector<HYPRE_Int> r)
+      : settings(std::move(s)),
+        coarse_components(std::move(c)),
+        level_relaxation_types(std::move(r)),
+        number_of_components(vdim),
+        ordered_by_nodes(by_nodes) {
+    for (auto& l : this->coarse_components) {
+      this->number_of_coarse_components.push_back(
+          static_cast<HYPRE_Int>(l.size()));
+      this->coarse_components_pointers.push_back(l.data());
+    }
+  }  // end of HypreMGR
+
+  void HypreMGR::create() {
+    if (this->solver != nullptr) {
+      HYPRE_MGRDestroy(this->solver);
+    }
+    HYPRE_MGRCreate(&(this->solver));
+    // one cycle from a null initial guess, as a preconditioner
+    HYPRE_MGRSetMaxIter(this->solver, 1);
+    HYPRE_MGRSetTol(this->solver, 0);
+    HYPRE_MGRSetCpointsByPointMarkerArray(
+        this->solver, this->number_of_components,
+        static_cast<HYPRE_Int>(this->coarse_components.size()),
+        this->number_of_coarse_components.data(),
+        this->coarse_components_pointers.data(), this->point_markers.data());
+    // the unknowns which are not kept at a level are eliminated (by default,
+    // hypre adds coarse points chosen by an algebraic coarsening at the
+    // levels before the last one)
+    HYPRE_MGRSetNonCpointsToFpoints(this->solver, 1);
+    for (const auto& setting : this->settings) {
+      setting(this->solver);
+    }
+    // hypre copies the F-relaxations of the levels
+    if (!this->level_relaxation_types.empty()) {
+      HYPRE_MGRSetLevelFRelaxType(this->solver,
+                                  this->level_relaxation_types.data());
+    }
+  }  // end of create
+
+  HypreMGR::operator HYPRE_Solver() const { return this->solver; }
+
+  HYPRE_PtrToParSolverFcn HypreMGR::SetupFcn() const {
+    return HYPRE_MGRSetup;
+  }  // end of SetupFcn
+
+  HYPRE_PtrToParSolverFcn HypreMGR::SolveFcn() const {
+    return HYPRE_MGRSolve;
+  }  // end of SolveFcn
+
+  void HypreMGR::SetOperator(const mfem::Operator& op) {
+    const auto& a = getHypreParMatrix(op, "HypreMGR");
+    const auto n = a.Height();
+    const auto vdim = this->number_of_components;
+    // checked on all the processes, which build the multigrid reduction
+    // together
+    auto valid = static_cast<int>(n % vdim == 0);
+    MPI_Allreduce(MPI_IN_PLACE, &valid, 1, MPI_INT, MPI_MIN, a.GetComm());
+    if (valid == 0) {
+      mgis::raise(
+          "HypreMGR::SetOperator: the local size of the operator is not a "
+          "multiple of the number of components of the unknowns on all the "
+          "processes");
+    }
+    // component of each local unknown
+    const auto nb = n / vdim;
+    this->point_markers.resize(static_cast<std::size_t>(n));
+    for (int i = 0; i != n; ++i) {
+      this->point_markers[static_cast<std::size_t>(i)] =
+          this->ordered_by_nodes ? i / nb : i % vdim;
+    }
+    this->height = a.Height();
+    this->width = a.Width();
+    this->A = &a;
+    this->create();
+    this->setup_called = 0;
+    delete this->X;
+    delete this->B;
+    this->B = nullptr;
+    this->X = nullptr;
+    this->auxB.Delete();
+    this->auxB.Reset();
+    this->auxX.Delete();
+    this->auxX.Reset();
+  }  // end of SetOperator
+
+  HypreMGR::~HypreMGR() {
+    if (this->solver != nullptr) {
+      HYPRE_MGRDestroy(this->solver);
+    }
+  }  // end of ~HypreMGR
+
 }  // end of namespace mfem_mgis::internals
 
 #endif /* MFEM_USE_MPI */

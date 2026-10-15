@@ -40,11 +40,16 @@ of MFEM (native, cuBLAS or hipBLAS, MAGMA) in the Jacobi preconditioner
 by nodal blocks, for assembled matrices (patches `0210`, `0211` and
 `0214`) and
 for the tangent operator applied without assembly, whose nodal blocks are
-computed by kernels (patches `0212` and `0213`). Left from phase 1, to
-do: MGR of hypre, `AMGFSolver`, `LORSolver` and the p-multigrid of MFEM,
-SNES of PETSc in the factory of nonlinear solvers, MUMPS as a
-preconditioner, named configurations of AmgX, and the generic test on
-elasticity. It
+computed by kernels (patches `0212` and `0213`). The items left from
+phase 1 were done on 15/10/2026: MUMPS as a preconditioner, the
+aggregation multigrid of AmgX in the default configurations, the generic
+test on elasticity, MGR of hypre and SNES of PETSc in the factory of
+nonlinear solvers (the solvers of PETSc computing on the host when MFEM
+computes on a GPU). `AMGFSolver`, `LORSolver` and the p-multigrid of MFEM
+are not applicable as is to the tangent operators of mfem-mgis: AMGF needs
+a filtered subspace (contact problems), LOR a high order bilinear form to
+refine, and the p-multigrid the operators of each level, which the
+behaviour integrators would have to assemble on coarser spaces. It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug

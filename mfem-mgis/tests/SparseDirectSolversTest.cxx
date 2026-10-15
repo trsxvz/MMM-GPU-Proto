@@ -1,14 +1,17 @@
 /*!
  * \file   SparseDirectSolversTest.cxx
  * \brief  Test of the direct solvers of MUMPS, SuperLU_DIST and STRUMPACK,
- * and of the preconditioner of STRUMPACK, built by the factories, on the
- * Laplace equation on a cube, in parallel (the generic test
- * `LinearSolverFactoriesTest` solves it with each entry and its default
- * options):
+ * and of the preconditioners of MUMPS and STRUMPACK, built by the
+ * factories, on the Laplace equation on a cube, in parallel (the generic
+ * test `LinearSolverFactoriesTest` solves it with each entry and its
+ * default options):
  *
  * - MUMPS accepts each reordering strategy and the tolerance of its block
  *   low-rank factorization, and solves the system (the strategy used is not
- *   reported by MFEM);
+ *   reported by MFEM); its factorization preconditions the conjugate
+ *   gradient of MFEM (`MUMPSPreconditioner`), which converges in one
+ *   iteration when it is exact, and in more iterations with the block
+ *   low-rank factorization, on a larger mesh;
  * - SuperLU_DIST solves the system with its options, reuses its analysis
  *   for a new operator of the same pattern and is built again for an
  *   operator of another size; the ParMETIS ordering with the parallel
@@ -53,6 +56,20 @@ static int rank = 0;
  */
 static constexpr double direct_tolerance =
     std::is_same_v<mfem::real_t, double> ? 1e-12 : 1e-5;
+/*!
+ * \brief relative tolerance of the conjugate gradient preconditioned by the
+ * factorization of MUMPS
+ */
+static constexpr double cg_tolerance =
+    std::is_same_v<mfem::real_t, double> ? 1e-12 : 1e-5;
+
+#ifdef MFEM_USE_MUMPS
+/*!
+ * \brief number of elements along each edge of the cube on which the block
+ * low-rank factorization of MUMPS compresses fronts
+ */
+static constexpr int blr_mesh_size = 24;
+#endif /* MFEM_USE_MUMPS */
 
 static void check(const bool b, const std::string& msg) {
   if (!b) {
@@ -133,6 +150,47 @@ static double solve(LaplaceSystem<true>& s,
                     const std::string& name) {
   return solve(s, s.A, ls, name);
 }  // end of solve
+
+#ifdef MFEM_USE_MUMPS
+/*!
+ * \brief checks the factorization of MUMPS as a preconditioner of the
+ * conjugate gradient of MFEM: the exact factorization, with which the
+ * conjugate gradient converges in one iteration, and the block low-rank
+ * factorization, which is approximate on this mesh (the fronts of the
+ * smaller meshes of this test are too small to be compressed), with which
+ * it needs more iterations. The matrix is declared symmetric positive
+ * definite, the factorization being then symmetric.
+ * \param[in] s: system
+ */
+static void checkMUMPSPreconditioner(LaplaceSystem<true>& s) {
+  using namespace mfem_mgis;
+  for (const auto tolerance : {0., 1e-2}) {
+    auto cg = generate(
+        s, "CGSolver",
+        Parameters{
+            {"RelativeTolerance", cg_tolerance},
+            {"AbsoluteTolerance", 0.},
+            {"MaximumNumberOfIterations", 200},
+            {"Preconditioner",
+             Parameters{{"Name", "MUMPSPreconditioner"},
+                        {"Options", Parameters{{"Symmetric", true},
+                                               {"PositiveDefinite", true},
+                                               {"BLRTolerance", tolerance},
+                                               {"VerbosityLevel", 0}}}}}});
+    const auto name = std::string{"CGSolver, MUMPSPreconditioner, BLR "} +
+                      std::to_string(tolerance);
+    const auto r = solve(s, *(cg.linear_solver), name);
+    const auto iterations =
+        getNumberOfIterationsAtConvergence(*(cg.linear_solver)).value_or(-1);
+    if (rank == 0) {
+      std::cout << name << ": " << iterations << " iterations\n";
+    }
+    check((r < 100 * cg_tolerance) && hasConverged(*(cg.linear_solver)) &&
+              ((tolerance > 0) ? (iterations > 1) : (iterations <= 1)),
+          name + ": resolution");
+  }
+}  // end of checkMUMPSPreconditioner
+#endif /* MFEM_USE_MUMPS */
 
 static void run(LaplaceSystem<true>& s,
                 [[maybe_unused]] LaplaceSystem<true>& s2) {
@@ -345,6 +403,12 @@ int main(int argc, char** argv) {
     auto s = LaplaceSystem<true>(mesh, fec);
     auto s2 = LaplaceSystem<true>(mesh2, fec);
     run(s, s2);
+#ifdef MFEM_USE_MUMPS
+    auto mesh3 = mfem::Mesh::MakeCartesian3D(
+        blr_mesh_size, blr_mesh_size, blr_mesh_size, mfem::Element::HEXAHEDRON);
+    auto s3 = LaplaceSystem<true>(mesh3, fec);
+    checkMUMPSPreconditioner(s3);
+#endif /* MFEM_USE_MUMPS */
   } catch (std::exception& e) {
     std::cerr << "error: " << e.what() << '\n';
     return EXIT_FAILURE;

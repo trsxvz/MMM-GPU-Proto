@@ -1,0 +1,140 @@
+From 7e3913a8ac0ac249d83395fda11c7f39603e6180 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 11:58:34 +0200
+Subject: [PATCH] Synchronize the columns of the nodal blocks of the matrix
+ free operator
+
+The columns of the nodal blocks are aliases of the vector of the blocks,
+which only copy the location of its valid data when they are created:
+with a device and a prolongation (any parallel space, and the non
+conforming meshes), the columns written on the device by the transposed
+prolongation were overwritten by the data of the host at the next access
+to the blocks (nodal blocks of the tangent operator wrong in parallel on
+a GPU), and the columns written on the host by AbsMultTranspose were
+ignored. The vector of the blocks is made valid on the device before the
+columns are written, and each column is synchronized with it after being
+written; likewise for the columns of the multi-material integrator.
+
+BatchIntegrationTestP-debug runs the batch integration test in parallel
+on the debug device of MFEM (no GPU needed), which detected the defect
+(all the nodal blocks compared differed). The documentation of the
+operator applied without assembly mentions its nodal blocks.
+---
+ include/MFEMMGIS/MatrixFreeTangentOperator.hxx |  9 ++++++---
+ src/MatrixFreeTangentOperator.cxx              | 10 +++++++++-
+ src/MultiMaterialNonLinearIntegrator.cxx       |  7 ++++++-
+ tests/CMakeLists.txt                           | 11 +++++++++++
+ 4 files changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/include/MFEMMGIS/MatrixFreeTangentOperator.hxx b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+index 595d7ce2cd..058af970c3 100644
+--- a/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
++++ b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+@@ -51,9 +51,12 @@ namespace mfem_mgis {
+    * `MultiMaterialNonLinearIntegrator::addTangentOperatorActionByKernels`).
+    *
+    * Its diagonal is computed by kernels (`AssembleDiagonal`), as required
+-   * by the smoothers of MFEM (`mfem::OperatorJacobiSmoother`, ...). On a
+-   * non-conforming mesh, it is approximated by `|Pᵀ| diag(Σ Bᵀ K B w det J)`,
+-   * as by `mfem::BilinearForm::AssembleDiagonal`.
++   * by the smoothers of MFEM (`mfem::OperatorJacobiSmoother`, ...), and so
++   * are its nodal blocks (`AssembleNodalBlocks`, see `NodalBlocksProvider`),
++   * used by the Jacobi preconditioner by nodal blocks. On a non-conforming
++   * mesh, they are approximated by `|Pᵀ|` applied to the diagonal or to the
++   * nodal blocks of `Σ Bᵀ K B w det J`, as by
++   * `mfem::BilinearForm::AssembleDiagonal`.
+    *
+    * The essential degrees of freedom are not taken into account: see
+    * `mfem::ConstrainedOperator`. The tangent operator blocks are the ones
+diff --git a/src/MatrixFreeTangentOperator.cxx b/src/MatrixFreeTangentOperator.cxx
+index d5b7bdcc60..30252b9582 100644
+--- a/src/MatrixFreeTangentOperator.cxx
++++ b/src/MatrixFreeTangentOperator.cxx
+@@ -4,6 +4,7 @@
+  * \date   10/10/2026
+  */
+ 
++#include <tuple>
+ #include <utility>
+ #include "mfem/fem/fespace.hpp"
+ #include "MFEMMGIS/MPI.hxx"
+@@ -88,10 +89,16 @@ namespace mfem_mgis {
+     if (P == nullptr) {
+       return;
+     }
+-    // one column of the blocks after the other (see `AssembleDiagonal`)
++    // one column of the blocks after the other (see `AssembleDiagonal`).
++    // The columns are aliases of the blocks, which only copy the location
++    // of the valid data of the blocks when they are created: the blocks are
++    // made valid on the device first (where the aliases are written by
++    // default), and each alias is synchronized with them after being
++    // written (on the host by `AbsMultTranspose`, for instance)
+     const auto nt = this->Height();
+     b.UseDevice(true);
+     b.SetSize(vdim * nt);
++    std::ignore = b.Write();
+     for (int c = 0; c != vdim; ++c) {
+       auto bc = mfem::Vector(b, c * nt, nt);
+       const auto blc = mfem::Vector(bl_, c * nl, nl);
+@@ -100,6 +107,7 @@ namespace mfem_mgis {
+       } else {
+         P->AbsMultTranspose(blc, bc);
+       }
++      bc.SyncAliasMemory(b);
+     }
+   }  // end of AssembleNodalBlocks
+ 
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 8c3fa0dd4f..77e9c9c03f 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -9,6 +9,7 @@
+ #include <limits>
+ #include <string>
+ #include <cstdint>
++#include <tuple>
+ #include <utility>
+ #include <algorithm>
+ #include <exception>
+@@ -757,11 +758,15 @@ namespace mfem_mgis {
+           }
+         }
+       }
+-      // one column of the blocks after the other
++      // one column of the blocks after the other: the columns are aliases,
++      // synchronized with the blocks after being written (see
++      // `MatrixFreeTangentOperator::AssembleNodalBlocks`)
++      std::ignore = b.ReadWrite();
+       for (int c = 0; c != vdim; ++c) {
+         auto bc = mfem::Vector(b, c * nl, nl);
+         const auto bec = mfem::Vector(be, c * ne, ne);
+         restriction->AddMultTranspose(bec, bc);
++        bc.SyncAliasMemory(b);
+       }
+     } catch (...) {
+       return registerExceptionInErrorBacktrace(ctx);
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index c9f8444736..816bc2fea9 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1056,6 +1056,17 @@ if(MFEM_MGIS_HAVE_TFEL)
+                      ${batch_integration_test_libraries})
+     set_tests_properties(BatchIntegrationTestP
+                          PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++    # the debug device of MFEM in parallel, without GPU: the memory of the
++    # device is checked (the parallel spaces have a prolongation, whose
++    # products are made on the device)
++    if(long_debug_device_tests)
++      add_test(NAME BatchIntegrationTestP-debug
++               COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
++                       --device debug ${batch_integration_test_arguments}
++                       ${batch_integration_test_libraries})
++      set_tests_properties(BatchIntegrationTestP-debug
++                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++    endif()
+     if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+       add_test(NAME BatchIntegrationTestP-cuda
+                COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
+-- 
+2.43.0
+

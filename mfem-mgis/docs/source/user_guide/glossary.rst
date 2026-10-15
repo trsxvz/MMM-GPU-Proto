@@ -47,7 +47,10 @@ Direct Solver
 MUMPS Solver
 ^^^^^^^^^^^^
 
-- Solver name: ``MUMPSSolver``
+- Solver name: ``MUMPSSolver``; the preconditioner ``MUMPSPreconditioner``
+  applies the same factorization once, for instance an approximate one
+  (``BLRTolerance``) in a Krylov solver (with the conjugate gradient, the
+  matrix shall be declared ``Symmetric`` and ``PositiveDefinite``)
 - Dependencies:
  
   - ``MFEM_USE_MUMPS``
@@ -732,12 +735,15 @@ in sequential and in parallel (see :ref:`nodal_block_jacobi`).
 | ``Backend``       | ``Native``, ``GPUBLAS`` or ``MAGMA``, the active       |
 |                   | backend of ``MFEM`` by default. [string]               |
 +-------------------+--------------------------------------------------------+
-| ``BlockSize``     | Size of the blocks, the number of components of the    |
-|                   | unknowns by default. [int]                             |
+| ``BlockSize``     | Size of the blocks: the number of components of the    |
+|                   | unknowns (by default) or one (not with an operator     |
+|                   | applied without assembly). [int]                       |
 +-------------------+--------------------------------------------------------+
 | ``Factorization`` | ``Inverse`` (by default) or ``LU``. [string]           |
 +-------------------+--------------------------------------------------------+
-| ``Damping``       | Damping factor, 1 by default. [double]                 |
+| ``Damping``       | Damping factor, 1 by default; no effect on the         |
+|                   | iterates of the Krylov solvers (but on their stopping  |
+|                   | test with an absolute tolerance). [double]             |
 +-------------------+--------------------------------------------------------+
 
 Jacobi smoother (OperatorJacobiSmoother)
@@ -976,8 +982,8 @@ ones:
 +-------------------------------------+-------------------------------------------------------------+
 | UseMultiMaterialNonLinearIntegrator | Use the multi-material non linear integrator [bool]         |
 +-------------------------------------+-------------------------------------------------------------+
-| NonLinearSolver                     | Non linear solver, Newton (default), FixedPoint or KINSOL,  |
-|                                     | see :doc:`nonlinear_algorithms`                             |
+| NonLinearSolver                     | Non linear solver, Newton (default), FixedPoint, KINSOL or  |
+|                                     | SNES, see :doc:`nonlinear_algorithms`                       |
 +-------------------------------------+-------------------------------------------------------------+
 | BehaviourIntegration                | PointByPoint or Batch [string]                              |
 +-------------------------------------+-------------------------------------------------------------+

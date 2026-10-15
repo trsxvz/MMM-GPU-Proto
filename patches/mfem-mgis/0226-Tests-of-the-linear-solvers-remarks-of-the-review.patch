@@ -1,0 +1,84 @@
+From d4a9d957e94734e8d1bb31a1f0ddbdb5e4e5a82d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 13:27:05 +0200
+Subject: [PATCH] Tests of the linear solvers: remarks of the review
+
+In single precision, the BiCGSTAB solver of MFEM is only allowed not to
+converge on the linear elasticity in parallel (it converges in
+sequential), and the bound on the residuals of the converged resolutions
+is 2e-2 (they reach 1e-2). The size of the mesh of the block low-rank
+factorization of MUMPS is only defined with MUMPS, and the comment of
+SparseDirectSolversTest in the CMake file mentions the preconditioner of
+MUMPS.
+---
+ tests/CMakeLists.txt                |  2 +-
+ tests/LinearSolverFactoriesTest.cxx | 10 +++++-----
+ tests/SparseDirectSolversTest.cxx   |  2 ++
+ 3 files changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index a37320070f..42a5c34ee2 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1872,7 +1872,7 @@ if(MFEM_USE_MPI)
+ endif(MFEM_USE_MPI)
+ 
+ # SparseDirectSolversTest executable: direct solvers of MUMPS, SuperLU_DIST
+-# and STRUMPACK, preconditioner of STRUMPACK
++# and STRUMPACK, preconditioners of MUMPS and STRUMPACK
+ if(MFEM_USE_MPI AND ((MFEM_USE_MUMPS STREQUAL "YES") OR
+                      (MFEM_USE_SUPERLU STREQUAL "YES") OR
+                      (MFEM_USE_STRUMPACK STREQUAL "YES")))
+diff --git a/tests/LinearSolverFactoriesTest.cxx b/tests/LinearSolverFactoriesTest.cxx
+index f932a8f7b5..0cdd8237db 100644
+--- a/tests/LinearSolverFactoriesTest.cxx
++++ b/tests/LinearSolverFactoriesTest.cxx
+@@ -72,7 +72,7 @@ static constexpr double tolerance =
+  * `HypreEuclid`)
+  */
+ static constexpr double elasticity_tolerance =
+-    std::is_same_v<mfem_mgis::real, float> ? 5e-2 : 1e-6;
++    std::is_same_v<mfem_mgis::real, float> ? 2e-2 : 1e-6;
+ /*!
+  * \brief maximum number of iterations of the iterative solvers: 5000 for
+  * the Laplace equation, 2000 for the linear elasticity (the slowest entry
+@@ -334,14 +334,14 @@ static void checkPlacement(const std::string& n,
+ /*!
+  * \return true for the entries which, in single precision only, do not
+  * converge on the linear elasticity with the options of this test: the
+- * BiCGSTAB solver of MFEM (divergence in parallel), and the BiCGSTAB,
++ * BiCGSTAB solver of MFEM in parallel (divergence), and the BiCGSTAB,
+  * FGMRES and LGMRES solvers of hypre (stagnation above the tolerance)
+  * \param[in] n: name of the entry
+  */
+ static bool mayNotConvergeOnElasticityInSinglePrecision(const std::string& n) {
+-  static const auto names = std::set<std::string>{
+-      "BiCGSTABSolver", "HypreBiCGSTAB", "HypreFGMRES", "HypreLGMRES"};
+-  return names.contains(n);
++  static const auto names =
++      std::set<std::string>{"HypreBiCGSTAB", "HypreFGMRES", "HypreLGMRES"};
++  return names.contains(n) || ((n == "BiCGSTABSolver") && parallel);
+ }  // end of mayNotConvergeOnElasticityInSinglePrecision
+ 
+ /*!
+diff --git a/tests/SparseDirectSolversTest.cxx b/tests/SparseDirectSolversTest.cxx
+index 609af907cc..900033e557 100644
+--- a/tests/SparseDirectSolversTest.cxx
++++ b/tests/SparseDirectSolversTest.cxx
+@@ -63,11 +63,13 @@ static constexpr double direct_tolerance =
+ static constexpr double cg_tolerance =
+     std::is_same_v<mfem::real_t, double> ? 1e-12 : 1e-5;
+ 
++#ifdef MFEM_USE_MUMPS
+ /*!
+  * \brief number of elements along each edge of the cube on which the block
+  * low-rank factorization of MUMPS compresses fronts
+  */
+ static constexpr int blr_mesh_size = 24;
++#endif /* MFEM_USE_MUMPS */
+ 
+ static void check(const bool b, const std::string& msg) {
+   if (!b) {
+-- 
+2.43.0
+

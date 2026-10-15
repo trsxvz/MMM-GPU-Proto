@@ -58,6 +58,7 @@ list(APPEND MFEMMGIS_SOURCES
   MFEMLinearSolvers.cxx
   HypreLinearSolvers.cxx
   HypreSolvers.cxx
+  PETScSupport.cxx
   PETScLinearSolvers.cxx
   SuperLUSolvers.cxx
   STRUMPACKSolvers.cxx
@@ -79,6 +80,7 @@ list(APPEND MFEMMGIS_SOURCES
   SecantAccelerationAlgorithms.cxx
   FixedPointSolver.cxx
   KINSOLSolver.cxx
+  PETScSNESSolver.cxx
   AdaptiveLinearSolverTolerance.cxx
   AnalyticalTests.cxx
   IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx

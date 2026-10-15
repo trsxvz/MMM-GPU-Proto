@@ -1,0 +1,389 @@
+From 544c0a4ea8b9c77dafef254b25a4664a346f9fb5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 11:24:49 +0200
+Subject: [PATCH] Add the preconditioner of MUMPS
+
+MUMPSPreconditioner (parallel) applies once the factorization of MUMPS,
+with the options of MUMPSSolver: exact, or approximate with the block
+low-rank compression (BLRTolerance), for instance inside a Krylov
+solver. The construction of the solver of MUMPS from its options is
+shared by both entries. SparseDirectSolversTest preconditions the
+conjugate gradient of MFEM by the exact factorization (one iteration)
+and by the block low-rank one; the generic test runs the new entry.
+---
+ docs/source/user_guide/glossary.rst           |   4 +-
+ docs/source/user_guide/linear_solvers.rst     |   5 +
+ .../release_notes/release_notes-1.1.0.rst     |   3 +-
+ src/LinearSolverModules.cxx                   |   5 +-
+ src/LinearSolverModules.hxx                   |   5 +
+ src/MUMPSSolvers.cxx                          | 198 ++++++++++--------
+ tests/SparseDirectSolversTest.cxx             |  26 ++-
+ 7 files changed, 156 insertions(+), 90 deletions(-)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 1956a56543..e24766ccbf 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -47,7 +47,9 @@ Direct Solver
+ MUMPS Solver
+ ^^^^^^^^^^^^
+ 
+-- Solver name: ``MUMPSSolver``
++- Solver name: ``MUMPSSolver``; the preconditioner ``MUMPSPreconditioner``
++  applies the same factorization once, for instance an approximate one
++  (``BLRTolerance``) in a Krylov solver
+ - Dependencies:
+  
+   - ``MFEM_USE_MUMPS``
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index d39845b52c..994b5cb770 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -337,6 +337,11 @@ Preconditioners
+      - MAGMA
+      - GPU
+      - none
++   * - :cxx:`MUMPSPreconditioner` (parallel)
++     - MUMPS
++     - host
++     - the options of :cxx:`MUMPSSolver`: the factorization, approximate
++       with :cxx:`BLRTolerance`, is applied once
+    * - :cxx:`PETScPreconditioner` (parallel)
+      - PETSc
+      - host
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index da9258d994..fe3a3267a6 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -226,7 +226,8 @@ the diagonal block of each process in parallel, as well as the
+ wrapper :cxx:`OrthoSolver` for the operators whose kernel is the constant
+ vector. The :cxx:`MUMPSSolver` direct solver accepts a reordering
+ strategy, a tolerance of its block low-rank factorization and a verbosity
+-level. See :ref:`linear_solvers`.
++level; its factorization is also available as a preconditioner
++(:cxx:`MUMPSPreconditioner`). See :ref:`linear_solvers`.
+ 
+ Direct solvers of SuperLU_DIST and STRUMPACK
+ --------------------------------------------
+diff --git a/src/LinearSolverModules.cxx b/src/LinearSolverModules.cxx
+index 0b43c40c94..2c98d4fd2c 100644
+--- a/src/LinearSolverModules.cxx
++++ b/src/LinearSolverModules.cxx
+@@ -57,7 +57,7 @@ namespace mfem_mgis::internals {
+     }
+ #endif /* MFEM_MGIS_HAVE_AMGX */
+ #if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS))
+-    if (n == "MUMPSSolver") {
++    if ((n == "MUMPSSolver") || (n == "MUMPSPreconditioner")) {
+       return "MFEM is not compiled with MUMPS";
+     }
+ #endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)) */
+@@ -251,6 +251,9 @@ namespace mfem_mgis::internals {
+ #ifdef MFEM_USE_MPI
+     if constexpr (parallel) {
+       declareHyprePreconditioners(f);
++#ifdef MFEM_USE_MUMPS
++      declareMUMPSPreconditioners(f);
++#endif /* MFEM_USE_MUMPS */
+ #ifdef MFEM_USE_STRUMPACK
+       declareSTRUMPACKPreconditioners(f);
+ #endif /* MFEM_USE_STRUMPACK */
+diff --git a/src/LinearSolverModules.hxx b/src/LinearSolverModules.hxx
+index 033c9bfd54..c454987ce5 100644
+--- a/src/LinearSolverModules.hxx
++++ b/src/LinearSolverModules.hxx
+@@ -83,6 +83,11 @@ namespace mfem_mgis::internals {
+    * \param[in, out] f: factory
+    */
+   void declareMUMPSLinearSolvers(LinearSolverFactory<true>& f);
++  /*!
++   * \brief register the preconditioner of MUMPS (factorization applied once)
++   * \param[in, out] f: factory
++   */
++  void declareMUMPSPreconditioners(PreconditionerFactory<true>& f);
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+   /*!
+diff --git a/src/MUMPSSolvers.cxx b/src/MUMPSSolvers.cxx
+index 8b6d1dbbed..88188c213b 100644
+--- a/src/MUMPSSolvers.cxx
++++ b/src/MUMPSSolvers.cxx
+@@ -61,7 +61,7 @@ namespace mfem_mgis::internals {
+   }  // end of getMUMPSSolverOptions
+ 
+   /*!
+-   * \return the generator of the MUMPS solver, whose options are:
++   * \return the MUMPS solver, or a null pointer on error. Its options are:
+    * - `Symmetric` and `PositiveDefinite`: type of the matrix;
+    * - `ReuseAnalysis`: if true, the analysis is reused for the matrices of
+    *   the same pattern;
+@@ -72,101 +72,101 @@ namespace mfem_mgis::internals {
+    *   positive, whose result is not checked);
+    * - `VerbosityLevel`: print level of MUMPS (`ICNTL(4)`, one, errors only,
+    *   by default).
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] params: options
+    */
+-  [[nodiscard]] static std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildMUMPSSolverGenerator() {
+-    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+-              const Parameters& params) -> LinearSolverHandler {
+-      using Problem = AbstractNonLinearEvolutionProblem;
+-      if (!checkParameters(ctx, params, getMUMPSSolverOptions())) {
+-        return {};
+-      }
+-      const auto oreuse_analysis =
+-          get_if<bool>(ctx, params, "ReuseAnalysis", false);
+-      if (isInvalid(oreuse_analysis)) {
+-        return {};
+-      }
+-      auto s = std::unique_ptr<mfem::MUMPSSolver>{};
+-      if (*oreuse_analysis) {
+-        s = std::make_unique<internals::MUMPSSolverReusingAnalysis>(
+-            fespace.GetComm());
+-      } else {
+-        s = std::make_unique<mfem::MUMPSSolver>(fespace.GetComm());
+-      }
+-      const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
+-      if (isInvalid(osymmetric)) {
++  [[nodiscard]] static std::unique_ptr<mfem::MUMPSSolver> makeMUMPSSolver(
++      Context& ctx,
++      FiniteElementSpace<true>& fespace,
++      const Parameters& params) {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    if (!checkParameters(ctx, params, getMUMPSSolverOptions())) {
++      return {};
++    }
++    const auto oreuse_analysis =
++        get_if<bool>(ctx, params, "ReuseAnalysis", false);
++    if (isInvalid(oreuse_analysis)) {
++      return {};
++    }
++    auto s = std::unique_ptr<mfem::MUMPSSolver>{};
++    if (*oreuse_analysis) {
++      s = std::make_unique<internals::MUMPSSolverReusingAnalysis>(
++          fespace.GetComm());
++    } else {
++      s = std::make_unique<mfem::MUMPSSolver>(fespace.GetComm());
++    }
++    const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
++    if (isInvalid(osymmetric)) {
++      return {};
++    }
++    const auto opositive_definite =
++        get_if<bool>(ctx, params, "PositiveDefinite", false);
++    if (isInvalid(opositive_definite)) {
++      return {};
++    }
++    // errors only, by default
++    const auto olvl =
++        get_if<int>(ctx, params, Problem::SolverVerbosityLevel, 1);
++    if (isInvalid(olvl)) {
++      return {};
++    }
++    s->SetPrintLevel(*olvl);
++    if (contains(params, "ReorderingStrategy")) {
++      using MUMPSSolver = mfem::MUMPSSolver;
++      const auto strategies =
++          std::array<std::pair<const char*, MUMPSSolver::ReorderingStrategy>,
++                     8>{{{"Automatic", MUMPSSolver::AUTOMATIC},
++                         {"AMD", MUMPSSolver::AMD},
++                         {"AMF", MUMPSSolver::AMF},
++                         {"PORD", MUMPSSolver::PORD},
++                         {"METIS", MUMPSSolver::METIS},
++                         {"ParMETIS", MUMPSSolver::PARMETIS},
++                         {"Scotch", MUMPSSolver::SCOTCH},
++                         {"PTScotch", MUMPSSolver::PTSCOTCH}}};
++      const auto ostrategy =
++          get<std::string>(ctx, params, "ReorderingStrategy");
++      if (isInvalid(ostrategy)) {
+         return {};
+       }
+-      const auto opositive_definite =
+-          get_if<bool>(ctx, params, "PositiveDefinite", false);
+-      if (isInvalid(opositive_definite)) {
+-        return {};
++      const auto p = std::find_if(
++          strategies.begin(), strategies.end(),
++          [&ostrategy](const auto& v) { return *ostrategy == v.first; });
++      if (p == strategies.end()) {
++        return ctx.registerErrorMessage("invalid reordering strategy '" +
++                                        *ostrategy + "' of MUMPS");
+       }
+-      // errors only, by default
+-      const auto olvl =
+-          get_if<int>(ctx, params, Problem::SolverVerbosityLevel, 1);
+-      if (isInvalid(olvl)) {
++      s->SetReorderingStrategy(p->second);
++    }
++    if (contains(params, "BLRTolerance")) {
++#if MFEM_MUMPS_VERSION >= 510
++      const auto otol = get<double>(ctx, params, "BLRTolerance");
++      if (isInvalid(otol)) {
+         return {};
+       }
+-      s->SetPrintLevel(*olvl);
+-      if (contains(params, "ReorderingStrategy")) {
+-        using MUMPSSolver = mfem::MUMPSSolver;
+-        const auto strategies =
+-            std::array<std::pair<const char*, MUMPSSolver::ReorderingStrategy>,
+-                       8>{{{"Automatic", MUMPSSolver::AUTOMATIC},
+-                           {"AMD", MUMPSSolver::AMD},
+-                           {"AMF", MUMPSSolver::AMF},
+-                           {"PORD", MUMPSSolver::PORD},
+-                           {"METIS", MUMPSSolver::METIS},
+-                           {"ParMETIS", MUMPSSolver::PARMETIS},
+-                           {"Scotch", MUMPSSolver::SCOTCH},
+-                           {"PTScotch", MUMPSSolver::PTSCOTCH}}};
+-        const auto ostrategy =
+-            get<std::string>(ctx, params, "ReorderingStrategy");
+-        if (isInvalid(ostrategy)) {
+-          return {};
+-        }
+-        const auto p = std::find_if(
+-            strategies.begin(), strategies.end(),
+-            [&ostrategy](const auto& v) { return *ostrategy == v.first; });
+-        if (p == strategies.end()) {
+-          return ctx.registerErrorMessage("invalid reordering strategy '" +
+-                                          *ostrategy + "' of MUMPS");
+-        }
+-        s->SetReorderingStrategy(p->second);
++      if (*otol < 0) {
++        return ctx.registerErrorMessage(
++            "invalid tolerance of the block low-rank factorization of "
++            "MUMPS");
+       }
+-      if (contains(params, "BLRTolerance")) {
+-#if MFEM_MUMPS_VERSION >= 510
+-        const auto otol = get<double>(ctx, params, "BLRTolerance");
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        if (*otol < 0) {
+-          return ctx.registerErrorMessage(
+-              "invalid tolerance of the block low-rank factorization of "
+-              "MUMPS");
+-        }
+-        s->SetBLRTol(*otol);
++      s->SetBLRTol(*otol);
+ #else  /* MFEM_MUMPS_VERSION >= 510 */
+-        return ctx.registerErrorMessage(
+-            "the block low-rank factorization of MUMPS requires MUMPS 5.1");
++      return ctx.registerErrorMessage(
++          "the block low-rank factorization of MUMPS requires MUMPS 5.1");
+ #endif /* MFEM_MUMPS_VERSION >= 510 */
+-      }
+-      if (*osymmetric) {
+-        if (*opositive_definite) {
+-          s->SetMatrixSymType(
+-              mfem::MUMPSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE);
+-        } else {
+-          s->SetMatrixSymType(mfem::MUMPSSolver::MatType::SYMMETRIC_INDEFINITE);
+-        }
++    }
++    if (*osymmetric) {
++      if (*opositive_definite) {
++        s->SetMatrixSymType(
++            mfem::MUMPSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE);
+       } else {
+-        s->SetMatrixSymType(mfem::MUMPSSolver::MatType::UNSYMMETRIC);
++        s->SetMatrixSymType(mfem::MUMPSSolver::MatType::SYMMETRIC_INDEFINITE);
+       }
+-      return LinearSolverHandler{std::move(s),
+-                                 std::unique_ptr<LinearSolverPreconditioner>{}};
+-    };
+-  }  // end of buildMUMPSSolverGenerator
++    } else {
++      s->SetMatrixSymType(mfem::MUMPSSolver::MatType::UNSYMMETRIC);
++    }
++    return s;
++  }  // end of makeMUMPSSolver
+ 
+   void declareMUMPSLinearSolvers(LinearSolverFactory<true>& f) {
+     declare(f, "MUMPSSolver",
+@@ -177,9 +177,35 @@ namespace mfem_mgis::internals {
+                 .preconditioners = AcceptedPreconditioners::NONE,
+                 .options = getMUMPSSolverOptions(),
+                 .description = "MUMPS parallel direct solver"},
+-            buildMUMPSSolverGenerator());
++            [](Context& ctx, FiniteElementSpace<true>& fespace,
++               const Parameters& params) -> LinearSolverHandler {
++              auto s = makeMUMPSSolver(ctx, fespace, params);
++              if (s == nullptr) {
++                return {};
++              }
++              return LinearSolverHandler{
++                  std::move(s), std::unique_ptr<LinearSolverPreconditioner>{}};
++            });
+   }  // end of declareMUMPSLinearSolvers
+ 
++  void declareMUMPSPreconditioners(PreconditionerFactory<true>& f) {
++    declare(f, "MUMPSPreconditioner",
++            LinearSolverDescription{
++                .library = "MUMPS",
++                .kind = LinearSolverKind::PRECONDITIONER,
++                .placement = LinearSolverPlacement::HOST,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = getMUMPSSolverOptions(),
++                .description =
++                    "factorization of MUMPS applied once, approximate with "
++                    "the block low-rank compression (BLRTolerance)"},
++            [](Context& ctx, FiniteElementSpace<true>& fespace,
++               const Parameters& opts)
++                -> std::unique_ptr<LinearSolverPreconditioner> {
++              return makeMUMPSSolver(ctx, fespace, opts);
++            });
++  }  // end of declareMUMPSPreconditioners
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+diff --git a/tests/SparseDirectSolversTest.cxx b/tests/SparseDirectSolversTest.cxx
+index 62bf287c14..8e951169cb 100644
+--- a/tests/SparseDirectSolversTest.cxx
++++ b/tests/SparseDirectSolversTest.cxx
+@@ -8,7 +8,8 @@
+  *
+  * - MUMPS accepts each reordering strategy and the tolerance of its block
+  *   low-rank factorization, and solves the system (the strategy used is not
+- *   reported by MFEM);
++ *   reported by MFEM); its factorization preconditions the conjugate
++ *   gradient of MFEM, which converges in one iteration when it is exact;
+  * - SuperLU_DIST solves the system with its options, reuses its analysis
+  *   for a new operator of the same pattern and is built again for an
+  *   operator of another size; the ParMETIS ordering with the parallel
+@@ -162,6 +163,29 @@ static void run(LaplaceSystem<true>& s,
+     check(solve(s, *(blr.linear_solver), "MUMPSSolver, BLR") < direct_tolerance,
+           "MUMPSSolver, BLR: resolution");
+   }
++  // the exact factorization of MUMPS as a preconditioner of the conjugate
++  // gradient of MFEM, which then converges in one iteration, and its block
++  // low-rank factorization
++  for (const auto tolerance : {0., 1e-2}) {
++    auto cg = generate(
++        s, "CGSolver",
++        Parameters{{"RelativeTolerance", 1e-12},
++                   {"AbsoluteTolerance", 0.},
++                   {"MaximumNumberOfIterations", 200},
++                   {"Preconditioner",
++                    Parameters{{"Name", "MUMPSPreconditioner"},
++                               {"Options",
++                                Parameters{{"BLRTolerance", tolerance},
++                                           {"VerbosityLevel", 0}}}}}});
++    const auto name = std::string{"CGSolver, MUMPSPreconditioner, BLR "} +
++                      std::to_string(tolerance);
++    check((solve(s, *(cg.linear_solver), name) < 1e-10) &&
++              hasConverged(*(cg.linear_solver)) &&
++              ((tolerance > 0) ||
++               (getNumberOfIterationsAtConvergence(*(cg.linear_solver))
++                    .value_or(10) <= 1)),
++          name + ": resolution");
++  }
+   check(getGenerationError(s, "MUMPSSolver",
+                            Parameters{{"ReorderingStrategy", "RCM"}})
+                 .find("invalid reordering strategy") != std::string::npos,
+-- 
+2.43.0
+

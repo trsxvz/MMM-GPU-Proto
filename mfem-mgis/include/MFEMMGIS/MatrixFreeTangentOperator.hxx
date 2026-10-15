@@ -51,9 +51,12 @@ namespace mfem_mgis {
    * `MultiMaterialNonLinearIntegrator::addTangentOperatorActionByKernels`).
    *
    * Its diagonal is computed by kernels (`AssembleDiagonal`), as required
-   * by the smoothers of MFEM (`mfem::OperatorJacobiSmoother`, ...). On a
-   * non-conforming mesh, it is approximated by `|Pᵀ| diag(Σ Bᵀ K B w det J)`,
-   * as by `mfem::BilinearForm::AssembleDiagonal`.
+   * by the smoothers of MFEM (`mfem::OperatorJacobiSmoother`, ...), and so
+   * are its nodal blocks (`AssembleNodalBlocks`, see `NodalBlocksProvider`),
+   * used by the Jacobi preconditioner by nodal blocks. On a non-conforming
+   * mesh, they are approximated by `|Pᵀ|` applied to the diagonal or to the
+   * nodal blocks of `Σ Bᵀ K B w det J`, as by
+   * `mfem::BilinearForm::AssembleDiagonal`.
    *
    * The essential degrees of freedom are not taken into account: see
    * `mfem::ConstrainedOperator`. The tangent operator blocks are the ones

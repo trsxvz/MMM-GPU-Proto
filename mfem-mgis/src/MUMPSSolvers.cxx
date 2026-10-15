@@ -61,7 +61,7 @@ namespace mfem_mgis::internals {
   }  // end of getMUMPSSolverOptions
 
   /*!
-   * \return the generator of the MUMPS solver, whose options are:
+   * \return the MUMPS solver, or a null pointer on error. Its options are:
    * - `Symmetric` and `PositiveDefinite`: type of the matrix;
    * - `ReuseAnalysis`: if true, the analysis is reused for the matrices of
    *   the same pattern;
@@ -72,101 +72,101 @@ namespace mfem_mgis::internals {
    *   positive, whose result is not checked);
    * - `VerbosityLevel`: print level of MUMPS (`ICNTL(4)`, one, errors only,
    *   by default).
+   * \param[in, out] ctx: execution context
+   * \param[in] fespace: finite element space
+   * \param[in] params: options
    */
-  [[nodiscard]] static std::function<LinearSolverHandler(
-      Context&, FiniteElementSpace<true>&, const Parameters&)>
-  buildMUMPSSolverGenerator() {
-    return [](Context& ctx, FiniteElementSpace<true>& fespace,
-              const Parameters& params) -> LinearSolverHandler {
-      using Problem = AbstractNonLinearEvolutionProblem;
-      if (!checkParameters(ctx, params, getMUMPSSolverOptions())) {
+  [[nodiscard]] static std::unique_ptr<mfem::MUMPSSolver> makeMUMPSSolver(
+      Context& ctx,
+      FiniteElementSpace<true>& fespace,
+      const Parameters& params) {
+    using Problem = AbstractNonLinearEvolutionProblem;
+    if (!checkParameters(ctx, params, getMUMPSSolverOptions())) {
+      return {};
+    }
+    const auto oreuse_analysis =
+        get_if<bool>(ctx, params, "ReuseAnalysis", false);
+    if (isInvalid(oreuse_analysis)) {
+      return {};
+    }
+    auto s = std::unique_ptr<mfem::MUMPSSolver>{};
+    if (*oreuse_analysis) {
+      s = std::make_unique<internals::MUMPSSolverReusingAnalysis>(
+          fespace.GetComm());
+    } else {
+      s = std::make_unique<mfem::MUMPSSolver>(fespace.GetComm());
+    }
+    const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
+    if (isInvalid(osymmetric)) {
+      return {};
+    }
+    const auto opositive_definite =
+        get_if<bool>(ctx, params, "PositiveDefinite", false);
+    if (isInvalid(opositive_definite)) {
+      return {};
+    }
+    // errors only, by default
+    const auto olvl =
+        get_if<int>(ctx, params, Problem::SolverVerbosityLevel, 1);
+    if (isInvalid(olvl)) {
+      return {};
+    }
+    s->SetPrintLevel(*olvl);
+    if (contains(params, "ReorderingStrategy")) {
+      using MUMPSSolver = mfem::MUMPSSolver;
+      const auto strategies =
+          std::array<std::pair<const char*, MUMPSSolver::ReorderingStrategy>,
+                     8>{{{"Automatic", MUMPSSolver::AUTOMATIC},
+                         {"AMD", MUMPSSolver::AMD},
+                         {"AMF", MUMPSSolver::AMF},
+                         {"PORD", MUMPSSolver::PORD},
+                         {"METIS", MUMPSSolver::METIS},
+                         {"ParMETIS", MUMPSSolver::PARMETIS},
+                         {"Scotch", MUMPSSolver::SCOTCH},
+                         {"PTScotch", MUMPSSolver::PTSCOTCH}}};
+      const auto ostrategy =
+          get<std::string>(ctx, params, "ReorderingStrategy");
+      if (isInvalid(ostrategy)) {
         return {};
       }
-      const auto oreuse_analysis =
-          get_if<bool>(ctx, params, "ReuseAnalysis", false);
-      if (isInvalid(oreuse_analysis)) {
-        return {};
+      const auto p = std::find_if(
+          strategies.begin(), strategies.end(),
+          [&ostrategy](const auto& v) { return *ostrategy == v.first; });
+      if (p == strategies.end()) {
+        return ctx.registerErrorMessage("invalid reordering strategy '" +
+                                        *ostrategy + "' of MUMPS");
       }
-      auto s = std::unique_ptr<mfem::MUMPSSolver>{};
-      if (*oreuse_analysis) {
-        s = std::make_unique<internals::MUMPSSolverReusingAnalysis>(
-            fespace.GetComm());
-      } else {
-        s = std::make_unique<mfem::MUMPSSolver>(fespace.GetComm());
-      }
-      const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
-      if (isInvalid(osymmetric)) {
-        return {};
-      }
-      const auto opositive_definite =
-          get_if<bool>(ctx, params, "PositiveDefinite", false);
-      if (isInvalid(opositive_definite)) {
-        return {};
-      }
-      // errors only, by default
-      const auto olvl =
-          get_if<int>(ctx, params, Problem::SolverVerbosityLevel, 1);
-      if (isInvalid(olvl)) {
-        return {};
-      }
-      s->SetPrintLevel(*olvl);
-      if (contains(params, "ReorderingStrategy")) {
-        using MUMPSSolver = mfem::MUMPSSolver;
-        const auto strategies =
-            std::array<std::pair<const char*, MUMPSSolver::ReorderingStrategy>,
-                       8>{{{"Automatic", MUMPSSolver::AUTOMATIC},
-                           {"AMD", MUMPSSolver::AMD},
-                           {"AMF", MUMPSSolver::AMF},
-                           {"PORD", MUMPSSolver::PORD},
-                           {"METIS", MUMPSSolver::METIS},
-                           {"ParMETIS", MUMPSSolver::PARMETIS},
-                           {"Scotch", MUMPSSolver::SCOTCH},
-                           {"PTScotch", MUMPSSolver::PTSCOTCH}}};
-        const auto ostrategy =
-            get<std::string>(ctx, params, "ReorderingStrategy");
-        if (isInvalid(ostrategy)) {
-          return {};
-        }
-        const auto p = std::find_if(
-            strategies.begin(), strategies.end(),
-            [&ostrategy](const auto& v) { return *ostrategy == v.first; });
-        if (p == strategies.end()) {
-          return ctx.registerErrorMessage("invalid reordering strategy '" +
-                                          *ostrategy + "' of MUMPS");
-        }
-        s->SetReorderingStrategy(p->second);
-      }
-      if (contains(params, "BLRTolerance")) {
+      s->SetReorderingStrategy(p->second);
+    }
+    if (contains(params, "BLRTolerance")) {
 #if MFEM_MUMPS_VERSION >= 510
-        const auto otol = get<double>(ctx, params, "BLRTolerance");
-        if (isInvalid(otol)) {
-          return {};
-        }
-        if (*otol < 0) {
-          return ctx.registerErrorMessage(
-              "invalid tolerance of the block low-rank factorization of "
-              "MUMPS");
-        }
-        s->SetBLRTol(*otol);
-#else  /* MFEM_MUMPS_VERSION >= 510 */
+      const auto otol = get<double>(ctx, params, "BLRTolerance");
+      if (isInvalid(otol)) {
+        return {};
+      }
+      if (*otol < 0) {
         return ctx.registerErrorMessage(
-            "the block low-rank factorization of MUMPS requires MUMPS 5.1");
+            "invalid tolerance of the block low-rank factorization of "
+            "MUMPS");
+      }
+      s->SetBLRTol(*otol);
+#else  /* MFEM_MUMPS_VERSION >= 510 */
+      return ctx.registerErrorMessage(
+          "the block low-rank factorization of MUMPS requires MUMPS 5.1");
 #endif /* MFEM_MUMPS_VERSION >= 510 */
-      }
-      if (*osymmetric) {
-        if (*opositive_definite) {
-          s->SetMatrixSymType(
-              mfem::MUMPSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE);
-        } else {
-          s->SetMatrixSymType(mfem::MUMPSSolver::MatType::SYMMETRIC_INDEFINITE);
-        }
+    }
+    if (*osymmetric) {
+      if (*opositive_definite) {
+        s->SetMatrixSymType(
+            mfem::MUMPSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE);
       } else {
-        s->SetMatrixSymType(mfem::MUMPSSolver::MatType::UNSYMMETRIC);
+        s->SetMatrixSymType(mfem::MUMPSSolver::MatType::SYMMETRIC_INDEFINITE);
       }
-      return LinearSolverHandler{std::move(s),
-                                 std::unique_ptr<LinearSolverPreconditioner>{}};
-    };
-  }  // end of buildMUMPSSolverGenerator
+    } else {
+      s->SetMatrixSymType(mfem::MUMPSSolver::MatType::UNSYMMETRIC);
+    }
+    return s;
+  }  // end of makeMUMPSSolver
 
   void declareMUMPSLinearSolvers(LinearSolverFactory<true>& f) {
     declare(f, "MUMPSSolver",
@@ -177,8 +177,34 @@ namespace mfem_mgis::internals {
                 .preconditioners = AcceptedPreconditioners::NONE,
                 .options = getMUMPSSolverOptions(),
                 .description = "MUMPS parallel direct solver"},
-            buildMUMPSSolverGenerator());
+            [](Context& ctx, FiniteElementSpace<true>& fespace,
+               const Parameters& params) -> LinearSolverHandler {
+              auto s = makeMUMPSSolver(ctx, fespace, params);
+              if (s == nullptr) {
+                return {};
+              }
+              return LinearSolverHandler{
+                  std::move(s), std::unique_ptr<LinearSolverPreconditioner>{}};
+            });
   }  // end of declareMUMPSLinearSolvers
+
+  void declareMUMPSPreconditioners(PreconditionerFactory<true>& f) {
+    declare(f, "MUMPSPreconditioner",
+            LinearSolverDescription{
+                .library = "MUMPS",
+                .kind = LinearSolverKind::PRECONDITIONER,
+                .placement = LinearSolverPlacement::HOST,
+                .preconditioners = AcceptedPreconditioners::NONE,
+                .options = getMUMPSSolverOptions(),
+                .description =
+                    "factorization of MUMPS applied once, approximate with "
+                    "the block low-rank compression (BLRTolerance)"},
+            [](Context& ctx, FiniteElementSpace<true>& fespace,
+               const Parameters& opts)
+                -> std::unique_ptr<LinearSolverPreconditioner> {
+              return makeMUMPSSolver(ctx, fespace, opts);
+            });
+  }  // end of declareMUMPSPreconditioners
 
 }  // end of namespace mfem_mgis::internals
 

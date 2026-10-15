@@ -1,0 +1,550 @@
+From cd98600fa00cd4267f98bc8bc2ee9a8da541c963 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 13:26:58 +0200
+Subject: [PATCH] HypreMGR: eliminated points, GPU workaround, refused block
+ options
+
+The unknowns which are not kept at a level of reduction are now all
+eliminated (HYPRE_MGRSetNonCpointsToFpoints): by default, hypre added
+coarse points chosen by an algebraic coarsening at the levels before the
+last one. Two levels now need 32 iterations instead of 37 on the host,
+41 instead of 87 on a GPU, and converge in single precision, where the
+GMRES solver of MFEM reported its convergence with residuals up to 0.8.
+
+When hypre computes on a GPU, the Jacobi relaxation (default) with the
+interpolation 12 stopped the program: hypre replaces the relaxation 0 by
+its relaxation of the GPU, 7, except with the interpolation 12, which it
+then replaces by 2 at the levels eliminating one component, whose Jacobi
+relaxation of the host reads the matrices on the GPU. These levels are
+now given the relaxation 7.
+
+Refused, after tests on the beam in linear elasticity: the block
+interpolations and restrictions (12 to 15) with unknowns ordered by
+nodes when a level eliminates several components (hypre groups
+consecutive fine unknowns, of different nodes), the interpolation 13
+(wrong results), the restriction 12 when a level eliminates several
+components (it stops the program), the restrictions 14 and 15 when a
+level eliminates one component (invalid values), and, on a GPU, the
+interpolation 12 when a level eliminates several components (invalid
+memory accesses). The verbosity level is bounded by 7 (the other bits of
+the print level of MGR write files), and the size of the operator is
+checked on all the processes.
+
+The test checks the block interpolation of two components, the block
+interpolation with the Jacobi relaxation, operators of other sizes, one
+of them with a process owning no unknown, and the new refusals; the
+multigrid reduction must need less than a third of the iterations of
+the Jacobi preconditioner. Docs: these rules, the non symmetric default
+cycle.
+---
+ docs/source/user_guide/linear_solvers.rst |  45 +++++--
+ src/HypreLinearSolvers.cxx                | 106 +++++++++++++++-
+ src/HypreSolvers.cxx                      |  22 +++-
+ src/HypreSolvers.hxx                      |   7 +-
+ tests/HypreMGRTest.cxx                    | 144 +++++++++++++++++++---
+ 5 files changed, 287 insertions(+), 37 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 51f4513d28..fd36ccb691 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -458,11 +458,30 @@ for each new operator. Its options are:
+ - :cxx:`NumberOfRelaxationSweeps`: the number of sweeps of the
+   F-relaxation;
+ - :cxx:`InterpolationType`: :cxx:`0`, :cxx:`1`, :cxx:`2` (by default),
+-  :cxx:`3`, :cxx:`4`, :cxx:`12`, :cxx:`13` or :cxx:`14`, see
+-  :code:`HYPRE_MGRSetInterpType`;
++  :cxx:`3`, :cxx:`4`, :cxx:`12` or :cxx:`14`, see
++  :code:`HYPRE_MGRSetInterpType` (the interpolation :cxx:`13` is refused:
++  it gives wrong results);
+ - :cxx:`RestrictionType`: :cxx:`0` (injection, by default), :cxx:`1` to
+   :cxx:`5` or :cxx:`12` to :cxx:`15`, see :code:`HYPRE_MGRSetRestrictType`;
+-- :cxx:`VerbosityLevel`: the verbosity level of :code:`hypre`.
++- :cxx:`VerbosityLevel`: the print level of the multigrid reduction,
++  :cxx:`0` to :cxx:`7` (information on the setup, the resolution and the
++  parameters; the other bits of the print level of :code:`hypre` write
++  files).
++
++The default cycle (Jacobi interpolation, injection, F-relaxation before
++the coarse level only) is not symmetric: the preconditioner is meant for
++the GMRES solvers rather than for the conjugate gradients.
++
++The block interpolations and restrictions (:cxx:`12` to :cxx:`15`, and the
++block F-relaxation of the Jacobi relaxation with the interpolation
++:cxx:`12`) group consecutive fine unknowns, which are the components
++eliminated at a node only when the unknowns are ordered by vector
++dimension: with the ordering by nodes, they are refused when a level
++eliminates several components (with one component, they are pointwise).
++With :code:`hypre` 3.2.0, the restriction :cxx:`12` stops the program when
++a level eliminates several components, and the restrictions :cxx:`14` and
++:cxx:`15` give invalid values when a level eliminates one component: these
++cases are refused.
+ 
+ The multigrid reduction is meant for coupled problems whose fine points are
+ easy to relax. On the beam in linear elasticity of the test
+@@ -471,18 +490,22 @@ slower than the Jacobi preconditioner, while, with the F-relaxation by
+ algebraic multigrid (:cxx:`RelaxationType` set to :cxx:`2`), the GMRES
+ solver of :code:`MFEM` converges in about 35 iterations on the host and 50
+ on a GPU, against 150 to 300 with the Jacobi preconditioner (relative
+-tolerance of :math:`10^{-12}`); the interpolation :cxx:`13` and the
+-restrictions :cxx:`14` and :cxx:`15` give invalid values on it.
++tolerance of :math:`10^{-12}`).
+ 
+ When :code:`hypre` computes on a GPU, the F-relaxations :cxx:`0`,
+ :cxx:`2`, :cxx:`7`, :cxx:`9`, :cxx:`18`, :cxx:`99` and :cxx:`199`, the
+ interpolations :cxx:`0`, :cxx:`1`, :cxx:`2` and :cxx:`12`, and the
+-restrictions :cxx:`0`, :cxx:`1`, :cxx:`2` and :cxx:`12` are accepted
+-(:code:`hypre` replaces the Jacobi relaxation :cxx:`0` by its relaxation
+-:cxx:`7`); the other values are refused: :code:`hypre` 3.2.0 applies the
+-relaxations, interpolations and restrictions of the host to the matrices
+-on the GPU and stops the program, and the V-cycle relaxation frees memory
+-which is not its own.
++restrictions :cxx:`0`, :cxx:`1`, :cxx:`2` and :cxx:`12` are accepted; the
++other values are refused: :code:`hypre` 3.2.0 applies the relaxations,
++interpolations and restrictions of the host to the matrices on the GPU and
++stops the program, and the V-cycle relaxation frees memory which is not
++its own. The interpolation :cxx:`12` is also refused when a level
++eliminates several components (invalid memory accesses). :code:`hypre`
++replaces the Jacobi relaxation :cxx:`0` by its relaxation of the GPU,
++:cxx:`7`, except with the interpolation :cxx:`12`, which it then replaces
++by :cxx:`2` at the levels eliminating one component: mfem-mgis then gives
++the relaxation :cxx:`7` to these levels, which would otherwise apply the
++relaxation of the host.
+ 
+ .. _petsc_linear_solvers:
+ 
+diff --git a/src/HypreLinearSolvers.cxx b/src/HypreLinearSolvers.cxx
+index cf5746d0a3..b5336023c2 100644
+--- a/src/HypreLinearSolvers.cxx
++++ b/src/HypreLinearSolvers.cxx
+@@ -855,6 +855,68 @@ namespace mfem_mgis {
+     return true;
+   }  // end of checkHypreMGRValues
+ 
++  /*!
++   * \return if the block interpolations and restrictions of the multigrid
++   * reduction of hypre can be used with the given levels: they group
++   * consecutive fine unknowns, which are the components eliminated at a
++   * node only with the ordering by vector dimension, and, with hypre 3.2.0
++   * (tested on a beam in linear elasticity), the interpolation 13 gives
++   * wrong results, the restriction 12 stops the program when a level
++   * eliminates several components, the restrictions 14 and 15 give invalid
++   * values when a level eliminates one component, and, when hypre computes
++   * on a GPU, the interpolation 12 accesses invalid memory when a level
++   * eliminates several components
++   * \param[in, out] ctx: execution context
++   * \param[in] eliminated: number of components eliminated at each level
++   * \param[in] interpolation: interpolation
++   * \param[in] restriction: restriction
++   * \param[in] by_nodes: if true, the unknowns are ordered by nodes
++   */
++  [[nodiscard]] static bool checkHypreMGRBlockOptions(
++      Context& ctx,
++      const std::vector<std::size_t>& eliminated,
++      const int interpolation,
++      const int restriction,
++      const bool by_nodes) {
++    const auto n = std::string{"the multigrid reduction of hypre"};
++    const auto several =
++        std::ranges::any_of(eliminated, [](const auto e) { return e > 1; });
++    const auto one =
++        std::ranges::any_of(eliminated, [](const auto e) { return e == 1; });
++    const auto blocks = (interpolation >= 12) || (restriction >= 12);
++    if (interpolation == 13) {
++      return ctx.registerErrorMessage(
++          "the interpolation 13 of " + n +
++          " is refused: it gives wrong results (hypre 3.2.0)");
++    }
++    if (by_nodes && blocks && several) {
++      return ctx.registerErrorMessage(
++          "the block interpolations and restrictions of " + n +
++          " (12 to 15) group consecutive fine unknowns: they require "
++          "unknowns ordered by vector dimension when a level eliminates "
++          "several components");
++    }
++    if ((restriction == 12) && several) {
++      return ctx.registerErrorMessage(
++          "the restriction 12 of " + n +
++          " is refused when a level eliminates several components: it stops "
++          "the program (hypre 3.2.0)");
++    }
++    if (((restriction == 14) || (restriction == 15)) && one) {
++      return ctx.registerErrorMessage(
++          "the restrictions 14 and 15 of " + n +
++          " are refused when a level eliminates one component: they give "
++          "invalid values (hypre 3.2.0)");
++    }
++    if (isHypreUsingGPU() && (interpolation == 12) && several) {
++      return ctx.registerErrorMessage(
++          "the interpolation 12 of " + n +
++          " computing on the GPU is refused when a level eliminates several "
++          "components: it accesses invalid memory (hypre 3.2.0)");
++    }
++    return true;
++  }  // end of checkHypreMGRBlockOptions
++
+   /*!
+    * \return the multigrid reduction of hypre (MGR)
+    * \param[in, out] ctx: execution context
+@@ -862,7 +924,18 @@ namespace mfem_mgis {
+    * \param[in] opts: options: `CoarseComponents` (see
+    * `getMGRCoarseComponents`), and the options of hypre (see its
+    * documentation): `RelaxationType`, `NumberOfRelaxationSweeps`,
+-   * `InterpolationType`, `RestrictionType` and `VerbosityLevel`
++   * `InterpolationType`, `RestrictionType` and `VerbosityLevel` (0 to 7,
++   * information on the setup, the resolution and the parameters: the other
++   * bits of the print level of MGR write files)
++   *
++   * The block interpolations and restrictions are checked by
++   * `checkHypreMGRBlockOptions`. When hypre
++   * computes on a GPU, with the Jacobi relaxation (0, by default) and the
++   * interpolation 12, the levels eliminating one component use the Jacobi
++   * relaxation of the GPU (7): hypre 3.2.0 replaces their interpolation 12
++   * by 2 after having replaced the relaxation 0 by 7 only for the
++   * interpolations other than 12, and applies the Jacobi relaxation of the
++   * host to the matrices on the GPU.
+    */
+   [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+   setHypreMGRPreconditioner(Context& ctx,
+@@ -875,7 +948,7 @@ namespace mfem_mgis {
+          {"NumberOfRelaxationSweeps", 1, m, HYPRE_MGRSetNumRelaxSweeps},
+          {"InterpolationType", 0, 14, HYPRE_MGRSetInterpType},
+          {"RestrictionType", 0, 15, HYPRE_MGRSetRestrictType},
+-         {Problem::SolverVerbosityLevel, 0, m, HYPRE_MGRSetPrintLevel}}};
++         {Problem::SolverVerbosityLevel, 0, 7, HYPRE_MGRSetPrintLevel}}};
+     auto allowed = std::vector<std::string>{"CoarseComponents"};
+     for (const auto& o : integers) {
+       allowed.push_back(o.name);
+@@ -896,9 +969,34 @@ namespace mfem_mgis {
+                           "the multigrid reduction of hypre")) {
+       return {};
+     }
++    // number of components eliminated at each level
++    auto eliminated = std::vector<std::size_t>{};
++    for (std::size_t l = 0; l != olevels->size(); ++l) {
++      const auto previous =
++          (l == 0) ? static_cast<std::size_t>(vdim) : (*olevels)[l - 1].size();
++      eliminated.push_back(previous - (*olevels)[l].size());
++    }
++    const auto ointerpolation = get_if<int>(ctx, opts, "InterpolationType", 2);
++    const auto orestriction = get_if<int>(ctx, opts, "RestrictionType", 0);
++    const auto orelaxation = get_if<int>(ctx, opts, "RelaxationType", 0);
++    if (isInvalid(ointerpolation) || isInvalid(orestriction) ||
++        isInvalid(orelaxation)) {
++      return {};
++    }
++    const auto by_nodes = fespace.GetOrdering() == mfem::Ordering::byNODES;
++    if (!checkHypreMGRBlockOptions(ctx, eliminated, *ointerpolation,
++                                   *orestriction, by_nodes)) {
++      return {};
++    }
++    auto level_relaxation_types = std::vector<HYPRE_Int>{};
++    if ((isHypreUsingGPU()) && (*orelaxation == 0) && (*ointerpolation == 12)) {
++      for (const auto e : eliminated) {
++        level_relaxation_types.push_back(e == 1 ? 7 : 0);
++      }
++    }
+     return std::make_unique<internals::HypreMGR>(
+-        std::move(settings), std::move(*olevels), vdim,
+-        fespace.GetOrdering() == mfem::Ordering::byNODES);
++        std::move(settings), std::move(*olevels), vdim, by_nodes,
++        std::move(level_relaxation_types));
+   }  // end of setHypreMGRPreconditioner
+ 
+   /*!
+diff --git a/src/HypreSolvers.cxx b/src/HypreSolvers.cxx
+index 6ccf2386b0..eee2b9c810 100644
+--- a/src/HypreSolvers.cxx
++++ b/src/HypreSolvers.cxx
+@@ -349,9 +349,11 @@ namespace mfem_mgis::internals {
+   HypreMGR::HypreMGR(std::vector<HypreSetting> s,
+                      std::vector<std::vector<HYPRE_Int>> c,
+                      const int vdim,
+-                     const bool by_nodes)
++                     const bool by_nodes,
++                     std::vector<HYPRE_Int> r)
+       : settings(std::move(s)),
+         coarse_components(std::move(c)),
++        level_relaxation_types(std::move(r)),
+         number_of_components(vdim),
+         ordered_by_nodes(by_nodes) {
+     for (auto& l : this->coarse_components) {
+@@ -374,9 +376,18 @@ namespace mfem_mgis::internals {
+         static_cast<HYPRE_Int>(this->coarse_components.size()),
+         this->number_of_coarse_components.data(),
+         this->coarse_components_pointers.data(), this->point_markers.data());
++    // the unknowns which are not kept at a level are eliminated (by default,
++    // hypre adds coarse points chosen by an algebraic coarsening at the
++    // levels before the last one)
++    HYPRE_MGRSetNonCpointsToFpoints(this->solver, 1);
+     for (const auto& setting : this->settings) {
+       setting(this->solver);
+     }
++    // hypre copies the F-relaxations of the levels
++    if (!this->level_relaxation_types.empty()) {
++      HYPRE_MGRSetLevelFRelaxType(this->solver,
++                                  this->level_relaxation_types.data());
++    }
+   }  // end of create
+ 
+   HypreMGR::operator HYPRE_Solver() const { return this->solver; }
+@@ -393,10 +404,15 @@ namespace mfem_mgis::internals {
+     const auto& a = getHypreParMatrix(op, "HypreMGR");
+     const auto n = a.Height();
+     const auto vdim = this->number_of_components;
+-    if (n % vdim != 0) {
++    // checked on all the processes, which build the multigrid reduction
++    // together
++    auto valid = static_cast<int>(n % vdim == 0);
++    MPI_Allreduce(MPI_IN_PLACE, &valid, 1, MPI_INT, MPI_MIN, a.GetComm());
++    if (valid == 0) {
+       mgis::raise(
+           "HypreMGR::SetOperator: the local size of the operator is not a "
+-          "multiple of the number of components of the unknowns");
++          "multiple of the number of components of the unknowns on all the "
++          "processes");
+     }
+     // component of each local unknown
+     const auto nb = n / vdim;
+diff --git a/src/HypreSolvers.hxx b/src/HypreSolvers.hxx
+index d398245b58..53c540b58c 100644
+--- a/src/HypreSolvers.hxx
++++ b/src/HypreSolvers.hxx
+@@ -267,11 +267,14 @@ namespace mfem_mgis::internals {
+      * \param[in] c: components kept at each level of reduction
+      * \param[in] vdim: number of components of the unknowns
+      * \param[in] by_nodes: if true, the unknowns are ordered by nodes
++     * \param[in] r: F-relaxation of each level, if not empty (it then
++     * replaces the F-relaxation given by the settings)
+      */
+     HypreMGR(std::vector<HypreSetting> s,
+              std::vector<std::vector<HYPRE_Int>> c,
+              const int vdim,
+-             const bool by_nodes);
++             const bool by_nodes,
++             std::vector<HYPRE_Int> r = {});
+     HypreMGR(HypreMGR&&) = delete;
+     HypreMGR(const HypreMGR&) = delete;
+     HypreMGR& operator=(HypreMGR&&) = delete;
+@@ -305,6 +308,8 @@ namespace mfem_mgis::internals {
+     std::vector<HYPRE_Int> number_of_coarse_components;
+     //! \brief pointers to the components kept at each level
+     std::vector<HYPRE_Int*> coarse_components_pointers;
++    //! \brief F-relaxation of each level, if not empty
++    std::vector<HYPRE_Int> level_relaxation_types;
+     /*!
+      * \brief component of each local unknown, read by hypre at the setup
+      * (hypre keeps the pointer)
+diff --git a/tests/HypreMGRTest.cxx b/tests/HypreMGRTest.cxx
+index b639b3716b..030da1be1d 100644
+--- a/tests/HypreMGRTest.cxx
++++ b/tests/HypreMGRTest.cxx
+@@ -9,26 +9,31 @@
+  *   in a thousand iterations);
+  * - with an F-relaxation by algebraic multigrid, with one level of
+  *   reduction (by default, the last component being eliminated) and with
+- *   two levels, the GMRES solver of MFEM converges in less than half the
+- *   iterations of the Jacobi preconditioner (when it converges). In single
+- *   precision, with two levels, the GMRES solver of MFEM reports its
+- *   convergence (on the preconditioned residual) with residuals up to 0.8:
+- *   only one level is checked;
++ *   two levels, the GMRES solver of MFEM converges in less than a third of
++ *   the iterations of the Jacobi preconditioner (when it converges);
+  * - the numbers of iterations hardly depend on the ordering of the unknowns
+  *   (the components are given to hypre by markers; only the coarse solver,
+  *   BoomerAMG, depends on the ordering);
++ * - the block interpolation of two components eliminated at one level
++ *   (unknowns ordered by vector dimension, on the host), and the block
++ *   interpolation with the Jacobi relaxation eliminating one component
++ *   (which uses the Jacobi relaxation of the GPU when hypre computes on a
++ *   GPU) reduce the residual;
+  * - the GMRES solver of hypre is preconditioned with the options of hypre
+  *   (values which hypre also computes on a GPU);
+  * - a second operator, the first one times two, gives the same numbers of
+- *   iterations;
+- * - invalid components and options are refused, and, when hypre computes
+- *   on a GPU, the values of the options that hypre only computes on the
+- *   host.
++ *   iterations, and operators of other sizes, one of them with a process
++ *   owning no unknown, are solved by the same preconditioner;
++ * - invalid components and options are refused, the options of hypre 3.2.0
++ *   which give wrong results or stop the program, the block options
++ *   grouping unknowns of different nodes, and, when hypre computes on a
++ *   GPU, the values of the options that hypre only computes on the host.
+  * \date   15/10/2026
+  */
+ 
+ #include <cmath>
+ #include <string>
++#include <vector>
+ #include <cstdlib>
+ #include <iostream>
+ #include <optional>
+@@ -185,7 +190,7 @@ static Iterations run(ElasticitySystem<true>& s, const std::string& ordering) {
+   // F-relaxation by algebraic multigrid
+   const auto amg = Parameters{{"RelaxationType", 2}};
+   const auto faster = [&jacobi](const std::optional<int>& i) {
+-    return i.has_value() && ((!jacobi.has_value()) || (2 * (*i) < *jacobi));
++    return i.has_value() && ((!jacobi.has_value()) || (3 * (*i) < *jacobi));
+   };
+   const auto one = solve(s, s.A, "GMRESSolver", makeMGR(amg),
+                          "GMRESSolver, HypreMGR (one level), " + ordering)
+@@ -199,8 +204,34 @@ static Iterations run(ElasticitySystem<true>& s, const std::string& ordering) {
+                                             {"CoarseComponents", levels}}),
+                          "GMRESSolver, HypreMGR (two levels), " + ordering)
+                        .success();
+-  check((!double_precision) || faster(two),
+-        ordering + ": resolution with two levels");
++  check(faster(two), ordering + ": resolution with two levels");
++  // block interpolation of the two components eliminated at one level:
++  // hypre groups consecutive unknowns, which are the ones of a node with
++  // the ordering by vector dimension only (refused with the ordering by
++  // nodes, and on a GPU, where hypre accesses invalid memory, see
++  // checkRefusals)
++  if ((ordering == "byVDIM") && (!isHypreUsingGPU())) {
++    check(solve(s, s.A, "GMRESSolver",
++                makeMGR(Parameters{
++                    {"RelaxationType", 2},
++                    {"InterpolationType", 12},
++                    {"CoarseComponents", std::vector<Parameter>{0}}}),
++                "GMRESSolver, HypreMGR (block interpolation), " + ordering)
++              .success()
++              .has_value(),
++          ordering + ": resolution with the block interpolation");
++  }
++  // the block interpolation with the Jacobi relaxation, eliminating one
++  // component: on a GPU, the Jacobi relaxation of the GPU is used (hypre
++  // 3.2.0 would apply the one of the host)
++  check(
++      solve(s, s.A, "GMRESSolver",
++            makeMGR(Parameters{{"InterpolationType", 12}}),
++            "GMRESSolver, HypreMGR (block interpolation, Jacobi), " + ordering)
++              .residual < maximum_residual,
++      ordering +
++          ": resolution with the block interpolation and the "
++          "Jacobi relaxation");
+   // the Krylov solver of hypre, and the options of hypre
+   check(solve(s, s.A, "HypreGMRES",
+               makeMGR(Parameters{{"RelaxationType", 2},
+@@ -224,17 +255,65 @@ static Iterations run(ElasticitySystem<true>& s, const std::string& ordering) {
+   return {one, two};
+ }  // end of run
+ 
++/*!
++ * \brief checks a preconditioner given operators of different sizes (the
++ * markers of the components and the solver of hypre are built again), the
++ * second system having a process owning no unknown
++ * \param[in] s1: first system
++ * \param[in] s2: second system
++ */
++static void checkOtherOperators(ElasticitySystem<true>& s1,
++                                ElasticitySystem<true>& s2) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto ls = LinearSolverFactory<true>::getFactory().generate(
++      ctx, "GMRESSolver", s1.fespace,
++      Parameters{
++          {"RelativeTolerance", tolerance},
++          {"AbsoluteTolerance", 0.},
++          {"MaximumNumberOfIterations", 1000},
++          {"Preconditioner", makeMGR(Parameters{{"RelaxationType", 2}})}});
++  if (isInvalid(ls)) {
++    throw std::runtime_error(ctx.getErrorMessage());
++  }
++  auto i = 0;
++  for (auto* const s : {&s1, &s2, &s1}) {
++    auto x = mfem::Vector(s->B.Size());
++    x.UseDevice(true);
++    x = 0.;
++    ls.linear_solver->SetOperator(s->A);
++    ls.linear_solver->Mult(s->B, x);
++    const auto r = s->getRelativeResidual(x);
++    const auto iterations =
++        getNumberOfIterationsAtConvergence(*(ls.linear_solver)).value_or(-1);
++    if (rank == 0) {
++      std::cout << "GMRESSolver, HypreMGR, operator " << i << ": " << iterations
++                << " iterations, residual " << r << '\n';
++    }
++    check(hasConverged(*(ls.linear_solver)) && (r < maximum_residual),
++          "resolution with the operator " + std::to_string(i));
++    ++i;
++  }
++}  // end of checkOtherOperators
++
+ //! \brief checks the refusals of invalid options
+-static void checkRefusals(ElasticitySystem<true>& s) {
++static void checkRefusals(ElasticitySystem<true>& s,
++                          ElasticitySystem<true>& s2) {
+   using namespace mfem_mgis;
+-  const auto refused = [&s](const Parameters& options, const std::string& msg) {
++  const auto refused_by = [](ElasticitySystem<true>& system,
++                             const Parameters& options,
++                             const std::string& msg) {
+     auto ctx = Context{};
+     const auto p = PreconditionerFactory<true>::getFactory().generate(
+-        ctx, "HypreMGR", s.fespace, options);
++        ctx, "HypreMGR", system.fespace, options);
+     const auto error = std::string{ctx.getErrorMessage()};
+     check((p == nullptr) && (error.find(msg) != std::string::npos),
+           "invalid options not refused ('" + error + "')");
+   };
++  const auto refused = [&s, &refused_by](const Parameters& options,
++                                         const std::string& msg) {
++    refused_by(s, options, msg);
++  };
+   refused(Parameters{{"CoarseComponents", std::vector<Parameter>{0, 3}}},
+           "invalid component");
+   refused(Parameters{{"CoarseComponents", std::vector<Parameter>{0, 0}}},
+@@ -253,6 +332,28 @@ static void checkRefusals(ElasticitySystem<true>& s) {
+                           Parameter{std::vector<Parameter>{0, 1}}, 0}}},
+           "invalid option 'CoarseComponents'");
+   refused(Parameters{{"InterpolationType", 15}}, "invalid value");
++  refused(Parameters{{"VerbosityLevel", 16}}, "invalid value");
++  // block interpolation of two components with the ordering by nodes (the
++  // system of this function)
++  refused(Parameters{{"InterpolationType", 12},
++                     {"CoarseComponents", std::vector<Parameter>{0}}},
++          "ordered by vector dimension");
++  // options of hypre 3.2.0 giving wrong results or stopping the program
++  // (the second system has unknowns ordered by vector dimension)
++  if (!isHypreUsingGPU()) {
++    refused(Parameters{{"InterpolationType", 13}}, "wrong results");
++    refused(Parameters{{"RestrictionType", 14}}, "invalid values");
++  }
++  refused_by(s2,
++             Parameters{{"RestrictionType", 12},
++                        {"CoarseComponents", std::vector<Parameter>{0}}},
++             "stops the program");
++  if (isHypreUsingGPU()) {
++    refused_by(s2,
++               Parameters{{"InterpolationType", 12},
++                          {"CoarseComponents", std::vector<Parameter>{0}}},
++               "accesses invalid memory");
++  }
+   refused(Parameters{{"RelaxationType", 10}}, "invalid value");
+   if (isHypreUsingGPU()) {
+     // values that hypre only computes on the host
+@@ -283,10 +384,17 @@ int main(int argc, char** argv) {
+     auto s2 = ElasticitySystem<true>(mesh, fec, mfem::Ordering::byVDIM);
+     const auto i1 = run(s1, "byNODES");
+     const auto i2 = run(s2, "byVDIM");
+-    check(areClose(i1.one, i2.one) &&
+-              ((!double_precision) || areClose(i1.two, i2.two)),
++    check(areClose(i1.one, i2.one) && areClose(i1.two, i2.two),
+           "the ordering of the unknowns changes the number of iterations");
+-    checkRefusals(s1);
++    checkRefusals(s1, s2);
++    // a smaller mesh, all the elements on the first process
++    auto mesh2 = mfem::Mesh::MakeCartesian3D(8, 2, 2, mfem::Element::HEXAHEDRON,
++                                             4., 1., 1.);
++    const auto partitioning =
++        std::vector<int>(static_cast<std::size_t>(mesh2.GetNE()), 0);
++    auto s3 = ElasticitySystem<true>(mesh2, fec, mfem::Ordering::byNODES,
++                                     partitioning.data());
++    checkOtherOperators(s1, s3);
+   } catch (std::exception& e) {
+     std::cerr << "error: " << e.what() << '\n';
+     return EXIT_FAILURE;
+-- 
+2.43.0
+

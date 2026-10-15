@@ -3,7 +3,17 @@
  * \brief  This file implements the module of the linear solvers and of the
  * preconditioners of PETSc (see `LinearSolverModules.hxx`): a Krylov
  * solver (`KSP`) and a preconditioner (`PC`) of PETSc, configured by the
- * options database of PETSc
+ * options database of PETSc.
+ *
+ * When MFEM computes on a GPU, the solvers and the preconditioners of PETSc
+ * compute on the host: the matrices are converted to the AIJ format of the
+ * host, and the vectors copied from and to the vectors of MFEM through the
+ * arrays of the host of PETSc. With MFEM 4.10 and PETSc 3.26 built with
+ * CUDA, the vectors of MFEM placed by MFEM in the vectors of PETSc, whose
+ * internal offload mask MFEM sets, were seen as null by the Krylov solvers
+ * of PETSc and by the shell preconditioners, and the vectors of PETSc of
+ * the GPU made `PetscFinalize` abort the program when freeing the memory
+ * pool of PETSc on the GPU.
  * \date   15/10/2026
  */
 
@@ -11,20 +21,20 @@
 
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
 
-#include <atomic>
 #include <memory>
+#include <algorithm>
 #include <tuple>
 #include <string>
 #include <vector>
-#include <iomanip>
 #include <optional>
-#include <sstream>
 #include <utility>
 #include <string_view>
 #include "petscsys.h"
 #include "petscksp.h"
+#include "mfem/general/device.hpp"
 #include "mfem/linalg/petsc.hpp"
 #include "mfem/fem/pfespace.hpp"
+#include "MGIS/Raise.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
@@ -33,167 +43,6 @@
 #include "LinearSolverModules.hxx"
 
 namespace mfem_mgis::internals {
-
-  /*!
-   * \brief initialize PETSc, unless it is already initialized (by
-   * mfem-mgis, or by the program, which then finalizes it)
-   */
-  static void initializePETSc() {
-    auto initialized = PetscBool{};
-    if ((PetscInitialized(&initialized) == 0) && (initialized == PETSC_TRUE)) {
-      return;
-    }
-    initializePETScOnDemand();
-  }  // end of initializePETSc
-
-  /*!
-   * \return a prefix of the options database of PETSc which is unique in
-   * the process, so that the options of two solvers do not interfere
-   * \param[in] kind: kind of object (`ksp`, `pc`)
-   */
-  [[nodiscard]] static std::string makePETScOptionsPrefix(
-      const std::string_view kind) {
-    static auto count = std::atomic<std::size_t>{};
-    return "mfem_mgis_" + std::string{kind} + std::to_string(count++) + "_";
-  }  // end of makePETScOptionsPrefix
-
-  /*!
-   * \return the value of an option of PETSc given by a parameter, or an
-   * empty value on error: a boolean (`true` or `false`), an integer, a
-   * floating-point value (written with all its digits) or a string (an empty
-   * string being an option without value)
-   * \param[in, out] ctx: execution context
-   * \param[in] n: name of the option
-   * \param[in] p: parameter
-   */
-  [[nodiscard]] static std::optional<std::string> getPETScOptionValue(
-      Context& ctx, const std::string& n, const Parameter& p) {
-    if (mfem_mgis::is<bool>(p)) {
-      const auto ov = mfem_mgis::get<bool>(ctx, p);
-      if (isInvalid(ov)) {
-        return {};
-      }
-      return std::string{*ov ? "true" : "false"};
-    }
-    if (mfem_mgis::is<int>(p)) {
-      const auto ov = mfem_mgis::get<int>(ctx, p);
-      if (isInvalid(ov)) {
-        return {};
-      }
-      return std::to_string(*ov);
-    }
-    if (mfem_mgis::is<double>(p)) {
-      const auto ov = mfem_mgis::get<double>(ctx, p);
-      if (isInvalid(ov)) {
-        return {};
-      }
-      auto os = std::ostringstream{};
-      os << std::setprecision(17) << *ov;
-      return os.str();
-    }
-    if (mfem_mgis::is<std::string>(p)) {
-      const auto ov = mfem_mgis::get<std::string>(ctx, p);
-      if (isInvalid(ov)) {
-        return {};
-      }
-      return std::string{*ov};
-    }
-    std::ignore = ctx.registerErrorMessage(
-        "invalid value of the option '" + n +
-        "' of PETSc (a boolean, an integer, a floating-point value or a "
-        "string is expected)");
-    return {};
-  }  // end of getPETScOptionValue
-
-  /*!
-   * \brief options of a solver of PETSc, written in the options database of
-   * PETSc with a prefix which is unique to the solver, and removed from it
-   * when the solver is destroyed. This class is the first base class of the
-   * solvers of PETSc, so that the prefix is known when the object of PETSc
-   * is created and that the options are removed after its destruction.
-   *
-   * PETSc ignores the options it does not know (for instance a misspelt
-   * option): the options which PETSc never read are reported when a solver
-   * which has been used is destroyed.
-   */
-  struct PETScOptions {
-    /*!
-     * \param[in] c: communicator
-     * \param[in] kind: kind of object (`ksp`, `pc`)
-     */
-    PETScOptions(MPI_Comm c, const std::string_view kind)
-        : prefix(makePETScOptionsPrefix(kind)), communicator(c) {}
-    PETScOptions(PETScOptions&&) = delete;
-    PETScOptions(const PETScOptions&) = delete;
-    PETScOptions& operator=(PETScOptions&&) = delete;
-    PETScOptions& operator=(const PETScOptions&) = delete;
-    /*!
-     * \brief write options in the options database of PETSc
-     * \return true on success
-     * \param[in, out] ctx: execution context
-     * \param[in] options: options, given without the leading dash and the
-     * prefix (for instance `{"ksp_type", "cg"}`)
-     */
-    [[nodiscard]] bool setOptions(Context& ctx, const Parameters& options) {
-      for (const auto& [n, p] : options) {
-        if (n.empty() || n.starts_with('-')) {
-          return ctx.registerErrorMessage(
-              "invalid option '" + n +
-              "' of PETSc (the options are given without the leading dash)");
-        }
-        const auto ovalue = getPETScOptionValue(ctx, n, p);
-        if (isInvalid(ovalue)) {
-          return false;
-        }
-        auto option = "-" + this->prefix + n;
-        const auto* const value = ovalue->empty() ? nullptr : ovalue->c_str();
-        if (PetscOptionsSetValue(nullptr, option.c_str(), value) != 0) {
-          return ctx.registerErrorMessage("the option '" + n +
-                                          "' can't be given to PETSc");
-        }
-        this->options.push_back(std::move(option));
-      }
-      return true;
-    }
-    /*!
-     * \brief destructor, reporting the options which PETSc never read, if
-     * the solver has been used, and removing the options from the options
-     * database (unless PETSc has been finalized)
-     */
-    ~PETScOptions() {
-      auto finalized = PetscBool{};
-      if ((PetscFinalized(&finalized) != 0) || (finalized == PETSC_TRUE)) {
-        return;
-      }
-      auto rank = int{};
-      MPI_Comm_rank(this->communicator, &rank);
-      for (const auto& o : this->options) {
-        auto read = PetscBool{};
-        if ((this->used) && (rank == 0) &&
-            (PetscOptionsUsed(nullptr, o.c_str() + 1, &read) == 0) &&
-            (read == PETSC_FALSE)) {
-          getErrorStream() << "warning: the option '"
-                           << o.substr(this->prefix.size() + 1)
-                           << "' was never read by PETSc\n";
-        }
-        std::ignore = PetscOptionsClearValue(nullptr, o.c_str());
-      }
-    }
-    //! \brief prefix of the options
-    const std::string prefix;
-
-   protected:
-    //! \brief mark the solver as used (called by the `Mult` methods)
-    void markAsUsed() const noexcept { this->used = true; }
-
-   private:
-    //! \brief communicator of the solver
-    const MPI_Comm communicator;
-    //! \brief options written in the options database, with their prefix
-    std::vector<std::string> options;
-    //! \brief if true, the solver has been used
-    mutable bool used = false;
-  };  // end of struct PETScOptions
 
   /*!
    * \brief Krylov solver of PETSc (`KSP`) configured by the options database
@@ -223,13 +72,30 @@ namespace mfem_mgis::internals {
      * (`PETScPreconditioner`) becomes the preconditioner of the Krylov
      * solver, the others are seen by PETSc as shell preconditioners. This
      * method hides the one of MFEM, which is not virtual.
+     *
+     * The shell preconditioners are the ones of mfem-mgis, whose vectors
+     * are copied from and to the vectors of PETSc through their arrays of
+     * the host: the shell preconditioners of MFEM wrap the vectors of PETSc
+     * by setting their internal offload mask, which, when MFEM computes on
+     * a GPU, gave null vectors to the preconditioner (MFEM 4.10, PETSc
+     * 3.26 built with CUDA).
      * \param[in] p: preconditioner
      */
     void SetPreconditioner(mfem::Solver& p) {
-      if (dynamic_cast<mfem::PetscPreconditioner*>(&p) == nullptr) {
-        this->shell_preconditioner = &p;
+      if (dynamic_cast<mfem::PetscPreconditioner*>(&p) != nullptr) {
+        mfem::PetscLinearSolver::SetPreconditioner(p);
+        return;
       }
-      mfem::PetscLinearSolver::SetPreconditioner(p);
+      this->shell_preconditioner = &p;
+      auto pc = PC{};
+      if ((KSPGetPC(static_cast<KSP>(*this), &pc) != 0) ||
+          (PCSetType(pc, PCSHELL) != 0) || (PCShellSetContext(pc, this) != 0) ||
+          (PCShellSetApply(pc, applyShellPreconditioner) != 0) ||
+          (PCShellSetName(pc, "preconditioner of mfem-mgis") != 0)) {
+        mgis::raise(
+            "PETScKrylovSolver::SetPreconditioner: the shell preconditioner "
+            "can't be set");
+      }
     }
     void SetOperator(const mfem::Operator& op) override {
       // unlike the Krylov solvers of MFEM, the solver of PETSc does not give
@@ -239,10 +105,45 @@ namespace mfem_mgis::internals {
         this->shell_preconditioner->SetOperator(op);
       }
       mfem::PetscLinearSolver::SetOperator(op);
+      if (mfem::Device::IsEnabled()) {
+        // see the description of this file
+        auto a = Mat{};
+        auto p = Mat{};
+        if (KSPGetOperators(static_cast<KSP>(*this), &a, &p) != 0) {
+          mgis::raise("PETScKrylovSolver::SetOperator: KSPGetOperators failed");
+        }
+        convertToHostMatrix(a);
+        if (p != a) {
+          convertToHostMatrix(p);
+        }
+      }
     }
     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
       this->markAsUsed();
-      mfem::PetscLinearSolver::Mult(b, x);
+      if (!mfem::Device::IsEnabled()) {
+        mfem::PetscLinearSolver::Mult(b, x);
+        return;
+      }
+      // see the description of this file
+      auto* const ksp = static_cast<KSP>(*this);
+      auto vx = PETScVector{};
+      auto vb = PETScVector{};
+      createHostVector(vb, this->GetComm(), b.Size());
+      createHostVector(vx, this->GetComm(), x.Size());
+      copyToPETScVector(vb.v, b);
+      auto guess = PetscBool{};
+      if (KSPGetInitialGuessNonzero(ksp, &guess) != 0) {
+        mgis::raise(
+            "PETScKrylovSolver::Mult: KSPGetInitialGuessNonzero failed");
+      }
+      if (guess == PETSC_TRUE) {
+        copyToPETScVector(vx.v, x);
+      }
+      this->Customize();
+      if (KSPSolve(ksp, vb.v, vx.v) != 0) {
+        mgis::raise("PETScKrylovSolver::Mult: KSPSolve failed");
+      }
+      copyFromPETScVector(x, vx.v);
     }
     [[nodiscard]] bool hasConverged() const noexcept override {
       // the accessors of MFEM are not constant
@@ -266,8 +167,45 @@ namespace mfem_mgis::internals {
     }
 
    private:
+    /*!
+     * \brief apply the shell preconditioner
+     * \return 0 on success, an error of PETSc otherwise (the exceptions do
+     * not cross PETSc)
+     * \param[in] pc: preconditioner of PETSc
+     * \param[in] x: vector
+     * \param[out] y: result
+     */
+    static PetscErrorCode applyShellPreconditioner(PC pc,
+                                                   Vec x,
+                                                   Vec y) noexcept {
+      try {
+        auto* d = static_cast<void*>(nullptr);
+        if (PCShellGetContext(pc, &d) != 0) {
+          return PETSC_ERR_LIB;
+        }
+        const auto& s = *static_cast<const PETScKrylovSolver*>(d);
+        auto n = PetscInt{};
+        if (VecGetLocalSize(x, &n) != 0) {
+          return PETSC_ERR_LIB;
+        }
+        s.shell_rhs.UseDevice(true);
+        s.shell_rhs.SetSize(static_cast<int>(n));
+        s.shell_solution.UseDevice(true);
+        s.shell_solution.SetSize(static_cast<int>(n));
+        copyFromPETScVector(s.shell_rhs, x);
+        s.shell_preconditioner->Mult(s.shell_rhs, s.shell_solution);
+        copyToPETScVector(y, s.shell_solution);
+        return PETSC_SUCCESS;
+      } catch (...) {
+      }
+      return PETSC_ERR_LIB;
+    }  // end of applyShellPreconditioner
     //! \brief shell preconditioner, if any (not owned)
     mfem::Solver* shell_preconditioner = nullptr;
+    //! \brief right hand side of the shell preconditioner
+    mutable mfem::Vector shell_rhs;
+    //! \brief result of the shell preconditioner
+    mutable mfem::Vector shell_solution;
   };  // end of struct PETScKrylovSolver
 
   //! \brief preconditioner of PETSc (`PC`) configured by the options database
@@ -279,9 +217,40 @@ namespace mfem_mgis::internals {
     explicit PETScPreconditioner(MPI_Comm comm)
         : PETScOptions(comm, "pc"),
           mfem::PetscPreconditioner(comm, this->prefix) {}
+    void SetOperator(const mfem::Operator& op) override {
+      mfem::PetscPreconditioner::SetOperator(op);
+      if (mfem::Device::IsEnabled()) {
+        // see the description of this file
+        auto a = Mat{};
+        auto p = Mat{};
+        if (PCGetOperators(static_cast<PC>(*this), &a, &p) != 0) {
+          mgis::raise(
+              "PETScPreconditioner::SetOperator: PCGetOperators failed");
+        }
+        convertToHostMatrix(a);
+        if (p != a) {
+          convertToHostMatrix(p);
+        }
+      }
+    }
     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
       this->markAsUsed();
-      mfem::PetscPreconditioner::Mult(b, x);
+      if (!mfem::Device::IsEnabled()) {
+        mfem::PetscPreconditioner::Mult(b, x);
+        return;
+      }
+      // see the description of this file
+      auto* const pc = static_cast<PC>(*this);
+      auto vx = PETScVector{};
+      auto vb = PETScVector{};
+      createHostVector(vb, this->GetComm(), b.Size());
+      createHostVector(vx, this->GetComm(), x.Size());
+      copyToPETScVector(vb.v, b);
+      this->Customize();
+      if ((PCSetUp(pc) != 0) || (PCApply(pc, vb.v, vx.v) != 0)) {
+        mgis::raise("PETScPreconditioner::Mult: PCApply failed");
+      }
+      copyFromPETScVector(x, vx.v);
     }
   };  // end of struct PETScPreconditioner
 

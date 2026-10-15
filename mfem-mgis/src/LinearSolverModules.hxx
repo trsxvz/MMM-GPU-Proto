@@ -83,6 +83,11 @@ namespace mfem_mgis::internals {
    * \param[in, out] f: factory
    */
   void declareMUMPSLinearSolvers(LinearSolverFactory<true>& f);
+  /*!
+   * \brief register the preconditioner of MUMPS (factorization applied once)
+   * \param[in, out] f: factory
+   */
+  void declareMUMPSPreconditioners(PreconditionerFactory<true>& f);
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
   /*!

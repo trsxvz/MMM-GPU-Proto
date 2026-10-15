@@ -251,6 +251,76 @@ namespace mfem_mgis::internals {
     const std::vector<HypreSetting> settings;
   };  // end of struct HypreFSAI
 
+  /*!
+   * \brief multigrid reduction of hypre (MGR), applied as a preconditioner
+   * (one cycle from a null initial guess). The unknowns are labelled by
+   * their component (point markers, whatever the ordering of the unknowns);
+   * at each level of reduction, the components which are kept (coarse
+   * points) are given, the other ones (fine points) being relaxed and
+   * eliminated; the coarsest level is solved by the BoomerAMG of hypre
+   * (default of MGR). The solver of hypre is created again, with the
+   * settings, for each new operator.
+   */
+  struct HypreMGR final : public mfem::HypreSolver {
+    /*!
+     * \param[in] s: settings
+     * \param[in] c: components kept at each level of reduction
+     * \param[in] vdim: number of components of the unknowns
+     * \param[in] by_nodes: if true, the unknowns are ordered by nodes
+     * \param[in] r: F-relaxation of each level, if not empty (it then
+     * replaces the F-relaxation given by the settings)
+     */
+    HypreMGR(std::vector<HypreSetting> s,
+             std::vector<std::vector<HYPRE_Int>> c,
+             const int vdim,
+             const bool by_nodes,
+             std::vector<HYPRE_Int> r = {});
+    HypreMGR(HypreMGR&&) = delete;
+    HypreMGR(const HypreMGR&) = delete;
+    HypreMGR& operator=(HypreMGR&&) = delete;
+    HypreMGR& operator=(const HypreMGR&) = delete;
+    //! \return the solver of hypre
+    operator HYPRE_Solver() const override;
+    //! \return the setup function of hypre
+    HYPRE_PtrToParSolverFcn SetupFcn() const override;
+    //! \return the solve function of hypre
+    HYPRE_PtrToParSolverFcn SolveFcn() const override;
+    /*!
+     * \brief set the operator, which must be a matrix of hypre whose local
+     * size is a multiple of the number of components: the multigrid
+     * reduction of hypre is built again
+     * \param[in] op: operator
+     */
+    void SetOperator(const mfem::Operator& op) override;
+    //! \brief destructor
+    ~HypreMGR() override;
+
+   private:
+    //! \brief create the solver of hypre and apply the settings
+    void create();
+    //! \brief solver of hypre
+    HYPRE_Solver solver = nullptr;
+    //! \brief settings
+    const std::vector<HypreSetting> settings;
+    //! \brief components kept at each level of reduction
+    std::vector<std::vector<HYPRE_Int>> coarse_components;
+    //! \brief number of components kept at each level of reduction
+    std::vector<HYPRE_Int> number_of_coarse_components;
+    //! \brief pointers to the components kept at each level
+    std::vector<HYPRE_Int*> coarse_components_pointers;
+    //! \brief F-relaxation of each level, if not empty
+    std::vector<HYPRE_Int> level_relaxation_types;
+    /*!
+     * \brief component of each local unknown, read by hypre at the setup
+     * (hypre keeps the pointer)
+     */
+    std::vector<HYPRE_Int> point_markers;
+    //! \brief number of components of the unknowns
+    const int number_of_components;
+    //! \brief if true, the unknowns are ordered by nodes
+    const bool ordered_by_nodes;
+  };  // end of struct HypreMGR
+
 }  // end of namespace mfem_mgis::internals
 
 #endif /* MFEM_USE_MPI */

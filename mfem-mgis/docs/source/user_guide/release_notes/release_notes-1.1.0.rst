@@ -169,9 +169,11 @@ Solvers and preconditioners of hypre
 
 The BiCGSTAB, COGMRES and LGMRES Krylov solvers of hypre, its hybrid
 solver (diagonal scaling, then BoomerAMG when the convergence is slow),
-its factorized sparse approximate inverse (:cxx:`HypreFSAI`) and its
-smoothers (:cxx:`HypreSmoother`: Jacobi, l1-Jacobi, Gauss-Seidel,
-polynomial smoothers) are available. The BoomerAMG preconditioner has new
+its factorized sparse approximate inverse (:cxx:`HypreFSAI`), its
+multigrid reduction (:cxx:`HypreMGR`, the unknowns being split by their
+components, see :ref:`hypre_mgr`) and its smoothers
+(:cxx:`HypreSmoother`: Jacobi, l1-Jacobi, Gauss-Seidel, polynomial
+smoothers) are available. The BoomerAMG preconditioner has new
 options: truncation of the interpolation, aggressive coarsening, size of
 the coarsest level, relaxation weight, order of the Chebyshev smoothers
 and transposed interpolations kept. The values of the
@@ -214,6 +216,17 @@ The :cxx:`KINSOL` nonlinear solver uses KINSOL (:code:`SUNDIALS`) when
 search, modified Newton method, Picard's method with Anderson's
 acceleration. See :doc:`../nonlinear_algorithms`.
 
+Nonlinear solvers of PETSc
+--------------------------
+
+The :cxx:`SNES` nonlinear solver uses the nonlinear solvers of PETSc
+(SNES) when :code:`MFEM` is built with it, in parallel: Newton's method
+with or without line search, trust region, quasi-Newton and the other
+methods of SNES, selected by the options of PETSc, with the linear solver
+of the problem or the Krylov solvers and preconditioners of PETSc. Unlike
+the global mode of :cxx:`setPETSc`, it is selected per problem. See
+:doc:`../nonlinear_algorithms`.
+
 Preconditioners of the sparse matrices of MFEM, options of MUMPS
 ----------------------------------------------------------------
 
@@ -226,7 +239,8 @@ the diagonal block of each process in parallel, as well as the
 wrapper :cxx:`OrthoSolver` for the operators whose kernel is the constant
 vector. The :cxx:`MUMPSSolver` direct solver accepts a reordering
 strategy, a tolerance of its block low-rank factorization and a verbosity
-level. See :ref:`linear_solvers`.
+level; its factorization is also available as a preconditioner
+(:cxx:`MUMPSPreconditioner`). See :ref:`linear_solvers`.
 
 Direct solvers of SuperLU_DIST and STRUMPACK
 --------------------------------------------

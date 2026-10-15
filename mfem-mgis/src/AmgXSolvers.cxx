@@ -15,6 +15,7 @@
 #include <limits>
 #include <locale>
 #include <vector>
+#include <optional>
 #include <cstdint>
 #include <fstream>
 #include <sstream>
@@ -536,6 +537,20 @@ namespace mfem_mgis::internals {
   static const char* const AmgXParameters = "AmgXParameters";
   //! \brief name of the option giving the precision
   static const char* const Precision = "Precision";
+  //! \brief name of the option selecting the default multigrid
+  static const char* const Multigrid = "Multigrid";
+
+  //! \brief algebraic multigrids of the default configurations
+  enum struct AmgXMultigrid {
+    //! \brief classical algebraic multigrid, L1-Jacobi smoother
+    CLASSICAL,
+    /*!
+     * \brief aggregation algebraic multigrid, Jacobi smoother (the block
+     * Jacobi smoother of AmgX on the blocks of size one of the matrices
+     * given to AmgX)
+     */
+    AGGREGATION
+  };
 
   /*!
    * \return true if a GPU is visible, an error otherwise
@@ -616,18 +631,59 @@ namespace mfem_mgis::internals {
   }  // end of makeConfigurationStream
 
   /*!
-   * \brief writes the parameters of the default multigrid of MFEM (scope
-   * `amg`): one V-cycle of the classical algebraic multigrid with a
-   * L1-Jacobi smoother
+   * \return the default multigrid selected by the options (`Multigrid`:
+   * `Classical`, by default, or `Aggregation`), or an empty value on error
+   * \param[in, out] ctx: execution context
+   * \param[in] params: options
+   */
+  static std::optional<AmgXMultigrid> getMultigrid(
+      Context& ctx, const Parameters& params) noexcept {
+    const auto o =
+        get_if<std::string>(ctx, params, Multigrid, std::string{"Classical"});
+    if (isInvalid(o)) {
+      return {};
+    }
+    if (*o == "Classical") {
+      return AmgXMultigrid::CLASSICAL;
+    }
+    if (*o == "Aggregation") {
+      return AmgXMultigrid::AGGREGATION;
+    }
+    return ctx.registerErrorMessage("AmgX: invalid multigrid '" + *o +
+                                    "' (expected 'Classical' or "
+                                    "'Aggregation')");
+  }  // end of getMultigrid
+
+  /*!
+   * \brief writes the parameters of the multigrid of the default
+   * configurations (scope `amg`): one V-cycle of the classical algebraic
+   * multigrid with a L1-Jacobi smoother (the default multigrid of MFEM), or
+   * of the aggregation algebraic multigrid of the configuration
+   * `PCG_AGGREGATION_JACOBI` of AmgX (aggregates of size two, three
+   * post-smoothing sweeps of a damped Jacobi smoother, the block Jacobi
+   * smoother of AmgX on the blocks of size one of the matrices given to
+   * AmgX, and no pre-smoothing sweep: the cycle is not symmetric, but the
+   * conjugate gradients of AmgX and of MFEM converge with it, as in the
+   * configuration of AmgX)
    * \param[in, out] c: configuration
    * \param[in] verbose: print the statistics of the grids
+   * \param[in] m: algebraic multigrid
    */
   static void writeDefaultMultigridParameters(std::ostringstream& c,
-                                              const bool verbose) {
-    c << "amg:max_iters=1, amg:cycle=V, amg:max_levels=100, "
-      << "amg:smoother(smoother)=JACOBI_L1, amg:presweeps=1, "
-      << "amg:postsweeps=1, amg:interpolator=D2, amg:max_row_sum=0.9, "
-      << "amg:strength_threshold=0.25";
+                                              const bool verbose,
+                                              const AmgXMultigrid m) {
+    if (m == AmgXMultigrid::AGGREGATION) {
+      c << "amg:algorithm=AGGREGATION, amg:selector=SIZE_2, "
+        << "amg:max_iters=1, amg:cycle=V, amg:max_levels=50, "
+        << "amg:smoother(smoother)=BLOCK_JACOBI, "
+        << "smoother:relaxation_factor=0.8, amg:presweeps=0, "
+        << "amg:postsweeps=3, amg:coarse_solver=NOSOLVER";
+    } else {
+      c << "amg:max_iters=1, amg:cycle=V, amg:max_levels=100, "
+        << "amg:smoother(smoother)=JACOBI_L1, amg:presweeps=1, "
+        << "amg:postsweeps=1, amg:interpolator=D2, amg:max_row_sum=0.9, "
+        << "amg:strength_threshold=0.25";
+    }
     if (verbose) {
       c << ", amg:print_grid_stats=1";
     }
@@ -712,7 +768,7 @@ namespace mfem_mgis::internals {
     if (!checkParameters(ctx, params,
                          std::vector<std::string>{
                              Configuration, ConfigurationFile, VerbosityLevel,
-                             AmgXParameters, Precision})) {
+                             AmgXParameters, Precision, Multigrid})) {
       return {};
     }
     const auto oconfiguration =
@@ -721,8 +777,10 @@ namespace mfem_mgis::internals {
         get_if<std::string>(ctx, params, ConfigurationFile, std::string{});
     const auto overbosity = get_if<int>(ctx, params, VerbosityLevel, 0);
     const auto oprecision = getPrecision(ctx, params);
+    const auto omultigrid = getMultigrid(ctx, params);
     if (isInvalid(oconfiguration) || isInvalid(ofile) ||
-        isInvalid(overbosity) || isInvalid(oprecision)) {
+        isInvalid(overbosity) || isInvalid(oprecision) ||
+        isInvalid(omultigrid)) {
       return {};
     }
     const auto has_configuration = contains(params, Configuration);
@@ -732,12 +790,13 @@ namespace mfem_mgis::internals {
           "AmgX: the options 'Configuration' and 'ConfigurationFile' are "
           "exclusive");
     }
-    if ((has_configuration || has_file) && (contains(params, VerbosityLevel) ||
-                                            contains(params, AmgXParameters))) {
+    if ((has_configuration || has_file) &&
+        (contains(params, VerbosityLevel) || contains(params, AmgXParameters) ||
+         contains(params, Multigrid))) {
       return ctx.registerErrorMessage(
-          "AmgX: the verbosity level and the parameters of AmgX only apply "
-          "to the default configuration (a configuration given defines all "
-          "the parameters of AmgX)");
+          "AmgX: the verbosity level, the multigrid and the parameters of "
+          "AmgX only apply to the default configuration (a configuration "
+          "given defines all the parameters of AmgX)");
     }
     if (has_configuration && oconfiguration->empty()) {
       return ctx.registerErrorMessage("AmgX: empty configuration");
@@ -763,7 +822,7 @@ namespace mfem_mgis::internals {
     // default configuration, completed by the parameters given
     auto c = makeConfigurationStream();
     c << "config_version=2, solver(amg)=AMG, ";
-    writeDefaultMultigridParameters(c, *overbosity > 0);
+    writeDefaultMultigridParameters(c, *overbosity > 0, *omultigrid);
     if (*overbosity > 0) {
       // the residual is computed to print the statistics: a negative
       // tolerance prevents a convergence before the cycles (a small right
@@ -793,6 +852,7 @@ namespace mfem_mgis::internals {
     auto allowed_parameters = getIterativeSolverParametersList();
     allowed_parameters.push_back(AmgXParameters);
     allowed_parameters.push_back(Precision);
+    allowed_parameters.push_back(Multigrid);
     if (!checkParameters(ctx, params, allowed_parameters)) {
       return {};
     }
@@ -806,8 +866,9 @@ namespace mfem_mgis::internals {
     const auto on =
         get_if<int>(ctx, params, Problem::SolverMaximumNumberOfIterations, 150);
     const auto oprecision = getPrecision(ctx, params);
+    const auto omultigrid = getMultigrid(ctx, params);
     if (isInvalid(overbosity) || isInvalid(ortol) || isInvalid(oatol) ||
-        isInvalid(on) || isInvalid(oprecision)) {
+        isInvalid(on) || isInvalid(oprecision) || isInvalid(omultigrid)) {
       return {};
     }
     if ((*ortol < 0) || (*oatol < 0) || ((*ortol <= 0) && (*oatol <= 0))) {
@@ -869,7 +930,7 @@ namespace mfem_mgis::internals {
       c << "main:obtain_timings=1, main:print_solve_stats=1, ";
     }
     c << "main:preconditioner(amg)=AMG, ";
-    writeDefaultMultigridParameters(c, *overbosity > 0);
+    writeDefaultMultigridParameters(c, *overbosity > 0, *omultigrid);
     // the parameters of the conjugate gradient (scope `main`) are given by
     // the options of the solver
     if (!writeAmgXParameters(ctx, c, params, "main")) {
@@ -900,7 +961,7 @@ namespace mfem_mgis::internals {
   //! \return the options of the AmgX preconditioner
   [[nodiscard]] static std::vector<std::string> getAmgXPreconditionerOptions() {
     return {"Configuration", "ConfigurationFile", "VerbosityLevel",
-            AmgXParameters, Precision};
+            AmgXParameters, Precision, Multigrid};
   }  // end of getAmgXPreconditionerOptions
 
   template <bool parallel>
@@ -928,6 +989,7 @@ namespace mfem_mgis::internals {
     auto pcg_options = getIterativeSolverParametersList();
     pcg_options.push_back(AmgXParameters);
     pcg_options.push_back(Precision);
+    pcg_options.push_back(Multigrid);
     declare(f, "AmgXPCG",
             LinearSolverDescription{
                 .library = "AmgX",

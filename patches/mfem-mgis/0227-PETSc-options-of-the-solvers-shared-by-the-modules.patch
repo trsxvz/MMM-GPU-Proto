@@ -1,0 +1,464 @@
+From 83605de2063faa878d254586d22c55a0a10c3125 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 13:27:21 +0200
+Subject: [PATCH] PETSc: options of the solvers shared by the modules
+
+The initialization of PETSc and the options of the solvers of PETSc
+(written in the options database with a prefix which is unique to the
+solver, the options never read by PETSc being reported, and removed with
+the solver) move from the module of the linear solvers of PETSc to
+PETScSupport, for the non linear solver of PETSc.
+---
+ src/CMakeLists.txt         |   1 +
+ src/PETScLinearSolvers.cxx | 164 -------------------------------------
+ src/PETScSupport.cxx       | 143 ++++++++++++++++++++++++++++++++
+ src/PETScSupport.hxx       |  72 +++++++++++++++-
+ 4 files changed, 214 insertions(+), 166 deletions(-)
+ create mode 100644 src/PETScSupport.cxx
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 52d08f9f49..062245e507 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -58,6 +58,7 @@ list(APPEND MFEMMGIS_SOURCES
+   MFEMLinearSolvers.cxx
+   HypreLinearSolvers.cxx
+   HypreSolvers.cxx
++  PETScSupport.cxx
+   PETScLinearSolvers.cxx
+   SuperLUSolvers.cxx
+   STRUMPACKSolvers.cxx
+diff --git a/src/PETScLinearSolvers.cxx b/src/PETScLinearSolvers.cxx
+index 7415e1ee64..1f2346cecf 100644
+--- a/src/PETScLinearSolvers.cxx
++++ b/src/PETScLinearSolvers.cxx
+@@ -11,14 +11,11 @@
+ 
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+ 
+-#include <atomic>
+ #include <memory>
+ #include <tuple>
+ #include <string>
+ #include <vector>
+-#include <iomanip>
+ #include <optional>
+-#include <sstream>
+ #include <utility>
+ #include <string_view>
+ #include "petscsys.h"
+@@ -34,167 +31,6 @@
+ 
+ namespace mfem_mgis::internals {
+ 
+-  /*!
+-   * \brief initialize PETSc, unless it is already initialized (by
+-   * mfem-mgis, or by the program, which then finalizes it)
+-   */
+-  static void initializePETSc() {
+-    auto initialized = PetscBool{};
+-    if ((PetscInitialized(&initialized) == 0) && (initialized == PETSC_TRUE)) {
+-      return;
+-    }
+-    initializePETScOnDemand();
+-  }  // end of initializePETSc
+-
+-  /*!
+-   * \return a prefix of the options database of PETSc which is unique in
+-   * the process, so that the options of two solvers do not interfere
+-   * \param[in] kind: kind of object (`ksp`, `pc`)
+-   */
+-  [[nodiscard]] static std::string makePETScOptionsPrefix(
+-      const std::string_view kind) {
+-    static auto count = std::atomic<std::size_t>{};
+-    return "mfem_mgis_" + std::string{kind} + std::to_string(count++) + "_";
+-  }  // end of makePETScOptionsPrefix
+-
+-  /*!
+-   * \return the value of an option of PETSc given by a parameter, or an
+-   * empty value on error: a boolean (`true` or `false`), an integer, a
+-   * floating-point value (written with all its digits) or a string (an empty
+-   * string being an option without value)
+-   * \param[in, out] ctx: execution context
+-   * \param[in] n: name of the option
+-   * \param[in] p: parameter
+-   */
+-  [[nodiscard]] static std::optional<std::string> getPETScOptionValue(
+-      Context& ctx, const std::string& n, const Parameter& p) {
+-    if (mfem_mgis::is<bool>(p)) {
+-      const auto ov = mfem_mgis::get<bool>(ctx, p);
+-      if (isInvalid(ov)) {
+-        return {};
+-      }
+-      return std::string{*ov ? "true" : "false"};
+-    }
+-    if (mfem_mgis::is<int>(p)) {
+-      const auto ov = mfem_mgis::get<int>(ctx, p);
+-      if (isInvalid(ov)) {
+-        return {};
+-      }
+-      return std::to_string(*ov);
+-    }
+-    if (mfem_mgis::is<double>(p)) {
+-      const auto ov = mfem_mgis::get<double>(ctx, p);
+-      if (isInvalid(ov)) {
+-        return {};
+-      }
+-      auto os = std::ostringstream{};
+-      os << std::setprecision(17) << *ov;
+-      return os.str();
+-    }
+-    if (mfem_mgis::is<std::string>(p)) {
+-      const auto ov = mfem_mgis::get<std::string>(ctx, p);
+-      if (isInvalid(ov)) {
+-        return {};
+-      }
+-      return std::string{*ov};
+-    }
+-    std::ignore = ctx.registerErrorMessage(
+-        "invalid value of the option '" + n +
+-        "' of PETSc (a boolean, an integer, a floating-point value or a "
+-        "string is expected)");
+-    return {};
+-  }  // end of getPETScOptionValue
+-
+-  /*!
+-   * \brief options of a solver of PETSc, written in the options database of
+-   * PETSc with a prefix which is unique to the solver, and removed from it
+-   * when the solver is destroyed. This class is the first base class of the
+-   * solvers of PETSc, so that the prefix is known when the object of PETSc
+-   * is created and that the options are removed after its destruction.
+-   *
+-   * PETSc ignores the options it does not know (for instance a misspelt
+-   * option): the options which PETSc never read are reported when a solver
+-   * which has been used is destroyed.
+-   */
+-  struct PETScOptions {
+-    /*!
+-     * \param[in] c: communicator
+-     * \param[in] kind: kind of object (`ksp`, `pc`)
+-     */
+-    PETScOptions(MPI_Comm c, const std::string_view kind)
+-        : prefix(makePETScOptionsPrefix(kind)), communicator(c) {}
+-    PETScOptions(PETScOptions&&) = delete;
+-    PETScOptions(const PETScOptions&) = delete;
+-    PETScOptions& operator=(PETScOptions&&) = delete;
+-    PETScOptions& operator=(const PETScOptions&) = delete;
+-    /*!
+-     * \brief write options in the options database of PETSc
+-     * \return true on success
+-     * \param[in, out] ctx: execution context
+-     * \param[in] options: options, given without the leading dash and the
+-     * prefix (for instance `{"ksp_type", "cg"}`)
+-     */
+-    [[nodiscard]] bool setOptions(Context& ctx, const Parameters& options) {
+-      for (const auto& [n, p] : options) {
+-        if (n.empty() || n.starts_with('-')) {
+-          return ctx.registerErrorMessage(
+-              "invalid option '" + n +
+-              "' of PETSc (the options are given without the leading dash)");
+-        }
+-        const auto ovalue = getPETScOptionValue(ctx, n, p);
+-        if (isInvalid(ovalue)) {
+-          return false;
+-        }
+-        auto option = "-" + this->prefix + n;
+-        const auto* const value = ovalue->empty() ? nullptr : ovalue->c_str();
+-        if (PetscOptionsSetValue(nullptr, option.c_str(), value) != 0) {
+-          return ctx.registerErrorMessage("the option '" + n +
+-                                          "' can't be given to PETSc");
+-        }
+-        this->options.push_back(std::move(option));
+-      }
+-      return true;
+-    }
+-    /*!
+-     * \brief destructor, reporting the options which PETSc never read, if
+-     * the solver has been used, and removing the options from the options
+-     * database (unless PETSc has been finalized)
+-     */
+-    ~PETScOptions() {
+-      auto finalized = PetscBool{};
+-      if ((PetscFinalized(&finalized) != 0) || (finalized == PETSC_TRUE)) {
+-        return;
+-      }
+-      auto rank = int{};
+-      MPI_Comm_rank(this->communicator, &rank);
+-      for (const auto& o : this->options) {
+-        auto read = PetscBool{};
+-        if ((this->used) && (rank == 0) &&
+-            (PetscOptionsUsed(nullptr, o.c_str() + 1, &read) == 0) &&
+-            (read == PETSC_FALSE)) {
+-          getErrorStream() << "warning: the option '"
+-                           << o.substr(this->prefix.size() + 1)
+-                           << "' was never read by PETSc\n";
+-        }
+-        std::ignore = PetscOptionsClearValue(nullptr, o.c_str());
+-      }
+-    }
+-    //! \brief prefix of the options
+-    const std::string prefix;
+-
+-   protected:
+-    //! \brief mark the solver as used (called by the `Mult` methods)
+-    void markAsUsed() const noexcept { this->used = true; }
+-
+-   private:
+-    //! \brief communicator of the solver
+-    const MPI_Comm communicator;
+-    //! \brief options written in the options database, with their prefix
+-    std::vector<std::string> options;
+-    //! \brief if true, the solver has been used
+-    mutable bool used = false;
+-  };  // end of struct PETScOptions
+-
+   /*!
+    * \brief Krylov solver of PETSc (`KSP`) configured by the options database
+    * of PETSc. The operators are converted to the AIJ format of PETSc at each
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+new file mode 100644
+index 0000000000..dbc3de47d0
+--- /dev/null
++++ b/src/PETScSupport.cxx
+@@ -0,0 +1,143 @@
++/*!
++ * \file   src/PETScSupport.cxx
++ * \brief  This file implements the functions and the classes supporting the
++ * solvers and the preconditioners of PETSc
++ * \date   15/10/2026
++ */
++
++#include "mfem/config/config.hpp"
++
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++
++#include <tuple>
++#include <atomic>
++#include <string>
++#include <iomanip>
++#include <sstream>
++#include <optional>
++#include <utility>
++#include "petscsys.h"
++#include "MFEMMGIS/Parameters.hxx"
++#include "PETScSupport.hxx"
++
++namespace mfem_mgis::internals {
++
++  void initializePETSc() {
++    auto initialized = PetscBool{};
++    if ((PetscInitialized(&initialized) == 0) && (initialized == PETSC_TRUE)) {
++      return;
++    }
++    initializePETScOnDemand();
++  }  // end of initializePETSc
++
++  /*!
++   * \return a prefix of the options database of PETSc which is unique in
++   * the process, so that the options of two solvers do not interfere
++   * \param[in] kind: kind of object (`ksp`, `pc`, `snes`)
++   */
++  [[nodiscard]] static std::string makePETScOptionsPrefix(
++      const std::string_view kind) {
++    static auto count = std::atomic<std::size_t>{};
++    return "mfem_mgis_" + std::string{kind} + std::to_string(count++) + "_";
++  }  // end of makePETScOptionsPrefix
++
++  /*!
++   * \return the value of an option of PETSc given by a parameter, or an
++   * empty value on error: a boolean (`true` or `false`), an integer, a
++   * floating-point value (written with all its digits) or a string (an empty
++   * string being an option without value)
++   * \param[in, out] ctx: execution context
++   * \param[in] n: name of the option
++   * \param[in] p: parameter
++   */
++  [[nodiscard]] static std::optional<std::string> getPETScOptionValue(
++      Context& ctx, const std::string& n, const Parameter& p) {
++    if (mfem_mgis::is<bool>(p)) {
++      const auto ov = mfem_mgis::get<bool>(ctx, p);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      return std::string{*ov ? "true" : "false"};
++    }
++    if (mfem_mgis::is<int>(p)) {
++      const auto ov = mfem_mgis::get<int>(ctx, p);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      return std::to_string(*ov);
++    }
++    if (mfem_mgis::is<double>(p)) {
++      const auto ov = mfem_mgis::get<double>(ctx, p);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      auto os = std::ostringstream{};
++      os << std::setprecision(17) << *ov;
++      return os.str();
++    }
++    if (mfem_mgis::is<std::string>(p)) {
++      const auto ov = mfem_mgis::get<std::string>(ctx, p);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      return std::string{*ov};
++    }
++    std::ignore = ctx.registerErrorMessage(
++        "invalid value of the option '" + n +
++        "' of PETSc (a boolean, an integer, a floating-point value or a "
++        "string is expected)");
++    return {};
++  }  // end of getPETScOptionValue
++
++  PETScOptions::PETScOptions(MPI_Comm c, const std::string_view kind)
++      : prefix(makePETScOptionsPrefix(kind)), communicator(c) {}
++
++  bool PETScOptions::setOptions(Context& ctx, const Parameters& options) {
++    for (const auto& [n, p] : options) {
++      if (n.empty() || n.starts_with('-')) {
++        return ctx.registerErrorMessage(
++            "invalid option '" + n +
++            "' of PETSc (the options are given without the leading dash)");
++      }
++      const auto ovalue = getPETScOptionValue(ctx, n, p);
++      if (isInvalid(ovalue)) {
++        return false;
++      }
++      auto option = "-" + this->prefix + n;
++      const auto* const value = ovalue->empty() ? nullptr : ovalue->c_str();
++      if (PetscOptionsSetValue(nullptr, option.c_str(), value) != 0) {
++        return ctx.registerErrorMessage("the option '" + n +
++                                        "' can't be given to PETSc");
++      }
++      this->options.push_back(std::move(option));
++    }
++    return true;
++  }  // end of setOptions
++
++  void PETScOptions::markAsUsed() const noexcept {
++    this->used = true;
++  }  // end of markAsUsed
++
++  PETScOptions::~PETScOptions() {
++    auto finalized = PetscBool{};
++    if ((PetscFinalized(&finalized) != 0) || (finalized == PETSC_TRUE)) {
++      return;
++    }
++    auto rank = int{};
++    MPI_Comm_rank(this->communicator, &rank);
++    for (const auto& o : this->options) {
++      auto read = PetscBool{};
++      if ((this->used) && (rank == 0) &&
++          (PetscOptionsUsed(nullptr, o.c_str() + 1, &read) == 0) &&
++          (read == PETSC_FALSE)) {
++        getErrorStream() << "warning: the option '"
++                         << o.substr(this->prefix.size() + 1)
++                         << "' was never read by PETSc\n";
++      }
++      std::ignore = PetscOptionsClearValue(nullptr, o.c_str());
++    }
++  }  // end of ~PETScOptions
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+index f7fb1e106f..f5fad4a6e2 100644
+--- a/src/PETScSupport.hxx
++++ b/src/PETScSupport.hxx
+@@ -1,13 +1,21 @@
+ /*!
+  * \file   src/PETScSupport.hxx
+- * \brief  This file declares the functions supporting the solvers and the
+- * preconditioners of PETSc (internal header)
++ * \brief  This file declares the functions and the classes supporting the
++ * solvers and the preconditioners of PETSc (internal header)
+  * \date   15/10/2026
+  */
+ 
+ #ifndef LIB_MFEM_MGIS_SRC_PETSCSUPPORT_HXX
+ #define LIB_MFEM_MGIS_SRC_PETSCSUPPORT_HXX
+ 
++#include "mfem/config/config.hpp"
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#include <string>
++#include <vector>
++#include <string_view>
++#include <mpi.h>
++#include "MFEMMGIS/Parameters.hxx"
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+ #include "MFEMMGIS/Config.hxx"
+ 
+ namespace mfem_mgis::internals {
+@@ -21,6 +29,66 @@ namespace mfem_mgis::internals {
+    */
+   void initializePETScOnDemand();
+ 
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++
++  /*!
++   * \brief initialize PETSc, unless it is already initialized (by
++   * mfem-mgis, or by the program, which then finalizes it)
++   */
++  void initializePETSc();
++
++  /*!
++   * \brief options of a solver of PETSc, written in the options database of
++   * PETSc with a prefix which is unique to the solver, and removed from it
++   * when the solver is destroyed. This class is the first base class (or
++   * the first member) of the solvers of PETSc, so that the prefix is known
++   * when the object of PETSc is created and that the options are removed
++   * after its destruction.
++   *
++   * PETSc ignores the options it does not know (for instance a misspelt
++   * option): the options which PETSc never read are reported when a solver
++   * which has been used is destroyed.
++   */
++  struct PETScOptions {
++    /*!
++     * \param[in] c: communicator
++     * \param[in] kind: kind of object (`ksp`, `pc`, `snes`)
++     */
++    PETScOptions(MPI_Comm c, const std::string_view kind);
++    PETScOptions(PETScOptions&&) = delete;
++    PETScOptions(const PETScOptions&) = delete;
++    PETScOptions& operator=(PETScOptions&&) = delete;
++    PETScOptions& operator=(const PETScOptions&) = delete;
++    /*!
++     * \brief write options in the options database of PETSc
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] options: options, given without the leading dash and the
++     * prefix (for instance `{"ksp_type", "cg"}`)
++     */
++    [[nodiscard]] bool setOptions(Context& ctx, const Parameters& options);
++    /*!
++     * \brief destructor, reporting the options which PETSc never read, if
++     * the solver has been used, and removing the options from the options
++     * database (unless PETSc has been finalized)
++     */
++    ~PETScOptions();
++    //! \brief mark the solver as used (called by the `Mult` methods)
++    void markAsUsed() const noexcept;
++    //! \brief prefix of the options
++    const std::string prefix;
++
++   private:
++    //! \brief communicator of the solver
++    const MPI_Comm communicator;
++    //! \brief options written in the options database, with their prefix
++    std::vector<std::string> options;
++    //! \brief if true, the solver has been used
++    mutable bool used = false;
++  };  // end of struct PETScOptions
++
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* LIB_MFEM_MGIS_SRC_PETSCSUPPORT_HXX */
+-- 
+2.43.0
+

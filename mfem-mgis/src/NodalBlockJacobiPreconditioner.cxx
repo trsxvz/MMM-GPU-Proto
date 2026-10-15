@@ -7,6 +7,7 @@
  */
 
 #include <array>
+#include <tuple>
 #include <memory>
 #include <string>
 #include <vector>
@@ -38,6 +39,8 @@ namespace mfem_mgis::internals {
     mfem::BatchedLinAlg::Backend backend = mfem::BatchedLinAlg::NATIVE;
     //! \brief size of the blocks
     int block_size = 1;
+    //! \brief number of components of the unknowns
+    int number_of_components = 1;
     //! \brief if true, the unknowns are ordered by nodes (`byNODES`)
     bool ordered_by_nodes = true;
     /*!
@@ -70,6 +73,7 @@ namespace mfem_mgis::internals {
       this->columns.UseDevice(true);
     }
     void SetOperator(const mfem::Operator& op) override {
+      this->ready = false;
       if (const auto* const a = dynamic_cast<const mfem::SparseMatrix*>(&op);
           a != nullptr) {
         this->setup(*a);
@@ -93,12 +97,16 @@ namespace mfem_mgis::internals {
           "blocks");
     }
     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
-      if (this->blocks.TotalSize() == 0) {
+      if (!this->ready) {
         mgis::raise(
             "NodalBlockJacobiPreconditioner::Mult: the operator is not set");
       }
       if ((b.Size() != this->Width()) || (x.Size() != this->Height())) {
         mgis::raise("NodalBlockJacobiPreconditioner::Mult: invalid sizes");
+      }
+      if (this->Height() == 0) {
+        // process owning no unknown
+        return;
       }
       const auto& batched = mfem::BatchedLinAlg::Get(this->settings.backend);
       const auto gathered =
@@ -114,6 +122,11 @@ namespace mfem_mgis::internals {
       }
       if (this->settings.factorize) {
         xb = rb;
+        // the native backend of MFEM 4.10 gets the right hand side by
+        // `Write` instead of `ReadWrite` (`NativeBatchedLinAlg::LUSolve`):
+        // it is made valid where MFEM computes first, the copy above being
+        // made on the host if the vectors are not flagged for the device
+        std::ignore = xb.ReadWrite();
         this->synchronize();
         batched.LUSolve(this->blocks, this->pivots, xb);
       } else {
@@ -204,12 +217,20 @@ namespace mfem_mgis::internals {
      */
     void setup(const NodalBlocksProvider& p, const int n) {
       const auto bs = this->settings.block_size;
-      p.AssembleNodalBlocks(this->columns);
-      if ((n % bs != 0) || (this->columns.Size() != bs * n)) {
+      // checked before the computation of the blocks, which is collective in
+      // parallel, on settings which are the same on all the processes: an
+      // error on some processes only would block the other ones
+      if (bs != this->settings.number_of_components) {
         mgis::raise(
             "NodalBlockJacobiPreconditioner::SetOperator: the size of the "
             "blocks must be the number of components of the unknowns for an "
             "operator applied without assembly");
+      }
+      p.AssembleNodalBlocks(this->columns);
+      if ((n % bs != 0) || (this->columns.Size() != bs * n)) {
+        mgis::raise(
+            "NodalBlockJacobiPreconditioner::SetOperator: unexpected size of "
+            "the nodal blocks of the operator");
       }
       const auto l = this->getLayout(n);
       const auto use_device = mfem::Device::IsEnabled();
@@ -233,6 +254,12 @@ namespace mfem_mgis::internals {
      */
     void factorize(const int n) {
       const auto bs = this->settings.block_size;
+      this->height = this->width = n;
+      if (n == 0) {
+        // process owning no unknown: nothing to factorize
+        this->ready = true;
+        return;
+      }
       if (this->settings.ordered_by_nodes && (bs != 1) &&
           (this->nodes.Size() != n)) {
         // position of the unknowns in the vectors ordered by nodes
@@ -252,7 +279,7 @@ namespace mfem_mgis::internals {
         batched.Invert(this->blocks);
       }
       this->synchronize();
-      this->height = this->width = n;
+      this->ready = true;
     }
     /*!
      * \brief synchronize the device around the operations of the backends
@@ -277,6 +304,8 @@ namespace mfem_mgis::internals {
     mfem::Array<int> nodes;
     //! \brief columns of the blocks of an operator applied without assembly
     mfem::Vector columns;
+    //! \brief if true, the blocks are inverted or factorized
+    bool ready = false;
     //! \brief right hand side ordered by nodes
     mutable mfem::Vector rhs;
     //! \brief solution ordered by nodes
@@ -367,9 +396,11 @@ namespace mfem_mgis::internals {
           "' of the Jacobi preconditioner by nodal blocks (expected "
           "'Inverse' or 'LU')");
     }
-    if (*osize < 1) {
+    if ((*osize != 1) && (*osize != fespace.GetVDim())) {
       return ctx.registerErrorMessage(
-          "invalid block size of the Jacobi preconditioner by nodal blocks");
+          "invalid block size of the Jacobi preconditioner by nodal blocks "
+          "(one, or the number of components of the unknowns, " +
+          std::to_string(fespace.GetVDim()) + ", expected)");
     }
     if (*odamping <= 0) {
       return ctx.registerErrorMessage(
@@ -377,6 +408,7 @@ namespace mfem_mgis::internals {
           "blocks");
     }
     settings.block_size = *osize;
+    settings.number_of_components = fespace.GetVDim();
     settings.ordered_by_nodes =
         fespace.GetOrdering() == mfem::Ordering::byNODES;
     settings.factorize = *ofactorization == "LU";

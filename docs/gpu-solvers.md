@@ -59,7 +59,7 @@ rows.
 | Addition: distributed Ginkgo (MPI matrices, two level Schwarz, distributed PGM multigrid) | both | 7 | Ginkgo 1.8 to 1.11; MFEM 4.10 wrappers |
 | Addition: AmgX in mixed precision (mode `dDFI`) and 3×3 block matrices | NVIDIA GPU | 6 | AmgX; not in the MFEM wrapper |
 | Line search for Newton (hook `ComputeScalingFactor`) | both | 6 | to be written in the Newton of mfem-mgis (today it only divides the correction by 2 when the behaviour fails) |
-| Elasticity AMG with rigid body modes on GPU: GAMG of PETSc with near null space (Kokkos), new block path on GPU (Adams, arXiv 2606.24748); requires repairing the PETSc path of mfem-mgis | both | 6 | PETSc 3.26 (`aijkokkos`; the block path of the paper is not there) |
+| Elasticity AMG with rigid body modes on GPU: GAMG of PETSc with near null space (Kokkos), new block path on GPU (Adams, arXiv 2606.24748); requires repairing the PETSc path of mfem-mgis | both | 6 | PETSc 3.26 (`aijkokkos`; the block path of the paper is not there). Since 15/10/2026, the solvers of PETSc compute on the host when MFEM computes on a GPU: with MFEM 4.10, the vectors of MFEM placed in the vectors of PETSc of the GPU were seen as null, and these vectors made `PetscFinalize` abort; GAMG on the GPU needs this interoperability first |
 | KINSOL of SUNDIALS through MFEM (`KINSolver`: fixed point with Anderson, JFNK, line search) | both | 6 | SUNDIALS 7.9, MFEM; requires an operator whose `Mult` integrates the behaviour |
 | Addition: prediction by extrapolation of the displacement increment | both | 5 | mfem-mgis |
 | AmgX through `AmgXSolver` of MFEM (comparison point with BoomerAMG, MPI modes) | NVIDIA GPU | 5 | done by a wrapper specific to mfem-mgis (`AmgX`, `AmgXPCG`, see [below](#amgx-nvidia)) |
@@ -71,7 +71,7 @@ rows.
 | FSAI (GPU since 2.30) and ILU of hypre on GPU | both | 4 | hypre |
 | Addition: recent hypre (filtering of the couplings between components, flexible cycle, overlapping Schwarz, Chebyshev solver) | both | 4 | hypre 2.32 to 3.2 |
 | Addition: adaptive time step driven by the convergence of Newton | both | 4 | mfem-mgis |
-| Addition: nonlinear solvers of PETSc on GPU vectors (NGMRES, Anderson, quasi-Newton, NASM) | both | 4 | PETSc SNES |
+| Addition: nonlinear solvers of PETSc on GPU vectors (NGMRES, Anderson, quasi-Newton, NASM) | both | 4 | PETSc SNES: the entry `SNES` of the factory of nonlinear solvers is done (15/10/2026), on vectors of the host (see the row of GAMG) |
 | Addition: MueLu of Trilinos (smoothed aggregation with rigid body modes, Kokkos) | both | 3 | Trilinos; no MFEM interface |
 | Addition: recycling of Krylov subspaces between Newton iterations | both | 3 | PETSc (HPDDM, GCRO-DR); GPU to be checked |
 | Addition: behaviours in single precision on consumer GPU | GPU | 3 | requires TFEL and MGIS |

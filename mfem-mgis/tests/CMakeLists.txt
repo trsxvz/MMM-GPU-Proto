@@ -1056,6 +1056,17 @@ if(MFEM_MGIS_HAVE_TFEL)
                      ${batch_integration_test_libraries})
     set_tests_properties(BatchIntegrationTestP
                          PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+    # the debug device of MFEM in parallel, without GPU: the memory of the
+    # device is checked (the parallel spaces have a prolongation, whose
+    # products are made on the device)
+    if(long_debug_device_tests)
+      add_test(NAME BatchIntegrationTestP-debug
+               COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
+                       --device debug ${batch_integration_test_arguments}
+                       ${batch_integration_test_libraries})
+      set_tests_properties(BatchIntegrationTestP-debug
+                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+    endif()
     if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
       add_test(NAME BatchIntegrationTestP-cuda
                COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
@@ -1180,6 +1191,34 @@ if(MFEM_MGIS_HAVE_TFEL)
                        --library $<TARGET_FILE:BehaviourTest>)
       set_tests_properties(KINSOLSolverTest-gpu
                            PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)
+    endif()
+  endif()
+
+  # SNESSolverTest executable: non linear solver based on the SNES of
+  # PETSc, compared to the Newton solver, in parallel
+  if(MFEM_USE_MPI AND MFEM_USE_MUMPS AND (MFEM_USE_PETSC STREQUAL "YES"))
+    add_test_executable(SNESSolverTest)
+    add_test(NAME SNESSolverTestP
+             COMMAND mpirun -n 2 ./SNESSolverTest
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    set_tests_properties(SNESSolverTestP PROPERTIES
+      ENVIRONMENT OMP_NUM_THREADS=1 FAIL_REGULAR_EXPRESSION "check failed")
+    if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
+       enable-gpu-tests)
+      if(MFEM_USE_CUDA STREQUAL "YES")
+        set(snes_solver_test_device cuda)
+      else()
+        set(snes_solver_test_device hip)
+      endif()
+      add_test(NAME SNESSolverTestP-gpu
+               COMMAND mpirun -n 2 ./SNESSolverTest
+                       --device ${snes_solver_test_device}
+                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                       --library $<TARGET_FILE:BehaviourTest>)
+      set_tests_properties(SNESSolverTestP-gpu PROPERTIES
+        ENVIRONMENT OMP_NUM_THREADS=1 FAIL_REGULAR_EXPRESSION "check failed"
+        RESOURCE_LOCK gpu TIMEOUT 600)
     endif()
   endif()
 
@@ -1626,12 +1665,21 @@ endif(MFEM_USE_MPI)
 # preconditioner registered in the factories (generic test, see the test)
 add_test_executable(LinearSolverFactoriesTest)
 add_test(NAME LinearSolverFactoriesTest COMMAND LinearSolverFactoriesTest)
-set_tests_properties(LinearSolverFactoriesTest PROPERTIES
+# the same on a beam in linear elasticity (in single precision, with looser
+# bounds and the entries which do not converge listed by the test)
+add_test(NAME LinearSolverFactoriesTest-elasticity
+         COMMAND LinearSolverFactoriesTest --elasticity)
+set_tests_properties(LinearSolverFactoriesTest
+                     LinearSolverFactoriesTest-elasticity PROPERTIES
   FAIL_REGULAR_EXPRESSION "check failed")
 if(MFEM_USE_MPI)
   add_test(NAME LinearSolverFactoriesTestP
            COMMAND mpirun -n 2 ./LinearSolverFactoriesTest --parallel)
-  set_tests_properties(LinearSolverFactoriesTestP PROPERTIES
+  add_test(NAME LinearSolverFactoriesTestP-elasticity
+           COMMAND mpirun -n 2 ./LinearSolverFactoriesTest --parallel
+                   --elasticity)
+  set_tests_properties(LinearSolverFactoriesTestP
+                       LinearSolverFactoriesTestP-elasticity PROPERTIES
     FAIL_REGULAR_EXPRESSION "check failed")
 endif(MFEM_USE_MPI)
 # on a CUDA GPU, the entries which only compute on the GPU (AmgX, cuDSS) are
@@ -1639,7 +1687,10 @@ endif(MFEM_USE_MPI)
 if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
   add_test(NAME LinearSolverFactoriesTest-cuda
            COMMAND LinearSolverFactoriesTest --device cuda)
-  set(linear_solver_factories_gpu_tests LinearSolverFactoriesTest-cuda)
+  add_test(NAME LinearSolverFactoriesTest-cuda-elasticity
+           COMMAND LinearSolverFactoriesTest --device cuda --elasticity)
+  set(linear_solver_factories_gpu_tests LinearSolverFactoriesTest-cuda
+      LinearSolverFactoriesTest-cuda-elasticity)
   if(MFEM_USE_MPI)
     add_test(NAME LinearSolverFactoriesTestP-cuda
              COMMAND mpirun -n 2 ./LinearSolverFactoriesTest --parallel
@@ -1787,6 +1838,30 @@ if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
     FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
 endif()
 
+# HypreMGRTest executable: multigrid reduction of hypre on a beam in linear
+# elasticity, with one and two levels of reduction, the components of the
+# unknowns being given to hypre by markers, whatever their ordering
+if(MFEM_USE_MPI)
+  add_test_executable(HypreMGRTest)
+  add_test(NAME HypreMGRTest COMMAND HypreMGRTest)
+  add_test(NAME HypreMGRTestP COMMAND mpirun -n 2 ./HypreMGRTest)
+  set_tests_properties(HypreMGRTest HypreMGRTestP PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed")
+  if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
+     enable-gpu-tests)
+    if(MFEM_USE_CUDA STREQUAL "YES")
+      set(hypre_mgr_test_device cuda)
+    else()
+      set(hypre_mgr_test_device hip)
+    endif()
+    add_test(NAME HypreMGRTestP-gpu
+             COMMAND mpirun -n 2 ./HypreMGRTest
+                     --device ${hypre_mgr_test_device})
+    set_tests_properties(HypreMGRTestP-gpu PROPERTIES
+      FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+  endif()
+endif()
+
 # MAGMASolversTest executable: sparse solvers of MAGMA, which always
 # compute on a GPU: Krylov solvers in sequential, preconditioners applied by
 # the conjugate gradient of MFEM in sequential and in parallel; the vectors
@@ -1825,7 +1900,7 @@ if(MFEM_USE_MPI)
 endif(MFEM_USE_MPI)
 
 # SparseDirectSolversTest executable: direct solvers of MUMPS, SuperLU_DIST
-# and STRUMPACK, preconditioner of STRUMPACK
+# and STRUMPACK, preconditioners of MUMPS and STRUMPACK
 if(MFEM_USE_MPI AND ((MFEM_USE_MUMPS STREQUAL "YES") OR
                      (MFEM_USE_SUPERLU STREQUAL "YES") OR
                      (MFEM_USE_STRUMPACK STREQUAL "YES")))
@@ -1845,6 +1920,23 @@ if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
   add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
   set_tests_properties(PETScSolversTest PETScSolversTestP PROPERTIES
     FAIL_REGULAR_EXPRESSION "check failed")
+  # with MFEM on a GPU, the solvers of PETSc compute on the host
+  if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
+     enable-gpu-tests)
+    if(MFEM_USE_CUDA STREQUAL "YES")
+      set(petsc_solvers_test_device cuda)
+    else()
+      set(petsc_solvers_test_device hip)
+    endif()
+    add_test(NAME PETScSolversTest-gpu
+             COMMAND PETScSolversTest --device ${petsc_solvers_test_device})
+    add_test(NAME PETScSolversTestP-gpu
+             COMMAND mpirun -n 2 ./PETScSolversTest
+                     --device ${petsc_solvers_test_device})
+    set_tests_properties(PETScSolversTest-gpu PETScSolversTestP-gpu
+      PROPERTIES FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu
+                 TIMEOUT 600)
+  endif()
 endif()
 
 # AmgXSolverTest executable: solvers of AmgX built by the factory of linear

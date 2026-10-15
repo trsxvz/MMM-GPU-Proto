@@ -330,6 +330,40 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
   check(rp.iterations.has_value() && rj.iterations.has_value() &&
             (2 * *(rp.iterations) < *(rj.iterations)),
         "AmgXPCG: the multigrid does not reduce the number of iterations");
+  // aggregation multigrid of the default configurations: conjugate
+  // gradient of AmgX, and AmgX as a preconditioner of the conjugate gradient
+  // of MFEM
+  {
+    auto apcg =
+        generate<is_parallel>(fespace, "AmgXPCG",
+                              Parameters{{"RelativeTolerance", 1e-10},
+                                         {"MaximumNumberOfIterations", 200},
+                                         {"Multigrid", "Aggregation"}});
+    const auto ra = solve<is_parallel>(fespace, *(apcg.linear_solver), A, B);
+    print("AmgXPCG, aggregation", ra);
+    check(ra.converged && (ra.residual < 1e-9) && ra.iterations.has_value() &&
+              rj.iterations.has_value() &&
+              (*(ra.iterations) < *(rj.iterations)),
+          "AmgXPCG: resolution with the aggregation multigrid");
+    auto acg = generate<is_parallel>(
+        fespace, "CGSolver",
+        Parameters{{"RelativeTolerance", 1e-10},
+                   {"AbsoluteTolerance", 0.},
+                   {"MaximumNumberOfIterations", 200},
+                   {"Preconditioner",
+                    Parameters{{"Name", "AmgX"},
+                               {"Options",
+                                Parameters{{"Multigrid", "Aggregation"}}}}}});
+    const auto rcg = solve<is_parallel>(fespace, *(acg.linear_solver), A, B);
+    print("CGSolver, AmgX, aggregation", rcg);
+    check(rcg.converged && (rcg.residual < 1e-9),
+          "CGSolver: resolution with the aggregation multigrid of AmgX");
+    // the option gives the configuration written above, which differs from
+    // the default one (the option is not ignored)
+    check(close(rcg.iterations, rs.iterations),
+          "CGSolver: the aggregation multigrid of AmgX differs from its "
+          "configuration given as a string");
+  }
   // statistics printed by AmgX: same resolution
   {
     auto v =
@@ -648,6 +682,10 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
       {"AmgX", Parameters{{"AmgXParameters",
                            Parameters{{"interpolator", "D2;amg:cycle=W"}}}}},
       {"AmgX", Parameters{{"Precision", "Quadruple"}}},
+      {"AmgX", Parameters{{"Multigrid", "Smoothed"}}},
+      {"AmgX",
+       Parameters{{"Configuration", aggregation}, {"Multigrid", "Aggregation"}}},
+      {"AmgXPCG", Parameters{{"Multigrid", "Classic"}}},
       {"AmgXPCG",
        Parameters{{"RelativeTolerance", 1e-8}, {"Precision", "Single"}}},
       {"AmgXPCG", Parameters{{"RelativeTolerance", 0.},

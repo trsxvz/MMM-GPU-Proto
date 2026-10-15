@@ -1,0 +1,320 @@
+From 3e24712fd128fa2c6f30c00fee6b51a8c54e45c2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 11:58:47 +0200
+Subject: [PATCH] Generic test of the linear solvers on the linear elasticity
+
+LinearSolverFactoriesTest --elasticity solves a cantilever beam in linear
+elasticity (three components per node) with each linear solver and each
+preconditioner given to GMRES, sequential and parallel, on the CPU and on
+a CUDA GPU (the parallel variant on the GPU, which lasts eight minutes,
+is not registered). On this problem, a converged resolution must have a
+residual lower than 1e-6 (GMRES stops on the preconditioned residual,
+a few hundred times smaller than the residual for the incomplete
+factorizations), and the entries which do not converge with the options
+of the test are listed with the reason: conjugate gradient squared with
+a Jacobi preconditioner (divergence for Ginkgo, breakdown for MAGMA),
+stationary iterations with a damped Jacobi preconditioner (too slow),
+pipelined conjugate gradient of Ginkgo (stagnation on the GPU), TFQMR of
+MAGMA (breakdown), multigrid of Ginkgo (aggregation without the rigid
+body modes); for them, only the report of the convergence is checked.
+The approximate solvers (one cycle of a scalar algebraic multigrid) are
+only required to give a finite residual. The residuals are printed in
+scientific notation.
+---
+ tests/CMakeLists.txt                |  17 +++-
+ tests/LinearSolverFactoriesTest.cxx | 139 +++++++++++++++++++++++-----
+ 2 files changed, 129 insertions(+), 27 deletions(-)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 816bc2fea9..810032b6dc 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1637,12 +1637,20 @@ endif(MFEM_USE_MPI)
+ # preconditioner registered in the factories (generic test, see the test)
+ add_test_executable(LinearSolverFactoriesTest)
+ add_test(NAME LinearSolverFactoriesTest COMMAND LinearSolverFactoriesTest)
+-set_tests_properties(LinearSolverFactoriesTest PROPERTIES
++# the same on a beam in linear elasticity
++add_test(NAME LinearSolverFactoriesTest-elasticity
++         COMMAND LinearSolverFactoriesTest --elasticity)
++set_tests_properties(LinearSolverFactoriesTest
++                     LinearSolverFactoriesTest-elasticity PROPERTIES
+   FAIL_REGULAR_EXPRESSION "check failed")
+ if(MFEM_USE_MPI)
+   add_test(NAME LinearSolverFactoriesTestP
+            COMMAND mpirun -n 2 ./LinearSolverFactoriesTest --parallel)
+-  set_tests_properties(LinearSolverFactoriesTestP PROPERTIES
++  add_test(NAME LinearSolverFactoriesTestP-elasticity
++           COMMAND mpirun -n 2 ./LinearSolverFactoriesTest --parallel
++                   --elasticity)
++  set_tests_properties(LinearSolverFactoriesTestP
++                       LinearSolverFactoriesTestP-elasticity PROPERTIES
+     FAIL_REGULAR_EXPRESSION "check failed")
+ endif(MFEM_USE_MPI)
+ # on a CUDA GPU, the entries which only compute on the GPU (AmgX, cuDSS) are
+@@ -1650,7 +1658,10 @@ endif(MFEM_USE_MPI)
+ if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+   add_test(NAME LinearSolverFactoriesTest-cuda
+            COMMAND LinearSolverFactoriesTest --device cuda)
+-  set(linear_solver_factories_gpu_tests LinearSolverFactoriesTest-cuda)
++  add_test(NAME LinearSolverFactoriesTest-cuda-elasticity
++           COMMAND LinearSolverFactoriesTest --device cuda --elasticity)
++  set(linear_solver_factories_gpu_tests LinearSolverFactoriesTest-cuda
++      LinearSolverFactoriesTest-cuda-elasticity)
+   if(MFEM_USE_MPI)
+     add_test(NAME LinearSolverFactoriesTestP-cuda
+              COMMAND mpirun -n 2 ./LinearSolverFactoriesTest --parallel
+diff --git a/tests/LinearSolverFactoriesTest.cxx b/tests/LinearSolverFactoriesTest.cxx
+index 5fd1379409..a0bc4cdc2a 100644
+--- a/tests/LinearSolverFactoriesTest.cxx
++++ b/tests/LinearSolverFactoriesTest.cxx
+@@ -7,18 +7,25 @@
+  * with a diagonal set to one. The outcome is checked according to the kind
+  * of solver (see `LinearSolverDescription`): convergence up to the
+  * tolerance for the iterative and direct solvers, decrease of the residual
+- * for the approximate solvers. The test also checks the descriptions, the
+- * preconditioners refused by the linear solvers, and, in sequential, the
+- * message of the solvers only available in parallel.
++ * for the approximate solvers (on the linear elasticity, see
++ * `checkResolution`: a converged resolution has a small residual, and the
++ * entries which do not converge on this problem are listed). The test also
++ * checks the descriptions, the preconditioners refused by the linear solvers,
++ * and, in sequential, the message of the solvers only available in parallel.
+  *
+  * The entries which only compute on the GPU are skipped when MFEM does not
+  * compute on a CUDA GPU, and the ones which only compute on the host when
+  * hypre computes on a GPU. With the `--parallel` option, the parallel
+- * factories are checked.
++ * factories are checked. With the `--elasticity` option, the system solved
++ * is a cantilever beam in linear elasticity (three components per node)
++ * instead of the Laplace equation.
+  * \date   15/10/2026
+  */
+ 
+ #include <map>
++#include <set>
++#include <iomanip>
++#include <sstream>
+ #include <cmath>
+ #include <memory>
+ #include <algorithm>
+@@ -37,7 +44,9 @@
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "MFEMMGIS/MPI.hxx"
+ #include "LaplaceSystem.hxx"
++#include "ElasticitySystem.hxx"
+ 
++using mfem_mgis::tests::ElasticitySystem;
+ using mfem_mgis::tests::LaplaceSystem;
+ 
+ //! \brief number of failed checks
+@@ -49,6 +58,21 @@ static int failures = 0;
+  */
+ static constexpr double tolerance =
+     std::is_same_v<mfem_mgis::real, float> ? 1e-5 : 1e-10;
++/*!
++ * \brief bound of the residuals of the converged resolutions of the linear
++ * elasticity: the GMRES solver of MFEM, preconditioned on the left, stops on
++ * the preconditioned residual, which is much smaller than the residual for
++ * the preconditioners of this problem (by a few hundred for the incomplete
++ * factorizations)
++ */
++static constexpr double elasticity_tolerance =
++    std::is_same_v<mfem_mgis::real, float> ? 1e-3 : 1e-6;
++/*!
++ * \brief maximum number of iterations of the iterative solvers: 5000 for
++ * the Laplace equation, 2000 for the linear elasticity (the slowest entry
++ * converging on it needs 1500 iterations)
++ */
++static int maximum_number_of_iterations = 5000;
+ //! \brief if true, the computations are parallel
+ static bool parallel = false;
+ //! \brief rank of the process
+@@ -142,7 +166,8 @@ static std::optional<mfem_mgis::Parameters> getTestParameters(
+     p.replaceOrInsert("AbsoluteTolerance", 0.);
+   }
+   if (accepts(d, "MaximumNumberOfIterations")) {
+-    p.replaceOrInsert("MaximumNumberOfIterations", 5000);
++    p.replaceOrInsert("MaximumNumberOfIterations",
++                      maximum_number_of_iterations);
+   }
+   if (d.preconditioners == AcceptedPreconditioners::ANY) {
+     p.replaceOrInsert("Preconditioner",
+@@ -153,17 +178,17 @@ static std::optional<mfem_mgis::Parameters> getTestParameters(
+     // can be transposed), or its first available preconditioner
+     const auto& f = PreconditionerFactory<is_parallel>::getFactory();
+     auto preconditioner = std::optional<std::string>{};
+-    for (const auto& n : f.getNames()) {
+-      const auto* const pd = f.getDescription(n);
++    for (const auto& pn : f.getNames()) {
++      const auto* const pd = f.getDescription(pn);
+       if ((pd->library != d.library) || (!isAvailable(*pd))) {
+         continue;
+       }
+-      if (n.find("Jacobi") != std::string::npos) {
+-        preconditioner = n;
++      if (pn.find("Jacobi") != std::string::npos) {
++        preconditioner = pn;
+         break;
+       }
+       if (!preconditioner.has_value()) {
+-        preconditioner = n;
++        preconditioner = pn;
+       }
+     }
+     if (!preconditioner.has_value()) {
+@@ -201,7 +226,9 @@ static std::string describe(const bool converged,
+   if (iterations.has_value()) {
+     s += std::to_string(*iterations) + " iterations, ";
+   }
+-  s += "residual " + std::to_string(residual);
++  auto r = std::ostringstream{};
++  r << std::scientific << std::setprecision(2) << residual;
++  s += "residual " + r.str();
+   if (!converged) {
+     s += " (not converged)";
+   }
+@@ -292,9 +319,54 @@ static void checkPlacement(const std::string& n,
+   }
+ }  // end of checkPlacement
+ 
+-//! \brief checks all the registered linear solvers and preconditioners
+-template <bool is_parallel>
+-static void run(LaplaceSystem<is_parallel>& s) {
++/*!
++ * \return true for the entries which do not converge on the linear
++ * elasticity with the options of this test: only their report of the
++ * convergence is checked. These are the conjugate gradient squared with a
++ * Jacobi preconditioner (divergence for Ginkgo, breakdown for MAGMA), the
++ * stationary iterations with a damped Jacobi preconditioner (`SLISolver`,
++ * `GinkgoIR`: too slow), the pipelined conjugate gradient of Ginkgo
++ * (stagnation above the tolerance on the GPU), the TFQMR of MAGMA
++ * (breakdown) and the multigrid of Ginkgo (aggregation without the rigid
++ * body modes).
++ * \param[in] n: name of the entry
++ */
++static bool mayNotConvergeOnElasticity(const std::string& n) {
++  static const auto names = std::set<std::string>{
++      "GinkgoCGS",    "MAGMACGS",   "SLISolver",      "GinkgoIR",
++      "GinkgoPipeCG", "MAGMATFQMR", "GinkgoMultigrid"};
++  return names.contains(n);
++}  // end of mayNotConvergeOnElasticity
++
++/*!
++ * \brief checks the outcome of a resolution
++ * \param[in] n: name of the resolution
++ * \param[in] entry: name of the entry tested
++ * \param[in] converged: convergence reported
++ * \param[in] r: relative residual
++ * \param[in] elasticity: if true, the system is the linear elasticity
++ */
++static void checkResolution(const std::string& n,
++                            const std::string& entry,
++                            const bool converged,
++                            const double r,
++                            const bool elasticity) {
++  if (!elasticity) {
++    check(converged && (r < 100 * tolerance), n + ": resolution");
++    return;
++  }
++  check((!converged) || (r < elasticity_tolerance),
++        n + ": convergence reported with a large residual");
++  check(converged || mayNotConvergeOnElasticity(entry), n + ": resolution");
++}  // end of checkResolution
++
++/*!
++ * \brief checks all the registered linear solvers and preconditioners
++ * \param[in, out] s: system (Laplace equation or linear elasticity)
++ * \param[in] elasticity: if true, the system is the linear elasticity
++ */
++template <bool is_parallel, template <bool> class System>
++static void run(System<is_parallel>& s, const bool elasticity) {
+   using namespace mfem_mgis;
+   const auto& lf = LinearSolverFactory<is_parallel>::getFactory();
+   const auto& pf = PreconditionerFactory<is_parallel>::getFactory();
+@@ -342,9 +414,12 @@ static void run(LaplaceSystem<is_parallel>& s) {
+           n + ": the preconditioner is not built");
+     print(n + ": " + describe(converged, iterations, r));
+     if (d->kind == LinearSolverKind::APPROXIMATE) {
+-      check(r < 1, n + ": the residual does not decrease");
++      // one cycle of a scalar algebraic multigrid (default options) does not
++      // reduce the residual of the linear elasticity
++      check(elasticity ? std::isfinite(r) : r < 1,
++            n + ": the residual does not decrease");
+     } else {
+-      check(converged && (r < 100 * tolerance), n + ": resolution");
++      checkResolution(n, n, converged, r, elasticity);
+     }
+   }
+   // preconditioners, given to the GMRES solver of MFEM
+@@ -373,7 +448,7 @@ static void run(LaplaceSystem<is_parallel>& s) {
+         Parameters{
+             {"RelativeTolerance", tolerance},
+             {"AbsoluteTolerance", 0.},
+-            {"MaximumNumberOfIterations", 5000},
++            {"MaximumNumberOfIterations", maximum_number_of_iterations},
+             {"KDim", 50},
+             {"Preconditioner",
+              Parameters{{"Name", n},
+@@ -394,8 +469,7 @@ static void run(LaplaceSystem<is_parallel>& s) {
+                    getNumberOfIterationsAtConvergence(*(ls.linear_solver)), r));
+     check(ls.preconditioner != nullptr,
+           "GMRESSolver, " + n + ": the preconditioner is not built");
+-    check(converged && (r < 100 * tolerance),
+-          "GMRESSolver, " + n + ": resolution");
++    checkResolution("GMRESSolver, " + n, n, converged, r, elasticity);
+   }
+   // preconditioners refused by the descriptions: a preconditioner given to
+   // a linear solver which accepts none, and a preconditioner of another
+@@ -448,6 +522,9 @@ int main(int argc, char** argv) {
+   declareDefaultOptions(args);
+   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                  "parallel computations");
++  auto elasticity = false;
++  args.AddOption(&elasticity, "-e", "--elasticity", "-no-e", "--no-elasticity",
++                 "linear elasticity instead of the Laplace equation");
+   args.Parse();
+   if (!args.Good()) {
+     args.PrintUsage(std::cerr);
+@@ -456,19 +533,33 @@ int main(int argc, char** argv) {
+ #ifdef MFEM_USE_MPI
+   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+ #endif /* MFEM_USE_MPI */
+-  auto mesh = mfem::Mesh::MakeCartesian3D(8, 8, 8, mfem::Element::HEXAHEDRON);
++  if (elasticity) {
++    maximum_number_of_iterations = 2000;
++  }
++  // a cube, or a beam for the linear elasticity
++  auto mesh = elasticity ? mfem::Mesh::MakeCartesian3D(
++                               12, 3, 3, mfem::Element::HEXAHEDRON, 4., 1., 1.)
++                         : mfem::Mesh::MakeCartesian3D(
++                               8, 8, 8, mfem::Element::HEXAHEDRON);
+   auto fec = mfem::H1_FECollection(1, 3);
+   try {
++    const auto test = [&mesh, &fec, elasticity]<bool is_parallel>() {
++      if (elasticity) {
++        auto s = ElasticitySystem<is_parallel>(mesh, fec);
++        run<is_parallel>(s, elasticity);
++      } else {
++        auto s = LaplaceSystem<is_parallel>(mesh, fec);
++        run<is_parallel>(s, elasticity);
++      }
++    };
+     if (parallel) {
+ #ifdef MFEM_USE_MPI
+-      auto s = LaplaceSystem<true>(mesh, fec);
+-      run<true>(s);
++      test.template operator()<true>();
+ #else  /* MFEM_USE_MPI */
+       throw std::runtime_error("parallel computations are not supported");
+ #endif /* MFEM_USE_MPI */
+     } else {
+-      auto s = LaplaceSystem<false>(mesh, fec);
+-      run<false>(s);
++      test.template operator()<false>();
+     }
+   } catch (std::exception& e) {
+     std::cerr << "error: " << e.what() << '\n';
+-- 
+2.43.0
+

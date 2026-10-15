@@ -57,7 +57,7 @@ namespace mfem_mgis::internals {
     }
 #endif /* MFEM_MGIS_HAVE_AMGX */
 #if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS))
-    if (n == "MUMPSSolver") {
+    if ((n == "MUMPSSolver") || (n == "MUMPSPreconditioner")) {
       return "MFEM is not compiled with MUMPS";
     }
 #endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)) */
@@ -251,6 +251,9 @@ namespace mfem_mgis::internals {
 #ifdef MFEM_USE_MPI
     if constexpr (parallel) {
       declareHyprePreconditioners(f);
+#ifdef MFEM_USE_MUMPS
+      declareMUMPSPreconditioners(f);
+#endif /* MFEM_USE_MUMPS */
 #ifdef MFEM_USE_STRUMPACK
       declareSTRUMPACKPreconditioners(f);
 #endif /* MFEM_USE_STRUMPACK */

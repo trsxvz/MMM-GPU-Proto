@@ -707,6 +707,299 @@ namespace mfem_mgis {
   }  // end of setHypreFSAIPreconditioner
 
   /*!
+   * \return the components kept at each level of the multigrid reduction of
+   * hypre, given by the option `CoarseComponents` (a list of components, for
+   * one level, or a list of lists of components, one per level, each level
+   * keeping a subset of the components of the previous one), or an empty
+   * value on error. By default, one level keeps all the components but the
+   * last one.
+   * \param[in, out] ctx: execution context
+   * \param[in] opts: options
+   * \param[in] vdim: number of components of the unknowns
+   */
+  [[nodiscard]] static std::optional<std::vector<std::vector<HYPRE_Int>>>
+  getMGRCoarseComponents(Context& ctx, const Parameters& opts, const int vdim) {
+    const auto n = "the multigrid reduction of hypre";
+    auto levels = std::vector<std::vector<HYPRE_Int>>{};
+    if (!contains(opts, "CoarseComponents")) {
+      if (vdim < 2) {
+        return ctx.registerErrorMessage(
+            std::string{n} +
+            " requires at least two components of the "
+            "unknowns");
+      }
+      auto l = std::vector<HYPRE_Int>{};
+      for (int c = 0; c + 1 < vdim; ++c) {
+        l.push_back(c);
+      }
+      levels.push_back(std::move(l));
+      return levels;
+    }
+    const auto ovalues =
+        get<std::vector<Parameter>>(ctx, opts, "CoarseComponents");
+    if (isInvalid(ovalues)) {
+      return {};
+    }
+    // a list of integers gives one level, a list of lists one level per list
+    const auto read = [&ctx, vdim, n](const std::vector<Parameter>& values)
+        -> std::optional<std::vector<HYPRE_Int>> {
+      auto l = std::vector<HYPRE_Int>{};
+      for (const auto& v : values) {
+        const auto oc = get<int>(ctx, v);
+        if (isInvalid(oc)) {
+          return {};
+        }
+        const auto c = *oc;
+        if ((c < 0) || (c >= vdim) ||
+            (std::find(l.begin(), l.end(), c) != l.end())) {
+          return ctx.registerErrorMessage(
+              std::string{"invalid component in the option "
+                          "'CoarseComponents' of "} +
+              n);
+        }
+        l.push_back(static_cast<HYPRE_Int>(c));
+      }
+      return l;
+    };
+    if ((!ovalues->empty()) && is<std::vector<Parameter>>(ovalues->front())) {
+      for (const auto& v : *ovalues) {
+        if (!is<std::vector<Parameter>>(v)) {
+          return ctx.registerErrorMessage(
+              std::string{"invalid option 'CoarseComponents' of "} + n);
+        }
+        auto ol = read(get<std::vector<Parameter>>(throwing, v));
+        if (isInvalid(ol)) {
+          return {};
+        }
+        levels.push_back(std::move(*ol));
+      }
+    } else {
+      auto ol = read(*ovalues);
+      if (isInvalid(ol)) {
+        return {};
+      }
+      levels.push_back(std::move(*ol));
+    }
+    // each level keeps a non empty subset of the components of the previous
+    // one, and does not keep all of them
+    for (std::size_t i = 0; i != levels.size(); ++i) {
+      const auto& l = levels[i];
+      const auto previous =
+          i == 0 ? static_cast<std::size_t>(vdim) : levels[i - 1].size();
+      const auto subset =
+          (i == 0) || std::ranges::all_of(l, [&levels, i](const auto c) {
+            return std::ranges::find(levels[i - 1], c) != levels[i - 1].end();
+          });
+      if (l.empty() || (l.size() >= previous) || (!subset)) {
+        return ctx.registerErrorMessage(
+            std::string{"invalid option 'CoarseComponents' of "} + n +
+            ": each level must keep a non empty strict subset of the "
+            "components of the previous one");
+      }
+    }
+    return levels;
+  }  // end of getMGRCoarseComponents
+
+  /*!
+   * \return if the values of the integer options of the multigrid reduction
+   * of hypre are among the ones documented by hypre (hypre 3.2.0) and, when
+   * hypre computes on a GPU, among the ones it computes there: the other
+   * ones apply the relaxations, interpolations or restrictions of the host
+   * to the matrices on the GPU, and stop the program (Gauss-Seidel
+   * relaxations, classical and approximate inverse interpolations and
+   * restrictions), or the V-cycle relaxation (1) frees memory which is not
+   * its own
+   * \param[in, out] ctx: execution context
+   * \param[in] opts: options
+   */
+  [[nodiscard]] static bool checkHypreMGRValues(Context& ctx,
+                                                const Parameters& opts) {
+    struct Values {
+      //! \brief name of the option
+      const char* name;
+      //! \brief values documented by hypre
+      std::vector<int> documented;
+      //! \brief values computed by hypre on a GPU
+      std::vector<int> gpu;
+    };
+    const auto values = std::array<Values, 3>{
+        {{"RelaxationType",
+          {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14, 18, 99, 199},
+          {0, 2, 7, 9, 18, 99, 199}},
+         {"InterpolationType", {0, 1, 2, 3, 4, 12, 13, 14}, {0, 1, 2, 12}},
+         {"RestrictionType",
+          {0, 1, 2, 3, 4, 5, 12, 13, 14, 15},
+          {0, 1, 2, 12}}}};
+    const auto gpu = isHypreUsingGPU();
+    for (const auto& v : values) {
+      if (!contains(opts, v.name)) {
+        continue;
+      }
+      const auto ov = get<int>(ctx, opts, v.name);
+      if (isInvalid(ov)) {
+        return false;
+      }
+      const auto& accepted = gpu ? v.gpu : v.documented;
+      if (std::ranges::find(accepted, *ov) == accepted.end()) {
+        auto msg = "invalid value " + std::to_string(*ov) + " for option '" +
+                   std::string{v.name} +
+                   "' of the multigrid reduction of hypre" +
+                   (gpu ? " computing on the GPU" : "") + " (expected ";
+        for (std::size_t i = 0; i != accepted.size(); ++i) {
+          msg += (i == 0 ? "" : (i + 1 == accepted.size() ? " or " : ", ")) +
+                 std::to_string(accepted[i]);
+        }
+        return ctx.registerErrorMessage(msg + ")");
+      }
+    }
+    return true;
+  }  // end of checkHypreMGRValues
+
+  /*!
+   * \return if the block interpolations and restrictions of the multigrid
+   * reduction of hypre can be used with the given levels: they group
+   * consecutive fine unknowns, which are the components eliminated at a
+   * node only with the ordering by vector dimension, and, with hypre 3.2.0
+   * (tested on a beam in linear elasticity), the interpolation 13 gives
+   * wrong results, the restriction 12 stops the program when a level
+   * eliminates several components, the restrictions 14 and 15 give invalid
+   * values when a level eliminates one component, and, when hypre computes
+   * on a GPU, the interpolation 12 accesses invalid memory when a level
+   * eliminates several components
+   * \param[in, out] ctx: execution context
+   * \param[in] eliminated: number of components eliminated at each level
+   * \param[in] interpolation: interpolation
+   * \param[in] restriction: restriction
+   * \param[in] by_nodes: if true, the unknowns are ordered by nodes
+   */
+  [[nodiscard]] static bool checkHypreMGRBlockOptions(
+      Context& ctx,
+      const std::vector<std::size_t>& eliminated,
+      const int interpolation,
+      const int restriction,
+      const bool by_nodes) {
+    const auto n = std::string{"the multigrid reduction of hypre"};
+    const auto several =
+        std::ranges::any_of(eliminated, [](const auto e) { return e > 1; });
+    const auto one =
+        std::ranges::any_of(eliminated, [](const auto e) { return e == 1; });
+    const auto blocks = (interpolation >= 12) || (restriction >= 12);
+    if (interpolation == 13) {
+      return ctx.registerErrorMessage(
+          "the interpolation 13 of " + n +
+          " is refused: it gives wrong results (hypre 3.2.0)");
+    }
+    if (by_nodes && blocks && several) {
+      return ctx.registerErrorMessage(
+          "the block interpolations and restrictions of " + n +
+          " (12 to 15) group consecutive fine unknowns: they require "
+          "unknowns ordered by vector dimension when a level eliminates "
+          "several components");
+    }
+    if ((restriction == 12) && several) {
+      return ctx.registerErrorMessage(
+          "the restriction 12 of " + n +
+          " is refused when a level eliminates several components: it stops "
+          "the program (hypre 3.2.0)");
+    }
+    if (((restriction == 14) || (restriction == 15)) && one) {
+      return ctx.registerErrorMessage(
+          "the restrictions 14 and 15 of " + n +
+          " are refused when a level eliminates one component: they give "
+          "invalid values (hypre 3.2.0)");
+    }
+    if (isHypreUsingGPU() && (interpolation == 12) && several) {
+      return ctx.registerErrorMessage(
+          "the interpolation 12 of " + n +
+          " computing on the GPU is refused when a level eliminates several "
+          "components: it accesses invalid memory (hypre 3.2.0)");
+    }
+    return true;
+  }  // end of checkHypreMGRBlockOptions
+
+  /*!
+   * \return the multigrid reduction of hypre (MGR)
+   * \param[in, out] ctx: execution context
+   * \param[in] fespace: finite element space
+   * \param[in] opts: options: `CoarseComponents` (see
+   * `getMGRCoarseComponents`), and the options of hypre (see its
+   * documentation): `RelaxationType`, `NumberOfRelaxationSweeps`,
+   * `InterpolationType`, `RestrictionType` and `VerbosityLevel` (0 to 7,
+   * information on the setup, the resolution and the parameters: the other
+   * bits of the print level of MGR write files)
+   *
+   * The block interpolations and restrictions are checked by
+   * `checkHypreMGRBlockOptions`. When hypre
+   * computes on a GPU, with the Jacobi relaxation (0, by default) and the
+   * interpolation 12, the levels eliminating one component use the Jacobi
+   * relaxation of the GPU (7): hypre 3.2.0 replaces their interpolation 12
+   * by 2 after having replaced the relaxation 0 by 7 only for the
+   * interpolations other than 12, and applies the Jacobi relaxation of the
+   * host to the matrices on the GPU.
+   */
+  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+  setHypreMGRPreconditioner(Context& ctx,
+                            FiniteElementSpace<true>& fespace,
+                            const Parameters& opts) {
+    using Problem = AbstractNonLinearEvolutionProblem;
+    constexpr auto m = hypre_option_maximum;
+    const auto integers = std::array<HypreOption<HYPRE_Int>, 5>{
+        {{"RelaxationType", 0, 199, HYPRE_MGRSetRelaxType},
+         {"NumberOfRelaxationSweeps", 1, m, HYPRE_MGRSetNumRelaxSweeps},
+         {"InterpolationType", 0, 14, HYPRE_MGRSetInterpType},
+         {"RestrictionType", 0, 15, HYPRE_MGRSetRestrictType},
+         {Problem::SolverVerbosityLevel, 0, 7, HYPRE_MGRSetPrintLevel}}};
+    auto allowed = std::vector<std::string>{"CoarseComponents"};
+    for (const auto& o : integers) {
+      allowed.push_back(o.name);
+    }
+    if (!checkParameters(ctx, opts, allowed)) {
+      return {};
+    }
+    if (!checkHypreMGRValues(ctx, opts)) {
+      return {};
+    }
+    const auto vdim = fespace.GetVDim();
+    auto olevels = getMGRCoarseComponents(ctx, opts, vdim);
+    if (isInvalid(olevels)) {
+      return {};
+    }
+    auto settings = std::vector<internals::HypreSetting>{};
+    if (!addHypreSettings(ctx, settings, opts, integers,
+                          "the multigrid reduction of hypre")) {
+      return {};
+    }
+    // number of components eliminated at each level
+    auto eliminated = std::vector<std::size_t>{};
+    for (std::size_t l = 0; l != olevels->size(); ++l) {
+      const auto previous =
+          (l == 0) ? static_cast<std::size_t>(vdim) : (*olevels)[l - 1].size();
+      eliminated.push_back(previous - (*olevels)[l].size());
+    }
+    const auto ointerpolation = get_if<int>(ctx, opts, "InterpolationType", 2);
+    const auto orestriction = get_if<int>(ctx, opts, "RestrictionType", 0);
+    const auto orelaxation = get_if<int>(ctx, opts, "RelaxationType", 0);
+    if (isInvalid(ointerpolation) || isInvalid(orestriction) ||
+        isInvalid(orelaxation)) {
+      return {};
+    }
+    const auto by_nodes = fespace.GetOrdering() == mfem::Ordering::byNODES;
+    if (!checkHypreMGRBlockOptions(ctx, eliminated, *ointerpolation,
+                                   *orestriction, by_nodes)) {
+      return {};
+    }
+    auto level_relaxation_types = std::vector<HYPRE_Int>{};
+    if ((isHypreUsingGPU()) && (*orelaxation == 0) && (*ointerpolation == 12)) {
+      for (const auto e : eliminated) {
+        level_relaxation_types.push_back(e == 1 ? 7 : 0);
+      }
+    }
+    return std::make_unique<internals::HypreMGR>(
+        std::move(settings), std::move(*olevels), vdim, by_nodes,
+        std::move(level_relaxation_types));
+  }  // end of setHypreMGRPreconditioner
+
+  /*!
    * \brief set the preconditioner of a Krylov solver of hypre, which only
    * accepts the preconditioners of hypre (see
    * `internals::makePreconditioner`)
@@ -1123,6 +1416,14 @@ namespace mfem_mgis::internals {
                  Problem::SolverVerbosityLevel},
                 "factorized sparse approximate inverse of hypre"),
             setHypreFSAIPreconditioner);
+    declare(f, "HypreMGR",
+            preconditioner(LinearSolverPlacement::HYPRE,
+                           {"CoarseComponents", "RelaxationType",
+                            "NumberOfRelaxationSweeps", "InterpolationType",
+                            "RestrictionType", Problem::SolverVerbosityLevel},
+                           "multigrid reduction of hypre (MGR), the unknowns "
+                           "being split by their components"),
+            setHypreMGRPreconditioner);
   }  // end of declareHyprePreconditioners
 
 }  // end of namespace mfem_mgis::internals

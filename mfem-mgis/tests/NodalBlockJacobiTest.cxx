@@ -18,15 +18,24 @@
  * - in sequential, the preconditioner of the block diagonal part of the
  *   matrix is its inverse: the conjugate gradient converges in one
  *   iteration (check of the extraction of the blocks);
+ * - its application to the right hand side matches the inverses of the
+ *   nodal blocks computed on the host, from the matrix or from its diagonal
+ *   block in parallel, with each backend, factorization and a damping;
+ * - an operator giving its nodal blocks (as the tangent operator applied
+ *   without assembly) gives the same preconditioner as its matrix, and
+ *   blocks of size one are refused for it on all the processes;
+ * - in parallel, the same checks with a process owning no element;
  * - invalid options and unavailable backends are refused.
  * \date   15/10/2026
  */
 
 #include <array>
+#include <tuple>
 #include <algorithm>
 #include <cmath>
 #include <memory>
 #include <string>
+#include <vector>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
@@ -39,6 +48,8 @@
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/PreconditionerFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+#include "ElasticitySystem.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -57,59 +68,7 @@ static void check(const bool b, const std::string& msg) {
   }
 }  // end of check
 
-//! \brief cantilever beam in linear elasticity, clamped on the face x = 0
-template <bool is_parallel>
-struct ElasticitySystem {
-  using Matrix =
-      std::conditional_t<is_parallel, mfem::HypreParMatrix, mfem::SparseMatrix>;
-  /*!
-   * \param[in] smesh: sequential mesh (partitioned in parallel)
-   * \param[in] fec: finite element collection
-   * \param[in] o: ordering of the unknowns
-   */
-  ElasticitySystem(mfem::Mesh& smesh,
-                   mfem::FiniteElementCollection& fec,
-                   const mfem::Ordering::Type o)
-      : mesh(makeMesh(smesh)), fespace(mesh.get(), &fec, 3, o), a(&fespace) {
-    auto lambda = mfem::ConstantCoefficient(1.5);
-    auto mu = mfem::ConstantCoefficient(1);
-    this->a.AddDomainIntegrator(new mfem::ElasticityIntegrator(lambda, mu));
-    this->a.Assemble();
-    auto f = mfem::Vector(3);
-    f = 0.;
-    f(2) = -1;
-    auto fc = mfem::VectorConstantCoefficient(f);
-    auto b = mfem_mgis::LinearForm<is_parallel>(&(this->fespace));
-    b.AddDomainIntegrator(new mfem::VectorDomainLFIntegrator(fc));
-    b.Assemble();
-    auto x = mfem_mgis::GridFunction<is_parallel>(&(this->fespace));
-    x = 0.;
-    auto boundaries = mfem::Array<int>(this->mesh->bdr_attributes.Max());
-    boundaries = 0;
-    boundaries[4] = 1;
-    auto ess_tdofs = mfem::Array<int>{};
-    this->fespace.GetEssentialTrueDofs(boundaries, ess_tdofs);
-    auto X = mfem::Vector{};
-    auto rhs = mfem::Vector{};
-    this->a.FormLinearSystem(ess_tdofs, x, b, this->A, X, rhs);
-    this->B = rhs;
-  }
-  std::unique_ptr<mfem_mgis::Mesh<is_parallel>> mesh;
-  mfem_mgis::FiniteElementSpace<is_parallel> fespace;
-  mfem_mgis::BilinearForm<is_parallel> a;
-  Matrix A;
-  mfem::Vector B;
-
- private:
-  static std::unique_ptr<mfem_mgis::Mesh<is_parallel>> makeMesh(
-      mfem::Mesh& smesh) {
-    if constexpr (is_parallel) {
-      return std::make_unique<mfem::ParMesh>(MPI_COMM_WORLD, smesh);
-    } else {
-      return std::make_unique<mfem::Mesh>(smesh);
-    }
-  }
-};
+using mfem_mgis::tests::ElasticitySystem;
 
 /*!
  * \return the number of iterations of the conjugate gradient of MFEM with
@@ -278,6 +237,203 @@ static std::optional<int> run(ElasticitySystem<is_parallel>& s,
   return reference;
 }  // end of run
 
+/*!
+ * \brief checks the application of the preconditioner to the right hand
+ * side against a reference computed on the host: the inverses of the nodal
+ * blocks of the matrix (of its diagonal block in parallel), computed by
+ * `mfem::DenseMatrix::Invert`, with each available backend, with the
+ * inverses and the LU factors of the blocks, and with a damping factor
+ * \param[in] s: system
+ * \param[in] ordering: name of the ordering of the unknowns
+ */
+template <bool is_parallel>
+static void checkApplication(ElasticitySystem<is_parallel>& s,
+                             const std::string& ordering) {
+  using namespace mfem_mgis;
+  using Batched = mfem::BatchedLinAlg;
+  // reference, on the host
+  auto local = mfem::SparseMatrix{};
+  const mfem::SparseMatrix* a = nullptr;
+  if constexpr (is_parallel) {
+    s.A.GetDiag(local);
+    a = &local;
+  } else {
+    a = &(s.A);
+  }
+  const auto n = a->Height();
+  const auto nb = n / 3;
+  const auto by_nodes = s.fespace.GetOrdering() == mfem::Ordering::byNODES;
+  const auto unknown = [nb, by_nodes](const int node, const int c) {
+    return by_nodes ? c * nb + node : 3 * node + c;
+  };
+  auto reference = mfem::Vector(n);
+  {
+    const auto* const I = a->HostReadI();
+    const auto* const J = a->HostReadJ();
+    const auto* const A = a->HostReadData();
+    const auto* const b = s.B.HostRead();
+    auto* const z = reference.HostWrite();
+    for (int node = 0; node != nb; ++node) {
+      auto block = mfem::DenseMatrix(3);
+      block = 0.;
+      for (int c = 0; c != 3; ++c) {
+        const auto i = unknown(node, c);
+        for (int k = I[i]; k != I[i + 1]; ++k) {
+          for (int d = 0; d != 3; ++d) {
+            if (J[k] == unknown(node, d)) {
+              block(c, d) += A[k];
+            }
+          }
+        }
+      }
+      block.Invert();
+      for (int c = 0; c != 3; ++c) {
+        auto v = mfem::real_t{0};
+        for (int d = 0; d != 3; ++d) {
+          v += block(c, d) * b[unknown(node, d)];
+        }
+        z[unknown(node, c)] = v;
+      }
+    }
+  }
+  const auto rmax = reference.Normlinf();
+  const auto bound = double_precision ? 1e-12 : 1e-4;
+  const auto backends = std::array<std::pair<const char*, Batched::Backend>, 3>{
+      {{"Native", Batched::NATIVE},
+       {"GPUBLAS", Batched::GPU_BLAS},
+       {"MAGMA", Batched::MAGMA}}};
+  for (const auto& [name, backend] : backends) {
+    if (!Batched::IsAvailable(backend)) {
+      continue;
+    }
+    for (const auto* const factorization : {"Inverse", "LU"}) {
+      for (const auto damping : {1., 0.5}) {
+        auto ctx = Context{};
+        auto p = PreconditionerFactory<is_parallel>::getFactory().generate(
+            ctx, "NodalBlockJacobi", s.fespace,
+            Parameters{{"Backend", name},
+                       {"Factorization", factorization},
+                       {"Damping", damping}});
+        if (p == nullptr) {
+          throw std::runtime_error(ctx.getErrorMessage());
+        }
+        p->SetOperator(s.A);
+        auto z = mfem::Vector(n);
+        z.UseDevice(true);
+        p->Mult(s.B, z);
+        z.Add(-damping, reference);
+        // a process owning no unknown has a null reference
+        const auto e = rmax > 0 ? z.Normlinf() / rmax : z.Normlinf();
+        check(e < bound,
+              ordering + ": wrong application of the preconditioner (backend " +
+                  name + ", " + factorization + ", damping " +
+                  std::to_string(damping) + ", relative error " +
+                  std::to_string(e) + ")");
+      }
+    }
+  }
+}  // end of checkApplication
+
+/*!
+ * \brief matrix giving its nodal blocks, extracted from the matrix (from its
+ * diagonal block in parallel), as the tangent operator applied without
+ * assembly does (see `mfem_mgis::NodalBlocksProvider`)
+ */
+template <bool is_parallel>
+struct NodalBlocksOfMatrix final : mfem::Operator,
+                                   mfem_mgis::NodalBlocksProvider {
+  //! \param[in] s: system
+  explicit NodalBlocksOfMatrix(ElasticitySystem<is_parallel>& s)
+      : mfem::Operator(s.A.Height(), s.A.Width()), system(s) {}
+  void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+    this->system.A.Mult(x, y);
+  }
+  void AssembleNodalBlocks(mfem::Vector& b) const override {
+    auto local = mfem::SparseMatrix{};
+    const mfem::SparseMatrix* a = nullptr;
+    if constexpr (is_parallel) {
+      this->system.A.GetDiag(local);
+      a = &local;
+    } else {
+      a = &(this->system.A);
+    }
+    const auto n = a->Height();
+    const auto nb = n / 3;
+    const auto by_nodes =
+        this->system.fespace.GetOrdering() == mfem::Ordering::byNODES;
+    const auto node = [nb, by_nodes](const int i) {
+      return by_nodes ? i % nb : i / 3;
+    };
+    const auto component = [nb, by_nodes](const int i) {
+      return by_nodes ? i / nb : i % 3;
+    };
+    const auto* const I = a->HostReadI();
+    const auto* const J = a->HostReadJ();
+    const auto* const A = a->HostReadData();
+    b.SetSize(3 * n);
+    auto* const pb = b.HostWrite();
+    std::fill(pb, pb + 3 * n, mfem::real_t{0});
+    // the entry (c1, c2) of the block of a node is the entry of the
+    // component c1 of this node in the column c2
+    for (int i = 0; i != n; ++i) {
+      for (int k = I[i]; k != I[i + 1]; ++k) {
+        if (node(J[k]) == node(i)) {
+          pb[component(J[k]) * n + i] += A[k];
+        }
+      }
+    }
+  }
+
+ private:
+  //! \brief system
+  ElasticitySystem<is_parallel>& system;
+};  // end of struct NodalBlocksOfMatrix
+
+/*!
+ * \brief checks the preconditioner of an operator giving its nodal blocks:
+ * its application to the right hand side is the one of the preconditioner of
+ * the matrix, and blocks of size one are refused on all the processes (an
+ * error on some processes only would block the other ones)
+ * \param[in] s: system
+ * \param[in] ordering: name of the ordering of the unknowns
+ */
+template <bool is_parallel>
+static void checkNodalBlocksProvider(ElasticitySystem<is_parallel>& s,
+                                     const std::string& ordering) {
+  using namespace mfem_mgis;
+  const auto op = NodalBlocksOfMatrix<is_parallel>(s);
+  const auto apply = [&s](const mfem::Operator& a, const Parameters& options) {
+    auto ctx = Context{};
+    auto p = PreconditionerFactory<is_parallel>::getFactory().generate(
+        ctx, "NodalBlockJacobi", s.fespace, options);
+    if (p == nullptr) {
+      throw std::runtime_error(ctx.getErrorMessage());
+    }
+    p->SetOperator(a);
+    auto z = mfem::Vector(a.Height());
+    z.UseDevice(true);
+    p->Mult(s.B, z);
+    return z;
+  };
+  auto z = apply(s.A, Parameters{});
+  const auto zmax = z.Normlinf();
+  z -= apply(op, Parameters{});
+  check(z.Normlinf() <= (double_precision ? 1e-14 : 1e-6) * zmax,
+        ordering +
+            ": the blocks given by the operator differ from the ones of the "
+            "matrix");
+  auto refused = false;
+  try {
+    std::ignore = apply(op, Parameters{{"BlockSize", 1}});
+  } catch (std::exception& e) {
+    refused =
+        std::string{e.what()}.find("number of components") != std::string::npos;
+  }
+  check(refused, ordering +
+                     ": blocks of size one not refused for an operator "
+                     "giving its nodal blocks");
+}  // end of checkNodalBlocksProvider
+
 //! \brief checks the refusals of invalid options
 template <bool is_parallel>
 static void checkRefusals(ElasticitySystem<is_parallel>& s) {
@@ -293,6 +449,7 @@ static void checkRefusals(ElasticitySystem<is_parallel>& s) {
   refused(Parameters{{"Backend", "cuSOLVER"}}, "invalid backend");
   refused(Parameters{{"Factorization", "Cholesky"}}, "invalid factorization");
   refused(Parameters{{"BlockSize", 0}}, "invalid block size");
+  refused(Parameters{{"BlockSize", 2}}, "invalid block size");
   refused(Parameters{{"Damping", -1.}}, "invalid damping factor");
   if (!mfem::BatchedLinAlg::IsAvailable(mfem::BatchedLinAlg::MAGMA)) {
     refused(Parameters{{"Backend", "MAGMA"}}, "is not available");
@@ -326,7 +483,31 @@ int main(int argc, char** argv) {
       const auto i1 = run(s1, "byNODES");
       const auto i2 = run(s2, "byVDIM");
       check(areClose(i1, i2), "the orderings change the number of iterations");
+      checkApplication(s1, "byNODES");
+      checkApplication(s2, "byVDIM");
+      checkNodalBlocksProvider(s1, "byNODES");
+      checkNodalBlocksProvider(s2, "byVDIM");
       checkRefusals(s1);
+      if constexpr (is_parallel) {
+        // all the elements on the first process, the other ones owning no
+        // unknown: the nodal blocks, which are in the diagonal blocks of the
+        // processes, do not change
+        const auto partitioning =
+            std::vector<int>(static_cast<std::size_t>(mesh.GetNE()), 0);
+        for (const auto o : {mfem::Ordering::byNODES, mfem::Ordering::byVDIM}) {
+          auto s =
+              ElasticitySystem<is_parallel>(mesh, fec, o, partitioning.data());
+          const auto name =
+              std::string{o == mfem::Ordering::byNODES ? "byNODES" : "byVDIM"} +
+              ", empty process";
+          check((rank == 0) || (s.A.Height() == 0),
+                name + ": the process owns unknowns");
+          check(areClose(run(s, name), i1),
+                name + ": the partitioning changes the number of iterations");
+          checkApplication(s, name);
+          checkNodalBlocksProvider(s, name);
+        }
+      }
     };
     if (parallel) {
 #ifdef MFEM_USE_MPI

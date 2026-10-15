@@ -427,3 +427,101 @@ makes the 8 iterations of the Newton solver, the tangent operator updated
 every three iterations 14 iterations, Picard's method 59 iterations,
 reduced to 32 by Anderson's acceleration and to 17 by an update of the
 tangent operator every five iterations.
+
+Solver of PETSc (SNES)
+======================
+
+When :code:`MFEM` is built with :code:`PETSc`, the :cxx:`SNES` nonlinear
+solver, only available in parallel, uses the nonlinear solvers of
+:code:`PETSc` (SNES), through the :cxx:`mfem::PetscNonlinearSolver` class
+of :code:`MFEM`. Unlike the global mode selected by :cxx:`setPETSc`, which
+replaces the nonlinear and linear solvers of all the problems by the ones
+of :code:`PETSc` configured by a file, it is selected per problem, and
+uses the residual, the tangent operator and, by default, the linear solver
+of the problem:
+
+.. code-block:: c++
+
+   {"NonLinearSolver",
+    mfem_mgis::Parameters{
+        {"SNES", mfem_mgis::Parameters{
+                     {"Options", mfem_mgis::Parameters{
+                                     {"snes_type", "newtontr"}}}}}}}
+
+The option :cxx:`Options` gives the options of :code:`PETSc`, without the
+leading dash: by default, Newton's method with a backtracking line search
+(:cxx:`snes_type` :cxx:`newtonls`, :cxx:`snes_linesearch_type`
+:cxx:`bt`); the other methods of SNES (trust region :cxx:`newtontr`,
+quasi-Newton :cxx:`qn`, nonlinear GMRES :cxx:`ngmres`, ...) and line
+searches (:cxx:`none`, which is Newton's method without line search,
+:cxx:`secant`, ...) are selected by these options. The trust region
+methods, which multiply the residual by the transposed tangent operator,
+require an assembled tangent operator. The convergence test is the one of
+mfem-mgis (see below: the option :cxx:`snes_convergence_test` is refused).
+The options are written in
+the options database of :code:`PETSc` with a prefix which is unique to the
+resolution, and removed after it; the options which :code:`PETSc` never
+read are reported.
+
+The option :cxx:`LinearSolver` selects the resolution of the linear
+systems:
+
+- :cxx:`Problem` (default): the tangent operator is inverted by the linear
+  solver of the problem, seen by :code:`PETSc` as a shell preconditioner
+  applied once (:cxx:`ksp_type` :cxx:`preonly`, unless the options give
+  another Krylov solver of :code:`PETSc`, which the linear solver of the
+  problem then preconditions). The tangent operator is seen by
+  :code:`PETSc` as a shell matrix, without copy, which the line search
+  multiplies by the Newton step; it may be applied without assembly (see
+  :ref:`mfem_mgis_batch_computations_matrix_free`). The options of the
+  preconditioner of :code:`PETSc` (:cxx:`pc_...`) are refused. When it is
+  applied once, a failure of the linear solver stops the resolution, unless
+  the option :cxx:`DiscardLinearSolverFailure` is true; when it
+  preconditions a Krylov solver of :code:`PETSc`, this solver checks its own
+  convergence (the linear solvers of mfem-mgis having no transposed
+  application, the Krylov solvers which need it fail);
+- :cxx:`PETSc`: the tangent operator, which must then be assembled, is
+  converted to the AIJ format of :code:`PETSc` at each update, and the
+  Krylov solver and the preconditioner are the ones of :code:`PETSc` given
+  by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...). The option
+  :cxx:`DiscardLinearSolverFailure` lets SNES go on after a failure of the
+  Krylov solver.
+
+With a GPU, SNES and the solvers of :code:`PETSc` compute on the host: the
+functions called by :code:`PETSc` copy its vectors from and to the vectors
+of mfem-mgis on the device, and the tangent operator given to the linear
+solvers of :code:`PETSc` is converted to the AIJ format of the host (see
+:ref:`petsc_linear_solvers`). The vectors of :code:`PETSc` of the GPU, whose
+memory :code:`MFEM` places in the vectors of :code:`PETSc`, were left by
+:code:`MFEM` 4.10 in states unknown to its memory manager (with the memory
+of :code:`MFEM` managed by Umpire).
+
+When the integration of the behaviours fails at a new estimate, the failure
+is reported to SNES as a domain error: the backtracking line search reduces
+its step, the other methods stop. The behaviours are integrated again at
+the solution returned by SNES, and at the estimate where SNES asks for the
+tangent operator, when their last integration was made elsewhere.
+
+SNES stops when the euclidean norm of the residual is lower than
+:math:`\max\left(\varepsilon_{r}\,r_{\mathrm{ref}},\varepsilon_{a}\right)`,
+:math:`r_{\mathrm{ref}}` being the reference norm of the residual (the
+norm of the residual of the prediction, if any, or of the initial
+residual), as the Newton solver of mfem-mgis; the other criteria of SNES
+(length of the step, divergence) are not used, and a resolution which SNES
+stops for another reason is only accepted if its residual is below the
+tolerance or the stagnation tolerance. The resolution is stopped
+when the residual stagnates (three iterations without a decrease of more
+than 10 %, the initial residual not being counted) below the option
+:cxx:`StagnationRelativeTolerance`
+(:math:`10^{4}` times the machine epsilon by default) times the reference
+norm, and is then accepted. The other options are the ones of the
+iterative solvers (:cxx:`RelativeTolerance`, :cxx:`AbsoluteTolerance`,
+:cxx:`MaximumNumberOfIterations`, strictly positive, :cxx:`VerbosityLevel`,
+which prints each iteration).
+
+On the uniaxial tension of a plastic cube in two time steps (test
+:file:`tests/SNESSolverTest.cxx`, two processes), Newton's method of SNES,
+with or without line search, and its trust region method, give the
+solution of the Newton solver of mfem-mgis in its 9 iterations (8 on a
+GPU), the test checking the solution and the number of iterations within
+two.

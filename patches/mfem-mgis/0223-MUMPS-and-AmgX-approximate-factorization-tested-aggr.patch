@@ -1,0 +1,267 @@
+From 7abd25563d1ae47e3c1ee89e9e2bdb0341e884cf Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 13:01:32 +0200
+Subject: [PATCH] MUMPS and AmgX: approximate factorization tested, aggregation
+ option checked
+
+The block low-rank factorization of MUMPS preconditions the conjugate
+gradient of MFEM on a 24^3 cube, where MUMPS compresses fronts: ten
+iterations instead of one with the exact factorization (on the 12^3
+cube, MUMPS compresses no front, and the approximate factorization was
+exact). The matrix is declared symmetric positive definite, the
+factorization being then symmetric, as the conjugate gradient assumes.
+
+The conjugate gradient of MFEM preconditioned by AmgX with the option
+Multigrid set to Aggregation needs the iterations of the same
+configuration given as a string: an ignored option is detected.
+
+Docs: the smoother of the aggregation multigrid is a damped Jacobi
+smoother (the block Jacobi smoother of AmgX on blocks of size one), its
+V-cycle has no pre-smoothing sweep and is not symmetric; the matrix
+given to the MUMPS preconditioner of the conjugate gradient shall be
+declared symmetric positive definite.
+---
+ docs/source/user_guide/batch_computations.rst |  5 +-
+ docs/source/user_guide/glossary.rst           |  3 +-
+ docs/source/user_guide/linear_solvers.rst     |  6 +-
+ src/AmgXSolvers.cxx                           | 21 +++--
+ tests/AmgXSolverTest.cxx                      |  5 ++
+ tests/SparseDirectSolversTest.cxx             | 88 +++++++++++++------
+ 6 files changed, 91 insertions(+), 37 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 0654906fed..642d2bc11a 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -859,7 +859,10 @@ host at each setup, and the resolutions start from a zero initial guess.
+        interpolation) or :code:`Aggregation` (one V-cycle of the
+        aggregation multigrid of the configuration
+        :code:`PCG_AGGREGATION_JACOBI` of :code:`AmgX`: aggregates of size
+-       two, three sweeps of a damped block Jacobi smoother).
++       two, three post-smoothing sweeps of a damped Jacobi smoother and no
++       pre-smoothing sweep, a cycle which is not symmetric, but with which
++       the conjugate gradients converge, as in the configuration of
++       :code:`AmgX`).
+    * - :code:`AmgXParameters`
+      - Parameters of :code:`AmgX`, with their names in :code:`AmgX`, which
+        complete or override the default configuration. A name without
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 48789b6a6f..d97dce543d 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -49,7 +49,8 @@ MUMPS Solver
+ 
+ - Solver name: ``MUMPSSolver``; the preconditioner ``MUMPSPreconditioner``
+   applies the same factorization once, for instance an approximate one
+-  (``BLRTolerance``) in a Krylov solver
++  (``BLRTolerance``) in a Krylov solver (with the conjugate gradient, the
++  matrix shall be declared ``Symmetric`` and ``PositiveDefinite``)
+ - Dependencies:
+  
+   - ``MFEM_USE_MUMPS``
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 3ea004d751..80ad8b9053 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -341,7 +341,11 @@ Preconditioners
+      - MUMPS
+      - host
+      - the options of :cxx:`MUMPSSolver`: the factorization, approximate
+-       with :cxx:`BLRTolerance`, is applied once
++       with :cxx:`BLRTolerance` when the fronts are large enough to be
++       compressed, is applied once; with the conjugate gradient, the matrix
++       shall be declared :cxx:`Symmetric` and :cxx:`PositiveDefinite`, the
++       approximate factorization being otherwise a non symmetric LU
++       factorization
+    * - :cxx:`PETScPreconditioner` (parallel)
+      - PETSc
+      - host
+diff --git a/src/AmgXSolvers.cxx b/src/AmgXSolvers.cxx
+index 0928b50030..4954a5a4f3 100644
+--- a/src/AmgXSolvers.cxx
++++ b/src/AmgXSolvers.cxx
+@@ -544,7 +544,11 @@ namespace mfem_mgis::internals {
+   enum struct AmgXMultigrid {
+     //! \brief classical algebraic multigrid, L1-Jacobi smoother
+     CLASSICAL,
+-    //! \brief aggregation algebraic multigrid, block Jacobi smoother
++    /*!
++     * \brief aggregation algebraic multigrid, Jacobi smoother (the block
++     * Jacobi smoother of AmgX on the blocks of size one of the matrices
++     * given to AmgX)
++     */
+     AGGREGATION
+   };
+ 
+@@ -651,11 +655,16 @@ namespace mfem_mgis::internals {
+   }  // end of getMultigrid
+ 
+   /*!
+-   * \brief writes the parameters of the default multigrid of MFEM (scope
+-   * `amg`): one V-cycle of the classical algebraic multigrid with a
+-   * L1-Jacobi smoother, or of the aggregation algebraic multigrid of the
+-   * configuration `PCG_AGGREGATION_JACOBI` of AmgX (aggregates of size two,
+-   * three sweeps of a damped block Jacobi smoother)
++   * \brief writes the parameters of the multigrid of the default
++   * configurations (scope `amg`): one V-cycle of the classical algebraic
++   * multigrid with a L1-Jacobi smoother (the default multigrid of MFEM), or
++   * of the aggregation algebraic multigrid of the configuration
++   * `PCG_AGGREGATION_JACOBI` of AmgX (aggregates of size two, three
++   * post-smoothing sweeps of a damped Jacobi smoother, the block Jacobi
++   * smoother of AmgX on the blocks of size one of the matrices given to
++   * AmgX, and no pre-smoothing sweep: the cycle is not symmetric, but the
++   * conjugate gradients of AmgX and of MFEM converge with it, as in the
++   * configuration of AmgX)
+    * \param[in, out] c: configuration
+    * \param[in] verbose: print the statistics of the grids
+    * \param[in] m: algebraic multigrid
+diff --git a/tests/AmgXSolverTest.cxx b/tests/AmgXSolverTest.cxx
+index cccac8f0bb..2c99086047 100644
+--- a/tests/AmgXSolverTest.cxx
++++ b/tests/AmgXSolverTest.cxx
+@@ -358,6 +358,11 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
+     print("CGSolver, AmgX, aggregation", rcg);
+     check(rcg.converged && (rcg.residual < 1e-9),
+           "CGSolver: resolution with the aggregation multigrid of AmgX");
++    // the option gives the configuration written above, which differs from
++    // the default one (the option is not ignored)
++    check(close(rcg.iterations, rs.iterations),
++          "CGSolver: the aggregation multigrid of AmgX differs from its "
++          "configuration given as a string");
+   }
+   // statistics printed by AmgX: same resolution
+   {
+diff --git a/tests/SparseDirectSolversTest.cxx b/tests/SparseDirectSolversTest.cxx
+index 909c716091..609af907cc 100644
+--- a/tests/SparseDirectSolversTest.cxx
++++ b/tests/SparseDirectSolversTest.cxx
+@@ -1,15 +1,17 @@
+ /*!
+  * \file   SparseDirectSolversTest.cxx
+  * \brief  Test of the direct solvers of MUMPS, SuperLU_DIST and STRUMPACK,
+- * and of the preconditioner of STRUMPACK, built by the factories, on the
+- * Laplace equation on a cube, in parallel (the generic test
+- * `LinearSolverFactoriesTest` solves it with each entry and its default
+- * options):
++ * and of the preconditioners of MUMPS and STRUMPACK, built by the
++ * factories, on the Laplace equation on a cube, in parallel (the generic
++ * test `LinearSolverFactoriesTest` solves it with each entry and its
++ * default options):
+  *
+  * - MUMPS accepts each reordering strategy and the tolerance of its block
+  *   low-rank factorization, and solves the system (the strategy used is not
+  *   reported by MFEM); its factorization preconditions the conjugate
+- *   gradient of MFEM, which converges in one iteration when it is exact;
++ *   gradient of MFEM (`MUMPSPreconditioner`), which converges in one
++ *   iteration when it is exact, and in more iterations with the block
++ *   low-rank factorization, on a larger mesh;
+  * - SuperLU_DIST solves the system with its options, reuses its analysis
+  *   for a new operator of the same pattern and is built again for an
+  *   operator of another size; the ParMETIS ordering with the parallel
+@@ -61,6 +63,12 @@ static constexpr double direct_tolerance =
+ static constexpr double cg_tolerance =
+     std::is_same_v<mfem::real_t, double> ? 1e-12 : 1e-5;
+ 
++/*!
++ * \brief number of elements along each edge of the cube on which the block
++ * low-rank factorization of MUMPS compresses fronts
++ */
++static constexpr int blr_mesh_size = 24;
++
+ static void check(const bool b, const std::string& msg) {
+   if (!b) {
+     std::cerr << "check failed: " << msg << '\n';
+@@ -141,6 +149,47 @@ static double solve(LaplaceSystem<true>& s,
+   return solve(s, s.A, ls, name);
+ }  // end of solve
+ 
++#ifdef MFEM_USE_MUMPS
++/*!
++ * \brief checks the factorization of MUMPS as a preconditioner of the
++ * conjugate gradient of MFEM: the exact factorization, with which the
++ * conjugate gradient converges in one iteration, and the block low-rank
++ * factorization, which is approximate on this mesh (the fronts of the
++ * smaller meshes of this test are too small to be compressed), with which
++ * it needs more iterations. The matrix is declared symmetric positive
++ * definite, the factorization being then symmetric.
++ * \param[in] s: system
++ */
++static void checkMUMPSPreconditioner(LaplaceSystem<true>& s) {
++  using namespace mfem_mgis;
++  for (const auto tolerance : {0., 1e-2}) {
++    auto cg = generate(
++        s, "CGSolver",
++        Parameters{
++            {"RelativeTolerance", cg_tolerance},
++            {"AbsoluteTolerance", 0.},
++            {"MaximumNumberOfIterations", 200},
++            {"Preconditioner",
++             Parameters{{"Name", "MUMPSPreconditioner"},
++                        {"Options", Parameters{{"Symmetric", true},
++                                               {"PositiveDefinite", true},
++                                               {"BLRTolerance", tolerance},
++                                               {"VerbosityLevel", 0}}}}}});
++    const auto name = std::string{"CGSolver, MUMPSPreconditioner, BLR "} +
++                      std::to_string(tolerance);
++    const auto r = solve(s, *(cg.linear_solver), name);
++    const auto iterations =
++        getNumberOfIterationsAtConvergence(*(cg.linear_solver)).value_or(-1);
++    if (rank == 0) {
++      std::cout << name << ": " << iterations << " iterations\n";
++    }
++    check((r < 100 * cg_tolerance) && hasConverged(*(cg.linear_solver)) &&
++              ((tolerance > 0) ? (iterations > 1) : (iterations <= 1)),
++          name + ": resolution");
++  }
++}  // end of checkMUMPSPreconditioner
++#endif /* MFEM_USE_MUMPS */
++
+ static void run(LaplaceSystem<true>& s,
+                 [[maybe_unused]] LaplaceSystem<true>& s2) {
+   using namespace mfem_mgis;
+@@ -169,29 +218,6 @@ static void run(LaplaceSystem<true>& s,
+     check(solve(s, *(blr.linear_solver), "MUMPSSolver, BLR") < direct_tolerance,
+           "MUMPSSolver, BLR: resolution");
+   }
+-  // the exact factorization of MUMPS as a preconditioner of the conjugate
+-  // gradient of MFEM, which then converges in one iteration, and its block
+-  // low-rank factorization
+-  for (const auto tolerance : {0., 1e-2}) {
+-    auto cg = generate(
+-        s, "CGSolver",
+-        Parameters{
+-            {"RelativeTolerance", cg_tolerance},
+-            {"AbsoluteTolerance", 0.},
+-            {"MaximumNumberOfIterations", 200},
+-            {"Preconditioner",
+-             Parameters{{"Name", "MUMPSPreconditioner"},
+-                        {"Options", Parameters{{"BLRTolerance", tolerance},
+-                                               {"VerbosityLevel", 0}}}}}});
+-    const auto name = std::string{"CGSolver, MUMPSPreconditioner, BLR "} +
+-                      std::to_string(tolerance);
+-    check((solve(s, *(cg.linear_solver), name) < 100 * cg_tolerance) &&
+-              hasConverged(*(cg.linear_solver)) &&
+-              ((tolerance > 0) ||
+-               (getNumberOfIterationsAtConvergence(*(cg.linear_solver))
+-                    .value_or(10) <= 1)),
+-          name + ": resolution");
+-  }
+   check(getGenerationError(s, "MUMPSSolver",
+                            Parameters{{"ReorderingStrategy", "RCM"}})
+                 .find("invalid reordering strategy") != std::string::npos,
+@@ -375,6 +401,12 @@ int main(int argc, char** argv) {
+     auto s = LaplaceSystem<true>(mesh, fec);
+     auto s2 = LaplaceSystem<true>(mesh2, fec);
+     run(s, s2);
++#ifdef MFEM_USE_MUMPS
++    auto mesh3 = mfem::Mesh::MakeCartesian3D(
++        blr_mesh_size, blr_mesh_size, blr_mesh_size, mfem::Element::HEXAHEDRON);
++    auto s3 = LaplaceSystem<true>(mesh3, fec);
++    checkMUMPSPreconditioner(s3);
++#endif /* MFEM_USE_MUMPS */
+   } catch (std::exception& e) {
+     std::cerr << "error: " << e.what() << '\n';
+     return EXIT_FAILURE;
+-- 
+2.43.0
+

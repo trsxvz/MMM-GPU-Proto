@@ -4,6 +4,7 @@
  * \date   10/10/2026
  */
 
+#include <tuple>
 #include <utility>
 #include "mfem/fem/fespace.hpp"
 #include "MFEMMGIS/MPI.hxx"
@@ -88,10 +89,16 @@ namespace mfem_mgis {
     if (P == nullptr) {
       return;
     }
-    // one column of the blocks after the other (see `AssembleDiagonal`)
+    // one column of the blocks after the other (see `AssembleDiagonal`).
+    // The columns are aliases of the blocks, which only copy the location
+    // of the valid data of the blocks when they are created: the blocks are
+    // made valid on the device first (where the aliases are written by
+    // default), and each alias is synchronized with them after being
+    // written (on the host by `AbsMultTranspose`, for instance)
     const auto nt = this->Height();
     b.UseDevice(true);
     b.SetSize(vdim * nt);
+    std::ignore = b.Write();
     for (int c = 0; c != vdim; ++c) {
       auto bc = mfem::Vector(b, c * nt, nt);
       const auto blc = mfem::Vector(bl_, c * nl, nl);
@@ -100,6 +107,7 @@ namespace mfem_mgis {
       } else {
         P->AbsMultTranspose(blc, bc);
       }
+      bc.SyncAliasMemory(b);
     }
   }  // end of AssembleNodalBlocks
 

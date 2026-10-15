@@ -9,6 +9,7 @@
 #include <limits>
 #include <string>
 #include <cstdint>
+#include <tuple>
 #include <utility>
 #include <algorithm>
 #include <exception>
@@ -757,11 +758,15 @@ namespace mfem_mgis {
           }
         }
       }
-      // one column of the blocks after the other
+      // one column of the blocks after the other: the columns are aliases,
+      // synchronized with the blocks after being written (see
+      // `MatrixFreeTangentOperator::AssembleNodalBlocks`)
+      std::ignore = b.ReadWrite();
       for (int c = 0; c != vdim; ++c) {
         auto bc = mfem::Vector(b, c * nl, nl);
         const auto bec = mfem::Vector(be, c * ne, ne);
         restriction->AddMultTranspose(bec, bc);
+        bc.SyncAliasMemory(b);
       }
     } catch (...) {
       return registerExceptionInErrorBacktrace(ctx);

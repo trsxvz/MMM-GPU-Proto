@@ -171,7 +171,7 @@ The solvers marked as parallel are only available in parallel.
      - GPU
      - none
      - :cxx:`Configuration`, :cxx:`ConfigurationFile`, :cxx:`VerbosityLevel`,
-       :cxx:`AmgXParameters`, :cxx:`Precision`
+       :cxx:`AmgXParameters`, :cxx:`Precision`, :cxx:`Multigrid`
    * - :cxx:`AmgXPCG`
      - AmgX
      - iterative
@@ -179,7 +179,7 @@ The solvers marked as parallel are only available in parallel.
      - none
      - :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
-       :cxx:`AmgXParameters`, :cxx:`Precision`
+       :cxx:`AmgXParameters`, :cxx:`Precision`, :cxx:`Multigrid`
    * - :cxx:`GinkgoCG`, :cxx:`GinkgoGMRES`, ... (see
        :ref:`ginkgo_linear_solvers`)
      - Ginkgo
@@ -312,6 +312,13 @@ Preconditioners
        :cxx:`MaximumStepSize`, :cxx:`MaximumNonZerosPerRow`,
        :cxx:`NumberOfLevels`, :cxx:`Threshold`, :cxx:`KapTolerance`,
        :cxx:`EigenvalueEstimationIterations`, :cxx:`VerbosityLevel`
+   * - :cxx:`HypreMGR` (parallel)
+     - hypre
+     - as hypre
+     - :cxx:`CoarseComponents`, :cxx:`RelaxationType`,
+       :cxx:`NumberOfRelaxationSweeps`, :cxx:`InterpolationType`,
+       :cxx:`RestrictionType`, :cxx:`VerbosityLevel` (see
+       :ref:`hypre_mgr`)
    * - :cxx:`NodalBlockJacobi`
      - MFEM
      - as MFEM
@@ -325,7 +332,7 @@ Preconditioners
      - AmgX
      - GPU
      - :cxx:`Configuration`, :cxx:`ConfigurationFile`, :cxx:`VerbosityLevel`,
-       :cxx:`AmgXParameters`, :cxx:`Precision`
+       :cxx:`AmgXParameters`, :cxx:`Precision`, :cxx:`Multigrid`
    * - :cxx:`GinkgoJacobi`, :cxx:`GinkgoILU`, :cxx:`GinkgoMultigrid`, ...
        (see :ref:`ginkgo_linear_solvers`)
      - Ginkgo
@@ -337,6 +344,15 @@ Preconditioners
      - MAGMA
      - GPU
      - none
+   * - :cxx:`MUMPSPreconditioner` (parallel)
+     - MUMPS
+     - host
+     - the options of :cxx:`MUMPSSolver`: the factorization, approximate
+       with :cxx:`BLRTolerance` when the fronts are large enough to be
+       compressed, is applied once; with the conjugate gradient, the matrix
+       shall be declared :cxx:`Symmetric` and :cxx:`PositiveDefinite`, the
+       approximate factorization being otherwise a non symmetric LU
+       factorization
    * - :cxx:`PETScPreconditioner` (parallel)
      - PETSc
      - host
@@ -385,19 +401,111 @@ computes where :code:`MFEM` computes. Its options are:
   :code:`MFEM`), or :cxx:`Native` if it is not available. The backends
   :cxx:`GPUBLAS` and :cxx:`MAGMA` require :code:`MFEM` computing on a GPU;
 - :cxx:`BlockSize`: the size of the blocks, the number of components of
-  the unknowns by default (blocks of size one give the Jacobi
-  preconditioner; with an operator applied without assembly, the size of
-  the blocks is the number of components of the unknowns);
+  the unknowns (by default) or one (the Jacobi preconditioner); other
+  sizes are refused. With an operator applied without assembly, the size
+  of the blocks must be the number of components of the unknowns: blocks
+  of size one are refused when the operator is given, during the
+  resolution (the :cxx:`OperatorJacobiSmoother` preconditioner is the
+  Jacobi preconditioner of such an operator);
 - :cxx:`Factorization`: :cxx:`Inverse` (the inverses of the blocks are
   applied by batched products, by default) or :cxx:`LU` (the LU factors are
-  applied by batched solves);
-- :cxx:`Damping`: a damping factor, one by default.
+  applied by batched solves, slightly more accurate in single precision);
+- :cxx:`Damping`: a damping factor, one by default. It does not change the
+  iterates of the Krylov solvers (the conjugate gradient, GMRES), only the
+  ones of the stationary iterations (:cxx:`SLISolver`) and of the
+  smoothers. The Krylov solvers of :code:`MFEM` stop on the preconditioned
+  residual: with an :cxx:`AbsoluteTolerance`, the damping changes the
+  number of iterations.
 
 The unknowns may be ordered by nodes or by vector dimension: when they are
 ordered by nodes, the vectors are gathered by nodes before the batched
-products or solves, and scattered back. The backends :cxx:`GPUBLAS` and
-:cxx:`MAGMA` compute on their own queue: the device is synchronized before
-and after their operations.
+products or solves, and scattered back. The backend :cxx:`MAGMA` computes
+on its own queue: the device is synchronized before and after the
+operations of the backends :cxx:`GPUBLAS` and :cxx:`MAGMA`. A singular
+block (a node whose components are not coupled to the rest of the
+problem, for instance) stops the computation in :code:`MFEM`. On a non
+conforming mesh, the blocks of the operator applied without assembly are
+approximated as its diagonal (see
+:ref:`mfem_mgis_batch_computations_matrix_free`), and differ from the
+blocks of the assembled operator.
+
+.. _hypre_mgr:
+
+Multigrid reduction of hypre
+----------------------------
+
+The :cxx:`HypreMGR` preconditioner applies one cycle of the multigrid
+reduction of :code:`hypre` (MGR), from a null initial guess. The unknowns
+are split by their components: at each level of reduction, the unknowns of
+some components are kept (coarse points), and the other ones (fine points)
+are relaxed (F-relaxation) and eliminated, through an interpolation and a
+restriction; the coarsest level is solved by BoomerAMG. The components are
+given to :code:`hypre` by markers, whatever the ordering of the unknowns.
+The preconditioner of :code:`hypre` is created again, with the settings,
+for each new operator. Its options are:
+
+- :cxx:`CoarseComponents`: the components kept, a list of components for
+  one level of reduction, or a list of lists of components, one per level,
+  each level keeping a non empty strict subset of the components of the
+  previous one. By default, one level keeps all the components but the last
+  one. The unknowns must have at least two components;
+- :cxx:`RelaxationType`: the F-relaxation (:code:`HYPRE_MGRSetRelaxType`):
+  :cxx:`0` (Jacobi, by default), :cxx:`2` (algebraic multigrid on the fine
+  points), :cxx:`1` (V-cycle), :cxx:`3` to :cxx:`8`, :cxx:`13`, :cxx:`14`
+  and :cxx:`18` (relaxations of BoomerAMG), :cxx:`9`, :cxx:`99` and
+  :cxx:`199` (dense direct solvers of the block of the fine points, for
+  small problems only);
+- :cxx:`NumberOfRelaxationSweeps`: the number of sweeps of the
+  F-relaxation;
+- :cxx:`InterpolationType`: :cxx:`0`, :cxx:`1`, :cxx:`2` (by default),
+  :cxx:`3`, :cxx:`4`, :cxx:`12` or :cxx:`14`, see
+  :code:`HYPRE_MGRSetInterpType` (the interpolation :cxx:`13` is refused:
+  it gives wrong results);
+- :cxx:`RestrictionType`: :cxx:`0` (injection, by default), :cxx:`1` to
+  :cxx:`5` or :cxx:`12` to :cxx:`15`, see :code:`HYPRE_MGRSetRestrictType`;
+- :cxx:`VerbosityLevel`: the print level of the multigrid reduction,
+  :cxx:`0` to :cxx:`7` (information on the setup, the resolution and the
+  parameters; the other bits of the print level of :code:`hypre` write
+  files).
+
+The default cycle (Jacobi interpolation, injection, F-relaxation before
+the coarse level only) is not symmetric: the preconditioner is meant for
+the GMRES solvers rather than for the conjugate gradients.
+
+The block interpolations and restrictions (:cxx:`12` to :cxx:`15`, and the
+block F-relaxation of the Jacobi relaxation with the interpolation
+:cxx:`12`) group consecutive fine unknowns, which are the components
+eliminated at a node only when the unknowns are ordered by vector
+dimension: with the ordering by nodes, they are refused when a level
+eliminates several components (with one component, they are pointwise).
+With :code:`hypre` 3.2.0, the restriction :cxx:`12` stops the program when
+a level eliminates several components, and the restrictions :cxx:`14` and
+:cxx:`15` give invalid values when a level eliminates one component: these
+cases are refused.
+
+The multigrid reduction is meant for coupled problems whose fine points are
+easy to relax. On the beam in linear elasticity of the test
+:code:`HypreMGRTest`, the Jacobi F-relaxation of :code:`hypre` makes it
+slower than the Jacobi preconditioner, while, with the F-relaxation by
+algebraic multigrid (:cxx:`RelaxationType` set to :cxx:`2`), the GMRES
+solver of :code:`MFEM` converges in about 35 iterations on the host and 50
+on a GPU, against 150 to 300 with the Jacobi preconditioner (relative
+tolerance of :math:`10^{-12}`).
+
+When :code:`hypre` computes on a GPU, the F-relaxations :cxx:`0`,
+:cxx:`2`, :cxx:`7`, :cxx:`9`, :cxx:`18`, :cxx:`99` and :cxx:`199`, the
+interpolations :cxx:`0`, :cxx:`1`, :cxx:`2` and :cxx:`12`, and the
+restrictions :cxx:`0`, :cxx:`1`, :cxx:`2` and :cxx:`12` are accepted; the
+other values are refused: :code:`hypre` 3.2.0 applies the relaxations,
+interpolations and restrictions of the host to the matrices on the GPU and
+stops the program, and the V-cycle relaxation frees memory which is not
+its own. The interpolation :cxx:`12` is also refused when a level
+eliminates several components (invalid memory accesses). :code:`hypre`
+replaces the Jacobi relaxation :cxx:`0` by its relaxation of the GPU,
+:cxx:`7`, except with the interpolation :cxx:`12`, which it then replaces
+by :cxx:`2` at the levels eliminating one component: mfem-mgis then gives
+the relaxation :cxx:`7` to these levels, which would otherwise apply the
+relaxation of the host.
 
 .. _petsc_linear_solvers:
 
@@ -431,6 +539,18 @@ the parameters of mfem-mgis, and an invalid value is only detected then.
 PETSc ignores the options it does not know: the options which PETSc never
 read (for instance a misspelt option) are reported when a solver which
 has been used is destroyed.
+
+When :code:`MFEM` computes on a GPU, the solvers and the preconditioners
+of PETSc compute on the host: the matrices are converted to the AIJ format
+of the host, and the vectors copied from and to the vectors of
+:code:`MFEM`, the preconditioners of mfem-mgis given to the Krylov solvers
+of PETSc being applied on the vectors of :code:`MFEM`. With :code:`MFEM`
+4.10 and :code:`PETSc` 3.26 built with CUDA, the vectors of :code:`MFEM`
+placed in the vectors of PETSc (whose internal offload mask :code:`MFEM`
+sets) were seen as null by the Krylov solvers of PETSc and by the shell
+preconditioners, and the vectors of PETSc of the GPU made
+:code:`PetscFinalize` abort the program when freeing the memory of PETSc on
+the GPU.
 
 Without options, the defaults of PETSc apply: the GMRES solver restarted
 every 30 iterations, preconditioned by an incomplete LU factorization in

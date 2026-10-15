@@ -25,6 +25,25 @@ namespace mfem_mgis::internals {
     return l.by_nodes ? c * l.nb + node : node * l.bs + c;
   }  // end of getUnknown
 
+  /*!
+   * \return the node of an unknown
+   * \param[in] l: layout of the unknowns
+   * \param[in] i: unknown
+   */
+  MFEM_HOST_DEVICE inline int getNode(const NodalBlocksLayout& l, const int i) {
+    return l.by_nodes ? i % l.nb : i / l.bs;
+  }  // end of getNode
+
+  /*!
+   * \return the component of an unknown
+   * \param[in] l: layout of the unknowns
+   * \param[in] i: unknown
+   */
+  MFEM_HOST_DEVICE inline int getComponent(const NodalBlocksLayout& l,
+                                           const int i) {
+    return l.by_nodes ? i / l.nb : i % l.bs;
+  }  // end of getComponent
+
   void launchNodalBlocksExtractionKernel(const NodalBlocksLayout& l,
                                          const int* const I,
                                          const int* const J,
@@ -35,8 +54,8 @@ namespace mfem_mgis::internals {
     mfem::forall_switch(use_device, n,
                         [l, I, J, A, blocks] MFEM_HOST_DEVICE(int i) {
                           const auto bs = l.bs;
-                          const auto node = l.by_nodes ? i % l.nb : i / bs;
-                          const auto c = l.by_nodes ? i / l.nb : i % bs;
+                          const auto node = getNode(l, i);
+                          const auto c = getComponent(l, i);
                           // the row c of the block of the node, written by this
                           // thread only
                           auto* const b = blocks + bs * bs * node;
@@ -45,10 +64,8 @@ namespace mfem_mgis::internals {
                           }
                           for (int k = I[i]; k != I[i + 1]; ++k) {
                             const auto j = J[k];
-                            const auto nj = l.by_nodes ? j % l.nb : j / bs;
-                            if (nj == node) {
-                              const auto d = l.by_nodes ? j / l.nb : j % bs;
-                              b[c + bs * d] += A[k];
+                            if (getNode(l, j) == node) {
+                              b[c + bs * getComponent(l, j)] += A[k];
                             }
                           }
                         });
