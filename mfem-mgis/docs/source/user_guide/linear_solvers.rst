@@ -129,6 +129,14 @@ The solvers marked as parallel are only available in parallel.
        :cxx:`ReplaceTinyPivot`, :cxx:`SymmetricPattern`,
        :cxx:`ParallelSymbolicFactorization`, :cxx:`NumberOfLookAheads`,
        :cxx:`DeviceOffload`, :cxx:`VerbosityLevel`
+   * - :cxx:`MKLPardisoSolver` (sequential),
+       :cxx:`MKLClusterSparseSolver` (parallel)
+     - oneMKL
+     - direct
+     - host
+     - none
+     - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`,
+       :cxx:`VerbosityLevel` (see :ref:`mkl_linear_solvers`)
    * - :cxx:`STRUMPACKSolver`, :cxx:`STRUMPACKMixedPrecisionSolver`
        (parallel)
      - STRUMPACK
@@ -404,6 +412,14 @@ preconditioner may also be used by the Krylov solvers of MFEM:
                                  Parameters{{"pc_type", "gamg"}}}}}}}}) |
        or_die;
 
+The external packages which PETSc is built with are available through
+the same options, for instance the sparse direct solvers MUMPS, PaStiX,
+SuperLU_DIST or STRUMPACK (:cxx:`ksp_type` :cxx:`preonly`,
+:cxx:`pc_type` :cxx:`lu` and :cxx:`pc_factor_mat_solver_type`
+:cxx:`pastix`), or the Krylov solvers of HPDDM, among which GCRODR
+recycles a subspace between the resolutions (:cxx:`ksp_type` :cxx:`hpddm`,
+:cxx:`ksp_hpddm_type` :cxx:`gcrodr`, :cxx:`ksp_hpddm_recycle`).
+
 PETSc is initialized when the first linear solver or preconditioner of
 PETSc is built, which shall thus be built by all the processes. It is
 then finalized by the :cxx:`finalize` function, unless it was initialized
@@ -470,6 +486,33 @@ mfem-mgis are applied after the :cxx:`Options` parameter, and override the
 :cxx:`sp_maxit` options of STRUMPACK. STRUMPACK reports a success when its
 Krylov solver or its iterative refinement stops at the maximum number of
 iterations: mfem-mgis reports such a resolution as not converged.
+
+.. _mkl_linear_solvers:
+
+Sparse direct solvers of oneMKL
+===============================
+
+When :code:`MFEM` is built with them (:code:`MFEM_USE_MKL_PARDISO`,
+:code:`MFEM_USE_MKL_CPARDISO`), the PARDISO solver of oneMKL
+(:cxx:`MKLPardisoSolver`, sequential) and its Cluster Sparse Solver
+(:cxx:`MKLClusterSparseSolver`, parallel, the rows of the matrix being
+distributed as the ones of the matrix of hypre) are available. They are
+called directly by mfem-mgis, not through the classes of :code:`MFEM`,
+whose resolutions on the GPU and checks of the errors are not reliable.
+The matrix is copied on the host in the compressed row format of oneMKL
+(the upper triangle for the symmetric types, :cxx:`Symmetric`, with
+:cxx:`PositiveDefinite` for a positive definite matrix), the vectors are
+copied on the host. The analysis (reordering and symbolic factorization)
+is reused for the next operators of the same pattern with
+:cxx:`ReuseAnalysis` (with the scaling and the matching computed from the
+values of the first matrix, which suit the next ones as long as their
+values are close), and computed again otherwise. For the symmetric types,
+only the upper triangle of the matrix is read. A failure of the analysis or
+of the factorization stops the resolution on all the processes. oneMKL
+perturbs the pivots which are too small, and factorizes a singular matrix
+without error: as for cuDSS, a resolution is reported as converged only if
+its residual is lower than :math:`10^{-3}` times the right hand side.
+:cxx:`VerbosityLevel` prints the statistics of oneMKL.
 
 .. _ginkgo_linear_solvers:
 

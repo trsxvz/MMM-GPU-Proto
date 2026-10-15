@@ -91,6 +91,20 @@ namespace mfem_mgis::internals {
    */
   void declareCuDSSLinearSolvers(LinearSolverFactory<true>& f);
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+#ifdef MFEM_USE_MKL_PARDISO
+  /*!
+   * \brief register the PARDISO direct solver of oneMKL (sequential)
+   * \param[in, out] f: factory
+   */
+  void declareMKLPardisoLinearSolvers(LinearSolverFactory<false>& f);
+#endif /* MFEM_USE_MKL_PARDISO */
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
+  /*!
+   * \brief register the Cluster Sparse Solver of oneMKL (parallel)
+   * \param[in, out] f: factory
+   */
+  void declareMKLClusterSparseLinearSolvers(LinearSolverFactory<true>& f);
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)
   /*!
    * \brief register the direct solver of SuperLU_DIST

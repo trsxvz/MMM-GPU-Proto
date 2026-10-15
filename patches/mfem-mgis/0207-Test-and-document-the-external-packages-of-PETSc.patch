@@ -1,0 +1,130 @@
+From 49781a126a7b647d042fafd3e8932be74cc5bade Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 10:10:56 +0200
+Subject: [PATCH] Test and document the external packages of PETSc
+
+PETScSolversTest uses the external packages which PETSc is built with,
+and skips the others: the sparse direct solvers MUMPS, PaStiX,
+SuperLU_DIST and STRUMPACK (LU factorization of PETSc, ksp_type
+preonly), and GCRODR of HPDDM, which recycles a subspace between two
+resolutions (the second one needs fewer iterations). The documentation
+of the linear solvers of PETSc gives their options.
+---
+ docs/source/user_guide/linear_solvers.rst |  8 +++
+ tests/PETScSolversTest.cxx                | 67 ++++++++++++++++++++++-
+ 2 files changed, 74 insertions(+), 1 deletion(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index d1ca19edf5..579ead6789 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -412,6 +412,14 @@ preconditioner may also be used by the Krylov solvers of MFEM:
+                                  Parameters{{"pc_type", "gamg"}}}}}}}}) |
+        or_die;
+ 
++The external packages which PETSc is built with are available through
++the same options, for instance the sparse direct solvers MUMPS, PaStiX,
++SuperLU_DIST or STRUMPACK (:cxx:`ksp_type` :cxx:`preonly`,
++:cxx:`pc_type` :cxx:`lu` and :cxx:`pc_factor_mat_solver_type`
++:cxx:`pastix`), or the Krylov solvers of HPDDM, among which GCRODR
++recycles a subspace between the resolutions (:cxx:`ksp_type` :cxx:`hpddm`,
++:cxx:`ksp_hpddm_type` :cxx:`gcrodr`, :cxx:`ksp_hpddm_recycle`).
++
+ PETSc is initialized when the first linear solver or preconditioner of
+ PETSc is built, which shall thus be built by all the processes. It is
+ then finalized by the :cxx:`finalize` function, unless it was initialized
+diff --git a/tests/PETScSolversTest.cxx b/tests/PETScSolversTest.cxx
+index 65cb6807df..9e42dea8ff 100644
+--- a/tests/PETScSolversTest.cxx
++++ b/tests/PETScSolversTest.cxx
+@@ -24,7 +24,11 @@
+  *   and of MFEM;
+  * - invalid options are refused: an invalid value, a leading dash, and the
+  *   options of the preconditioner of PETSc given to a solver with a
+- *   preconditioner of mfem-mgis.
++ *   preconditioner of mfem-mgis;
++ * - the external packages of PETSc, if PETSc is built with them: the sparse
++ *   direct solvers MUMPS, PaStiX, SuperLU_DIST and STRUMPACK (LU
++ *   factorization of PETSc), and the Krylov solvers of HPDDM (GCRODR,
++ *   recycling a subspace between two resolutions).
+  * \date   15/10/2026
+  */
+ 
+@@ -277,6 +281,66 @@ static void checkOptions(LaplaceSystem<true>& s) {
+         "resolution stopped by the maximum number of iterations");
+ }  // end of checkOptions
+ 
++/*!
++ * \return true if PETSc is built with an external package
++ * \param[in] n: name of the package
++ */
++static bool hasExternalPackage(const char* const n) {
++  auto has = PetscBool{PETSC_FALSE};
++  if (PetscHasExternalPackage(n, &has) != PETSC_SUCCESS) {
++    return false;
++  }
++  return has == PETSC_TRUE;
++}  // end of hasExternalPackage
++
++/*!
++ * \brief checks the external packages of PETSc which PETSc is built with:
++ * sparse direct solvers and Krylov solvers of HPDDM
++ * \param[in] s: system
++ */
++static void checkExternalPackages(LaplaceSystem<true>& s) {
++  using namespace mfem_mgis;
++  for (const auto* const n : {"mumps", "pastix", "superlu_dist", "strumpack"}) {
++    if (!hasExternalPackage(n)) {
++      if (rank == 0) {
++        std::cout << "PETSc, " << n << ": skipped (not available)\n";
++      }
++      continue;
++    }
++    auto direct = generate(
++        s, "PETScLinearSolver",
++        Parameters{{"Options", Parameters{{"ksp_type", "preonly"},
++                                          {"pc_type", "lu"},
++                                          {"pc_factor_mat_solver_type", n}}}});
++    const auto r = solve(s, *(direct.linear_solver));
++    if (rank == 0) {
++      std::cout << "PETSc, LU factorization of " << n << ": residual "
++                << r.residual << '\n';
++    }
++    check(r.converged && (r.residual < 1e-10),
++          std::string{"PETSc, LU factorization of "} + n + ": resolution");
++  }
++  if (hasExternalPackage("hpddm")) {
++    auto gcrodr =
++        generate(s, "PETScLinearSolver",
++                 Parameters{{"Options", Parameters{{"ksp_type", "hpddm"},
++                                                   {"ksp_hpddm_type", "gcrodr"},
++                                                   {"ksp_hpddm_recycle", 10},
++                                                   {"pc_type", "jacobi"},
++                                                   {"ksp_rtol", 1e-10}}}});
++    const auto r1 = solve(s, *(gcrodr.linear_solver));
++    const auto r2 = solve(s, *(gcrodr.linear_solver));
++    if (rank == 0) {
++      std::cout << "PETSc, GCRODR of HPDDM: " << r1.iterations << " then "
++                << r2.iterations << " iterations\n";
++    }
++    check(isSolved(r1) && isSolved(r2) && (r2.iterations < r1.iterations),
++          "PETSc, GCRODR of HPDDM: no recycling of the subspace");
++  } else if (rank == 0) {
++    std::cout << "PETSc, hpddm: skipped (not available)\n";
++  }
++}  // end of checkExternalPackages
++
+ /*!
+  * \brief checks the preconditioners
+  * \param[in] s: system
+@@ -389,6 +453,7 @@ int main(int argc, char** argv) {
+     checkOptions(s);
+     checkPreconditioners(s);
+     checkInvalidOptions(s);
++    checkExternalPackages(s);
+   } catch (std::exception& e) {
+     std::cerr << "error: " << e.what() << '\n';
+     return EXIT_FAILURE;
+-- 
+2.43.0
+

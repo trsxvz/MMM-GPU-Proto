@@ -4965,3 +4965,33 @@ formula as MTest). All the others give the Newton solution to within
   STRUMPACK, Ginkgo and SUNDIALS. Suites: 240 (GPU MFEM, on the host),
   targeted CPU double (74) and float (73).
 
+
+### 2026-10-15, separate environment of the solver libraries (phase 2)
+
+- The libraries which change the build of MFEM or of PETSc go into a new
+  spack environment, `mmm-solvers`, so that the MFEM of `mmm-gpu` is not
+  rebuilt before the merge of the pending upstream pull requests: a spack
+  repository `mmm_solvers` derives the packages `mfem` (variants
+  `mkl-pardiso`, `mkl-cpardiso`, `magma`) and `petsc` (variant `pastix`)
+  from the ones of `mmm_gpu`, and adds `intel-oneapi-mkl-solvers`, oneMKL
+  without the BLAS and LAPACK providers: in a unified environment, oneMKL
+  would otherwise have replaced OpenBLAS for every package. PETSc with
+  MUMPS requires a Fortran compiler and is not built. Only MFEM, PETSc,
+  MUMPS, MAGMA, PaStiX, Scotch and oneMKL are built; the other packages
+  are the ones of `mmm-gpu`. The build took 2 h 40 (MFEM alone more than 2 h, the
+  CUDA kernels of `lor_batched` needing 23 GB with ptxas).
+- `MKLPardisoSolver` (sequential) and `MKLClusterSparseSolver`
+  (parallel) call oneMKL directly. The classes of MFEM check the errors
+  of oneMKL with `MFEM_ASSERT` only, read the vectors on the host without
+  synchronizing them, and give the whole matrix to the symmetric types,
+  which only read the upper triangle. Found on the way: PARDISO perturbs
+  the null pivots and reports a success on a singular matrix; a
+  resolution is now reported as converged only if its residual is lower
+  than 1e-3 times the right hand side, as for cuDSS.
+- The test of PETSc solves with the external packages PETSc is built
+  with: LU factorization of PaStiX (relative residual 1e-14), GCRODR of
+  HPDDM, which needs 13 iterations instead of 25 for a second resolution
+  thanks to the recycled subspace.
+- Independent review of the oneMKL module: two 3/5, handled
+  (`review-mkl.md`). Suite of the `mmm-solvers` build: 257 tests, all
+  green; oneMKL also on the CUDA device, sequential and parallel.

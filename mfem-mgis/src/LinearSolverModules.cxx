@@ -86,6 +86,16 @@ namespace mfem_mgis::internals {
       return "MFEM is not compiled with Ginkgo";
     }
 #endif /* MFEM_USE_GINKGO */
+#ifndef MFEM_USE_MKL_PARDISO
+    if (n == "MKLPardisoSolver") {
+      return "MFEM is not compiled with the PARDISO solver of oneMKL";
+    }
+#endif /* MFEM_USE_MKL_PARDISO */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
+    if (n == "MKLClusterSparseSolver") {
+      return "MFEM is not compiled with the Cluster Sparse Solver of oneMKL";
+    }
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)) */
 #ifndef MFEM_USE_SUITESPARSE
     if ((n == "UMFPackSolver") || (n == "KLUSolver") || (n == "UMFPack") ||
         (n == "KLU")) {
@@ -201,8 +211,16 @@ namespace mfem_mgis::internals {
 #ifdef MFEM_USE_PETSC
       declarePETScLinearSolvers(f);
 #endif /* MFEM_USE_PETSC */
+#ifdef MFEM_USE_MKL_CPARDISO
+      declareMKLClusterSparseLinearSolvers(f);
+#endif /* MFEM_USE_MKL_CPARDISO */
     }
 #endif /* MFEM_USE_MPI */
+#ifdef MFEM_USE_MKL_PARDISO
+    if constexpr (!parallel) {
+      declareMKLPardisoLinearSolvers(f);
+    }
+#endif /* MFEM_USE_MKL_PARDISO */
   }  // end of declareLinearSolvers
 
   template <bool parallel>

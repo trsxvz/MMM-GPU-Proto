@@ -1,0 +1,553 @@
+/*!
+ * \file   src/MKLSparseSolvers.cxx
+ * \brief  This file implements the module of the sparse direct solvers of
+ * oneMKL: PARDISO, sequential, and the Cluster Sparse Solver, parallel (see
+ * `LinearSolverModules.hxx`)
+ * \date   15/10/2026
+ */
+
+#include "mfem/config/config.hpp"
+
+#if defined(MFEM_USE_MKL_PARDISO) || \
+    (defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
+
+#include <array>
+#include <limits>
+#include <memory>
+#include <string>
+#include <vector>
+#include <numeric>
+#include <utility>
+#include <algorithm>
+#include <type_traits>
+#include "mkl_pardiso.h"
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
+#include "mkl_cluster_sparse_solver.h"
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
+#include "mfem/linalg/sparsemat.hpp"
+#include "mfem/fem/fespace.hpp"
+#ifdef MFEM_USE_MPI
+#include "mfem/linalg/hypre.hpp"
+#include "mfem/fem/pfespace.hpp"
+#endif /* MFEM_USE_MPI */
+#include "MGIS/Raise.hxx"
+#include "MFEMMGIS/MPI.hxx"
+#include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
+#include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+#include "LinearSolverModules.hxx"
+#include "MKLSparseSolvers.hxx"
+
+namespace mfem_mgis::internals {
+
+#ifdef MFEM_USE_MPI
+  //! \brief communicator of the solvers
+  using MKLCommunicator = MPI_Comm;
+#else  /* MFEM_USE_MPI */
+  //! \brief communicator of the solvers (unused in sequential)
+  using MKLCommunicator = int;
+#endif /* MFEM_USE_MPI */
+
+  //! \brief settings of the solvers of oneMKL
+  struct MKLSparseSolverSettings {
+    //! \brief type of the matrix (PARDISO's `mtype`)
+    MKL_INT matrix_type = 11;
+    //! \brief message level (PARDISO's `msglvl`)
+    MKL_INT message_level = 0;
+    //! \brief if true, the analysis is reused for the matrices of the same
+    //! pattern
+    bool reuse_analysis = false;
+  };
+
+  /*!
+   * \brief matrix in the compressed row format of PARDISO: zero-based
+   * indices, sorted columns, upper triangle (diagonal included) for the
+   * symmetric types; global column indices for the Cluster Sparse Solver,
+   * whose rows are distributed among the processes
+   */
+  struct MKLSparseMatrix {
+    //! \brief offsets of the rows
+    std::vector<MKL_INT> rows;
+    //! \brief columns
+    std::vector<MKL_INT> columns;
+    //! \brief values
+    std::vector<real> values;
+    //! \return true if the matrix has the same pattern as another one
+    [[nodiscard]] bool hasSamePattern(const MKLSparseMatrix& m) const {
+      return (this->rows == m.rows) && (this->columns == m.columns);
+    }
+  };
+
+  /*!
+   * \return a global index as an integer of oneMKL
+   * \param[in] i: index
+   */
+  template <typename IndexType>
+  [[nodiscard]] static MKL_INT toMKLIndex(const IndexType i) {
+    if (static_cast<long long>(i) >
+        static_cast<long long>(std::numeric_limits<MKL_INT>::max())) {
+      throw CollectiveFailure(
+          "the solvers of oneMKL are used with 32 bits integers: the matrix "
+          "is too large");
+    }
+    return static_cast<MKL_INT>(i);
+  }  // end of toMKLIndex
+
+  /*!
+   * \brief add a row to a matrix of PARDISO: the columns are sorted, and
+   * the lower triangle removed for the symmetric types
+   * \param[in, out] m: matrix
+   * \param[in, out] row: entries of the row (global columns and values)
+   * \param[in] r: global index of the row
+   * \param[in] symmetric: if true, only the upper triangle is kept
+   */
+  static void addRow(MKLSparseMatrix& m,
+                     std::vector<std::pair<MKL_INT, real>>& row,
+                     const MKL_INT r,
+                     const bool symmetric) {
+    std::sort(row.begin(), row.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (const auto& [c, v] : row) {
+      if ((!symmetric) || (c >= r)) {
+        m.columns.push_back(c);
+        m.values.push_back(v);
+      }
+    }
+    m.rows.push_back(static_cast<MKL_INT>(m.columns.size()));
+  }  // end of addRow
+
+  /*!
+   * \return the matrix of PARDISO of a sparse matrix of MFEM (read on the
+   * host)
+   * \param[in] a: matrix
+   * \param[in] symmetric: if true, only the upper triangle is kept
+   */
+  [[nodiscard]] static MKLSparseMatrix makeMKLSparseMatrix(
+      const mfem::SparseMatrix& a, const bool symmetric) {
+    const auto* const I = a.HostReadI();
+    const auto* const J = a.HostReadJ();
+    const auto* const A = a.HostReadData();
+    auto m = MKLSparseMatrix{};
+    m.rows.reserve(a.Height() + 1);
+    m.rows.push_back(0);
+    auto row = std::vector<std::pair<MKL_INT, real>>{};
+    for (int i = 0; i != a.Height(); ++i) {
+      row.clear();
+      for (int k = I[i]; k != I[i + 1]; ++k) {
+        row.emplace_back(J[k], A[k]);
+      }
+      addRow(m, row, i, symmetric);
+    }
+    return m;
+  }  // end of makeMKLSparseMatrix
+
+#ifdef MFEM_USE_MPI
+
+  /*!
+   * \return the rows of the matrix of PARDISO owned by the current process,
+   * with global columns, of a matrix of hypre (read on the host)
+   * \param[in] a: matrix
+   * \param[in] symmetric: if true, only the upper triangle is kept
+   */
+  [[nodiscard]] static MKLSparseMatrix makeMKLSparseMatrix(
+      const mfem::HypreParMatrix& a, const bool symmetric) {
+    auto diag = mfem::SparseMatrix{};
+    auto offd = mfem::SparseMatrix{};
+    HYPRE_BigInt* offd_columns = nullptr;
+    a.GetDiag(diag);
+    a.GetOffd(offd, offd_columns);
+    const auto first_row = a.GetRowStarts()[0];
+    const auto first_column = a.GetColStarts()[0];
+    const auto* const Id = diag.HostReadI();
+    const auto* const Jd = diag.HostReadJ();
+    const auto* const Ad = diag.HostReadData();
+    const auto* const Io = offd.HostReadI();
+    const auto* const Jo = offd.HostReadJ();
+    const auto* const Ao = offd.HostReadData();
+    auto m = MKLSparseMatrix{};
+    m.rows.reserve(a.Height() + 1);
+    m.rows.push_back(0);
+    auto row = std::vector<std::pair<MKL_INT, real>>{};
+    for (int i = 0; i != a.Height(); ++i) {
+      row.clear();
+      for (int k = Id[i]; k != Id[i + 1]; ++k) {
+        row.emplace_back(toMKLIndex(first_column + Jd[k]), Ad[k]);
+      }
+      for (int k = Io[i]; k != Io[i + 1]; ++k) {
+        row.emplace_back(toMKLIndex(offd_columns[Jo[k]]), Ao[k]);
+      }
+      addRow(m, row, toMKLIndex(first_row + i), symmetric);
+    }
+    return m;
+  }  // end of makeMKLSparseMatrix
+
+#endif /* MFEM_USE_MPI */
+
+  /*!
+   * \brief sparse direct solver of oneMKL: PARDISO in sequential, the
+   * Cluster Sparse Solver in parallel. The matrices are copied on the host
+   * in the compressed row format of PARDISO, the vectors are copied on the
+   * host. The analysis (reordering and symbolic factorization) is reused for
+   * the next operators of the same pattern if requested, and computed again
+   * otherwise. The failures of the analysis and of the factorization are
+   * reported by an exception thrown on all the processes. oneMKL perturbs the
+   * pivots which are too small and does not detect values which are not
+   * finite: as for cuDSS, a resolution is reported as converged only if its
+   * residual, computed with the operator, is lower than 10^-3 times the
+   * right hand side.
+   */
+  template <bool parallel>
+  struct MKLSparseDirectSolver final : public mfem::Solver,
+                                       public LinearSolverConvergenceReport,
+                                       public MKLSparseDirectSolverBase {
+    /*!
+     * \param[in] s: settings
+     * \param[in] c: communicator (parallel solver)
+     */
+    MKLSparseDirectSolver(const MKLSparseSolverSettings& s,
+                          const MKLCommunicator c)
+        : settings(s), communicator(c) {
+      std::fill(this->iparm.begin(), this->iparm.end(), MKL_INT{0});
+      const auto nonsymmetric = this->settings.matrix_type == 11;
+      const auto indefinite = this->settings.matrix_type == -2;
+      if constexpr (parallel) {
+        // as mfem::CPardisoSolver: default settings changed, METIS
+        // reordering, two steps of iterative refinement, perturbation of
+        // the pivots, check of the input, distributed inputs
+        this->iparm[0] = 1;
+        this->iparm[1] = 2;
+        this->iparm[7] = 2;
+        this->iparm[9] = nonsymmetric ? 13 : 8;
+        this->iparm[26] = 1;
+        this->iparm[39] = 2;
+        // Bunch-Kaufman pivoting for the symmetric indefinite matrices, as
+        // the sequential solver
+        this->iparm[20] = indefinite ? 1 : 0;
+      } else {
+        pardisoinit(this->pt.data(), &(this->settings.matrix_type),
+                    this->iparm.data());
+      }
+      // scaling and matching for the non symmetric and symmetric indefinite
+      // matrices (recommended by oneMKL for the saddle point problems)
+      this->iparm[10] = (nonsymmetric || indefinite) ? 1 : 0;
+      this->iparm[12] = (nonsymmetric || indefinite) ? 1 : 0;
+      // single precision, zero-based indices
+      this->iparm[27] = std::is_same_v<real, float> ? 1 : 0;
+      this->iparm[34] = 1;
+    }
+    void SetOperator(const mfem::Operator& op) override {
+      // a failure leaves the solver without operator
+      this->factorized = false;
+      this->matrix_operator = nullptr;
+      const auto symmetric =
+          this->settings.matrix_type != 11 && this->settings.matrix_type != 1;
+      auto m = MKLSparseMatrix{};
+      auto global_size = MKL_INT{};
+      if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+        const auto* const a = dynamic_cast<const mfem::HypreParMatrix*>(&op);
+        if (a == nullptr) {
+          mgis::raise(
+              "MKLSparseDirectSolver::SetOperator: the operator is not a "
+              "matrix of hypre");
+        }
+        m = makeMKLSparseMatrix(*a, symmetric);
+        global_size = toMKLIndex(a->GetGlobalNumRows());
+        // first and last rows owned by the process (MFEM issue 4634: a
+        // process which owns no row)
+        const auto first = toMKLIndex(a->GetRowStarts()[0]);
+        if ((a->Height() == 0) && (first == 0)) {
+          this->iparm[40] = 1;
+          this->iparm[41] = 0;
+        } else {
+          this->iparm[40] = first;
+          this->iparm[41] = first + a->Height() - 1;
+        }
+#endif /* MFEM_USE_MPI */
+      } else {
+        const auto* const a = dynamic_cast<const mfem::SparseMatrix*>(&op);
+        if (a == nullptr) {
+          mgis::raise(
+              "MKLSparseDirectSolver::SetOperator: the operator is not a "
+              "sparse matrix of MFEM");
+        }
+        m = makeMKLSparseMatrix(*a, symmetric);
+        global_size = toMKLIndex(a->Height());
+      }
+      std::ignore = toMKLIndex(m.columns.size());
+      this->height = op.Height();
+      this->width = op.Width();
+      // the analysis is reused if requested and if all the processes keep
+      // the same pattern
+      auto same =
+          int{this->analysed && this->settings.reuse_analysis &&
+              (global_size == this->size) && m.hasSamePattern(this->matrix)};
+      if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+        MPI_Allreduce(MPI_IN_PLACE, &same, 1, MPI_INT, MPI_MIN,
+                      this->communicator);
+#endif /* MFEM_USE_MPI */
+      }
+      if ((same == 0) && (this->analysed)) {
+        this->release();
+      }
+      this->matrix = std::move(m);
+      this->size = global_size;
+      if (same == 0) {
+        // the memory allocated by a failed analysis is released
+        this->analysed = true;
+        this->check(this->call(11, nullptr, nullptr), "analysis");
+        ++(this->number_of_analyses);
+      }
+      this->check(this->call(22, nullptr, nullptr), "factorization");
+      this->factorized = true;
+      this->matrix_operator = &op;
+    }
+    void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+      if (!this->factorized) {
+        mgis::raise(
+            "MKLSparseDirectSolver::Mult: the operator is not set, or its "
+            "factorization failed");
+      }
+      if ((b.Size() != this->Width()) || (x.Size() != this->Height())) {
+        mgis::raise("MKLSparseDirectSolver::Mult: invalid sizes");
+      }
+      auto hb = std::vector<real>(b.HostRead(), b.HostRead() + b.Size());
+      auto hx = std::vector<real>(x.Size());
+      const auto error = this->call(33, hb.data(), hx.data());
+      std::copy(hx.begin(), hx.end(), x.HostWrite());
+      // relative bound of the residual, as for cuDSS
+      constexpr auto tolerance = real{1e-3};
+      auto r = mfem::Vector(b.Size());
+      r.UseDevice(true);
+      this->matrix_operator->Mult(x, r);
+      r -= b;
+      const auto rr = this->dot(r, r);
+      const auto bb = this->dot(b, b);
+      // false for values which are not finite
+      const auto small = rr <= tolerance * tolerance * bb;
+      this->converged = this->isSuccessfulOnAllProcesses(error) && small;
+    }
+    [[nodiscard]] bool hasConverged() const noexcept override {
+      return this->converged;
+    }
+    [[nodiscard]] std::optional<int> getNumberOfIterations()
+        const noexcept override {
+      return {};
+    }
+    [[nodiscard]] size_type getNumberOfAnalyses() const noexcept override {
+      return this->number_of_analyses;
+    }
+    ~MKLSparseDirectSolver() override {
+      if (this->analysed) {
+        this->release();
+      }
+    }
+
+   private:
+    /*!
+     * \brief call PARDISO or the Cluster Sparse Solver
+     * \return the error code of oneMKL
+     * \param[in] phase: phase
+     * \param[in, out] b: right hand side, if any
+     * \param[out] x: solution, if any
+     */
+    MKL_INT call(const MKL_INT phase, real* const b, real* const x) const {
+      const auto maxfct = MKL_INT{1};
+      const auto mnum = MKL_INT{1};
+      const auto nrhs = MKL_INT{1};
+      auto perm = MKL_INT{0};
+      auto error = MKL_INT{0};
+      auto dummy = real{0};
+      auto* const pb = b != nullptr ? b : &dummy;
+      auto* const px = x != nullptr ? x : &dummy;
+      const auto* const values =
+          this->matrix.values.empty() ? &dummy : this->matrix.values.data();
+      if constexpr (parallel) {
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
+        const auto comm = static_cast<int>(MPI_Comm_c2f(this->communicator));
+        cluster_sparse_solver(
+            this->pt.data(), &maxfct, &mnum, &(this->settings.matrix_type),
+            &phase, &(this->size), values, this->matrix.rows.data(),
+            this->matrix.columns.data(), &perm, &nrhs, this->iparm.data(),
+            &(this->settings.message_level), pb, px, &comm, &error);
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
+      } else {
+#ifdef MFEM_USE_MKL_PARDISO
+        pardiso(this->pt.data(), &maxfct, &mnum, &(this->settings.matrix_type),
+                &phase, &(this->size), values, this->matrix.rows.data(),
+                this->matrix.columns.data(), &perm, &nrhs, this->iparm.data(),
+                &(this->settings.message_level), pb, px, &error);
+#endif /* MFEM_USE_MKL_PARDISO */
+      }
+      return error;
+    }
+    /*!
+     * \return true if a call succeeded on all the processes
+     * \param[in] error: error code of the current process
+     */
+    [[nodiscard]] bool isSuccessfulOnAllProcesses(const MKL_INT error) const {
+      auto failed = int{error != 0};
+      if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+        MPI_Allreduce(MPI_IN_PLACE, &failed, 1, MPI_INT, MPI_MAX,
+                      this->communicator);
+#endif /* MFEM_USE_MPI */
+      }
+      return failed == 0;
+    }
+    /*!
+     * \brief throw an exception on all the processes if a phase failed on
+     * one of them
+     * \param[in] error: error code of the current process
+     * \param[in] phase: name of the phase
+     */
+    void check(const MKL_INT error, const char* const phase) {
+      if (!this->isSuccessfulOnAllProcesses(error)) {
+        throw CollectiveFailure(
+            std::string{"the "} + phase + " of the " +
+            (parallel ? "Cluster Sparse Solver" : "PARDISO solver") +
+            " of oneMKL failed (error " + std::to_string(error) +
+            " on this process)");
+      }
+    }
+    /*!
+     * \return the scalar product of two vectors, on all the processes
+     * \param[in] u: first vector
+     * \param[in] v: second vector
+     */
+    [[nodiscard]] double dot(const mfem::Vector& u,
+                             const mfem::Vector& v) const {
+      if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+        return mfem::InnerProduct(this->communicator, u, v);
+#endif /* MFEM_USE_MPI */
+      }
+      return mfem::InnerProduct(u, v);
+    }
+    //! \brief release the memory of oneMKL
+    void release() {
+      std::ignore = this->call(-1, nullptr, nullptr);
+      this->analysed = false;
+    }
+    //! \brief settings
+    const MKLSparseSolverSettings settings;
+    //! \brief communicator
+    const MKLCommunicator communicator;
+    //! \brief internal data of oneMKL
+    mutable std::array<void*, 64> pt = {};
+    //! \brief settings of oneMKL
+    mutable std::array<MKL_INT, 64> iparm = {};
+    //! \brief matrix
+    MKLSparseMatrix matrix;
+    //! \brief global size of the matrix
+    MKL_INT size = 0;
+    //! \brief if true, the analysis of the matrix is done
+    bool analysed = false;
+    //! \brief if true, the matrix is factorized
+    bool factorized = false;
+    //! \brief number of analyses
+    size_type number_of_analyses = 0;
+    //! \brief operator, kept to compute the residual
+    const mfem::Operator* matrix_operator = nullptr;
+    //! \brief if true, the last resolution succeeded
+    mutable bool converged = false;
+  };  // end of struct MKLSparseDirectSolver
+
+  MKLSparseDirectSolverBase::~MKLSparseDirectSolverBase() = default;
+
+  //! \return the options of the solvers of oneMKL
+  [[nodiscard]] static std::vector<std::string> getMKLSparseSolverOptions() {
+    using Problem = AbstractNonLinearEvolutionProblem;
+    return {"Symmetric", "PositiveDefinite", "ReuseAnalysis",
+            Problem::SolverVerbosityLevel};
+  }  // end of getMKLSparseSolverOptions
+
+  /*!
+   * \return the generator of a solver of oneMKL, whose options are
+   * `Symmetric` and `PositiveDefinite` (type of the matrix: non symmetric by
+   * default; symmetric indefinite or positive definite, the upper triangle
+   * of the matrix being given to oneMKL), `ReuseAnalysis` (if true, the
+   * analysis is reused for the matrices of the same pattern) and
+   * `VerbosityLevel` (statistics of oneMKL printed if positive)
+   */
+  template <bool parallel>
+  [[nodiscard]] static typename LinearSolverFactory<parallel>::Generator
+  buildMKLSparseSolverGenerator() {
+    return [](Context& ctx, FiniteElementSpace<parallel>& fespace,
+              const Parameters& params) -> LinearSolverHandler {
+      using Problem = AbstractNonLinearEvolutionProblem;
+      if (!checkParameters(ctx, params, getMKLSparseSolverOptions())) {
+        return {};
+      }
+      const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
+      const auto opositive_definite =
+          get_if<bool>(ctx, params, "PositiveDefinite", false);
+      const auto oreuse = get_if<bool>(ctx, params, "ReuseAnalysis", false);
+      const auto olvl =
+          get_if<int>(ctx, params, Problem::SolverVerbosityLevel, 0);
+      if (isInvalid(osymmetric) || isInvalid(opositive_definite) ||
+          isInvalid(oreuse) || isInvalid(olvl)) {
+        return {};
+      }
+      if ((*opositive_definite) && (!(*osymmetric))) {
+        return ctx.registerErrorMessage(
+            "the option 'PositiveDefinite' of the solvers of oneMKL requires "
+            "the option 'Symmetric'");
+      }
+      auto settings = MKLSparseSolverSettings{};
+      settings.matrix_type = *osymmetric ? (*opositive_definite ? 2 : -2) : 11;
+      settings.message_level = *olvl > 0 ? 1 : 0;
+      settings.reuse_analysis = *oreuse;
+      auto communicator = MKLCommunicator{};
+      if constexpr (parallel) {
+#ifdef MFEM_USE_MPI
+        communicator = fespace.GetComm();
+#endif /* MFEM_USE_MPI */
+      } else {
+        static_cast<void>(fespace);
+      }
+      return LinearSolverHandler{
+          std::make_unique<MKLSparseDirectSolver<parallel>>(settings,
+                                                            communicator),
+          std::unique_ptr<LinearSolverPreconditioner>{}};
+    };
+  }  // end of buildMKLSparseSolverGenerator
+
+#ifdef MFEM_USE_MKL_PARDISO
+
+  void declareMKLPardisoLinearSolvers(LinearSolverFactory<false>& f) {
+    declare(f, "MKLPardisoSolver",
+            LinearSolverDescription{
+                .library = "oneMKL",
+                .kind = LinearSolverKind::DIRECT,
+                .placement = LinearSolverPlacement::HOST,
+                .preconditioners = AcceptedPreconditioners::NONE,
+                .options = getMKLSparseSolverOptions(),
+                .description = "PARDISO sparse direct solver of oneMKL"},
+            buildMKLSparseSolverGenerator<false>());
+  }  // end of declareMKLPardisoLinearSolvers
+
+#endif /* MFEM_USE_MKL_PARDISO */
+
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
+
+  void declareMKLClusterSparseLinearSolvers(LinearSolverFactory<true>& f) {
+    declare(f, "MKLClusterSparseSolver",
+            LinearSolverDescription{
+                .library = "oneMKL",
+                .kind = LinearSolverKind::DIRECT,
+                .placement = LinearSolverPlacement::HOST,
+                .preconditioners = AcceptedPreconditioners::NONE,
+                .options = getMKLSparseSolverOptions(),
+                .description = "Cluster Sparse Solver of oneMKL (parallel "
+                               "PARDISO)"},
+            buildMKLSparseSolverGenerator<true>());
+  }  // end of declareMKLClusterSparseLinearSolvers
+
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
+
+}  // end of namespace mfem_mgis::internals
+
+#endif /* defined(MFEM_USE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
+          defined(MFEM_USE_MKL_CPARDISO)) */

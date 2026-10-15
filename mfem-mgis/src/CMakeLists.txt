@@ -61,6 +61,7 @@ list(APPEND MFEMMGIS_SOURCES
   PETScLinearSolvers.cxx
   SuperLUSolvers.cxx
   STRUMPACKSolvers.cxx
+  MKLSparseSolvers.cxx
   GinkgoLinearSolvers.cxx
   AmgXSolvers.cxx
   HypreMatrixPattern.cxx

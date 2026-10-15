@@ -65,8 +65,8 @@ static void check(const bool b, const std::string& msg) {
  * \return true if the solver or preconditioner can compute in this run:
  * the entries which only compute on the GPU require MFEM computing on a
  * CUDA GPU, the ones which only compute on the host require hypre computing
- * on the host, except the ones of MFEM and SuiteSparse, which copy the
- * matrices and the vectors on the host
+ * on the host, except the ones of MFEM, SuiteSparse and oneMKL, which copy
+ * the matrices and the vectors on the host
  * \param[in] d: description
  */
 static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
@@ -76,7 +76,7 @@ static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
   }
   if (d.placement == LinearSolverPlacement::HOST) {
     return (d.library == "MFEM") || (d.library == "SuiteSparse") ||
-           (!mfem_mgis::isHypreUsingGPU());
+           (d.library == "oneMKL") || (!mfem_mgis::isHypreUsingGPU());
   }
   return true;
 }  // end of isAvailable
@@ -261,6 +261,8 @@ static void checkPlacement(const std::string& n,
       {"HyprePCG", LinearSolverPlacement::HYPRE},
       {"KLU", LinearSolverPlacement::HOST},
       {"KLUSolver", LinearSolverPlacement::HOST},
+      {"MKLClusterSparseSolver", LinearSolverPlacement::HOST},
+      {"MKLPardisoSolver", LinearSolverPlacement::HOST},
       {"MINRESSolver", LinearSolverPlacement::MFEM},
       {"MUMPSSolver", LinearSolverPlacement::HOST},
       {"OperatorChebyshevSmoother", LinearSolverPlacement::MFEM},

@@ -1,0 +1,462 @@
+From fa5bed0a5cfd1d2710f7cb46a545e95c0e2ea42a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 10:10:50 +0200
+Subject: [PATCH] Test and document the sparse direct solvers of oneMKL
+
+MKLSolversTest (sequential, parallel, and on a GPU when the tests on the
+GPU are enabled) solves the Laplace equation with the non symmetric,
+symmetric indefinite and symmetric positive definite types, reuses the
+analysis for an operator of the same pattern, computes it again for an
+operator of another size or pattern, and reports an inconsistent singular
+system. The generic test runs the entries of oneMKL when hypre computes on
+a GPU. The configuration of Doxygen documents the module.
+---
+ Doxyfile.in                                   |   2 +
+ docs/source/user_guide/batch_computations.rst |   1 +
+ docs/source/user_guide/linear_solvers.rst     |  35 +++
+ .../release_notes/release_notes-1.1.0.rst     |   8 +
+ tests/CMakeLists.txt                          |  42 +++
+ tests/LinearSolverFactoriesTest.cxx           |   8 +-
+ tests/MKLSolversTest.cxx                      | 247 ++++++++++++++++++
+ 7 files changed, 340 insertions(+), 3 deletions(-)
+ create mode 100644 tests/MKLSolversTest.cxx
+
+diff --git a/Doxyfile.in b/Doxyfile.in
+index cee34b3bde..4a2bb7ad9c 100644
+--- a/Doxyfile.in
++++ b/Doxyfile.in
+@@ -1940,6 +1940,8 @@ PREDEFINED             = MFEM_USE_MPI \
+                          MFEM_USE_STRUMPACK \
+                          MFEM_USE_GINKGO \
+                          MFEM_USE_SUNDIALS \
++                         MFEM_USE_MKL_PARDISO \
++                         MFEM_USE_MKL_CPARDISO \
+                          MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR \
+                          MFEM_MGIS_HAVE_AMGX \
+                          MGIS_FUNCTION_SUPPORT \
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index c098118b23..30e637845e 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -534,6 +534,7 @@ settings, since they decide where they compute:
+   models;
+ - the direct solvers :code:`MUMPSSolver`, :code:`SuperLUSolver`,
+   :code:`STRUMPACKSolver`, :code:`STRUMPACKMixedPrecisionSolver`,
++  :code:`MKLPardisoSolver`, :code:`MKLClusterSparseSolver`,
+   :code:`UMFPackSolver` and :code:`KLUSolver`, the solver
+   :code:`HypreCOGMRES`, the preconditioners :code:`HypreEuclid`,
+   :code:`HypreParaSails`, :code:`STRUMPACKPreconditioner`, the smoothers and
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 27c450c06b..d1ca19edf5 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -129,6 +129,14 @@ The solvers marked as parallel are only available in parallel.
+        :cxx:`ReplaceTinyPivot`, :cxx:`SymmetricPattern`,
+        :cxx:`ParallelSymbolicFactorization`, :cxx:`NumberOfLookAheads`,
+        :cxx:`DeviceOffload`, :cxx:`VerbosityLevel`
++   * - :cxx:`MKLPardisoSolver` (sequential),
++       :cxx:`MKLClusterSparseSolver` (parallel)
++     - oneMKL
++     - direct
++     - host
++     - none
++     - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`,
++       :cxx:`VerbosityLevel` (see :ref:`mkl_linear_solvers`)
+    * - :cxx:`STRUMPACKSolver`, :cxx:`STRUMPACKMixedPrecisionSolver`
+        (parallel)
+      - STRUMPACK
+@@ -471,6 +479,33 @@ mfem-mgis are applied after the :cxx:`Options` parameter, and override the
+ Krylov solver or its iterative refinement stops at the maximum number of
+ iterations: mfem-mgis reports such a resolution as not converged.
+ 
++.. _mkl_linear_solvers:
++
++Sparse direct solvers of oneMKL
++===============================
++
++When :code:`MFEM` is built with them (:code:`MFEM_USE_MKL_PARDISO`,
++:code:`MFEM_USE_MKL_CPARDISO`), the PARDISO solver of oneMKL
++(:cxx:`MKLPardisoSolver`, sequential) and its Cluster Sparse Solver
++(:cxx:`MKLClusterSparseSolver`, parallel, the rows of the matrix being
++distributed as the ones of the matrix of hypre) are available. They are
++called directly by mfem-mgis, not through the classes of :code:`MFEM`,
++whose resolutions on the GPU and checks of the errors are not reliable.
++The matrix is copied on the host in the compressed row format of oneMKL
++(the upper triangle for the symmetric types, :cxx:`Symmetric`, with
++:cxx:`PositiveDefinite` for a positive definite matrix), the vectors are
++copied on the host. The analysis (reordering and symbolic factorization)
++is reused for the next operators of the same pattern with
++:cxx:`ReuseAnalysis` (with the scaling and the matching computed from the
++values of the first matrix, which suit the next ones as long as their
++values are close), and computed again otherwise. For the symmetric types,
++only the upper triangle of the matrix is read. A failure of the analysis or
++of the factorization stops the resolution on all the processes. oneMKL
++perturbs the pivots which are too small, and factorizes a singular matrix
++without error: as for cuDSS, a resolution is reported as converged only if
++its residual is lower than :math:`10^{-3}` times the right hand side.
++:cxx:`VerbosityLevel` prints the statistics of oneMKL.
++
+ .. _ginkgo_linear_solvers:
+ 
+ Linear solvers and preconditioners of Ginkgo
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index cdee372533..84505ee600 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -179,6 +179,14 @@ and transposed interpolations kept. The values of the
+ Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused.
+ See :ref:`linear_solvers`.
+ 
++Sparse direct solvers of oneMKL
++-------------------------------
++
++The PARDISO solver of oneMKL (:cxx:`MKLPardisoSolver`, sequential) and
++its Cluster Sparse Solver (:cxx:`MKLClusterSparseSolver`, parallel) are
++available when :code:`MFEM` is built with them. See
++:ref:`mkl_linear_solvers`.
++
+ Nonlinear solver of KINSOL
+ --------------------------
+ 
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 95cceb5b33..cebf2cf46d 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1712,6 +1712,48 @@ if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
+     FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+ endif()
+ 
++# MKLSolversTest executable: sparse direct solvers of oneMKL, PARDISO in
++# sequential and the Cluster Sparse Solver in parallel
++if(MFEM_USE_MKL_PARDISO STREQUAL "YES")
++  add_test_executable(MKLSolversTest)
++  add_test(NAME MKLSolversTest COMMAND MKLSolversTest)
++  set_tests_properties(MKLSolversTest PROPERTIES
++    FAIL_REGULAR_EXPRESSION "check failed")
++endif()
++if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
++  if(NOT (MFEM_USE_MKL_PARDISO STREQUAL "YES"))
++    add_test_executable(MKLSolversTest)
++  endif()
++  add_test(NAME MKLSolversTestP COMMAND mpirun -n 2 ./MKLSolversTest -p)
++  set_tests_properties(MKLSolversTestP PROPERTIES
++    FAIL_REGULAR_EXPRESSION "check failed")
++endif()
++# on a GPU, the matrices and the vectors are copied on the host
++if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
++    (MFEM_USE_MKL_CPARDISO STREQUAL "YES")) AND
++   ((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
++   enable-gpu-tests)
++  if(MFEM_USE_CUDA STREQUAL "YES")
++    set(mkl_solvers_test_device cuda)
++  else()
++    set(mkl_solvers_test_device hip)
++  endif()
++  set(mkl_solvers_gpu_tests)
++  if(MFEM_USE_MKL_PARDISO STREQUAL "YES")
++    add_test(NAME MKLSolversTest-gpu
++             COMMAND MKLSolversTest --device ${mkl_solvers_test_device})
++    list(APPEND mkl_solvers_gpu_tests MKLSolversTest-gpu)
++  endif()
++  if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
++    add_test(NAME MKLSolversTestP-gpu
++             COMMAND mpirun -n 2 ./MKLSolversTest -p
++                     --device ${mkl_solvers_test_device})
++    list(APPEND mkl_solvers_gpu_tests MKLSolversTestP-gpu)
++  endif()
++  set_tests_properties(${mkl_solvers_gpu_tests} PROPERTIES
++    FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
++endif()
++
+ # HypreSolversTest executable: solvers and preconditioners of hypre which
+ # are not wrapped by MFEM, smoothers of hypre and options of BoomerAMG
+ if(MFEM_USE_MPI)
+diff --git a/tests/LinearSolverFactoriesTest.cxx b/tests/LinearSolverFactoriesTest.cxx
+index f56ad38579..9d02c3ce57 100644
+--- a/tests/LinearSolverFactoriesTest.cxx
++++ b/tests/LinearSolverFactoriesTest.cxx
+@@ -65,8 +65,8 @@ static void check(const bool b, const std::string& msg) {
+  * \return true if the solver or preconditioner can compute in this run:
+  * the entries which only compute on the GPU require MFEM computing on a
+  * CUDA GPU, the ones which only compute on the host require hypre computing
+- * on the host, except the ones of MFEM and SuiteSparse, which copy the
+- * matrices and the vectors on the host
++ * on the host, except the ones of MFEM, SuiteSparse and oneMKL, which copy
++ * the matrices and the vectors on the host
+  * \param[in] d: description
+  */
+ static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
+@@ -76,7 +76,7 @@ static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
+   }
+   if (d.placement == LinearSolverPlacement::HOST) {
+     return (d.library == "MFEM") || (d.library == "SuiteSparse") ||
+-           (!mfem_mgis::isHypreUsingGPU());
++           (d.library == "oneMKL") || (!mfem_mgis::isHypreUsingGPU());
+   }
+   return true;
+ }  // end of isAvailable
+@@ -261,6 +261,8 @@ static void checkPlacement(const std::string& n,
+       {"HyprePCG", LinearSolverPlacement::HYPRE},
+       {"KLU", LinearSolverPlacement::HOST},
+       {"KLUSolver", LinearSolverPlacement::HOST},
++      {"MKLClusterSparseSolver", LinearSolverPlacement::HOST},
++      {"MKLPardisoSolver", LinearSolverPlacement::HOST},
+       {"MINRESSolver", LinearSolverPlacement::MFEM},
+       {"MUMPSSolver", LinearSolverPlacement::HOST},
+       {"OperatorChebyshevSmoother", LinearSolverPlacement::MFEM},
+diff --git a/tests/MKLSolversTest.cxx b/tests/MKLSolversTest.cxx
+new file mode 100644
+index 0000000000..165aa383a7
+--- /dev/null
++++ b/tests/MKLSolversTest.cxx
+@@ -0,0 +1,247 @@
++/*!
++ * \file   MKLSolversTest.cxx
++ * \brief  Test of the sparse direct solvers of oneMKL, PARDISO in
++ * sequential and the Cluster Sparse Solver in parallel (`--parallel`), on
++ * the Laplace equation on a cube:
++ *
++ * - the system is solved with the non symmetric, symmetric indefinite and
++ *   symmetric positive definite types of matrix (the upper triangle being
++ *   given to oneMKL for the symmetric types);
++ * - the analysis is reused for a second operator of the same pattern (the
++ *   matrix times two), and computed again for an operator of another size
++ *   and, in sequential, for an operator of the same size and of another
++ *   pattern (number of analyses checked);
++ * - a singular matrix (a null row whose right hand side is not null, an
++ *   inconsistent system) is reported, oneMKL perturbing the null pivot;
++ * - invalid options are refused.
++ * \date   15/10/2026
++ */
++
++#include <array>
++#include <cmath>
++#include <memory>
++#include <algorithm>
++#include <tuple>
++#include <string>
++#include <utility>
++#include <cstdlib>
++#include <iostream>
++#include <stdexcept>
++#include <type_traits>
++#include "mfem.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MPI.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++#include "LaplaceSystem.hxx"
++
++using mfem_mgis::tests::LaplaceSystem;
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief rank of the process
++static int rank = 0;
++//! \brief parallel computations
++static bool parallel = false;
++//! \brief tolerance on the relative residual of the direct solvers
++static constexpr double tolerance =
++    std::is_same_v<mfem::real_t, double> ? 1e-12 : 1e-5;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \return the name of the solver of oneMKL
++static const char* getSolverName() {
++  return parallel ? "MKLClusterSparseSolver" : "MKLPardisoSolver";
++}  // end of getSolverName
++
++/*!
++ * \return the linear solver of the factory, throws on failure
++ * \param[in] s: system
++ * \param[in] parameters: parameters of the linear solver
++ */
++template <bool is_parallel>
++static mfem_mgis::LinearSolverHandler generate(
++    LaplaceSystem<is_parallel>& s, const mfem_mgis::Parameters& parameters) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++      ctx, getSolverName(), s.fespace, parameters);
++  if (isInvalid(ls)) {
++    throw std::runtime_error(ctx.getErrorMessage());
++  }
++  return ls;
++}  // end of generate
++
++/*!
++ * \return the relative residual of the resolution of the system of a
++ * matrix, with the right hand side of a system, and if the solver reports
++ * a success
++ * \param[in] s: system
++ * \param[in] a: matrix
++ * \param[in] ls: linear solver
++ * \param[in] name: name of the resolution
++ */
++template <bool is_parallel>
++static bool solve(LaplaceSystem<is_parallel>& s,
++                  const typename LaplaceSystem<is_parallel>::Matrix& a,
++                  mfem::Solver& ls,
++                  const std::string& name) {
++  using namespace mfem_mgis;
++  auto x = mfem::Vector(s.B.Size());
++  x.UseDevice(true);
++  x = 0.;
++  ls.SetOperator(a);
++  ls.Mult(s.B, x);
++  const auto r = s.getRelativeResidual(a, x);
++  const auto converged = hasConverged(ls);
++  if (rank == 0) {
++    std::cout << name << ": residual " << r
++              << (converged ? "" : " (failure reported)") << '\n';
++  }
++  return converged && (r < tolerance);
++}  // end of solve
++
++template <bool is_parallel>
++static void run(LaplaceSystem<is_parallel>& s, LaplaceSystem<is_parallel>& s2) {
++  using namespace mfem_mgis;
++  using Matrix = typename LaplaceSystem<is_parallel>::Matrix;
++  auto a2 = Matrix(s.A);
++  a2 *= 2.;
++  // types of matrix (the Laplace matrix, with the eliminated degrees of
++  // freedom on the diagonal, is symmetric positive definite)
++  const auto types = std::array<std::pair<const char*, Parameters>, 3>{
++      {{"non symmetric", Parameters{}},
++       {"symmetric indefinite", Parameters{{"Symmetric", true}}},
++       {"symmetric positive definite",
++        Parameters{{"Symmetric", true}, {"PositiveDefinite", true}}}}};
++  for (const auto& [n, p] : types) {
++    auto ls = generate(s, p);
++    check(solve(s, s.A, *(ls.linear_solver),
++                std::string{getSolverName()} + ", " + n),
++          std::string{n} + ": resolution");
++  }
++  // reuse of the analysis, then an operator of another size
++  {
++    auto ls = generate(s, Parameters{{"ReuseAnalysis", true}});
++    const auto name = std::string{getSolverName()} + ", analysis reused";
++    check(solve(s, s.A, *(ls.linear_solver), name) &&
++              solve(s, a2, *(ls.linear_solver), name + ", second operator"),
++          "reuse of the analysis");
++    check(getNumberOfAnalyses(*(ls.linear_solver)) == size_type{1},
++          "the analysis is not reused for an operator of the same pattern");
++    check(solve(s2, s2.A, *(ls.linear_solver), name + ", smaller mesh"),
++          "resolution on a smaller mesh");
++    check(getNumberOfAnalyses(*(ls.linear_solver)) == size_type{2},
++          "the analysis is not computed again for an operator of another "
++          "size");
++    // an operator of the same size and of another pattern (two coupling
++    // terms added between the first and the last unknowns)
++    if constexpr (!is_parallel) {
++      std::ignore = s.A.HostReadI();
++      std::ignore = s.A.HostReadJ();
++      std::ignore = s.A.HostReadData();
++      const auto n = s.A.Height();
++      auto extra = mfem::SparseMatrix(n, n);
++      extra.Add(0, n - 1, 1e-6);
++      extra.Add(n - 1, 0, 1e-6);
++      extra.Finalize();
++      const auto a3 =
++          std::unique_ptr<mfem::SparseMatrix>(mfem::Add(s.A, extra));
++      check(solve(s, *a3, *(ls.linear_solver), name + ", another pattern") &&
++                (getNumberOfAnalyses(*(ls.linear_solver)) == size_type{3}),
++            "the analysis is not computed again for an operator of another "
++            "pattern");
++    }
++  }
++  // a singular matrix, the system being inconsistent: a null row whose
++  // right hand side is not null (the rows of the eliminated degrees of
++  // freedom have a null right hand side: their system is consistent)
++  if constexpr (!is_parallel) {
++    const auto* const b = s.B.HostRead();
++    const auto row = static_cast<int>(
++        std::find_if(b, b + s.B.Size(), [](const auto v) { return v != 0; }) -
++        b);
++    auto singular = Matrix(s.A);
++    std::ignore = singular.HostReadWriteI();
++    std::ignore = singular.HostReadWriteJ();
++    std::ignore = singular.HostReadWriteData();
++    singular.EliminateRow(row, mfem::Operator::DIAG_ZERO);
++    auto ls = generate(s, Parameters{});
++    auto reported = false;
++    try {
++      ls.linear_solver->SetOperator(singular);
++      auto x = mfem::Vector(s.B.Size());
++      x = 0.;
++      ls.linear_solver->Mult(s.B, x);
++      reported = !hasConverged(*(ls.linear_solver));
++    } catch (CollectiveFailure&) {
++      reported = true;
++    }
++    if (rank == 0) {
++      std::cout << getSolverName() << ", singular matrix: "
++                << (reported ? "failure reported" : "not reported") << '\n';
++    }
++    check(reported, "singular matrix not reported");
++  }
++  // refusals
++  auto ctx = Context{};
++  const auto refused = LinearSolverFactory<is_parallel>::getFactory().generate(
++      ctx, getSolverName(), s.fespace, Parameters{{"PositiveDefinite", true}});
++  check(isInvalid(refused) &&
++            (ctx.getErrorMessage().find("requires the option 'Symmetric'") !=
++             std::string::npos),
++        "PositiveDefinite without Symmetric not refused");
++}  // end of run
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++#ifdef MFEM_USE_MPI
++  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
++#endif /* MFEM_USE_MPI */
++  auto mesh =
++      mfem::Mesh::MakeCartesian3D(10, 10, 10, mfem::Element::HEXAHEDRON);
++  auto mesh2 = mfem::Mesh::MakeCartesian3D(6, 6, 6, mfem::Element::HEXAHEDRON);
++  auto fec = mfem::H1_FECollection(1, 3);
++  try {
++    if (parallel) {
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
++      auto s = LaplaceSystem<true>(mesh, fec);
++      auto s2 = LaplaceSystem<true>(mesh2, fec);
++      run<true>(s, s2);
++#else
++      throw std::runtime_error("the Cluster Sparse Solver is not available");
++#endif
++    } else {
++#ifdef MFEM_USE_MKL_PARDISO
++      auto s = LaplaceSystem<false>(mesh, fec);
++      auto s2 = LaplaceSystem<false>(mesh2, fec);
++      run<false>(s, s2);
++#else
++      throw std::runtime_error("PARDISO is not available");
++#endif
++    }
++  } catch (std::exception& e) {
++    std::cerr << "error: " << e.what() << '\n';
++    return EXIT_FAILURE;
++  }
++  if (rank == 0) {
++    std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  }
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

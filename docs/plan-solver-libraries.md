@@ -23,7 +23,14 @@ low-rank and verbosity options of MUMPS; KINSOL (patches `0201` to
 `0203`): `KINSOL` non linear solver (Newton's method with or without
 line search, modified Newton method, Picard's method with Anderson's
 acceleration). The options of cuDSS exposed by MFEM (matrix type, view,
-reuse of the reordering) were already covered: phase 1 is done. It
+reuse of the reordering) were already covered: phase 1 is done. Phase 2
+done on 15/10/2026: separate spack environment `mmm-solvers`
+([deps/spack](../deps/spack/README.md)) with the MFEM of `mmm-gpu` plus
+oneMKL PARDISO and Cluster Sparse Solver and MAGMA, and PETSc with
+HPDDM and PaStiX (PETSc with MUMPS requires a Fortran compiler: not
+built); `MKLPardisoSolver` and `MKLClusterSparseSolver` (patches `0205`
+and `0206`), external packages of PETSc tested (patch `0207`: LU
+factorization of PaStiX, GCRODR of HPDDM recycling a subspace). It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug
@@ -82,10 +89,14 @@ The MFEM of the three other environments (`mmm-double-cpu`,
 `mmm-float-cpu`, `mmm-float-gpu`) only has MPI and MUMPS: Ginkgo,
 PETSc, SuperLU_DIST, STRUMPACK and SuiteSparse are not there.
 
-Available in spack and not installed: MAGMA 2.10 (CUDA and ROCm, with
-its sparse part), Trilinos 17.2 (Tpetra, Belos, Ifpack2, MueLu,
-Amesos2, ShyLU with FROSch), PaStiX 6.4, rocALUTION, oneMKL, HPDDM,
-PSBLAS and AMG4PSBLAS. AMGCL is not in spack (header only library).
+The environment `mmm-solvers` (phase 2) adds oneMKL 2025.3 (PARDISO and
+Cluster Sparse Solver, MKL_PARDISO and MKL_CPARDISO of MFEM), MAGMA 2.10
+(CUDA, with its sparse part) and PETSc with HPDDM and PaStiX 6.4 to the
+MFEM of `mmm-gpu`.
+
+Available in spack and not installed: Trilinos 17.2 (Tpetra, Belos,
+Ifpack2, MueLu, Amesos2, ShyLU with FROSch), rocALUTION, PSBLAS and
+AMG4PSBLAS. AMGCL is not in spack (header only library).
 
 ## Inventory by library
 

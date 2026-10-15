@@ -179,6 +179,14 @@ and transposed interpolations kept. The values of the
 Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused.
 See :ref:`linear_solvers`.
 
+Sparse direct solvers of oneMKL
+-------------------------------
+
+The PARDISO solver of oneMKL (:cxx:`MKLPardisoSolver`, sequential) and
+its Cluster Sparse Solver (:cxx:`MKLClusterSparseSolver`, parallel) are
+available when :code:`MFEM` is built with them. See
+:ref:`mkl_linear_solvers`.
+
 Nonlinear solver of KINSOL
 --------------------------
 

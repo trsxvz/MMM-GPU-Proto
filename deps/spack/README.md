@@ -66,6 +66,34 @@ Content:
     the `cuda_lambda` variant of Kokkos is required only up to Kokkos 4
     (it no longer exists in Kokkos 5, where CUDA lambdas are always
     enabled);
+- `mmm-solvers/spack.yaml`: environment of the phase 2 of the solver
+  libraries ([docs/plan-solver-libraries.md](../../docs/plan-solver-libraries.md)):
+  the specs of `mmm-gpu`, with MFEM built with the sparse direct solvers
+  of oneMKL (PARDISO, Cluster Sparse Solver) and MAGMA, PETSc with HPDDM
+  and PaStiX, MAGMA 2.10 and PaStiX 6.4. Only MFEM, PETSc, MUMPS, MAGMA,
+  PaStiX, Scotch and oneMKL are built, the other packages of `mmm-gpu`
+  being reused. PETSc is built without MUMPS (PETSc requires Fortran for
+  it, and MUMPS is directly available in mfem-mgis). It uses the
+  repository `mmm_solvers` (below) before `mmm_gpu`;
+- `repos/spack_repo/mmm_solvers`: package repository of the phase 2,
+  with priority over `mmm_gpu`, whose packages are left unchanged (their
+  hashes, and so `mmm-gpu` and the CI, do not change):
+  - `mfem`: derives from the `mfem` of `mmm_gpu`, with the variants
+    `mkl-pardiso`, `mkl-cpardiso` (with the BLACS of oneMKL for the MPI
+    of the environment) and `magma`, which the package of spack does not
+    have;
+  - `petsc`: derives from the `petsc` of `mmm_gpu`, with the variant
+    `pastix` (PaStiX 6.4, the version supported by PETSc 3.26);
+  - `intel-oneapi-mkl-solvers`: oneMKL installed with the installer of
+    `intel-oneapi-mkl`, without providing BLAS, LAPACK and ScaLAPACK: in a
+    unified environment, a package which can provide a virtual package
+    present in the graph is its provider for the whole graph, and oneMKL
+    replaced OpenBLAS for all the packages (a requirement on the virtual
+    package does not help: spack applies it to every provider in the
+    graph);
+- `install-mmm-solvers.sh`: installation of `mmm-solvers`, as
+  `install-mmm-gpu.sh`, on the cores 2-7 and 10-15 with the lowest
+  priority;
 - `make-nvhpc-cuda-prefix.sh`: CUDA prefix with the layout of the
   standalone toolkit, built from the SDK (whose mathematical libraries are
   in a separate directory);

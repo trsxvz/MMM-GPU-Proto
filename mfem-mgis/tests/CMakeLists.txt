@@ -1712,6 +1712,48 @@ if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
     FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
 endif()
 
+# MKLSolversTest executable: sparse direct solvers of oneMKL, PARDISO in
+# sequential and the Cluster Sparse Solver in parallel
+if(MFEM_USE_MKL_PARDISO STREQUAL "YES")
+  add_test_executable(MKLSolversTest)
+  add_test(NAME MKLSolversTest COMMAND MKLSolversTest)
+  set_tests_properties(MKLSolversTest PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed")
+endif()
+if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
+  if(NOT (MFEM_USE_MKL_PARDISO STREQUAL "YES"))
+    add_test_executable(MKLSolversTest)
+  endif()
+  add_test(NAME MKLSolversTestP COMMAND mpirun -n 2 ./MKLSolversTest -p)
+  set_tests_properties(MKLSolversTestP PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed")
+endif()
+# on a GPU, the matrices and the vectors are copied on the host
+if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
+    (MFEM_USE_MKL_CPARDISO STREQUAL "YES")) AND
+   ((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
+   enable-gpu-tests)
+  if(MFEM_USE_CUDA STREQUAL "YES")
+    set(mkl_solvers_test_device cuda)
+  else()
+    set(mkl_solvers_test_device hip)
+  endif()
+  set(mkl_solvers_gpu_tests)
+  if(MFEM_USE_MKL_PARDISO STREQUAL "YES")
+    add_test(NAME MKLSolversTest-gpu
+             COMMAND MKLSolversTest --device ${mkl_solvers_test_device})
+    list(APPEND mkl_solvers_gpu_tests MKLSolversTest-gpu)
+  endif()
+  if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
+    add_test(NAME MKLSolversTestP-gpu
+             COMMAND mpirun -n 2 ./MKLSolversTest -p
+                     --device ${mkl_solvers_test_device})
+    list(APPEND mkl_solvers_gpu_tests MKLSolversTestP-gpu)
+  endif()
+  set_tests_properties(${mkl_solvers_gpu_tests} PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+endif()
+
 # HypreSolversTest executable: solvers and preconditioners of hypre which
 # are not wrapped by MFEM, smoothers of hypre and options of BoomerAMG
 if(MFEM_USE_MPI)

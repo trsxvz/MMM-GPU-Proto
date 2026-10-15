@@ -24,7 +24,11 @@
  *   and of MFEM;
  * - invalid options are refused: an invalid value, a leading dash, and the
  *   options of the preconditioner of PETSc given to a solver with a
- *   preconditioner of mfem-mgis.
+ *   preconditioner of mfem-mgis;
+ * - the external packages of PETSc, if PETSc is built with them: the sparse
+ *   direct solvers MUMPS, PaStiX, SuperLU_DIST and STRUMPACK (LU
+ *   factorization of PETSc), and the Krylov solvers of HPDDM (GCRODR,
+ *   recycling a subspace between two resolutions).
  * \date   15/10/2026
  */
 
@@ -278,6 +282,66 @@ static void checkOptions(LaplaceSystem<true>& s) {
 }  // end of checkOptions
 
 /*!
+ * \return true if PETSc is built with an external package
+ * \param[in] n: name of the package
+ */
+static bool hasExternalPackage(const char* const n) {
+  auto has = PetscBool{PETSC_FALSE};
+  if (PetscHasExternalPackage(n, &has) != PETSC_SUCCESS) {
+    return false;
+  }
+  return has == PETSC_TRUE;
+}  // end of hasExternalPackage
+
+/*!
+ * \brief checks the external packages of PETSc which PETSc is built with:
+ * sparse direct solvers and Krylov solvers of HPDDM
+ * \param[in] s: system
+ */
+static void checkExternalPackages(LaplaceSystem<true>& s) {
+  using namespace mfem_mgis;
+  for (const auto* const n : {"mumps", "pastix", "superlu_dist", "strumpack"}) {
+    if (!hasExternalPackage(n)) {
+      if (rank == 0) {
+        std::cout << "PETSc, " << n << ": skipped (not available)\n";
+      }
+      continue;
+    }
+    auto direct = generate(
+        s, "PETScLinearSolver",
+        Parameters{{"Options", Parameters{{"ksp_type", "preonly"},
+                                          {"pc_type", "lu"},
+                                          {"pc_factor_mat_solver_type", n}}}});
+    const auto r = solve(s, *(direct.linear_solver));
+    if (rank == 0) {
+      std::cout << "PETSc, LU factorization of " << n << ": residual "
+                << r.residual << '\n';
+    }
+    check(r.converged && (r.residual < 1e-10),
+          std::string{"PETSc, LU factorization of "} + n + ": resolution");
+  }
+  if (hasExternalPackage("hpddm")) {
+    auto gcrodr =
+        generate(s, "PETScLinearSolver",
+                 Parameters{{"Options", Parameters{{"ksp_type", "hpddm"},
+                                                   {"ksp_hpddm_type", "gcrodr"},
+                                                   {"ksp_hpddm_recycle", 10},
+                                                   {"pc_type", "jacobi"},
+                                                   {"ksp_rtol", 1e-10}}}});
+    const auto r1 = solve(s, *(gcrodr.linear_solver));
+    const auto r2 = solve(s, *(gcrodr.linear_solver));
+    if (rank == 0) {
+      std::cout << "PETSc, GCRODR of HPDDM: " << r1.iterations << " then "
+                << r2.iterations << " iterations\n";
+    }
+    check(isSolved(r1) && isSolved(r2) && (r2.iterations < r1.iterations),
+          "PETSc, GCRODR of HPDDM: no recycling of the subspace");
+  } else if (rank == 0) {
+    std::cout << "PETSc, hpddm: skipped (not available)\n";
+  }
+}  // end of checkExternalPackages
+
+/*!
  * \brief checks the preconditioners
  * \param[in] s: system
  */
@@ -389,6 +453,7 @@ int main(int argc, char** argv) {
     checkOptions(s);
     checkPreconditioners(s);
     checkInvalidOptions(s);
+    checkExternalPackages(s);
   } catch (std::exception& e) {
     std::cerr << "error: " << e.what() << '\n';
     return EXIT_FAILURE;

@@ -22,6 +22,7 @@
 #include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
 #include "MUMPSSolvers.hxx"
 #include "CuDSSSolvers.hxx"
+#include "MKLSparseSolvers.hxx"
 
 namespace mfem_mgis {
 
@@ -218,6 +219,15 @@ namespace mfem_mgis {
       return s->getNumberOfAnalyses();
     }
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+#if defined(MFEM_USE_MKL_PARDISO) || \
+    (defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
+    if (const auto* const s =
+            dynamic_cast<const internals::MKLSparseDirectSolverBase*>(&ls);
+        s != nullptr) {
+      return s->getNumberOfAnalyses();
+    }
+#endif /* defined(MFEM_USE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
+          defined(MFEM_USE_MKL_CPARDISO)) */
     return {};
   }  // end of getNumberOfAnalyses
 

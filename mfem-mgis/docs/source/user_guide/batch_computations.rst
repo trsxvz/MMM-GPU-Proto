@@ -534,6 +534,7 @@ settings, since they decide where they compute:
   models;
 - the direct solvers :code:`MUMPSSolver`, :code:`SuperLUSolver`,
   :code:`STRUMPACKSolver`, :code:`STRUMPACKMixedPrecisionSolver`,
+  :code:`MKLPardisoSolver`, :code:`MKLClusterSparseSolver`,
   :code:`UMFPackSolver` and :code:`KLUSolver`, the solver
   :code:`HypreCOGMRES`, the preconditioners :code:`HypreEuclid`,
   :code:`HypreParaSails`, :code:`STRUMPACKPreconditioner`, the smoothers and
