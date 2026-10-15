@@ -124,7 +124,11 @@ jobs:
         # TBB: parallel algorithms of libstdc++ (stlpar backend of TFEL)
         sudo apt-get install -y libtbb-dev
 
+    # bounded so that the packages already installed are pushed to the
+    # build cache (next step) before the limit of six hours of the job: the
+    # next run then resumes from them
     - name: Install the dependencies
+      timeout-minutes: 300
       env:
         GITHUB_USER: ${{ github.actor }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -144,7 +148,7 @@ jobs:
         df -h .
 
     - name: Push the dependencies to the build cache
-      if: github.ref == 'refs/heads/main'
+      if: always() && github.ref == 'refs/heads/main'
       uses: ./mfem-mgis/.github/actions/push-build-cache
       env:
         GITHUB_USER: ${{ github.actor }}
@@ -301,7 +305,11 @@ jobs:
     - name: Set up the build cache
       uses: ./mfem-mgis/.github/actions/setup-build-cache
 
+    # bounded so that the packages already installed are pushed to the
+    # build cache (next step) before the limit of six hours of the job: the
+    # next run then resumes from them
     - name: Install the dependencies
+      timeout-minutes: 300
       env:
         GITHUB_USER: ${{ github.actor }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -329,7 +337,7 @@ jobs:
         df -h .
 
     - name: Push the dependencies to the build cache
-      if: github.ref == 'refs/heads/main'
+      if: always() && github.ref == 'refs/heads/main'
       uses: ./mfem-mgis/.github/actions/push-build-cache
       env:
         GITHUB_USER: ${{ github.actor }}
@@ -486,7 +494,11 @@ jobs:
     - name: Set up the build cache
       uses: ./mfem-mgis/.github/actions/setup-build-cache
 
+    # bounded so that the packages already installed are pushed to the
+    # build cache (next step) before the limit of six hours of the job: the
+    # next run then resumes from them
     - name: Install the dependencies
+      timeout-minutes: 300
       id: dependencies
       env:
         GITHUB_USER: ${{ github.actor }}
@@ -507,7 +519,7 @@ jobs:
         df -h .
 
     - name: Push the dependencies to the build cache
-      if: github.ref == 'refs/heads/main'
+      if: always() && github.ref == 'refs/heads/main'
       uses: ./mfem-mgis/.github/actions/push-build-cache
       env:
         GITHUB_USER: ${{ github.actor }}
