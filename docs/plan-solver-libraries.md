@@ -1,7 +1,8 @@
 # Plan: solvers and preconditioners of the major libraries in mfem-mgis
 
-Status: survey of 15/10/2026, before any implementation, to be
-validated. It complements [gpu-solvers.md](gpu-solvers.md), organised
+Status: survey of 15/10/2026, scope and order decided the same day (see
+[Decisions taken](#decisions-taken-15102026)); implementation not
+started. It complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug
 the rest in a modular way.
@@ -263,36 +264,37 @@ smoothers of the Krylov solvers of MFEM. Mostly reached through PETSc
    specific checks. A benchmark campaign (beam, polycrystal, cermet)
    then compares them.
 
-## Order of work (proposal)
+## Decisions taken (15/10/2026)
+
+Scope: the whole coverage of what MFEM 4.10 already wraps, with all the
+solvers and preconditioners of each library (MFEM, hypre with FSAI, MGR
+and its Krylov solvers not wrapped by MFEM, PETSc linear and nonlinear,
+Ginkgo, MUMPS, SuperLU_DIST, STRUMPACK, cuDSS, UMFPACK, KLU, oneMKL
+PARDISO and Cluster Sparse Solver, AmgX, KINSOL), plus MAGMA (sparse
+and batched dense) and Trilinos (MueLu, Ifpack2, Belos, Amesos2 with
+Tacho, FROSch). PaStiX through PETSc built with it. Not retained:
+rocALUTION, AMGCL, Kokkos Kernels used directly, CHOLMOD and ParU, and
+the libraries listed in [Considered, not retained](#considered-not-retained-for-now).
+
+## Order of work
 
 | Phase | Content | Effort |
 |---|---|---|
 | 0 | registries, descriptions, generic test; existing entries moved to modules | 1.5 |
-| 1 | Ginkgo, PETSc (linear, then nonlinear), hypre completions, SuperLU_DIST, STRUMPACK, options of MUMPS and cuDSS, MFEM completions, KINSOL | 8 |
-| 2 | MAGMA, oneMKL, rocALUTION, AMGCL, SuiteSparse (CHOLMOD, ParU), PaStiX | 6 |
-| 3 | Trilinos (MueLu, Ifpack2, Belos, Amesos2, FROSch) | 4 |
-| 4 | benchmark campaign and recommendations by case | 2 |
+| 1 | libraries wrapped by MFEM and present in `mmm-gpu` (no rebuild): PETSc (linear, then nonlinear), Ginkgo, hypre completions, SuperLU_DIST, STRUMPACK, KLU, MFEM completions, options of MUMPS and cuDSS, KINSOL | 8 |
+| 2 | separate environment with the libraries which require a rebuild: oneMKL, PETSc with PaStiX, MUMPS and HPDDM, MAGMA | 3 |
+| 3 | MAGMA (sparse and batched dense) | 2 |
+| 4 | Trilinos (MueLu, Ifpack2, Belos, Amesos2, FROSch) | 4 |
+| 5 | benchmark campaign and recommendations by case | 2 |
 
 ## Environments and continuous integration
 
-- Ginkgo, PETSc, SuperLU_DIST, STRUMPACK and SuiteSparse are only in
-  the MFEM of `mmm-gpu`. Testing them on the CPU and in float requires
-  MFEM built with them in the three other environments.
+- Phase 1 needs no rebuild: all these libraries are in the MFEM of
+  `mmm-gpu`, which also computes on the CPU (device `cpu`).
 - The MFEM of `mmm-gpu` is not rebuilt before the merge of the pending
-  upstream pull requests (AmgX, MFEM). Adding MAGMA, oneMKL or PETSc with
-  MUMPS and HPDDM changes its build.
+  upstream pull requests (AmgX, MFEM): the libraries which change its
+  build (oneMKL, PETSc with PaStiX, MUMPS and HPDDM, MAGMA, Trilinos) go
+  into a separate environment.
 - The continuous integration builds a reduced environment. A complete
   environment, with all the libraries, fits a nightly run rather than
   each push.
-
-## Decisions to take
-
-- E1: order of the phases (above), or another priority.
-- E2: environments: add the libraries to the existing environments
-  (MFEM rebuilt in the four, the GPU one after the merge of the pull
-  requests), or a separate environment `mmm-solvers` with all of them.
-- E3: Trilinos (long build, largest effort) in phase 3, or earlier, or
-  not.
-- E4: libraries under licence (oneMKL is free to use; HSL is excluded).
-- E5: continuous integration: reduced environment at each push and
-  complete environment at night, or the libraries tested locally only.
