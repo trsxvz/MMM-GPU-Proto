@@ -299,6 +299,12 @@ MFEM 4.10 requires PETSc compiled with hypre. The block path on GPU of
 the paper by Adams (arXiv 2606.24748) is not in PETSc 3.26.0, which only has
 the `aijkokkos` and `aijcusparse` matrices on GPU. Interest 6.
 
+State on 15/10/2026: `PETScLinearSolver` and `PETScPreconditioner` give
+GAMG the block size and the rigid body modes when the unknowns are ordered
+by vector dimension (15 conjugate gradient iterations instead of 51 on the
+beam of the tests of mfem-mgis). With MFEM on a GPU, the solvers of PETSc
+compute on the host (see [plan-solver-libraries.md](plan-solver-libraries.md)).
+
 ### AmgX (NVIDIA)
 
 - `AmgXSolver` of MFEM: scalar matrix, double precision only
@@ -390,6 +396,13 @@ the reference, OpenMP, CUDA and HIP executors (not SYCL). See also
 Smoothed aggregation with rigid body modes on GPU through Kokkos. No MFEM
 interface: heavy integration. Interest 3, to keep in mind as a
 comparison point.
+
+State on 15/10/2026: module of Trilinos written in mfem-mgis (MueLu with
+the rigid body modes, FROSch, Ifpack2, Belos, Amesos2 with Tacho), in a
+shared library compiled by the compiler of Kokkos, the unknowns ordered by
+nodes being permuted for MueLu; Trilinos 17.2.1 built with CUDA
+(environment `mmm-trilinos`); not yet built in mfem-mgis (see
+[plan-solver-libraries.md](plan-solver-libraries.md)).
 
 ## Mixed precision
 

@@ -53,8 +53,12 @@ behaviour integrators would have to assemble on coarser spaces. Phase 4
 in progress on 15/10/2026: environment `mmm-trilinos` (Trilinos 17.2.1
 with Tacho and FROSch, Kokkos 5.2.1), module of Trilinos written and
 reviewed, waiting for the build of the MFEM of this environment. Phase 5
-prepared: benchmark `LinearSolversBenchmark` (patch `0231`) and
-`cases/measure-solvers.sh`. It
+started: benchmark `LinearSolversBenchmark` (patch `0231`) and
+`cases/measure-solvers.sh`; first pass without Trilinos
+(`results/solvers-cpu-2026-10-15`, `results/solvers-gpu-2026-10-15`). It
+showed that GAMG of PETSc did not receive the rigid body modes: they are
+now given when the unknowns are ordered by vector dimension (patches
+`0232` and `0233`). It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug
