@@ -16,8 +16,9 @@ The existing modules are the ones of MFEM and mfem-mgis
 (:file:`src/MFEMLinearSolvers.cxx`), hypre
 (:file:`src/HypreLinearSolvers.cxx`), MUMPS
 (:file:`src/MUMPSSolvers.cxx`), cuDSS (:file:`src/CuDSSSolvers.cxx`),
-AmgX (:file:`src/AmgXSolvers.cxx`) and PETSc
-(:file:`src/PETScLinearSolvers.cxx`).
+AmgX (:file:`src/AmgXSolvers.cxx`), PETSc
+(:file:`src/PETScLinearSolvers.cxx`) and Ginkgo
+(:file:`src/GinkgoLinearSolvers.cxx`).
 
 Adding a library consists of:
 

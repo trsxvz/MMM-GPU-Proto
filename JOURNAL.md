@@ -4854,3 +4854,31 @@ formula as MTest). All the others give the Newton solution to within
   review: no defect of severity 4 or 5, its points handled. Suites: 230
   (GPU MFEM, on the host), targeted CPU double and float; Doxygen and
   Sphinx without warnings.
+
+### 2026-10-15, linear solvers of the major libraries: Ginkgo
+
+- Each solver and preconditioner of Ginkgo is a configuration of Ginkgo
+  (`gko::config::parse`), completed by the `Configuration` option of the
+  entry, on the classes of MFEM wrapping Ginkgo. Ginkgo computes where the
+  device of MFEM computes. Solvers: CG, FCG, BiCGSTAB, CGS, GMRES, GCR,
+  MINRES, IR in sequential and parallel; IDR, PipeCG, BiCG, CB-GMRES and
+  the sparse direct solver in sequential (the distributed versions of IDR
+  and PipeCG fail with the vectors wrapped by MFEM); `GinkgoSolver` for
+  any iterative solver. Preconditioners: Jacobi, ILU, IC, their ISAI
+  variants, SOR, Gauss-Seidel, direct solver (local, in the Schwarz
+  preconditioner of Ginkgo in parallel, optional L1 smoother), algebraic
+  multigrid (Pgm), `GinkgoPreconditioner` for any preconditioner.
+- A preconditioner of another library is wrapped by MFEM and receives the
+  operators. The stopping criteria use the norm of the residual (MFEM's
+  wrappers used preconditioned or shadow norms), the relative tolerance
+  can be changed. Each key of a configuration is checked alone: Ginkgo
+  1.11 terminates the program on some errors in a configuration whose
+  other keys are not read yet.
+- All the entries pass the generic test and the dedicated test on the CPU
+  and on the GPU (RTX 5080, CUDA), sequential and with 2 processes; on a
+  12³ mesh, CG with the multigrid of Ginkgo 16 iterations against 31 with
+  its block Jacobi. Independent review: its points handled (one 4/5 in
+  the test in single precision; 3/5: preconditioner given twice, implicit
+  criteria, termination on configuration errors). Suites: 232 (GPU MFEM,
+  on the host), targeted CPU double and float; Doxygen and Sphinx without
+  warnings.

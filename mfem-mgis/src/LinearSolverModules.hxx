@@ -100,6 +100,21 @@ namespace mfem_mgis::internals {
    */
   void declarePETScPreconditioners(PreconditionerFactory<true>& f);
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+#ifdef MFEM_USE_GINKGO
+  /*!
+   * \brief register the solvers of Ginkgo (the distributed ones in parallel,
+   * if Ginkgo is built with MPI)
+   * \param[in, out] f: factory
+   */
+  template <bool parallel>
+  void declareGinkgoLinearSolvers(LinearSolverFactory<parallel>& f);
+  /*!
+   * \brief register the preconditioners of Ginkgo
+   * \param[in, out] f: factory
+   */
+  template <bool parallel>
+  void declareGinkgoPreconditioners(PreconditionerFactory<parallel>& f);
+#endif /* MFEM_USE_GINKGO */
 #ifdef MFEM_MGIS_HAVE_AMGX
   /*!
    * \brief register the solvers of AmgX

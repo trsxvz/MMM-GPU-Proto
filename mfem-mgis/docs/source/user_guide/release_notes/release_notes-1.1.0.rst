@@ -148,6 +148,22 @@ mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
 :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
 See :ref:`petsc_linear_solvers`.
 
+Linear solvers and preconditioners of Ginkgo
+--------------------------------------------
+
+The Krylov solvers of Ginkgo (CG, FCG, pipelined CG, BiCG, BiCGSTAB, CGS,
+GMRES, CB-GMRES, GCR, IDR, MINRES), its iterative refinement, its sparse
+direct solver and its preconditioners (Jacobi, ILU, IC and their variants
+with incomplete sparse approximate inverses, SOR, Gauss-Seidel, algebraic
+multigrid) are available when |MFEM| is built with Ginkgo, on the CPU and
+on the GPU (they compute where the device of |MFEM| computes), in
+sequential and, for the distributed ones, in parallel, the local
+preconditioners being wrapped in the Schwarz preconditioner of Ginkgo.
+Each entry is described by a configuration of Ginkgo, completed by its
+:cxx:`Configuration` option, and the generic :cxx:`GinkgoSolver` and
+:cxx:`GinkgoPreconditioner` entries accept any configuration of Ginkgo.
+See :ref:`ginkgo_linear_solvers`.
+
 Prediction of the solution
 --------------------------
 

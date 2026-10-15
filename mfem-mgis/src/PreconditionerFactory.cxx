@@ -58,6 +58,13 @@ namespace mfem_mgis {
               "setLinearSolverPreconditioner: the preconditioner '" +
               std::string{n} + "' is only available in parallel");
         }
+      } else {
+        if (PreconditionerFactory<false>::getFactory().getDescription(n) !=
+            nullptr) {
+          return ctx.registerErrorMessage(
+              "setLinearSolverPreconditioner: the preconditioner '" +
+              std::string{n} + "' is only available in sequential");
+        }
       }
 #endif /* MFEM_USE_MPI */
       const auto hint = internals::getUnavailableLibraryHint(n);

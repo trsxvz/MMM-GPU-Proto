@@ -1601,15 +1601,6 @@ if(MFEM_USE_MPI)
   set_tests_properties(LinearSolverFactoriesTestP PROPERTIES
     FAIL_REGULAR_EXPRESSION "check failed")
 endif(MFEM_USE_MPI)
-# PETScSolversTest executable: Krylov solver and preconditioner of PETSc
-# configured by the options of PETSc
-if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
-  add_test_executable(PETScSolversTest)
-  add_test(NAME PETScSolversTest COMMAND PETScSolversTest)
-  add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
-  set_tests_properties(PETScSolversTest PETScSolversTestP PROPERTIES
-    FAIL_REGULAR_EXPRESSION "check failed")
-endif()
 # on a CUDA GPU, the entries which only compute on the GPU (AmgX, cuDSS) are
 # also checked
 if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
@@ -1625,6 +1616,44 @@ if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
   endif(MFEM_USE_MPI)
   set_tests_properties(${linear_solver_factories_gpu_tests} PROPERTIES
     FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+endif()
+
+# GinkgoSolversTest executable: solvers and preconditioners of Ginkgo, on
+# the device of MFEM
+if(MFEM_USE_GINKGO STREQUAL "YES")
+  add_test_executable(GinkgoSolversTest)
+  add_test(NAME GinkgoSolversTest COMMAND GinkgoSolversTest)
+  set(ginkgo_tests GinkgoSolversTest)
+  if(MFEM_USE_MPI)
+    add_test(NAME GinkgoSolversTestP
+             COMMAND mpirun -n 2 ./GinkgoSolversTest --parallel)
+    list(APPEND ginkgo_tests GinkgoSolversTestP)
+  endif(MFEM_USE_MPI)
+  set_tests_properties(${ginkgo_tests} PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed")
+  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+    add_test(NAME GinkgoSolversTest-cuda
+             COMMAND GinkgoSolversTest --device cuda)
+    set(ginkgo_gpu_tests GinkgoSolversTest-cuda)
+    if(MFEM_USE_MPI)
+      add_test(NAME GinkgoSolversTestP-cuda
+               COMMAND mpirun -n 2 ./GinkgoSolversTest --parallel
+                       --device cuda)
+      list(APPEND ginkgo_gpu_tests GinkgoSolversTestP-cuda)
+    endif(MFEM_USE_MPI)
+    set_tests_properties(${ginkgo_gpu_tests} PROPERTIES
+      FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+  endif()
+endif()
+
+# PETScSolversTest executable: Krylov solver and preconditioner of PETSc
+# configured by the options of PETSc
+if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
+  add_test_executable(PETScSolversTest)
+  add_test(NAME PETScSolversTest COMMAND PETScSolversTest)
+  add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
+  set_tests_properties(PETScSolversTest PETScSolversTestP PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed")
 endif()
 
 # AmgXSolverTest executable: solvers of AmgX built by the factory of linear

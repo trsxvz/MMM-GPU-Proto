@@ -71,6 +71,11 @@ namespace mfem_mgis::internals {
       return "MFEM is not compiled with PETSc";
     }
 #endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)) */
+#ifndef MFEM_USE_GINKGO
+    if (n.starts_with("Ginkgo")) {
+      return "MFEM is not compiled with Ginkgo";
+    }
+#endif /* MFEM_USE_GINKGO */
 #ifndef MFEM_USE_SUITESPARSE
     if (n == "UMFPackSolver") {
       return "MFEM is not compiled with SuiteSparse";
@@ -161,6 +166,9 @@ namespace mfem_mgis::internals {
   template <bool parallel>
   void declareLinearSolvers(LinearSolverFactory<parallel>& f) {
     declareMFEMLinearSolvers(f);
+#ifdef MFEM_USE_GINKGO
+    declareGinkgoLinearSolvers(f);
+#endif /* MFEM_USE_GINKGO */
 #ifdef MFEM_MGIS_HAVE_AMGX
     declareAmgXLinearSolvers(f);
 #endif /* MFEM_MGIS_HAVE_AMGX */
@@ -183,6 +191,9 @@ namespace mfem_mgis::internals {
   template <bool parallel>
   void declarePreconditioners(PreconditionerFactory<parallel>& f) {
     declareMFEMPreconditioners(f);
+#ifdef MFEM_USE_GINKGO
+    declareGinkgoPreconditioners(f);
+#endif /* MFEM_USE_GINKGO */
 #ifdef MFEM_MGIS_HAVE_AMGX
     declareAmgXPreconditioners(f);
 #endif /* MFEM_MGIS_HAVE_AMGX */

@@ -71,6 +71,13 @@ namespace mfem_mgis {
                 "LinearSolverFactory<false>::generate: the linear solver '" +
                 std::string{n} + "' is only available in parallel");
           }
+        } else {
+          if (LinearSolverFactory<false>::getFactory().getDescription(n) !=
+              nullptr) {
+            return ctx.registerErrorMessage(
+                "LinearSolverFactory<true>::generate: the linear solver '" +
+                std::string{n} + "' is only available in sequential");
+          }
         }
 #endif /* MFEM_USE_MPI */
         const auto hint = internals::getUnavailableLibraryHint(n);

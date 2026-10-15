@@ -86,17 +86,45 @@ static bool accepts(const mfem_mgis::LinearSolverDescription& d,
 }  // end of accepts
 
 /*!
+ * \return the options required by the entries which describe a whole
+ * configuration of their library: a conjugate gradient and a Jacobi
+ * preconditioner (wrapped in the Schwarz preconditioner in parallel) for
+ * the generic entries of Ginkgo
+ * \param[in] n: name of the entry
+ */
+template <bool is_parallel>
+static mfem_mgis::Parameters getRequiredOptions(const std::string& n) {
+  using namespace mfem_mgis;
+  if (n == "GinkgoSolver") {
+    return Parameters{{"Configuration", Parameters{{"type", "solver::Cg"}}}};
+  }
+  if (n == "GinkgoPreconditioner") {
+    const auto jacobi = Parameters{{"type", "preconditioner::Jacobi"}};
+    if constexpr (is_parallel) {
+      return Parameters{
+          {"Configuration", Parameters{{"type", "preconditioner::Schwarz"},
+                                       {"local_solver", jacobi}}}};
+    } else {
+      return Parameters{{"Configuration", jacobi}};
+    }
+  }
+  return Parameters{};
+}  // end of getRequiredOptions
+
+/*!
  * \return the parameters of a linear solver for this test: tolerances and
  * maximum number of iterations for the iterative solvers, and a
  * preconditioner for the solvers which accept one (a damped Jacobi
- * smoother, or the first available preconditioner of the same library)
+ * smoother, or a preconditioner of the same library), and the options
+ * required by the entry (see `getRequiredOptions`)
+ * \param[in] n: name of the linear solver
  * \param[in] d: description of the linear solver
  */
 template <bool is_parallel>
 static std::optional<mfem_mgis::Parameters> getTestParameters(
-    const mfem_mgis::LinearSolverDescription& d) {
+    const std::string& n, const mfem_mgis::LinearSolverDescription& d) {
   using namespace mfem_mgis;
-  auto p = Parameters{};
+  auto p = getRequiredOptions<is_parallel>(n);
   if (accepts(d, "RelativeTolerance")) {
     p.replaceOrInsert("RelativeTolerance", tolerance);
   }
@@ -114,32 +142,48 @@ static std::optional<mfem_mgis::Parameters> getTestParameters(
                       Parameters{{"Name", "OperatorJacobiSmoother"},
                                  {"Options", Parameters{{"Damping", 0.5}}}});
   } else if (d.preconditioners == AcceptedPreconditioners::SAME_LIBRARY) {
+    // a Jacobi preconditioner of the library if any (the simplest one, which
+    // can be transposed), or its first available preconditioner
     const auto& f = PreconditionerFactory<is_parallel>::getFactory();
+    auto preconditioner = std::optional<std::string>{};
     for (const auto& n : f.getNames()) {
       const auto* const pd = f.getDescription(n);
-      if ((pd->library == d.library) && (isAvailable(*pd))) {
-        p.replaceOrInsert("Preconditioner", Parameters{{"Name", n}});
-        return p;
+      if ((pd->library != d.library) || (!isAvailable(*pd))) {
+        continue;
+      }
+      if (n.find("Jacobi") != std::string::npos) {
+        preconditioner = n;
+        break;
+      }
+      if (!preconditioner.has_value()) {
+        preconditioner = n;
       }
     }
-    return {};
+    if (!preconditioner.has_value()) {
+      return {};
+    }
+    p.replaceOrInsert("Preconditioner", Parameters{{"Name", *preconditioner}});
   }
   return p;
 }  // end of getTestParameters
 
 /*!
  * \return the options of a preconditioner for this test: a Jacobi smoother
- * for the wrappers of another preconditioner
+ * for the wrappers of another preconditioner, and the options required by
+ * the entry (see `getRequiredOptions`)
+ * \param[in] n: name of the preconditioner
  * \param[in] d: description of the preconditioner
  */
+template <bool is_parallel>
 static mfem_mgis::Parameters getTestOptions(
-    const mfem_mgis::LinearSolverDescription& d) {
+    const std::string& n, const mfem_mgis::LinearSolverDescription& d) {
   using namespace mfem_mgis;
+  auto o = getRequiredOptions<is_parallel>(n);
   if (accepts(d, "Preconditioner")) {
-    return Parameters{
-        {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}};
+    o.replaceOrInsert("Preconditioner",
+                      Parameters{{"Name", "OperatorJacobiSmoother"}});
   }
-  return Parameters{};
+  return o;
 }  // end of getTestOptions
 
 //! \return the outcome of a resolution, in a short text
@@ -246,7 +290,7 @@ static void run(LaplaceSystem<is_parallel>& s) {
       print(n + ": skipped (not available in this run)");
       continue;
     }
-    const auto oparams = getTestParameters<is_parallel>(*d);
+    const auto oparams = getTestParameters<is_parallel>(n, *d);
     if (!oparams.has_value()) {
       print(n + ": skipped (no preconditioner of " + d->library +
             " available)");
@@ -293,12 +337,14 @@ static void run(LaplaceSystem<is_parallel>& s) {
     auto ctx = Context{};
     auto ls = lf.generate(
         ctx, "GMRESSolver", s.fespace,
-        Parameters{{"RelativeTolerance", tolerance},
-                   {"AbsoluteTolerance", 0.},
-                   {"MaximumNumberOfIterations", 5000},
-                   {"KDim", 50},
-                   {"Preconditioner",
-                    Parameters{{"Name", n}, {"Options", getTestOptions(*d)}}}});
+        Parameters{
+            {"RelativeTolerance", tolerance},
+            {"AbsoluteTolerance", 0.},
+            {"MaximumNumberOfIterations", 5000},
+            {"KDim", 50},
+            {"Preconditioner",
+             Parameters{{"Name", n},
+                        {"Options", getTestOptions<is_parallel>(n, *d)}}}});
     if (isInvalid(ls)) {
       check(false, n + ": generation failed: " + ctx.getErrorMessage());
       continue;

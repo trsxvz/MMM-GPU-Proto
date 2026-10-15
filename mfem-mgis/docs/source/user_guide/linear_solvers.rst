@@ -115,6 +115,16 @@ The solvers marked as parallel are only available in parallel.
      - :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
        :cxx:`AmgXParameters`, :cxx:`Precision`
+   * - :cxx:`GinkgoCG`, :cxx:`GinkgoGMRES`, ... (see
+       :ref:`ginkgo_linear_solvers`)
+     - Ginkgo
+     - iterative, direct (:cxx:`GinkgoDirect`)
+     - as MFEM
+     - any (Ginkgo only for :cxx:`GinkgoBiCG` and :cxx:`GinkgoPipeCG`)
+     - :cxx:`Configuration`, :cxx:`VerbosityLevel`,
+       :cxx:`RelativeTolerance`, :cxx:`AbsoluteTolerance`,
+       :cxx:`MaximumNumberOfIterations`, :cxx:`Preconditioner`, :cxx:`KDim`
+       (GMRES, CB-GMRES and GCR solvers)
    * - :cxx:`PETScLinearSolver` (parallel)
      - PETSc
      - iterative
@@ -175,6 +185,12 @@ Preconditioners
      - GPU
      - :cxx:`Configuration`, :cxx:`ConfigurationFile`, :cxx:`VerbosityLevel`,
        :cxx:`AmgXParameters`, :cxx:`Precision`
+   * - :cxx:`GinkgoJacobi`, :cxx:`GinkgoILU`, :cxx:`GinkgoMultigrid`, ...
+       (see :ref:`ginkgo_linear_solvers`)
+     - Ginkgo
+     - as MFEM
+     - :cxx:`Configuration`, :cxx:`L1Smoother` (local preconditioners in
+       parallel)
    * - :cxx:`PETScPreconditioner` (parallel)
      - PETSc
      - host
@@ -261,3 +277,164 @@ by the program itself. The command line is not given to PETSc: the
 options of the solvers are only given by their :cxx:`Options` parameter.
 The non linear solver of PETSc, selected by the :cxx:`--use-petsc`
 command line option, is not related to these solvers.
+
+.. _ginkgo_linear_solvers:
+
+Linear solvers and preconditioners of Ginkgo
+============================================
+
+The linear solvers and the preconditioners of Ginkgo are described by
+configurations of Ginkgo (see the documentation of
+:cxx:`gko::config::parse`), built on the classes of MFEM wrapping Ginkgo,
+which convert the matrices and the vectors of MFEM. Ginkgo computes where
+the device of MFEM computes: on the GPU (CUDA or HIP executor of Ginkgo)
+when MFEM computes on a GPU, with OpenMP when the device of MFEM uses
+OpenMP and Ginkgo is built with OpenMP, and with the reference executor
+of Ginkgo otherwise. The solvers and the preconditioners are available in
+parallel when Ginkgo is built with MPI.
+
+Each entry is a configuration of a given type, completed by the keys of
+its :cxx:`Configuration` option, which gives access to all the parameters
+of Ginkgo:
+
+.. code-block:: cpp
+
+   problem.setLinearSolver(
+       ctx, "GinkgoGMRES",
+       {{"RelativeTolerance", 1e-10},
+        {"MaximumNumberOfIterations", 500},
+        {"KDim", 50},
+        {"Configuration", Parameters{{"flexible", true}}},
+        {"Preconditioner",
+         Parameters{{"Name", "GinkgoILU"},
+                    {"Options",
+                     Parameters{{"Configuration",
+                                 Parameters{{"factorization",
+                                             Parameters{{"type",
+                                                         "factorization::ParIlu"}}}}}}}}}}) |
+       or_die;
+
+The keys and the values of a configuration are the ones of Ginkgo
+(:cxx:`snake_case` keys, a nested configuration being given by a map of
+parameters, and a list by a vector of parameters). A floating-point value
+must be written as such (:cxx:`1.` and not :cxx:`1`). Ginkgo refuses the
+keys it does not know. The keys defined by an entry can't be redefined:
+its type, the Krylov dimension given by the :cxx:`KDim` option, the
+triangular solvers of :cxx:`GinkgoILUISAI` and :cxx:`GinkgoICISAI`. The
+stopping criteria (:cxx:`criteria` key) and the preconditioner
+(:cxx:`preconditioner` key, :cxx:`solver` for the iterative refinement)
+can't be given both by the configuration and by the options of mfem-mgis.
+The factorization of :cxx:`GinkgoDirect` (LU by default, for instance
+:cxx:`factorization::Cholesky`) and the levels (:cxx:`mg_level`) and the
+number of cycles (:cxx:`criteria`) of :cxx:`GinkgoMultigrid` can be
+redefined. Each key of a configuration is checked alone before the
+configuration is used, since Ginkgo stops the program on some errors in a
+configuration whose other keys are not read yet.
+
+Linear solvers
+--------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 40 30
+
+   * - Name
+     - Solver of Ginkgo
+     - Availability
+   * - :cxx:`GinkgoCG`, :cxx:`GinkgoFCG`
+     - conjugate gradient, flexible variant
+     - sequential, parallel
+   * - :cxx:`GinkgoBiCGSTAB`, :cxx:`GinkgoCGS`
+     - BiCGSTAB, conjugate gradient squared
+     - sequential, parallel
+   * - :cxx:`GinkgoGMRES`, :cxx:`GinkgoGCR`
+     - GMRES, generalized conjugate residual (:cxx:`KDim` option)
+     - sequential, parallel
+   * - :cxx:`GinkgoMINRES`
+     - MINRES
+     - sequential, parallel
+   * - :cxx:`GinkgoIR`
+     - iterative refinement: stationary iterations with the
+       preconditioner as inner solver
+     - sequential, parallel
+   * - :cxx:`GinkgoIDR`
+     - induced dimension reduction
+     - sequential
+   * - :cxx:`GinkgoPipeCG`
+     - pipelined conjugate gradient (preconditioners of Ginkgo and
+       assembled operators only)
+     - sequential
+   * - :cxx:`GinkgoBiCG`
+     - BiCG (preconditioners of Ginkgo which can be transposed:
+       :cxx:`GinkgoJacobi`, :cxx:`GinkgoILU`, :cxx:`GinkgoILUISAI`,
+       :cxx:`GinkgoIC`, :cxx:`GinkgoICISAI`; assembled operators only)
+     - sequential
+   * - :cxx:`GinkgoCBGMRES`
+     - GMRES storing its Krylov basis in a reduced precision
+       (:cxx:`KDim` option, :cxx:`storage_precision` key)
+     - sequential
+   * - :cxx:`GinkgoDirect`
+     - sparse LU factorization (direct solver)
+     - sequential
+   * - :cxx:`GinkgoSolver`
+     - any iterative solver of Ginkgo (:cxx:`solver::Cg`,
+       :cxx:`solver::Chebyshev`, :cxx:`solver::Multigrid`, ...), described
+       by the whole configuration given by the :cxx:`Configuration` option
+       (with its :cxx:`type` key)
+     - as the solver
+
+The iterative solvers accept the :cxx:`RelativeTolerance` (relative to
+the norm of the initial residual), :cxx:`AbsoluteTolerance`,
+:cxx:`MaximumNumberOfIterations` (ten by default, as for the solvers of
+MFEM) and :cxx:`VerbosityLevel` options, unless the configuration defines
+its own stopping criteria (:cxx:`criteria` key). The norm of the residual
+computed by the solver is used, except for :cxx:`GinkgoMINRES`, which uses
+the norm of the preconditioned residual (MINRES does not compute the
+residual). The relative tolerance of a solver whose stopping criteria are
+given by the options of mfem-mgis can be changed (see
+:cxx:`setRelativeTolerance`). The iterative solvers accept any
+preconditioner, except the restrictions above:
+
+- a preconditioner of Ginkgo is given to the solver by its factory, Ginkgo
+  generating it for each operator;
+- a preconditioner of another library is wrapped by MFEM, and receives the
+  operators given to the solver.
+
+Preconditioners
+---------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Name
+     - Preconditioner of Ginkgo
+   * - :cxx:`GinkgoJacobi`
+     - block Jacobi (blocks of at most 32 unknowns by default, the
+       :cxx:`max_block_size` key being one for the scalar Jacobi method)
+   * - :cxx:`GinkgoILU`, :cxx:`GinkgoIC`
+     - incomplete LU and Cholesky factorizations (:cxx:`factorization`
+       key for the parallel variants of Ginkgo)
+   * - :cxx:`GinkgoILUISAI`, :cxx:`GinkgoICISAI`
+     - the same, with triangular factors applied by incomplete sparse
+       approximate inverses
+   * - :cxx:`GinkgoSOR`, :cxx:`GinkgoGaussSeidel`
+     - successive over-relaxation, Gauss-Seidel
+   * - :cxx:`GinkgoDirect`
+     - sparse LU factorization
+   * - :cxx:`GinkgoMultigrid`
+     - one cycle of the algebraic multigrid of Ginkgo (parallel graph
+       match aggregation)
+   * - :cxx:`GinkgoPreconditioner`
+     - any preconditioner of Ginkgo, described by the whole configuration
+       given by the :cxx:`Configuration` option
+
+In parallel, all the preconditioners except :cxx:`GinkgoMultigrid` and
+:cxx:`GinkgoPreconditioner` are local: they are the local solvers of the
+Schwarz preconditioner of Ginkgo (one block per process). Its L1 smoother
+is selected by the :cxx:`L1Smoother` option, which sorts the columns of
+the diagonal block of the matrix of hypre in place (the matrix is then
+reassembled before being used by hypre). The configuration of
+:cxx:`GinkgoPreconditioner` must then describe a distributed
+preconditioner (for instance :cxx:`preconditioner::Schwarz`), without the
+L1 smoother. The preconditioners of Ginkgo require assembled operators.

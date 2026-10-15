@@ -1,0 +1,53 @@
+From a25ccd5005f4a4e9377f28907a7e0f8452bca904 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 04:37:56 +0200
+Subject: [PATCH] Factories: entries only available in sequential reported in
+ parallel
+
+As for the entries only available in parallel, the factories of linear
+solvers and of preconditioners report an entry which is only registered
+in the sequential factory.
+---
+ src/LinearSolverFactory.cxx   | 7 +++++++
+ src/PreconditionerFactory.cxx | 7 +++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index 1dd669d672..8f387cad97 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -71,6 +71,13 @@ namespace mfem_mgis {
+                 "LinearSolverFactory<false>::generate: the linear solver '" +
+                 std::string{n} + "' is only available in parallel");
+           }
++        } else {
++          if (LinearSolverFactory<false>::getFactory().getDescription(n) !=
++              nullptr) {
++            return ctx.registerErrorMessage(
++                "LinearSolverFactory<true>::generate: the linear solver '" +
++                std::string{n} + "' is only available in sequential");
++          }
+         }
+ #endif /* MFEM_USE_MPI */
+         const auto hint = internals::getUnavailableLibraryHint(n);
+diff --git a/src/PreconditionerFactory.cxx b/src/PreconditionerFactory.cxx
+index 839f0a6518..bc8d3eec05 100644
+--- a/src/PreconditionerFactory.cxx
++++ b/src/PreconditionerFactory.cxx
+@@ -58,6 +58,13 @@ namespace mfem_mgis {
+               "setLinearSolverPreconditioner: the preconditioner '" +
+               std::string{n} + "' is only available in parallel");
+         }
++      } else {
++        if (PreconditionerFactory<false>::getFactory().getDescription(n) !=
++            nullptr) {
++          return ctx.registerErrorMessage(
++              "setLinearSolverPreconditioner: the preconditioner '" +
++              std::string{n} + "' is only available in sequential");
++        }
+       }
+ #endif /* MFEM_USE_MPI */
+       const auto hint = internals::getUnavailableLibraryHint(n);
+-- 
+2.43.0
+

@@ -7,7 +7,10 @@ factory of preconditioners, one module per library, generic test
 `LinearSolverFactoriesTest`, documentation of the solvers in the user
 guide of mfem-mgis. Phase 1 started: PETSc (patches `0189` to `0191`):
 `PETScLinearSolver` and `PETScPreconditioner`, configured by the options
-of PETSc, any preconditioner of mfem-mgis as shell preconditioner. It
+of PETSc, any preconditioner of mfem-mgis as shell preconditioner; Ginkgo
+(patches `0192` to `0194`): 15 solvers and 10 preconditioners described
+by configurations of Ginkgo, on the CPU and the GPU, local
+preconditioners in the Schwarz preconditioner of Ginkgo in parallel. It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug
