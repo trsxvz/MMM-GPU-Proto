@@ -283,7 +283,9 @@ jobs:
         df -h /
 
     # the components of CUDA 13.0 used by hypre, MFEM, TFEL and MGIS, from the
-    # packages of NVIDIA (the whole toolkit is several GB larger)
+    # packages of NVIDIA (the whole toolkit is several GB larger);
+    # libnvJitLink is needed by libcusparse, whose package does not install
+    # it (the executables do not link without it)
     - name: Install CUDA
       run: |
         wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
@@ -292,7 +294,7 @@ jobs:
         sudo apt-get install -y cuda-nvcc-13-0 cuda-cudart-dev-13-0 \
           cuda-cccl-13-0 cuda-driver-dev-13-0 cuda-profiler-api-13-0 \
           cuda-nvtx-13-0 libcublas-dev-13-0 libcusparse-dev-13-0 \
-          libcusolver-dev-13-0 libcurand-dev-13-0
+          libcusolver-dev-13-0 libcurand-dev-13-0 libnvjitlink-13-0
         echo "$CUDA/bin" >> $GITHUB_PATH
         $CUDA/bin/nvcc --version
 
