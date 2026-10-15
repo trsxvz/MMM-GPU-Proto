@@ -5129,3 +5129,30 @@ formula as MTest). All the others give the Newton solution to within
   global centroid, sizes checked on all the processes, option of a
   preconditioner of PETSc applied when it shares its object with the
   solver, SNES covered, docs.
+
+### 2026-10-15, second pass of the campaign: GAMG, BoomerAMG and PETSc on the host
+
+- Second pass of the campaign for the configurations that the first one
+  measured wrongly (`results/solvers-2026-10-15-byvdim`, minimum of three
+  repetitions): with the rigid body modes, GAMG of PETSc needs 15
+  iterations instead of 177 on the elasticity, 25 instead of 284 with the
+  stiff inclusions. Stopped on the true residual (`ksp_norm_type
+  unpreconditioned`), it is the fastest configuration measured on the CPU
+  for the elasticity: 0.12 second per operator against 0.20 for BoomerAMG
+  with its systems options. The elasticity options of BoomerAMG do not
+  reduce the iterations on the beam (31 against 30) and cost three times
+  more.
+- Found and fixed in mfem-mgis (patches 0234 to 0238): the elasticity
+  options of BoomerAMG asked for scalar unknowns, or for a surface mesh in
+  a 3D space, made MFEM abort or compute wrong rigid body modes: refused.
+  The solvers of PETSc, which compute on the host, opened a context on the
+  GPU in each process (262 MiB each, 0.4 second at the first setup):
+  MFEM converts the matrices of hypre through the `MATHYPRE` format of
+  PETSc, whose creation initializes the GPU. mfem-mgis copies them itself
+  (`makeHostMatrix`); tests check that the GPU is not initialized and
+  compare the copy with the matrix of hypre. The generic test of the
+  linear solvers failed for AmgX with two processes on the GPU:
+  `mfem::ParNormlp` of MFEM 4.10 recomputes the norm from the values of
+  the host without synchronizing them.
+- Two rounds of independent review: nothing rated above 2; all the
+  remarks handled. Defects of MFEM and PETSc noted for upstream reports.

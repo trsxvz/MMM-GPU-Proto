@@ -5,15 +5,16 @@
  * solver (`KSP`) and a preconditioner (`PC`) of PETSc, configured by the
  * options database of PETSc.
  *
- * When MFEM computes on a GPU, the solvers and the preconditioners of PETSc
- * compute on the host: the matrices are converted to the AIJ format of the
- * host, and the vectors copied from and to the vectors of MFEM through the
- * arrays of the host of PETSc. With MFEM 4.10 and PETSc 3.26 built with
- * CUDA, the vectors of MFEM placed by MFEM in the vectors of PETSc, whose
- * internal offload mask MFEM sets, were seen as null by the Krylov solvers
- * of PETSc and by the shell preconditioners, and the vectors of PETSc of
- * the GPU made `PetscFinalize` abort the program when freeing the memory
- * pool of PETSc on the GPU.
+ * The solvers and the preconditioners of PETSc compute on the host, even
+ * when MFEM computes on a GPU: the matrices are copied in the AIJ format of
+ * the host (see `makeHostMatrix`, which does not initialize the GPU), and,
+ * when MFEM computes on a GPU, the vectors are copied from and to the
+ * vectors of MFEM through the arrays of the host of PETSc. With MFEM 4.10 and
+ * PETSc 3.26 built with CUDA, the vectors of MFEM placed by MFEM in the vectors
+ * of PETSc, whose internal offload mask MFEM sets, were seen as null by the
+ * Krylov solvers of PETSc and by the shell preconditioners, and the vectors of
+ * PETSc of the GPU made `PetscFinalize` abort the program when freeing the
+ * memory pool of PETSc on the GPU.
  * \date   15/10/2026
  */
 
@@ -104,20 +105,12 @@ namespace mfem_mgis::internals {
       if (this->shell_preconditioner != nullptr) {
         this->shell_preconditioner->SetOperator(op);
       }
-      mfem::PetscLinearSolver::SetOperator(op);
-      auto a = Mat{};
-      auto p = Mat{};
-      if (KSPGetOperators(static_cast<KSP>(*this), &a, &p) != 0) {
-        mgis::raise("PETScKrylovSolver::SetOperator: KSPGetOperators failed");
-      }
-      if (mfem::Device::IsEnabled()) {
-        // see the description of this file
-        convertToHostMatrix(a);
-        if (p != a) {
-          convertToHostMatrix(p);
-        }
-      }
-      this->rigid_body_modes.attach(p);
+      // the operator is copied in the AIJ format of the host (see
+      // `makeHostMatrix` and the description of this file), referenced by
+      // the Krylov solver
+      const auto a = makeHostMatrix(this->GetComm(), op);
+      this->rigid_body_modes.attach(*a);
+      mfem::PetscLinearSolver::SetOperator(*a);
     }
     /*!
      * \brief compute the rigid body modes given to the preconditioners of
@@ -236,20 +229,12 @@ namespace mfem_mgis::internals {
         : PETScOptions(comm, "pc"),
           mfem::PetscPreconditioner(comm, this->prefix) {}
     void SetOperator(const mfem::Operator& op) override {
-      mfem::PetscPreconditioner::SetOperator(op);
-      auto a = Mat{};
-      auto p = Mat{};
-      if (PCGetOperators(static_cast<PC>(*this), &a, &p) != 0) {
-        mgis::raise("PETScPreconditioner::SetOperator: PCGetOperators failed");
-      }
-      if (mfem::Device::IsEnabled()) {
-        // see the description of this file
-        convertToHostMatrix(a);
-        if (p != a) {
-          convertToHostMatrix(p);
-        }
-      }
-      this->rigid_body_modes.attach(p);
+      // the operator is copied in the AIJ format of the host (see
+      // `makeHostMatrix` and the description of this file), referenced by
+      // the preconditioner
+      const auto a = makeHostMatrix(this->GetComm(), op);
+      this->rigid_body_modes.attach(*a);
+      mfem::PetscPreconditioner::SetOperator(*a);
     }
     /*!
      * \brief compute the rigid body modes given to the preconditioner of

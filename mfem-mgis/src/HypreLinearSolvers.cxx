@@ -233,9 +233,11 @@ namespace mfem_mgis {
    * \param[in] fespace: finite element space
    * \param[in] opts: options:
    * - `Strategy`: `System` (systems options, by default for vector unknowns),
-   *   `Elasticity` (elasticity options, requiring unknowns ordered by vector
-   *   dimension and hypre computing on the host, `System` being used
-   *   otherwise) or `None` (by default for scalar unknowns);
+   *   `Elasticity` (elasticity options, for unknowns with as many components
+   *   as the dimension of the mesh, 2 or 3, which is the space dimension,
+   *   requiring unknowns ordered by vector dimension and hypre computing on
+   *   the host, `System` being used otherwise) or `None` (by default for
+   *   scalar unknowns);
    * - `VerbosityLevel`: print level of hypre;
    * - options of hypre, whose values are the ones of hypre (see its
    *   documentation): `StrengthThreshold`, `CoarseningType`,
@@ -269,6 +271,21 @@ namespace mfem_mgis {
     }
     auto elasticity = false;
     if (*ostrategy == "Elasticity") {
+      // MFEM computes the rigid body modes with as many components as the
+      // dimension of the mesh, from the first coordinates of the nodes: they
+      // are only defined for unknowns with as many components as this
+      // dimension, which shall be the space dimension (MFEM aborts or
+      // computes wrong modes otherwise)
+      const auto* const mesh = fespace.GetParMesh();
+      const auto d = mesh->Dimension();
+      if ((fespace.GetVDim() != d) || (mesh->SpaceDimension() != d) ||
+          ((d != 2) && (d != 3))) {
+        return ctx.registerErrorMessage(
+            "setLinearSolverParameters: strategy 'Elasticity' of "
+            "preconditioner HypreBoomerAMG requires unknowns with as many "
+            "components as the dimension of the mesh (2 or 3), which "
+            "shall be the space dimension");
+      }
       // the elasticity version of BoomerAMG requires Ordering::byVDIM, and
       // is not supported by hypre when it computes on a GPU
       const auto by_vdim = fespace.GetOrdering() == mfem::Ordering::byVDIM;

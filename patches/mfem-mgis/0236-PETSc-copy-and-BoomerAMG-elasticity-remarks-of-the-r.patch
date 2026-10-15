@@ -1,0 +1,391 @@
+From a7ce663e7de9e93901c9498f0782058fe6df18f6 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 20:49:41 +0200
+Subject: [PATCH] PETSc copy and BoomerAMG elasticity: remarks of the review
+
+- the Elasticity strategy of BoomerAMG requires unknowns with as many
+  components as the dimension of the mesh, which shall be the space
+  dimension: MFEM computes the rigid body modes with the dimension of the
+  mesh (a surface mesh in a 3D space with 3 components still aborted);
+  the test checks the error message of the refusal;
+- the matrices of hypre are copied on their own communicator, without
+  the communication of the entries of other processes at the assembly
+  (MAT_NO_OFF_PROC_ENTRIES);
+- PETScSolversTest compares the products by a vector of the matrix given
+  to the Krylov solver of PETSc and of the matrix of hypre, for the
+  Laplace equation and the linear elasticity;
+- wording of the documentation: the tangent operator given to SNES is
+  copied in the AIJ format of the host, on the host as on a GPU.
+---
+ docs/source/user_guide/glossary.rst           |  6 +-
+ .../user_guide/nonlinear_algorithms.rst       |  9 +--
+ .../release_notes/release_notes-1.1.0.rst     |  5 +-
+ src/HypreLinearSolvers.cxx                    | 23 +++++---
+ src/PETScSNESSolver.cxx                       |  8 +--
+ src/PETScSNESSolver.hxx                       | 10 ++--
+ src/PETScSupport.cxx                          | 12 ++--
+ src/PETScSupport.hxx                          |  6 +-
+ tests/HypreBoomerAMGTest.cxx                  | 10 ++--
+ tests/PETScSolversTest.cxx                    | 57 +++++++++++++++++++
+ 10 files changed, 109 insertions(+), 37 deletions(-)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 6fa88ab32f..fdac487883 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -556,9 +556,9 @@ Algebraic MultiGrid (AMG)
+ +================================+===============================================================================================================+
+ | ``Strategy``                   | Propose strategies that can lead to improve convergence and scalability, [Elasticity, System, None]. [string] |
+ |                                | ``System`` by default for vector unknowns, ``None`` otherwise.                                                |
+-|                                | ``Elasticity`` requires unknowns with as many components as the space dimension, 2 or 3 (it is refused        |
+-|                                | otherwise), and the ``FiniteElementSpaceOrdering`` parameter set to ``byVDIM``: it is replaced by             |
+-|                                | ``System``, with a warning, otherwise or when ``hypre`` computes on a GPU.                                    |
++|                                | ``Elasticity`` requires unknowns with as many components as the dimension of the mesh, 2 or 3, which shall be |
++|                                | the space dimension (it is refused otherwise), and the ``FiniteElementSpaceOrdering`` parameter set to        |
++|                                | ``byVDIM``: it is replaced by ``System``, with a warning, otherwise or when ``hypre`` computes on a GPU.      |
+ +--------------------------------+---------------------------------------------------------------------------------------------------------------+
+ | ``VerbosityLevel``             | Define the verbosity of the solver. [int: 0,1]                                                                |
+ +--------------------------------+---------------------------------------------------------------------------------------------------------------+
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index e0fe5a66b3..7501df4c0e 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -481,20 +481,21 @@ systems:
+   convergence (the linear solvers of mfem-mgis having no transposed
+   application, the Krylov solvers which need it fail);
+ - :cxx:`PETSc`: the tangent operator, which must then be assembled, is
+-  converted to the AIJ format of :code:`PETSc` at each update, and the
++  copied in the AIJ format of the host at each update, and the
+   Krylov solver and the preconditioner are the ones of :code:`PETSc` given
+   by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...). The option
+   :cxx:`DiscardLinearSolverFailure` lets SNES go on after a failure of the
+   Krylov solver. When the number of components of the unknowns is the
+   space dimension and the unknowns are ordered by vector dimension, the
+-  converted tangent operator receives the rigid body modes, for the
++  copied tangent operator receives the rigid body modes, for the
+   algebraic multigrid of :code:`PETSc` (option :cxx:`RigidBodyModes`, true
+   by default, see :ref:`petsc_linear_solvers`).
+ 
+ With a GPU, SNES and the solvers of :code:`PETSc` compute on the host: the
+ functions called by :code:`PETSc` copy its vectors from and to the vectors
+-of mfem-mgis on the device, and the tangent operator given to the linear
+-solvers of :code:`PETSc` is converted to the AIJ format of the host (see
++of mfem-mgis on the device. The tangent operator given to the linear
++solvers of :code:`PETSc` is copied in the AIJ format of the host, on the
++host as on a GPU, without initializing the GPU (see
+ :ref:`petsc_linear_solvers`). The vectors of :code:`PETSc` of the GPU, whose
+ memory :code:`MFEM` places in the vectors of :code:`PETSc`, were left by
+ :code:`MFEM` 4.10 in states unknown to its memory manager (with the memory
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 9ce00e6b76..4acfb597c6 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -183,7 +183,10 @@ and transposed interpolations kept. The values of the
+ :cxx:`StrengthThreshold` option of BoomerAMG out of :math:`[0, 1]` and the
+ Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused, as
+ well as the :cxx:`Elasticity` strategy of BoomerAMG for unknowns whose
+-number of components is not the space dimension (:code:`MFEM` aborted).
++number of components is not the dimension of the mesh, or a mesh whose
++dimension is not the space dimension (:code:`MFEM` aborted, or the
++strategy was replaced by :cxx:`System` with unknowns ordered by nodes or
++hypre on a GPU).
+ See :ref:`linear_solvers`.
+ 
+ Sparse direct solvers of oneMKL
+diff --git a/src/HypreLinearSolvers.cxx b/src/HypreLinearSolvers.cxx
+index c54d917462..0c262b3075 100644
+--- a/src/HypreLinearSolvers.cxx
++++ b/src/HypreLinearSolvers.cxx
+@@ -29,7 +29,6 @@
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ #include "ExecutionSettings.hxx"
+ #include "HypreSolvers.hxx"
+-#include "NodesCoordinates.hxx"
+ #include "LinearSolverModules.hxx"
+ 
+ #ifdef MFEM_USE_MPI
+@@ -235,9 +234,10 @@ namespace mfem_mgis {
+    * \param[in] opts: options:
+    * - `Strategy`: `System` (systems options, by default for vector unknowns),
+    *   `Elasticity` (elasticity options, for unknowns with as many components
+-   *   as the space dimension, 2 or 3, requiring unknowns ordered by vector
+-   *   dimension and hypre computing on the host, `System` being used
+-   *   otherwise) or `None` (by default for scalar unknowns);
++   *   as the dimension of the mesh, 2 or 3, which is the space dimension,
++   *   requiring unknowns ordered by vector dimension and hypre computing on
++   *   the host, `System` being used otherwise) or `None` (by default for
++   *   scalar unknowns);
+    * - `VerbosityLevel`: print level of hypre;
+    * - options of hypre, whose values are the ones of hypre (see its
+    *   documentation): `StrengthThreshold`, `CoarseningType`,
+@@ -271,13 +271,20 @@ namespace mfem_mgis {
+     }
+     auto elasticity = false;
+     if (*ostrategy == "Elasticity") {
+-      // the rigid body modes are only defined for unknowns with as many
+-      // components as the space dimension (MFEM aborts otherwise)
+-      if (!internals::hasRigidBodyModes(fespace)) {
++      // MFEM computes the rigid body modes with as many components as the
++      // dimension of the mesh, from the first coordinates of the nodes: they
++      // are only defined for unknowns with as many components as this
++      // dimension, which shall be the space dimension (MFEM aborts or
++      // computes wrong modes otherwise)
++      const auto* const mesh = fespace.GetParMesh();
++      const auto d = mesh->Dimension();
++      if ((fespace.GetVDim() != d) || (mesh->SpaceDimension() != d) ||
++          ((d != 2) && (d != 3))) {
+         return ctx.registerErrorMessage(
+             "setLinearSolverParameters: strategy 'Elasticity' of "
+             "preconditioner HypreBoomerAMG requires unknowns with as many "
+-            "components as the space dimension (2 or 3)");
++            "components as the dimension of the mesh (2 or 3), which "
++            "shall be the space dimension");
+       }
+       // the elasticity version of BoomerAMG requires Ordering::byVDIM, and
+       // is not supported by hypre when it computes on a GPU
+diff --git a/src/PETScSNESSolver.cxx b/src/PETScSNESSolver.cxx
+index 057465b09f..2ad71ffa43 100644
+--- a/src/PETScSNESSolver.cxx
++++ b/src/PETScSNESSolver.cxx
+@@ -291,10 +291,10 @@ namespace mfem_mgis::internals {
+      * \param[in] u: unknowns
+      */
+     mfem::Operator& GetGradient(const mfem::Vector& pu) const override {
+-      // the linear solvers of PETSc need the assembled operator, converted
+-      // by MFEM; otherwise, the products by the tangent operator made by
+-      // PETSc (shell matrix) are given to `tangent_operator`, which copies
+-      // the vectors of PETSc
++      // the linear solvers of PETSc need the assembled operator, copied in
++      // the AIJ format of the host; otherwise, the products by the tangent
++      // operator made by PETSc (shell matrix) are given to `tangent_operator`,
++      // which copies the vectors of PETSc
+       try {
+         copyFromPETSc(pu, this->jacobian_unknowns);
+         const auto& u = this->jacobian_unknowns;
+diff --git a/src/PETScSNESSolver.hxx b/src/PETScSNESSolver.hxx
+index a45a63b7e6..e524a60f51 100644
+--- a/src/PETScSNESSolver.hxx
++++ b/src/PETScSNESSolver.hxx
+@@ -44,12 +44,12 @@ namespace mfem_mgis::internals {
+    * operator is seen by PETSc as a shell matrix, without copy (the line
+    * search multiplies it by the Newton step). With `LinearSolver` set to
+    * `PETSc`, the tangent operator, which must then be assembled, is
+-   * converted to the AIJ format of PETSc at each update, and the Krylov
++   * copied in the AIJ format of the host at each update, without
++   * initializing the GPU (see `makeHostMatrix`), and the Krylov
+    * solver and the preconditioner are the ones of PETSc given by the
+    * options (`ksp_type`, `pc_type`, ...). With a GPU, SNES and the solvers
+    * of PETSc compute on the host, the vectors being copied from and to the
+-   * vectors of mfem-mgis, and the tangent operator given to the solvers of
+-   * PETSc being converted to the AIJ format of the host.
++   * vectors of mfem-mgis.
+    *
+    * The residual is the one of the problem. A failure of the integration of
+    * the behaviours is reported to SNES as a domain error: the backtracking
+@@ -70,8 +70,8 @@ namespace mfem_mgis::internals {
+    * their last integration was made elsewhere (a trial point of the line
+    * search), so that the state of the materials matches the solution.
+    *
+-   * With `LinearSolver` set to `PETSc`, the tangent operator converted to
+-   * the AIJ format receives the rigid body modes as near null space and
++   * With `LinearSolver` set to `PETSc`, the tangent operator copied in the
++   * AIJ format receives the rigid body modes as near null space and
+    * the number of components as block size, for the algebraic multigrid of
+    * PETSc, when the number of components of the unknowns is the space
+    * dimension and the unknowns are ordered by vector dimension (option
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+index 13ba96dd84..81f6c7d995 100644
+--- a/src/PETScSupport.cxx
++++ b/src/PETScSupport.cxx
+@@ -206,11 +206,10 @@ namespace mfem_mgis::internals {
+ 
+   /*!
+    * \return a matrix of PETSc in the AIJ format of the host, copy of a
+-   * matrix of hypre
+-   * \param[in] c: communicator
++   * matrix of hypre, on its communicator and with its distribution
+    * \param[in] a: matrix of hypre
+    */
+-  static Mat copyHypreMatrix(MPI_Comm c, const mfem::HypreParMatrix& a) {
++  static Mat copyHypreMatrix(const mfem::HypreParMatrix& a) {
+     // the arrays of hypre are read on the host, and given back to hypre,
+     // whose computations may be on the GPU, even on error
+     struct HypreLocationGuard {
+@@ -253,7 +252,7 @@ namespace mfem_mgis::internals {
+         mgis::raise("makeHostMatrix: the matrix of hypre can't be copied");
+       }
+     };
+-    check(MatCreate(c, &m));
++    check(MatCreate(a.GetComm(), &m));
+     check(MatSetSizes(m, nrows, ncolumns, PETSC_DETERMINE, PETSC_DETERMINE));
+     check(MatSetType(m, MATAIJ));
+     // only the preallocation of the actual type is used
+@@ -278,6 +277,8 @@ namespace mfem_mgis::internals {
+       check(MatSetValues(m, 1, &row, static_cast<PetscInt>(columns.size()),
+                          columns.data(), values.data(), INSERT_VALUES));
+     }
++    // each process sets its own rows only
++    check(MatSetOption(m, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE));
+     check(MatAssemblyBegin(m, MAT_FINAL_ASSEMBLY));
+     check(MatAssemblyEnd(m, MAT_FINAL_ASSEMBLY));
+     return m;
+@@ -287,8 +288,7 @@ namespace mfem_mgis::internals {
+       MPI_Comm c, const mfem::Operator& op) {
+     const auto* const a = dynamic_cast<const mfem::HypreParMatrix*>(&op);
+     if (a != nullptr) {
+-      return std::make_unique<mfem::PetscParMatrix>(copyHypreMatrix(c, *a),
+-                                                    false);
++      return std::make_unique<mfem::PetscParMatrix>(copyHypreMatrix(*a), false);
+     }
+     // a matrix of PETSc is referenced, and converted in place to the format
+     // of the host if needed
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+index 1aa8228332..5230e6d6f7 100644
+--- a/src/PETScSupport.hxx
++++ b/src/PETScSupport.hxx
+@@ -136,7 +136,8 @@ namespace mfem_mgis::internals {
+   void convertToHostMatrix(Mat a);
+   /*!
+    * \return a matrix of PETSc in the AIJ format of the host, copy of an
+-   * operator. A matrix of hypre is copied row by row: MFEM converts it
++   * operator. A matrix of hypre is copied row by row, on its communicator
++   * and with its distribution: MFEM converts it
+    * through the `MATHYPRE` format of PETSc, whose creation initializes the
+    * GPU when PETSc and hypre are built for it (a context per process, about
+    * 260 MiB of the GPU and 0.4 second each with CUDA 13), although the
+@@ -144,7 +145,8 @@ namespace mfem_mgis::internals {
+    * referenced, and converted in place to the format of the host if needed.
+    * The other operators are converted by MFEM, then to the format of the
+    * host.
+-   * \param[in] c: communicator
++   * \param[in] c: communicator of the operators which are not matrices of
++   * hypre
+    * \param[in] op: operator
+    */
+   [[nodiscard]] std::unique_ptr<mfem::PetscParMatrix> makeHostMatrix(
+diff --git a/tests/HypreBoomerAMGTest.cxx b/tests/HypreBoomerAMGTest.cxx
+index 85104baab3..cabb3f3fda 100644
+--- a/tests/HypreBoomerAMGTest.cxx
++++ b/tests/HypreBoomerAMGTest.cxx
+@@ -6,6 +6,7 @@
+  * \date   02/10/2026
+  */
+ 
++#include <string>
+ #include <cstdlib>
+ #include <iostream>
+ #include "mfem/mesh/pmesh.hpp"
+@@ -133,9 +134,9 @@ static NumbersOfIterations getNumbersOfIterations(
+ }  // end of getNumbersOfIterations
+ 
+ /*!
+- * \return true if the `Elasticity` strategy of BoomerAMG is refused for
+- * unknowns whose number of components differs from the space dimension,
+- * which have no rigid body modes
++ * \return true if the `Elasticity` strategy of BoomerAMG is refused, with
++ * its error message, for unknowns whose number of components differs from
++ * the dimension of the mesh, which have no rigid body modes
+  * \param[in] pmesh: mesh
+  * \param[in] n: number of components of the unknowns
+  */
+@@ -154,7 +155,8 @@ static bool isElasticityStrategyRefused(mfem_mgis::Mesh<true>& pmesh,
+           {"Preconditioner",
+            Parameters{{"Name", "HypreBoomerAMG"},
+                       {"Options", Parameters{{"Strategy", "Elasticity"}}}}}});
+-  return isInvalid(h);
++  return isInvalid(h) && (ctx.getErrorMessage().find("strategy 'Elasticity'") !=
++                          std::string::npos);
+ }  // end of isElasticityStrategyRefused
+ 
+ int main(int argc, char** argv) {
+diff --git a/tests/PETScSolversTest.cxx b/tests/PETScSolversTest.cxx
+index f8ddb1828c..aa08481194 100644
+--- a/tests/PETScSolversTest.cxx
++++ b/tests/PETScSolversTest.cxx
+@@ -34,12 +34,16 @@
+  *   direct solvers MUMPS, PaStiX, SuperLU_DIST and STRUMPACK (LU
+  *   factorization of PETSc), and the Krylov solvers of HPDDM (GCRODR,
+  *   recycling a subspace between two resolutions);
++ * - the matrix given to the Krylov solver of PETSc is the matrix of hypre
++ *   (products by a vector compared);
+  * - when MFEM computes on the host, the solvers of PETSc do not initialize
+  *   the GPU.
+  * \date   15/10/2026
+  */
+ 
+ #include <cmath>
++#include <array>
++#include <algorithm>
+ #include <string>
+ #include <cstdlib>
+ #include <iostream>
+@@ -172,6 +176,57 @@ static std::string getKSPType(const mfem_mgis::LinearSolverHandler& ls) {
+   return type == nullptr ? "" : type;
+ }  // end of getKSPType
+ 
++/*!
++ * \brief check that the matrix given to the Krylov solver of PETSc is the
++ * matrix of hypre: their products by a vector are compared
++ * \param[in] s: system
++ * \param[in] name: name of the system
++ */
++template <typename System>
++static void checkMatrixCopy(System& s, const std::string& name) {
++  using namespace mfem_mgis;
++  auto petsc = [](const PetscErrorCode e, const char* const what) {
++    if (e != 0) {
++      throw std::runtime_error(std::string{what} + " failed");
++    }
++  };
++  auto ls = generate(s, "PETScLinearSolver", Parameters{});
++  ls.linear_solver->SetOperator(s.A);
++  auto a = Mat{};
++  petsc(KSPGetOperators(getKSP(ls), &a, nullptr), "KSPGetOperators");
++  const auto n = s.B.Size();
++  auto x = mfem::Vector(n);
++  x.UseDevice(true);
++  x.Randomize(1 + rank);
++  auto y = mfem::Vector(n);
++  y.UseDevice(true);
++  s.A.Mult(x, y);
++  auto px = Vec{};
++  auto py = Vec{};
++  petsc(MatCreateVecs(a, &px, &py), "MatCreateVecs");
++  auto* v = static_cast<PetscScalar*>(nullptr);
++  petsc(VecGetArrayWrite(px, &v), "VecGetArrayWrite");
++  const auto* const hx = x.HostRead();
++  std::copy(hx, hx + n, v);
++  petsc(VecRestoreArrayWrite(px, &v), "VecRestoreArrayWrite");
++  petsc(MatMult(a, px, py), "MatMult");
++  // maximum difference and maximum value of the products
++  auto e = std::array<double, 2>{0, 0};
++  const auto* w = static_cast<const PetscScalar*>(nullptr);
++  petsc(VecGetArrayRead(py, &w), "VecGetArrayRead");
++  const auto* const hy = y.HostRead();
++  for (int i = 0; i != n; ++i) {
++    e[0] = std::max(e[0], std::abs(static_cast<double>(w[i] - hy[i])));
++    e[1] = std::max(e[1], std::abs(static_cast<double>(hy[i])));
++  }
++  petsc(VecRestoreArrayRead(py, &w), "VecRestoreArrayRead");
++  petsc(VecDestroy(&px), "VecDestroy");
++  petsc(VecDestroy(&py), "VecDestroy");
++  MPI_Allreduce(MPI_IN_PLACE, e.data(), 2, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
++  check((e[1] > 0) && (e[0] <= 1e-14 * e[1]),
++        name + ": the matrix given to PETSc differs from the matrix of hypre");
++}  // end of checkMatrixCopy
++
+ //! \return the type of a preconditioner of PETSc
+ static std::string getPCType(PC pc) {
+   auto type = PCType{};
+@@ -552,6 +607,8 @@ int main(int argc, char** argv) {
+     auto e1 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byVDIM);
+     auto e2 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byNODES);
+     checkRigidBodyModes(e1, e2);
++    checkMatrixCopy(s, "Laplace equation");
++    checkMatrixCopy(e1, "linear elasticity");
+     // the solvers of PETSc compute on the host: when MFEM does too, they
+     // must not initialize the GPU, which opens a context per process
+     if (!mfem::Device::Allows(mfem::Backend::DEVICE_MASK)) {
+-- 
+2.43.0
+

@@ -1,0 +1,142 @@
+Warning: program compiled against libxml 213 using older 209
+
+
+ Num MPI tasks = 8
+ Num OpenMP threads = 1
+ Execution policy = Host
+
+ Max levels = 25
+ Num levels = 8
+
+ Strength Threshold = 0.500000
+ Interpolation Truncation Factor = 0.000000
+ Maximum Row Sum Threshold for Dependency Weakening = 0.900000
+
+ Coarsening Type = HMIS 
+ measures are determined locally
+
+ Interpolation = extended+i
+ Number of functions = 3
+ Functions filtering is off
+
+Operator Matrix Information:
+
+             nonzero            entries/row          row sums
+lev    rows  entries sparse   min  max     avg      min         max
+======================================================================
+  0   56355  4170537  0.001    24   81    74.0  -1.562e-02   1.000e+00
+  1   26355  2356863  0.003    20  140    89.4  -3.057e-02   1.973e-01
+  2    6592  1299676  0.030    27  443   197.2  -3.216e-02   2.729e-01
+  3    2277   564845  0.109    59  568   248.1  -2.521e-01   8.190e-01
+  4     500    96940  0.388    62  348   193.9  -1.369e-02   5.648e-01
+  5      97     6619  0.703    37   96    68.2  -8.361e-03   1.871e+00
+  6      16      246  0.961    11   16    15.4   5.243e-04   9.137e-01
+  7       3        9  1.000     3    3     3.0   1.037e+00   2.786e+00
+
+
+Interpolation Matrix Information:
+                    entries/row        min        max            row sums
+lev  rows x cols  min  max  avgW     weight      weight       min         max
+================================================================================
+  0 56355 x 26355   0    4   2.1   8.730e-02   1.000e+00   0.000e+00   1.000e+00
+  1 26355 x 6592    1    4   4.0  -5.653e-01   1.000e+00   3.782e-01   1.000e+00
+  2  6592 x 2277    1    4   3.8  -1.332e+01   2.917e+01   1.004e-01   1.000e+00
+  3  2277 x 500     1    4   3.8  -2.264e+00   2.578e+00   7.879e-02   1.019e+00
+  4   500 x 97      1    4   3.1  -1.193e+02   8.049e+01   6.465e-02   1.000e+00
+  5    97 x 16      1    4   2.0   2.134e-02   1.000e+00   2.108e-01   1.000e+00
+  6    16 x 3       1    1   1.0   1.971e-01   1.000e+00   1.971e-01   1.000e+00
+
+
+     Complexity:   grid = 1.635968
+               operator = 2.037084
+                 memory = 2.085508
+
+
+
+
+BoomerAMG SOLVER PARAMETERS:
+
+  Maximum number of cycles:         1 
+  Stopping Tolerance:               0.000000e+00 
+  Cycle type (1 = V, 2 = W, etc.):  1
+
+  Relaxation Parameters:
+   Visiting Grid:                     down   up  coarse
+            Number of sweeps:            1    1     1 
+   Type 0=Jac, 3=hGS, 6=hSGS, 9=GE:      8    8     9 
+   Point types, partial sweeps (1=C, -1=F):
+                  Pre-CG relaxation (down):   0
+                   Post-CG relaxation (up):   0
+                             Coarsest grid:   0
+
+
+
+ Num MPI tasks = 8
+ Num OpenMP threads = 1
+ Execution policy = Host
+
+ Max levels = 25
+ Num levels = 8
+
+ Strength Threshold = 0.500000
+ Interpolation Truncation Factor = 0.000000
+ Maximum Row Sum Threshold for Dependency Weakening = 0.900000
+
+ Coarsening Type = HMIS 
+ measures are determined locally
+
+ Interpolation = extended+i
+ Number of functions = 3
+ Functions filtering is off
+
+Operator Matrix Information:
+
+             nonzero            entries/row          row sums
+lev    rows  entries sparse   min  max     avg      min         max
+======================================================================
+  0   56355  4170537  0.001    24   81    74.0  -3.125e-02   2.000e+00
+  1   26355  2356863  0.003    20  140    89.4  -6.114e-02   3.946e-01
+  2    6592  1299676  0.030    27  443   197.2  -6.433e-02   5.458e-01
+  3    2277   564845  0.109    59  568   248.1  -5.042e-01   1.638e+00
+  4     500    96940  0.388    62  348   193.9  -2.738e-02   1.130e+00
+  5      97     6619  0.703    37   96    68.2  -1.672e-02   3.742e+00
+  6      16      246  0.961    11   16    15.4   1.049e-03   1.827e+00
+  7       3        9  1.000     3    3     3.0   2.073e+00   5.572e+00
+
+
+Interpolation Matrix Information:
+                    entries/row        min        max            row sums
+lev  rows x cols  min  max  avgW     weight      weight       min         max
+================================================================================
+  0 56355 x 26355   0    4   2.1   8.730e-02   1.000e+00   0.000e+00   1.000e+00
+  1 26355 x 6592    1    4   4.0  -5.653e-01   1.000e+00   3.782e-01   1.000e+00
+  2  6592 x 2277    1    4   3.8  -1.332e+01   2.917e+01   1.004e-01   1.000e+00
+  3  2277 x 500     1    4   3.8  -2.264e+00   2.578e+00   7.879e-02   1.019e+00
+  4   500 x 97      1    4   3.1  -1.193e+02   8.049e+01   6.465e-02   1.000e+00
+  5    97 x 16      1    4   2.0   2.134e-02   1.000e+00   2.108e-01   1.000e+00
+  6    16 x 3       1    1   1.0   1.971e-01   1.000e+00   1.971e-01   1.000e+00
+
+
+     Complexity:   grid = 1.635968
+               operator = 2.037084
+                 memory = 2.085508
+
+
+
+
+BoomerAMG SOLVER PARAMETERS:
+
+  Maximum number of cycles:         1 
+  Stopping Tolerance:               0.000000e+00 
+  Cycle type (1 = V, 2 = W, etc.):  1
+
+  Relaxation Parameters:
+   Visiting Grid:                     down   up  coarse
+            Number of sweeps:            1    1     1 
+   Type 0=Jac, 3=hGS, 6=hSGS, 9=GE:      8    8     9 
+   Point types, partial sweeps (1=C, -1=F):
+                  Pre-CG relaxation (down):   0
+                   Post-CG relaxation (up):   0
+                             Coarsest grid:   0
+
+label=elasticity/cg-boomeramg/cpu problem=elasticity unknowns=56355 processes=8 solver=CGSolver setup=1.3701e-05 first=0.251376 solve=0.157304 resetup=0.000139491 refirst=0.241076 iterations=30 residual=1.18603e-07 residual2=1.18603e-07 converged=1

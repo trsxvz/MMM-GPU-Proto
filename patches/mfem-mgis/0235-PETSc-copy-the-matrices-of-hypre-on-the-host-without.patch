@@ -1,0 +1,467 @@
+From 4dead57e68ca548564f52f08b455fdcc1c235e3b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 20:23:14 +0200
+Subject: [PATCH] PETSc: copy the matrices of hypre on the host without
+ initializing the GPU
+
+MFEM converts a matrix of hypre through the MATHYPRE format of PETSc,
+whose creation initializes the GPU when PETSc and hypre are built for it.
+The solvers of PETSc compute on the host in mfem-mgis: each process of a
+computation on the host thus opened a context on the GPU (262 MiB each with
+CUDA 13, 2.1 GiB for 8 processes) and lost 0.4 second at the first setup.
+The matrices of hypre are now copied row by row in the AIJ format of the
+host (makeHostMatrix), for the Krylov solvers, the preconditioners and
+SNES. On the beam of 56,355 unknowns with 8 processes, the first setup
+falls from 0.41 to 0.011 second and the following ones from 0.015 to
+0.010 second, with the same iterations.
+
+PETScSolversTest and SNESSolverTest check that the GPU is not initialized
+when MFEM computes on the host. Rename a parameter which shadowed a member
+of PETScOptions.
+---
+ docs/source/user_guide/linear_solvers.rst     |  15 ++-
+ .../release_notes/release_notes-1.1.0.rst     |   5 +-
+ src/PETScLinearSolvers.cxx                    |  59 ++++------
+ src/PETScSNESSolver.cxx                       |  17 +--
+ src/PETScSupport.cxx                          | 108 +++++++++++++++++-
+ src/PETScSupport.hxx                          |  21 +++-
+ tests/PETScSolversTest.cxx                    |  12 +-
+ tests/SNESSolverTest.cxx                      |  13 ++-
+ 8 files changed, 188 insertions(+), 62 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 8d16fa8980..759ddfb40a 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -541,11 +541,16 @@ PETSc ignores the options it does not know: the options which PETSc never
+ read (for instance a misspelt option) are reported when a solver which
+ has been used is destroyed.
+ 
+-When :code:`MFEM` computes on a GPU, the solvers and the preconditioners
+-of PETSc compute on the host: the matrices are converted to the AIJ format
+-of the host, and the vectors copied from and to the vectors of
+-:code:`MFEM`, the preconditioners of mfem-mgis given to the Krylov solvers
+-of PETSc being applied on the vectors of :code:`MFEM`. With :code:`MFEM`
++The solvers and the preconditioners of PETSc compute on the host, even
++when :code:`MFEM` computes on a GPU. The matrices of hypre are copied in
++the AIJ format of the host by mfem-mgis: the conversion of :code:`MFEM`
++goes through the :code:`MATHYPRE` format of PETSc, whose creation
++initializes the GPU when PETSc and hypre are built for it (a context per
++process, about 260 MiB of the GPU and 0.4 second each with CUDA 13), even
++for a computation on the host. When :code:`MFEM` computes on a GPU, the
++vectors are copied from and to the vectors of :code:`MFEM`, the
++preconditioners of mfem-mgis given to the Krylov solvers of PETSc being
++applied on the vectors of :code:`MFEM`. With :code:`MFEM`
+ 4.10 and :code:`PETSc` 3.26 built with CUDA, the vectors of :code:`MFEM`
+ placed in the vectors of PETSc (whose internal offload mask :code:`MFEM`
+ sets) were seen as null by the Krylov solvers of PETSc and by the shell
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index b88d45413e..9ce00e6b76 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -147,8 +147,9 @@ preconditioners of PETSc, among which its algebraic multigrid (GAMG). A precondi
+ mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
+ :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
+ For the linear elasticity, with the unknowns ordered by vector dimension,
+-the rigid body modes are given to the preconditioners of PETSc (GAMG). See
+-:ref:`petsc_linear_solvers`.
++the rigid body modes are given to the preconditioners of PETSc (GAMG).
++They compute on the host, the matrices of hypre being copied without
++initializing the GPU. See :ref:`petsc_linear_solvers`.
+ 
+ Linear solvers and preconditioners of Ginkgo
+ --------------------------------------------
+diff --git a/src/PETScLinearSolvers.cxx b/src/PETScLinearSolvers.cxx
+index 1c45167969..109c56fe9d 100644
+--- a/src/PETScLinearSolvers.cxx
++++ b/src/PETScLinearSolvers.cxx
+@@ -5,15 +5,16 @@
+  * solver (`KSP`) and a preconditioner (`PC`) of PETSc, configured by the
+  * options database of PETSc.
+  *
+- * When MFEM computes on a GPU, the solvers and the preconditioners of PETSc
+- * compute on the host: the matrices are converted to the AIJ format of the
+- * host, and the vectors copied from and to the vectors of MFEM through the
+- * arrays of the host of PETSc. With MFEM 4.10 and PETSc 3.26 built with
+- * CUDA, the vectors of MFEM placed by MFEM in the vectors of PETSc, whose
+- * internal offload mask MFEM sets, were seen as null by the Krylov solvers
+- * of PETSc and by the shell preconditioners, and the vectors of PETSc of
+- * the GPU made `PetscFinalize` abort the program when freeing the memory
+- * pool of PETSc on the GPU.
++ * The solvers and the preconditioners of PETSc compute on the host, even
++ * when MFEM computes on a GPU: the matrices are copied in the AIJ format of
++ * the host (see `makeHostMatrix`, which does not initialize the GPU), and,
++ * when MFEM computes on a GPU, the vectors are copied from and to the
++ * vectors of MFEM through the arrays of the host of PETSc. With MFEM 4.10 and
++ * PETSc 3.26 built with CUDA, the vectors of MFEM placed by MFEM in the vectors
++ * of PETSc, whose internal offload mask MFEM sets, were seen as null by the
++ * Krylov solvers of PETSc and by the shell preconditioners, and the vectors of
++ * PETSc of the GPU made `PetscFinalize` abort the program when freeing the
++ * memory pool of PETSc on the GPU.
+  * \date   15/10/2026
+  */
+ 
+@@ -104,20 +105,12 @@ namespace mfem_mgis::internals {
+       if (this->shell_preconditioner != nullptr) {
+         this->shell_preconditioner->SetOperator(op);
+       }
+-      mfem::PetscLinearSolver::SetOperator(op);
+-      auto a = Mat{};
+-      auto p = Mat{};
+-      if (KSPGetOperators(static_cast<KSP>(*this), &a, &p) != 0) {
+-        mgis::raise("PETScKrylovSolver::SetOperator: KSPGetOperators failed");
+-      }
+-      if (mfem::Device::IsEnabled()) {
+-        // see the description of this file
+-        convertToHostMatrix(a);
+-        if (p != a) {
+-          convertToHostMatrix(p);
+-        }
+-      }
+-      this->rigid_body_modes.attach(p);
++      // the operator is copied in the AIJ format of the host (see
++      // `makeHostMatrix` and the description of this file), referenced by
++      // the Krylov solver
++      const auto a = makeHostMatrix(this->GetComm(), op);
++      this->rigid_body_modes.attach(*a);
++      mfem::PetscLinearSolver::SetOperator(*a);
+     }
+     /*!
+      * \brief compute the rigid body modes given to the preconditioners of
+@@ -236,20 +229,12 @@ namespace mfem_mgis::internals {
+         : PETScOptions(comm, "pc"),
+           mfem::PetscPreconditioner(comm, this->prefix) {}
+     void SetOperator(const mfem::Operator& op) override {
+-      mfem::PetscPreconditioner::SetOperator(op);
+-      auto a = Mat{};
+-      auto p = Mat{};
+-      if (PCGetOperators(static_cast<PC>(*this), &a, &p) != 0) {
+-        mgis::raise("PETScPreconditioner::SetOperator: PCGetOperators failed");
+-      }
+-      if (mfem::Device::IsEnabled()) {
+-        // see the description of this file
+-        convertToHostMatrix(a);
+-        if (p != a) {
+-          convertToHostMatrix(p);
+-        }
+-      }
+-      this->rigid_body_modes.attach(p);
++      // the operator is copied in the AIJ format of the host (see
++      // `makeHostMatrix` and the description of this file), referenced by
++      // the preconditioner
++      const auto a = makeHostMatrix(this->GetComm(), op);
++      this->rigid_body_modes.attach(*a);
++      mfem::PetscPreconditioner::SetOperator(*a);
+     }
+     /*!
+      * \brief compute the rigid body modes given to the preconditioner of
+diff --git a/src/PETScSNESSolver.cxx b/src/PETScSNESSolver.cxx
+index 694b719332..057465b09f 100644
+--- a/src/PETScSNESSolver.cxx
++++ b/src/PETScSNESSolver.cxx
+@@ -19,7 +19,6 @@
+ #include <string_view>
+ #include <algorithm>
+ #include "petscsnes.h"
+-#include "mfem/general/device.hpp"
+ #include "mfem/linalg/hypre.hpp"
+ #include "mfem/linalg/petsc.hpp"
+ #include "MGIS/Raise.hxx"
+@@ -337,19 +336,13 @@ namespace mfem_mgis::internals {
+         }
+         if (success) {
+           if (s.petsc_linear_solver) {
+-            // the tangent operator is converted to the AIJ format of PETSc
++            // the tangent operator is copied in the AIJ format of the host
+             // here, so that it receives the rigid body modes (MFEM gives
+-            // this matrix to SNES with its near null space). When MFEM
+-            // computes on a GPU, it is converted to the format of the host
+-            // (MFEM chooses the format of the GPU), the solvers of PETSc
+-            // computing on the host (see the description of
+-            // PETScLinearSolvers.cxx)
++            // this matrix to SNES with its near null space), the solvers of
++            // PETSc computing on the host (see `makeHostMatrix` and the
++            // description of PETScLinearSolvers.cxx)
+             this->petsc_tangent_operator =
+-                std::make_unique<mfem::PetscParMatrix>(
+-                    this->communicator, j, mfem::Operator::PETSC_MATAIJ);
+-            if (mfem::Device::IsEnabled()) {
+-              convertToHostMatrix(*(this->petsc_tangent_operator));
+-            }
++                makeHostMatrix(this->communicator, *j);
+             if ((s.rigid_body_modes) && (!this->rigid_body_modes_computed)) {
+               this->rigid_body_modes.initialize(*(s.fespace));
+               this->rigid_body_modes_computed = true;
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+index 2748edbe6c..13ba96dd84 100644
+--- a/src/PETScSupport.cxx
++++ b/src/PETScSupport.cxx
+@@ -10,6 +10,8 @@
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+ 
+ #include <array>
++#include <vector>
++#include <memory>
+ #include <tuple>
+ #include <atomic>
+ #include <string>
+@@ -22,6 +24,7 @@
+ #include "petscvec.h"
+ #include "petscmat.h"
+ #include "mfem/fem/pfespace.hpp"
++#include "mfem/linalg/hypre.hpp"
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "NodesCoordinates.hxx"
+@@ -99,8 +102,8 @@ namespace mfem_mgis::internals {
+   PETScOptions::PETScOptions(MPI_Comm c, const std::string_view kind)
+       : prefix(makePETScOptionsPrefix(kind)), communicator(c) {}
+ 
+-  bool PETScOptions::setOptions(Context& ctx, const Parameters& options) {
+-    for (const auto& [n, p] : options) {
++  bool PETScOptions::setOptions(Context& ctx, const Parameters& opts) {
++    for (const auto& [n, p] : opts) {
+       if (n.empty() || n.starts_with('-')) {
+         return ctx.registerErrorMessage(
+             "invalid option '" + n +
+@@ -201,6 +204,107 @@ namespace mfem_mgis::internals {
+     }
+   }  // end of convertToHostMatrix
+ 
++  /*!
++   * \return a matrix of PETSc in the AIJ format of the host, copy of a
++   * matrix of hypre
++   * \param[in] c: communicator
++   * \param[in] a: matrix of hypre
++   */
++  static Mat copyHypreMatrix(MPI_Comm c, const mfem::HypreParMatrix& a) {
++    // the arrays of hypre are read on the host, and given back to hypre,
++    // whose computations may be on the GPU, even on error
++    struct HypreLocationGuard {
++      ~HypreLocationGuard() { this->matrix.HypreRead(); }
++      const mfem::HypreParMatrix& matrix;
++    };
++    a.HostRead();
++    const auto guard = HypreLocationGuard{a};
++    auto* const h =
++        static_cast<hypre_ParCSRMatrix*>(const_cast<mfem::HypreParMatrix&>(a));
++    auto* const diag = hypre_ParCSRMatrixDiag(h);
++    auto* const offd = hypre_ParCSRMatrixOffd(h);
++    const auto* const cmap = hypre_ParCSRMatrixColMapOffd(h);
++    const auto* const di = hypre_CSRMatrixI(diag);
++    const auto* const dj = hypre_CSRMatrixJ(diag);
++    const auto* const dv = hypre_CSRMatrixData(diag);
++    // the off-diagonal block may have no row offsets when it is empty
++    const auto* const oi = hypre_CSRMatrixI(offd);
++    const auto* const oj = hypre_CSRMatrixJ(offd);
++    const auto* const ov = hypre_CSRMatrixData(offd);
++    const auto nrows = static_cast<PetscInt>(hypre_CSRMatrixNumRows(diag));
++    const auto ncolumns = static_cast<PetscInt>(hypre_CSRMatrixNumCols(diag));
++    const auto first_row =
++        static_cast<PetscInt>(hypre_ParCSRMatrixFirstRowIndex(h));
++    const auto first_column =
++        static_cast<PetscInt>(hypre_ParCSRMatrixFirstColDiag(h));
++    auto offd_size = [oi](const PetscInt r) -> PetscInt {
++      return oi == nullptr ? 0 : static_cast<PetscInt>(oi[r + 1] - oi[r]);
++    };
++    auto d_nnz = std::vector<PetscInt>(static_cast<std::size_t>(nrows));
++    auto o_nnz = std::vector<PetscInt>(static_cast<std::size_t>(nrows));
++    for (PetscInt r = 0; r != nrows; ++r) {
++      d_nnz[r] = static_cast<PetscInt>(di[r + 1] - di[r]);
++      o_nnz[r] = offd_size(r);
++    }
++    auto m = Mat{};
++    auto check = [&m](const PetscErrorCode e) {
++      if (e != 0) {
++        std::ignore = MatDestroy(&m);
++        mgis::raise("makeHostMatrix: the matrix of hypre can't be copied");
++      }
++    };
++    check(MatCreate(c, &m));
++    check(MatSetSizes(m, nrows, ncolumns, PETSC_DETERMINE, PETSC_DETERMINE));
++    check(MatSetType(m, MATAIJ));
++    // only the preallocation of the actual type is used
++    check(MatSeqAIJSetPreallocation(m, 0, d_nnz.data()));
++    check(MatMPIAIJSetPreallocation(m, 0, d_nnz.data(), 0, o_nnz.data()));
++    auto columns = std::vector<PetscInt>{};
++    auto values = std::vector<PetscScalar>{};
++    for (PetscInt r = 0; r != nrows; ++r) {
++      columns.clear();
++      values.clear();
++      for (auto k = di[r]; k != di[r + 1]; ++k) {
++        columns.push_back(first_column + static_cast<PetscInt>(dj[k]));
++        values.push_back(static_cast<PetscScalar>(dv[k]));
++      }
++      if (offd_size(r) != 0) {
++        for (auto k = oi[r]; k != oi[r + 1]; ++k) {
++          columns.push_back(static_cast<PetscInt>(cmap[oj[k]]));
++          values.push_back(static_cast<PetscScalar>(ov[k]));
++        }
++      }
++      const auto row = first_row + r;
++      check(MatSetValues(m, 1, &row, static_cast<PetscInt>(columns.size()),
++                         columns.data(), values.data(), INSERT_VALUES));
++    }
++    check(MatAssemblyBegin(m, MAT_FINAL_ASSEMBLY));
++    check(MatAssemblyEnd(m, MAT_FINAL_ASSEMBLY));
++    return m;
++  }  // end of copyHypreMatrix
++
++  std::unique_ptr<mfem::PetscParMatrix> makeHostMatrix(
++      MPI_Comm c, const mfem::Operator& op) {
++    const auto* const a = dynamic_cast<const mfem::HypreParMatrix*>(&op);
++    if (a != nullptr) {
++      return std::make_unique<mfem::PetscParMatrix>(copyHypreMatrix(c, *a),
++                                                    false);
++    }
++    // a matrix of PETSc is referenced, and converted in place to the format
++    // of the host if needed
++    const auto* const p = dynamic_cast<const mfem::PetscParMatrix*>(&op);
++    if (p != nullptr) {
++      auto m =
++          std::make_unique<mfem::PetscParMatrix>(static_cast<Mat>(*p), true);
++      convertToHostMatrix(*m);
++      return m;
++    }
++    auto m = std::make_unique<mfem::PetscParMatrix>(
++        c, &op, mfem::Operator::PETSC_MATAIJ);
++    convertToHostMatrix(*m);
++    return m;
++  }  // end of makeHostMatrix
++
+   void PETScRigidBodyModes::initialize(FiniteElementSpace<true>& fespace) {
+     this->dimension = 0;
+     this->coordinates.clear();
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+index 508ab97249..1aa8228332 100644
+--- a/src/PETScSupport.hxx
++++ b/src/PETScSupport.hxx
+@@ -10,6 +10,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#include <memory>
+ #include <string>
+ #include <vector>
+ #include <string_view>
+@@ -17,6 +18,7 @@
+ #include "petscvec.h"
+ #include "petscmat.h"
+ #include "mfem/linalg/vector.hpp"
++#include "mfem/linalg/petsc.hpp"
+ #include "MFEMMGIS/MFEMForward.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+@@ -67,10 +69,10 @@ namespace mfem_mgis::internals {
+      * \brief write options in the options database of PETSc
+      * \return true on success
+      * \param[in, out] ctx: execution context
+-     * \param[in] options: options, given without the leading dash and the
++     * \param[in] opts: options, given without the leading dash and the
+      * prefix (for instance `{"ksp_type", "cg"}`)
+      */
+-    [[nodiscard]] bool setOptions(Context& ctx, const Parameters& options);
++    [[nodiscard]] bool setOptions(Context& ctx, const Parameters& opts);
+     /*!
+      * \brief destructor, reporting the options which PETSc never read, if
+      * the solver has been used, and removing the options from the options
+@@ -132,6 +134,21 @@ namespace mfem_mgis::internals {
+    * \param[in, out] a: matrix
+    */
+   void convertToHostMatrix(Mat a);
++  /*!
++   * \return a matrix of PETSc in the AIJ format of the host, copy of an
++   * operator. A matrix of hypre is copied row by row: MFEM converts it
++   * through the `MATHYPRE` format of PETSc, whose creation initializes the
++   * GPU when PETSc and hypre are built for it (a context per process, about
++   * 260 MiB of the GPU and 0.4 second each with CUDA 13), although the
++   * solvers of PETSc compute on the host in mfem-mgis. A matrix of PETSc is
++   * referenced, and converted in place to the format of the host if needed.
++   * The other operators are converted by MFEM, then to the format of the
++   * host.
++   * \param[in] c: communicator
++   * \param[in] op: operator
++   */
++  [[nodiscard]] std::unique_ptr<mfem::PetscParMatrix> makeHostMatrix(
++      MPI_Comm c, const mfem::Operator& op);
+ 
+   /*!
+    * \brief rigid body modes of the unknowns of a finite element space,
+diff --git a/tests/PETScSolversTest.cxx b/tests/PETScSolversTest.cxx
+index 79f193bdcd..f8ddb1828c 100644
+--- a/tests/PETScSolversTest.cxx
++++ b/tests/PETScSolversTest.cxx
+@@ -33,7 +33,9 @@
+  * - the external packages of PETSc, if PETSc is built with them: the sparse
+  *   direct solvers MUMPS, PaStiX, SuperLU_DIST and STRUMPACK (LU
+  *   factorization of PETSc), and the Krylov solvers of HPDDM (GCRODR,
+- *   recycling a subspace between two resolutions).
++ *   recycling a subspace between two resolutions);
++ * - when MFEM computes on the host, the solvers of PETSc do not initialize
++ *   the GPU.
+  * \date   15/10/2026
+  */
+ 
+@@ -44,6 +46,7 @@
+ #include <stdexcept>
+ #include "mfem.hpp"
+ #include "petscksp.h"
++#include "petscdevice.h"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+@@ -549,6 +552,13 @@ int main(int argc, char** argv) {
+     auto e1 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byVDIM);
+     auto e2 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byNODES);
+     checkRigidBodyModes(e1, e2);
++    // the solvers of PETSc compute on the host: when MFEM does too, they
++    // must not initialize the GPU, which opens a context per process
++    if (!mfem::Device::Allows(mfem::Backend::DEVICE_MASK)) {
++      check((!PetscDeviceInitialized(PETSC_DEVICE_CUDA)) &&
++                (!PetscDeviceInitialized(PETSC_DEVICE_HIP)),
++            "the solvers of PETSc initialized the GPU");
++    }
+   } catch (std::exception& e) {
+     std::cerr << "error: " << e.what() << '\n';
+     return EXIT_FAILURE;
+diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
+index 1b676437af..7a6d75fdeb 100644
+--- a/tests/SNESSolverTest.cxx
++++ b/tests/SNESSolverTest.cxx
+@@ -29,7 +29,9 @@
+  *   being below it, fails after at least one iteration;
+  * - a failure of the linear solver stops the resolution at the first
+  *   iteration;
+- * - the invalid options are refused, and SNES in sequential.
++ * - the invalid options are refused, and SNES in sequential;
++ * - when MFEM computes on the host, SNES and the solvers of PETSc do not
++ *   initialize the GPU.
+  *
+  * With a GPU, SNES and the solvers of PETSc compute on the host, the
+  * vectors being copied from and to the vectors of mfem-mgis on the device.
+@@ -44,6 +46,8 @@
+ #include <cstdlib>
+ #include <iostream>
+ #include <algorithm>
++#include "petscdevice.h"
++#include "mfem/general/device.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+@@ -485,6 +489,13 @@ int main(int argc, char** argv) {
+   checkRefusal(mesh, Parameters{{"MaximumNewtonStep", 1.}},
+                "MaximumNewtonStep");
+   checkRefusal(mesh, Parameters{}, "only available in parallel", false);
++  // SNES and the solvers of PETSc compute on the host: when MFEM does too,
++  // they must not initialize the GPU, which opens a context per process
++  if (!mfem::Device::Allows(mfem::Backend::DEVICE_MASK)) {
++    check((!PetscDeviceInitialized(PETSC_DEVICE_CUDA)) &&
++              (!PetscDeviceInitialized(PETSC_DEVICE_HIP)),
++          "SNES initialized the GPU");
++  }
+   print(failures == 0 ? "success" : "failure");
+   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+ }  // end of main
+-- 
+2.43.0
+

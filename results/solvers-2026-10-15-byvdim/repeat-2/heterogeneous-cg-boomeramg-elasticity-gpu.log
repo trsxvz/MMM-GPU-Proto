@@ -1,0 +1,141 @@
+Warning: program compiled against libxml 213 using older 209
+[warning]: setLinearSolverParameters: strategy 'Elasticity' of preconditioner HypreBoomerAMG is not supported by hypre on a GPU, using strategy 'System' instead
+
+
+ Num MPI tasks = 1
+ Num OpenMP threads = 1
+ Execution policy = Device (CUDA)
+
+ Max levels = 25
+ Num levels = 7
+
+ Strength Threshold = 0.500000
+ Interpolation Truncation Factor = 0.000000
+ Maximum Row Sum Threshold for Dependency Weakening = 0.900000
+
+ Coarsening Type = PMIS 
+ measures are determined locally
+
+ Interpolation = extended+i
+ Number of functions = 3
+ Functions filtering is off
+
+Operator Matrix Information:
+
+             nonzero            entries/row          row sums
+lev    rows  entries sparse   min  max     avg      min         max
+======================================================================
+  0   56355  4170537  0.001    24   81    74.0  -1.563e+01   2.188e+02
+  1   24471  2667953  0.004    22  212   109.0  -3.350e+01   2.254e+02
+  2    6242  1228604  0.032    27  497   196.8  -1.579e+01   2.825e+02
+  3    1109   189241  0.154    27  389   170.6  -2.382e+01   3.607e+02
+  4     269    31987  0.442    50  197   118.9  -1.432e+01   4.059e+02
+  5      64     3188  0.778    34   64    49.8  -6.940e+00   3.925e+02
+  6       9       81  1.000     9    9     9.0  -2.062e+00   5.234e+02
+
+
+Interpolation Matrix Information:
+                    entries/row        min        max            row sums
+lev  rows x cols  min  max  avgW     weight      weight       min         max
+================================================================================
+  0 56355 x 24471   0    4   2.5   6.786e-02   1.290e+00   0.000e+00   1.290e+00
+  1 24471 x 6242    1    4   3.8   1.095e-02   1.055e+00   1.745e-01   1.733e+00
+  2  6242 x 1109    1    4   2.9   7.990e-03   1.080e+00   9.532e-02   1.327e+00
+  3  1109 x 269     0    4   3.2   9.414e-03   1.020e+00   0.000e+00   1.315e+00
+  4   269 x 64      1    4   3.2   1.012e-02   1.005e+00   1.056e-01   1.056e+00
+  5    64 x 9       1    4   1.6   6.815e-02   1.000e+00   9.548e-02   1.019e+00
+
+
+     Complexity:   grid = 1.570739
+               operator = 1.988135
+                 memory = 2.036244
+
+
+
+
+BoomerAMG SOLVER PARAMETERS:
+
+  Maximum number of cycles:         1 
+  Stopping Tolerance:               0.000000e+00 
+  Cycle type (1 = V, 2 = W, etc.):  1
+
+  Relaxation Parameters:
+   Visiting Grid:                     down   up  coarse
+            Number of sweeps:            1    1     1 
+   Type 0=Jac, 3=hGS, 6=hSGS, 9=GE:     18   18     9 
+   Point types, partial sweeps (1=C, -1=F):
+                  Pre-CG relaxation (down):   0
+                   Post-CG relaxation (up):   0
+                             Coarsest grid:   0
+
+
+
+ Num MPI tasks = 1
+ Num OpenMP threads = 1
+ Execution policy = Device (CUDA)
+
+ Max levels = 25
+ Num levels = 8
+
+ Strength Threshold = 0.500000
+ Interpolation Truncation Factor = 0.000000
+ Maximum Row Sum Threshold for Dependency Weakening = 0.900000
+
+ Coarsening Type = PMIS 
+ measures are determined locally
+
+ Interpolation = extended+i
+ Number of functions = 3
+ Functions filtering is off
+
+Operator Matrix Information:
+
+             nonzero            entries/row          row sums
+lev    rows  entries sparse   min  max     avg      min         max
+======================================================================
+  0   56355  4170537  0.001    24   81    74.0  -3.125e+01   4.375e+02
+  1   24417  2667409  0.004    22  214   109.2  -7.168e+01   4.640e+02
+  2    6234  1227510  0.032    25  506   196.9  -1.642e+01   5.473e+02
+  3    1069   181887  0.159    27  368   170.1  -4.593e+01   6.497e+02
+  4     281    35207  0.446    50  212   125.3  -1.936e+01   8.296e+02
+  5      69     3491  0.733    30   68    50.6  -2.186e+01   9.010e+02
+  6      16      254  0.992    15   16    15.9  -8.918e-01   8.161e+02
+  7       4       16  1.000     4    4     4.0   4.882e+02   7.070e+02
+
+
+Interpolation Matrix Information:
+                    entries/row        min        max            row sums
+lev  rows x cols  min  max  avgW     weight      weight       min         max
+================================================================================
+  0 56355 x 24417   0    4   2.5   6.786e-02   1.290e+00   0.000e+00   1.290e+00
+  1 24417 x 6234    1    4   3.8   6.964e-03   1.047e+00   1.856e-01   1.559e+00
+  2  6234 x 1069    1    4   2.9   8.092e-03   1.042e+00   4.410e-02   1.238e+00
+  3  1069 x 281     0    4   3.3   1.063e-02   1.033e+00   0.000e+00   1.211e+00
+  4   281 x 69      0    4   3.0   2.314e-02   1.006e+00   0.000e+00   1.016e+00
+  5    69 x 16      0    4   2.1   2.556e-02   1.000e+00   0.000e+00   1.007e+00
+  6    16 x 4       1    2   1.2   8.229e-02   1.001e+00   4.109e-01   1.001e+00
+
+
+     Complexity:   grid = 1.569426
+               operator = 1.986869
+                 memory = 2.034996
+
+
+
+
+BoomerAMG SOLVER PARAMETERS:
+
+  Maximum number of cycles:         1 
+  Stopping Tolerance:               0.000000e+00 
+  Cycle type (1 = V, 2 = W, etc.):  1
+
+  Relaxation Parameters:
+   Visiting Grid:                     down   up  coarse
+            Number of sweeps:            1    1     1 
+   Type 0=Jac, 3=hGS, 6=hSGS, 9=GE:     18   18     9 
+   Point types, partial sweeps (1=C, -1=F):
+                  Pre-CG relaxation (down):   0
+                   Post-CG relaxation (up):   0
+                             Coarsest grid:   0
+
+label=heterogeneous/cg-boomeramg-elasticity/gpu problem=elasticity unknowns=56355 processes=1 solver=CGSolver setup=7.35e-06 first=0.118192 solve=0.0800021 resetup=0.000126191 refirst=0.114592 iterations=94 residual=7.35024e-07 residual2=6.68892e-07 converged=1

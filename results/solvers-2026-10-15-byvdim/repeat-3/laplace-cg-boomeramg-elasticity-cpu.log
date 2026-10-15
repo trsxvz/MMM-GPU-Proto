@@ -1,0 +1,16 @@
+Warning: program compiled against libxml 213 using older 209
+error: setLinearSolverParameters: strategy 'Elasticity' of preconditioner HypreBoomerAMG requires unknowns with as many components as the dimension of the mesh (2 or 3), which shall be the space dimension
+error: setLinearSolverParameters: strategy 'Elasticity' of preconditioner HypreBoomerAMG requires unknowns with as many components as the dimension of the mesh (2 or 3), which shall be the space dimension
+error: setLinearSolverParameters: strategy 'Elasticity' of preconditioner HypreBoomerAMG requires unknowns with as many components as the dimension of the mesh (2 or 3), which shall be the space dimension
+error: setLinearSolverParameters: strategy 'Elasticity' of preconditioner HypreBoomerAMG requires unknowns with as many components as the dimension of the mesh (2 or 3), which shall be the space dimension
+error: setLinearSolverParameters: strategy 'Elasticity' of preconditioner HypreBoomerAMG requires unknowns with as many components as the dimension of the mesh (2 or 3), which shall be the space dimension
+error: setLinearSolverParameters: strategy 'Elasticity' of preconditioner HypreBoomerAMG requires unknowns with as many components as the dimension of the mesh (2 or 3), which shall be the space dimension
+error: setLinearSolverParameters: strategy 'Elasticity' of preconditioner HypreBoomerAMG requires unknowns with as many components as the dimension of the mesh (2 or 3), which shall be the space dimension
+error: setLinearSolverParameters: strategy 'Elasticity' of preconditioner HypreBoomerAMG requires unknowns with as many components as the dimension of the mesh (2 or 3), which shall be the space dimension
+--------------------------------------------------------------------------
+prterun detected that one or more processes exited with non-zero status,
+thus causing the job to be terminated. The first process to do so was:
+
+   Process name: [prterun-t-MS-7E47-685081@1,1]
+   Exit code:    1
+--------------------------------------------------------------------------

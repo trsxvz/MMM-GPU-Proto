@@ -56,11 +56,13 @@ same operator.
   known), MGR of hypre with an F-relaxation by AMG (GMRES, 362 iterations
   on the elasticity, 1147 with inclusions, against about 35 on the small
   beam of `HypreMGRTest`: its iterations grow with the size), GAMG of PETSc
-  on the elasticity (177 to 284 iterations, probably because the rigid
-  body modes are not given to it, not checked).
+  on the elasticity (177 to 284 iterations: the rigid body modes were not
+  given to it; 15 to 25 iterations with them, see
+  `results/solvers-2026-10-15-byvdim`).
 - `cg-boomeramg-elasticity` did not use the elasticity options: they
   require the unknowns ordered by vector dimension, and the benchmark
   ordered them by nodes (mfem-mgis then falls back to the systems options,
   with a warning; on the GPU, hypre does not support them anyway). The
-  configuration now passes `-bv`; to be measured again on a quiet machine.
+  configuration now passes `-bv`. Measured again, with GAMG given the
+  rigid body modes, in `results/solvers-2026-10-15-byvdim`.
 - Laplace: MGR is refused (one component), as expected.

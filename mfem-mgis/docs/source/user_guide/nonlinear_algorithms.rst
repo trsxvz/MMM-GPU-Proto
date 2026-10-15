@@ -481,20 +481,21 @@ systems:
   convergence (the linear solvers of mfem-mgis having no transposed
   application, the Krylov solvers which need it fail);
 - :cxx:`PETSc`: the tangent operator, which must then be assembled, is
-  converted to the AIJ format of :code:`PETSc` at each update, and the
+  copied in the AIJ format of the host at each update, and the
   Krylov solver and the preconditioner are the ones of :code:`PETSc` given
   by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...). The option
   :cxx:`DiscardLinearSolverFailure` lets SNES go on after a failure of the
   Krylov solver. When the number of components of the unknowns is the
   space dimension and the unknowns are ordered by vector dimension, the
-  converted tangent operator receives the rigid body modes, for the
+  copied tangent operator receives the rigid body modes, for the
   algebraic multigrid of :code:`PETSc` (option :cxx:`RigidBodyModes`, true
   by default, see :ref:`petsc_linear_solvers`).
 
 With a GPU, SNES and the solvers of :code:`PETSc` compute on the host: the
 functions called by :code:`PETSc` copy its vectors from and to the vectors
-of mfem-mgis on the device, and the tangent operator given to the linear
-solvers of :code:`PETSc` is converted to the AIJ format of the host (see
+of mfem-mgis on the device. The tangent operator given to the linear
+solvers of :code:`PETSc` is copied in the AIJ format of the host, on the
+host as on a GPU, without initializing the GPU (see
 :ref:`petsc_linear_solvers`). The vectors of :code:`PETSc` of the GPU, whose
 memory :code:`MFEM` places in the vectors of :code:`PETSc`, were left by
 :code:`MFEM` 4.10 in states unknown to its memory manager (with the memory

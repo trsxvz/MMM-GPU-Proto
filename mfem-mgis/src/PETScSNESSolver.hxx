@@ -44,12 +44,12 @@ namespace mfem_mgis::internals {
    * operator is seen by PETSc as a shell matrix, without copy (the line
    * search multiplies it by the Newton step). With `LinearSolver` set to
    * `PETSc`, the tangent operator, which must then be assembled, is
-   * converted to the AIJ format of PETSc at each update, and the Krylov
+   * copied in the AIJ format of the host at each update, without
+   * initializing the GPU (see `makeHostMatrix`), and the Krylov
    * solver and the preconditioner are the ones of PETSc given by the
    * options (`ksp_type`, `pc_type`, ...). With a GPU, SNES and the solvers
    * of PETSc compute on the host, the vectors being copied from and to the
-   * vectors of mfem-mgis, and the tangent operator given to the solvers of
-   * PETSc being converted to the AIJ format of the host.
+   * vectors of mfem-mgis.
    *
    * The residual is the one of the problem. A failure of the integration of
    * the behaviours is reported to SNES as a domain error: the backtracking
@@ -70,8 +70,8 @@ namespace mfem_mgis::internals {
    * their last integration was made elsewhere (a trial point of the line
    * search), so that the state of the materials matches the solution.
    *
-   * With `LinearSolver` set to `PETSc`, the tangent operator converted to
-   * the AIJ format receives the rigid body modes as near null space and
+   * With `LinearSolver` set to `PETSc`, the tangent operator copied in the
+   * AIJ format receives the rigid body modes as near null space and
    * the number of components as block size, for the algebraic multigrid of
    * PETSc, when the number of components of the unknowns is the space
    * dimension and the unknowns are ordered by vector dimension (option

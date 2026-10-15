@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Tables of the campaign of measurements of the linear solvers
 (cases/measure-solvers.sh): one table per problem and per target (CPU or
-GPU), sorted by the time of the first resolution, setup included.
+GPU), sorted by the time of the first resolution, setup included. With
+several files (repetitions of the campaign), each time is the minimum of
+the repetitions.
 
-usage: summary-solvers.py runs.txt > summary.md
+usage: summary-solvers.py runs.txt [runs.txt ...] > summary.md
 """
 
 import sys
@@ -30,8 +32,27 @@ def number(run, key):
         return None
 
 
+TIMES = ("setup", "first", "solve", "resetup", "refirst")
+
+
+def merge(runs):
+    """Return the runs of the same label merged: minimum of each time, the
+    other values being the ones of the first run."""
+    merged = {}
+    for run in runs:
+        label = run["label"]
+        if label not in merged:
+            merged[label] = dict(run)
+            continue
+        for key in TIMES:
+            a, b = number(merged[label], key), number(run, key)
+            if a is not None and b is not None:
+                merged[label][key] = str(min(a, b))
+    return list(merged.values())
+
+
 def main():
-    runs = read_runs(sys.argv[1])
+    runs = merge([run for path in sys.argv[1:] for run in read_runs(path)])
     groups = {}
     for run in runs:
         problem, _, target = run["label"].split("/")
@@ -40,8 +61,9 @@ def main():
     print(
         "Times in seconds: setup (`SetOperator`) plus first resolution, "
         "following resolutions (mean), setup plus resolution for a second "
-        "operator of the same sparsity. Relative residual of the first "
-        "operator.\n"
+        "operator of the same sparsity"
+        + (", minimum of the repetitions" if len(sys.argv) > 2 else "")
+        + ". Relative residual of the first operator.\n"
     )
     for (problem, target), group in sorted(groups.items()):
         unknowns = group[0].get("unknowns", "?")

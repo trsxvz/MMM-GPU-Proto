@@ -58,7 +58,9 @@ started: benchmark `LinearSolversBenchmark` (patch `0231`) and
 (`results/solvers-cpu-2026-10-15`, `results/solvers-gpu-2026-10-15`). It
 showed that GAMG of PETSc did not receive the rigid body modes: they are
 now given when the unknowns are ordered by vector dimension (patches
-`0232` and `0233`). It
+`0232` and `0233`), and a second pass measured it
+(`results/solvers-2026-10-15-byvdim`): 15 iterations instead of 177, the
+fastest configuration measured on the CPU for the elasticity. It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug

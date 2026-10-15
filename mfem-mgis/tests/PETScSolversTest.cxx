@@ -33,17 +33,24 @@
  * - the external packages of PETSc, if PETSc is built with them: the sparse
  *   direct solvers MUMPS, PaStiX, SuperLU_DIST and STRUMPACK (LU
  *   factorization of PETSc), and the Krylov solvers of HPDDM (GCRODR,
- *   recycling a subspace between two resolutions).
+ *   recycling a subspace between two resolutions);
+ * - the matrix given to the Krylov solver of PETSc is the matrix of hypre
+ *   (products by a vector compared);
+ * - when MFEM computes on the host, the solvers of PETSc do not initialize
+ *   the GPU.
  * \date   15/10/2026
  */
 
 #include <cmath>
+#include <array>
+#include <algorithm>
 #include <string>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include "mfem.hpp"
 #include "petscksp.h"
+#include "petscdevice.h"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
@@ -168,6 +175,59 @@ static std::string getKSPType(const mfem_mgis::LinearSolverHandler& ls) {
   KSPGetType(getKSP(ls), &type);
   return type == nullptr ? "" : type;
 }  // end of getKSPType
+
+/*!
+ * \brief check that the matrix given to the Krylov solver of PETSc is the
+ * matrix of hypre: their products by a vector are compared
+ * \param[in] s: system
+ * \param[in] name: name of the system
+ */
+template <typename System>
+static void checkMatrixCopy(System& s, const std::string& name) {
+  using namespace mfem_mgis;
+  auto petsc = [](const PetscErrorCode e, const char* const what) {
+    if (e != 0) {
+      throw std::runtime_error(std::string{what} + " failed");
+    }
+  };
+  auto ls = generate(s, "PETScLinearSolver", Parameters{});
+  ls.linear_solver->SetOperator(s.A);
+  auto a = Mat{};
+  petsc(KSPGetOperators(getKSP(ls), &a, nullptr), "KSPGetOperators");
+  const auto n = s.B.Size();
+  auto x = mfem::Vector(n);
+  x.UseDevice(true);
+  x.Randomize(1 + rank);
+  auto y = mfem::Vector(n);
+  y.UseDevice(true);
+  s.A.Mult(x, y);
+  auto px = Vec{};
+  auto py = Vec{};
+  petsc(MatCreateVecs(a, &px, &py), "MatCreateVecs");
+  auto* v = static_cast<PetscScalar*>(nullptr);
+  petsc(VecGetArrayWrite(px, &v), "VecGetArrayWrite");
+  const auto* const hx = x.HostRead();
+  std::copy(hx, hx + n, v);
+  petsc(VecRestoreArrayWrite(px, &v), "VecRestoreArrayWrite");
+  petsc(MatMult(a, px, py), "MatMult");
+  // maximum difference and maximum value of the products
+  auto e = std::array<double, 2>{0, 0};
+  const auto* w = static_cast<const PetscScalar*>(nullptr);
+  petsc(VecGetArrayRead(py, &w), "VecGetArrayRead");
+  const auto* const hy = y.HostRead();
+  for (int i = 0; i != n; ++i) {
+    e[0] = std::max(e[0], std::abs(static_cast<double>(w[i] - hy[i])));
+    e[1] = std::max(e[1], std::abs(static_cast<double>(hy[i])));
+  }
+  petsc(VecRestoreArrayRead(py, &w), "VecRestoreArrayRead");
+  petsc(VecDestroy(&px), "VecDestroy");
+  petsc(VecDestroy(&py), "VecDestroy");
+  MPI_Allreduce(MPI_IN_PLACE, e.data(), 2, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+  // the sums of the products differ by their order (hypre sums the
+  // diagonal entry first, PETSc sorts the columns)
+  check((e[1] > 0) && (e[0] <= 1e-12 * e[1]),
+        name + ": the matrix given to PETSc differs from the matrix of hypre");
+}  // end of checkMatrixCopy
 
 //! \return the type of a preconditioner of PETSc
 static std::string getPCType(PC pc) {
@@ -549,6 +609,15 @@ int main(int argc, char** argv) {
     auto e1 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byVDIM);
     auto e2 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byNODES);
     checkRigidBodyModes(e1, e2);
+    checkMatrixCopy(s, "Laplace equation");
+    checkMatrixCopy(e1, "linear elasticity");
+    // the solvers of PETSc compute on the host: when MFEM does too, they
+    // must not initialize the GPU, which opens a context per process
+    if (!mfem::Device::Allows(mfem::Backend::DEVICE_MASK)) {
+      check((!PetscDeviceInitialized(PETSC_DEVICE_CUDA)) &&
+                (!PetscDeviceInitialized(PETSC_DEVICE_HIP)),
+            "the solvers of PETSc initialized the GPU");
+    }
   } catch (std::exception& e) {
     std::cerr << "error: " << e.what() << '\n';
     return EXIT_FAILURE;

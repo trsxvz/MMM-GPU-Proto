@@ -556,8 +556,9 @@ Algebraic MultiGrid (AMG)
 +================================+===============================================================================================================+
 | ``Strategy``                   | Propose strategies that can lead to improve convergence and scalability, [Elasticity, System, None]. [string] |
 |                                | ``System`` by default for vector unknowns, ``None`` otherwise.                                                |
-|                                | ``Elasticity`` requires the ``FiniteElementSpaceOrdering`` parameter set to ``byVDIM`` and is replaced by     |
-|                                | ``System``, with a warning, otherwise or when ``hypre`` computes on a GPU.                                    |
+|                                | ``Elasticity`` requires unknowns with as many components as the dimension of the mesh, 2 or 3, which shall be |
+|                                | the space dimension (it is refused otherwise), and the ``FiniteElementSpaceOrdering`` parameter set to        |
+|                                | ``byVDIM``: it is replaced by ``System``, with a warning, otherwise or when ``hypre`` computes on a GPU.      |
 +--------------------------------+---------------------------------------------------------------------------------------------------------------+
 | ``VerbosityLevel``             | Define the verbosity of the solver. [int: 0,1]                                                                |
 +--------------------------------+---------------------------------------------------------------------------------------------------------------+

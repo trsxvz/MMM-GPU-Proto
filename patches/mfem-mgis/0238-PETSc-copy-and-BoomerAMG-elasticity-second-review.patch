@@ -1,0 +1,126 @@
+From c11ccc241a734184c27c24ae45d3a917b99b15fd Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 20:55:35 +0200
+Subject: [PATCH] PETSc copy and BoomerAMG elasticity: second review
+
+- HypreBoomerAMGTest checks the exact message of the refusal of the
+  Elasticity strategy, and its refusal on a square in a 3D space (surface
+  mesh) with two and three components;
+- the option MAT_NO_OFF_PROC_ENTRIES is set before the insertion of the
+  entries, so that an entry of another process is an error;
+- the products by a vector of the matrix given to PETSc and of the matrix
+  of hypre are compared at 1e-12 (the order of the sums differs);
+- release notes: MFEM could also compute wrong rigid body modes.
+---
+ .../release_notes/release_notes-1.1.0.rst     |  6 ++---
+ src/PETScSupport.cxx                          |  5 +++--
+ tests/HypreBoomerAMGTest.cxx                  | 22 ++++++++++++++-----
+ tests/PETScSolversTest.cxx                    |  4 +++-
+ 4 files changed, 26 insertions(+), 11 deletions(-)
+
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 4acfb597c6..c18fe10d07 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -184,9 +184,9 @@ and transposed interpolations kept. The values of the
+ Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused, as
+ well as the :cxx:`Elasticity` strategy of BoomerAMG for unknowns whose
+ number of components is not the dimension of the mesh, or a mesh whose
+-dimension is not the space dimension (:code:`MFEM` aborted, or the
+-strategy was replaced by :cxx:`System` with unknowns ordered by nodes or
+-hypre on a GPU).
++dimension is not the space dimension (:code:`MFEM` aborted or computed
++wrong rigid body modes, or the strategy was replaced by :cxx:`System`
++with unknowns ordered by nodes or hypre on a GPU).
+ See :ref:`linear_solvers`.
+ 
+ Sparse direct solvers of oneMKL
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+index 81f6c7d995..f989760dca 100644
+--- a/src/PETScSupport.cxx
++++ b/src/PETScSupport.cxx
+@@ -258,6 +258,9 @@ namespace mfem_mgis::internals {
+     // only the preallocation of the actual type is used
+     check(MatSeqAIJSetPreallocation(m, 0, d_nnz.data()));
+     check(MatMPIAIJSetPreallocation(m, 0, d_nnz.data(), 0, o_nnz.data()));
++    // each process sets its own rows only (an entry of another process is
++    // an error)
++    check(MatSetOption(m, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE));
+     auto columns = std::vector<PetscInt>{};
+     auto values = std::vector<PetscScalar>{};
+     for (PetscInt r = 0; r != nrows; ++r) {
+@@ -277,8 +280,6 @@ namespace mfem_mgis::internals {
+       check(MatSetValues(m, 1, &row, static_cast<PetscInt>(columns.size()),
+                          columns.data(), values.data(), INSERT_VALUES));
+     }
+-    // each process sets its own rows only
+-    check(MatSetOption(m, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE));
+     check(MatAssemblyBegin(m, MAT_FINAL_ASSEMBLY));
+     check(MatAssemblyEnd(m, MAT_FINAL_ASSEMBLY));
+     return m;
+diff --git a/tests/HypreBoomerAMGTest.cxx b/tests/HypreBoomerAMGTest.cxx
+index cabb3f3fda..78c1d2523c 100644
+--- a/tests/HypreBoomerAMGTest.cxx
++++ b/tests/HypreBoomerAMGTest.cxx
+@@ -143,7 +143,7 @@ static NumbersOfIterations getNumbersOfIterations(
+ static bool isElasticityStrategyRefused(mfem_mgis::Mesh<true>& pmesh,
+                                         const int n) {
+   using namespace mfem_mgis;
+-  auto fec = mfem::H1_FECollection(1, 3);
++  auto fec = mfem::H1_FECollection(1, pmesh.Dimension());
+   auto fespace =
+       FiniteElementSpace<true>(&pmesh, &fec, n, mfem::Ordering::byVDIM);
+   auto ctx = Context{};
+@@ -155,8 +155,11 @@ static bool isElasticityStrategyRefused(mfem_mgis::Mesh<true>& pmesh,
+           {"Preconditioner",
+            Parameters{{"Name", "HypreBoomerAMG"},
+                       {"Options", Parameters{{"Strategy", "Elasticity"}}}}}});
+-  return isInvalid(h) && (ctx.getErrorMessage().find("strategy 'Elasticity'") !=
+-                          std::string::npos);
++  const auto e = ctx.getErrorMessage();
++  return isInvalid(h) &&
++         (e.find("strategy 'Elasticity' of preconditioner HypreBoomerAMG "
++                 "requires unknowns with as many components") !=
++          std::string::npos);
+ }  // end of isElasticityStrategyRefused
+ 
+ int main(int argc, char** argv) {
+@@ -186,9 +189,18 @@ int main(int argc, char** argv) {
+   const auto close = [](const int a, const int b) {
+     return std::abs(a - b) <= b / 20 + 1;
+   };
+-  // without rigid body modes, the `Elasticity` strategy is refused
++  // without rigid body modes, the `Elasticity` strategy is refused: scalar
++  // unknowns, two components in a 3D space, and a square in a 3D space
++  // (surface mesh), whose rigid body modes MFEM would compute with two
++  // components
++  auto ssurface =
++      mfem::Mesh::MakeCartesian2D(4, 4, mfem::Element::QUADRILATERAL);
++  ssurface.SetCurvature(1, false, 3, mfem::Ordering::byVDIM);
++  auto psurface = mfem_mgis::Mesh<true>(MPI_COMM_WORLD, ssurface);
+   const auto refused = isElasticityStrategyRefused(pmesh, 1) &&
+-                       isElasticityStrategyRefused(pmesh, 2);
++                       isElasticityStrategyRefused(pmesh, 2) &&
++                       isElasticityStrategyRefused(psurface, 2) &&
++                       isElasticityStrategyRefused(psurface, 3);
+   const auto success =
+       refused && check(r1) &&
+       (gpu ? close(r1.elasticity, r1.system) : (r1.elasticity == r1.system)) &&
+diff --git a/tests/PETScSolversTest.cxx b/tests/PETScSolversTest.cxx
+index aa08481194..385d3f045c 100644
+--- a/tests/PETScSolversTest.cxx
++++ b/tests/PETScSolversTest.cxx
+@@ -223,7 +223,9 @@ static void checkMatrixCopy(System& s, const std::string& name) {
+   petsc(VecDestroy(&px), "VecDestroy");
+   petsc(VecDestroy(&py), "VecDestroy");
+   MPI_Allreduce(MPI_IN_PLACE, e.data(), 2, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+-  check((e[1] > 0) && (e[0] <= 1e-14 * e[1]),
++  // the sums of the products differ by their order (hypre sums the
++  // diagonal entry first, PETSc sorts the columns)
++  check((e[1] > 0) && (e[0] <= 1e-12 * e[1]),
+         name + ": the matrix given to PETSc differs from the matrix of hypre");
+ }  // end of checkMatrixCopy
+ 
+-- 
+2.43.0
+

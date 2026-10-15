@@ -61,8 +61,9 @@ configurations=(
   # AmgX (GPU)
   "cg-amgx|gpu|CGSolver|{$it,Preconditioner={Name=AmgX}}"
   "amgx-pcg|gpu|AmgXPCG|{$it}"
-  # PETSc (host)
-  "petsc-cg-gamg|cpu|PETScLinearSolver|{$it,Options={ksp_type=cg,pc_type=gamg}}"
+  # PETSc (host); ordered by vector dimension, GAMG receives the rigid body
+  # modes
+  "petsc-cg-gamg|cpu|PETScLinearSolver|{$it,Options={ksp_type=cg,pc_type=gamg}}|-bv"
   # Ginkgo
   "ginkgo-cg-jacobi|any|GinkgoCG|{$it,Preconditioner={Name=GinkgoJacobi}}"
   "ginkgo-cg-multigrid|any|GinkgoCG|{$it,Preconditioner={Name=GinkgoMultigrid}}"

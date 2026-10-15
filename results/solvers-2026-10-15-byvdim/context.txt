@@ -1,0 +1,6 @@
+date: jeu. 15 oct. 2026 20:52:00 CEST
+build: build/ginkgo/mfem-mgis-solvers
+size: 16
+mfem-mgis: 0399b20670-dirty
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor

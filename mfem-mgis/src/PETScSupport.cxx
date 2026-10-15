@@ -10,6 +10,8 @@
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
 
 #include <array>
+#include <vector>
+#include <memory>
 #include <tuple>
 #include <atomic>
 #include <string>
@@ -22,6 +24,7 @@
 #include "petscvec.h"
 #include "petscmat.h"
 #include "mfem/fem/pfespace.hpp"
+#include "mfem/linalg/hypre.hpp"
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "NodesCoordinates.hxx"
@@ -99,8 +102,8 @@ namespace mfem_mgis::internals {
   PETScOptions::PETScOptions(MPI_Comm c, const std::string_view kind)
       : prefix(makePETScOptionsPrefix(kind)), communicator(c) {}
 
-  bool PETScOptions::setOptions(Context& ctx, const Parameters& options) {
-    for (const auto& [n, p] : options) {
+  bool PETScOptions::setOptions(Context& ctx, const Parameters& opts) {
+    for (const auto& [n, p] : opts) {
       if (n.empty() || n.starts_with('-')) {
         return ctx.registerErrorMessage(
             "invalid option '" + n +
@@ -200,6 +203,108 @@ namespace mfem_mgis::internals {
       mgis::raise("convertToHostMatrix: MatConvert failed");
     }
   }  // end of convertToHostMatrix
+
+  /*!
+   * \return a matrix of PETSc in the AIJ format of the host, copy of a
+   * matrix of hypre, on its communicator and with its distribution
+   * \param[in] a: matrix of hypre
+   */
+  static Mat copyHypreMatrix(const mfem::HypreParMatrix& a) {
+    // the arrays of hypre are read on the host, and given back to hypre,
+    // whose computations may be on the GPU, even on error
+    struct HypreLocationGuard {
+      ~HypreLocationGuard() { this->matrix.HypreRead(); }
+      const mfem::HypreParMatrix& matrix;
+    };
+    a.HostRead();
+    const auto guard = HypreLocationGuard{a};
+    auto* const h =
+        static_cast<hypre_ParCSRMatrix*>(const_cast<mfem::HypreParMatrix&>(a));
+    auto* const diag = hypre_ParCSRMatrixDiag(h);
+    auto* const offd = hypre_ParCSRMatrixOffd(h);
+    const auto* const cmap = hypre_ParCSRMatrixColMapOffd(h);
+    const auto* const di = hypre_CSRMatrixI(diag);
+    const auto* const dj = hypre_CSRMatrixJ(diag);
+    const auto* const dv = hypre_CSRMatrixData(diag);
+    // the off-diagonal block may have no row offsets when it is empty
+    const auto* const oi = hypre_CSRMatrixI(offd);
+    const auto* const oj = hypre_CSRMatrixJ(offd);
+    const auto* const ov = hypre_CSRMatrixData(offd);
+    const auto nrows = static_cast<PetscInt>(hypre_CSRMatrixNumRows(diag));
+    const auto ncolumns = static_cast<PetscInt>(hypre_CSRMatrixNumCols(diag));
+    const auto first_row =
+        static_cast<PetscInt>(hypre_ParCSRMatrixFirstRowIndex(h));
+    const auto first_column =
+        static_cast<PetscInt>(hypre_ParCSRMatrixFirstColDiag(h));
+    auto offd_size = [oi](const PetscInt r) -> PetscInt {
+      return oi == nullptr ? 0 : static_cast<PetscInt>(oi[r + 1] - oi[r]);
+    };
+    auto d_nnz = std::vector<PetscInt>(static_cast<std::size_t>(nrows));
+    auto o_nnz = std::vector<PetscInt>(static_cast<std::size_t>(nrows));
+    for (PetscInt r = 0; r != nrows; ++r) {
+      d_nnz[r] = static_cast<PetscInt>(di[r + 1] - di[r]);
+      o_nnz[r] = offd_size(r);
+    }
+    auto m = Mat{};
+    auto check = [&m](const PetscErrorCode e) {
+      if (e != 0) {
+        std::ignore = MatDestroy(&m);
+        mgis::raise("makeHostMatrix: the matrix of hypre can't be copied");
+      }
+    };
+    check(MatCreate(a.GetComm(), &m));
+    check(MatSetSizes(m, nrows, ncolumns, PETSC_DETERMINE, PETSC_DETERMINE));
+    check(MatSetType(m, MATAIJ));
+    // only the preallocation of the actual type is used
+    check(MatSeqAIJSetPreallocation(m, 0, d_nnz.data()));
+    check(MatMPIAIJSetPreallocation(m, 0, d_nnz.data(), 0, o_nnz.data()));
+    // each process sets its own rows only (an entry of another process is
+    // an error)
+    check(MatSetOption(m, MAT_NO_OFF_PROC_ENTRIES, PETSC_TRUE));
+    auto columns = std::vector<PetscInt>{};
+    auto values = std::vector<PetscScalar>{};
+    for (PetscInt r = 0; r != nrows; ++r) {
+      columns.clear();
+      values.clear();
+      for (auto k = di[r]; k != di[r + 1]; ++k) {
+        columns.push_back(first_column + static_cast<PetscInt>(dj[k]));
+        values.push_back(static_cast<PetscScalar>(dv[k]));
+      }
+      if (offd_size(r) != 0) {
+        for (auto k = oi[r]; k != oi[r + 1]; ++k) {
+          columns.push_back(static_cast<PetscInt>(cmap[oj[k]]));
+          values.push_back(static_cast<PetscScalar>(ov[k]));
+        }
+      }
+      const auto row = first_row + r;
+      check(MatSetValues(m, 1, &row, static_cast<PetscInt>(columns.size()),
+                         columns.data(), values.data(), INSERT_VALUES));
+    }
+    check(MatAssemblyBegin(m, MAT_FINAL_ASSEMBLY));
+    check(MatAssemblyEnd(m, MAT_FINAL_ASSEMBLY));
+    return m;
+  }  // end of copyHypreMatrix
+
+  std::unique_ptr<mfem::PetscParMatrix> makeHostMatrix(
+      MPI_Comm c, const mfem::Operator& op) {
+    const auto* const a = dynamic_cast<const mfem::HypreParMatrix*>(&op);
+    if (a != nullptr) {
+      return std::make_unique<mfem::PetscParMatrix>(copyHypreMatrix(*a), false);
+    }
+    // a matrix of PETSc is referenced, and converted in place to the format
+    // of the host if needed
+    const auto* const p = dynamic_cast<const mfem::PetscParMatrix*>(&op);
+    if (p != nullptr) {
+      auto m =
+          std::make_unique<mfem::PetscParMatrix>(static_cast<Mat>(*p), true);
+      convertToHostMatrix(*m);
+      return m;
+    }
+    auto m = std::make_unique<mfem::PetscParMatrix>(
+        c, &op, mfem::Operator::PETSC_MATAIJ);
+    convertToHostMatrix(*m);
+    return m;
+  }  // end of makeHostMatrix
 
   void PETScRigidBodyModes::initialize(FiniteElementSpace<true>& fespace) {
     this->dimension = 0;

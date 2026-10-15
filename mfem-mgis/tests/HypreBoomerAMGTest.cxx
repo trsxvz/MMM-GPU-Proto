@@ -1,10 +1,12 @@
 /*!
  * \file   HypreBoomerAMGTest.cxx
  * \brief  Test of the system and elasticity BoomerAMG preconditioners built
- * by the linear solver factory
+ * by the linear solver factory, and of the refusal of the elasticity one for
+ * unknowns without rigid body modes
  * \date   02/10/2026
  */
 
+#include <string>
 #include <cstdlib>
 #include <iostream>
 #include "mfem/mesh/pmesh.hpp"
@@ -131,6 +133,35 @@ static NumbersOfIterations getNumbersOfIterations(
   return r;
 }  // end of getNumbersOfIterations
 
+/*!
+ * \return true if the `Elasticity` strategy of BoomerAMG is refused, with
+ * its error message, for unknowns whose number of components differs from
+ * the dimension of the mesh, which have no rigid body modes
+ * \param[in] pmesh: mesh
+ * \param[in] n: number of components of the unknowns
+ */
+static bool isElasticityStrategyRefused(mfem_mgis::Mesh<true>& pmesh,
+                                        const int n) {
+  using namespace mfem_mgis;
+  auto fec = mfem::H1_FECollection(1, pmesh.Dimension());
+  auto fespace =
+      FiniteElementSpace<true>(&pmesh, &fec, n, mfem::Ordering::byVDIM);
+  auto ctx = Context{};
+  auto& factory = LinearSolverFactory<true>::getFactory();
+  const auto h = factory.generate(
+      ctx, "HyprePCG", fespace,
+      Parameters{
+          {"VerbosityLevel", 0},
+          {"Preconditioner",
+           Parameters{{"Name", "HypreBoomerAMG"},
+                      {"Options", Parameters{{"Strategy", "Elasticity"}}}}}});
+  const auto e = ctx.getErrorMessage();
+  return isInvalid(h) &&
+         (e.find("strategy 'Elasticity' of preconditioner HypreBoomerAMG "
+                 "requires unknowns with as many components") !=
+          std::string::npos);
+}  // end of isElasticityStrategyRefused
+
 int main(int argc, char** argv) {
   mfem_mgis::initialize(argc, argv);
   // slender beam, for which the rigid body modes used by the `Elasticity`
@@ -158,8 +189,20 @@ int main(int argc, char** argv) {
   const auto close = [](const int a, const int b) {
     return std::abs(a - b) <= b / 20 + 1;
   };
+  // without rigid body modes, the `Elasticity` strategy is refused: scalar
+  // unknowns, two components in a 3D space, and a square in a 3D space
+  // (surface mesh), whose rigid body modes MFEM would compute with two
+  // components
+  auto ssurface =
+      mfem::Mesh::MakeCartesian2D(4, 4, mfem::Element::QUADRILATERAL);
+  ssurface.SetCurvature(1, false, 3, mfem::Ordering::byVDIM);
+  auto psurface = mfem_mgis::Mesh<true>(MPI_COMM_WORLD, ssurface);
+  const auto refused = isElasticityStrategyRefused(pmesh, 1) &&
+                       isElasticityStrategyRefused(pmesh, 2) &&
+                       isElasticityStrategyRefused(psurface, 2) &&
+                       isElasticityStrategyRefused(psurface, 3);
   const auto success =
-      check(r1) &&
+      refused && check(r1) &&
       (gpu ? close(r1.elasticity, r1.system) : (r1.elasticity == r1.system)) &&
       check(r2) &&
       (gpu ? close(r2.elasticity, r2.system) : (r2.elasticity != r2.system));

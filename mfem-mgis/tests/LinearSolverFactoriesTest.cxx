@@ -457,7 +457,10 @@ static void run(System<is_parallel>& s, const bool elasticity) {
       // checked to be finite and not null
       const auto xnorm = [&s, &x] {
         if constexpr (is_parallel) {
-          return mfem::ParNormlp(x, 2, s.fespace.GetComm());
+          // not `mfem::ParNormlp`, which also computes the norm from the
+          // values of the host without synchronizing them (MFEM 4.10): a
+          // solution written on the GPU had a null norm
+          return std::sqrt(mfem::InnerProduct(s.fespace.GetComm(), x, x));
         } else {
           static_cast<void>(s);
           return x.Norml2();

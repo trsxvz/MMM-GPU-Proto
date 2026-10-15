@@ -19,7 +19,6 @@
 #include <string_view>
 #include <algorithm>
 #include "petscsnes.h"
-#include "mfem/general/device.hpp"
 #include "mfem/linalg/hypre.hpp"
 #include "mfem/linalg/petsc.hpp"
 #include "MGIS/Raise.hxx"
@@ -292,10 +291,10 @@ namespace mfem_mgis::internals {
      * \param[in] u: unknowns
      */
     mfem::Operator& GetGradient(const mfem::Vector& pu) const override {
-      // the linear solvers of PETSc need the assembled operator, converted
-      // by MFEM; otherwise, the products by the tangent operator made by
-      // PETSc (shell matrix) are given to `tangent_operator`, which copies
-      // the vectors of PETSc
+      // the linear solvers of PETSc need the assembled operator, copied in
+      // the AIJ format of the host; otherwise, the products by the tangent
+      // operator made by PETSc (shell matrix) are given to `tangent_operator`,
+      // which copies the vectors of PETSc
       try {
         copyFromPETSc(pu, this->jacobian_unknowns);
         const auto& u = this->jacobian_unknowns;
@@ -337,19 +336,13 @@ namespace mfem_mgis::internals {
         }
         if (success) {
           if (s.petsc_linear_solver) {
-            // the tangent operator is converted to the AIJ format of PETSc
+            // the tangent operator is copied in the AIJ format of the host
             // here, so that it receives the rigid body modes (MFEM gives
-            // this matrix to SNES with its near null space). When MFEM
-            // computes on a GPU, it is converted to the format of the host
-            // (MFEM chooses the format of the GPU), the solvers of PETSc
-            // computing on the host (see the description of
-            // PETScLinearSolvers.cxx)
+            // this matrix to SNES with its near null space), the solvers of
+            // PETSc computing on the host (see `makeHostMatrix` and the
+            // description of PETScLinearSolvers.cxx)
             this->petsc_tangent_operator =
-                std::make_unique<mfem::PetscParMatrix>(
-                    this->communicator, j, mfem::Operator::PETSC_MATAIJ);
-            if (mfem::Device::IsEnabled()) {
-              convertToHostMatrix(*(this->petsc_tangent_operator));
-            }
+                makeHostMatrix(this->communicator, *j);
             if ((s.rigid_body_modes) && (!this->rigid_body_modes_computed)) {
               this->rigid_body_modes.initialize(*(s.fespace));
               this->rigid_body_modes_computed = true;

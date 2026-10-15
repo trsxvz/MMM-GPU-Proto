@@ -29,7 +29,9 @@
  *   being below it, fails after at least one iteration;
  * - a failure of the linear solver stops the resolution at the first
  *   iteration;
- * - the invalid options are refused, and SNES in sequential.
+ * - the invalid options are refused, and SNES in sequential;
+ * - when MFEM computes on the host, SNES and the solvers of PETSc do not
+ *   initialize the GPU.
  *
  * With a GPU, SNES and the solvers of PETSc compute on the host, the
  * vectors being copied from and to the vectors of mfem-mgis on the device.
@@ -44,6 +46,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <algorithm>
+#include "petscdevice.h"
+#include "mfem/general/device.hpp"
 #include "mfem/general/optparser.hpp"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Parameters.hxx"
@@ -485,6 +489,13 @@ int main(int argc, char** argv) {
   checkRefusal(mesh, Parameters{{"MaximumNewtonStep", 1.}},
                "MaximumNewtonStep");
   checkRefusal(mesh, Parameters{}, "only available in parallel", false);
+  // SNES and the solvers of PETSc compute on the host: when MFEM does too,
+  // they must not initialize the GPU, which opens a context per process
+  if (!mfem::Device::Allows(mfem::Backend::DEVICE_MASK)) {
+    check((!PetscDeviceInitialized(PETSC_DEVICE_CUDA)) &&
+              (!PetscDeviceInitialized(PETSC_DEVICE_HIP)),
+          "SNES initialized the GPU");
+  }
   print(failures == 0 ? "success" : "failure");
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }  // end of main

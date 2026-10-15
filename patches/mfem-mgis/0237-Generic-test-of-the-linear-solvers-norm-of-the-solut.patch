@@ -1,0 +1,34 @@
+From 0399b20670f0a141b1d4d379b816a2948febcf64 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 20:49:46 +0200
+Subject: [PATCH] Generic test of the linear solvers: norm of the solution on
+ the device
+
+mfem::ParNormlp (MFEM 4.10) computes the euclidean norm a second time from
+the values of the host, without synchronizing them: the solution of one
+cycle of AmgX, written on the GPU, had a null norm, and the test failed
+on the linear elasticity with two processes on a GPU. The norm is now
+computed by mfem::InnerProduct, which reads the vector where it is valid.
+---
+ tests/LinearSolverFactoriesTest.cxx | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/tests/LinearSolverFactoriesTest.cxx b/tests/LinearSolverFactoriesTest.cxx
+index 0cdd8237db..90b46039b0 100644
+--- a/tests/LinearSolverFactoriesTest.cxx
++++ b/tests/LinearSolverFactoriesTest.cxx
+@@ -457,7 +457,10 @@ static void run(System<is_parallel>& s, const bool elasticity) {
+       // checked to be finite and not null
+       const auto xnorm = [&s, &x] {
+         if constexpr (is_parallel) {
+-          return mfem::ParNormlp(x, 2, s.fespace.GetComm());
++          // not `mfem::ParNormlp`, which also computes the norm from the
++          // values of the host without synchronizing them (MFEM 4.10): a
++          // solution written on the GPU had a null norm
++          return std::sqrt(mfem::InnerProduct(s.fespace.GetComm(), x, x));
+         } else {
+           static_cast<void>(s);
+           return x.Norml2();
+-- 
+2.43.0
+

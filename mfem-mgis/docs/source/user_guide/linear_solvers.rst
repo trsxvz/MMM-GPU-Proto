@@ -541,11 +541,16 @@ PETSc ignores the options it does not know: the options which PETSc never
 read (for instance a misspelt option) are reported when a solver which
 has been used is destroyed.
 
-When :code:`MFEM` computes on a GPU, the solvers and the preconditioners
-of PETSc compute on the host: the matrices are converted to the AIJ format
-of the host, and the vectors copied from and to the vectors of
-:code:`MFEM`, the preconditioners of mfem-mgis given to the Krylov solvers
-of PETSc being applied on the vectors of :code:`MFEM`. With :code:`MFEM`
+The solvers and the preconditioners of PETSc compute on the host, even
+when :code:`MFEM` computes on a GPU. The matrices of hypre are copied in
+the AIJ format of the host by mfem-mgis: the conversion of :code:`MFEM`
+goes through the :code:`MATHYPRE` format of PETSc, whose creation
+initializes the GPU when PETSc and hypre are built for it (a context per
+process, about 260 MiB of the GPU and 0.4 second each with CUDA 13), even
+for a computation on the host. When :code:`MFEM` computes on a GPU, the
+vectors are copied from and to the vectors of :code:`MFEM`, the
+preconditioners of mfem-mgis given to the Krylov solvers of PETSc being
+applied on the vectors of :code:`MFEM`. With :code:`MFEM`
 4.10 and :code:`PETSc` 3.26 built with CUDA, the vectors of :code:`MFEM`
 placed in the vectors of PETSc (whose internal offload mask :code:`MFEM`
 sets) were seen as null by the Krylov solvers of PETSc and by the shell

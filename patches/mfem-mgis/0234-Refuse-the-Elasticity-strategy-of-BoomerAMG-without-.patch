@@ -1,0 +1,147 @@
+From 2334cc1a21d8fc6e4670a92713f2f5e9ef67c874 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 19:43:04 +0200
+Subject: [PATCH] Refuse the Elasticity strategy of BoomerAMG without rigid
+ body modes
+
+The elasticity options of BoomerAMG need the rigid body modes, which are
+only defined for unknowns with as many components as the space dimension:
+MFEM aborted (GridFunction::ProjectCoefficient) when the strategy was
+asked for scalar unknowns ordered by vector dimension. The strategy is now
+refused in this case, on the host and on a GPU. HypreBoomerAMGTest checks
+the refusal for one and two components on a 3D mesh.
+---
+ docs/source/user_guide/glossary.rst           |  3 +-
+ .../release_notes/release_notes-1.1.0.rst     |  4 ++-
+ src/HypreLinearSolvers.cxx                    | 12 ++++++-
+ tests/HypreBoomerAMGTest.cxx                  | 33 +++++++++++++++++--
+ 4 files changed, 47 insertions(+), 5 deletions(-)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 5c6c688323..6fa88ab32f 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -556,7 +556,8 @@ Algebraic MultiGrid (AMG)
+ +================================+===============================================================================================================+
+ | ``Strategy``                   | Propose strategies that can lead to improve convergence and scalability, [Elasticity, System, None]. [string] |
+ |                                | ``System`` by default for vector unknowns, ``None`` otherwise.                                                |
+-|                                | ``Elasticity`` requires the ``FiniteElementSpaceOrdering`` parameter set to ``byVDIM`` and is replaced by     |
++|                                | ``Elasticity`` requires unknowns with as many components as the space dimension, 2 or 3 (it is refused        |
++|                                | otherwise), and the ``FiniteElementSpaceOrdering`` parameter set to ``byVDIM``: it is replaced by             |
+ |                                | ``System``, with a warning, otherwise or when ``hypre`` computes on a GPU.                                    |
+ +--------------------------------+---------------------------------------------------------------------------------------------------------------+
+ | ``VerbosityLevel``             | Define the verbosity of the solver. [int: 0,1]                                                                |
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index b555735006..b88d45413e 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -180,7 +180,9 @@ options: truncation of the interpolation, aggressive coarsening, size of
+ the coarsest level, relaxation weight, order of the Chebyshev smoothers
+ and transposed interpolations kept. The values of the
+ :cxx:`StrengthThreshold` option of BoomerAMG out of :math:`[0, 1]` and the
+-Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused.
++Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused, as
++well as the :cxx:`Elasticity` strategy of BoomerAMG for unknowns whose
++number of components is not the space dimension (:code:`MFEM` aborted).
+ See :ref:`linear_solvers`.
+ 
+ Sparse direct solvers of oneMKL
+diff --git a/src/HypreLinearSolvers.cxx b/src/HypreLinearSolvers.cxx
+index b5336023c2..c54d917462 100644
+--- a/src/HypreLinearSolvers.cxx
++++ b/src/HypreLinearSolvers.cxx
+@@ -29,6 +29,7 @@
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ #include "ExecutionSettings.hxx"
+ #include "HypreSolvers.hxx"
++#include "NodesCoordinates.hxx"
+ #include "LinearSolverModules.hxx"
+ 
+ #ifdef MFEM_USE_MPI
+@@ -233,7 +234,8 @@ namespace mfem_mgis {
+    * \param[in] fespace: finite element space
+    * \param[in] opts: options:
+    * - `Strategy`: `System` (systems options, by default for vector unknowns),
+-   *   `Elasticity` (elasticity options, requiring unknowns ordered by vector
++   *   `Elasticity` (elasticity options, for unknowns with as many components
++   *   as the space dimension, 2 or 3, requiring unknowns ordered by vector
+    *   dimension and hypre computing on the host, `System` being used
+    *   otherwise) or `None` (by default for scalar unknowns);
+    * - `VerbosityLevel`: print level of hypre;
+@@ -269,6 +271,14 @@ namespace mfem_mgis {
+     }
+     auto elasticity = false;
+     if (*ostrategy == "Elasticity") {
++      // the rigid body modes are only defined for unknowns with as many
++      // components as the space dimension (MFEM aborts otherwise)
++      if (!internals::hasRigidBodyModes(fespace)) {
++        return ctx.registerErrorMessage(
++            "setLinearSolverParameters: strategy 'Elasticity' of "
++            "preconditioner HypreBoomerAMG requires unknowns with as many "
++            "components as the space dimension (2 or 3)");
++      }
+       // the elasticity version of BoomerAMG requires Ordering::byVDIM, and
+       // is not supported by hypre when it computes on a GPU
+       const auto by_vdim = fespace.GetOrdering() == mfem::Ordering::byVDIM;
+diff --git a/tests/HypreBoomerAMGTest.cxx b/tests/HypreBoomerAMGTest.cxx
+index b75796f77a..85104baab3 100644
+--- a/tests/HypreBoomerAMGTest.cxx
++++ b/tests/HypreBoomerAMGTest.cxx
+@@ -1,7 +1,8 @@
+ /*!
+  * \file   HypreBoomerAMGTest.cxx
+  * \brief  Test of the system and elasticity BoomerAMG preconditioners built
+- * by the linear solver factory
++ * by the linear solver factory, and of the refusal of the elasticity one for
++ * unknowns without rigid body modes
+  * \date   02/10/2026
+  */
+ 
+@@ -131,6 +132,31 @@ static NumbersOfIterations getNumbersOfIterations(
+   return r;
+ }  // end of getNumbersOfIterations
+ 
++/*!
++ * \return true if the `Elasticity` strategy of BoomerAMG is refused for
++ * unknowns whose number of components differs from the space dimension,
++ * which have no rigid body modes
++ * \param[in] pmesh: mesh
++ * \param[in] n: number of components of the unknowns
++ */
++static bool isElasticityStrategyRefused(mfem_mgis::Mesh<true>& pmesh,
++                                        const int n) {
++  using namespace mfem_mgis;
++  auto fec = mfem::H1_FECollection(1, 3);
++  auto fespace =
++      FiniteElementSpace<true>(&pmesh, &fec, n, mfem::Ordering::byVDIM);
++  auto ctx = Context{};
++  auto& factory = LinearSolverFactory<true>::getFactory();
++  const auto h = factory.generate(
++      ctx, "HyprePCG", fespace,
++      Parameters{
++          {"VerbosityLevel", 0},
++          {"Preconditioner",
++           Parameters{{"Name", "HypreBoomerAMG"},
++                      {"Options", Parameters{{"Strategy", "Elasticity"}}}}}});
++  return isInvalid(h);
++}  // end of isElasticityStrategyRefused
++
+ int main(int argc, char** argv) {
+   mfem_mgis::initialize(argc, argv);
+   // slender beam, for which the rigid body modes used by the `Elasticity`
+@@ -158,8 +184,11 @@ int main(int argc, char** argv) {
+   const auto close = [](const int a, const int b) {
+     return std::abs(a - b) <= b / 20 + 1;
+   };
++  // without rigid body modes, the `Elasticity` strategy is refused
++  const auto refused = isElasticityStrategyRefused(pmesh, 1) &&
++                       isElasticityStrategyRefused(pmesh, 2);
+   const auto success =
+-      check(r1) &&
++      refused && check(r1) &&
+       (gpu ? close(r1.elasticity, r1.system) : (r1.elasticity == r1.system)) &&
+       check(r2) &&
+       (gpu ? close(r2.elasticity, r2.system) : (r2.elasticity != r2.system));
+-- 
+2.43.0
+

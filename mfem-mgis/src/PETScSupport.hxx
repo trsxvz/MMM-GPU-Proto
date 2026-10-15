@@ -10,6 +10,7 @@
 
 #include "mfem/config/config.hpp"
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+#include <memory>
 #include <string>
 #include <vector>
 #include <string_view>
@@ -17,6 +18,7 @@
 #include "petscvec.h"
 #include "petscmat.h"
 #include "mfem/linalg/vector.hpp"
+#include "mfem/linalg/petsc.hpp"
 #include "MFEMMGIS/MFEMForward.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
@@ -67,10 +69,10 @@ namespace mfem_mgis::internals {
      * \brief write options in the options database of PETSc
      * \return true on success
      * \param[in, out] ctx: execution context
-     * \param[in] options: options, given without the leading dash and the
+     * \param[in] opts: options, given without the leading dash and the
      * prefix (for instance `{"ksp_type", "cg"}`)
      */
-    [[nodiscard]] bool setOptions(Context& ctx, const Parameters& options);
+    [[nodiscard]] bool setOptions(Context& ctx, const Parameters& opts);
     /*!
      * \brief destructor, reporting the options which PETSc never read, if
      * the solver has been used, and removing the options from the options
@@ -132,6 +134,23 @@ namespace mfem_mgis::internals {
    * \param[in, out] a: matrix
    */
   void convertToHostMatrix(Mat a);
+  /*!
+   * \return a matrix of PETSc in the AIJ format of the host, copy of an
+   * operator. A matrix of hypre is copied row by row, on its communicator
+   * and with its distribution: MFEM converts it
+   * through the `MATHYPRE` format of PETSc, whose creation initializes the
+   * GPU when PETSc and hypre are built for it (a context per process, about
+   * 260 MiB of the GPU and 0.4 second each with CUDA 13), although the
+   * solvers of PETSc compute on the host in mfem-mgis. A matrix of PETSc is
+   * referenced, and converted in place to the format of the host if needed.
+   * The other operators are converted by MFEM, then to the format of the
+   * host.
+   * \param[in] c: communicator of the operators which are not matrices of
+   * hypre
+   * \param[in] op: operator
+   */
+  [[nodiscard]] std::unique_ptr<mfem::PetscParMatrix> makeHostMatrix(
+      MPI_Comm c, const mfem::Operator& op);
 
   /*!
    * \brief rigid body modes of the unknowns of a finite element space,

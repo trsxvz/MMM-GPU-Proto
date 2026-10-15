@@ -147,8 +147,9 @@ preconditioners of PETSc, among which its algebraic multigrid (GAMG). A precondi
 mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
 :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
 For the linear elasticity, with the unknowns ordered by vector dimension,
-the rigid body modes are given to the preconditioners of PETSc (GAMG). See
-:ref:`petsc_linear_solvers`.
+the rigid body modes are given to the preconditioners of PETSc (GAMG).
+They compute on the host, the matrices of hypre being copied without
+initializing the GPU. See :ref:`petsc_linear_solvers`.
 
 Linear solvers and preconditioners of Ginkgo
 --------------------------------------------
@@ -180,7 +181,12 @@ options: truncation of the interpolation, aggressive coarsening, size of
 the coarsest level, relaxation weight, order of the Chebyshev smoothers
 and transposed interpolations kept. The values of the
 :cxx:`StrengthThreshold` option of BoomerAMG out of :math:`[0, 1]` and the
-Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused.
+Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused, as
+well as the :cxx:`Elasticity` strategy of BoomerAMG for unknowns whose
+number of components is not the dimension of the mesh, or a mesh whose
+dimension is not the space dimension (:code:`MFEM` aborted or computed
+wrong rigid body modes, or the strategy was replaced by :cxx:`System`
+with unknowns ordered by nodes or hypre on a GPU).
 See :ref:`linear_solvers`.
 
 Sparse direct solvers of oneMKL
