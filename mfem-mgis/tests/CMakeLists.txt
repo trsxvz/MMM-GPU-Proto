@@ -1150,6 +1150,39 @@ if(MFEM_MGIS_HAVE_TFEL)
                          PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
   endif()
 
+  # KINSOLSolverTest executable: non linear solver based on KINSOL
+  # (SUNDIALS), compared to the Newton solver
+  if(MFEM_USE_SUNDIALS STREQUAL "YES")
+    add_test_executable(KINSOLSolverTest)
+    add_test(NAME KINSOLSolverTest
+             COMMAND KINSOLSolverTest
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>)
+    if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+      add_test(NAME KINSOLSolverTestP
+               COMMAND mpirun -n 2 ./KINSOLSolverTest --parallel
+                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                       --library $<TARGET_FILE:BehaviourTest>)
+      set_tests_properties(KINSOLSolverTestP
+                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+    endif()
+    # with a GPU, KINSOL computes on the device (vectors of CUDA or HIP)
+    if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
+       AND enable-gpu-tests)
+      if(MFEM_USE_CUDA STREQUAL "YES")
+        set(kinsol_solver_test_device cuda)
+      else()
+        set(kinsol_solver_test_device hip)
+      endif()
+      add_test(NAME KINSOLSolverTest-gpu
+               COMMAND KINSOLSolverTest --device ${kinsol_solver_test_device}
+                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                       --library $<TARGET_FILE:BehaviourTest>)
+      set_tests_properties(KINSOLSolverTest-gpu
+                           PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)
+    endif()
+  endif()
+
   # FixedPointSolverTest executable: fixed point solver (methods,
   # accelerations, linear solvers of the elastic operator) compared to the
   # Newton solver

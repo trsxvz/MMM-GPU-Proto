@@ -1,0 +1,31 @@
+From b3e39e12af654a3694fddbc19d1752cbfe4106ba Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 07:11:15 +0200
+Subject: [PATCH] Doxygen: modules of SuperLU_DIST, STRUMPACK, Ginkgo and
+ SUNDIALS
+
+The macros MFEM_USE_SUPERLU, MFEM_USE_STRUMPACK, MFEM_USE_GINKGO and
+MFEM_USE_SUNDIALS are defined, so that the modules of these libraries
+are documented and checked.
+---
+ Doxyfile.in | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Doxyfile.in b/Doxyfile.in
+index 68f0a9538e..cee34b3bde 100644
+--- a/Doxyfile.in
++++ b/Doxyfile.in
+@@ -1936,6 +1936,10 @@ PREDEFINED             = MFEM_USE_MPI \
+                          MFEM_USE_SUITESPARSE \
+                          MFEM_USE_GSLIB \
+                          MFEM_USE_CUDSS \
++                         MFEM_USE_SUPERLU \
++                         MFEM_USE_STRUMPACK \
++                         MFEM_USE_GINKGO \
++                         MFEM_USE_SUNDIALS \
+                          MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR \
+                          MFEM_MGIS_HAVE_AMGX \
+                          MGIS_FUNCTION_SUPPORT \
+-- 
+2.43.0
+

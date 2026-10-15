@@ -949,8 +949,8 @@ ones:
 +-------------------------------------+-------------------------------------------------------------+
 | UseMultiMaterialNonLinearIntegrator | Use the multi-material non linear integrator [bool]         |
 +-------------------------------------+-------------------------------------------------------------+
-| NonLinearSolver                     | Non linear solver, Newton (default) or FixedPoint, see      |
-|                                     | :doc:`nonlinear_algorithms`                                 |
+| NonLinearSolver                     | Non linear solver, Newton (default), FixedPoint or KINSOL,  |
+|                                     | see :doc:`nonlinear_algorithms`                             |
 +-------------------------------------+-------------------------------------------------------------+
 | BehaviourIntegration                | PointByPoint or Batch [string]                              |
 +-------------------------------------+-------------------------------------------------------------+

@@ -179,6 +179,14 @@ and transposed interpolations kept. The values of the
 Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused.
 See :ref:`linear_solvers`.
 
+Nonlinear solver of KINSOL
+--------------------------
+
+The :cxx:`KINSOL` nonlinear solver uses KINSOL (:code:`SUNDIALS`) when
+:code:`MFEM` is built with it: Newton's method with or without line
+search, modified Newton method, Picard's method with Anderson's
+acceleration. See :doc:`../nonlinear_algorithms`.
+
 Preconditioners of the sparse matrices of MFEM, options of MUMPS
 ----------------------------------------------------------------
 

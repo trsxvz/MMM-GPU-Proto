@@ -1936,6 +1936,10 @@ PREDEFINED             = MFEM_USE_MPI \
                          MFEM_USE_SUITESPARSE \
                          MFEM_USE_GSLIB \
                          MFEM_USE_CUDSS \
+                         MFEM_USE_SUPERLU \
+                         MFEM_USE_STRUMPACK \
+                         MFEM_USE_GINKGO \
+                         MFEM_USE_SUNDIALS \
                          MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR \
                          MFEM_MGIS_HAVE_AMGX \
                          MGIS_FUNCTION_SUPPORT \

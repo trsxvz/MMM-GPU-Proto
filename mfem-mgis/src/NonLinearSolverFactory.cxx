@@ -8,6 +8,7 @@
 #include "MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx"
 #include "MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx"
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
+#include "KINSOLSolver.hxx"
 
 namespace mfem_mgis {
 
@@ -29,6 +30,13 @@ namespace mfem_mgis {
         make_unique<StandardNonLinearSolverGenerator<FixedPointSolver>>(ctx) |
         or_die;
     this->add(ctx, "FixedPoint", std::move(g2)) | or_die;
+#ifdef MFEM_USE_SUNDIALS
+    auto g3 =
+        make_unique<StandardNonLinearSolverGenerator<internals::KINSOLSolver>>(
+            ctx) |
+        or_die;
+    this->add(ctx, "KINSOL", std::move(g3)) | or_die;
+#endif /* MFEM_USE_SUNDIALS */
   }  // end of NonLinearSolverFactory
 
   bool NonLinearSolverFactory::add(

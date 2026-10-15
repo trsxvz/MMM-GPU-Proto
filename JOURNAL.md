@@ -4939,3 +4939,29 @@ formula as MTest). All the others give the Newton solution to within
   entries when hypre computes on the GPU. Suites: 238 (GPU MFEM, on the
   host), targeted CPU double (74) and float (73).
 
+### 2026-10-15, non linear solver of KINSOL (end of phase 1)
+
+- The `KINSOL` non linear solver uses KINSOL (SUNDIALS 7.9) through
+  `mfem::KINSolver`, whose functions given to KINSOL are replaced by the
+  ones of mfem-mgis: they report the failures of the integration of the
+  behaviours and of the linear solver to KINSOL (MFEM's functions always
+  report a success), and give the product by the tangent operator
+  (otherwise approximated by differences of residuals, each one
+  integrating the behaviours).
+- On the uniaxial tension of a plastic cube: Newton's method of KINSOL,
+  with or without line search, makes the 8 iterations of the Newton
+  solver and gives the same solution; modified Newton 14, Picard 59, with
+  Anderson's acceleration 32. Sequential, parallel, CPU and GPU.
+- Found on the way: with `--device cuda`, MFEM wraps CUDA vectors of
+  SUNDIALS, and a direct solver which writes on the host left the array of
+  the GPU stale (null steps); KINSOL 7.9 asks for a setup at each
+  iteration of Picard's method whatever its maximum number of setup calls;
+  a null tolerance becomes KINSOL's default 6e-6, and the default maximum
+  Newton step, 1000 times the norm of the initial guess, applies to
+  unknowns which are not scaled. All handled; upstream notes written,
+  nothing posted.
+- Independent review: three 3/5, all handled (`review-kinsol.md`). The
+  configuration of Doxygen now documents the modules of SuperLU_DIST,
+  STRUMPACK, Ginkgo and SUNDIALS. Suites: 240 (GPU MFEM, on the host),
+  targeted CPU double (74) and float (73).
+

@@ -19,8 +19,11 @@ approximate inverse, smoothers and new options of BoomerAMG,
 `0200`): preconditioners of the sparse matrices of MFEM (`GSSmoother`,
 `DSmoother`, `BlockILU`, `UMFPack`, `KLU`, on the diagonal block of each
 process in parallel), `KLUSolver`, `OrthoSolver`, reordering, block
-low-rank and verbosity options of MUMPS. Remaining in phase 1: KINSOL,
-the options of cuDSS. It
+low-rank and verbosity options of MUMPS; KINSOL (patches `0201` to
+`0203`): `KINSOL` non linear solver (Newton's method with or without
+line search, modified Newton method, Picard's method with Anderson's
+acceleration). The options of cuDSS exposed by MFEM (matrix type, view,
+reuse of the reordering) were already covered: phase 1 is done. It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug

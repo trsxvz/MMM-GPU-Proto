@@ -1,0 +1,743 @@
+/*!
+ * \file   src/KINSOLSolver.cxx
+ * \brief  This file implements the `KINSOLSolver` class
+ * \date   15/10/2026
+ */
+
+#include "mfem/config/config.hpp"
+
+#ifdef MFEM_USE_SUNDIALS
+
+#include <cmath>
+#include <tuple>
+#include <limits>
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <vector>
+#include <iomanip>
+#include <utility>
+#include <algorithm>
+#include "mfem/linalg/sundials.hpp"
+#include "MGIS/Raise.hxx"
+#include "MFEMMGIS/MPI.hxx"
+#include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+#include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+#include "KINSOLSolver.hxx"
+
+namespace mfem_mgis::internals {
+
+  /*!
+   * \brief operator of the non linear problem given to `mfem::KINSolver`,
+   * which only reads its size: the residual and the tangent operator are
+   * given to KINSOL by the functions of `KINSOLSolverImplementation`
+   */
+  struct KINSOLProblemOperator final : public mfem::Operator {
+    //! \param[in] n: size
+    explicit KINSOLProblemOperator(const int n) : mfem::Operator(n) {}
+    void Mult(const mfem::Vector&, mfem::Vector&) const override {
+      mgis::raise("KINSOLProblemOperator::Mult: invalid call");
+    }
+  };  // end of struct KINSOLProblemOperator
+
+  //! \return the strategy of KINSOL
+  [[nodiscard]] static int getKINSOLStrategy(const KINSOLSolver::Strategy s) {
+    switch (s) {
+      case KINSOLSolver::Strategy::NEWTON:
+        return KIN_NONE;
+      case KINSOLSolver::Strategy::PICARD:
+        return KIN_PICARD;
+      case KINSOLSolver::Strategy::LINE_SEARCH:
+        break;
+    }
+    return KIN_LINESEARCH;
+  }  // end of getKINSOLStrategy
+
+  /*!
+   * \brief the KINSOL solver of MFEM, built for one resolution, whose
+   * functions given to KINSOL (residual, setup and resolution of the linear
+   * systems, product by the tangent operator) are the ones of the non
+   * linear solver of mfem-mgis. These functions report the failures to
+   * KINSOL instead of throwing through it (see `callAndHandleFailures`):
+   * the functions of MFEM always report a success.
+   */
+  struct KINSOLSolverImplementation final : public mfem::KINSolver {
+#ifdef MFEM_USE_MPI
+    /*!
+     * \param[in] s: non linear solver
+     * \param[in] communicator: communicator
+     */
+    KINSOLSolverImplementation(const KINSOLSolver& s, MPI_Comm communicator)
+        : mfem::KINSolver(communicator, getKINSOLStrategy(s.strategy), true),
+          solver(s),
+          problem(s.Height()) {}
+#endif /* MFEM_USE_MPI */
+    //! \param[in] s: non linear solver
+    explicit KINSOLSolverImplementation(const KINSOLSolver& s)
+        : mfem::KINSolver(getKINSOLStrategy(s.strategy), true),
+          solver(s),
+          problem(s.Height()) {}
+    /*!
+     * \brief initialize KINSOL
+     * \param[in] ls: linear solver
+     */
+    void initialize(mfem::Solver& ls) {
+      const auto& s = this->solver;
+      // the acceleration must be enabled before the initialization of
+      // KINSOL by `SetOperator`
+      if (s.anderson_subspace_size > 0) {
+        this->EnableAndersonAcc(s.anderson_subspace_size, KIN_ORTH_MGS,
+                                s.anderson_delay, s.anderson_damping);
+      }
+      this->SetOperator(this->problem);
+      this->SetSolver(ls);
+      auto* const m = this->GetMem();
+      // the settings are the same on all the processes, which fail
+      // together
+      auto check = [](const int f, const char* const n) {
+        if (f != KIN_SUCCESS) {
+          throw CollectiveFailure("KINSOLSolver: " + std::string{n} +
+                                  " failed");
+        }
+      };
+      check(KINSetSysFunc(m, computeResidual), "KINSetSysFunc");
+      check(KINSetJacFn(m, setupLinearSolver), "KINSetJacFn");
+      // without this function, KINSOL approximates the products by the
+      // tangent operator by differences of residuals, each one integrating
+      // the behaviours. KINSOL only accepts it if the linear solver of MFEM
+      // accepts a product function, which it does not use
+      this->LSA->ops->setatimes = setProductFunction;
+      check(KINSetJacTimesVecFn(m, multiplyByTangentOperator),
+            "KINSetJacTimesVecFn");
+      this->LSA->ops->solve = solveLinearSystem;
+      // KINSOL asks for the setup of the linear solver at each iteration of
+      // Picard's method, whatever its maximum number of setup calls (with
+      // SUNDIALS 7.9): the updates of the tangent operator of Picard's
+      // method are made by `setupLinearSolver`, which keeps the tangent
+      // operator of the first iteration, unless otherwise stated
+      if (s.strategy == KINSOLSolver::Strategy::PICARD) {
+        this->picard_setup_period = s.maximum_setup_calls.value_or(0);
+      } else {
+        check(KINSetMaxSetupCalls(m, s.maximum_setup_calls.value_or(1)),
+              "KINSetMaxSetupCalls");
+      }
+      // the scaled step tolerance of KINSOL applies to the unknowns, not
+      // scaled: it is disabled by default (KINSOL only accepts a strictly
+      // positive value), the resolution stopping on the residual
+      check(KINSetScaledStepTol(
+                m, s.scaled_step_tolerance.has_value()
+                       ? static_cast<double>(*(s.scaled_step_tolerance))
+                       : std::numeric_limits<double>::min()),
+            "KINSetScaledStepTol");
+      check(KINSetDamping(m, s.damping), "KINSetDamping");
+      // the maximum length of a Newton step, by default 1000 times the norm
+      // of the initial guess in KINSOL, at least one, in the units of the
+      // unknowns, which are not scaled: no limit by default
+      check(KINSetMaxNewtonStep(
+                m, s.maximum_newton_step.has_value()
+                       ? static_cast<double>(*(s.maximum_newton_step))
+                       : no_maximum_newton_step),
+            "KINSetMaxNewtonStep");
+      // the tolerance of the linear solves chosen by KINSOL (inexact Newton
+      // method) is not used by the linear solver of mfem-mgis: a constant
+      // value avoids a product by the tangent operator after each linear
+      // solve
+      check(KINSetEtaForm(m, KIN_ETACONSTANT), "KINSetEtaForm");
+      this->SetMaxIter(s.max_iter);
+      this->iterative_mode = true;
+    }  // end of initialize
+    /*!
+     * \brief solve the non linear problem, as `mfem::KINSolver::Mult`,
+     * whose status is kept
+     * \return the status returned by KINSOL
+     * \param[in, out] x: initial guess, then solution
+     * \param[in] scaling: scaling of the unknowns and of the residual
+     */
+    int solve(mfem::Vector& x, mfem::Vector& scaling) {
+      auto* const m = this->GetMem();
+      if (KINSetNumMaxIters(m, this->max_iter) != KIN_SUCCESS) {
+        throw CollectiveFailure("KINSOLSolver: KINSetNumMaxIters failed");
+      }
+      this->Y->MakeRef(x, 0, x.Size());
+      this->y_scale->MakeRef(scaling, 0, scaling.Size());
+      this->f_scale->MakeRef(scaling, 0, scaling.Size());
+      const auto status = KINSol(m, *(this->Y), this->global_strategy,
+                                 *(this->y_scale), *(this->f_scale));
+      std::ignore = this->Y->HostRead();
+      return status;
+    }  // end of solve
+    //! \brief non linear solver
+    const KINSOLSolver& solver;
+    //! \brief operator of the problem
+    KINSOLProblemOperator problem;
+    /*!
+     * \brief residual at the initial guess, computed before the resolution
+     * and given to KINSOL at its first evaluation of the residual (at the
+     * initial guess), instead of integrating the behaviours again
+     */
+    mfem::Vector initial_residual;
+    //! \brief if true, the initial residual is given to KINSOL
+    bool initial_residual_available = false;
+    //! \brief unknowns of the last evaluation of the residual
+    mfem::Vector last_unknowns;
+    //! \brief last residual evaluated
+    mfem::Vector last_residual;
+    //! \brief if false, the last evaluation of the residual failed
+    bool last_evaluation_succeeded = true;
+    //! \brief number of evaluations of the residual
+    int number_of_evaluations = 0;
+    /*!
+     * \brief with Picard's method, number of iterations between two updates
+     * of the tangent operator (zero if the tangent operator of the first
+     * iteration is kept)
+     */
+    std::optional<int> picard_setup_period;
+    //! \brief number of setups of the linear solver asked by KINSOL
+    int number_of_setup_requests = 0;
+    //! \brief number of updates of the tangent operator
+    int number_of_setups = 0;
+    /*!
+     * \brief norm of the residual at the beginning of the current window of
+     * evaluations without a decrease of more than 10 % (detection of a
+     * stagnation of the residual)
+     */
+    real window_norm = std::numeric_limits<real>::max();
+    //! \brief number of evaluations of the current window
+    int evaluations_without_decrease = 0;
+    //! \brief if true, a stagnation of the residual stopped KINSOL
+    bool stagnated = false;
+    //! \brief value of the maximum Newton step meaning no limit
+    static constexpr double no_maximum_newton_step = 1e300;
+
+   private:
+    //! \return the implementation given as the user data of KINSOL
+    static KINSOLSolverImplementation& get(void* const d) {
+      return *static_cast<KINSOLSolverImplementation*>(
+          static_cast<mfem::KINSolver*>(d));
+    }
+    /*!
+     * \brief make the memory of the device of a vector of SUNDIALS valid:
+     * with a vector of CUDA or HIP, KINSOL reads the array of the device,
+     * while the functions of mfem-mgis may write the array of the host (a
+     * direct solver on the host, for instance)
+     * \param[in] v: vector wrapping a vector of SUNDIALS
+     */
+    static void synchronize(const mfem::Vector& v) { std::ignore = v.Read(); }
+    /*!
+     * \brief compute the residual
+     * \return 0 on success, 1 if the integration of the behaviours failed
+     * (KINSOL may then reduce the step of Newton's method), -1 on another
+     * failure, on a failure of the integration with Picard's method (KINSOL
+     * ignores the recoverable failures of Picard's method) and on a
+     * stagnation of the residual
+     */
+    static int computeResidual(N_Vector nu,
+                               N_Vector nr,
+                               void* const d) noexcept {
+      try {
+        auto& i = get(d);
+        const auto u = mfem::SundialsNVector(nu);
+        auto r = mfem::SundialsNVector(nr);
+        i.last_unknowns = u;
+        i.last_evaluation_succeeded = false;
+        if (i.initial_residual_available) {
+          i.initial_residual_available = false;
+          r = i.initial_residual;
+          synchronize(r);
+          i.last_residual = r;
+          i.last_evaluation_succeeded = true;
+          return 0;
+        }
+        const auto& s = i.solver;
+        auto integrated = true;
+        const auto success = s.callAndHandleFailures([&s, &u, &r, &integrated] {
+          integrated = s.processNewUnknownsEstimate(u);
+          if (!integrated) {
+            return false;
+          }
+          s.computeResidual(r, u);
+          return true;
+        });
+        ++(i.number_of_evaluations);
+        if (!success) {
+          if (s.shallPrint()) {
+            s.getLogStream()
+                << "KINSOL, evaluation " << std::setw(2)
+                << i.number_of_evaluations << " : integration failure\n";
+          }
+          const auto picard = s.strategy == KINSOLSolver::Strategy::PICARD;
+          return (integrated || picard) ? -1 : 1;
+        }
+        synchronize(r);
+        i.last_residual = r;
+        i.last_evaluation_succeeded = true;
+        // the norm is computed on all the processes (collective operation)
+        const auto norm = s.Norm(r);
+        auto evaluation = Parameters{};
+        evaluation.replaceOrInsert("Norm", norm);
+        s.iterations_information.push_back(evaluation);
+        if (s.shallPrint()) {
+          s.getLogStream() << "KINSOL, evaluation " << std::setw(2)
+                           << i.number_of_evaluations << " : ||r|| = " << norm
+                           << '\n';
+        }
+        // stagnation of the residual at the floor of the rounding errors:
+        // three evaluations without a decrease of more than 10 %, below the
+        // stagnation tolerance (KINSOL is stopped, see `Mult`)
+        constexpr auto window_decrease = real{9} / 10;
+        if (norm < window_decrease * i.window_norm) {
+          i.window_norm = norm;
+          i.evaluations_without_decrease = 0;
+        } else {
+          ++(i.evaluations_without_decrease);
+        }
+        if ((i.evaluations_without_decrease >= 3) &&
+            (norm <= s.stagnation_relative_tolerance *
+                         (*(s.reference_residual_norm)))) {
+          if (s.shallPrint()) {
+            s.getLogStream() << "KINSOL : stagnation of the residual below "
+                                "the relative tolerance "
+                             << s.stagnation_relative_tolerance << '\n';
+          }
+          i.stagnated = true;
+          return -1;
+        }
+        return 0;
+      } catch (...) {
+        return -1;
+      }
+    }  // end of computeResidual
+    /*!
+     * \brief compute the tangent operator and give it to the linear solver
+     * \return 0 on success, 1 on failure
+     */
+    static int setupLinearSolver(N_Vector nu,
+                                 N_Vector,
+                                 SUNMatrix,
+                                 void* const d,
+                                 N_Vector,
+                                 N_Vector) noexcept {
+      try {
+        auto& i = get(d);
+        const auto request = i.number_of_setup_requests++;
+        if ((i.picard_setup_period.has_value()) && (request != 0) &&
+            ((*(i.picard_setup_period) == 0) ||
+             (request % *(i.picard_setup_period) != 0))) {
+          return 0;
+        }
+        ++(i.number_of_setups);
+        const auto u = mfem::SundialsNVector(nu);
+        const auto success = i.solver.callAndHandleFailures([&i, &u] {
+          i.jacobian = &(i.solver.getJacobian(u));
+          i.prec->SetOperator(*(i.jacobian));
+          return true;
+        });
+        return success ? 0 : 1;
+      } catch (...) {
+        return -1;
+      }
+    }  // end of setupLinearSolver
+    /*!
+     * \brief solve a linear system
+     * \return 0 on success, `SUNLS_CONV_FAIL` (recoverable) if the linear
+     * solver failed, unless its failures are discarded
+     */
+    static int solveLinearSystem(SUNLinearSolver ls,
+                                 SUNMatrix,
+                                 N_Vector nx,
+                                 N_Vector nb,
+                                 sunrealtype) noexcept {
+      try {
+        auto& i = get(ls->content);
+        auto x = mfem::SundialsNVector(nx);
+        const auto b = mfem::SundialsNVector(nb);
+        const auto success = i.solver.callAndHandleFailures([&i, &x, &b] {
+          i.prec->Mult(b, x);
+          synchronize(x);
+          return true;
+        });
+        if (!success) {
+          return SUNLS_CONV_FAIL;
+        }
+        clearHypreErrors();
+        if ((!i.solver.isLinearSolverFailureDiscarded()) &&
+            (!hasConverged(*(i.prec)))) {
+          return SUNLS_CONV_FAIL;
+        }
+        return 0;
+      } catch (...) {
+        return -1;
+      }
+    }  // end of solveLinearSystem
+#if SUNDIALS_VERSION_MAJOR >= 7
+    //! \brief error code of the operations of a linear solver of SUNDIALS
+    using ErrorCode = SUNErrCode;
+#else  /* SUNDIALS_VERSION_MAJOR >= 7 */
+    //! \brief error code of the operations of a linear solver of SUNDIALS
+    using ErrorCode = int;
+#endif /* SUNDIALS_VERSION_MAJOR >= 7 */
+    /*!
+     * \brief product function given to the linear solver, which the
+     * linear solver of mfem-mgis does not use
+     * \return 0
+     */
+    static ErrorCode setProductFunction(SUNLinearSolver,
+                                        void*,
+                                        SUNATimesFn) noexcept {
+      return 0;
+    }  // end of setProductFunction
+    /*!
+     * \brief product by the tangent operator given to the linear solver,
+     * which KINSOL may use (with the forcing term of the inexact Newton
+     * method of Eisenstat and Walker, not used here) instead of differences
+     * of residuals: the tangent operator is not computed again when the
+     * unknowns change, which would integrate the behaviours.
+     * \return 0 on success, -1 if no tangent operator was computed
+     */
+    static int multiplyByTangentOperator(N_Vector nv,
+                                         N_Vector nJv,
+                                         N_Vector,
+                                         sunbooleantype* const new_u,
+                                         void* const d) noexcept {
+      try {
+        auto& i = get(d);
+        *new_u = SUNFALSE;
+        if (i.jacobian == nullptr) {
+          return -1;
+        }
+        const auto v = mfem::SundialsNVector(nv);
+        auto Jv = mfem::SundialsNVector(nJv);
+        const auto success = i.solver.callAndHandleFailures([&i, &v, &Jv] {
+          i.jacobian->Mult(v, Jv);
+          synchronize(Jv);
+          return true;
+        });
+        return success ? 0 : -1;
+      } catch (...) {
+        return -1;
+      }
+    }  // end of multiplyByTangentOperator
+  };  // end of struct KINSOLSolverImplementation
+
+#ifdef MFEM_USE_MPI
+
+  KINSOLSolver::KINSOLSolver(NonLinearEvolutionProblemImplementation<true>& p)
+      : NonLinearSolverBase(p) {
+    mfem::Sundials::Init();
+  }  // end of KINSOLSolver
+
+#endif /* MFEM_USE_MPI */
+
+  KINSOLSolver::KINSOLSolver(NonLinearEvolutionProblemImplementation<false>& p)
+      : NonLinearSolverBase(p) {
+    mfem::Sundials::Init();
+  }  // end of KINSOLSolver
+
+  void KINSOLSolver::Mult(const mfem::Vector&, mfem::Vector& x) const {
+    MFEM_ASSERT(this->prec != nullptr,
+                "the Solver is not set (use setLinearSolver).");
+    this->iterations_information.clear();
+    this->converged = 0;
+    this->final_iter = 0;
+    this->final_norm = std::numeric_limits<real>::max();
+    auto& log = this->getLogStream();
+    const auto shall_print = this->shallPrint();
+    // initial residual
+    auto r = mfem::Vector(this->Height());
+    r.UseDevice(true);
+    const auto initialized = this->callAndHandleFailures([this, &x, &r] {
+      if (!this->processNewUnknownsEstimate(x)) {
+        return false;
+      }
+      this->computeResidual(r, x);
+      return true;
+    });
+    if (!initialized) {
+      return;
+    }
+    const auto norm = this->Norm(r);
+    if (!this->reference_residual_norm.has_value()) {
+      this->reference_residual_norm = norm;
+    }
+    this->initial_norm = *(this->reference_residual_norm);
+    if (shall_print) {
+      log << "KINSOL, initial residual : ||r|| = " << norm
+          << ", ||r||/||r_0|| = " << norm / (*(this->reference_residual_norm))
+          << '\n';
+    }
+    // maximum norm of the residual
+    auto maximum_norm = [this](const mfem::Vector& v) {
+      auto n = static_cast<real>(v.Normlinf());
+#ifdef MFEM_USE_MPI
+      if (this->GetComm() != MPI_COMM_NULL) {
+        auto l = n;
+        MPI_Allreduce(&l, &n, 1, mfem::MPITypeMap<real>::mpi_type, MPI_MAX,
+                      this->GetComm());
+      }
+#endif /* MFEM_USE_MPI */
+      return n;
+    };
+    // the criterion of KINSOL, on the maximum norm of the residual. A null
+    // tolerance (a fixed number of iterations) is kept: KINSOL replaces a
+    // null tolerance by its default one
+    const auto initial_maximum_norm = maximum_norm(r);
+    const auto reference_maximum_norm =
+        norm > 0
+            ? initial_maximum_norm * (*(this->reference_residual_norm)) / norm
+            : real{0};
+    const auto tolerance =
+        std::max(this->rel_tol * reference_maximum_norm, this->abs_tol);
+    if (initial_maximum_norm <= tolerance) {
+      this->converged = 1;
+      this->final_norm = norm;
+      return;
+    }
+    const auto kinsol_tolerance = tolerance > 0
+                                      ? static_cast<double>(tolerance)
+                                      : std::numeric_limits<double>::min();
+    // resolution
+    auto status = int{};
+    auto iterations = long{};
+    auto setups = long{};
+    // no scaling of the unknowns and of the residual: the scaling vector,
+    // referenced by KINSOL, outlives it
+    auto scaling = mfem::Vector(x.Size());
+    scaling.UseDevice(true);
+    scaling = 1.;
+    auto i = std::unique_ptr<KINSOLSolverImplementation>{};
+    const auto solved = this->callAndHandleFailures([&] {
+#ifdef MFEM_USE_MPI
+      if (this->GetComm() != MPI_COMM_NULL) {
+        i = std::make_unique<KINSOLSolverImplementation>(*this,
+                                                         this->GetComm());
+      } else {
+        i = std::make_unique<KINSOLSolverImplementation>(*this);
+      }
+#else  /* MFEM_USE_MPI */
+      i = std::make_unique<KINSOLSolverImplementation>(*this);
+#endif /* MFEM_USE_MPI */
+      i->initialize(*(this->prec));
+      if (KINSetFuncNormTol(i->GetMem(), kinsol_tolerance) != KIN_SUCCESS) {
+        throw CollectiveFailure("KINSOLSolver: KINSetFuncNormTol failed");
+      }
+      i->initial_residual = r;
+      i->initial_residual_available = true;
+      i->window_norm = norm;
+      status = i->solve(x, scaling);
+      std::ignore = KINGetNumNonlinSolvIters(i->GetMem(), &iterations);
+      setups = i->number_of_setups;
+      return true;
+    });
+    if (!solved) {
+      return;
+    }
+    this->final_iter = static_cast<int>(iterations);
+    // the behaviours are integrated again if the last evaluation of the
+    // residual failed or was not made at the solution (a trial step of the
+    // line search, when KINSOL stops), or if KINSOL stopped before any
+    // evaluation
+    auto evaluated_at_solution =
+        (i->last_evaluation_succeeded) && (i->last_unknowns.Size() == x.Size());
+    if (evaluated_at_solution) {
+      auto d = mfem::Vector(x.Size());
+      d.UseDevice(true);
+      subtract(x, i->last_unknowns, d);
+      evaluated_at_solution = !(maximum_norm(d) > 0);
+    }
+    if (!evaluated_at_solution) {
+      const auto updated = this->callAndHandleFailures([this, &x, &r] {
+        if (!this->processNewUnknownsEstimate(x)) {
+          return false;
+        }
+        this->computeResidual(r, x);
+        return true;
+      });
+      if (!updated) {
+        return;
+      }
+      i->last_residual = r;
+    }
+    this->final_norm = this->Norm(i->last_residual);
+    // KINSOL stops when the residual is low enough, but also on a step
+    // lower than its scaled step tolerance, or when its line search finds
+    // no decrease of the residual, and it is stopped when the residual
+    // stagnates (see `computeResidual`), which happens when the residual
+    // reaches the floor of the rounding errors: the resolution is then
+    // accepted if the residual is lower than the tolerance or than the
+    // floor (see the option `StagnationRelativeTolerance` of the Newton
+    // solver)
+    const auto final_maximum_norm = maximum_norm(i->last_residual);
+    const auto stagnation =
+        this->final_norm <= this->stagnation_relative_tolerance *
+                                (*(this->reference_residual_norm));
+    this->converged = (status == KIN_SUCCESS) ||
+                      (status == KIN_INITIAL_GUESS_OK) ||
+                      (final_maximum_norm <= tolerance) || stagnation;
+    if (shall_print) {
+      auto* const n = KINGetReturnFlagName(status);
+      log << "KINSOL : " << n << " after " << iterations << " iterations ("
+          << setups
+          << " updates of the tangent operator), ||r|| = " << this->final_norm
+          << ", max |r| = " << final_maximum_norm << " (tolerance " << tolerance
+          << ")" << (this->converged ? "" : ", not converged") << "\n\n";
+      free(n);
+    }
+  }  // end of Mult
+
+  bool KINSOLSolver::setSolverParameters(Context& ctx,
+                                         const Parameters& params) noexcept {
+    const auto options =
+        std::vector<std::string>{"Strategy",
+                                 "MaximumSetupCalls",
+                                 "ScaledStepTolerance",
+                                 "Damping",
+                                 "AndersonAccelerationSubspaceSize",
+                                 "AndersonAccelerationDelay",
+                                 "AndersonAccelerationDamping",
+                                 "StagnationRelativeTolerance",
+                                 "MaximumNewtonStep"};
+    // the options are read and checked before being applied: a refused call
+    // leaves the solver unchanged
+    auto new_strategy = this->strategy;
+    if (contains(params, "Strategy")) {
+      const auto os = get<std::string>(ctx, params, "Strategy");
+      if (isInvalid(os)) {
+        return false;
+      }
+      if (*os == "Newton") {
+        new_strategy = Strategy::NEWTON;
+      } else if (*os == "LineSearch") {
+        new_strategy = Strategy::LINE_SEARCH;
+      } else if (*os == "Picard") {
+        new_strategy = Strategy::PICARD;
+      } else {
+        return ctx.registerErrorMessage(
+            "KINSOLSolver: invalid strategy '" + *os +
+            "' (expected 'Newton', 'LineSearch' or 'Picard')");
+      }
+    }
+    auto new_setup_calls = this->maximum_setup_calls;
+    if (contains(params, "MaximumSetupCalls")) {
+      const auto ov = get<int>(ctx, params, "MaximumSetupCalls");
+      if (isInvalid(ov)) {
+        return false;
+      }
+      if (*ov < 1) {
+        return ctx.registerErrorMessage(
+            "KINSOLSolver: the maximum number of setup calls must be "
+            "strictly positive");
+      }
+      new_setup_calls = *ov;
+    }
+    const auto odamping = get_if<double>(ctx, params, "Damping",
+                                         static_cast<double>(this->damping));
+    const auto osize =
+        get_if<int>(ctx, params, "AndersonAccelerationSubspaceSize",
+                    this->anderson_subspace_size);
+    const auto odelay = get_if<int>(ctx, params, "AndersonAccelerationDelay",
+                                    this->anderson_delay);
+    const auto oanderson_damping =
+        get_if<double>(ctx, params, "AndersonAccelerationDamping",
+                       static_cast<double>(this->anderson_damping));
+    const auto ostagnation = get_if<double>(
+        ctx, params, "StagnationRelativeTolerance",
+        static_cast<double>(this->stagnation_relative_tolerance));
+    if (isInvalid(odamping) || isInvalid(osize) || isInvalid(odelay) ||
+        isInvalid(oanderson_damping) || isInvalid(ostagnation)) {
+      return false;
+    }
+    if ((*ostagnation < 0) || (*ostagnation >= 1)) {
+      return ctx.registerErrorMessage(
+          "KINSOLSolver: the option StagnationRelativeTolerance must be in "
+          "[0, 1[");
+    }
+    auto new_step_tolerance = this->scaled_step_tolerance;
+    if (contains(params, "ScaledStepTolerance")) {
+      const auto ov = get<double>(ctx, params, "ScaledStepTolerance");
+      if (isInvalid(ov)) {
+        return false;
+      }
+      if (*ov <= 0) {
+        return ctx.registerErrorMessage(
+            "KINSOLSolver: the scaled step tolerance must be positive");
+      }
+      new_step_tolerance = static_cast<real>(*ov);
+    }
+    auto new_newton_step = this->maximum_newton_step;
+    if (contains(params, "MaximumNewtonStep")) {
+      const auto ov = get<double>(ctx, params, "MaximumNewtonStep");
+      if (isInvalid(ov)) {
+        return false;
+      }
+      if (*ov <= 0) {
+        return ctx.registerErrorMessage(
+            "KINSOLSolver: the maximum Newton step must be positive");
+      }
+      new_newton_step = static_cast<real>(*ov);
+    }
+    // KINSOL replaces a null maximum number of iterations by its default
+    // one, 200
+    const auto oiterations =
+        get_if<int>(ctx, params, "MaximumNumberOfIterations", this->max_iter);
+    if (isInvalid(oiterations)) {
+      return false;
+    }
+    if (*oiterations < 1) {
+      return ctx.registerErrorMessage(
+          "KINSOLSolver: the maximum number of iterations must be strictly "
+          "positive");
+    }
+    if ((*odamping <= 0) || (*odamping > 1) || (*oanderson_damping <= 0) ||
+        (*oanderson_damping > 1)) {
+      return ctx.registerErrorMessage(
+          "KINSOLSolver: the damping factors must be in ]0, 1]");
+    }
+    if ((*osize < 0) || (*odelay < 0)) {
+      return ctx.registerErrorMessage(
+          "KINSOLSolver: the size of the subspace and the delay of Anderson's "
+          "acceleration must be positive");
+    }
+    // KINSOL applies the damping and Anderson's acceleration to the fixed
+    // point and Picard methods only
+    const auto picard_options = std::vector<std::string>{
+        "Damping", "AndersonAccelerationSubspaceSize",
+        "AndersonAccelerationDelay", "AndersonAccelerationDamping"};
+    if (new_strategy != Strategy::PICARD) {
+      for (const auto& o : picard_options) {
+        if (contains(params, o)) {
+          return ctx.registerErrorMessage("KINSOLSolver: the option '" + o +
+                                          "' requires the strategy 'Picard'");
+        }
+      }
+    } else {
+      // Picard's method of KINSOL has no step criterion and no line search
+      for (const auto& o : {"ScaledStepTolerance", "MaximumNewtonStep"}) {
+        if (contains(params, o)) {
+          return ctx.registerErrorMessage(
+              "KINSOLSolver: the option '" + std::string{o} +
+              "' is not used by the strategy 'Picard'");
+        }
+      }
+    }
+    if (!NonLinearSolverBase::setSolverParameters(ctx,
+                                                  remove(params, options))) {
+      return false;
+    }
+    this->strategy = new_strategy;
+    this->maximum_setup_calls = new_setup_calls;
+    this->scaled_step_tolerance = new_step_tolerance;
+    this->maximum_newton_step = new_newton_step;
+    this->damping = static_cast<real>(*odamping);
+    this->anderson_subspace_size = *osize;
+    this->anderson_delay = *odelay;
+    this->anderson_damping = static_cast<real>(*oanderson_damping);
+    this->stagnation_relative_tolerance = static_cast<real>(*ostagnation);
+    return true;
+  }  // end of setSolverParameters
+
+  KINSOLSolver::~KINSOLSolver() = default;
+
+}  // end of namespace mfem_mgis::internals
+
+#endif /* MFEM_USE_SUNDIALS */

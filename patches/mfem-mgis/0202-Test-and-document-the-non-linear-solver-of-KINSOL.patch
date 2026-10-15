@@ -1,0 +1,519 @@
+From e036bf5d804e59cbb161def702b5d6fd63e74281 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 07:11:15 +0200
+Subject: [PATCH] Test and document the non linear solver of KINSOL
+
+KINSOLSolverTest (sequential, parallel, and on a GPU when the tests on
+the GPU are enabled) compares each strategy of KINSOL with the Newton
+solver on the uniaxial tension of a plastic cube: Newton's method with
+and without line search (8 iterations, as the Newton solver), the
+tangent operator updated every three iterations (14), Picard's method
+(59), with Anderson's acceleration (32), damped (70) or with updates of
+the tangent operator (17), a stagnation below the floor of the rounding
+errors (accepted), a failure of the linear solver (stopped at the first
+iteration), and the refusals of invalid options.
+---
+ docs/source/user_guide/glossary.rst           |   4 +-
+ .../user_guide/nonlinear_algorithms.rst       |  86 +++++
+ .../release_notes/release_notes-1.1.0.rst     |   8 +
+ tests/CMakeLists.txt                          |  33 ++
+ tests/KINSOLSolverTest.cxx                    | 315 ++++++++++++++++++
+ 5 files changed, 444 insertions(+), 2 deletions(-)
+ create mode 100644 tests/KINSOLSolverTest.cxx
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 2da04c172a..7ae852fccd 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -949,8 +949,8 @@ ones:
+ +-------------------------------------+-------------------------------------------------------------+
+ | UseMultiMaterialNonLinearIntegrator | Use the multi-material non linear integrator [bool]         |
+ +-------------------------------------+-------------------------------------------------------------+
+-| NonLinearSolver                     | Non linear solver, Newton (default) or FixedPoint, see      |
+-|                                     | :doc:`nonlinear_algorithms`                                 |
++| NonLinearSolver                     | Non linear solver, Newton (default), FixedPoint or KINSOL,  |
++|                                     | see :doc:`nonlinear_algorithms`                             |
+ +-------------------------------------+-------------------------------------------------------------+
+ | BehaviourIntegration                | PointByPoint or Batch [string]                              |
+ +-------------------------------------+-------------------------------------------------------------+
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index dda21ddb14..3071534bd8 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -341,3 +341,89 @@ computation:
+                                    {"MaximumNumberOfIterations", 1000}}}}}};
+    // given to the problem as
+    // {"NonLinearSolver", mfem_mgis::Parameters{{"FixedPoint", newton_k0}}}
++
++Solver of KINSOL
++================
++
++When :code:`MFEM` is built with :code:`SUNDIALS`, the :cxx:`KINSOL`
++nonlinear solver uses KINSOL, through the :cxx:`mfem::KINSolver` class
++of :code:`MFEM`:
++
++.. code-block:: c++
++
++   {"NonLinearSolver",
++    mfem_mgis::Parameters{{"KINSOL",
++                           mfem_mgis::Parameters{{"Strategy", "LineSearch"}}}}}
++
++The option :cxx:`Strategy` selects the method:
++
++- :cxx:`LineSearch` (default): Newton's method with the line search of
++  KINSOL;
++- :cxx:`Newton`: Newton's method without line search;
++- :cxx:`Picard`: Picard's method, the tangent operator of the first
++  iteration being kept unless the option :cxx:`MaximumSetupCalls` is
++  given, optionally accelerated by Anderson's method (options
++  :cxx:`AndersonAccelerationSubspaceSize`, zero, no acceleration, by
++  default, bounded by the maximum number of iterations minus one,
++  :cxx:`AndersonAccelerationDelay` and :cxx:`AndersonAccelerationDamping`)
++  and damped (option :cxx:`Damping`).
++
++The option :cxx:`MaximumSetupCalls` gives the number of iterations between
++two updates of the tangent operator (one by default, Newton's method; a
++larger value gives a modified Newton method). With Newton's method, KINSOL
++also updates the tangent operator after a failure of the linear solver or
++a large step. With a tangent operator applied without assembly (see
++:ref:`mfem_mgis_batch_computations_matrix_free`), only the preconditioner
++is kept: the tangent operator applied is always the one of the last
++integration. The tangent operator is inverted by the linear solver of the
++problem, whose failure stops the resolution (after an update of the tangent
++operator if it is not current, with Newton's method) unless the option
++:cxx:`DiscardLinearSolverFailure` is true.
++
++When the integration of the behaviours fails at a new estimate, KINSOL
++halves the step of Newton's method, at most five times, at the first trial
++point of an iteration; a failure later in the line search, or with Picard's
++method, stops the resolution. The Newton solver of mfem-mgis halves the
++correction until the maximum number of iterations. In all cases, the
++behaviours are integrated again at the solution returned by KINSOL when
++their last integration was made elsewhere.
++
++KINSOL stops when the maximum norm of the residual is lower than
++:math:`\max\left(\varepsilon_{r}\,r_{\mathrm{ref}},\varepsilon_{a}\right)`, where
++:math:`\varepsilon_{r}` and :math:`\varepsilon_{a}` are the relative and
++absolute tolerances (options :cxx:`RelativeTolerance` and
++:cxx:`AbsoluteTolerance`) and :math:`r_{\mathrm{ref}}` the maximum norm of
++the initial residual, multiplied by the ratio of the reference norm of the
++residual (given by the prediction, if any) to the norm of the initial
++residual. Unlike the other nonlinear solvers, the absolute tolerance thus
++applies to the maximum norm of the residual, not to its euclidean norm. A
++null tolerance gives a fixed number of iterations (option
++:cxx:`MaximumNumberOfIterations`, strictly positive).
++
++The unknowns are not scaled: the stopping criterion of KINSOL on the
++scaled step is disabled unless the option :cxx:`ScaledStepTolerance` is
++given, and the length of a Newton step is not limited unless the option
++:cxx:`MaximumNewtonStep` (maximum euclidean norm of a step) is given,
++while KINSOL limits it by default to 1000 times the norm of the initial
++guess, at least one, in the units of the unknowns. These two options are
++refused with Picard's method.
++
++The resolution is stopped when the residual stagnates (three evaluations
++without a decrease of more than 10 %) below the option
++:cxx:`StagnationRelativeTolerance` (:math:`10^{4}` times the machine
++epsilon by default) times the reference norm, which happens at the floor of
++the rounding errors, and is then accepted, as a resolution which KINSOL
++stops without reaching the tolerance with a residual below this value.
++
++The other options are the ones of the iterative solvers
++(:cxx:`MaximumNumberOfIterations`, :cxx:`VerbosityLevel`, which prints
++each evaluation of the residual). The information on the iterations of a
++resolution gives the norm of the residual at each evaluation. KINSOL prints
++its own error messages on the error stream.
++
++On the uniaxial tension of a plastic cube in two time steps (test
++:file:`tests/KINSOLSolverTest.cxx`, sequential), Newton's method of KINSOL
++makes the 8 iterations of the Newton solver, the tangent operator updated
++every three iterations 14 iterations, Picard's method 59 iterations,
++reduced to 32 by Anderson's acceleration and to 17 by an update of the
++tangent operator every five iterations.
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 45258e244c..cdee372533 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -179,6 +179,14 @@ and transposed interpolations kept. The values of the
+ Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused.
+ See :ref:`linear_solvers`.
+ 
++Nonlinear solver of KINSOL
++--------------------------
++
++The :cxx:`KINSOL` nonlinear solver uses KINSOL (:code:`SUNDIALS`) when
++:code:`MFEM` is built with it: Newton's method with or without line
++search, modified Newton method, Picard's method with Anderson's
++acceleration. See :doc:`../nonlinear_algorithms`.
++
+ Preconditioners of the sparse matrices of MFEM, options of MUMPS
+ ----------------------------------------------------------------
+ 
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index d506b014c7..95cceb5b33 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1150,6 +1150,39 @@ if(MFEM_MGIS_HAVE_TFEL)
+                          PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
+   endif()
+ 
++  # KINSOLSolverTest executable: non linear solver based on KINSOL
++  # (SUNDIALS), compared to the Newton solver
++  if(MFEM_USE_SUNDIALS STREQUAL "YES")
++    add_test_executable(KINSOLSolverTest)
++    add_test(NAME KINSOLSolverTest
++             COMMAND KINSOLSolverTest
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                     --library $<TARGET_FILE:BehaviourTest>)
++    if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++      add_test(NAME KINSOLSolverTestP
++               COMMAND mpirun -n 2 ./KINSOLSolverTest --parallel
++                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                       --library $<TARGET_FILE:BehaviourTest>)
++      set_tests_properties(KINSOLSolverTestP
++                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
++    endif()
++    # with a GPU, KINSOL computes on the device (vectors of CUDA or HIP)
++    if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
++       AND enable-gpu-tests)
++      if(MFEM_USE_CUDA STREQUAL "YES")
++        set(kinsol_solver_test_device cuda)
++      else()
++        set(kinsol_solver_test_device hip)
++      endif()
++      add_test(NAME KINSOLSolverTest-gpu
++               COMMAND KINSOLSolverTest --device ${kinsol_solver_test_device}
++                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
++                       --library $<TARGET_FILE:BehaviourTest>)
++      set_tests_properties(KINSOLSolverTest-gpu
++                           PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)
++    endif()
++  endif()
++
+   # FixedPointSolverTest executable: fixed point solver (methods,
+   # accelerations, linear solvers of the elastic operator) compared to the
+   # Newton solver
+diff --git a/tests/KINSOLSolverTest.cxx b/tests/KINSOLSolverTest.cxx
+new file mode 100644
+index 0000000000..40e037867e
+--- /dev/null
++++ b/tests/KINSOLSolverTest.cxx
+@@ -0,0 +1,315 @@
++/*!
++ * \file   KINSOLSolverTest.cxx
++ * \brief  Test of the non linear solver based on KINSOL (`KINSOL` non
++ * linear solver): uniaxial tension of a cube made of a plastic material
++ * with a linear hardening, in two time steps:
++ *
++ * - each strategy of KINSOL (Newton's method with and without line search,
++ *   Picard's method, the tangent operator of the first iteration being
++ *   kept, damped, or updated every five iterations) gives the solution of
++ *   the Newton solver of mfem-mgis;
++ * - Newton's method of KINSOL makes as many iterations as the Newton
++ *   solver, within one iteration per time step (the criteria differ:
++ *   maximum norm for KINSOL, euclidean norm for the Newton solver);
++ * - the tangent operator updated every three iterations (modified Newton
++ *   method) and Picard's method make more iterations, and Anderson's
++ *   acceleration reduces the iterations of Picard's method;
++ * - with a relative tolerance below the floor of the rounding errors, the
++ *   resolution is stopped by the stagnation of the residual and accepted;
++ * - a failure of the linear solver stops the resolution at the first
++ *   iteration;
++ * - the invalid options are refused.
++ *
++ * With the `--parallel` option, the computations are parallel (MUMPS).
++ * \date   15/10/2026
++ */
++
++#include <cmath>
++#include <string>
++#include <vector>
++#include <cstdlib>
++#include <iostream>
++#include <algorithm>
++#include "mfem/general/optparser.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Material.hxx"
++#include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "SequentialLinearSolver.hxx"
++#include "Tolerance.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief if true, the computations are parallel
++static bool parallel = false;
++/*!
++ * \brief tolerance on the relative difference between the solutions of
++ * KINSOL and the one of the Newton solver
++ */
++static constexpr auto solution_tolerance =
++    mfem_mgis::unit_tests::tolerance(1e-8, 3e-4);
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \brief results of a computation
++struct Results {
++  //! \brief status
++  bool status = false;
++  //! \brief unknowns at the end of the computation
++  std::vector<mfem_mgis::real> u;
++  //! \brief total number of iterations
++  mfem_mgis::size_type iterations = 0;
++  //! \brief number of iterations of the time step which failed, if any
++  mfem_mgis::size_type failed_iterations = 0;
++};
++
++/*!
++ * \return the results of the computation
++ * \param[in] mesh: mesh of a cube
++ * \param[in] library: behaviour library
++ * \param[in] solver: value of the `NonLinearSolver` parameter, the Newton
++ * solver being used if empty
++ * \param[in] linear_solver: linear solver, MUMPS in parallel and the linear
++ * solver of the sequential tests if null
++ * \param[in] linear_solver_options: options of the linear solver
++ * \param[in] relative_tolerance: relative tolerance of the non linear solver
++ */
++static Results compute(const char* const mesh,
++                       const char* const library,
++                       const mfem_mgis::Parameters& solver,
++                       const char* const linear_solver = nullptr,
++                       const mfem_mgis::Parameters& linear_solver_options = {},
++                       const mfem_mgis::real relative_tolerance = 1e-12) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto or_die = ctx.getFatalFailureHandler();
++  auto params = Parameters{
++      {"MeshFileName", mesh},
++      {"FiniteElementFamily", "H1"},
++      {"FiniteElementOrder", 1},
++      {"UnknownsSize", 3},
++      {"NumberOfUniformRefinements", 1},
++      {"Materials", Parameters{{"Cube", 1}}},
++      {"Boundaries",
++       Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
++      {"Hypothesis", "Tridimensional"},
++      {"Parallel", parallel}};
++  if (!solver.empty()) {
++    params.insert(throwing, {{"NonLinearSolver", solver}});
++  }
++  auto problem = construct<NonLinearEvolutionProblem>(ctx, params) | or_die;
++  problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
++                                 "IsotropicLinearHardeningPlasticity") |
++      or_die;
++  auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
++  for (auto* s : {&m.s0, &m.s1}) {
++    mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
++        or_die;
++  }
++  for (const auto& [boundary, component] :
++       {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
++    problem.addUniformDirichletBoundaryCondition(
++        ctx, {{"Boundary", boundary}, {"Component", component}}) |
++        or_die;
++  }
++  problem.addUniformDirichletBoundaryCondition(
++      ctx,
++      {{"Boundary", "Xmax"},
++       {"Component", 0},
++       {"LoadingEvolution", [](const real t) noexcept { return 1e-2 * t; }}}) |
++      or_die;
++  const auto* const ls =
++      (linear_solver != nullptr)
++          ? linear_solver
++          : (parallel ? "MUMPSSolver" : unit_tests::sequential_direct_solver);
++  const auto ls_options =
++      ((linear_solver == nullptr) && (!parallel))
++          ? unit_tests::getSequentialDirectSolverParameters()
++          : linear_solver_options;
++  problem.setLinearSolver(ctx, ls, ls_options) | or_die;
++  problem.setSolverParameters(
++      ctx, Parameters{{"VerbosityLevel", 0},
++                      {"RelativeTolerance", relative_tolerance},
++                      {"AbsoluteTolerance", 0.},
++                      {"MaximumNumberOfIterations", 100}}) |
++      or_die;
++  auto r = Results{};
++  constexpr auto nsteps = 2;
++  const auto dt = real{1} / nsteps;
++  auto t = real{0};
++  for (int i = 0; i != nsteps; ++i) {
++    auto c = Context{};
++    const auto o = problem.solve(c, t, dt);
++    if (!o.status) {
++      r.failed_iterations = o.iterations;
++      return r;
++    }
++    r.iterations += o.iterations;
++    problem.update(ctx) | or_die;
++    t += dt;
++  }
++  const auto& u = problem.getUnknowns(ets);
++  r.u.assign(u.HostRead(), u.HostRead() + u.Size());
++  r.status = true;
++  return r;
++}  // end of compute
++
++/*!
++ * \return the maximum difference between two arrays, relative to the
++ * maximum absolute value of the first one
++ */
++static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
++                                    const std::vector<mfem_mgis::real>& b) {
++  if ((a.size() != b.size()) || a.empty()) {
++    return 1;
++  }
++  auto d = mfem_mgis::real{0};
++  auto m = mfem_mgis::real{0};
++  for (std::size_t i = 0; i != a.size(); ++i) {
++    d = std::max(d, std::abs(a[i] - b[i]));
++    m = std::max(m, std::abs(a[i]));
++  }
++  return m <= 0 ? d : d / m;
++}  // end of getRelativeDifference
++
++/*!
++ * \brief an invalid option of KINSOL is refused
++ * \param[in] mesh: mesh
++ * \param[in] options: options of KINSOL
++ * \param[in] message: part of the expected error message
++ */
++static void checkRefusal(const char* const mesh,
++                         const mfem_mgis::Parameters& options,
++                         const std::string& message) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  const auto o = construct<NonLinearEvolutionProblem>(
++      ctx, Parameters{{"MeshFileName", mesh},
++                      {"FiniteElementFamily", "H1"},
++                      {"FiniteElementOrder", 1},
++                      {"UnknownsSize", 3},
++                      {"Hypothesis", "Tridimensional"},
++                      {"NonLinearSolver", Parameters{{"KINSOL", options}}},
++                      {"Parallel", parallel}});
++  check(isInvalid(o), message + ": not refused");
++  // reading the error message clears it
++  const auto e = ctx.getErrorMessage();
++  check(e.find(message) != std::string::npos,
++        message + ": unexpected error message (" + e + ")");
++}  // end of checkRefusal
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  const char* mesh = "cube.mesh";
++  const char* library = "src/libBehaviourTest.so";
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&mesh, "-m", "--mesh", "mesh of a cube");
++  args.AddOption(&library, "-l", "--library", "behaviour library");
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++  const auto reference = compute(mesh, library, Parameters{});
++  check(reference.status, "Newton: resolution failed");
++  std::cout << "Newton: " << reference.iterations << " iterations\n";
++  // a computation with KINSOL, compared to the Newton solver
++  auto run = [mesh, library, &reference](const std::string& name,
++                                         const Parameters& options) {
++    const auto r = compute(mesh, library, Parameters{{"KINSOL", options}});
++    const auto d = getRelativeDifference(reference.u, r.u);
++    std::cout << name << ": " << r.iterations
++              << " iterations, relative difference with Newton " << d << '\n';
++    check(r.status, name + ": resolution failed");
++    check(d < solution_tolerance, name + ": solution differs from Newton's");
++    return r;
++  };
++  const auto line_search = run("KINSOL, line search", Parameters{});
++  check(line_search.iterations <= reference.iterations + 2,
++        "KINSOL, line search: more iterations than the Newton solver");
++  const auto newton = run("KINSOL, Newton", Parameters{{"Strategy", "Newton"}});
++  check(newton.iterations <= reference.iterations + 2,
++        "KINSOL, Newton: more iterations than the Newton solver");
++  const auto modified = run("KINSOL, tangent updated every 3 iterations",
++                            Parameters{{"MaximumSetupCalls", 3}});
++  check(modified.iterations > newton.iterations,
++        "KINSOL, modified Newton: not more iterations than Newton");
++  const auto picard = run("KINSOL, Picard", Parameters{{"Strategy", "Picard"}});
++  check(picard.iterations > newton.iterations,
++        "KINSOL, Picard: not more iterations than Newton");
++  const auto anderson =
++      run("KINSOL, Picard, Anderson",
++          Parameters{{"Strategy", "Picard"},
++                     {"AndersonAccelerationSubspaceSize", 5}});
++  check(anderson.iterations < picard.iterations,
++        "KINSOL, Picard: Anderson's acceleration does not reduce the "
++        "iterations");
++  const auto damped = run("KINSOL, Picard, damped",
++                          Parameters{{"Strategy", "Picard"}, {"Damping", 0.9}});
++  check(damped.iterations > picard.iterations,
++        "KINSOL, Picard: the damping does not slow down the iterations");
++  const auto updated =
++      run("KINSOL, Picard, tangent updated every 5 iterations",
++          Parameters{{"Strategy", "Picard"}, {"MaximumSetupCalls", 5}});
++  check(updated.iterations < picard.iterations,
++        "KINSOL, Picard: the updates of the tangent operator do not reduce "
++        "the iterations");
++  // a relative tolerance below the floor of the rounding errors: the
++  // resolution is stopped by the stagnation of the residual, and accepted
++  {
++    const auto r = compute(mesh, library, Parameters{{"KINSOL", Parameters{}}},
++                           nullptr, {}, 1e-20);
++    const auto d = getRelativeDifference(reference.u, r.u);
++    std::cout << "KINSOL, stagnation: " << r.iterations
++              << " iterations, relative difference with Newton " << d << '\n';
++    check(r.status && (r.iterations < 50) && (d < solution_tolerance),
++          "KINSOL: resolution not accepted at the floor of the rounding "
++          "errors");
++  }
++  // a failure of the linear solver (the conjugate gradient stopped after
++  // two iterations) stops the resolution at the first iteration
++  {
++    const auto r =
++        compute(mesh, library, Parameters{{"KINSOL", Parameters{}}}, "CGSolver",
++                Parameters{{"VerbosityLevel", 0},
++                           {"RelativeTolerance", 1e-12},
++                           {"MaximumNumberOfIterations", 2}});
++    std::cout << "KINSOL, failure of the linear solver: "
++              << (r.status ? "converged" : "failed") << " after "
++              << r.failed_iterations << " iteration(s)\n";
++    check((!r.status) && (r.failed_iterations <= 1),
++          "KINSOL: failure of the linear solver not reported");
++  }
++  // refusals
++  checkRefusal(mesh, Parameters{{"Strategy", "FixedPoint"}},
++               "invalid strategy");
++  checkRefusal(mesh, Parameters{{"Damping", 0.5}},
++               "requires the strategy 'Picard'");
++  checkRefusal(mesh, Parameters{{"MaximumSetupCalls", 0}},
++               "maximum number of setup calls");
++  checkRefusal(mesh, Parameters{{"ScaledStepTolerance", -1.}},
++               "scaled step tolerance");
++  checkRefusal(
++      mesh,
++      Parameters{{"Strategy", "Picard"}, {"AndersonAccelerationDamping", 2.}},
++      "damping factors");
++  checkRefusal(mesh, Parameters{{"StagnationRelativeTolerance", 1.}},
++               "StagnationRelativeTolerance");
++  checkRefusal(mesh, Parameters{{"MaximumNumberOfIterations", 0}},
++               "maximum number of iterations");
++  checkRefusal(mesh, Parameters{{"MaximumNewtonStep", -1.}},
++               "maximum Newton step");
++  checkRefusal(mesh,
++               Parameters{{"Strategy", "Picard"}, {"ScaledStepTolerance", 1.}},
++               "is not used by the strategy 'Picard'");
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

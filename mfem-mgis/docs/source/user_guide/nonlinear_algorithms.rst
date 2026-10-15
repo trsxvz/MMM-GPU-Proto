@@ -341,3 +341,89 @@ computation:
                                    {"MaximumNumberOfIterations", 1000}}}}}};
    // given to the problem as
    // {"NonLinearSolver", mfem_mgis::Parameters{{"FixedPoint", newton_k0}}}
+
+Solver of KINSOL
+================
+
+When :code:`MFEM` is built with :code:`SUNDIALS`, the :cxx:`KINSOL`
+nonlinear solver uses KINSOL, through the :cxx:`mfem::KINSolver` class
+of :code:`MFEM`:
+
+.. code-block:: c++
+
+   {"NonLinearSolver",
+    mfem_mgis::Parameters{{"KINSOL",
+                           mfem_mgis::Parameters{{"Strategy", "LineSearch"}}}}}
+
+The option :cxx:`Strategy` selects the method:
+
+- :cxx:`LineSearch` (default): Newton's method with the line search of
+  KINSOL;
+- :cxx:`Newton`: Newton's method without line search;
+- :cxx:`Picard`: Picard's method, the tangent operator of the first
+  iteration being kept unless the option :cxx:`MaximumSetupCalls` is
+  given, optionally accelerated by Anderson's method (options
+  :cxx:`AndersonAccelerationSubspaceSize`, zero, no acceleration, by
+  default, bounded by the maximum number of iterations minus one,
+  :cxx:`AndersonAccelerationDelay` and :cxx:`AndersonAccelerationDamping`)
+  and damped (option :cxx:`Damping`).
+
+The option :cxx:`MaximumSetupCalls` gives the number of iterations between
+two updates of the tangent operator (one by default, Newton's method; a
+larger value gives a modified Newton method). With Newton's method, KINSOL
+also updates the tangent operator after a failure of the linear solver or
+a large step. With a tangent operator applied without assembly (see
+:ref:`mfem_mgis_batch_computations_matrix_free`), only the preconditioner
+is kept: the tangent operator applied is always the one of the last
+integration. The tangent operator is inverted by the linear solver of the
+problem, whose failure stops the resolution (after an update of the tangent
+operator if it is not current, with Newton's method) unless the option
+:cxx:`DiscardLinearSolverFailure` is true.
+
+When the integration of the behaviours fails at a new estimate, KINSOL
+halves the step of Newton's method, at most five times, at the first trial
+point of an iteration; a failure later in the line search, or with Picard's
+method, stops the resolution. The Newton solver of mfem-mgis halves the
+correction until the maximum number of iterations. In all cases, the
+behaviours are integrated again at the solution returned by KINSOL when
+their last integration was made elsewhere.
+
+KINSOL stops when the maximum norm of the residual is lower than
+:math:`\max\left(\varepsilon_{r}\,r_{\mathrm{ref}},\varepsilon_{a}\right)`, where
+:math:`\varepsilon_{r}` and :math:`\varepsilon_{a}` are the relative and
+absolute tolerances (options :cxx:`RelativeTolerance` and
+:cxx:`AbsoluteTolerance`) and :math:`r_{\mathrm{ref}}` the maximum norm of
+the initial residual, multiplied by the ratio of the reference norm of the
+residual (given by the prediction, if any) to the norm of the initial
+residual. Unlike the other nonlinear solvers, the absolute tolerance thus
+applies to the maximum norm of the residual, not to its euclidean norm. A
+null tolerance gives a fixed number of iterations (option
+:cxx:`MaximumNumberOfIterations`, strictly positive).
+
+The unknowns are not scaled: the stopping criterion of KINSOL on the
+scaled step is disabled unless the option :cxx:`ScaledStepTolerance` is
+given, and the length of a Newton step is not limited unless the option
+:cxx:`MaximumNewtonStep` (maximum euclidean norm of a step) is given,
+while KINSOL limits it by default to 1000 times the norm of the initial
+guess, at least one, in the units of the unknowns. These two options are
+refused with Picard's method.
+
+The resolution is stopped when the residual stagnates (three evaluations
+without a decrease of more than 10 %) below the option
+:cxx:`StagnationRelativeTolerance` (:math:`10^{4}` times the machine
+epsilon by default) times the reference norm, which happens at the floor of
+the rounding errors, and is then accepted, as a resolution which KINSOL
+stops without reaching the tolerance with a residual below this value.
+
+The other options are the ones of the iterative solvers
+(:cxx:`MaximumNumberOfIterations`, :cxx:`VerbosityLevel`, which prints
+each evaluation of the residual). The information on the iterations of a
+resolution gives the norm of the residual at each evaluation. KINSOL prints
+its own error messages on the error stream.
+
+On the uniaxial tension of a plastic cube in two time steps (test
+:file:`tests/KINSOLSolverTest.cxx`, sequential), Newton's method of KINSOL
+makes the 8 iterations of the Newton solver, the tangent operator updated
+every three iterations 14 iterations, Picard's method 59 iterations,
+reduced to 32 by Anderson's acceleration and to 17 by an update of the
+tangent operator every five iterations.
