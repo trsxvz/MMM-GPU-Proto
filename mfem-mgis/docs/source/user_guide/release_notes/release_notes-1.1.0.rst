@@ -108,9 +108,32 @@ Known incompatibilities
   been removed. :cxx:`getMPIRankForDefaultCommunicator` and
   :cxx:`getMPISizeForDefaultCommunicator` shall be used instead (see
   Issue 474).
+- The location where a linear solver computes is given by its
+  description (see :ref:`linear_solvers`), and no longer deduced from its
+  name: a linear solver registered by the
+  :cxx:`LinearSolverFactory::add` method without description is assumed
+  to compute where the device of |MFEM| computes, whatever its name.
+- The preconditioners are registered in the factory of preconditioners:
+  the error message of an unknown preconditioner lists the available
+  ones.
 
 New features
 ============
+
+Descriptions of the linear solvers and factory of preconditioners
+------------------------------------------------------------------
+
+Each linear solver and each preconditioner is registered with a
+description (:cxx:`LinearSolverDescription`): library, kind (iterative,
+direct, approximate solver or preconditioner), location of the
+computations, accepted preconditioners and options. The preconditioners
+are registered in the new factory of preconditioners
+(:cxx:`PreconditionerFactory`). The location of each linear solver and
+preconditioner is checked against the execution settings, and the
+preconditioners which a linear solver does not accept are refused with a
+message. The available linear solvers and preconditioners are listed in
+:ref:`linear_solvers`; the solvers of each library are registered by a
+module (see :ref:`linear_solver_modules`).
 
 Prediction of the solution
 --------------------------

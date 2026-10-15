@@ -1589,6 +1589,35 @@ if(MFEM_USE_MPI)
            COMMAND mpirun -n 2 ./HypreKrylovAbsoluteToleranceTest)
 endif(MFEM_USE_MPI)
 
+# LinearSolverFactoriesTest executable: each linear solver and each
+# preconditioner registered in the factories (generic test, see the test)
+add_test_executable(LinearSolverFactoriesTest)
+add_test(NAME LinearSolverFactoriesTest COMMAND LinearSolverFactoriesTest)
+set_tests_properties(LinearSolverFactoriesTest PROPERTIES
+  FAIL_REGULAR_EXPRESSION "check failed")
+if(MFEM_USE_MPI)
+  add_test(NAME LinearSolverFactoriesTestP
+           COMMAND mpirun -n 2 ./LinearSolverFactoriesTest --parallel)
+  set_tests_properties(LinearSolverFactoriesTestP PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed")
+endif(MFEM_USE_MPI)
+# on a CUDA GPU, the entries which only compute on the GPU (AmgX, cuDSS) are
+# also checked
+if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+  add_test(NAME LinearSolverFactoriesTest-cuda
+           COMMAND LinearSolverFactoriesTest --device cuda)
+  set(linear_solver_factories_gpu_tests LinearSolverFactoriesTest-cuda)
+  if(MFEM_USE_MPI)
+    add_test(NAME LinearSolverFactoriesTestP-cuda
+             COMMAND mpirun -n 2 ./LinearSolverFactoriesTest --parallel
+                     --device cuda)
+    list(APPEND linear_solver_factories_gpu_tests
+         LinearSolverFactoriesTestP-cuda)
+  endif(MFEM_USE_MPI)
+  set_tests_properties(${linear_solver_factories_gpu_tests} PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+endif()
+
 # AmgXSolverTest executable: solvers of AmgX built by the factory of linear
 # solvers. AmgX computes on the GPU whatever the device of MFEM: the tests
 # require one, and are not run at the same time as the other tests on the

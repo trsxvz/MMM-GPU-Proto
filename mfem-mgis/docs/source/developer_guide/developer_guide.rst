@@ -16,5 +16,6 @@ The `doxygen` documentation is available on `this page <https://thelfer.github.i
    contributing_guide.rst
    contributors.rst
    guidelines.rst
+   linear_solver_modules.rst
    parameter.rst
    main_classes/main_classes.rst

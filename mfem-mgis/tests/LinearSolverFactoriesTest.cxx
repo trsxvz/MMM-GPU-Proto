@@ -1,0 +1,475 @@
+/*!
+ * \file   LinearSolverFactoriesTest.cxx
+ * \brief  Generic test of the factories of linear solvers and of
+ * preconditioners: each registered linear solver, and each registered
+ * preconditioner given to the GMRES solver of MFEM, solves the Laplace
+ * equation on a cube, the essential degrees of freedom being eliminated
+ * with a diagonal set to one. The outcome is checked according to the kind
+ * of solver (see `LinearSolverDescription`): convergence up to the
+ * tolerance for the iterative and direct solvers, decrease of the residual
+ * for the approximate solvers. The test also checks the descriptions, the
+ * preconditioners refused by the linear solvers, and, in sequential, the
+ * message of the solvers only available in parallel.
+ *
+ * The entries which only compute on the GPU are skipped when MFEM does not
+ * compute on a CUDA GPU, and the ones which only compute on the host when
+ * hypre computes on a GPU. With the `--parallel` option, the parallel
+ * factories are checked.
+ * \date   15/10/2026
+ */
+
+#include <map>
+#include <cmath>
+#include <memory>
+#include <algorithm>
+#include <type_traits>
+#include <string>
+#include <vector>
+#include <cstdlib>
+#include <iostream>
+#include <optional>
+#include <stdexcept>
+#include "mfem.hpp"
+#include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/LinearSolverFactory.hxx"
+#include "MFEMMGIS/PreconditionerFactory.hxx"
+#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+#include "MFEMMGIS/MPI.hxx"
+
+//! \brief number of failed checks
+static int failures = 0;
+/*!
+ * \brief relative tolerance of the iterative solvers, the residuals being
+ * checked up to 100 times this tolerance: the single precision of MFEM
+ * bounds the tolerances
+ */
+static constexpr double tolerance =
+    std::is_same_v<mfem_mgis::real, float> ? 1e-5 : 1e-10;
+//! \brief if true, the computations are parallel
+static bool parallel = false;
+//! \brief rank of the process
+static int rank = 0;
+
+static void check(const bool b, const std::string& msg) {
+  if (!b) {
+    std::cerr << "check failed: " << msg << '\n';
+    ++failures;
+  }
+}  // end of check
+
+//! \brief Laplace equation on a cube, sequential or parallel
+template <bool is_parallel>
+struct LaplaceSystem {
+  using Mesh = std::conditional_t<is_parallel, mfem::ParMesh, mfem::Mesh>;
+  using BilinearForm = std::
+      conditional_t<is_parallel, mfem::ParBilinearForm, mfem::BilinearForm>;
+  using LinearForm =
+      std::conditional_t<is_parallel, mfem::ParLinearForm, mfem::LinearForm>;
+  using GridFunction = std::
+      conditional_t<is_parallel, mfem::ParGridFunction, mfem::GridFunction>;
+  using Matrix =
+      std::conditional_t<is_parallel, mfem::HypreParMatrix, mfem::SparseMatrix>;
+  /*!
+   * \param[in] smesh: sequential mesh (partitioned in parallel)
+   * \param[in] fec: finite element collection
+   */
+  LaplaceSystem(mfem::Mesh& smesh, mfem::FiniteElementCollection& fec)
+      : mesh(makeMesh(smesh)), fespace(mesh.get(), &fec), a(&fespace) {
+    auto ess_bdr = mfem::Array<int>(this->mesh->bdr_attributes.Max());
+    ess_bdr = 1;
+    auto ess_tdofs = mfem::Array<int>{};
+    this->fespace.GetEssentialTrueDofs(ess_bdr, ess_tdofs);
+    this->a.AddDomainIntegrator(new mfem::DiffusionIntegrator);
+    this->a.SetDiagonalPolicy(mfem::Operator::DIAG_ONE);
+    this->a.Assemble();
+    auto one = mfem::ConstantCoefficient(1.);
+    auto b = LinearForm(&(this->fespace));
+    b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
+    b.Assemble();
+    auto x = GridFunction(&(this->fespace));
+    x = 0.;
+    // the right hand side given by MFEM may refer to the memory of the
+    // linear form: it is copied
+    auto X = mfem::Vector{};
+    auto rhs = mfem::Vector{};
+    this->a.FormLinearSystem(ess_tdofs, x, b, this->A, X, rhs);
+    this->B = rhs;
+  }
+  //! \return the norm of the residual relative to the right hand side
+  double getRelativeResidual(const mfem::Vector& x) {
+    auto r = mfem::Vector(this->B.Size());
+    r.UseDevice(true);
+    this->A.Mult(x, r);
+    r -= this->B;
+    return std::sqrt(this->dot(r, r) / this->dot(this->B, this->B));
+  }
+  //! \brief mesh (copy of the sequential mesh, or partition of it)
+  std::unique_ptr<Mesh> mesh;
+  //! \brief finite element space
+  mfem_mgis::FiniteElementSpace<is_parallel> fespace;
+  //! \brief bilinear form
+  BilinearForm a;
+  //! \brief matrix
+  Matrix A;
+  //! \brief right hand side
+  mfem::Vector B;
+
+ private:
+  //! \return the mesh of the system
+  static std::unique_ptr<Mesh> makeMesh(mfem::Mesh& smesh) {
+    if constexpr (is_parallel) {
+      return std::make_unique<mfem::ParMesh>(MPI_COMM_WORLD, smesh);
+    } else {
+      return std::make_unique<mfem::Mesh>(smesh);
+    }
+  }
+  //! \return the scalar product of two vectors
+  double dot(const mfem::Vector& u, const mfem::Vector& v) {
+    if constexpr (is_parallel) {
+      return mfem::InnerProduct(this->fespace.GetComm(), u, v);
+    } else {
+      return mfem::InnerProduct(u, v);
+    }
+  }
+};
+
+/*!
+ * \return true if the solver or preconditioner can compute in this run:
+ * the entries which only compute on the GPU require MFEM computing on a
+ * CUDA GPU, the ones which only compute on the host require hypre computing
+ * on the host
+ * \param[in] d: description
+ */
+static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
+  using mfem_mgis::LinearSolverPlacement;
+  if (d.placement == LinearSolverPlacement::DEVICE) {
+    return mfem::Device::Allows(mfem::Backend::CUDA_MASK);
+  }
+  if (d.placement == LinearSolverPlacement::HOST) {
+    return !mfem_mgis::isHypreUsingGPU();
+  }
+  return true;
+}  // end of isAvailable
+
+//! \return if the given option is accepted
+static bool accepts(const mfem_mgis::LinearSolverDescription& d,
+                    const std::string& o) {
+  return std::find(d.options.begin(), d.options.end(), o) != d.options.end();
+}  // end of accepts
+
+/*!
+ * \return the parameters of a linear solver for this test: tolerances and
+ * maximum number of iterations for the iterative solvers, and a
+ * preconditioner for the solvers which accept one (a damped Jacobi
+ * smoother, or the first available preconditioner of the same library)
+ * \param[in] d: description of the linear solver
+ */
+template <bool is_parallel>
+static std::optional<mfem_mgis::Parameters> getTestParameters(
+    const mfem_mgis::LinearSolverDescription& d) {
+  using namespace mfem_mgis;
+  auto p = Parameters{};
+  if (accepts(d, "RelativeTolerance")) {
+    p.replaceOrInsert("RelativeTolerance", tolerance);
+  }
+  if (accepts(d, "Tolerance")) {
+    p.replaceOrInsert("Tolerance", tolerance);
+  }
+  if (accepts(d, "AbsoluteTolerance")) {
+    p.replaceOrInsert("AbsoluteTolerance", 0.);
+  }
+  if (accepts(d, "MaximumNumberOfIterations")) {
+    p.replaceOrInsert("MaximumNumberOfIterations", 5000);
+  }
+  if (d.preconditioners == AcceptedPreconditioners::ANY) {
+    p.replaceOrInsert("Preconditioner",
+                      Parameters{{"Name", "OperatorJacobiSmoother"},
+                                 {"Options", Parameters{{"Damping", 0.5}}}});
+  } else if (d.preconditioners == AcceptedPreconditioners::SAME_LIBRARY) {
+    const auto& f = PreconditionerFactory<is_parallel>::getFactory();
+    for (const auto& n : f.getNames()) {
+      const auto* const pd = f.getDescription(n);
+      if ((pd->library == d.library) && (isAvailable(*pd))) {
+        p.replaceOrInsert("Preconditioner", Parameters{{"Name", n}});
+        return p;
+      }
+    }
+    return {};
+  }
+  return p;
+}  // end of getTestParameters
+
+/*!
+ * \return the options of a preconditioner for this test: a Jacobi smoother
+ * for the wrappers of another preconditioner
+ * \param[in] d: description of the preconditioner
+ */
+static mfem_mgis::Parameters getTestOptions(
+    const mfem_mgis::LinearSolverDescription& d) {
+  using namespace mfem_mgis;
+  if (accepts(d, "Preconditioner")) {
+    return Parameters{
+        {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}};
+  }
+  return Parameters{};
+}  // end of getTestOptions
+
+//! \return the outcome of a resolution, in a short text
+static std::string describe(const bool converged,
+                            const std::optional<int> iterations,
+                            const double residual) {
+  auto s = std::string{};
+  if (iterations.has_value()) {
+    s += std::to_string(*iterations) + " iterations, ";
+  }
+  s += "residual " + std::to_string(residual);
+  if (!converged) {
+    s += " (not converged)";
+  }
+  return s;
+}  // end of describe
+
+/*!
+ * \brief checks the descriptions of the registered entries
+ * \param[in] solvers: if true, the entries are linear solvers
+ * \param[in] n: name
+ * \param[in] d: description
+ */
+static void checkDescription(const bool solvers,
+                             const std::string& n,
+                             const mfem_mgis::LinearSolverDescription& d) {
+  using namespace mfem_mgis;
+  check(!d.library.empty(), n + ": no library");
+  check(!d.description.empty(), n + ": no description");
+  if (solvers) {
+    check(d.kind != LinearSolverKind::PRECONDITIONER,
+          n + ": linear solver described as a preconditioner");
+    check(d.placement.has_value(), n + ": linear solver without placement");
+    check((d.preconditioners == AcceptedPreconditioners::NONE) ||
+              accepts(d, "Preconditioner"),
+          n + ": preconditioners accepted without the option "
+              "'Preconditioner'");
+  } else {
+    check(d.kind == LinearSolverKind::PRECONDITIONER,
+          n + ": preconditioner not described as a preconditioner");
+  }
+}  // end of checkDescription
+
+/*!
+ * \brief checks the placements of the entries registered before the
+ * descriptions, whose locations were deduced from their names
+ * \param[in] n: name
+ * \param[in] d: description
+ */
+static void checkPlacement(const std::string& n,
+                           const mfem_mgis::LinearSolverDescription& d) {
+  using mfem_mgis::LinearSolverPlacement;
+  using Placement = std::optional<LinearSolverPlacement>;
+  static const auto placements = std::map<std::string, Placement>{
+      {"AmgX", LinearSolverPlacement::DEVICE},
+      {"AmgXPCG", LinearSolverPlacement::DEVICE},
+      {"AssembledOperator", Placement{}},
+      {"BiCGSTABSolver", LinearSolverPlacement::MFEM},
+      {"CGSolver", LinearSolverPlacement::MFEM},
+      {"CuDSSSolver", LinearSolverPlacement::DEVICE},
+      {"FGMRESSolver", LinearSolverPlacement::MFEM},
+      {"GMRESSolver", LinearSolverPlacement::MFEM},
+      {"HypreBoomerAMG", LinearSolverPlacement::HYPRE},
+      {"HypreDiagScale", LinearSolverPlacement::HYPRE},
+      {"HypreEuclid", LinearSolverPlacement::HOST},
+      {"HypreFGMRES", LinearSolverPlacement::HYPRE},
+      {"HypreGMRES", LinearSolverPlacement::HYPRE},
+      {"HypreILU", LinearSolverPlacement::HYPRE},
+      {"HypreParaSails", LinearSolverPlacement::HOST},
+      {"HyprePCG", LinearSolverPlacement::HYPRE},
+      {"MINRESSolver", LinearSolverPlacement::MFEM},
+      {"MUMPSSolver", LinearSolverPlacement::HOST},
+      {"OperatorChebyshevSmoother", LinearSolverPlacement::MFEM},
+      {"OperatorJacobiSmoother", LinearSolverPlacement::MFEM},
+      {"SLISolver", LinearSolverPlacement::MFEM},
+      {"UMFPackSolver", LinearSolverPlacement::HOST}};
+  const auto p = placements.find(n);
+  if (p != placements.end()) {
+    check(d.placement == p->second, n + ": unexpected placement");
+  }
+}  // end of checkPlacement
+
+//! \brief checks all the registered linear solvers and preconditioners
+template <bool is_parallel>
+static void run(LaplaceSystem<is_parallel>& s) {
+  using namespace mfem_mgis;
+  const auto& lf = LinearSolverFactory<is_parallel>::getFactory();
+  const auto& pf = PreconditionerFactory<is_parallel>::getFactory();
+  auto print = [](const std::string& msg) {
+    if (rank == 0) {
+      std::cout << msg << '\n';
+    }
+  };
+  // linear solvers
+  for (const auto& n : lf.getNames()) {
+    const auto* const d = lf.getDescription(n);
+    check(d != nullptr, n + ": no description");
+    if (d == nullptr) {
+      continue;
+    }
+    checkDescription(true, n, *d);
+    checkPlacement(n, *d);
+    if (!isAvailable(*d)) {
+      print(n + ": skipped (not available in this run)");
+      continue;
+    }
+    const auto oparams = getTestParameters<is_parallel>(*d);
+    if (!oparams.has_value()) {
+      print(n + ": skipped (no preconditioner of " + d->library +
+            " available)");
+      continue;
+    }
+    auto ctx = Context{};
+    auto ls = lf.generate(ctx, n, s.fespace, *oparams);
+    if (isInvalid(ls)) {
+      check(false, n + ": generation failed: " + ctx.getErrorMessage());
+      continue;
+    }
+    auto x = mfem::Vector(s.B.Size());
+    x.UseDevice(true);
+    x = 0.;
+    ls.linear_solver->SetOperator(s.A);
+    ls.linear_solver->Mult(s.B, x);
+    const auto r = s.getRelativeResidual(x);
+    const auto converged = hasConverged(*(ls.linear_solver));
+    const auto iterations =
+        getNumberOfIterationsAtConvergence(*(ls.linear_solver));
+    check((d->preconditioners == AcceptedPreconditioners::NONE) ||
+              (ls.preconditioner != nullptr),
+          n + ": the preconditioner is not built");
+    print(n + ": " + describe(converged, iterations, r));
+    if (d->kind == LinearSolverKind::APPROXIMATE) {
+      check(r < 1, n + ": the residual does not decrease");
+    } else {
+      check(converged && (r < 100 * tolerance), n + ": resolution");
+    }
+  }
+  // preconditioners, given to the GMRES solver of MFEM
+  for (const auto& n : pf.getNames()) {
+    const auto* const d = pf.getDescription(n);
+    check(d != nullptr, n + ": no description");
+    if (d == nullptr) {
+      continue;
+    }
+    checkDescription(false, n, *d);
+    checkPlacement(n, *d);
+    if ((d->placement.has_value()) && (!isAvailable(*d))) {
+      print(n + ": skipped (not available in this run)");
+      continue;
+    }
+    auto ctx = Context{};
+    auto ls = lf.generate(
+        ctx, "GMRESSolver", s.fespace,
+        Parameters{{"RelativeTolerance", tolerance},
+                   {"AbsoluteTolerance", 0.},
+                   {"MaximumNumberOfIterations", 5000},
+                   {"KDim", 50},
+                   {"Preconditioner",
+                    Parameters{{"Name", n}, {"Options", getTestOptions(*d)}}}});
+    if (isInvalid(ls)) {
+      check(false, n + ": generation failed: " + ctx.getErrorMessage());
+      continue;
+    }
+    auto x = mfem::Vector(s.B.Size());
+    x.UseDevice(true);
+    x = 0.;
+    ls.linear_solver->SetOperator(s.A);
+    ls.linear_solver->Mult(s.B, x);
+    const auto r = s.getRelativeResidual(x);
+    const auto converged = hasConverged(*(ls.linear_solver));
+    print("GMRESSolver, " + n + ": " +
+          describe(converged,
+                   getNumberOfIterationsAtConvergence(*(ls.linear_solver)), r));
+    check(ls.preconditioner != nullptr,
+          "GMRESSolver, " + n + ": the preconditioner is not built");
+    check(converged && (r < 100 * tolerance),
+          "GMRESSolver, " + n + ": resolution");
+  }
+  // preconditioners refused by the descriptions: a preconditioner given to
+  // a linear solver which accepts none, and a preconditioner of another
+  // library given to a linear solver which only accepts the ones of its
+  // library (the Jacobi smoother of MFEM is always available)
+  for (const auto& n : lf.getNames()) {
+    const auto* const d = lf.getDescription(n);
+    if ((d == nullptr) || (!isAvailable(*d)) ||
+        (d->preconditioners == AcceptedPreconditioners::ANY) ||
+        (d->library == "MFEM")) {
+      continue;
+    }
+    const auto message =
+        d->preconditioners == AcceptedPreconditioners::NONE
+            ? std::string{"accepts no preconditioner"}
+            : "only accepts the preconditioners of " + d->library;
+    auto ctx = Context{};
+    auto ls = lf.generate(
+        ctx, n, s.fespace,
+        Parameters{{"Preconditioner",
+                    Parameters{{"Name", "OperatorJacobiSmoother"}}}});
+    check(isInvalid(ls) &&
+              (ctx.getErrorMessage().find(message) != std::string::npos),
+          n + ": preconditioner 'OperatorJacobiSmoother' not refused");
+  }
+  // in sequential, the solvers and the preconditioners only available in
+  // parallel are reported as such
+  if constexpr (!is_parallel) {
+#ifdef MFEM_USE_MPI
+    auto ctx = Context{};
+    auto ls = lf.generate(ctx, "HyprePCG", s.fespace, Parameters{});
+    check(isInvalid(ls) &&
+              (ctx.getErrorMessage().find("only available in parallel") !=
+               std::string::npos),
+          "HyprePCG: not reported as only available in parallel");
+    auto ctx2 = Context{};
+    auto p = pf.generate(ctx2, "HypreBoomerAMG", s.fespace, Parameters{});
+    check((p == nullptr) &&
+              (ctx2.getErrorMessage().find("only available in parallel") !=
+               std::string::npos),
+          "HypreBoomerAMG: not reported as only available in parallel");
+#endif /* MFEM_USE_MPI */
+  }
+}  // end of run
+
+int main(int argc, char** argv) {
+  using namespace mfem_mgis;
+  initialize(argc, argv);
+  auto args = mfem::OptionsParser(argc, argv);
+  declareDefaultOptions(args);
+  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                 "parallel computations");
+  args.Parse();
+  if (!args.Good()) {
+    args.PrintUsage(std::cerr);
+    return EXIT_FAILURE;
+  }
+#ifdef MFEM_USE_MPI
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+#endif /* MFEM_USE_MPI */
+  auto mesh = mfem::Mesh::MakeCartesian3D(8, 8, 8, mfem::Element::HEXAHEDRON);
+  auto fec = mfem::H1_FECollection(1, 3);
+  try {
+    if (parallel) {
+#ifdef MFEM_USE_MPI
+      auto s = LaplaceSystem<true>(mesh, fec);
+      run<true>(s);
+#else  /* MFEM_USE_MPI */
+      throw std::runtime_error("parallel computations are not supported");
+#endif /* MFEM_USE_MPI */
+    } else {
+      auto s = LaplaceSystem<false>(mesh, fec);
+      run<false>(s);
+    }
+  } catch (std::exception& e) {
+    std::cerr << "error: " << e.what() << '\n';
+    return EXIT_FAILURE;
+  }
+  if (rank == 0) {
+    std::cout << (failures == 0 ? "success" : "failure") << '\n';
+  }
+  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+}  // end of main

@@ -334,55 +334,14 @@ namespace mfem_mgis::internals {
     return ctx.registerErrorMessage(msg);
   }  // end of checkBehaviourExecutionLocation
 
-  /*!
-   * \brief where a linear solver or a preconditioner computes
-   */
-  enum struct LinearSolverPlacement {
-    /*!
-     * \brief on the host only (direct solvers of the CPU, and the
-     * preconditioners of hypre which only compute on the host)
-     */
-    HOST,
-    //! \brief on the GPU only (AmgX, cuDSS)
-    DEVICE,
-    /*!
-     * \brief where the device of MFEM computes (solvers and smoothers of
-     * MFEM)
-     */
-    MFEM,
-    //! \brief where the memory of hypre is (solvers of hypre)
-    HYPRE
-  };
-
-  /*!
-   * \return where a linear solver or a preconditioner computes
-   * \param[in] n: name of the linear solver or of the preconditioner
-   */
-  static LinearSolverPlacement getLinearSolverPlacement(
-      const std::string_view n) noexcept {
-    if ((n == "MUMPSSolver") || (n == "UMFPackSolver")) {
-      return LinearSolverPlacement::HOST;
-    }
-    if ((n == "AmgX") || (n == "AmgXPCG") || (n == "CuDSSSolver")) {
-      return LinearSolverPlacement::DEVICE;
-    }
-    // preconditioners of hypre which only compute on the host
-    if ((n == "HypreEuclid") || (n == "HypreParaSails")) {
-      return LinearSolverPlacement::HOST;
-    }
-    if (n.starts_with("Hypre")) {
-      return LinearSolverPlacement::HYPRE;
-    }
-    return LinearSolverPlacement::MFEM;
-  }  // end of getLinearSolverPlacement
-
-  bool checkLinearSolverExecutionLocation(Context& ctx,
-                                          const std::string_view n) noexcept {
+  bool checkLinearSolverExecutionLocation(
+      Context& ctx,
+      const std::string_view n,
+      const LinearSolverPlacement p) noexcept {
     const auto& s = getExecutionSettings();
     if (!isExecutionModeSpecified()) {
       return true;
     }
-    const auto p = getLinearSolverPlacement(n);
     const auto requested = s.linear_solver;
     // computations of MFEM on the GPU in the gpu and mixed modes
     const auto mfem_location = s.mode == ExecutionMode::CPU

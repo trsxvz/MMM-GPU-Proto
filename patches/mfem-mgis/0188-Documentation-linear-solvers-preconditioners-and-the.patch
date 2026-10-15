@@ -1,0 +1,320 @@
+From ad5244a8c03140c7174cbdfb5b38b9d94b6aae4e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 03:15:26 +0200
+Subject: [PATCH] Documentation: linear solvers, preconditioners and their
+ modules
+
+User guide: the available linear solvers and preconditioners, their
+descriptions and options, the accepted preconditioners and the
+locations. Developer guide: how to add the solvers of a library. Release
+notes of version 1.1.
+---
+ .../developer_guide/developer_guide.rst       |   1 +
+ .../developer_guide/linear_solver_modules.rst |  53 ++++++
+ docs/source/user_guide/linear_solvers.rst     | 171 ++++++++++++++++++
+ .../release_notes/release_notes-1.1.0.rst     |  23 +++
+ docs/source/user_guide/user_guide.rst         |   1 +
+ 5 files changed, 249 insertions(+)
+ create mode 100644 docs/source/developer_guide/linear_solver_modules.rst
+ create mode 100644 docs/source/user_guide/linear_solvers.rst
+
+diff --git a/docs/source/developer_guide/developer_guide.rst b/docs/source/developer_guide/developer_guide.rst
+index 9f8db3e57f..3f89fa50c0 100644
+--- a/docs/source/developer_guide/developer_guide.rst
++++ b/docs/source/developer_guide/developer_guide.rst
+@@ -16,5 +16,6 @@ The `doxygen` documentation is available on `this page <https://thelfer.github.i
+    contributing_guide.rst
+    contributors.rst
+    guidelines.rst
++   linear_solver_modules.rst
+    parameter.rst
+    main_classes/main_classes.rst
+diff --git a/docs/source/developer_guide/linear_solver_modules.rst b/docs/source/developer_guide/linear_solver_modules.rst
+new file mode 100644
+index 0000000000..ab87723533
+--- /dev/null
++++ b/docs/source/developer_guide/linear_solver_modules.rst
+@@ -0,0 +1,53 @@
++.. _linear_solver_modules:
++
++=====================================================
++Adding the linear solvers of a library
++=====================================================
++
++The linear solvers and the preconditioners of each library are registered
++by a module (see :file:`src/LinearSolverModules.hxx`). A module is a pair
++of functions, called by the constructors of the factories when the
++library is available:
++
++- :cxx:`declare<Library>LinearSolvers(LinearSolverFactory<parallel>&)`;
++- :cxx:`declare<Library>Preconditioners(PreconditionerFactory<parallel>&)`.
++
++The existing modules are the ones of MFEM and mfem-mgis
++(:file:`src/MFEMLinearSolvers.cxx`), hypre
++(:file:`src/HypreLinearSolvers.cxx`), MUMPS
++(:file:`src/MUMPSSolvers.cxx`), cuDSS (:file:`src/CuDSSSolvers.cxx`) and
++AmgX (:file:`src/AmgXSolvers.cxx`).
++
++Adding a library consists of:
++
++1. writing its module in :file:`src/<Library>LinearSolvers.cxx` (or
++   :file:`src/<Library>Solvers.cxx`), compiled when the library is
++   available (:cxx:`MFEM_USE_<LIBRARY>` for the libraries wrapped by MFEM,
++   an option of mfem-mgis for the others, as :cxx:`MFEM_MGIS_HAVE_AMGX`);
++2. declaring its functions in :file:`src/LinearSolverModules.hxx` and
++   calling them in :cxx:`declareLinearSolvers` and
++   :cxx:`declarePreconditioners` (:file:`src/LinearSolverModules.cxx`).
++
++Each entry is registered by the :cxx:`declare` function with its
++description (:cxx:`LinearSolverDescription`): library, kind, placement,
++accepted preconditioners, options and a short text. The factories check
++the placement against the execution settings, refuse a preconditioner
++given to a linear solver which accepts none, and the
++:cxx:`internals::makePreconditioner` function, called by the generators of
++the linear solvers which accept preconditioners, refuses the
++preconditioners of another library when the solver only accepts the ones
++of its library.
++
++A linear solver which is neither an iterative solver of MFEM nor a Krylov
++solver of hypre implements the :cxx:`LinearSolverConvergenceReport`
++interface, read by the :cxx:`hasConverged` and
++:cxx:`getNumberOfIterationsAtConvergence` functions.
++
++The generic test :file:`tests/LinearSolverFactoriesTest.cxx` solves the
++Laplace equation with each registered linear solver and each registered
++preconditioner (given to the GMRES solver of MFEM), in sequential and in
++parallel, and checks the descriptions: each new entry is thus solved
++once with its default options, its specific options and behaviours being
++checked by a dedicated test.
++The table of the linear solvers of the user guide
++(:ref:`linear_solvers`) is updated with the new entries.
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+new file mode 100644
+index 0000000000..0beeb04469
+--- /dev/null
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -0,0 +1,171 @@
++.. _linear_solvers:
++
++=======================================
++Linear solvers and preconditioners
++=======================================
++
++The linear solver of a problem is chosen by its name and its options,
++given to the :cxx:`setLinearSolver` method of the problem:
++
++.. code-block:: cpp
++
++   problem.setLinearSolver(
++       ctx, "CGSolver",
++       {{"RelativeTolerance", 1e-10},
++        {"MaximumNumberOfIterations", 500},
++        {"Preconditioner", Parameters{{"Name", "HypreBoomerAMG"},
++                                      {"Options", Parameters{}}}}}) |
++       or_die;
++
++The linear solvers are registered in the factory of linear solvers
++(:cxx:`LinearSolverFactory`), the preconditioners in the factory of
++preconditioners (:cxx:`PreconditionerFactory`). A preconditioner is
++selected by the :cxx:`Preconditioner` option of a linear solver: its
++name (:cxx:`Name`, :cxx:`None` for no preconditioner) and its options
++(:cxx:`Options`).
++
++Each linear solver and each preconditioner is registered with a
++description (:cxx:`LinearSolverDescription`), returned by the
++:cxx:`getDescription` method of the factories (the :cxx:`getNames`
++method lists the registered names):
++
++- the library which provides it;
++- its kind: iterative solver (converging up to its tolerances), direct
++  solver, approximate solver (a fixed number of cycles of a multigrid,
++  used for instance by the fixed point solvers) or preconditioner;
++- where it computes: on the host only, on the GPU only, where the device
++  of MFEM computes, or where the memory of hypre is. When the execution
++  settings place the linear solvers on the CPU or on the GPU (see
++  :ref:`mfem_mgis_batch_computations`), a linear solver or a preconditioner which
++  computes elsewhere is refused with a message;
++- the preconditioners accepted by a linear solver: none (direct solvers,
++  self-contained solvers), any preconditioner, or only the ones of its
++  library (the Krylov solvers of hypre only accept the preconditioners of
++  hypre). The other combinations are refused with a message;
++- its options.
++
++Linear solvers
++==============
++
++The solvers marked as parallel are only available in parallel.
++
++.. list-table::
++   :header-rows: 1
++   :widths: 18 10 12 12 14 34
++
++   * - Name
++     - Library
++     - Kind
++     - Computes
++     - Preconditioners
++     - Options
++   * - :cxx:`CGSolver`, :cxx:`GMRESSolver`, :cxx:`FGMRESSolver`,
++       :cxx:`BiCGSTABSolver`, :cxx:`MINRESSolver`, :cxx:`SLISolver`
++     - MFEM
++     - iterative
++     - as MFEM
++     - any
++     - :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
++       :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
++       :cxx:`Preconditioner`, :cxx:`KDim` (GMRES solvers)
++   * - :cxx:`HyprePCG`, :cxx:`HypreGMRES`, :cxx:`HypreFGMRES` (parallel)
++     - hypre
++     - iterative
++     - as hypre
++     - hypre
++     - :cxx:`VerbosityLevel`, :cxx:`Tolerance`, :cxx:`AbsoluteTolerance`,
++       :cxx:`MaximumNumberOfIterations`, :cxx:`Preconditioner`,
++       :cxx:`KDim` (GMRES solvers)
++   * - :cxx:`HypreBoomerAMG` (parallel)
++     - hypre
++     - approximate
++     - as hypre
++     - none
++     - the options of the :cxx:`HypreBoomerAMG` preconditioner
++   * - :cxx:`MUMPSSolver` (parallel)
++     - MUMPS
++     - direct
++     - host
++     - none
++     - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`
++   * - :cxx:`CuDSSSolver` (parallel)
++     - cuDSS
++     - direct
++     - GPU
++     - none
++     - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`
++   * - :cxx:`UMFPackSolver` (sequential)
++     - SuiteSparse
++     - direct
++     - host
++     - none
++     -
++   * - :cxx:`AmgX`
++     - AmgX
++     - approximate
++     - GPU
++     - none
++     - :cxx:`Configuration`, :cxx:`ConfigurationFile`, :cxx:`VerbosityLevel`,
++       :cxx:`AmgXParameters`, :cxx:`Precision`
++   * - :cxx:`AmgXPCG`
++     - AmgX
++     - iterative
++     - GPU
++     - none
++     - :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
++       :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
++       :cxx:`AmgXParameters`, :cxx:`Precision`
++
++Preconditioners
++===============
++
++.. list-table::
++   :header-rows: 1
++   :widths: 22 12 12 54
++
++   * - Name
++     - Library
++     - Computes
++     - Options
++   * - :cxx:`OperatorJacobiSmoother`
++     - MFEM
++     - as MFEM
++     - :cxx:`Damping`
++   * - :cxx:`OperatorChebyshevSmoother`
++     - MFEM
++     - as MFEM
++     - :cxx:`Order`, :cxx:`NumberOfPowerIterations`
++   * - :cxx:`AssembledOperator`
++     - mfem-mgis
++     - as the wrapped preconditioner
++     - :cxx:`Preconditioner` (the wrapped preconditioner, set up on the
++       assembled version of an operator applied without assembly),
++       :cxx:`UpdatePeriod`
++   * - :cxx:`HypreBoomerAMG` (parallel)
++     - hypre
++     - as hypre
++     - :cxx:`Strategy`, :cxx:`StrengthThreshold`, :cxx:`CoarseningType`,
++       :cxx:`AggressiveCoarseningLevels`, :cxx:`InterpolationType`,
++       :cxx:`RelaxationType`, :cxx:`RelaxationSweeps`, :cxx:`CycleType`,
++       :cxx:`NumberOfCycles`, :cxx:`MaximumNumberOfLevels`,
++       :cxx:`VerbosityLevel`
++   * - :cxx:`HypreILU` (parallel)
++     - hypre
++     - as hypre
++     - :cxx:`HypreILUType`, :cxx:`HypreILULevelOfFill`, :cxx:`VerbosityLevel`
++   * - :cxx:`HypreDiagScale` (parallel)
++     - hypre
++     - as hypre
++     - :cxx:`VerbosityLevel`
++   * - :cxx:`HypreEuclid`, :cxx:`HypreParaSails` (parallel)
++     - hypre
++     - host
++     - :cxx:`VerbosityLevel`
++   * - :cxx:`AmgX`
++     - AmgX
++     - GPU
++     - :cxx:`Configuration`, :cxx:`ConfigurationFile`, :cxx:`VerbosityLevel`,
++       :cxx:`AmgXParameters`, :cxx:`Precision`
++
++The libraries which are not available (MFEM built without them, or
++mfem-mgis built without AmgX) register nothing.
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 3af03f601c..4ffa9a0ff3 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -108,10 +108,33 @@ Known incompatibilities
+   been removed. :cxx:`getMPIRankForDefaultCommunicator` and
+   :cxx:`getMPISizeForDefaultCommunicator` shall be used instead (see
+   Issue 474).
++- The location where a linear solver computes is given by its
++  description (see :ref:`linear_solvers`), and no longer deduced from its
++  name: a linear solver registered by the
++  :cxx:`LinearSolverFactory::add` method without description is assumed
++  to compute where the device of |MFEM| computes, whatever its name.
++- The preconditioners are registered in the factory of preconditioners:
++  the error message of an unknown preconditioner lists the available
++  ones.
+ 
+ New features
+ ============
+ 
++Descriptions of the linear solvers and factory of preconditioners
++------------------------------------------------------------------
++
++Each linear solver and each preconditioner is registered with a
++description (:cxx:`LinearSolverDescription`): library, kind (iterative,
++direct, approximate solver or preconditioner), location of the
++computations, accepted preconditioners and options. The preconditioners
++are registered in the new factory of preconditioners
++(:cxx:`PreconditionerFactory`). The location of each linear solver and
++preconditioner is checked against the execution settings, and the
++preconditioners which a linear solver does not accept are refused with a
++message. The available linear solvers and preconditioners are listed in
++:ref:`linear_solvers`; the solvers of each library are registered by a
++module (see :ref:`linear_solver_modules`).
++
+ Prediction of the solution
+ --------------------------
+ 
+diff --git a/docs/source/user_guide/user_guide.rst b/docs/source/user_guide/user_guide.rst
+index ed7b0fdc6d..59fa51f7da 100644
+--- a/docs/source/user_guide/user_guide.rst
++++ b/docs/source/user_guide/user_guide.rst
+@@ -15,6 +15,7 @@ User guide
+    boundary_conditions.rst
+    post_processings/post_processings.rst  
+    nonlinear_algorithms.rst
++   linear_solvers.rst
+    batch_computations.rst
+    partial_quadrature_functions/partial_quadrature_spaces_and_functions.rst
+    glossary.rst
+-- 
+2.43.0
+

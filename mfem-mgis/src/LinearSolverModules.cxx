@@ -1,0 +1,215 @@
+/*!
+ * \file   src/LinearSolverModules.cxx
+ * \brief  This file implements the functions shared by the modules of the
+ * linear solvers and of the preconditioners, and calls these modules
+ * \date   15/10/2026
+ */
+
+#include <tuple>
+#include <memory>
+#include <string>
+#include <vector>
+#include <optional>
+#include <string_view>
+#include "mfem/config/config.hpp"
+#include "mfem/fem/fespace.hpp"
+#ifdef MFEM_USE_MPI
+#include "mfem/fem/pfespace.hpp"
+#endif /* MFEM_USE_MPI */
+#include "MFEMMGIS/Parameters.hxx"
+#include "LinearSolverModules.hxx"
+
+namespace mfem_mgis::internals {
+
+  /*!
+   * \return true if the parameters of a preconditioner select no
+   * preconditioner (name `None`, without options), false otherwise, or an
+   * empty value on error. `generatePreconditioner` returns a null
+   * preconditioner both in this case and on error: its callers must test
+   * this case before.
+   * \param[in, out] ctx: execution context
+   * \param[in] p: parameters of the preconditioner
+   */
+  [[nodiscard]] static std::optional<bool> isNoPreconditioner(
+      Context& ctx, const Parameters& p) {
+    const auto oname = get<std::string>(ctx, p, "Name");
+    if (isInvalid(oname)) {
+      return {};
+    }
+    if (*oname != "None") {
+      return false;
+    }
+    if (contains(p, "Options")) {
+      return ctx.registerErrorMessage(
+          "setLinearSolverPreconditioner: no options expected for "
+          "preconditioner 'None'");
+    }
+    if (!checkParameters(ctx, p, std::vector<std::string>{"Name"})) {
+      return {};
+    }
+    return true;
+  }  // end of isNoPreconditioner
+
+  std::string getUnavailableLibraryHint(const std::string_view n) {
+#ifndef MFEM_MGIS_HAVE_AMGX
+    if ((n == "AmgX") || (n == "AmgXPCG")) {
+      return "mfem-mgis is not compiled with AmgX (option enable-amgx)";
+    }
+#endif /* MFEM_MGIS_HAVE_AMGX */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS))
+    if (n == "MUMPSSolver") {
+      return "MFEM is not compiled with MUMPS";
+    }
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)) */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS))
+    if (n == "CuDSSSolver") {
+      return "MFEM is not compiled with cuDSS";
+    }
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)) */
+#ifndef MFEM_USE_SUITESPARSE
+    if (n == "UMFPackSolver") {
+      return "MFEM is not compiled with SuiteSparse";
+    }
+#endif /* MFEM_USE_SUITESPARSE */
+    static_cast<void>(n);
+    return {};
+  }  // end of getUnavailableLibraryHint
+
+  template <bool parallel>
+  std::unique_ptr<LinearSolverPreconditioner> generatePreconditioner(
+      Context& ctx,
+      FiniteElementSpace<parallel>& fespace,
+      const Parameters& p) {
+    if (!checkParameters(ctx, p, std::vector<std::string>{"Name", "Options"})) {
+      return {};
+    }
+    const auto oname = get<std::string>(ctx, p, "Name");
+    if (isInvalid(oname)) {
+      return {};
+    }
+    if (*oname == "None") {
+      if (contains(p, "Options")) {
+        return ctx.registerErrorMessage(
+            "setLinearSolverPreconditioner: "
+            "no options expected for preconditioner 'None'");
+      }
+      return {};
+    }
+    const auto oopts = get_if<Parameters>(ctx, p, "Options", Parameters{});
+    if (isInvalid(oopts)) {
+      return {};
+    }
+    return PreconditionerFactory<parallel>::getFactory().generate(
+        ctx, *oname, fespace, *oopts);
+  }  // end of generatePreconditioner
+
+  template <bool parallel>
+  std::optional<std::unique_ptr<LinearSolverPreconditioner>> makePreconditioner(
+      Context& ctx,
+      FiniteElementSpace<parallel>& fespace,
+      const std::string_view n,
+      const LinearSolverDescription& d,
+      const Parameters& params) {
+    const char* const Preconditioner = "Preconditioner";
+    if (!contains(params, Preconditioner)) {
+      return std::unique_ptr<LinearSolverPreconditioner>{};
+    }
+    const auto opr = get<Parameters>(ctx, params, Preconditioner);
+    if (isInvalid(opr)) {
+      return {};
+    }
+    const auto onone = isNoPreconditioner(ctx, *opr);
+    if (isInvalid(onone)) {
+      return {};
+    }
+    if (*onone) {
+      return std::unique_ptr<LinearSolverPreconditioner>{};
+    }
+    if (d.preconditioners == AcceptedPreconditioners::NONE) {
+      std::ignore =
+          ctx.registerErrorMessage("the linear solver '" + std::string{n} +
+                                   "' accepts no preconditioner");
+      return {};
+    }
+    if (d.preconditioners == AcceptedPreconditioners::SAME_LIBRARY) {
+      const auto oname = get<std::string>(ctx, *opr, "Name");
+      if (isInvalid(oname)) {
+        return {};
+      }
+      const auto* const pd =
+          PreconditionerFactory<parallel>::getFactory().getDescription(*oname);
+      if ((pd != nullptr) && (pd->library != d.library)) {
+        std::ignore = ctx.registerErrorMessage(
+            "the linear solver '" + std::string{n} +
+            "' only accepts the preconditioners of " + d.library + " ('" +
+            *oname + "' is a preconditioner of " + pd->library + ")");
+        return {};
+      }
+    }
+    auto prec = generatePreconditioner<parallel>(ctx, fespace, *opr);
+    if (prec == nullptr) {
+      return {};
+    }
+    return prec;
+  }  // end of makePreconditioner
+
+  template <bool parallel>
+  void declareLinearSolvers(LinearSolverFactory<parallel>& f) {
+    declareMFEMLinearSolvers(f);
+#ifdef MFEM_MGIS_HAVE_AMGX
+    declareAmgXLinearSolvers(f);
+#endif /* MFEM_MGIS_HAVE_AMGX */
+#ifdef MFEM_USE_MPI
+    if constexpr (parallel) {
+      declareHypreLinearSolvers(f);
+#ifdef MFEM_USE_MUMPS
+      declareMUMPSLinearSolvers(f);
+#endif /* MFEM_USE_MUMPS */
+#ifdef MFEM_USE_CUDSS
+      declareCuDSSLinearSolvers(f);
+#endif /* MFEM_USE_CUDSS */
+    }
+#endif /* MFEM_USE_MPI */
+  }  // end of declareLinearSolvers
+
+  template <bool parallel>
+  void declarePreconditioners(PreconditionerFactory<parallel>& f) {
+    declareMFEMPreconditioners(f);
+#ifdef MFEM_MGIS_HAVE_AMGX
+    declareAmgXPreconditioners(f);
+#endif /* MFEM_MGIS_HAVE_AMGX */
+#ifdef MFEM_USE_MPI
+    if constexpr (parallel) {
+      declareHyprePreconditioners(f);
+    }
+#endif /* MFEM_USE_MPI */
+  }  // end of declarePreconditioners
+
+#ifdef MFEM_USE_MPI
+  template std::unique_ptr<LinearSolverPreconditioner>
+  generatePreconditioner<true>(Context&,
+                               FiniteElementSpace<true>&,
+                               const Parameters&);
+  template std::optional<std::unique_ptr<LinearSolverPreconditioner>>
+  makePreconditioner<true>(Context&,
+                           FiniteElementSpace<true>&,
+                           std::string_view,
+                           const LinearSolverDescription&,
+                           const Parameters&);
+  template void declareLinearSolvers<true>(LinearSolverFactory<true>&);
+  template void declarePreconditioners<true>(PreconditionerFactory<true>&);
+#endif /* MFEM_USE_MPI */
+  template std::unique_ptr<LinearSolverPreconditioner>
+  generatePreconditioner<false>(Context&,
+                                FiniteElementSpace<false>&,
+                                const Parameters&);
+  template std::optional<std::unique_ptr<LinearSolverPreconditioner>>
+  makePreconditioner<false>(Context&,
+                            FiniteElementSpace<false>&,
+                            std::string_view,
+                            const LinearSolverDescription&,
+                            const Parameters&);
+  template void declareLinearSolvers<false>(LinearSolverFactory<false>&);
+  template void declarePreconditioners<false>(PreconditionerFactory<false>&);
+
+}  // end of namespace mfem_mgis::internals

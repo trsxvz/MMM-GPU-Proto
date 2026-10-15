@@ -19,7 +19,7 @@
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
-#include "AmgXSolvers.hxx"
+#include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
 #include "MUMPSSolvers.hxx"
 #include "CuDSSSolvers.hxx"
 
@@ -116,27 +116,20 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_MPI */
   }    // end of clearHypreErrors
 
+  LinearSolverConvergenceReport::~LinearSolverConvergenceReport() = default;
+
   bool hasConverged(const LinearSolver& ls) noexcept {
     if (const auto* isolver = dynamic_cast<const IterativeSolver*>(&ls);
         isolver != nullptr) {
       return isolver->GetConverged();
     }
-#ifdef MFEM_MGIS_HAVE_AMGX
-    if (const auto* aptr = dynamic_cast<const internals::AmgXSolver*>(&ls);
-        aptr != nullptr) {
-      return aptr->hasConverged();
+    // solvers of the other libraries (for instance AmgX, or cuDSS which
+    // checks its solutions by their relative residuals)
+    if (const auto* const r =
+            dynamic_cast<const LinearSolverConvergenceReport*>(&ls);
+        r != nullptr) {
+      return r->hasConverged();
     }
-#endif /* MFEM_MGIS_HAVE_AMGX */
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
-    // cuDSS does not report the failures of the factorization: the
-    // solutions are checked by their relative residuals (see
-    // `CuDSSDirectSolver::hasSucceeded`)
-    if (const auto* const cptr =
-            dynamic_cast<const internals::CuDSSDirectSolver*>(&ls);
-        cptr != nullptr) {
-      return cptr->hasSucceeded();
-    }
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
 #ifdef MFEM_USE_MPI
     auto check_hypre_solver_convergence =
         []<typename SolverType>(const SolverType* ptr) {
@@ -170,12 +163,11 @@ namespace mfem_mgis {
         isolver != nullptr) {
       return isolver->GetNumIterations();
     }
-#ifdef MFEM_MGIS_HAVE_AMGX
-    if (const auto* aptr = dynamic_cast<const internals::AmgXSolver*>(&ls);
-        aptr != nullptr) {
-      return aptr->getNumberOfIterations();
+    if (const auto* const r =
+            dynamic_cast<const LinearSolverConvergenceReport*>(&ls);
+        r != nullptr) {
+      return r->getNumberOfIterations();
     }
-#endif /* MFEM_MGIS_HAVE_AMGX */
 #ifdef MFEM_USE_MPI
     auto get_hypre_solver_iterations =
         []<typename SolverType>(const SolverType* ptr) {

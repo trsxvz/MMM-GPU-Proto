@@ -1,8 +1,11 @@
 # Plan: solvers and preconditioners of the major libraries in mfem-mgis
 
 Status: survey of 15/10/2026, scope and order decided the same day (see
-[Decisions taken](#decisions-taken-15102026)); implementation not
-started. It complements [gpu-solvers.md](gpu-solvers.md), organised
+[Decisions taken](#decisions-taken-15102026)). Phase 0 done on
+15/10/2026 (patches `patches/mfem-mgis/0186` to `0188`): descriptions,
+factory of preconditioners, one module per library, generic test
+`LinearSolverFactoriesTest`, documentation of the solvers in the user
+guide of mfem-mgis. It complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug
 the rest in a modular way.

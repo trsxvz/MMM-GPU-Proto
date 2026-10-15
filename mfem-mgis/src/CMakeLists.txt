@@ -53,6 +53,10 @@ list(APPEND MFEMMGIS_SOURCES
   SolverUtilities.cxx
   LinearSolverHandler.cxx
   LinearSolverFactory.cxx
+  PreconditionerFactory.cxx
+  LinearSolverModules.cxx
+  MFEMLinearSolvers.cxx
+  HypreLinearSolvers.cxx
   AmgXSolvers.cxx
   HypreMatrixPattern.cxx
   MUMPSSolvers.cxx

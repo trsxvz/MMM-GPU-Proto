@@ -10,9 +10,13 @@
 
 #include <map>
 #include <memory>
+#include <string>
+#include <vector>
 #include <functional>
+#include <string_view>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/LinearSolverHandler.hxx"
+#include "MFEMMGIS/LinearSolverDescription.hxx"
 
 namespace mfem_mgis {
 
@@ -20,12 +24,16 @@ namespace mfem_mgis {
   struct Parameters;
 
   /*!
-   * \brief an abstract factory for linear solvers
+   * \brief an abstract factory for linear solvers. Each linear solver is
+   * registered with its description (see `LinearSolverDescription`). The
+   * preconditioners are registered in the `PreconditionerFactory`.
    * \tparam parallel: boolean stating if parallel linear solvers are
    * considered
    *
-   * \note if a linear solver is added, the `hasConverged` function in
-   * `SolverUtilities.hxx` shall also be modified
+   * \note a linear solver which is neither an iterative solver of MFEM nor
+   * a Krylov solver of hypre reports the outcome of its resolutions by
+   * implementing the `LinearSolverConvergenceReport` interface (see the
+   * `hasConverged` function in `SolverUtilities.hxx`)
    */
   template <bool parallel>
   struct LinearSolverFactory;
@@ -44,12 +52,36 @@ namespace mfem_mgis {
      * \brief register a new linear solver
      * \param[in, out] ctx: execution context
      * \param[in] n: name of the linear solver
+     * \param[in] d: description of the linear solver
+     * \param[in] g: generator of the linear solver
+     * \return true on success
+     */
+    [[nodiscard]] bool add(Context& ctx,
+                           std::string_view n,
+                           LinearSolverDescription d,
+                           Generator g) noexcept;
+    /*!
+     * \brief register a new linear solver, whose description states that
+     * it computes where the device of MFEM computes and accepts any
+     * preconditioner (the `Preconditioner` parameter being left to its
+     * generator)
+     * \param[in, out] ctx: execution context
+     * \param[in] n: name of the linear solver
      * \param[in] g: generator of the linear solver
      * \return true on success
      */
     [[nodiscard]] bool add(Context& ctx,
                            std::string_view n,
                            Generator g) noexcept;
+    /*!
+     * \return the description of a linear solver, or a null pointer if no
+     * linear solver has this name
+     * \param[in] n: name of the linear solver
+     */
+    [[nodiscard]] const LinearSolverDescription* getDescription(
+        std::string_view n) const noexcept;
+    //! \return the names of the registered linear solvers
+    [[nodiscard]] std::vector<std::string> getNames() const;
     /*!
      * \return the requested linear solver
      * \param[in, out] ctx: execution context
@@ -67,8 +99,15 @@ namespace mfem_mgis {
     LinearSolverFactory();
     //! \brief destructor
     ~LinearSolverFactory();
-    //! \brief registered generators
-    std::map<std::string, Generator, std::less<>> generators;
+    //! \brief a registered linear solver
+    struct Entry {
+      //! \brief description
+      LinearSolverDescription description;
+      //! \brief generator
+      Generator generator;
+    };
+    //! \brief registered linear solvers
+    std::map<std::string, Entry, std::less<>> entries;
   };  // end of struct LinearSolverFactory
 
 #endif /* MFEM_USE_MPI */
@@ -85,12 +124,36 @@ namespace mfem_mgis {
      * \brief register a new linear solver
      * \param[in, out] ctx: execution context
      * \param[in] n: name of the linear solver
+     * \param[in] d: description of the linear solver
+     * \param[in] g: generator of the linear solver
+     * \return true on success
+     */
+    [[nodiscard]] bool add(Context& ctx,
+                           std::string_view n,
+                           LinearSolverDescription d,
+                           Generator g) noexcept;
+    /*!
+     * \brief register a new linear solver, whose description states that
+     * it computes where the device of MFEM computes and accepts any
+     * preconditioner (the `Preconditioner` parameter being left to its
+     * generator)
+     * \param[in, out] ctx: execution context
+     * \param[in] n: name of the linear solver
      * \param[in] g: generator of the linear solver
      * \return true on success
      */
     [[nodiscard]] bool add(Context& ctx,
                            std::string_view n,
                            Generator g) noexcept;
+    /*!
+     * \return the description of a linear solver, or a null pointer if no
+     * linear solver has this name
+     * \param[in] n: name of the linear solver
+     */
+    [[nodiscard]] const LinearSolverDescription* getDescription(
+        std::string_view n) const noexcept;
+    //! \return the names of the registered linear solvers
+    [[nodiscard]] std::vector<std::string> getNames() const;
     /*!
      * \return the requested linear solver
      * \param[in, out] ctx: execution context
@@ -108,8 +171,15 @@ namespace mfem_mgis {
     LinearSolverFactory();
     //! \brief destructor
     ~LinearSolverFactory();
-    //! \brief registered generators
-    std::map<std::string, Generator, std::less<>> generators;
+    //! \brief a registered linear solver
+    struct Entry {
+      //! \brief description
+      LinearSolverDescription description;
+      //! \brief generator
+      Generator generator;
+    };
+    //! \brief registered linear solvers
+    std::map<std::string, Entry, std::less<>> entries;
   };  // end of struct LinearSolverFactory
 
 }  // end of namespace mfem_mgis

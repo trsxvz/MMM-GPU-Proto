@@ -18,6 +18,7 @@
 #include <mpi.h>
 #include "mfem/linalg/cudss.hpp"
 #include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
 #include "HypreMatrixPattern.hxx"
 
 namespace mfem_mgis::internals {
@@ -67,7 +68,8 @@ namespace mfem_mgis::internals {
    * condition number of the matrix. As for the iterative solvers of MFEM,
    * the operator must exist as long as the solver is used.
    */
-  struct CuDSSDirectSolver final : public mfem::Solver {
+  struct CuDSSDirectSolver final : public mfem::Solver,
+                                   public LinearSolverConvergenceReport {
     /*!
      * \brief constructor
      * \param[in] c: communicator
@@ -84,6 +86,11 @@ namespace mfem_mgis::internals {
                    mfem::Array<mfem::Vector*>&) const override;
     //! \return true if the residuals of the last solutions are small
     [[nodiscard]] bool hasSucceeded() const noexcept;
+    //! \return `hasSucceeded()`
+    [[nodiscard]] bool hasConverged() const noexcept override;
+    //! \return an empty value: a direct solver makes no iteration
+    [[nodiscard]] std::optional<int> getNumberOfIterations()
+        const noexcept override;
     //! \return true if the analysis is reused
     [[nodiscard]] bool reusesAnalysis() const noexcept;
     //! \return the number of analyses made

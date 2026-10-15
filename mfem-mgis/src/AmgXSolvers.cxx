@@ -6,6 +6,7 @@
  */
 
 #include "AmgXSolvers.hxx"
+#include "LinearSolverModules.hxx"
 
 #ifdef MFEM_MGIS_HAVE_AMGX
 
@@ -894,6 +895,83 @@ namespace mfem_mgis::internals {
       Context&, FiniteElementSpace<true>&, const Parameters&) noexcept;
   template std::unique_ptr<AmgXSolver> makeAmgXConjugateGradientSolver<true>(
       Context&, FiniteElementSpace<true>&, const Parameters&) noexcept;
+#endif /* MFEM_USE_MPI */
+
+  //! \return the options of the AmgX preconditioner
+  [[nodiscard]] static std::vector<std::string> getAmgXPreconditionerOptions() {
+    return {"Configuration", "ConfigurationFile", "VerbosityLevel",
+            AmgXParameters, Precision};
+  }  // end of getAmgXPreconditionerOptions
+
+  template <bool parallel>
+  void declareAmgXLinearSolvers(LinearSolverFactory<parallel>& f) {
+    // cycles of the algebraic multigrid of AmgX (approximate solver, as
+    // `HypreBoomerAMG`) and conjugate gradient of AmgX
+    declare(f, "AmgX",
+            LinearSolverDescription{
+                .library = "AmgX",
+                .kind = LinearSolverKind::APPROXIMATE,
+                .placement = LinearSolverPlacement::DEVICE,
+                .preconditioners = AcceptedPreconditioners::NONE,
+                .options = getAmgXPreconditionerOptions(),
+                .description = "cycles of an algebraic multigrid of AmgX "
+                               "(NVIDIA GPU)"},
+            [](Context& c, FiniteElementSpace<parallel>& fespace,
+               const Parameters& params) noexcept -> LinearSolverHandler {
+              auto s = makeAmgXPreconditioner<parallel>(c, fespace, params);
+              if (s == nullptr) {
+                return {};
+              }
+              return LinearSolverHandler{
+                  std::move(s), std::unique_ptr<LinearSolverPreconditioner>{}};
+            });
+    auto pcg_options = getIterativeSolverParametersList();
+    pcg_options.push_back(AmgXParameters);
+    pcg_options.push_back(Precision);
+    declare(f, "AmgXPCG",
+            LinearSolverDescription{
+                .library = "AmgX",
+                .kind = LinearSolverKind::ITERATIVE,
+                .placement = LinearSolverPlacement::DEVICE,
+                .preconditioners = AcceptedPreconditioners::NONE,
+                .options = std::move(pcg_options),
+                .description = "conjugate gradient of AmgX preconditioned by "
+                               "its algebraic multigrid (NVIDIA GPU)"},
+            [](Context& c, FiniteElementSpace<parallel>& fespace,
+               const Parameters& params) noexcept -> LinearSolverHandler {
+              auto s =
+                  makeAmgXConjugateGradientSolver<parallel>(c, fespace, params);
+              if (s == nullptr) {
+                return {};
+              }
+              return LinearSolverHandler{
+                  std::move(s), std::unique_ptr<LinearSolverPreconditioner>{}};
+            });
+  }  // end of declareAmgXLinearSolvers
+
+  template <bool parallel>
+  void declareAmgXPreconditioners(PreconditionerFactory<parallel>& f) {
+    declare(f, "AmgX",
+            LinearSolverDescription{
+                .library = "AmgX",
+                .kind = LinearSolverKind::PRECONDITIONER,
+                .placement = LinearSolverPlacement::DEVICE,
+                .preconditioners = AcceptedPreconditioners::NONE,
+                .options = getAmgXPreconditionerOptions(),
+                .description = "algebraic multigrid of AmgX (NVIDIA GPU)"},
+            [](Context& c, FiniteElementSpace<parallel>& fespace,
+               const Parameters& opts) noexcept
+                -> std::unique_ptr<LinearSolverPreconditioner> {
+              return makeAmgXPreconditioner<parallel>(c, fespace, opts);
+            });
+  }  // end of declareAmgXPreconditioners
+
+  template void declareAmgXLinearSolvers<false>(LinearSolverFactory<false>&);
+  template void declareAmgXPreconditioners<false>(
+      PreconditionerFactory<false>&);
+#ifdef MFEM_USE_MPI
+  template void declareAmgXLinearSolvers<true>(LinearSolverFactory<true>&);
+  template void declareAmgXPreconditioners<true>(PreconditionerFactory<true>&);
 #endif /* MFEM_USE_MPI */
 
 }  // end of namespace mfem_mgis::internals

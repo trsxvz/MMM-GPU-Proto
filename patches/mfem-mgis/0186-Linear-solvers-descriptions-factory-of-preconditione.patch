@@ -1,0 +1,4631 @@
+From b3c7fd13b774c46ae312dacc49733c67a9b22396 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 03:15:26 +0200
+Subject: [PATCH] Linear solvers: descriptions, factory of preconditioners,
+ modules
+
+Each linear solver and each preconditioner is registered with a
+description (LinearSolverDescription): library, kind (iterative, direct,
+approximate solver or preconditioner), location of the computations,
+accepted preconditioners, options and a short text.
+
+- The preconditioners are registered in a new factory
+  (PreconditionerFactory), which replaces the chain of tests on the name
+  of the preconditioner. The factories list their entries (getNames) and
+  give their descriptions (getDescription).
+- The location of a linear solver or of a preconditioner is checked
+  against the execution settings from its description, instead of being
+  deduced from its name. The placements of the existing entries are
+  unchanged. A linear solver registered without description computes
+  where the device of MFEM computes and accepts any preconditioner.
+- A preconditioner given to a linear solver which accepts none is
+  refused, as is a preconditioner of another library given to a linear
+  solver which only accepts the ones of its library (the Krylov solvers
+  of hypre), with a message.
+- The solvers and preconditioners of each library are registered by a
+  module: MFEM and mfem-mgis (MFEMLinearSolvers.cxx), hypre
+  (HypreLinearSolvers.cxx), MUMPS, cuDSS and AmgX in their files. The
+  code is moved without change of behaviour.
+- The linear solvers of the other libraries report their convergence
+  through the LinearSolverConvergenceReport interface (AmgX, cuDSS):
+  hasConverged and getNumberOfIterationsAtConvergence no longer depend
+  on these libraries.
+- The messages for an unknown solver or preconditioner name the missing
+  optional library, or say that the entry is only available in
+  parallel.
+---
+ include/CMakeLists.txt                        |    3 +
+ .../LinearSolverConvergenceReport.hxx         |   42 +
+ include/MFEMMGIS/LinearSolverDescription.hxx  |  102 +
+ include/MFEMMGIS/LinearSolverFactory.hxx      |   84 +-
+ include/MFEMMGIS/PreconditionerFactory.hxx    |  100 +
+ src/AmgXSolvers.cxx                           |   78 +
+ src/AmgXSolvers.hxx                           |    9 +-
+ src/CMakeLists.txt                            |    4 +
+ src/CuDSSSolvers.cxx                          |   82 +
+ src/CuDSSSolvers.hxx                          |    9 +-
+ src/ExecutionSettings.cxx                     |   49 +-
+ src/ExecutionSettings.hxx                     |    4 +-
+ src/HypreLinearSolvers.cxx                    |  760 ++++++++
+ src/LinearSolverFactory.cxx                   | 1661 ++---------------
+ src/LinearSolverModules.cxx                   |  215 +++
+ src/LinearSolverModules.hxx                   |  171 ++
+ src/MFEMLinearSolvers.cxx                     |  560 ++++++
+ src/MUMPSSolvers.cxx                          |   66 +
+ src/PreconditionerFactory.cxx                 |  125 ++
+ src/SolverUtilities.cxx                       |   34 +-
+ 20 files changed, 2572 insertions(+), 1586 deletions(-)
+ create mode 100644 include/MFEMMGIS/LinearSolverConvergenceReport.hxx
+ create mode 100644 include/MFEMMGIS/LinearSolverDescription.hxx
+ create mode 100644 include/MFEMMGIS/PreconditionerFactory.hxx
+ create mode 100644 src/HypreLinearSolvers.cxx
+ create mode 100644 src/LinearSolverModules.cxx
+ create mode 100644 src/LinearSolverModules.hxx
+ create mode 100644 src/MFEMLinearSolvers.cxx
+ create mode 100644 src/PreconditionerFactory.cxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index 7184ad596b..966820a80e 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -72,6 +72,9 @@ mfem_mgis_header(MFEMMGIS NonLinearEvolutionProblem.hxx)
+ mfem_mgis_header(MFEMMGIS PeriodicNonLinearEvolutionProblem.hxx)
+ mfem_mgis_header(MFEMMGIS LinearSolverHandler.hxx)
+ mfem_mgis_header(MFEMMGIS LinearSolverFactory.hxx)
++mfem_mgis_header(MFEMMGIS LinearSolverDescription.hxx)
++mfem_mgis_header(MFEMMGIS LinearSolverConvergenceReport.hxx)
++mfem_mgis_header(MFEMMGIS PreconditionerFactory.hxx)
+ mfem_mgis_header(MFEMMGIS AnalyticalTests.hxx)
+ mfem_mgis_header(MFEMMGIS BoundaryUtilities.hxx)
+ mfem_mgis_header(MFEMMGIS BoundaryUtilities.ixx)
+diff --git a/include/MFEMMGIS/LinearSolverConvergenceReport.hxx b/include/MFEMMGIS/LinearSolverConvergenceReport.hxx
+new file mode 100644
+index 0000000000..ac2ab6a586
+--- /dev/null
++++ b/include/MFEMMGIS/LinearSolverConvergenceReport.hxx
+@@ -0,0 +1,42 @@
++/*!
++ * \file   include/MFEMMGIS/LinearSolverConvergenceReport.hxx
++ * \brief  This file declares the `LinearSolverConvergenceReport` class
++ * \date   15/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_LINEARSOLVERCONVERGENCEREPORT_HXX
++#define LIB_MFEM_MGIS_LINEARSOLVERCONVERGENCEREPORT_HXX
++
++#include <optional>
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis {
++
++  /*!
++   * \brief interface of the linear solvers which report the outcome of their
++   * last resolution. The functions `hasConverged` and
++   * `getNumberOfIterationsAtConvergence` (see `SolverUtilities.hxx`) use it
++   * for the solvers which are neither iterative solvers of MFEM nor Krylov
++   * solvers of hypre: a linear solver wrapping another library implements
++   * this interface, so that these functions need no change when a library
++   * is added.
++   */
++  struct MFEM_MGIS_EXPORT LinearSolverConvergenceReport {
++    /*!
++     * \return true if the last resolution converged (iterative solvers) or
++     * succeeded (direct solvers)
++     */
++    [[nodiscard]] virtual bool hasConverged() const noexcept = 0;
++    /*!
++     * \return the number of iterations of the last resolution, if
++     * meaningful (iterative solvers)
++     */
++    [[nodiscard]] virtual std::optional<int> getNumberOfIterations()
++        const noexcept = 0;
++    //! \brief destructor
++    virtual ~LinearSolverConvergenceReport();
++  };  // end of struct LinearSolverConvergenceReport
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEM_MGIS_LINEARSOLVERCONVERGENCEREPORT_HXX */
+diff --git a/include/MFEMMGIS/LinearSolverDescription.hxx b/include/MFEMMGIS/LinearSolverDescription.hxx
+new file mode 100644
+index 0000000000..490f7d9a93
+--- /dev/null
++++ b/include/MFEMMGIS/LinearSolverDescription.hxx
+@@ -0,0 +1,102 @@
++/*!
++ * \file   include/MFEMMGIS/LinearSolverDescription.hxx
++ * \brief  This file declares the `LinearSolverDescription` class, which
++ * describes a linear solver or a preconditioner registered in the factories
++ * of linear solvers and of preconditioners
++ * \date   15/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_LINEARSOLVERDESCRIPTION_HXX
++#define LIB_MFEM_MGIS_LINEARSOLVERDESCRIPTION_HXX
++
++#include <string>
++#include <vector>
++#include <optional>
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis {
++
++  /*!
++   * \brief where a linear solver or a preconditioner computes. It is compared
++   * to the location of the linear solvers given by the execution settings
++   * (see `ExecutionSettings::linear_solver`).
++   */
++  enum struct LinearSolverPlacement {
++    /*!
++     * \brief on the host only (direct solvers of the CPU, and the
++     * preconditioners of hypre which only compute on the host)
++     */
++    HOST,
++    //! \brief on the GPU only (AmgX, cuDSS)
++    DEVICE,
++    //! \brief where the device of MFEM computes (solvers of MFEM)
++    MFEM,
++    //! \brief where the memory of hypre is (solvers of hypre)
++    HYPRE
++  };  // end of LinearSolverPlacement
++
++  //! \brief kind of linear solver
++  enum struct LinearSolverKind {
++    /*!
++     * \brief iterative solver, converging up to its tolerances (Krylov
++     * solvers)
++     */
++    ITERATIVE,
++    //! \brief direct solver (factorization)
++    DIRECT,
++    /*!
++     * \brief approximate solver, applying a fixed number of cycles or
++     * sweeps of a preconditioner (for instance cycles of an algebraic
++     * multigrid used by the fixed point solvers)
++     */
++    APPROXIMATE,
++    //! \brief preconditioner (registered in the preconditioner factory)
++    PRECONDITIONER
++  };  // end of LinearSolverKind
++
++  //! \brief preconditioners accepted by a linear solver
++  enum struct AcceptedPreconditioners {
++    //! \brief no preconditioner (direct solvers, self-contained solvers)
++    NONE,
++    //! \brief any preconditioner (seen as an `mfem::Solver`)
++    ANY,
++    /*!
++     * \brief the preconditioners of the same library only (for instance,
++     * the Krylov solvers of hypre only accept the preconditioners of hypre)
++     */
++    SAME_LIBRARY
++  };  // end of AcceptedPreconditioners
++
++  /*!
++   * \brief description of a linear solver or of a preconditioner, given
++   * when it is registered. The checks of the execution settings and of the
++   * preconditioners given to a linear solver are based on this description.
++   */
++  struct LinearSolverDescription {
++    //! \brief library providing the solver (`MFEM`, `hypre`, `MUMPS`, ...)
++    std::string library;
++    //! \brief kind of solver
++    LinearSolverKind kind = LinearSolverKind::ITERATIVE;
++    /*!
++     * \brief where the solver computes. It is empty for a wrapper of another
++     * solver, which computes where the wrapped solver does (for instance
++     * the `AssembledOperator` preconditioner): the location of the wrapped
++     * solver is then checked.
++     */
++    std::optional<LinearSolverPlacement> placement =
++        LinearSolverPlacement::MFEM;
++    /*!
++     * \brief preconditioners accepted by a linear solver (meaningless for a
++     * preconditioner). The linear solvers registered without description
++     * accept any preconditioner (see `LinearSolverFactory::add`).
++     */
++    AcceptedPreconditioners preconditioners = AcceptedPreconditioners::NONE;
++    //! \brief names of the options accepted by the solver
++    std::vector<std::string> options;
++    //! \brief short description of the solver
++    std::string description;
++  };  // end of LinearSolverDescription
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEM_MGIS_LINEARSOLVERDESCRIPTION_HXX */
+diff --git a/include/MFEMMGIS/LinearSolverFactory.hxx b/include/MFEMMGIS/LinearSolverFactory.hxx
+index 2e8e33f029..ea2a36d462 100644
+--- a/include/MFEMMGIS/LinearSolverFactory.hxx
++++ b/include/MFEMMGIS/LinearSolverFactory.hxx
+@@ -10,9 +10,13 @@
+ 
+ #include <map>
+ #include <memory>
++#include <string>
++#include <vector>
+ #include <functional>
++#include <string_view>
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/LinearSolverHandler.hxx"
++#include "MFEMMGIS/LinearSolverDescription.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -20,12 +24,16 @@ namespace mfem_mgis {
+   struct Parameters;
+ 
+   /*!
+-   * \brief an abstract factory for linear solvers
++   * \brief an abstract factory for linear solvers. Each linear solver is
++   * registered with its description (see `LinearSolverDescription`). The
++   * preconditioners are registered in the `PreconditionerFactory`.
+    * \tparam parallel: boolean stating if parallel linear solvers are
+    * considered
+    *
+-   * \note if a linear solver is added, the `hasConverged` function in
+-   * `SolverUtilities.hxx` shall also be modified
++   * \note a linear solver which is neither an iterative solver of MFEM nor
++   * a Krylov solver of hypre reports the outcome of its resolutions by
++   * implementing the `LinearSolverConvergenceReport` interface (see the
++   * `hasConverged` function in `SolverUtilities.hxx`)
+    */
+   template <bool parallel>
+   struct LinearSolverFactory;
+@@ -44,12 +52,36 @@ namespace mfem_mgis {
+      * \brief register a new linear solver
+      * \param[in, out] ctx: execution context
+      * \param[in] n: name of the linear solver
++     * \param[in] d: description of the linear solver
+      * \param[in] g: generator of the linear solver
+      * \return true on success
+      */
+     [[nodiscard]] bool add(Context& ctx,
+                            std::string_view n,
++                           LinearSolverDescription d,
+                            Generator g) noexcept;
++    /*!
++     * \brief register a new linear solver, whose description states that
++     * it computes where the device of MFEM computes and accepts any
++     * preconditioner (the `Preconditioner` parameter being left to its
++     * generator)
++     * \param[in, out] ctx: execution context
++     * \param[in] n: name of the linear solver
++     * \param[in] g: generator of the linear solver
++     * \return true on success
++     */
++    [[nodiscard]] bool add(Context& ctx,
++                           std::string_view n,
++                           Generator g) noexcept;
++    /*!
++     * \return the description of a linear solver, or a null pointer if no
++     * linear solver has this name
++     * \param[in] n: name of the linear solver
++     */
++    [[nodiscard]] const LinearSolverDescription* getDescription(
++        std::string_view n) const noexcept;
++    //! \return the names of the registered linear solvers
++    [[nodiscard]] std::vector<std::string> getNames() const;
+     /*!
+      * \return the requested linear solver
+      * \param[in, out] ctx: execution context
+@@ -67,8 +99,15 @@ namespace mfem_mgis {
+     LinearSolverFactory();
+     //! \brief destructor
+     ~LinearSolverFactory();
+-    //! \brief registered generators
+-    std::map<std::string, Generator, std::less<>> generators;
++    //! \brief a registered linear solver
++    struct Entry {
++      //! \brief description
++      LinearSolverDescription description;
++      //! \brief generator
++      Generator generator;
++    };
++    //! \brief registered linear solvers
++    std::map<std::string, Entry, std::less<>> entries;
+   };  // end of struct LinearSolverFactory
+ 
+ #endif /* MFEM_USE_MPI */
+@@ -85,12 +124,36 @@ namespace mfem_mgis {
+      * \brief register a new linear solver
+      * \param[in, out] ctx: execution context
+      * \param[in] n: name of the linear solver
++     * \param[in] d: description of the linear solver
+      * \param[in] g: generator of the linear solver
+      * \return true on success
+      */
+     [[nodiscard]] bool add(Context& ctx,
+                            std::string_view n,
++                           LinearSolverDescription d,
+                            Generator g) noexcept;
++    /*!
++     * \brief register a new linear solver, whose description states that
++     * it computes where the device of MFEM computes and accepts any
++     * preconditioner (the `Preconditioner` parameter being left to its
++     * generator)
++     * \param[in, out] ctx: execution context
++     * \param[in] n: name of the linear solver
++     * \param[in] g: generator of the linear solver
++     * \return true on success
++     */
++    [[nodiscard]] bool add(Context& ctx,
++                           std::string_view n,
++                           Generator g) noexcept;
++    /*!
++     * \return the description of a linear solver, or a null pointer if no
++     * linear solver has this name
++     * \param[in] n: name of the linear solver
++     */
++    [[nodiscard]] const LinearSolverDescription* getDescription(
++        std::string_view n) const noexcept;
++    //! \return the names of the registered linear solvers
++    [[nodiscard]] std::vector<std::string> getNames() const;
+     /*!
+      * \return the requested linear solver
+      * \param[in, out] ctx: execution context
+@@ -108,8 +171,15 @@ namespace mfem_mgis {
+     LinearSolverFactory();
+     //! \brief destructor
+     ~LinearSolverFactory();
+-    //! \brief registered generators
+-    std::map<std::string, Generator, std::less<>> generators;
++    //! \brief a registered linear solver
++    struct Entry {
++      //! \brief description
++      LinearSolverDescription description;
++      //! \brief generator
++      Generator generator;
++    };
++    //! \brief registered linear solvers
++    std::map<std::string, Entry, std::less<>> entries;
+   };  // end of struct LinearSolverFactory
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/include/MFEMMGIS/PreconditionerFactory.hxx b/include/MFEMMGIS/PreconditionerFactory.hxx
+new file mode 100644
+index 0000000000..da4dfd3882
+--- /dev/null
++++ b/include/MFEMMGIS/PreconditionerFactory.hxx
+@@ -0,0 +1,100 @@
++/*!
++ * \file   include/MFEMMGIS/PreconditionerFactory.hxx
++ * \brief  This file declares the `PreconditionerFactory` class
++ * \date   15/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_PRECONDITIONERFACTORY_HXX
++#define LIB_MFEM_MGIS_PRECONDITIONERFACTORY_HXX
++
++#include <map>
++#include <memory>
++#include <string>
++#include <vector>
++#include <functional>
++#include <string_view>
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MFEMForward.hxx"
++#include "MFEMMGIS/LinearSolverDescription.hxx"
++
++namespace mfem_mgis {
++
++  // forward declaration
++  struct Parameters;
++
++  /*!
++   * \brief factory of the preconditioners of the linear solvers, selected by
++   * the `Preconditioner` parameter of a linear solver (a name, `Name`, and
++   * options, `Options`). Each preconditioner is registered with its
++   * description (see `LinearSolverDescription`).
++   * \tparam parallel: boolean stating if parallel preconditioners are
++   * considered
++   */
++  template <bool parallel>
++  struct MFEM_MGIS_EXPORT PreconditionerFactory {
++    /*!
++     * \brief generator of a preconditioner: the options are the ones given
++     * by the `Options` parameter of the preconditioner (empty if not given)
++     */
++    using Generator = std::function<std::unique_ptr<LinearSolverPreconditioner>(
++        Context&, FiniteElementSpace<parallel>&, const Parameters&)>;
++    //! \return the unique instance of the class
++    static PreconditionerFactory& getFactory();
++    /*!
++     * \brief register a new preconditioner
++     * \param[in, out] ctx: execution context
++     * \param[in] n: name of the preconditioner
++     * \param[in] d: description of the preconditioner
++     * \param[in] g: generator of the preconditioner
++     * \return true on success
++     */
++    [[nodiscard]] bool add(Context& ctx,
++                           std::string_view n,
++                           LinearSolverDescription d,
++                           Generator g) noexcept;
++    /*!
++     * \return the requested preconditioner, or a null pointer on error
++     * \param[in, out] ctx: execution context
++     * \param[in] n: name of the preconditioner
++     * \param[in] fespace: finite element space
++     * \param[in] opts: options of the preconditioner
++     */
++    [[nodiscard]] std::unique_ptr<LinearSolverPreconditioner> generate(
++        Context& ctx,
++        std::string_view n,
++        FiniteElementSpace<parallel>& fespace,
++        const Parameters& opts) const;
++    /*!
++     * \return the description of a preconditioner, or a null pointer if no
++     * preconditioner has this name
++     * \param[in] n: name of the preconditioner
++     */
++    [[nodiscard]] const LinearSolverDescription* getDescription(
++        std::string_view n) const noexcept;
++    //! \return the names of the registered preconditioners
++    [[nodiscard]] std::vector<std::string> getNames() const;
++
++   private:
++    //! \brief a registered preconditioner
++    struct Entry {
++      //! \brief description
++      LinearSolverDescription description;
++      //! \brief generator
++      Generator generator;
++    };
++    //! \brief default constructor, which registers the preconditioners
++    PreconditionerFactory();
++    //! \brief destructor
++    ~PreconditionerFactory();
++    //! \brief registered preconditioners
++    std::map<std::string, Entry, std::less<>> entries;
++  };  // end of struct PreconditionerFactory
++
++#ifdef MFEM_USE_MPI
++  extern template struct PreconditionerFactory<true>;
++#endif /* MFEM_USE_MPI */
++  extern template struct PreconditionerFactory<false>;
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEM_MGIS_PRECONDITIONERFACTORY_HXX */
+diff --git a/src/AmgXSolvers.cxx b/src/AmgXSolvers.cxx
+index da3d592012..0ae2a87d7a 100644
+--- a/src/AmgXSolvers.cxx
++++ b/src/AmgXSolvers.cxx
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include "AmgXSolvers.hxx"
++#include "LinearSolverModules.hxx"
+ 
+ #ifdef MFEM_MGIS_HAVE_AMGX
+ 
+@@ -896,6 +897,83 @@ namespace mfem_mgis::internals {
+       Context&, FiniteElementSpace<true>&, const Parameters&) noexcept;
+ #endif /* MFEM_USE_MPI */
+ 
++  //! \return the options of the AmgX preconditioner
++  [[nodiscard]] static std::vector<std::string> getAmgXPreconditionerOptions() {
++    return {"Configuration", "ConfigurationFile", "VerbosityLevel",
++            AmgXParameters, Precision};
++  }  // end of getAmgXPreconditionerOptions
++
++  template <bool parallel>
++  void declareAmgXLinearSolvers(LinearSolverFactory<parallel>& f) {
++    // cycles of the algebraic multigrid of AmgX (approximate solver, as
++    // `HypreBoomerAMG`) and conjugate gradient of AmgX
++    declare(f, "AmgX",
++            LinearSolverDescription{
++                .library = "AmgX",
++                .kind = LinearSolverKind::APPROXIMATE,
++                .placement = LinearSolverPlacement::DEVICE,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = getAmgXPreconditionerOptions(),
++                .description = "cycles of an algebraic multigrid of AmgX "
++                               "(NVIDIA GPU)"},
++            [](Context& c, FiniteElementSpace<parallel>& fespace,
++               const Parameters& params) noexcept -> LinearSolverHandler {
++              auto s = makeAmgXPreconditioner<parallel>(c, fespace, params);
++              if (s == nullptr) {
++                return {};
++              }
++              return LinearSolverHandler{
++                  std::move(s), std::unique_ptr<LinearSolverPreconditioner>{}};
++            });
++    auto pcg_options = getIterativeSolverParametersList();
++    pcg_options.push_back(AmgXParameters);
++    pcg_options.push_back(Precision);
++    declare(f, "AmgXPCG",
++            LinearSolverDescription{
++                .library = "AmgX",
++                .kind = LinearSolverKind::ITERATIVE,
++                .placement = LinearSolverPlacement::DEVICE,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = std::move(pcg_options),
++                .description = "conjugate gradient of AmgX preconditioned by "
++                               "its algebraic multigrid (NVIDIA GPU)"},
++            [](Context& c, FiniteElementSpace<parallel>& fespace,
++               const Parameters& params) noexcept -> LinearSolverHandler {
++              auto s =
++                  makeAmgXConjugateGradientSolver<parallel>(c, fespace, params);
++              if (s == nullptr) {
++                return {};
++              }
++              return LinearSolverHandler{
++                  std::move(s), std::unique_ptr<LinearSolverPreconditioner>{}};
++            });
++  }  // end of declareAmgXLinearSolvers
++
++  template <bool parallel>
++  void declareAmgXPreconditioners(PreconditionerFactory<parallel>& f) {
++    declare(f, "AmgX",
++            LinearSolverDescription{
++                .library = "AmgX",
++                .kind = LinearSolverKind::PRECONDITIONER,
++                .placement = LinearSolverPlacement::DEVICE,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = getAmgXPreconditionerOptions(),
++                .description = "algebraic multigrid of AmgX (NVIDIA GPU)"},
++            [](Context& c, FiniteElementSpace<parallel>& fespace,
++               const Parameters& opts) noexcept
++                -> std::unique_ptr<LinearSolverPreconditioner> {
++              return makeAmgXPreconditioner<parallel>(c, fespace, opts);
++            });
++  }  // end of declareAmgXPreconditioners
++
++  template void declareAmgXLinearSolvers<false>(LinearSolverFactory<false>&);
++  template void declareAmgXPreconditioners<false>(
++      PreconditionerFactory<false>&);
++#ifdef MFEM_USE_MPI
++  template void declareAmgXLinearSolvers<true>(LinearSolverFactory<true>&);
++  template void declareAmgXPreconditioners<true>(PreconditionerFactory<true>&);
++#endif /* MFEM_USE_MPI */
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* MFEM_MGIS_HAVE_AMGX */
+diff --git a/src/AmgXSolvers.hxx b/src/AmgXSolvers.hxx
+index 35f88b906f..8dff031892 100644
+--- a/src/AmgXSolvers.hxx
++++ b/src/AmgXSolvers.hxx
+@@ -33,6 +33,7 @@
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/MFEMForward.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
+ 
+ namespace mfem_mgis::internals {
+ 
+@@ -91,7 +92,8 @@ namespace mfem_mgis::internals {
+    * `src/CMakeLists.txt`), and a program exiting with a solver alive may
+    * abort or hang (static objects of the two copies).
+    */
+-  struct AmgXSolver final : public mfem::Solver {
++  struct AmgXSolver final : public mfem::Solver,
++                            public LinearSolverConvergenceReport {
+ #ifdef MFEM_USE_MPI
+     /*!
+      * \brief constructor
+@@ -129,12 +131,13 @@ namespace mfem_mgis::internals {
+      * \return the number of iterations of the last resolution of an
+      * iterative solver, if a resolution was made
+      */
+-    [[nodiscard]] std::optional<int> getNumberOfIterations() const noexcept;
++    [[nodiscard]] std::optional<int> getNumberOfIterations()
++        const noexcept override;
+     /*!
+      * \return if the last resolution of an iterative solver succeeded
+      * (status of AmgX), true for the other solvers
+      */
+-    [[nodiscard]] bool hasConverged() const noexcept;
++    [[nodiscard]] bool hasConverged() const noexcept override;
+     //! \brief destructor
+     ~AmgXSolver() override;
+     // the handles of AmgX are owned by the solver
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 2ed72d3c54..7ab14cc8a1 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -53,6 +53,10 @@ list(APPEND MFEMMGIS_SOURCES
+   SolverUtilities.cxx
+   LinearSolverHandler.cxx
+   LinearSolverFactory.cxx
++  PreconditionerFactory.cxx
++  LinearSolverModules.cxx
++  MFEMLinearSolvers.cxx
++  HypreLinearSolvers.cxx
+   AmgXSolvers.cxx
+   HypreMatrixPattern.cxx
+   MUMPSSolvers.cxx
+diff --git a/src/CuDSSSolvers.cxx b/src/CuDSSSolvers.cxx
+index cf827569ef..055e76a58a 100644
+--- a/src/CuDSSSolvers.cxx
++++ b/src/CuDSSSolvers.cxx
+@@ -9,6 +9,14 @@
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+ 
+ #include <utility>
++#include <memory>
++#include <string>
++#include <vector>
++#include "mfem/general/device.hpp"
++#include "mfem/fem/pfespace.hpp"
++#include "MFEMMGIS/Parameters.hxx"
++#include "ExecutionSettings.hxx"
++#include "LinearSolverModules.hxx"
+ #include <cuda_runtime_api.h>
+ #include "mfem/general/error.hpp"
+ 
+@@ -137,6 +145,14 @@ namespace mfem_mgis::internals {
+     return this->succeeded;
+   }  // end of hasSucceeded
+ 
++  bool CuDSSDirectSolver::hasConverged() const noexcept {
++    return this->hasSucceeded();
++  }  // end of hasConverged
++
++  std::optional<int> CuDSSDirectSolver::getNumberOfIterations() const noexcept {
++    return {};
++  }  // end of getNumberOfIterations
++
+   bool CuDSSDirectSolver::reusesAnalysis() const noexcept {
+     return this->reuse_analysis;
+   }  // end of reusesAnalysis
+@@ -145,6 +161,72 @@ namespace mfem_mgis::internals {
+     return this->number_of_analyses;
+   }  // end of getNumberOfAnalyses
+ 
++  [[nodiscard]] static std::function<LinearSolverHandler(
++      Context&, FiniteElementSpace<true>&, const Parameters&)>
++  buildCuDSSSolverGenerator() {
++    return [](Context& ctx, FiniteElementSpace<true>& fespace,
++              const Parameters& params) -> LinearSolverHandler {
++      if (!checkParameters(
++              ctx, params,
++              std::vector<std::string>{"Symmetric", "PositiveDefinite",
++                                       "ReuseAnalysis"})) {
++        return {};
++      }
++      // cuDSS reads the matrices and the vectors on the GPU
++      if (!mfem::Device::Allows(mfem::Backend::CUDA_MASK)) {
++        return ctx.registerErrorMessage(
++            "CuDSSSolver: the cuDSS solver requires a device on a CUDA GPU "
++            "(option --device cuda of mfem_mgis::initialize)");
++      }
++      // when hypre computes on the host, MFEM gives cuDSS the arrays of the
++      // matrices stored on the host through a copy between device arrays
++      if ((!isHypreUsingGPU()) &&
++          (!internals::canGPUReadPageableHostMemory())) {
++        return ctx.registerErrorMessage(
++            "CuDSSSolver: when hypre computes on the host (option "
++            "--hypre-on-host of mfem_mgis::initialize, or hypre built "
++            "without GPU support), the cuDSS solver requires a GPU reading "
++            "the pageable memory of the host (heterogeneous memory "
++            "management)");
++      }
++      const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
++      const auto opositive_definite =
++          get_if<bool>(ctx, params, "PositiveDefinite", false);
++      const auto oreuse_analysis =
++          get_if<bool>(ctx, params, "ReuseAnalysis", false);
++      if (isInvalid(osymmetric) || isInvalid(opositive_definite) ||
++          isInvalid(oreuse_analysis)) {
++        return {};
++      }
++      // as MUMPS, the symmetric modes read the lower triangle of the
++      // matrices
++      auto settings = internals::CuDSSSolverSettings{};
++      if (*osymmetric) {
++        settings.matrix_type =
++            *opositive_definite
++                ? mfem::CuDSSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE
++                : mfem::CuDSSSolver::MatType::SYMMETRIC_INDEFINITE;
++        settings.view = mfem::CuDSSSolver::MatViewType::LOWER;
++      }
++      auto s = std::make_unique<internals::CuDSSDirectSolver>(
++          fespace.GetComm(), settings, *oreuse_analysis);
++      return LinearSolverHandler{std::move(s),
++                                 std::unique_ptr<LinearSolverPreconditioner>{}};
++    };
++  }  // end of buildCuDSSSolverGenerator
++
++  void declareCuDSSLinearSolvers(LinearSolverFactory<true>& f) {
++    declare(f, "CuDSSSolver",
++            LinearSolverDescription{
++                .library = "cuDSS",
++                .kind = LinearSolverKind::DIRECT,
++                .placement = LinearSolverPlacement::DEVICE,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = {"Symmetric", "PositiveDefinite", "ReuseAnalysis"},
++                .description = "cuDSS direct solver of NVIDIA (CUDA GPU)"},
++            buildCuDSSSolverGenerator());
++  }  // end of declareCuDSSLinearSolvers
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+diff --git a/src/CuDSSSolvers.hxx b/src/CuDSSSolvers.hxx
+index d4e340afda..33eeb84b0b 100644
+--- a/src/CuDSSSolvers.hxx
++++ b/src/CuDSSSolvers.hxx
+@@ -18,6 +18,7 @@
+ #include <mpi.h>
+ #include "mfem/linalg/cudss.hpp"
+ #include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
+ #include "HypreMatrixPattern.hxx"
+ 
+ namespace mfem_mgis::internals {
+@@ -67,7 +68,8 @@ namespace mfem_mgis::internals {
+    * condition number of the matrix. As for the iterative solvers of MFEM,
+    * the operator must exist as long as the solver is used.
+    */
+-  struct CuDSSDirectSolver final : public mfem::Solver {
++  struct CuDSSDirectSolver final : public mfem::Solver,
++                                   public LinearSolverConvergenceReport {
+     /*!
+      * \brief constructor
+      * \param[in] c: communicator
+@@ -84,6 +86,11 @@ namespace mfem_mgis::internals {
+                    mfem::Array<mfem::Vector*>&) const override;
+     //! \return true if the residuals of the last solutions are small
+     [[nodiscard]] bool hasSucceeded() const noexcept;
++    //! \return `hasSucceeded()`
++    [[nodiscard]] bool hasConverged() const noexcept override;
++    //! \return an empty value: a direct solver makes no iteration
++    [[nodiscard]] std::optional<int> getNumberOfIterations()
++        const noexcept override;
+     //! \return true if the analysis is reused
+     [[nodiscard]] bool reusesAnalysis() const noexcept;
+     //! \return the number of analyses made
+diff --git a/src/ExecutionSettings.cxx b/src/ExecutionSettings.cxx
+index 65fdb3ecd4..6a0defae4a 100644
+--- a/src/ExecutionSettings.cxx
++++ b/src/ExecutionSettings.cxx
+@@ -334,55 +334,14 @@ namespace mfem_mgis::internals {
+     return ctx.registerErrorMessage(msg);
+   }  // end of checkBehaviourExecutionLocation
+ 
+-  /*!
+-   * \brief where a linear solver or a preconditioner computes
+-   */
+-  enum struct LinearSolverPlacement {
+-    /*!
+-     * \brief on the host only (direct solvers of the CPU, and the
+-     * preconditioners of hypre which only compute on the host)
+-     */
+-    HOST,
+-    //! \brief on the GPU only (AmgX, cuDSS)
+-    DEVICE,
+-    /*!
+-     * \brief where the device of MFEM computes (solvers and smoothers of
+-     * MFEM)
+-     */
+-    MFEM,
+-    //! \brief where the memory of hypre is (solvers of hypre)
+-    HYPRE
+-  };
+-
+-  /*!
+-   * \return where a linear solver or a preconditioner computes
+-   * \param[in] n: name of the linear solver or of the preconditioner
+-   */
+-  static LinearSolverPlacement getLinearSolverPlacement(
+-      const std::string_view n) noexcept {
+-    if ((n == "MUMPSSolver") || (n == "UMFPackSolver")) {
+-      return LinearSolverPlacement::HOST;
+-    }
+-    if ((n == "AmgX") || (n == "AmgXPCG") || (n == "CuDSSSolver")) {
+-      return LinearSolverPlacement::DEVICE;
+-    }
+-    // preconditioners of hypre which only compute on the host
+-    if ((n == "HypreEuclid") || (n == "HypreParaSails")) {
+-      return LinearSolverPlacement::HOST;
+-    }
+-    if (n.starts_with("Hypre")) {
+-      return LinearSolverPlacement::HYPRE;
+-    }
+-    return LinearSolverPlacement::MFEM;
+-  }  // end of getLinearSolverPlacement
+-
+-  bool checkLinearSolverExecutionLocation(Context& ctx,
+-                                          const std::string_view n) noexcept {
++  bool checkLinearSolverExecutionLocation(
++      Context& ctx,
++      const std::string_view n,
++      const LinearSolverPlacement p) noexcept {
+     const auto& s = getExecutionSettings();
+     if (!isExecutionModeSpecified()) {
+       return true;
+     }
+-    const auto p = getLinearSolverPlacement(n);
+     const auto requested = s.linear_solver;
+     // computations of MFEM on the GPU in the gpu and mixed modes
+     const auto mfem_location = s.mode == ExecutionMode::CPU
+diff --git a/src/ExecutionSettings.hxx b/src/ExecutionSettings.hxx
+index 9c889be916..81d989bf9b 100644
+--- a/src/ExecutionSettings.hxx
++++ b/src/ExecutionSettings.hxx
+@@ -15,6 +15,7 @@
+ #include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/ExecutionSettings.hxx"
++#include "MFEMMGIS/LinearSolverDescription.hxx"
+ 
+ namespace mfem_mgis::internals {
+ 
+@@ -133,9 +134,10 @@ namespace mfem_mgis::internals {
+    * \return true on success
+    * \param[in, out] ctx: execution context
+    * \param[in] n: name of the linear solver or of the preconditioner
++   * \param[in] p: where it computes (see `LinearSolverDescription`)
+    */
+   [[nodiscard]] bool checkLinearSolverExecutionLocation(
+-      Context& ctx, std::string_view n) noexcept;
++      Context& ctx, std::string_view n, LinearSolverPlacement p) noexcept;
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+diff --git a/src/HypreLinearSolvers.cxx b/src/HypreLinearSolvers.cxx
+new file mode 100644
+index 0000000000..64116cfdca
+--- /dev/null
++++ b/src/HypreLinearSolvers.cxx
+@@ -0,0 +1,760 @@
++/*!
++ * \file   src/HypreLinearSolvers.cxx
++ * \brief  This file implements the module of the linear solvers and of the
++ * preconditioners of hypre (see `LinearSolverModules.hxx`)
++ * \author Thomas Helfer
++ * \date   24/03/2021
++ */
++
++#include <array>
++#include <tuple>
++#include <memory>
++#include <string>
++#include <vector>
++#include <optional>
++#include <utility>
++#include <algorithm>
++#include <functional>
++#include <string_view>
++#include "mfem/config/config.hpp"
++#ifdef MFEM_USE_MPI
++#include "mfem/linalg/hypre.hpp"
++#include "mfem/fem/pfespace.hpp"
++#endif /* MFEM_USE_MPI */
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++#include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
++#include "ExecutionSettings.hxx"
++#include "LinearSolverModules.hxx"
++
++#ifdef MFEM_USE_MPI
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief BoomerAMG preconditioner whose settings are applied again for each
++   * new operator.
++   *
++   * `HypreBoomerAMG::SetOperator` creates a new solver of hypre, which only
++   * keeps some options (`HypreBoomerAMG::ResetAMGPrecond`): the description
++   * of the systems (`SetSystemsOptions`, which depends on the size of the
++   * operator for unknowns ordered by nodes), the number of cycles per
++   * application, the type of cycle and the number of sweeps per cycle are
++   * lost. The settings are applied after each `SetOperator`, before the
++   * setup of hypre, made at the first application.
++   */
++  struct ConfiguredHypreBoomerAMG final : public mfem::HypreBoomerAMG {
++    //! \brief a setting of the preconditioner
++    using Setting = std::function<void(mfem::HypreBoomerAMG&)>;
++    //! \param[in] s: settings
++    explicit ConfiguredHypreBoomerAMG(std::vector<Setting> s)
++        : settings(std::move(s)) {}
++    //! \brief set the operator, then the settings
++    void SetOperator(const mfem::Operator& op) override {
++      mfem::HypreBoomerAMG::SetOperator(op);
++      for (const auto& setting : this->settings) {
++        setting(*this);
++      }
++    }
++
++   private:
++    //! \brief settings
++    const std::vector<Setting> settings;
++  };  // end of struct ConfiguredHypreBoomerAMG
++
++#if MFEM_HYPRE_VERSION >= 21900
++
++  /*!
++   * \brief incomplete factorisation of hypre whose settings are applied
++   * again after each new operator: `mfem::HypreILU::SetOperator` creates a
++   * new preconditioner of hypre with the default options of MFEM (a level
++   * of fill of one), which lost the settings given by the user
++   */
++  struct ConfiguredHypreILU final : public mfem::HypreILU {
++    //! \brief a setting of the preconditioner
++    using Setting = std::function<void(mfem::HypreILU&)>;
++    //! \param[in] s: settings
++    explicit ConfiguredHypreILU(std::vector<Setting> s)
++        : settings(std::move(s)) {
++      this->applySettings();
++    }
++    //! \brief set the operator, then the settings
++    void SetOperator(const mfem::Operator& op) override {
++      mfem::HypreILU::SetOperator(op);
++      this->applySettings();
++    }
++
++   private:
++    //! \brief apply the settings
++    void applySettings() {
++      for (const auto& setting : this->settings) {
++        setting(*this);
++      }
++    }
++    //! \brief settings
++    const std::vector<Setting> settings;
++  };  // end of struct ConfiguredHypreILU
++
++#endif /* MFEM_HYPRE_VERSION >= 21900 */
++
++  /*!
++   * \brief ParaSails preconditioner of hypre which can be given a new
++   * operator after the destruction of the previous one, as the non linear
++   * solvers do: `mfem::HypreParaSails::SetOperator` (MFEM 4.10) creates the
++   * new preconditioner of hypre with the communicator of the previous
++   * operator, whose memory may then be freed (invalid communicator). The
++   * operator is replaced by the new one before calling this method, which
++   * reports an operator which is not a matrix of hypre as before.
++   */
++  struct ReusableHypreParaSails final : public mfem::HypreParaSails {
++    using mfem::HypreParaSails::HypreParaSails;
++    //! \brief set the operator
++    void SetOperator(const mfem::Operator& op) override {
++      const auto* const new_A = dynamic_cast<const mfem::HypreParMatrix*>(&op);
++      if ((this->A != nullptr) && (new_A != nullptr)) {
++        this->A = new_A;
++      }
++      mfem::HypreParaSails::SetOperator(op);
++    }
++  };  // end of struct ReusableHypreParaSails
++
++}  // end of namespace mfem_mgis::internals
++
++namespace mfem_mgis {
++
++  /*!
++   * \return the options of the BoomerAMG preconditioner of hypre whose
++   * values are integers (see `setHypreBoomerAMGPreconditioner`)
++   */
++  [[nodiscard]] static std::vector<std::string>
++  getHypreBoomerAMGIntegerOptions() {
++    return {"CoarseningType", "AggressiveCoarseningLevels", "InterpolationType",
++            "RelaxationType", "RelaxationSweeps",           "CycleType",
++            "NumberOfCycles", "MaximumNumberOfLevels"};
++  }  // end of getHypreBoomerAMGIntegerOptions
++
++  //! \return the options of the BoomerAMG preconditioner of hypre
++  [[nodiscard]] static std::vector<std::string> getHypreBoomerAMGOptions() {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    auto options = getHypreBoomerAMGIntegerOptions();
++    options.insert(options.end(), {"Strategy", "StrengthThreshold",
++                                   Problem::SolverVerbosityLevel});
++    return options;
++  }  // end of getHypreBoomerAMGOptions
++
++  /*!
++   * \return the BoomerAMG preconditioner of hypre
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] opts: options:
++   * - `Strategy`: `System` (systems options, by default for vector unknowns),
++   *   `Elasticity` (elasticity options, requiring unknowns ordered by vector
++   *   dimension and hypre computing on the host, `System` being used
++   *   otherwise) or `None` (by default for scalar unknowns);
++   * - `VerbosityLevel`: print level of hypre;
++   * - options of hypre, whose values are the ones of hypre (see its
++   *   documentation): `StrengthThreshold`, `CoarseningType`,
++   *   `AggressiveCoarseningLevels`, `InterpolationType`, `RelaxationType`,
++   *   `RelaxationSweeps` (sweeps before and after the coarse levels),
++   *   `CycleType` (1: V-cycle, 2: W-cycle), `NumberOfCycles` (cycles per
++   *   application, 1 by default) and `MaximumNumberOfLevels`.
++   */
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  setHypreBoomerAMGPreconditioner(Context& ctx,
++                                  FiniteElementSpace<true>& fespace,
++                                  const Parameters& opts) noexcept {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    using Setting = internals::ConfiguredHypreBoomerAMG::Setting;
++    const auto integer_options = getHypreBoomerAMGIntegerOptions();
++    auto allowed = integer_options;
++    allowed.insert(allowed.end(), {"Strategy", "StrengthThreshold",
++                                   Problem::SolverVerbosityLevel});
++    if (!checkParameters(ctx, opts, allowed)) {
++      return {};
++    }
++    auto settings = std::vector<Setting>{};
++    // strategy
++    const auto ostrategy = get_if<std::string>(
++        ctx, opts, "Strategy",
++        std::string{fespace.GetVDim() > 1 ? "System" : "None"});
++    if (isInvalid(ostrategy)) {
++      return {};
++    }
++    auto elasticity = false;
++    if (*ostrategy == "Elasticity") {
++      // the elasticity version of BoomerAMG requires Ordering::byVDIM, and
++      // is not supported by hypre when it computes on a GPU
++      const auto by_vdim = fespace.GetOrdering() == mfem::Ordering::byVDIM;
++      elasticity = by_vdim && (!isHypreUsingGPU());
++      if ((!elasticity) && (fespace.GetMyRank() == 0)) {
++        warning(ctx.log(),
++                by_vdim ? "setLinearSolverParameters: strategy 'Elasticity' "
++                          "of preconditioner HypreBoomerAMG is not supported "
++                          "by hypre on a GPU, using strategy 'System' instead"
++                        : "setLinearSolverParameters: strategy 'Elasticity' "
++                          "of preconditioner HypreBoomerAMG requires unknowns "
++                          "ordered by vector dimension (i.e. the parameter "
++                          "'FiniteElementSpaceOrdering' must be set to "
++                          "'byVDIM'), using strategy 'System' instead");
++      }
++    } else if ((*ostrategy != "System") && (*ostrategy != "None")) {
++      return ctx.registerErrorMessage(
++          "setLinearSolverParameters: "
++          "invalid strategy '" +
++          *ostrategy + "' for preconditioner HypreBoomerAMG");
++    }
++    if ((!elasticity) && (*ostrategy != "None")) {
++      const auto n = fespace.GetVDim();
++      const auto by_nodes = fespace.GetOrdering() == mfem::Ordering::byNODES;
++      settings.push_back([n, by_nodes](mfem::HypreBoomerAMG& amg) {
++        amg.SetSystemsOptions(n, by_nodes);
++      });
++    }
++    // options of hypre
++    if (contains(opts, "StrengthThreshold")) {
++      const auto ov = get<double>(ctx, opts, "StrengthThreshold");
++      if (isInvalid(ov)) {
++        return {};
++      }
++      settings.push_back(
++          [v = *ov](mfem::HypreBoomerAMG& amg) { amg.SetStrengthThresh(v); });
++    }
++    for (const auto& o : integer_options) {
++      if (!contains(opts, o)) {
++        continue;
++      }
++      const auto ov = get<int>(ctx, opts, o);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      const auto v = *ov;
++      if ((v < 0) || ((v == 0) && (o != "CoarseningType") &&
++                      (o != "AggressiveCoarseningLevels") &&
++                      (o != "InterpolationType") && (o != "RelaxationType"))) {
++        return ctx.registerErrorMessage(
++            "setLinearSolverParameters: invalid "
++            "value for option '" +
++            o + "' of HypreBoomerAMG");
++      }
++      if (o == "CoarseningType") {
++        settings.push_back(
++            [v](mfem::HypreBoomerAMG& amg) { amg.SetCoarsening(v); });
++      } else if (o == "AggressiveCoarseningLevels") {
++        settings.push_back(
++            [v](mfem::HypreBoomerAMG& amg) { amg.SetAggressiveCoarsening(v); });
++      } else if (o == "InterpolationType") {
++        settings.push_back(
++            [v](mfem::HypreBoomerAMG& amg) { amg.SetInterpolation(v); });
++      } else if (o == "RelaxationType") {
++        settings.push_back(
++            [v](mfem::HypreBoomerAMG& amg) { amg.SetRelaxType(v); });
++      } else if (o == "RelaxationSweeps") {
++        settings.push_back(
++            [v](mfem::HypreBoomerAMG& amg) { amg.SetCycleNumSweeps(v, v); });
++      } else if (o == "CycleType") {
++        settings.push_back(
++            [v](mfem::HypreBoomerAMG& amg) { amg.SetCycleType(v); });
++      } else if (o == "NumberOfCycles") {
++        settings.push_back(
++            [v](mfem::HypreBoomerAMG& amg) { amg.SetMaxIter(v); });
++      } else {
++        settings.push_back(
++            [v](mfem::HypreBoomerAMG& amg) { amg.SetMaxLevels(v); });
++      }
++    }
++    auto amg = std::make_unique<internals::ConfiguredHypreBoomerAMG>(settings);
++    if (elasticity) {
++      amg->SetElasticityOptions(&fespace);
++    }
++    if (contains(opts, Problem::SolverVerbosityLevel)) {
++      const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
++      if (isInvalid(olvl)) {
++        return {};
++      }
++      amg->SetPrintLevel(*olvl);
++    }
++    return amg;
++  }  // end of setHypreBoomerAMGPreconditioner
++
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  setHypreEuclidPreconditioner(Context& ctx,
++                               FiniteElementSpace<true>& p,
++                               const Parameters& opts) {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
++      return {};
++    }
++    auto euclid = std::make_unique<mfem::HypreEuclid>(p.GetComm());
++    return euclid;
++  }  // end of setHypreEuclidPreconditioner
++
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  setHypreILUPreconditioner(Context& ctx,
++                            FiniteElementSpace<true>&,
++                            const Parameters& opts) {
++#if MFEM_HYPRE_VERSION >= 21900
++    using Problem = AbstractNonLinearEvolutionProblem;
++    if (!checkParameters(
++            ctx, opts,
++            std::vector<std::string>{Problem::SolverVerbosityLevel,
++                                     "HypreILUType", "HypreILULevelOfFill"})) {
++      return {};
++    }
++    using Setting = internals::ConfiguredHypreILU::Setting;
++    auto settings = std::vector<Setting>{};
++    if (contains(opts, Problem::SolverVerbosityLevel)) {
++      const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
++      if (isInvalid(olvl)) {
++        return {};
++      }
++      settings.push_back(
++          [v = *olvl](mfem::HypreILU& ilu) { ilu.SetPrintLevel(v); });
++    }
++    // type of the factorisation of hypre (`HYPRE_ILUSetType`): ILU(k)
++    // (0, the default, 10, 20, 30, 40), ILUT (1, 11, 21, 31, 41), modified
++    // ILU(0) (50), with a block Jacobi (0, 1), GMRES on the Schur complement
++    // (10, 11, 40, 41), Newton-Schulz-Hotelling (20, 21), restricted additive
++    // Schwarz (30, 31) or RAP (50) global method
++    const auto otype = get_if<int>(ctx, opts, "HypreILUType", 0);
++    if (isInvalid(otype)) {
++      return {};
++    }
++    const auto types = std::array{0, 1, 10, 11, 20, 21, 30, 31, 40, 41, 50};
++    if (std::find(types.begin(), types.end(), *otype) == types.end()) {
++      return ctx.registerErrorMessage(
++          "setHypreILUPreconditioner: invalid type of factorisation " +
++          std::to_string(*otype));
++    }
++    const auto ilut = (*otype % 10) == 1;
++    if (contains(opts, "HypreILUType")) {
++      settings.push_back([v = *otype](mfem::HypreILU& ilu) { ilu.SetType(v); });
++    }
++    // the ILU(k) factorisations with a level of fill greater than zero make
++    // the triangular solves of hypre fail when hypre computes on a GPU
++    // (segmentation fault in hypre_ILUSolveLUDevice, reproduced with hypre
++    // 3.2.0 and CUDA 13), the ILUT factorisations do not: the level of fill
++    // is then zero by default, one being the default of MFEM
++    auto level_of_fill = std::optional<int>{};
++    if (contains(opts, "HypreILULevelOfFill")) {
++      const auto olvl = get<int>(ctx, opts, "HypreILULevelOfFill");
++      if (isInvalid(olvl)) {
++        return {};
++      }
++      if (ilut) {
++        return ctx.registerErrorMessage(
++            "setHypreILUPreconditioner: no level of fill for an ILUT "
++            "factorisation");
++      }
++      if ((*olvl > 0) && (isHypreUsingGPU())) {
++        return ctx.registerErrorMessage(
++            "setHypreILUPreconditioner: a level of fill greater than zero "
++            "is not supported when hypre computes on a GPU (the ILUT "
++            "factorisation, HypreILUType 1, is)");
++      }
++      level_of_fill = *olvl;
++    } else if ((!ilut) && (isHypreUsingGPU())) {
++      level_of_fill = 0;
++    }
++    if (level_of_fill.has_value()) {
++      settings.push_back(
++          [v = *level_of_fill](mfem::HypreILU& ilu) { ilu.SetLevelOfFill(v); });
++    }
++    auto ilu = std::make_unique<internals::ConfiguredHypreILU>(settings);
++    return ilu;
++#else  /*  HYPRE_OLD_VERSION */
++    return ctx.registerErrorMessage(
++        "Support for HypreILU is not available with this version of MFEM");
++#endif /* HYPRE_OLD_VERSION */
++  }  // end of setHypreILUPreconditioner
++
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  setHypreParaSailsPreconditioner(Context& ctx,
++                                  FiniteElementSpace<true>& p,
++                                  const Parameters& opts) {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
++      return {};
++    }
++    // ParaSails only computes on the host: its setup reads the matrix stored
++    // on the device when hypre computes on a GPU (segmentation fault in
++    // MatrixSetRow with hypre 3.2.0 and CUDA 13)
++    if (isHypreUsingGPU()) {
++      return ctx.registerErrorMessage(
++          "setHypreParaSailsPreconditioner: the ParaSails preconditioner is "
++          "not supported when hypre computes on a GPU");
++    }
++    auto parasails =
++        std::make_unique<internals::ReusableHypreParaSails>(p.GetComm());
++    // statistics of the setups printed by hypre (printed by default by
++    // MFEM), kept for the new operators
++    if (contains(opts, Problem::SolverVerbosityLevel)) {
++      const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
++      if (isInvalid(olvl)) {
++        return {};
++      }
++      parasails->SetLogging(*olvl);
++    }
++    return parasails;
++  }  // end of setHypreParaSailsPreconditioner
++
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  setHypreDiagScalePreconditioner(Context& ctx,
++                                  FiniteElementSpace<true>&,
++                                  const Parameters& opts) {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
++      return {};
++    }
++    return std::make_unique<mfem::HypreDiagScale>();
++  }  // end of setHypreDiagScalePreconditioner
++
++  /*!
++   * \brief set the preconditioner of a Krylov solver of hypre, which only
++   * accepts the preconditioners of hypre (see
++   * `internals::makePreconditioner`)
++   * \return the preconditioner (a null pointer if none is requested), or an
++   * empty value on error
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] n: name of the linear solver
++   * \param[in] d: description of the linear solver
++   * \param[in, out] s: linear solver
++   * \param[in] params: parameters of the linear solver
++   */
++  template <typename SolverType>
++  [[nodiscard]] static std::optional<
++      std::unique_ptr<LinearSolverPreconditioner>>
++  setHypreKrylovSolverPreconditioner(Context& ctx,
++                                     FiniteElementSpace<true>& fespace,
++                                     const std::string_view n,
++                                     const LinearSolverDescription& d,
++                                     SolverType& s,
++                                     const Parameters& params) {
++    auto oprec =
++        internals::makePreconditioner<true>(ctx, fespace, n, d, params);
++    if (isInvalid(oprec)) {
++      return {};
++    }
++    if (*oprec != nullptr) {
++      auto* const hypre_prec =
++          dynamic_cast<mfem::HypreSolver* const>(oprec->get());
++      if (hypre_prec == nullptr) {
++        std::ignore = ctx.registerErrorMessage(
++            "the linear solver '" + std::string{n} +
++            "' only accepts the preconditioners of hypre");
++        return {};
++      }
++      s.SetPreconditioner(*hypre_prec);
++    }
++    return std::move(*oprec);
++  }  // end of setHypreKrylovSolverPreconditioner
++
++  /*!
++   * \return a generator of a linear solver applying cycles of BoomerAMG
++   * (one by default, see the option `NumberOfCycles`), an approximate
++   * solver used for instance by the fixed point iterations on the elastic
++   * operator (see `FixedPointSolver`). The options are the ones of the
++   * `HypreBoomerAMG` preconditioner.
++   */
++  [[nodiscard]] static LinearSolverFactory<true>::Generator
++  buildHypreBoomerAMGSolverGenerator() {
++    return [](Context& ctx, FiniteElementSpace<true>& fespace,
++              const Parameters& params) noexcept -> LinearSolverHandler {
++      auto amg = setHypreBoomerAMGPreconditioner(ctx, fespace, params);
++      if (amg == nullptr) {
++        return {};
++      }
++      return LinearSolverHandler{std::move(amg),
++                                 std::unique_ptr<LinearSolverPreconditioner>{}};
++    };
++  }  // end of buildHypreBoomerAMGSolverGenerator
++
++  [[nodiscard]] static std::function<LinearSolverHandler(
++      Context&, FiniteElementSpace<true>&, const Parameters&)>
++  buildHyprePCGSolverGenerator(const LinearSolverDescription d) {
++    return [d](Context& ctx, FiniteElementSpace<true>& fespace,
++               const Parameters& params) -> LinearSolverHandler {
++      using Problem = AbstractNonLinearEvolutionProblem;
++      const char* const SolverTolerance = "Tolerance";
++      const char* const Preconditioner = "Preconditioner";
++      const auto allowed_parameters = std::vector<std::string>{
++          Problem::SolverVerbosityLevel, SolverTolerance,
++          Problem::SolverAbsoluteTolerance,
++          Problem::SolverMaximumNumberOfIterations, Preconditioner};
++      auto s = std::make_unique<mfem::HyprePCG>(fespace.GetComm());
++      s->iterative_mode = false;
++      if (!checkParameters(ctx, params, allowed_parameters)) {
++        return {};
++      }
++      if (contains(params, Problem::SolverVerbosityLevel)) {
++        const auto olvl = get<int>(ctx, params, Problem::SolverVerbosityLevel);
++        if (isInvalid(olvl)) {
++          return {};
++        }
++        s->SetPrintLevel(*olvl);
++      }
++      if (contains(params, Problem::SolverAbsoluteTolerance)) {
++        const auto otol =
++            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
++        if (isInvalid(otol)) {
++          return {};
++        }
++        s->SetAbsTol(*otol);
++      }
++      if (contains(params, SolverTolerance)) {
++        const auto otol = get<double>(ctx, params, SolverTolerance);
++        if (isInvalid(otol)) {
++          return {};
++        }
++        s->SetTol(boundRelativeTolerance(*otol));
++      }
++      if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
++        const auto oiterMax =
++            get<int>(ctx, params, Problem::SolverMaximumNumberOfIterations);
++        if (isInvalid(oiterMax)) {
++          return {};
++        }
++        s->SetMaxIter(*oiterMax);
++      }
++      auto oprec = setHypreKrylovSolverPreconditioner(ctx, fespace, "HyprePCG",
++                                                      d, *s, params);
++      if (isInvalid(oprec)) {
++        return {};
++      }
++      return LinearSolverHandler{std::move(s), std::move(*oprec)};
++    };
++  }  // end of buildHyprePCGSolverGenerator
++
++  [[nodiscard]] static std::function<LinearSolverHandler(
++      Context&, FiniteElementSpace<true>&, const Parameters&)>
++  buildHypreGMRESSolverGenerator(const LinearSolverDescription d) {
++    return [d](Context& ctx, FiniteElementSpace<true>& fespace,
++               const Parameters& params) -> LinearSolverHandler {
++      using Problem = AbstractNonLinearEvolutionProblem;
++      const char* const SolverTolerance = "Tolerance";
++      const char* const Preconditioner = "Preconditioner";
++      const char* const Krylov_Dimension = "KDim";
++      const auto allowed_parameters =
++          std::vector<std::string>{Problem::SolverVerbosityLevel,
++                                   SolverTolerance,
++                                   Problem::SolverAbsoluteTolerance,
++                                   Problem::SolverMaximumNumberOfIterations,
++                                   Preconditioner,
++                                   Krylov_Dimension};
++      auto s = std::make_unique<mfem::HypreGMRES>(fespace.GetComm());
++      s->iterative_mode = false;
++      if (!checkParameters(ctx, params, allowed_parameters)) {
++        return {};
++      }
++      if (contains(params, Problem::SolverVerbosityLevel)) {
++        const auto olvl = get<int>(ctx, params, Problem::SolverVerbosityLevel);
++        if (isInvalid(olvl)) {
++          return {};
++        }
++        s->SetPrintLevel(*olvl);
++      }
++      if (contains(params, Problem::SolverAbsoluteTolerance)) {
++        const auto otol =
++            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
++        if (isInvalid(otol)) {
++          return {};
++        }
++        s->SetAbsTol(*otol);
++      }
++      if (contains(params, SolverTolerance)) {
++        const auto otol = get<double>(ctx, params, SolverTolerance);
++        if (isInvalid(otol)) {
++          return {};
++        }
++        s->SetTol(boundRelativeTolerance(*otol));
++      }
++      if (contains(params, Krylov_Dimension)) {
++        const auto odim = get<int>(ctx, params, Krylov_Dimension);
++        if (isInvalid(odim)) {
++          return {};
++        }
++        if (*odim < 1) {
++          return ctx.registerErrorMessage(
++              "invalid Krylov dimension (must be greater than one)");
++        }
++        s->SetKDim(*odim);
++      }
++      if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
++        const auto oiterMax =
++            get<int>(ctx, params, Problem::SolverMaximumNumberOfIterations);
++        if (isInvalid(oiterMax)) {
++          return {};
++        }
++        s->SetMaxIter(*oiterMax);
++      }
++      auto oprec = setHypreKrylovSolverPreconditioner(
++          ctx, fespace, "HypreGMRES", d, *s, params);
++      if (isInvalid(oprec)) {
++        return {};
++      }
++      return LinearSolverHandler{std::move(s), std::move(*oprec)};
++    };
++  }  // end of buildHypreGMRESSolverGenerator
++
++  [[nodiscard]] static std::function<LinearSolverHandler(
++      Context&, FiniteElementSpace<true>& p, const Parameters&)>
++  buildHypreFGMRESSolverGenerator(const LinearSolverDescription d) {
++    return [d](Context& ctx, FiniteElementSpace<true>& fespace,
++               const Parameters& params) -> LinearSolverHandler {
++      using Problem = AbstractNonLinearEvolutionProblem;
++      const char* const SolverTolerance = "Tolerance";
++      const char* const Preconditioner = "Preconditioner";
++      const char* const Krylov_Dimension = "KDim";
++      const auto allowed_parameters =
++          std::vector<std::string>{Problem::SolverVerbosityLevel,
++                                   SolverTolerance,
++                                   Problem::SolverAbsoluteTolerance,
++                                   Problem::SolverMaximumNumberOfIterations,
++                                   Preconditioner,
++                                   Krylov_Dimension};
++      auto s = std::make_unique<mfem::HypreFGMRES>(fespace.GetComm());
++      s->iterative_mode = false;
++      if (!checkParameters(ctx, params, allowed_parameters)) {
++        return {};
++      }
++      if (contains(params, Problem::SolverVerbosityLevel)) {
++        const auto olvl = get<int>(ctx, params, Problem::SolverVerbosityLevel);
++        if (isInvalid(olvl)) {
++          return {};
++        }
++        s->SetPrintLevel(*olvl);
++      }
++      if (contains(params, Problem::SolverAbsoluteTolerance)) {
++        const auto otol =
++            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
++        if (isInvalid(otol)) {
++          return {};
++        }
++        // mfem::HypreFGMRES has no `SetAbsTol` method
++        HYPRE_ParCSRFlexGMRESSetAbsoluteTol(*s, *otol);
++      }
++      if (contains(params, SolverTolerance)) {
++        const auto otol = get<double>(ctx, params, SolverTolerance);
++        if (isInvalid(otol)) {
++          return {};
++        }
++        s->SetTol(boundRelativeTolerance(*otol));
++      }
++      if (contains(params, Krylov_Dimension)) {
++        const auto odim = get<int>(ctx, params, Krylov_Dimension);
++        if (isInvalid(odim)) {
++          return {};
++        }
++        s->SetKDim(*odim);
++      }
++      if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
++        const auto oiterMax =
++            get<int>(ctx, params, Problem::SolverMaximumNumberOfIterations);
++        if (isInvalid(oiterMax)) {
++          return {};
++        }
++        s->SetMaxIter(*oiterMax);
++      }
++      auto oprec = setHypreKrylovSolverPreconditioner(
++          ctx, fespace, "HypreFGMRES", d, *s, params);
++      if (isInvalid(oprec)) {
++        return {};
++      }
++      return LinearSolverHandler{std::move(s), std::move(*oprec)};
++    };
++  }  // end of buildHypreFGMRESSolverGenerator
++}  // end of namespace mfem_mgis
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \return the options of a Krylov solver of hypre
++   * \param[in] gmres: if true, the solver is a GMRES solver, whose
++   * dimension of the Krylov space can be given
++   */
++  [[nodiscard]] static std::vector<std::string> getHypreKrylovSolverOptions(
++      const bool gmres) {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    auto options = std::vector<std::string>{
++        Problem::SolverVerbosityLevel, "Tolerance",
++        Problem::SolverAbsoluteTolerance,
++        Problem::SolverMaximumNumberOfIterations, "Preconditioner"};
++    if (gmres) {
++      options.push_back("KDim");
++    }
++    return options;
++  }  // end of getHypreKrylovSolverOptions
++
++  void declareHypreLinearSolvers(LinearSolverFactory<true>& f) {
++    const auto krylov = [](const bool gmres, std::string description) {
++      return LinearSolverDescription{
++          .library = "hypre",
++          .kind = LinearSolverKind::ITERATIVE,
++          .placement = LinearSolverPlacement::HYPRE,
++          .preconditioners = AcceptedPreconditioners::SAME_LIBRARY,
++          .options = getHypreKrylovSolverOptions(gmres),
++          .description = std::move(description)};
++    };
++    const auto pcg = krylov(false, "conjugate gradient of hypre");
++    declare(f, "HyprePCG", pcg, buildHyprePCGSolverGenerator(pcg));
++    const auto gmres = krylov(true, "GMRES of hypre");
++    declare(f, "HypreGMRES", gmres, buildHypreGMRESSolverGenerator(gmres));
++    const auto fgmres = krylov(true, "flexible GMRES of hypre");
++    declare(f, "HypreFGMRES", fgmres, buildHypreFGMRESSolverGenerator(fgmres));
++    declare(f, "HypreBoomerAMG",
++            LinearSolverDescription{
++                .library = "hypre",
++                .kind = LinearSolverKind::APPROXIMATE,
++                .placement = LinearSolverPlacement::HYPRE,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = getHypreBoomerAMGOptions(),
++                .description = "cycles of the BoomerAMG algebraic multigrid "
++                               "of hypre (one by default)"},
++            buildHypreBoomerAMGSolverGenerator());
++  }  // end of declareHypreLinearSolvers
++
++  void declareHyprePreconditioners(PreconditionerFactory<true>& f) {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    const auto preconditioner = [](const LinearSolverPlacement p,
++                                   std::vector<std::string> options,
++                                   std::string description) {
++      return LinearSolverDescription{
++          .library = "hypre",
++          .kind = LinearSolverKind::PRECONDITIONER,
++          .placement = p,
++          .preconditioners = AcceptedPreconditioners::NONE,
++          .options = std::move(options),
++          .description = std::move(description)};
++    };
++    declare(
++        f, "HypreBoomerAMG",
++        preconditioner(LinearSolverPlacement::HYPRE, getHypreBoomerAMGOptions(),
++                       "BoomerAMG algebraic multigrid of hypre"),
++        setHypreBoomerAMGPreconditioner);
++    // Euclid and ParaSails only compute on the host
++    declare(f, "HypreEuclid",
++            preconditioner(LinearSolverPlacement::HOST,
++                           {Problem::SolverVerbosityLevel},
++                           "Euclid incomplete factorization of hypre"),
++            setHypreEuclidPreconditioner);
++    declare(f, "HypreILU",
++            preconditioner(LinearSolverPlacement::HYPRE,
++                           {Problem::SolverVerbosityLevel, "HypreILUType",
++                            "HypreILULevelOfFill"},
++                           "incomplete factorizations of hypre"),
++            setHypreILUPreconditioner);
++    declare(f, "HypreParaSails",
++            preconditioner(LinearSolverPlacement::HOST,
++                           {Problem::SolverVerbosityLevel},
++                           "ParaSails sparse approximate inverse of hypre"),
++            setHypreParaSailsPreconditioner);
++    declare(f, "HypreDiagScale",
++            preconditioner(LinearSolverPlacement::HYPRE,
++                           {Problem::SolverVerbosityLevel},
++                           "diagonal scaling of hypre"),
++            setHypreDiagScalePreconditioner);
++  }  // end of declareHyprePreconditioners
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* MFEM_USE_MPI */
+diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
+index 6968a1840c..1dd669d672 100644
+--- a/src/LinearSolverFactory.cxx
++++ b/src/LinearSolverFactory.cxx
+@@ -1,1479 +1,158 @@
+ /*!
+  * \file   src/LinearSolverFactory.cxx
+- * \brief  This file implements the `LinearSolverFactory` class
++ * \brief  This file implements the `LinearSolverFactory` class. The linear
++ * solvers are registered by the modules of each library (see
++ * `LinearSolverModules.hxx`).
+  * \author Thomas Helfer
+  * \date   24/03/2021
+  */
+ 
+-#include <array>
+-#include <memory>
+ #include <string>
+-#include <vector>
+-#include <functional>
+-#include <optional>
+ #include <utility>
+-#include <algorithm>
+-#include "mfem/linalg/solvers.hpp"
+-#include "mfem/linalg/sparsemat.hpp"
+-#include "mfem/linalg/petsc.hpp"
++#include <exception>
+ #include "mfem/config/config.hpp"
++#include "mfem/linalg/solvers.hpp"
+ #include "mfem/fem/fespace.hpp"
+-#include "mfem/general/device.hpp"
+ #ifdef MFEM_USE_MPI
+ #include "mfem/fem/pfespace.hpp"
+ #endif /* MFEM_USE_MPI */
+-#ifdef MFEM_USE_MUMPS
+-#include "mfem/linalg/mumps.hpp"
+-#endif
+-#include "MGIS/Raise.hxx"
+-#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+-#include "MGIS/Contract.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+-#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+-#include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+-#include "AmgXSolvers.hxx"
+-#include "MUMPSSolvers.hxx"
+-#include "CuDSSSolvers.hxx"
+ #include "ExecutionSettings.hxx"
+-
+-#ifdef MFEM_USE_MPI
+-
+-namespace mfem_mgis::internals {
+-
+-  /*!
+-   * \brief BoomerAMG preconditioner whose settings are applied again for each
+-   * new operator.
+-   *
+-   * `HypreBoomerAMG::SetOperator` creates a new solver of hypre, which only
+-   * keeps some options (`HypreBoomerAMG::ResetAMGPrecond`): the description
+-   * of the systems (`SetSystemsOptions`, which depends on the size of the
+-   * operator for unknowns ordered by nodes), the number of cycles per
+-   * application, the type of cycle and the number of sweeps per cycle are
+-   * lost. The settings are applied after each `SetOperator`, before the
+-   * setup of hypre, made at the first application.
+-   */
+-  struct ConfiguredHypreBoomerAMG final : public mfem::HypreBoomerAMG {
+-    //! \brief a setting of the preconditioner
+-    using Setting = std::function<void(mfem::HypreBoomerAMG&)>;
+-    //! \param[in] s: settings
+-    explicit ConfiguredHypreBoomerAMG(std::vector<Setting> s)
+-        : settings(std::move(s)) {}
+-    //! \brief set the operator, then the settings
+-    void SetOperator(const mfem::Operator& op) override {
+-      mfem::HypreBoomerAMG::SetOperator(op);
+-      for (const auto& setting : this->settings) {
+-        setting(*this);
+-      }
+-    }
+-
+-   private:
+-    //! \brief settings
+-    const std::vector<Setting> settings;
+-  };  // end of struct ConfiguredHypreBoomerAMG
+-
+-#if MFEM_HYPRE_VERSION >= 21900
+-
+-  /*!
+-   * \brief incomplete factorisation of hypre whose settings are applied
+-   * again after each new operator: `mfem::HypreILU::SetOperator` creates a
+-   * new preconditioner of hypre with the default options of MFEM (a level
+-   * of fill of one), which lost the settings given by the user
+-   */
+-  struct ConfiguredHypreILU final : public mfem::HypreILU {
+-    //! \brief a setting of the preconditioner
+-    using Setting = std::function<void(mfem::HypreILU&)>;
+-    //! \param[in] s: settings
+-    explicit ConfiguredHypreILU(std::vector<Setting> s)
+-        : settings(std::move(s)) {
+-      this->applySettings();
+-    }
+-    //! \brief set the operator, then the settings
+-    void SetOperator(const mfem::Operator& op) override {
+-      mfem::HypreILU::SetOperator(op);
+-      this->applySettings();
+-    }
+-
+-   private:
+-    //! \brief apply the settings
+-    void applySettings() {
+-      for (const auto& setting : this->settings) {
+-        setting(*this);
+-      }
+-    }
+-    //! \brief settings
+-    const std::vector<Setting> settings;
+-  };  // end of struct ConfiguredHypreILU
+-
+-#endif /* MFEM_HYPRE_VERSION >= 21900 */
+-
+-  /*!
+-   * \brief ParaSails preconditioner of hypre which can be given a new
+-   * operator after the destruction of the previous one, as the non linear
+-   * solvers do: `mfem::HypreParaSails::SetOperator` (MFEM 4.10) creates the
+-   * new preconditioner of hypre with the communicator of the previous
+-   * operator, whose memory may then be freed (invalid communicator). The
+-   * operator is replaced by the new one before calling this method, which
+-   * reports an operator which is not a matrix of hypre as before.
+-   */
+-  struct ReusableHypreParaSails final : public mfem::HypreParaSails {
+-    using mfem::HypreParaSails::HypreParaSails;
+-    //! \brief set the operator
+-    void SetOperator(const mfem::Operator& op) override {
+-      const auto* const new_A = dynamic_cast<const mfem::HypreParMatrix*>(&op);
+-      if ((this->A != nullptr) && (new_A != nullptr)) {
+-        this->A = new_A;
+-      }
+-      mfem::HypreParaSails::SetOperator(op);
+-    }
+-  };  // end of struct ReusableHypreParaSails
+-
+-}  // end of namespace mfem_mgis::internals
+-
+-#endif /* MFEM_USE_MPI */
++#include "LinearSolverModules.hxx"
+ 
+ namespace mfem_mgis {
+ 
+-#ifdef MFEM_USE_MPI
+-
+-  /*!
+-   * \return the BoomerAMG preconditioner of hypre
+-   * \param[in, out] ctx: execution context
+-   * \param[in] fespace: finite element space
+-   * \param[in] opts: options:
+-   * - `Strategy`: `System` (systems options, by default for vector unknowns),
+-   *   `Elasticity` (elasticity options, requiring unknowns ordered by vector
+-   *   dimension and hypre computing on the host, `System` being used
+-   *   otherwise) or `None` (by default for scalar unknowns);
+-   * - `VerbosityLevel`: print level of hypre;
+-   * - options of hypre, whose values are the ones of hypre (see its
+-   *   documentation): `StrengthThreshold`, `CoarseningType`,
+-   *   `AggressiveCoarseningLevels`, `InterpolationType`, `RelaxationType`,
+-   *   `RelaxationSweeps` (sweeps before and after the coarse levels),
+-   *   `CycleType` (1: V-cycle, 2: W-cycle), `NumberOfCycles` (cycles per
+-   *   application, 1 by default) and `MaximumNumberOfLevels`.
+-   */
+-  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+-  setHypreBoomerAMGPreconditioner(Context& ctx,
+-                                  FiniteElementSpace<true>& fespace,
+-                                  const Parameters& opts) noexcept {
+-    using Problem = AbstractNonLinearEvolutionProblem;
+-    using Setting = internals::ConfiguredHypreBoomerAMG::Setting;
+-    const auto integer_options = std::vector<std::string>{
+-        "CoarseningType", "AggressiveCoarseningLevels", "InterpolationType",
+-        "RelaxationType", "RelaxationSweeps",           "CycleType",
+-        "NumberOfCycles", "MaximumNumberOfLevels"};
+-    auto allowed = integer_options;
+-    allowed.insert(allowed.end(), {"Strategy", "StrengthThreshold",
+-                                   Problem::SolverVerbosityLevel});
+-    if (!checkParameters(ctx, opts, allowed)) {
+-      return {};
+-    }
+-    auto settings = std::vector<Setting>{};
+-    // strategy
+-    const auto ostrategy = get_if<std::string>(
+-        ctx, opts, "Strategy",
+-        std::string{fespace.GetVDim() > 1 ? "System" : "None"});
+-    if (isInvalid(ostrategy)) {
+-      return {};
+-    }
+-    auto elasticity = false;
+-    if (*ostrategy == "Elasticity") {
+-      // the elasticity version of BoomerAMG requires Ordering::byVDIM, and
+-      // is not supported by hypre when it computes on a GPU
+-      const auto by_vdim = fespace.GetOrdering() == mfem::Ordering::byVDIM;
+-      elasticity = by_vdim && (!isHypreUsingGPU());
+-      if ((!elasticity) && (fespace.GetMyRank() == 0)) {
+-        warning(ctx.log(),
+-                by_vdim ? "setLinearSolverParameters: strategy 'Elasticity' "
+-                          "of preconditioner HypreBoomerAMG is not supported "
+-                          "by hypre on a GPU, using strategy 'System' instead"
+-                        : "setLinearSolverParameters: strategy 'Elasticity' "
+-                          "of preconditioner HypreBoomerAMG requires unknowns "
+-                          "ordered by vector dimension (i.e. the parameter "
+-                          "'FiniteElementSpaceOrdering' must be set to "
+-                          "'byVDIM'), using strategy 'System' instead");
+-      }
+-    } else if ((*ostrategy != "System") && (*ostrategy != "None")) {
+-      return ctx.registerErrorMessage(
+-          "setLinearSolverParameters: "
+-          "invalid strategy '" +
+-          *ostrategy + "' for preconditioner HypreBoomerAMG");
+-    }
+-    if ((!elasticity) && (*ostrategy != "None")) {
+-      const auto n = fespace.GetVDim();
+-      const auto by_nodes = fespace.GetOrdering() == mfem::Ordering::byNODES;
+-      settings.push_back([n, by_nodes](mfem::HypreBoomerAMG& amg) {
+-        amg.SetSystemsOptions(n, by_nodes);
+-      });
+-    }
+-    // options of hypre
+-    if (contains(opts, "StrengthThreshold")) {
+-      const auto ov = get<double>(ctx, opts, "StrengthThreshold");
+-      if (isInvalid(ov)) {
+-        return {};
+-      }
+-      settings.push_back(
+-          [v = *ov](mfem::HypreBoomerAMG& amg) { amg.SetStrengthThresh(v); });
+-    }
+-    for (const auto& o : integer_options) {
+-      if (!contains(opts, o)) {
+-        continue;
+-      }
+-      const auto ov = get<int>(ctx, opts, o);
+-      if (isInvalid(ov)) {
+-        return {};
+-      }
+-      const auto v = *ov;
+-      if ((v < 0) || ((v == 0) && (o != "CoarseningType") &&
+-                      (o != "AggressiveCoarseningLevels") &&
+-                      (o != "InterpolationType") && (o != "RelaxationType"))) {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverParameters: invalid "
+-            "value for option '" +
+-            o + "' of HypreBoomerAMG");
+-      }
+-      if (o == "CoarseningType") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetCoarsening(v); });
+-      } else if (o == "AggressiveCoarseningLevels") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetAggressiveCoarsening(v); });
+-      } else if (o == "InterpolationType") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetInterpolation(v); });
+-      } else if (o == "RelaxationType") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetRelaxType(v); });
+-      } else if (o == "RelaxationSweeps") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetCycleNumSweeps(v, v); });
+-      } else if (o == "CycleType") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetCycleType(v); });
+-      } else if (o == "NumberOfCycles") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetMaxIter(v); });
+-      } else {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetMaxLevels(v); });
+-      }
+-    }
+-    auto amg = std::make_unique<internals::ConfiguredHypreBoomerAMG>(settings);
+-    if (elasticity) {
+-      amg->SetElasticityOptions(&fespace);
+-    }
+-    if (contains(opts, Problem::SolverVerbosityLevel)) {
+-      const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
+-      if (isInvalid(olvl)) {
+-        return {};
+-      }
+-      amg->SetPrintLevel(*olvl);
+-    }
+-    return amg;
+-  }  // end of setHypreBoomerAMGPreconditioner
+-
+-  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+-  setHypreEuclidPreconditioner(Context& ctx,
+-                               FiniteElementSpace<true>& p,
+-                               const Parameters& opts) {
+-    using Problem = AbstractNonLinearEvolutionProblem;
+-    if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
+-      return {};
+-    }
+-    auto euclid = std::make_unique<mfem::HypreEuclid>(p.GetComm());
+-    return euclid;
+-  }  // end of setHypreEuclidPreconditioner
+-
+-  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+-  setHypreILUPreconditioner(Context& ctx,
+-                            FiniteElementSpace<true>&,
+-                            const Parameters& opts) {
+-#if MFEM_HYPRE_VERSION >= 21900
+-    using Problem = AbstractNonLinearEvolutionProblem;
+-    if (!checkParameters(
+-            ctx, opts,
+-            std::vector<std::string>{Problem::SolverVerbosityLevel,
+-                                     "HypreILUType", "HypreILULevelOfFill"})) {
+-      return {};
+-    }
+-    using Setting = internals::ConfiguredHypreILU::Setting;
+-    auto settings = std::vector<Setting>{};
+-    if (contains(opts, Problem::SolverVerbosityLevel)) {
+-      const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
+-      if (isInvalid(olvl)) {
+-        return {};
+-      }
+-      settings.push_back(
+-          [v = *olvl](mfem::HypreILU& ilu) { ilu.SetPrintLevel(v); });
+-    }
+-    // type of the factorisation of hypre (`HYPRE_ILUSetType`): ILU(k)
+-    // (0, the default, 10, 20, 30, 40), ILUT (1, 11, 21, 31, 41), modified
+-    // ILU(0) (50), with a block Jacobi (0, 1), GMRES on the Schur complement
+-    // (10, 11, 40, 41), Newton-Schulz-Hotelling (20, 21), restricted additive
+-    // Schwarz (30, 31) or RAP (50) global method
+-    const auto otype = get_if<int>(ctx, opts, "HypreILUType", 0);
+-    if (isInvalid(otype)) {
+-      return {};
+-    }
+-    const auto types = std::array{0, 1, 10, 11, 20, 21, 30, 31, 40, 41, 50};
+-    if (std::find(types.begin(), types.end(), *otype) == types.end()) {
+-      return ctx.registerErrorMessage(
+-          "setHypreILUPreconditioner: invalid type of factorisation " +
+-          std::to_string(*otype));
+-    }
+-    const auto ilut = (*otype % 10) == 1;
+-    if (contains(opts, "HypreILUType")) {
+-      settings.push_back([v = *otype](mfem::HypreILU& ilu) { ilu.SetType(v); });
+-    }
+-    // the ILU(k) factorisations with a level of fill greater than zero make
+-    // the triangular solves of hypre fail when hypre computes on a GPU
+-    // (segmentation fault in hypre_ILUSolveLUDevice, reproduced with hypre
+-    // 3.2.0 and CUDA 13), the ILUT factorisations do not: the level of fill
+-    // is then zero by default, one being the default of MFEM
+-    auto level_of_fill = std::optional<int>{};
+-    if (contains(opts, "HypreILULevelOfFill")) {
+-      const auto olvl = get<int>(ctx, opts, "HypreILULevelOfFill");
+-      if (isInvalid(olvl)) {
+-        return {};
+-      }
+-      if (ilut) {
+-        return ctx.registerErrorMessage(
+-            "setHypreILUPreconditioner: no level of fill for an ILUT "
+-            "factorisation");
+-      }
+-      if ((*olvl > 0) && (isHypreUsingGPU())) {
+-        return ctx.registerErrorMessage(
+-            "setHypreILUPreconditioner: a level of fill greater than zero "
+-            "is not supported when hypre computes on a GPU (the ILUT "
+-            "factorisation, HypreILUType 1, is)");
+-      }
+-      level_of_fill = *olvl;
+-    } else if ((!ilut) && (isHypreUsingGPU())) {
+-      level_of_fill = 0;
+-    }
+-    if (level_of_fill.has_value()) {
+-      settings.push_back(
+-          [v = *level_of_fill](mfem::HypreILU& ilu) { ilu.SetLevelOfFill(v); });
+-    }
+-    auto ilu = std::make_unique<internals::ConfiguredHypreILU>(settings);
+-    return ilu;
+-#else  /*  HYPRE_OLD_VERSION */
+-    return ctx.registerErrorMessage(
+-        "Support for HypreILU is not available with this version of MFEM");
+-#endif /* HYPRE_OLD_VERSION */
+-  }    // end of setHypreILUPreconditioner
+-
+-  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+-  setHypreParaSailsPreconditioner(Context& ctx,
+-                                  FiniteElementSpace<true>& p,
+-                                  const Parameters& opts) {
+-    using Problem = AbstractNonLinearEvolutionProblem;
+-    if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
+-      return {};
+-    }
+-    // ParaSails only computes on the host: its setup reads the matrix stored
+-    // on the device when hypre computes on a GPU (segmentation fault in
+-    // MatrixSetRow with hypre 3.2.0 and CUDA 13)
+-    if (isHypreUsingGPU()) {
+-      return ctx.registerErrorMessage(
+-          "setHypreParaSailsPreconditioner: the ParaSails preconditioner is "
+-          "not supported when hypre computes on a GPU");
+-    }
+-    auto parasails =
+-        std::make_unique<internals::ReusableHypreParaSails>(p.GetComm());
+-    // statistics of the setups printed by hypre (printed by default by
+-    // MFEM), kept for the new operators
+-    if (contains(opts, Problem::SolverVerbosityLevel)) {
+-      const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
+-      if (isInvalid(olvl)) {
+-        return {};
+-      }
+-      parasails->SetLogging(*olvl);
+-    }
+-    return parasails;
+-  }  // end of setHypreParaSailsPreconditioner
+-
+-  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+-  setHypreDiagScalePreconditioner(Context& ctx,
+-                                  FiniteElementSpace<true>&,
+-                                  const Parameters& opts) {
+-    using Problem = AbstractNonLinearEvolutionProblem;
+-    if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
+-      return {};
+-    }
+-    return std::make_unique<mfem::HypreDiagScale>();
+-  }   // end of setHypreDiagScalePreconditioner
+-#else /* MFEM_USE_MPI */
+-
+-  [[noreturn]] std::unique_ptr<LinearSolverPreconditioner>
+-  setHypreBoomerAMGPreconditioner(Context&,
+-                                  FiniteElementSpace<true>&,
+-                                  const Parameters&) {
+-    reportUnsupportedParallelComputations();
+-  }  // end of setHypreBoomerAMGPreconditioner
+-
+-  [[noreturn]] std::unique_ptr<LinearSolverPreconditioner>
+-  setHypreEuclidPreconditioner(Context&,
+-                               FiniteElementSpace<true>&,
+-                               const Parameters&) {
+-    reportUnsupportedParallelComputations();
+-  }  // end of setHypreEuclidPreconditioner
+-
+-  [[noreturn]] std::unique_ptr<LinearSolverPreconditioner>
+-  setHypreILUPreconditioner(Context&,
+-                            FiniteElementSpace<true>&,
+-                            const Parameters&) {
+-    reportUnsupportedParallelComputations();
+-  }  // end of setHypreILUPreconditioner
+-
+-  [[noreturn]] std::unique_ptr<LinearSolverPreconditioner>
+-  setHypreParaSailsPreconditioner(Context&,
+-                                  FiniteElementSpace<true>&,
+-                                  const Parameters&) {
+-    reportUnsupportedParallelComputations();
+-  }  // end of setHypreParaSailsPreconditioner
+-
+-#endif /* MFEM_USE_MPI */
+-
+   namespace {
+ 
+     /*!
+-     * \brief Jacobi smoother of MFEM (`mfem::OperatorJacobiSmoother`), whose
+-     * diagonal is computed by the operator (`AssembleDiagonal`), or by
+-     * `GetDiag` for a sparse matrix of MFEM, which does not implement
+-     * `AssembleDiagonal`. The diagonal entries of the essential degrees of
+-     * freedom are the ones of the operator. The smoother of MFEM is kept
+-     * from an operator to the next one of the same size: only its inverse
+-     * diagonal is computed again.
++     * \brief implementation of `LinearSolverFactory<parallel>::add`
++     * \param[in, out] ctx: execution context
++     * \param[in, out] entries: registered linear solvers
++     * \param[in] n: name of the linear solver
++     * \param[in] e: description and generator of the linear solver
+      */
+-    struct JacobiSmoother final : mfem::Solver {
+-      //! \param[in] d: damping factor
+-      explicit JacobiSmoother(const real d) : damping(d) {}
+-      void SetOperator(const mfem::Operator& op) override {
+-        this->height = op.Height();
+-        this->width = op.Width();
+-        this->diagonal.UseDevice(true);
+-        if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
+-            m != nullptr) {
+-          m->GetDiag(this->diagonal);
+-        } else {
+-          this->diagonal.SetSize(op.Height());
+-          op.AssembleDiagonal(this->diagonal);
+-        }
+-        if ((this->smoother == nullptr) ||
+-            (this->smoother->Height() != op.Height())) {
+-          this->smoother = std::make_unique<mfem::OperatorJacobiSmoother>(
+-              this->diagonal, this->essential_dofs, this->damping);
+-        } else {
+-          this->smoother->Setup(this->diagonal);
+-        }
+-      }
+-      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+-        if (this->smoother == nullptr) {
+-          raise("JacobiSmoother::Mult: the operator is not set");
+-        }
+-        this->smoother->Mult(x, y);
++    template <typename Entries, typename Entry>
++    [[nodiscard]] bool addLinearSolver(Context& ctx,
++                                       Entries& entries,
++                                       const std::string_view n,
++                                       Entry e) noexcept {
++      if (entries.find(n) != entries.end()) {
++        return ctx.registerErrorMessage(
++            "LinearSolverFactory::add: a linear solver called '" +
++            std::string{n} + "' has already been declared");
+       }
+-
+-     private:
+-      //! \brief damping factor
+-      const real damping;
+-      //! \brief diagonal of the operator
+-      mfem::Vector diagonal;
+-      /*!
+-       * \brief essential degrees of freedom, empty (the operator is
+-       * constrained), referenced by the smoother of MFEM
+-       */
+-      const mfem::Array<int> essential_dofs;
+-      //! \brief smoother of MFEM
+-      std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
+-    };
++      entries.insert({std::string{n}, std::move(e)});
++      return true;
++    }  // end of addLinearSolver
+ 
+     /*!
+-     * \brief Chebyshev smoother of MFEM (`mfem::OperatorChebyshevSmoother`):
+-     * polynomial of the given order in the operator scaled by the inverse of
+-     * its diagonal, computed as for the Jacobi smoother (`JacobiSmoother`).
+-     * The largest eigenvalue of the scaled operator is estimated by the power
+-     * method at each call to `SetOperator`. Only products by the operator
+-     * are used: usable with an operator applied without assembly (see
+-     * `MatrixFreeTangentOperator`), whose essential degrees of freedom are
+-     * eliminated with a diagonal set to one.
++     * \brief implementation of `LinearSolverFactory<parallel>::generate`
++     * \param[in, out] ctx: execution context
++     * \param[in] entries: registered linear solvers
++     * \param[in] n: name of the linear solver
++     * \param[in] fespace: finite element space
++     * \param[in] params: parameters of the linear solver
+      */
+-    struct ChebyshevSmoother final : mfem::Solver {
+-#ifdef MFEM_USE_MPI
+-      /*!
+-       * \param[in] o: order of the polynomial
+-       * \param[in] n: number of iterations of the power method
+-       * \param[in] c: communicator (`MPI_COMM_NULL` in sequential)
+-       */
+-      ChebyshevSmoother(const int o, const int n, MPI_Comm c)
+-          : order(o), power_iterations(n), comm(c) {}
+-#else  /* MFEM_USE_MPI */
+-      /*!
+-       * \param[in] o: order of the polynomial
+-       * \param[in] n: number of iterations of the power method
+-       */
+-      ChebyshevSmoother(const int o, const int n)
+-          : order(o), power_iterations(n) {}
+-#endif /* MFEM_USE_MPI */
+-      void SetOperator(const mfem::Operator& op) override {
+-        this->height = op.Height();
+-        this->width = op.Width();
+-        this->diagonal.UseDevice(true);
+-        if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
+-            m != nullptr) {
+-          m->GetDiag(this->diagonal);
+-        } else {
+-          this->diagonal.SetSize(op.Height());
+-          op.AssembleDiagonal(this->diagonal);
+-        }
+-        // the smoother of MFEM estimates the largest eigenvalue at its
+-        // construction and references the diagonal
+-        this->smoother.reset();
+-#ifdef MFEM_USE_MPI
+-        this->smoother = std::make_unique<mfem::OperatorChebyshevSmoother>(
+-            op, this->diagonal, this->essential_dofs, this->order, this->comm,
+-            this->power_iterations);
+-#else  /* MFEM_USE_MPI */
+-        this->smoother = std::make_unique<mfem::OperatorChebyshevSmoother>(
+-            op, this->diagonal, this->essential_dofs, this->order,
+-            this->power_iterations);
+-#endif /* MFEM_USE_MPI */
+-      }
+-      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+-        if (this->smoother == nullptr) {
+-          raise("ChebyshevSmoother::Mult: the operator is not set");
+-        }
+-        this->smoother->Mult(x, y);
+-      }
+-
+-     private:
+-      //! \brief order of the polynomial
+-      const int order;
+-      //! \brief number of iterations of the power method
+-      const int power_iterations;
++    template <bool parallel, typename Entries>
++    LinearSolverHandler generateLinearSolver(
++        Context& ctx,
++        const Entries& entries,
++        const std::string_view n,
++        FiniteElementSpace<parallel>& fespace,
++        const Parameters& params) {
++      const auto pe = entries.find(n);
++      if (pe == entries.end()) {
+ #ifdef MFEM_USE_MPI
+-      //! \brief communicator of the power method
+-      MPI_Comm comm;
+-#endif /* MFEM_USE_MPI */
+-      //! \brief diagonal of the operator
+-      mfem::Vector diagonal;
+-      /*!
+-       * \brief essential degrees of freedom, empty (the operator is
+-       * constrained), referenced by the smoother of MFEM
+-       */
+-      const mfem::Array<int> essential_dofs;
+-      //! \brief smoother of MFEM
+-      std::unique_ptr<mfem::OperatorChebyshevSmoother> smoother;
+-    };
+-
+-    /*!
+-     * \brief preconditioner built on the assembled version of an operator
+-     * applied without assembly (see `AssembledOperatorProvider`), set up
+-     * every `period` calls to `SetOperator`, and kept between them.
+-     *
+-     * The preconditioner is also set up again when the assembled operator
+-     * on which it was set up is no longer valid, i.e. when the operator has
+-     * been assembled again in between (see
+-     * `AssembledOperatorProvider::getAssembledOperatorRevision`).
+-     *
+-     * An operator which can't give an assembled version (for instance the
+-     * matrix of the prediction) keeps the preconditioner set up on a valid
+-     * assembled operator, if any: it is still a preconditioner of a close
+-     * operator. Otherwise, the preconditioner is set up on this operator,
+-     * and set up again at the next call (this operator may be destroyed
+-     * after its resolution).
+-     */
+-    struct AssembledOperatorPreconditioner final : mfem::Solver {
+-      /*!
+-       * \param[in] p: preconditioner
+-       * \param[in] n: period of the updates
+-       */
+-      AssembledOperatorPreconditioner(std::unique_ptr<mfem::Solver> p,
+-                                      const int n)
+-          : preconditioner(std::move(p)), period(n) {}
+-      void SetOperator(const mfem::Operator& op) override {
+-        this->height = op.Height();
+-        this->width = op.Width();
+-        const auto* const provider =
+-            dynamic_cast<const AssembledOperatorProvider*>(&op);
+-        if (provider == nullptr) {
+-          if (this->isSetUpOnAValidAssembledOperator()) {
+-            return;
++        if constexpr (!parallel) {
++          if (LinearSolverFactory<true>::getFactory().getDescription(n) !=
++              nullptr) {
++            return ctx.registerErrorMessage(
++                "LinearSolverFactory<false>::generate: the linear solver '" +
++                std::string{n} + "' is only available in parallel");
+           }
+-          this->preconditioner->SetOperator(op);
+-          this->revision.reset();
+-          this->setup_revision.reset();
+-          return;
+         }
+-        const auto r = provider->getAssembledOperatorRevision();
+-        const auto valid =
+-            (r == this->revision) && this->isSetUpOnAValidAssembledOperator();
+-        if ((!valid) || (this->count % this->period == 0)) {
+-          this->preconditioner->SetOperator(provider->getAssembledOperator());
+-          this->revision = r;
+-          this->setup_revision = *r;
+-          this->count = 0;
+-        }
+-        ++(this->count);
+-      }
+-      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
+-        this->preconditioner->Mult(x, y);
+-      }
+-
+-     private:
+-      /*!
+-       * \return if the preconditioner is set up on an assembled operator which
+-       * has not been assembled again since
+-       */
+-      [[nodiscard]] bool isSetUpOnAValidAssembledOperator() const noexcept {
+-        return (this->revision != nullptr) &&
+-               (this->setup_revision.has_value()) &&
+-               (*(this->revision) == *(this->setup_revision));
+-      }
+-      //! \brief preconditioner
+-      std::unique_ptr<mfem::Solver> preconditioner;
+-      //! \brief period of the updates
+-      const int period;
+-      //! \brief number of calls to `SetOperator` since the last setup
+-      int count = 0;
+-      //! \brief number of assemblies of the assembled operator
+-      std::shared_ptr<const size_type> revision;
+-      /*!
+-       * \brief number of assemblies of the assembled operator when the
+-       * preconditioner was set up on it, if it was
+-       */
+-      std::optional<size_type> setup_revision;
+-    };
+-
+-  }  // end of namespace
+-
+-  /*!
+-   * \return true if the parameters of a preconditioner select no
+-   * preconditioner (name `None`, without options), false otherwise, or an
+-   * empty value on error. `getLinearSolverPreconditioner` returns a null
+-   * preconditioner both in this case and on error: its callers must test
+-   * this case before.
+-   * \param[in, out] ctx: execution context
+-   * \param[in] p: parameters of the preconditioner
+-   */
+-  [[nodiscard]] static std::optional<bool> isNoPreconditioner(
+-      Context& ctx, const Parameters& p) {
+-    const auto oname = get<std::string>(ctx, p, "Name");
+-    if (isInvalid(oname)) {
+-      return {};
+-    }
+-    if (*oname != "None") {
+-      return false;
+-    }
+-    if (contains(p, "Options")) {
+-      return ctx.registerErrorMessage(
+-          "setLinearSolverPreconditioner: no options expected for "
+-          "preconditioner 'None'");
+-    }
+-    if (!checkParameters(ctx, p, std::vector<std::string>{"Name"})) {
+-      return {};
+-    }
+-    return true;
+-  }  // end of isNoPreconditioner
+-
+-  /*!
+-   * \return true if a preconditioner is computed by a solver whose location
+-   * is checked against the execution settings: the preconditioners of
+-   * hypre, of AmgX (if available) and the smoothers of MFEM. The other
+-   * names are not preconditioners (reported by
+-   * `getLinearSolverPreconditioner`) or wrap another preconditioner
+-   * (`AssembledOperator`, whose preconditioner is checked)
+-   * \param[in] n: name of the preconditioner
+-   */
+-  [[nodiscard]] static bool isLocatedPreconditioner(const std::string& n) {
+-#ifdef MFEM_MGIS_HAVE_AMGX
+-    if (n == "AmgX") {
+-      return true;
+-    }
+-#endif /* MFEM_MGIS_HAVE_AMGX */
+-    return (n == "OperatorJacobiSmoother") ||
+-           (n == "OperatorChebyshevSmoother") || (n == "HypreBoomerAMG") ||
+-           (n == "HypreEuclid") || (n == "HypreILU") ||
+-           (n == "HypreParaSails") || (n == "HypreDiagScale");
+-  }  // end of isLocatedPreconditioner
+-
+-  template <bool parallel>
+-  std::unique_ptr<LinearSolverPreconditioner> getLinearSolverPreconditioner(
+-      Context& ctx,
+-      FiniteElementSpace<parallel>& fespace,
+-      const Parameters& pr) {
+-    if (!checkParameters(ctx, pr,
+-                         std::vector<std::string>{"Name", "Options"})) {
+-      return {};
+-    }
+-    const auto oname = get<std::string>(ctx, pr, "Name");
+-    if (isInvalid(oname)) {
+-      return {};
+-    }
+-    if ((isLocatedPreconditioner(*oname)) &&
+-        (!internals::checkLinearSolverExecutionLocation(ctx, *oname))) {
+-      return {};
+-    }
+-    if (*oname == "None") {
+-      if (contains(pr, "Options")) {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: "
+-            "no options expected for preconditioner '" +
+-            *oname + "'");
+-      }
+-      return {};
+-    } else if (*oname == "AssembledOperator") {
+-      // preconditioner built on the assembled version of an operator applied
+-      // without assembly (see `MatrixFreeTangentOperator`)
+-      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
+-      if (isInvalid(oparams)) {
+-        return {};
+-      }
+-      if (!checkParameters(ctx, *oparams,
+-                           std::vector<std::string>{"Preconditioner",
+-                                                    "UpdatePeriod"})) {
+-        return {};
+-      }
+-      const auto oprec = get<Parameters>(ctx, *oparams, "Preconditioner");
+-      const auto operiod = get_if<int>(ctx, *oparams, "UpdatePeriod", 1);
+-      if ((isInvalid(oprec)) || (isInvalid(operiod))) {
+-        return {};
+-      }
+-      if (*operiod < 1) {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: invalid update period of the "
+-            "'AssembledOperator' preconditioner");
+-      }
+-      auto p = getLinearSolverPreconditioner<parallel>(ctx, fespace, *oprec);
+-      if (p == nullptr) {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: no preconditioner given to the "
+-            "'AssembledOperator' preconditioner");
+-      }
+-      return std::make_unique<AssembledOperatorPreconditioner>(std::move(p),
+-                                                               *operiod);
+-    } else if (*oname == "OperatorJacobiSmoother") {
+-      // Jacobi smoother of MFEM, whose diagonal is computed by the operator
+-      // (`AssembleDiagonal`): usable with an operator applied without
+-      // assembly (see `MatrixFreeTangentOperator`)
+-      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
+-      if (isInvalid(oparams)) {
+-        return {};
+-      }
+-      if (!checkParameters(ctx, *oparams, {"Damping"})) {
+-        return {};
+-      }
+-      const auto odamping = get_if<double>(ctx, *oparams, "Damping", 1.);
+-      if (isInvalid(odamping)) {
+-        return {};
+-      }
+-      return std::make_unique<JacobiSmoother>(*odamping);
+-    } else if (*oname == "OperatorChebyshevSmoother") {
+-      // Chebyshev smoother of MFEM: usable with an operator applied without
+-      // assembly
+-      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
+-      if (isInvalid(oparams)) {
+-        return {};
+-      }
+-      if (!checkParameters(
+-              ctx, *oparams,
+-              std::vector<std::string>{"Order", "NumberOfPowerIterations"})) {
+-        return {};
+-      }
+-      const auto oorder = get_if<int>(ctx, *oparams, "Order", 2);
+-      const auto oiterations =
+-          get_if<int>(ctx, *oparams, "NumberOfPowerIterations", 10);
+-      if (isInvalid(oorder) || isInvalid(oiterations)) {
+-        return {};
+-      }
+-      // orders implemented by MFEM
+-      if ((*oorder < 1) || (*oorder > 5)) {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: the order of the Chebyshev "
+-            "smoother must be between 1 and 5");
+-      }
+-      if (*oiterations < 1) {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: the number of iterations of the "
+-            "power method of the Chebyshev smoother must be strictly "
+-            "positive");
+-      }
+-#ifdef MFEM_USE_MPI
+-      auto comm = MPI_Comm{MPI_COMM_NULL};
+-      if constexpr (parallel) {
+-        comm = fespace.GetComm();
+-      }
+-      return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations, comm);
+-#else  /* MFEM_USE_MPI */
+-      return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations);
+ #endif /* MFEM_USE_MPI */
+-    } else if (*oname == "AmgX") {
+-#ifdef MFEM_MGIS_HAVE_AMGX
+-      const auto oparams = get_if<Parameters>(ctx, pr, "Options", Parameters{});
+-      if (isInvalid(oparams)) {
+-        return {};
+-      }
+-      return internals::makeAmgXPreconditioner<parallel>(ctx, fespace,
+-                                                         *oparams);
+-#else  /* MFEM_MGIS_HAVE_AMGX */
+-      return ctx.registerErrorMessage(
+-          "setLinearSolverPreconditioner: mfem-mgis is not compiled with "
+-          "AmgX (option enable-amgx)");
+-#endif /* MFEM_MGIS_HAVE_AMGX */
+-    } else if (*oname == "HypreBoomerAMG") {
+-      if constexpr (parallel) {
+-        const auto oparams =
+-            get_if<Parameters>(ctx, pr, "Options", Parameters{});
+-        if (isInvalid(oparams)) {
+-          return {};
+-        }
+-        return setHypreBoomerAMGPreconditioner(ctx, fespace, *oparams);
+-      } else {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: "
+-            "the 'HypreBoomerAMG' is only available in parallel");
+-      }
+-    } else if (*oname == "HypreEuclid") {
+-      if constexpr (parallel) {
+-        const auto oparams =
+-            get_if<Parameters>(ctx, pr, "Options", Parameters{});
+-        if (isInvalid(oparams)) {
+-          return {};
+-        }
+-        return setHypreEuclidPreconditioner(ctx, fespace, *oparams);
+-      } else {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: "
+-            "the 'HypreEuclid' is only available in parallel");
+-      }
+-    } else if (*oname == "HypreILU") {
+-      if constexpr (parallel) {
+-        const auto oparams =
+-            get_if<Parameters>(ctx, pr, "Options", Parameters{});
+-        if (isInvalid(oparams)) {
+-          return {};
+-        }
+-        return setHypreILUPreconditioner(ctx, fespace, *oparams);
+-      } else {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: "
+-            "the 'HypreILU' is only available in parallel");
+-      }
+-    } else if (*oname == "HypreParaSails") {
+-      if constexpr (parallel) {
+-        const auto oparams =
+-            get_if<Parameters>(ctx, pr, "Options", Parameters{});
+-        if (isInvalid(oparams)) {
+-          return {};
+-        }
+-        return setHypreParaSailsPreconditioner(ctx, fespace, *oparams);
+-      } else {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: "
+-            "the 'HypreParaSails' is only available in parallel");
+-      }
+-    } else if (*oname == "HypreDiagScale") {
+-      if constexpr (parallel) {
+-        const auto oparams =
+-            get_if<Parameters>(ctx, pr, "Options", Parameters{});
+-        if (isInvalid(oparams)) {
+-          return {};
+-        }
+-        return setHypreDiagScalePreconditioner(ctx, fespace, *oparams);
+-      } else {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverPreconditioner: "
+-            "the 'HypreDiagScale' is only available in parallel");
+-      }
+-    } else {
+-      return ctx.registerErrorMessage(
+-          "setLinearSolverPreconditioner: "
+-          "unsupported preconditioner '" +
+-          *oname + "'");
+-    }
+-    return {};
+-  }  // end of getLinearSolverPreconditioner
+-
+-  template <bool parallel>
+-  static std::optional<std::unique_ptr<LinearSolverPreconditioner>>
+-  setLinearSolverParameters(Context& ctx,
+-                            mfem::IterativeSolver& s,
+-                            FiniteElementSpace<parallel>& fespace,
+-                            const Parameters& params) {
+-    const char* const Preconditioner = "Preconditioner";
+-    const char* const Krylov_Dimension = "KDim";
+-    const auto is_gmres_solver =
+-        (dynamic_cast<mfem::GMRESSolver*>(&s) != nullptr) ||
+-        (dynamic_cast<mfem::FGMRESSolver*>(&s) != nullptr);
+-    s.iterative_mode = false;
+-    auto allowed_parameters = getIterativeSolverParametersList();
+-    allowed_parameters.push_back(Preconditioner);
+-    if (is_gmres_solver) {
+-      allowed_parameters.push_back(Krylov_Dimension);
+-    }
+-    if (!checkParameters(ctx, params, allowed_parameters)) {
+-      return {};
+-    }
+-    const auto oparams =
+-        extract(ctx, params, getIterativeSolverParametersList());
+-    if (isInvalid(oparams)) {
+-      return {};
+-    }
+-    if (!setSolverParameters(ctx, s, *oparams)) {
+-      return {};
+-    }
+-    if ((is_gmres_solver) && (contains(params, Krylov_Dimension))) {
+-      const auto odim = get<int>(ctx, params, Krylov_Dimension);
+-      if (isInvalid(odim)) {
+-        return {};
+-      }
+-      if (*odim < 1) {
+-        std::ignore = ctx.registerErrorMessage(
+-            "invalid Krylov dimension (must be greater than one)");
+-        return {};
+-      }
+-      if (auto* const ptr = dynamic_cast<mfem::GMRESSolver*>(&s);
+-          ptr != nullptr) {
+-        ptr->SetKDim(*odim);
+-      }
+-      if (auto* const ptr = dynamic_cast<mfem::FGMRESSolver*>(&s);
+-          ptr != nullptr) {
+-        ptr->SetKDim(*odim);
+-      }
+-    }
+-    if (contains(params, Preconditioner)) {
+-      const auto opr = get<Parameters>(ctx, params, Preconditioner);
+-      if (isInvalid(opr)) {
+-        return {};
+-      }
+-      const auto onone = isNoPreconditioner(ctx, *opr);
+-      if (isInvalid(onone)) {
+-        return {};
+-      }
+-      if (*onone) {
+-        return std::unique_ptr<LinearSolverPreconditioner>{};
+-      }
+-      auto prec = getLinearSolverPreconditioner<parallel>(ctx, fespace, *opr);
+-      if (isInvalid(prec)) {
+-        return {};
+-      }
+-      s.SetPreconditioner(*prec);
+-      return prec;
+-    }
+-    return std::unique_ptr<LinearSolverPreconditioner>{};
+-  }  // end of setLinearSolverParameters
+-
+-#ifdef MFEM_USE_MPI
+-
+-  /*!
+-   * \return a generator of a linear solver applying cycles of BoomerAMG
+-   * (one by default, see the option `NumberOfCycles`), an approximate
+-   * solver used for instance by the fixed point iterations on the elastic
+-   * operator (see `FixedPointSolver`). The options are the ones of the
+-   * `HypreBoomerAMG` preconditioner.
+-   */
+-  [[nodiscard]] static LinearSolverFactory<true>::Generator
+-  buildHypreBoomerAMGSolverGenerator() {
+-    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+-              const Parameters& params) noexcept -> LinearSolverHandler {
+-      auto amg = setHypreBoomerAMGPreconditioner(ctx, fespace, params);
+-      if (amg == nullptr) {
+-        return {};
+-      }
+-      return LinearSolverHandler{std::move(amg),
+-                                 std::unique_ptr<LinearSolverPreconditioner>{}};
+-    };
+-  }  // end of buildHypreBoomerAMGSolverGenerator
+-
+-  [[nodiscard]] static std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildHyprePCGSolverGenerator() {
+-    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+-              const Parameters& params) -> LinearSolverHandler {
+-      using Problem = AbstractNonLinearEvolutionProblem;
+-      const char* const SolverTolerance = "Tolerance";
+-      const char* const Preconditioner = "Preconditioner";
+-      const auto allowed_parameters = std::vector<std::string>{
+-          Problem::SolverVerbosityLevel, SolverTolerance,
+-          Problem::SolverAbsoluteTolerance,
+-          Problem::SolverMaximumNumberOfIterations, Preconditioner};
+-      auto s = std::make_unique<mfem::HyprePCG>(fespace.GetComm());
+-      s->iterative_mode = false;
+-      if (!checkParameters(ctx, params, allowed_parameters)) {
+-        return {};
+-      }
+-      if (contains(params, Problem::SolverVerbosityLevel)) {
+-        const auto olvl = get<int>(ctx, params, Problem::SolverVerbosityLevel);
+-        if (isInvalid(olvl)) {
+-          return {};
+-        }
+-        s->SetPrintLevel(*olvl);
+-      }
+-      if (contains(params, Problem::SolverAbsoluteTolerance)) {
+-        const auto otol =
+-            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        s->SetAbsTol(*otol);
+-      }
+-      if (contains(params, SolverTolerance)) {
+-        const auto otol = get<double>(ctx, params, SolverTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        s->SetTol(boundRelativeTolerance(*otol));
+-      }
+-      if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
+-        const auto oiterMax =
+-            get<int>(ctx, params, Problem::SolverMaximumNumberOfIterations);
+-        if (isInvalid(oiterMax)) {
+-          return {};
+-        }
+-        s->SetMaxIter(*oiterMax);
+-      }
+-      auto prec = std::unique_ptr<mfem::Solver>{};
+-      if (contains(params, Preconditioner)) {
+-        const auto oparams = get<Parameters>(ctx, params, Preconditioner);
+-        if (isInvalid(oparams)) {
+-          return {};
+-        }
+-        const auto onone = isNoPreconditioner(ctx, *oparams);
+-        if (isInvalid(onone)) {
+-          return {};
+-        }
+-        if (*onone) {
+-          return LinearSolverHandler{std::move(s), std::move(prec)};
+-        }
+-        prec = getLinearSolverPreconditioner<true>(ctx, fespace, *oparams);
+-        if (isInvalid(prec)) {
+-          return {};
+-        }
+-        auto* const hypre_prec =
+-            dynamic_cast<mfem::HypreSolver* const>(prec.get());
+-        if (hypre_prec == nullptr) {
++        const auto hint = internals::getUnavailableLibraryHint(n);
++        if (!hint.empty()) {
+           return ctx.registerErrorMessage(
+-              "buildHyprePCGSolverGenerator: only Hypre preconditioners "
+-              "allowed with "
+-              "the HyprePCG linear solver");
+-        }
+-        s->SetPreconditioner(*hypre_prec);
+-      }
+-      return LinearSolverHandler{std::move(s), std::move(prec)};
+-    };
+-  }  // end of buildHyprePCGSolverGenerator
+-
+-  [[nodiscard]] static std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildHypreGMRESSolverGenerator() {
+-    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+-              const Parameters& params) -> LinearSolverHandler {
+-      using Problem = AbstractNonLinearEvolutionProblem;
+-      const char* const SolverTolerance = "Tolerance";
+-      const char* const Preconditioner = "Preconditioner";
+-      const char* const Krylov_Dimension = "KDim";
+-      const auto allowed_parameters = std::vector<std::string>{
+-          Problem::SolverVerbosityLevel, SolverTolerance,
+-          Problem::SolverAbsoluteTolerance,
+-          Problem::SolverMaximumNumberOfIterations, Preconditioner,
+-          Krylov_Dimension};
+-      auto s = std::make_unique<mfem::HypreGMRES>(fespace.GetComm());
+-      s->iterative_mode = false;
+-      if (!checkParameters(ctx, params, allowed_parameters)) {
+-        return {};
+-      }
+-      if (contains(params, Problem::SolverVerbosityLevel)) {
+-        const auto olvl = get<int>(ctx, params, Problem::SolverVerbosityLevel);
+-        if (isInvalid(olvl)) {
+-          return {};
+-        }
+-        s->SetPrintLevel(*olvl);
+-      }
+-      if (contains(params, Problem::SolverAbsoluteTolerance)) {
+-        const auto otol =
+-            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        s->SetAbsTol(*otol);
+-      }
+-      if (contains(params, SolverTolerance)) {
+-        const auto otol = get<double>(ctx, params, SolverTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        s->SetTol(boundRelativeTolerance(*otol));
+-      }
+-      if (contains(params, Krylov_Dimension)) {
+-        const auto odim = get<int>(ctx, params, Krylov_Dimension);
+-        if (isInvalid(odim)) {
+-          return {};
+-        }
+-        if (*odim < 1) {
+-          return ctx.registerErrorMessage(
+-              "invalid Krylov dimension (must be greater than one)");
+-        }
+-        s->SetKDim(*odim);
+-      }
+-      if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
+-        const auto oiterMax =
+-            get<int>(ctx, params, Problem::SolverMaximumNumberOfIterations);
+-        if (isInvalid(oiterMax)) {
+-          return {};
+-        }
+-        s->SetMaxIter(*oiterMax);
+-      }
+-      auto prec = std::unique_ptr<mfem::Solver>{};
+-      if (contains(params, Preconditioner)) {
+-        const auto opr = get<Parameters>(ctx, params, Preconditioner);
+-        if (isInvalid(opr)) {
+-          return {};
+-        }
+-        const auto onone = isNoPreconditioner(ctx, *opr);
+-        if (isInvalid(onone)) {
+-          return {};
+-        }
+-        if (*onone) {
+-          return LinearSolverHandler{std::move(s), std::move(prec)};
+-        }
+-        prec = getLinearSolverPreconditioner<true>(ctx, fespace, *opr);
+-        if (isInvalid(prec)) {
+-          return {};
+-        }
+-        auto* const hypre_prec =
+-            dynamic_cast<mfem::HypreSolver* const>(prec.get());
+-        if (hypre_prec == nullptr) {
+-          return ctx.registerErrorMessage(
+-              "buildHypreGMRESSolverGenerator: only Hypre preconditioners "
+-              "allowed with "
+-              "the HypreGMRES linear solver");
+-        }
+-        s->SetPreconditioner(*hypre_prec);
+-      }
+-      return LinearSolverHandler{std::move(s), std::move(prec)};
+-    };
+-  }  // end of buildHypreGMRESSolverGenerator
+-
+-  [[nodiscard]] static std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>& p, const Parameters&)>
+-  buildHypreFGMRESSolverGenerator() {
+-    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+-              const Parameters& params) -> LinearSolverHandler {
+-      using Problem = AbstractNonLinearEvolutionProblem;
+-      const char* const SolverTolerance = "Tolerance";
+-      const char* const Preconditioner = "Preconditioner";
+-      const char* const Krylov_Dimension = "KDim";
+-      const auto allowed_parameters = std::vector<std::string>{
+-          Problem::SolverVerbosityLevel, SolverTolerance,
+-          Problem::SolverAbsoluteTolerance,
+-          Problem::SolverMaximumNumberOfIterations, Preconditioner,
+-          Krylov_Dimension};
+-      auto s = std::make_unique<mfem::HypreFGMRES>(fespace.GetComm());
+-      s->iterative_mode = false;
+-      if (!checkParameters(ctx, params, allowed_parameters)) {
+-        return {};
+-      }
+-      if (contains(params, Problem::SolverVerbosityLevel)) {
+-        const auto olvl = get<int>(ctx, params, Problem::SolverVerbosityLevel);
+-        if (isInvalid(olvl)) {
+-          return {};
+-        }
+-        s->SetPrintLevel(*olvl);
+-      }
+-      if (contains(params, Problem::SolverAbsoluteTolerance)) {
+-        const auto otol =
+-            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        // mfem::HypreFGMRES has no `SetAbsTol` method
+-        HYPRE_ParCSRFlexGMRESSetAbsoluteTol(*s, *otol);
+-      }
+-      if (contains(params, SolverTolerance)) {
+-        const auto otol = get<double>(ctx, params, SolverTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        s->SetTol(boundRelativeTolerance(*otol));
+-      }
+-      if (contains(params, Krylov_Dimension)) {
+-        const auto odim = get<int>(ctx, params, Krylov_Dimension);
+-        if (isInvalid(odim)) {
+-          return {};
+-        }
+-        s->SetKDim(*odim);
+-      }
+-      if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
+-        const auto oiterMax =
+-            get<int>(ctx, params, Problem::SolverMaximumNumberOfIterations);
+-        if (isInvalid(oiterMax)) {
+-          return {};
+-        }
+-        s->SetMaxIter(*oiterMax);
+-      }
+-      auto prec = std::unique_ptr<mfem::Solver>{};
+-      if (contains(params, Preconditioner)) {
+-        const auto opr = get<Parameters>(ctx, params, Preconditioner);
++              std::string{"LinearSolverFactory<"} +
++              (parallel ? "true" : "false") +
++              ">::generate: no linear solver called '" + std::string{n} +
++              "' declared: " + hint);
++        }
++        auto msg = std::string{"LinearSolverFactory<"} +
++                   (parallel ? "true" : "false") +
++                   ">::generate: no linear solver called '" + std::string{n} +
++                   "' declared. Here is the list of available linear "
++                   "solvers:";
++        for (const auto& e : entries) {
++          msg += " " + e.first;
++        }
++        return ctx.registerErrorMessage(msg);
++      }
++      const auto& e = pe->second;
++      if ((e.description.placement.has_value()) &&
++          (!internals::checkLinearSolverExecutionLocation(
++              ctx, n, *(e.description.placement)))) {
++        return {};
++      }
++      // a preconditioner given to a linear solver which accepts none is
++      // refused, `None` (no preconditioner) being left to the solver
++      if ((e.description.preconditioners == AcceptedPreconditioners::NONE) &&
++          (contains(params, "Preconditioner"))) {
++        const auto opr = get<Parameters>(ctx, params, "Preconditioner");
+         if (isInvalid(opr)) {
+           return {};
+         }
+-        const auto onone = isNoPreconditioner(ctx, *opr);
+-        if (isInvalid(onone)) {
++        const auto oname = get<std::string>(ctx, *opr, "Name");
++        if (isInvalid(oname)) {
+           return {};
+         }
+-        if (*onone) {
+-          return LinearSolverHandler{std::move(s), std::move(prec)};
+-        }
+-        prec = getLinearSolverPreconditioner<true>(ctx, fespace, *opr);
+-        if (isInvalid(prec)) {
+-          return {};
+-        }
+-        auto* const hypre_prec =
+-            dynamic_cast<mfem::HypreSolver* const>(prec.get());
+-        if (hypre_prec == nullptr) {
+-          return ctx.registerErrorMessage(
+-              "buildHypreFGMRESSolverGenerator: only Hypre preconditioners "
+-              "allowed with "
+-              "the HypreFGMRES linear solver");
+-        }
+-        s->SetPreconditioner(*hypre_prec);
+-      }
+-      return LinearSolverHandler{std::move(s), std::move(prec)};
+-    };
+-  }  // end of buildHypreFGMRESSolverGenerator
+-
+-#else
+-
+-  std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildHyprePCGSolverGenerator();
+-
+-  std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildHypreGMRESSolverGenerator();
+-
+-  std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildHypreFGMRESSolverGenerator();
+-
+-#endif
+-
+-  template <bool parallel, typename LinearSolverType>
+-  std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<parallel>&, const Parameters&)>
+-  buildIterativeSolverGenerator() {
+-    if constexpr (parallel) {
+-#ifdef MFEM_USE_MPI
+-      return [](Context& ctx, FiniteElementSpace<true>& fespace,
+-                const Parameters& params) {
+-        auto s = std::make_unique<LinearSolverType>(fespace.GetComm());
+-        auto oprec = setLinearSolverParameters<true>(ctx, *s, fespace, params);
+-        if (isInvalid(oprec)) {
+-          return LinearSolverHandler{};
+-        }
+-        return LinearSolverHandler{std::move(s), std::move(*oprec)};
+-      };
+-#else  /* MFEM_USE_MPI */
+-      return {};
+-#endif /* MFEM_USE_MPI */
+-    } else {
+-      return [](Context& ctx, FiniteElementSpace<false>& fespace,
+-                const Parameters& params) {
+-        auto s = std::make_unique<LinearSolverType>();
+-        auto oprec = setLinearSolverParameters<false>(ctx, *s, fespace, params);
+-        if (isInvalid(oprec)) {
+-          return LinearSolverHandler{};
++        if (*oname != "None") {
++          return ctx.registerErrorMessage("the linear solver '" +
++                                          std::string{n} +
++                                          "' accepts no preconditioner");
+         }
+-        return LinearSolverHandler{std::move(s), std::move(*oprec)};
+-      };
+-    }
+-  }  // end of buildIterativeSolverGenerator
+-
+-#ifdef MFEM_USE_MUMPS
+-
+-  [[nodiscard]] static std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildMUMPSSolverGenerator() {
+-    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+-              const Parameters& params) -> LinearSolverHandler {
+-      if (!checkParameters(
+-              ctx, params,
+-              std::vector<std::string>{"Symmetric", "PositiveDefinite",
+-                                       "ReuseAnalysis"})) {
+-        return {};
+       }
+-      const auto oreuse_analysis =
+-          get_if<bool>(ctx, params, "ReuseAnalysis", false);
+-      if (isInvalid(oreuse_analysis)) {
+-        return {};
+-      }
+-      auto s = std::unique_ptr<mfem::MUMPSSolver>{};
+-      if (*oreuse_analysis) {
+-        s = std::make_unique<internals::MUMPSSolverReusingAnalysis>(
+-            fespace.GetComm());
+-      } else {
+-        s = std::make_unique<mfem::MUMPSSolver>(fespace.GetComm());
+-      }
+-      const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
+-      if (isInvalid(osymmetric)) {
+-        return {};
+-      }
+-      const auto opositive_definite =
+-          get_if<bool>(ctx, params, "PositiveDefinite", false);
+-      if (isInvalid(opositive_definite)) {
+-        return {};
+-      }
+-      s->SetPrintLevel(1);
+-      if (*osymmetric) {
+-        if (*opositive_definite) {
+-          s->SetMatrixSymType(
+-              mfem::MUMPSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE);
+-        } else {
+-          s->SetMatrixSymType(mfem::MUMPSSolver::MatType::SYMMETRIC_INDEFINITE);
+-        }
+-      } else {
+-        s->SetMatrixSymType(mfem::MUMPSSolver::MatType::UNSYMMETRIC);
+-      }
+-      return LinearSolverHandler{std::move(s),
+-                                 std::unique_ptr<LinearSolverPreconditioner>{}};
+-    };
+-  }  // end of builMUMPSGenerator
+-
+-#endif /* MFEM_USE_MUMPS */
+-
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+-
+-  [[nodiscard]] static std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildCuDSSSolverGenerator() {
+-    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+-              const Parameters& params) -> LinearSolverHandler {
+-      if (!checkParameters(
+-              ctx, params,
+-              std::vector<std::string>{"Symmetric", "PositiveDefinite",
+-                                       "ReuseAnalysis"})) {
+-        return {};
+-      }
+-      // cuDSS reads the matrices and the vectors on the GPU
+-      if (!mfem::Device::Allows(mfem::Backend::CUDA_MASK)) {
+-        return ctx.registerErrorMessage(
+-            "CuDSSSolver: the cuDSS solver requires a device on a CUDA GPU "
+-            "(option --device cuda of mfem_mgis::initialize)");
+-      }
+-      // when hypre computes on the host, MFEM gives cuDSS the arrays of the
+-      // matrices stored on the host through a copy between device arrays
+-      if ((!isHypreUsingGPU()) &&
+-          (!internals::canGPUReadPageableHostMemory())) {
++      try {
++        return e.generator(ctx, fespace, params);
++      } catch (std::exception& ex) {
+         return ctx.registerErrorMessage(
+-            "CuDSSSolver: when hypre computes on the host (option "
+-            "--hypre-on-host of mfem_mgis::initialize, or hypre built "
+-            "without GPU support), the cuDSS solver requires a GPU reading "
+-            "the pageable memory of the host (heterogeneous memory "
+-            "management)");
+-      }
+-      const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
+-      const auto opositive_definite =
+-          get_if<bool>(ctx, params, "PositiveDefinite", false);
+-      const auto oreuse_analysis =
+-          get_if<bool>(ctx, params, "ReuseAnalysis", false);
+-      if (isInvalid(osymmetric) || isInvalid(opositive_definite) ||
+-          isInvalid(oreuse_analysis)) {
+-        return {};
++            std::string{"LinearSolverFactory<"} +
++            (parallel ? "true" : "false") +
++            ">::generate: error while generating linear solver '" +
++            std::string{n} + "'\n" + ex.what());
+       }
+-      // as MUMPS, the symmetric modes read the lower triangle of the
+-      // matrices
+-      auto settings = internals::CuDSSSolverSettings{};
+-      if (*osymmetric) {
+-        settings.matrix_type =
+-            *opositive_definite
+-                ? mfem::CuDSSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE
+-                : mfem::CuDSSSolver::MatType::SYMMETRIC_INDEFINITE;
+-        settings.view = mfem::CuDSSSolver::MatViewType::LOWER;
++    }  // end of generateLinearSolver
++
++    //! \return the names of the registered linear solvers
++    template <typename Entries>
++    std::vector<std::string> getLinearSolverNames(const Entries& entries) {
++      auto names = std::vector<std::string>{};
++      names.reserve(entries.size());
++      for (const auto& e : entries) {
++        names.push_back(e.first);
+       }
+-      auto s = std::make_unique<internals::CuDSSDirectSolver>(
+-          fespace.GetComm(), settings, *oreuse_analysis);
+-      return LinearSolverHandler{std::move(s),
+-                                 std::unique_ptr<LinearSolverPreconditioner>{}};
+-    };
+-  }  // end of buildCuDSSSolverGenerator
++      return names;
++    }  // end of getLinearSolverNames
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
++    /*!
++     * \return the description of the linear solvers registered without
++     * description: they compute where the device of MFEM computes, as all
++     * the linear solvers did before the descriptions
++     */
++    LinearSolverDescription getDefaultLinearSolverDescription() {
++      return LinearSolverDescription{
++          .library = "",
++          .kind = LinearSolverKind::ITERATIVE,
++          .placement = LinearSolverPlacement::MFEM,
++          .preconditioners = AcceptedPreconditioners::ANY,
++          .options = {},
++          .description = ""};
++    }  // end of getDefaultLinearSolverDescription
+ 
+-  template <bool parallel>
+-  static void declareDefaultSolvers(LinearSolverFactory<parallel>& f) {
+-    auto ctx = Context{};
+-    auto check = [&ctx](const bool b) {
+-      if (!b) {
+-        auto eh = mgis::ContractViolationHandler{};
+-        eh.registerErrorMessage(ctx.getErrorMessage().c_str());
+-      }
+-    };
+-    check(f.add(ctx, "CGSolver",
+-                buildIterativeSolverGenerator<parallel, mfem::CGSolver>()));
+-    check(f.add(ctx, "GMRESSolver",
+-                buildIterativeSolverGenerator<parallel, mfem::GMRESSolver>()));
+-    check(f.add(ctx, "FGMRESSolver",
+-                buildIterativeSolverGenerator<parallel, mfem::FGMRESSolver>()));
+-    check(
+-        f.add(ctx, "BiCGSTABSolver",
+-              buildIterativeSolverGenerator<parallel, mfem::BiCGSTABSolver>()));
+-    check(f.add(ctx, "MINRESSolver",
+-                buildIterativeSolverGenerator<parallel, mfem::MINRESSolver>()));
+-    check(f.add(ctx, "SLISolver",
+-                buildIterativeSolverGenerator<parallel, mfem::SLISolver>()));
+-#ifdef MFEM_MGIS_HAVE_AMGX
+-    // cycles of the algebraic multigrid of AmgX (approximate solver, as
+-    // `HypreBoomerAMG`) and conjugate gradient of AmgX
+-    check(f.add(ctx, "AmgX",
+-                [](Context& c, FiniteElementSpace<parallel>& fespace,
+-                   const Parameters& params) noexcept -> LinearSolverHandler {
+-                  auto s = internals::makeAmgXPreconditioner<parallel>(
+-                      c, fespace, params);
+-                  if (s == nullptr) {
+-                    return {};
+-                  }
+-                  return LinearSolverHandler{
+-                      std::move(s),
+-                      std::unique_ptr<LinearSolverPreconditioner>{}};
+-                }));
+-    check(f.add(ctx, "AmgXPCG",
+-                [](Context& c, FiniteElementSpace<parallel>& fespace,
+-                   const Parameters& params) noexcept -> LinearSolverHandler {
+-                  auto s = internals::makeAmgXConjugateGradientSolver<parallel>(
+-                      c, fespace, params);
+-                  if (s == nullptr) {
+-                    return {};
+-                  }
+-                  return LinearSolverHandler{
+-                      std::move(s),
+-                      std::unique_ptr<LinearSolverPreconditioner>{}};
+-                }));
+-#endif /* MFEM_MGIS_HAVE_AMGX */
+-    if constexpr (parallel) {
+-#ifdef MFEM_USE_MUMPS
+-      check(f.add(ctx, "MUMPSSolver", buildMUMPSSolverGenerator()));
+-#endif
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+-      check(f.add(ctx, "CuDSSSolver", buildCuDSSSolverGenerator()));
+-#endif
+-      check(f.add(ctx, "HyprePCG", buildHyprePCGSolverGenerator()));
+-      check(f.add(ctx, "HypreBoomerAMG", buildHypreBoomerAMGSolverGenerator()));
+-      check(f.add(ctx, "HypreGMRES", buildHypreGMRESSolverGenerator()));
+-      check(f.add(ctx, "HypreFGMRES", buildHypreFGMRESSolverGenerator()));
+-    }
+-    if constexpr (!parallel) {
+-#ifdef MFEM_USE_SUITESPARSE
+-      check(f.add(ctx, "UMFPackSolver",
+-                  [](Context&, FiniteElementSpace<false>&, const Parameters&) {
+-                    return LinearSolverHandler{
+-                        std::make_unique<mfem::UMFPackSolver>(),
+-                        std::unique_ptr<LinearSolverPreconditioner>{}};
+-                  }));
+-#endif
+-    }
+-  }  // end of declareDefaultSolvers
++  }  // end of namespace
+ 
+ #ifdef MFEM_USE_MPI
+ 
+@@ -1484,17 +163,16 @@ namespace mfem_mgis {
+ 
+   bool LinearSolverFactory<true>::add(Context& ctx,
+                                       std::string_view n,
++                                      LinearSolverDescription d,
+                                       Generator g) noexcept {
+-    const auto pg = this->generators.find(n);
+-    if (pg != this->generators.end()) {
+-      auto msg = std::string{"LinearSolverFactory<true>::add: "};
+-      msg += "a linear solver called '";
+-      msg += n;
+-      msg += "' has already been declared";
+-      return ctx.registerErrorMessage(msg);
+-    }
+-    this->generators.insert({std::string(n), std::move(g)});
+-    return true;
++    return addLinearSolver(ctx, this->entries, n,
++                           Entry{std::move(d), std::move(g)});
++  }  // end of add
++
++  bool LinearSolverFactory<true>::add(Context& ctx,
++                                      std::string_view n,
++                                      Generator g) noexcept {
++    return this->add(ctx, n, getDefaultLinearSolverDescription(), std::move(g));
+   }  // end of add
+ 
+   LinearSolverHandler LinearSolverFactory<true>::generate(
+@@ -1502,37 +180,21 @@ namespace mfem_mgis {
+       std::string_view n,
+       FiniteElementSpace<true>& fespace,
+       const Parameters& params) const {
+-    const auto pg = this->generators.find(n);
+-    if (pg == this->generators.end()) {
+-      std::string msg("LinearSolverFactory<true>::generate: ");
+-      msg += "no linear solver called '";
+-      msg += n;
+-      msg += "' declared. Here is the list of available linear solvers:";
+-      for (const auto& g : this->generators) {
+-        msg += " " + g.first;
+-      }
+-      return ctx.registerErrorMessage(msg);
+-    }
+-    if (!internals::checkLinearSolverExecutionLocation(ctx, n)) {
+-      return {};
+-    }
+-    const auto& g = pg->second;
+-    LinearSolverHandler s;
+-    try {
+-      s = g(ctx, fespace, params);
+-    } catch (std::exception& e) {
+-      std::string msg("LinearSolverFactory<true>::generate: ");
+-      msg += "error while generating linear solver '";
+-      msg += n;
+-      msg += "'\n";
+-      msg += e.what();
+-      return ctx.registerErrorMessage(msg);
+-    }
+-    return s;
++    return generateLinearSolver<true>(ctx, this->entries, n, fespace, params);
+   }  // end of generate
+ 
++  const LinearSolverDescription* LinearSolverFactory<true>::getDescription(
++      std::string_view n) const noexcept {
++    const auto pe = this->entries.find(n);
++    return pe == this->entries.end() ? nullptr : &(pe->second.description);
++  }  // end of getDescription
++
++  std::vector<std::string> LinearSolverFactory<true>::getNames() const {
++    return getLinearSolverNames(this->entries);
++  }  // end of getNames
++
+   LinearSolverFactory<true>::LinearSolverFactory() {
+-    declareDefaultSolvers(*this);
++    internals::declareLinearSolvers(*this);
+   }  // end of LinearSolverFactory
+ 
+   LinearSolverFactory<true>::~LinearSolverFactory() = default;
+@@ -1546,17 +208,16 @@ namespace mfem_mgis {
+ 
+   bool LinearSolverFactory<false>::add(Context& ctx,
+                                        std::string_view n,
++                                       LinearSolverDescription d,
+                                        Generator g) noexcept {
+-    const auto pg = this->generators.find(n);
+-    if (pg != this->generators.end()) {
+-      auto msg = std::string{"LinearSolverFactory<false>::add: "};
+-      msg += "a linear solver called '";
+-      msg += n;
+-      msg += "' has already been declared";
+-      return ctx.registerErrorMessage(msg);
+-    }
+-    this->generators.insert({std::string(n), std::move(g)});
+-    return true;
++    return addLinearSolver(ctx, this->entries, n,
++                           Entry{std::move(d), std::move(g)});
++  }  // end of add
++
++  bool LinearSolverFactory<false>::add(Context& ctx,
++                                       std::string_view n,
++                                       Generator g) noexcept {
++    return this->add(ctx, n, getDefaultLinearSolverDescription(), std::move(g));
+   }  // end of add
+ 
+   LinearSolverHandler LinearSolverFactory<false>::generate(
+@@ -1564,37 +225,21 @@ namespace mfem_mgis {
+       std::string_view n,
+       FiniteElementSpace<false>& fespace,
+       const Parameters& params) const {
+-    const auto pg = this->generators.find(n);
+-    if (pg == this->generators.end()) {
+-      std::string msg("LinearSolverFactory<false>::generate: ");
+-      msg += "no linear solver called '";
+-      msg += n;
+-      msg += "' declared. Here is the list of available linear solvers:";
+-      for (const auto& g : this->generators) {
+-        msg += " " + g.first;
+-      }
+-      return ctx.registerErrorMessage(msg);
+-    }
+-    if (!internals::checkLinearSolverExecutionLocation(ctx, n)) {
+-      return {};
+-    }
+-    const auto& g = pg->second;
+-    LinearSolverHandler s;
+-    try {
+-      s = g(ctx, fespace, params);
+-    } catch (std::exception& e) {
+-      std::string msg("LinearSolverFactory<false>::generate: ");
+-      msg += "error while generating linear solver '";
+-      msg += n;
+-      msg += "'\n";
+-      msg += e.what();
+-      return ctx.registerErrorMessage(msg);
+-    }
+-    return s;
++    return generateLinearSolver<false>(ctx, this->entries, n, fespace, params);
+   }  // end of generate
+ 
++  const LinearSolverDescription* LinearSolverFactory<false>::getDescription(
++      std::string_view n) const noexcept {
++    const auto pe = this->entries.find(n);
++    return pe == this->entries.end() ? nullptr : &(pe->second.description);
++  }  // end of getDescription
++
++  std::vector<std::string> LinearSolverFactory<false>::getNames() const {
++    return getLinearSolverNames(this->entries);
++  }  // end of getNames
++
+   LinearSolverFactory<false>::LinearSolverFactory() {
+-    declareDefaultSolvers(*this);
++    internals::declareLinearSolvers(*this);
+   }  // end of LinearSolverFactory
+ 
+   LinearSolverFactory<false>::~LinearSolverFactory() = default;
+diff --git a/src/LinearSolverModules.cxx b/src/LinearSolverModules.cxx
+new file mode 100644
+index 0000000000..ec1a07444e
+--- /dev/null
++++ b/src/LinearSolverModules.cxx
+@@ -0,0 +1,215 @@
++/*!
++ * \file   src/LinearSolverModules.cxx
++ * \brief  This file implements the functions shared by the modules of the
++ * linear solvers and of the preconditioners, and calls these modules
++ * \date   15/10/2026
++ */
++
++#include <tuple>
++#include <memory>
++#include <string>
++#include <vector>
++#include <optional>
++#include <string_view>
++#include "mfem/config/config.hpp"
++#include "mfem/fem/fespace.hpp"
++#ifdef MFEM_USE_MPI
++#include "mfem/fem/pfespace.hpp"
++#endif /* MFEM_USE_MPI */
++#include "MFEMMGIS/Parameters.hxx"
++#include "LinearSolverModules.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \return true if the parameters of a preconditioner select no
++   * preconditioner (name `None`, without options), false otherwise, or an
++   * empty value on error. `generatePreconditioner` returns a null
++   * preconditioner both in this case and on error: its callers must test
++   * this case before.
++   * \param[in, out] ctx: execution context
++   * \param[in] p: parameters of the preconditioner
++   */
++  [[nodiscard]] static std::optional<bool> isNoPreconditioner(
++      Context& ctx, const Parameters& p) {
++    const auto oname = get<std::string>(ctx, p, "Name");
++    if (isInvalid(oname)) {
++      return {};
++    }
++    if (*oname != "None") {
++      return false;
++    }
++    if (contains(p, "Options")) {
++      return ctx.registerErrorMessage(
++          "setLinearSolverPreconditioner: no options expected for "
++          "preconditioner 'None'");
++    }
++    if (!checkParameters(ctx, p, std::vector<std::string>{"Name"})) {
++      return {};
++    }
++    return true;
++  }  // end of isNoPreconditioner
++
++  std::string getUnavailableLibraryHint(const std::string_view n) {
++#ifndef MFEM_MGIS_HAVE_AMGX
++    if ((n == "AmgX") || (n == "AmgXPCG")) {
++      return "mfem-mgis is not compiled with AmgX (option enable-amgx)";
++    }
++#endif /* MFEM_MGIS_HAVE_AMGX */
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS))
++    if (n == "MUMPSSolver") {
++      return "MFEM is not compiled with MUMPS";
++    }
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)) */
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS))
++    if (n == "CuDSSSolver") {
++      return "MFEM is not compiled with cuDSS";
++    }
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)) */
++#ifndef MFEM_USE_SUITESPARSE
++    if (n == "UMFPackSolver") {
++      return "MFEM is not compiled with SuiteSparse";
++    }
++#endif /* MFEM_USE_SUITESPARSE */
++    static_cast<void>(n);
++    return {};
++  }  // end of getUnavailableLibraryHint
++
++  template <bool parallel>
++  std::unique_ptr<LinearSolverPreconditioner> generatePreconditioner(
++      Context& ctx,
++      FiniteElementSpace<parallel>& fespace,
++      const Parameters& p) {
++    if (!checkParameters(ctx, p, std::vector<std::string>{"Name", "Options"})) {
++      return {};
++    }
++    const auto oname = get<std::string>(ctx, p, "Name");
++    if (isInvalid(oname)) {
++      return {};
++    }
++    if (*oname == "None") {
++      if (contains(p, "Options")) {
++        return ctx.registerErrorMessage(
++            "setLinearSolverPreconditioner: "
++            "no options expected for preconditioner 'None'");
++      }
++      return {};
++    }
++    const auto oopts = get_if<Parameters>(ctx, p, "Options", Parameters{});
++    if (isInvalid(oopts)) {
++      return {};
++    }
++    return PreconditionerFactory<parallel>::getFactory().generate(
++        ctx, *oname, fespace, *oopts);
++  }  // end of generatePreconditioner
++
++  template <bool parallel>
++  std::optional<std::unique_ptr<LinearSolverPreconditioner>> makePreconditioner(
++      Context& ctx,
++      FiniteElementSpace<parallel>& fespace,
++      const std::string_view n,
++      const LinearSolverDescription& d,
++      const Parameters& params) {
++    const char* const Preconditioner = "Preconditioner";
++    if (!contains(params, Preconditioner)) {
++      return std::unique_ptr<LinearSolverPreconditioner>{};
++    }
++    const auto opr = get<Parameters>(ctx, params, Preconditioner);
++    if (isInvalid(opr)) {
++      return {};
++    }
++    const auto onone = isNoPreconditioner(ctx, *opr);
++    if (isInvalid(onone)) {
++      return {};
++    }
++    if (*onone) {
++      return std::unique_ptr<LinearSolverPreconditioner>{};
++    }
++    if (d.preconditioners == AcceptedPreconditioners::NONE) {
++      std::ignore =
++          ctx.registerErrorMessage("the linear solver '" + std::string{n} +
++                                   "' accepts no preconditioner");
++      return {};
++    }
++    if (d.preconditioners == AcceptedPreconditioners::SAME_LIBRARY) {
++      const auto oname = get<std::string>(ctx, *opr, "Name");
++      if (isInvalid(oname)) {
++        return {};
++      }
++      const auto* const pd =
++          PreconditionerFactory<parallel>::getFactory().getDescription(*oname);
++      if ((pd != nullptr) && (pd->library != d.library)) {
++        std::ignore = ctx.registerErrorMessage(
++            "the linear solver '" + std::string{n} +
++            "' only accepts the preconditioners of " + d.library + " ('" +
++            *oname + "' is a preconditioner of " + pd->library + ")");
++        return {};
++      }
++    }
++    auto prec = generatePreconditioner<parallel>(ctx, fespace, *opr);
++    if (prec == nullptr) {
++      return {};
++    }
++    return prec;
++  }  // end of makePreconditioner
++
++  template <bool parallel>
++  void declareLinearSolvers(LinearSolverFactory<parallel>& f) {
++    declareMFEMLinearSolvers(f);
++#ifdef MFEM_MGIS_HAVE_AMGX
++    declareAmgXLinearSolvers(f);
++#endif /* MFEM_MGIS_HAVE_AMGX */
++#ifdef MFEM_USE_MPI
++    if constexpr (parallel) {
++      declareHypreLinearSolvers(f);
++#ifdef MFEM_USE_MUMPS
++      declareMUMPSLinearSolvers(f);
++#endif /* MFEM_USE_MUMPS */
++#ifdef MFEM_USE_CUDSS
++      declareCuDSSLinearSolvers(f);
++#endif /* MFEM_USE_CUDSS */
++    }
++#endif /* MFEM_USE_MPI */
++  }  // end of declareLinearSolvers
++
++  template <bool parallel>
++  void declarePreconditioners(PreconditionerFactory<parallel>& f) {
++    declareMFEMPreconditioners(f);
++#ifdef MFEM_MGIS_HAVE_AMGX
++    declareAmgXPreconditioners(f);
++#endif /* MFEM_MGIS_HAVE_AMGX */
++#ifdef MFEM_USE_MPI
++    if constexpr (parallel) {
++      declareHyprePreconditioners(f);
++    }
++#endif /* MFEM_USE_MPI */
++  }  // end of declarePreconditioners
++
++#ifdef MFEM_USE_MPI
++  template std::unique_ptr<LinearSolverPreconditioner>
++  generatePreconditioner<true>(Context&,
++                               FiniteElementSpace<true>&,
++                               const Parameters&);
++  template std::optional<std::unique_ptr<LinearSolverPreconditioner>>
++  makePreconditioner<true>(Context&,
++                           FiniteElementSpace<true>&,
++                           std::string_view,
++                           const LinearSolverDescription&,
++                           const Parameters&);
++  template void declareLinearSolvers<true>(LinearSolverFactory<true>&);
++  template void declarePreconditioners<true>(PreconditionerFactory<true>&);
++#endif /* MFEM_USE_MPI */
++  template std::unique_ptr<LinearSolverPreconditioner>
++  generatePreconditioner<false>(Context&,
++                                FiniteElementSpace<false>&,
++                                const Parameters&);
++  template std::optional<std::unique_ptr<LinearSolverPreconditioner>>
++  makePreconditioner<false>(Context&,
++                            FiniteElementSpace<false>&,
++                            std::string_view,
++                            const LinearSolverDescription&,
++                            const Parameters&);
++  template void declareLinearSolvers<false>(LinearSolverFactory<false>&);
++  template void declarePreconditioners<false>(PreconditionerFactory<false>&);
++
++}  // end of namespace mfem_mgis::internals
+diff --git a/src/LinearSolverModules.hxx b/src/LinearSolverModules.hxx
+new file mode 100644
+index 0000000000..ffb57a1d4c
+--- /dev/null
++++ b/src/LinearSolverModules.hxx
+@@ -0,0 +1,171 @@
++/*!
++ * \file   src/LinearSolverModules.hxx
++ * \brief  This file declares the modules registering the linear solvers
++ * and the preconditioners of each library in the factories, and the
++ * functions shared by these modules (internal header)
++ * \date   15/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_LINEARSOLVERMODULES_HXX
++#define LIB_MFEM_MGIS_SRC_LINEARSOLVERMODULES_HXX
++
++#include <memory>
++#include <string>
++#include <utility>
++#include <optional>
++#include <string_view>
++#include "MGIS/Contract.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MFEMForward.hxx"
++#include "MFEMMGIS/LinearSolverDescription.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/PreconditionerFactory.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief Each library providing linear solvers or preconditioners has a
++   * module which registers them in the factories. A module is a pair of
++   * functions, called by the constructors of the factories when the library
++   * is available:
++   *
++   * - `declare<Library>LinearSolvers(LinearSolverFactory<parallel>&)`;
++   * - `declare<Library>Preconditioners(PreconditionerFactory<parallel>&)`.
++   *
++   * Adding a library consists of writing its module and calling it in
++   * `declareLinearSolvers` and `declarePreconditioners`.
++   */
++
++  /*!
++   * \brief register the linear solvers of all the available libraries
++   * \param[in, out] f: factory
++   */
++  template <bool parallel>
++  void declareLinearSolvers(LinearSolverFactory<parallel>& f);
++  /*!
++   * \brief register the preconditioners of all the available libraries
++   * \param[in, out] f: factory
++   */
++  template <bool parallel>
++  void declarePreconditioners(PreconditionerFactory<parallel>& f);
++
++  /*!
++   * \brief register the solvers of MFEM (Krylov solvers, UMFPACK)
++   * \param[in, out] f: factory
++   */
++  template <bool parallel>
++  void declareMFEMLinearSolvers(LinearSolverFactory<parallel>& f);
++  /*!
++   * \brief register the preconditioners of MFEM (Jacobi and Chebyshev
++   * smoothers) and of mfem-mgis (`AssembledOperator`)
++   * \param[in, out] f: factory
++   */
++  template <bool parallel>
++  void declareMFEMPreconditioners(PreconditionerFactory<parallel>& f);
++#ifdef MFEM_USE_MPI
++  /*!
++   * \brief register the solvers of hypre
++   * \param[in, out] f: factory
++   */
++  void declareHypreLinearSolvers(LinearSolverFactory<true>& f);
++  /*!
++   * \brief register the preconditioners of hypre
++   * \param[in, out] f: factory
++   */
++  void declareHyprePreconditioners(PreconditionerFactory<true>& f);
++#endif /* MFEM_USE_MPI */
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
++  /*!
++   * \brief register the solver of MUMPS
++   * \param[in, out] f: factory
++   */
++  void declareMUMPSLinearSolvers(LinearSolverFactory<true>& f);
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
++  /*!
++   * \brief register the solver of cuDSS
++   * \param[in, out] f: factory
++   */
++  void declareCuDSSLinearSolvers(LinearSolverFactory<true>& f);
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
++#ifdef MFEM_MGIS_HAVE_AMGX
++  /*!
++   * \brief register the solvers of AmgX
++   * \param[in, out] f: factory
++   */
++  template <bool parallel>
++  void declareAmgXLinearSolvers(LinearSolverFactory<parallel>& f);
++  /*!
++   * \brief register the preconditioner of AmgX
++   * \param[in, out] f: factory
++   */
++  template <bool parallel>
++  void declareAmgXPreconditioners(PreconditionerFactory<parallel>& f);
++#endif /* MFEM_MGIS_HAVE_AMGX */
++
++  /*!
++   * \return a message explaining why a linear solver or a preconditioner of
++   * an optional library is not registered (the library is not available),
++   * or an empty string if the name is not the one of such a solver
++   * \param[in] n: name of the linear solver or of the preconditioner
++   */
++  [[nodiscard]] std::string getUnavailableLibraryHint(std::string_view n);
++
++  /*!
++   * \brief register a linear solver or a preconditioner in a factory, a
++   * failure (two entries with the same name) being a contract violation
++   * \param[in, out] f: factory
++   * \param[in] n: name
++   * \param[in] d: description
++   * \param[in] g: generator
++   */
++  template <typename Factory, typename Generator>
++  void declare(Factory& f,
++               const std::string_view n,
++               LinearSolverDescription d,
++               Generator&& g) {
++    auto ctx = Context{};
++    if (!f.add(ctx, n, std::move(d), std::forward<Generator>(g))) {
++      auto eh = mgis::ContractViolationHandler{};
++      eh.registerErrorMessage(ctx.getErrorMessage().c_str());
++    }
++  }  // end of declare
++
++  /*!
++   * \return the preconditioner described by the given parameters: its name
++   * (`Name`) and its options (`Options`), or a null pointer if the name is
++   * `None` (without options) or on error
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] p: parameters of the preconditioner
++   */
++  template <bool parallel>
++  [[nodiscard]] std::unique_ptr<LinearSolverPreconditioner>
++  generatePreconditioner(Context& ctx,
++                         FiniteElementSpace<parallel>& fespace,
++                         const Parameters& p);
++
++  /*!
++   * \return the preconditioner given by the `Preconditioner` parameter of a
++   * linear solver: a null pointer if this parameter is not given or selects
++   * no preconditioner (name `None`), or an empty value on error. The
++   * preconditioner must be accepted by the linear solver (see
++   * `LinearSolverDescription::preconditioners`), and compute where the
++   * execution settings place the linear solvers.
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] solver: name of the linear solver
++   * \param[in] d: description of the linear solver
++   * \param[in] params: parameters of the linear solver
++   */
++  template <bool parallel>
++  [[nodiscard]] std::optional<std::unique_ptr<LinearSolverPreconditioner>>
++  makePreconditioner(Context& ctx,
++                     FiniteElementSpace<parallel>& fespace,
++                     std::string_view solver,
++                     const LinearSolverDescription& d,
++                     const Parameters& params);
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_LINEARSOLVERMODULES_HXX */
+diff --git a/src/MFEMLinearSolvers.cxx b/src/MFEMLinearSolvers.cxx
+new file mode 100644
+index 0000000000..13b0628ca3
+--- /dev/null
++++ b/src/MFEMLinearSolvers.cxx
+@@ -0,0 +1,560 @@
++/*!
++ * \file   src/MFEMLinearSolvers.cxx
++ * \brief  This file implements the module of the linear solvers and of the
++ * preconditioners of MFEM: Krylov solvers, UMFPACK (SuiteSparse), Jacobi
++ * and Chebyshev smoothers, and the `AssembledOperator` preconditioner of
++ * mfem-mgis (see `LinearSolverModules.hxx`)
++ * \author Thomas Helfer
++ * \date   24/03/2021
++ */
++
++#include <memory>
++#include <string>
++#include <vector>
++#include <optional>
++#include <utility>
++#include <functional>
++#include <string_view>
++#include "mfem/config/config.hpp"
++#include "mfem/linalg/solvers.hpp"
++#include "mfem/linalg/sparsemat.hpp"
++#include "mfem/fem/fespace.hpp"
++#ifdef MFEM_USE_MPI
++#include "mfem/fem/pfespace.hpp"
++#endif /* MFEM_USE_MPI */
++#include "MGIS/Raise.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++#include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
++#include "LinearSolverModules.hxx"
++
++namespace mfem_mgis {
++
++  namespace {
++
++    /*!
++     * \brief Jacobi smoother of MFEM (`mfem::OperatorJacobiSmoother`), whose
++     * diagonal is computed by the operator (`AssembleDiagonal`), or by
++     * `GetDiag` for a sparse matrix of MFEM, which does not implement
++     * `AssembleDiagonal`. The diagonal entries of the essential degrees of
++     * freedom are the ones of the operator. The smoother of MFEM is kept
++     * from an operator to the next one of the same size: only its inverse
++     * diagonal is computed again.
++     */
++    struct JacobiSmoother final : mfem::Solver {
++      //! \param[in] d: damping factor
++      explicit JacobiSmoother(const real d) : damping(d) {}
++      void SetOperator(const mfem::Operator& op) override {
++        this->height = op.Height();
++        this->width = op.Width();
++        this->diagonal.UseDevice(true);
++        if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
++            m != nullptr) {
++          m->GetDiag(this->diagonal);
++        } else {
++          this->diagonal.SetSize(op.Height());
++          op.AssembleDiagonal(this->diagonal);
++        }
++        if ((this->smoother == nullptr) ||
++            (this->smoother->Height() != op.Height())) {
++          this->smoother = std::make_unique<mfem::OperatorJacobiSmoother>(
++              this->diagonal, this->essential_dofs, this->damping);
++        } else {
++          this->smoother->Setup(this->diagonal);
++        }
++      }
++      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++        if (this->smoother == nullptr) {
++          raise("JacobiSmoother::Mult: the operator is not set");
++        }
++        this->smoother->Mult(x, y);
++      }
++
++     private:
++      //! \brief damping factor
++      const real damping;
++      //! \brief diagonal of the operator
++      mfem::Vector diagonal;
++      /*!
++       * \brief essential degrees of freedom, empty (the operator is
++       * constrained), referenced by the smoother of MFEM
++       */
++      const mfem::Array<int> essential_dofs;
++      //! \brief smoother of MFEM
++      std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
++    };
++
++    /*!
++     * \brief Chebyshev smoother of MFEM (`mfem::OperatorChebyshevSmoother`):
++     * polynomial of the given order in the operator scaled by the inverse of
++     * its diagonal, computed as for the Jacobi smoother (`JacobiSmoother`).
++     * The largest eigenvalue of the scaled operator is estimated by the power
++     * method at each call to `SetOperator`. Only products by the operator
++     * are used: usable with an operator applied without assembly (see
++     * `MatrixFreeTangentOperator`), whose essential degrees of freedom are
++     * eliminated with a diagonal set to one.
++     */
++    struct ChebyshevSmoother final : mfem::Solver {
++#ifdef MFEM_USE_MPI
++      /*!
++       * \param[in] o: order of the polynomial
++       * \param[in] n: number of iterations of the power method
++       * \param[in] c: communicator (`MPI_COMM_NULL` in sequential)
++       */
++      ChebyshevSmoother(const int o, const int n, MPI_Comm c)
++          : order(o), power_iterations(n), comm(c) {}
++#else  /* MFEM_USE_MPI */
++      /*!
++       * \param[in] o: order of the polynomial
++       * \param[in] n: number of iterations of the power method
++       */
++      ChebyshevSmoother(const int o, const int n)
++          : order(o), power_iterations(n) {}
++#endif /* MFEM_USE_MPI */
++      void SetOperator(const mfem::Operator& op) override {
++        this->height = op.Height();
++        this->width = op.Width();
++        this->diagonal.UseDevice(true);
++        if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
++            m != nullptr) {
++          m->GetDiag(this->diagonal);
++        } else {
++          this->diagonal.SetSize(op.Height());
++          op.AssembleDiagonal(this->diagonal);
++        }
++        // the smoother of MFEM estimates the largest eigenvalue at its
++        // construction and references the diagonal
++        this->smoother.reset();
++#ifdef MFEM_USE_MPI
++        this->smoother = std::make_unique<mfem::OperatorChebyshevSmoother>(
++            op, this->diagonal, this->essential_dofs, this->order, this->comm,
++            this->power_iterations);
++#else  /* MFEM_USE_MPI */
++        this->smoother = std::make_unique<mfem::OperatorChebyshevSmoother>(
++            op, this->diagonal, this->essential_dofs, this->order,
++            this->power_iterations);
++#endif /* MFEM_USE_MPI */
++      }
++      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++        if (this->smoother == nullptr) {
++          raise("ChebyshevSmoother::Mult: the operator is not set");
++        }
++        this->smoother->Mult(x, y);
++      }
++
++     private:
++      //! \brief order of the polynomial
++      const int order;
++      //! \brief number of iterations of the power method
++      const int power_iterations;
++#ifdef MFEM_USE_MPI
++      //! \brief communicator of the power method
++      MPI_Comm comm;
++#endif /* MFEM_USE_MPI */
++      //! \brief diagonal of the operator
++      mfem::Vector diagonal;
++      /*!
++       * \brief essential degrees of freedom, empty (the operator is
++       * constrained), referenced by the smoother of MFEM
++       */
++      const mfem::Array<int> essential_dofs;
++      //! \brief smoother of MFEM
++      std::unique_ptr<mfem::OperatorChebyshevSmoother> smoother;
++    };
++
++    /*!
++     * \brief preconditioner built on the assembled version of an operator
++     * applied without assembly (see `AssembledOperatorProvider`), set up
++     * every `period` calls to `SetOperator`, and kept between them.
++     *
++     * The preconditioner is also set up again when the assembled operator
++     * on which it was set up is no longer valid, i.e. when the operator has
++     * been assembled again in between (see
++     * `AssembledOperatorProvider::getAssembledOperatorRevision`).
++     *
++     * An operator which can't give an assembled version (for instance the
++     * matrix of the prediction) keeps the preconditioner set up on a valid
++     * assembled operator, if any: it is still a preconditioner of a close
++     * operator. Otherwise, the preconditioner is set up on this operator,
++     * and set up again at the next call (this operator may be destroyed
++     * after its resolution).
++     */
++    struct AssembledOperatorPreconditioner final : mfem::Solver {
++      /*!
++       * \param[in] p: preconditioner
++       * \param[in] n: period of the updates
++       */
++      AssembledOperatorPreconditioner(std::unique_ptr<mfem::Solver> p,
++                                      const int n)
++          : preconditioner(std::move(p)), period(n) {}
++      void SetOperator(const mfem::Operator& op) override {
++        this->height = op.Height();
++        this->width = op.Width();
++        const auto* const provider =
++            dynamic_cast<const AssembledOperatorProvider*>(&op);
++        if (provider == nullptr) {
++          if (this->isSetUpOnAValidAssembledOperator()) {
++            return;
++          }
++          this->preconditioner->SetOperator(op);
++          this->revision.reset();
++          this->setup_revision.reset();
++          return;
++        }
++        const auto r = provider->getAssembledOperatorRevision();
++        const auto valid =
++            (r == this->revision) && this->isSetUpOnAValidAssembledOperator();
++        if ((!valid) || (this->count % this->period == 0)) {
++          this->preconditioner->SetOperator(provider->getAssembledOperator());
++          this->revision = r;
++          this->setup_revision = *r;
++          this->count = 0;
++        }
++        ++(this->count);
++      }
++      void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++        this->preconditioner->Mult(x, y);
++      }
++
++     private:
++      /*!
++       * \return if the preconditioner is set up on an assembled operator which
++       * has not been assembled again since
++       */
++      [[nodiscard]] bool isSetUpOnAValidAssembledOperator() const noexcept {
++        return (this->revision != nullptr) &&
++               (this->setup_revision.has_value()) &&
++               (*(this->revision) == *(this->setup_revision));
++      }
++      //! \brief preconditioner
++      std::unique_ptr<mfem::Solver> preconditioner;
++      //! \brief period of the updates
++      const int period;
++      //! \brief number of calls to `SetOperator` since the last setup
++      int count = 0;
++      //! \brief number of assemblies of the assembled operator
++      std::shared_ptr<const size_type> revision;
++      /*!
++       * \brief number of assemblies of the assembled operator when the
++       * preconditioner was set up on it, if it was
++       */
++      std::optional<size_type> setup_revision;
++    };
++
++  }  // end of namespace
++
++  /*!
++   * \brief set the parameters of an iterative solver of MFEM: tolerances,
++   * maximum number of iterations, verbosity, dimension of the Krylov space
++   * of the GMRES solvers (`KDim`) and preconditioner
++   * \return the preconditioner (a null pointer if none is requested), or an
++   * empty value on error
++   * \param[in, out] ctx: execution context
++   * \param[in, out] s: solver
++   * \param[in] fespace: finite element space
++   * \param[in] n: name of the solver
++   * \param[in] d: description of the solver
++   * \param[in] params: parameters of the solver
++   */
++  template <bool parallel>
++  static std::optional<std::unique_ptr<LinearSolverPreconditioner>>
++  setLinearSolverParameters(Context& ctx,
++                            mfem::IterativeSolver& s,
++                            FiniteElementSpace<parallel>& fespace,
++                            const std::string_view n,
++                            const LinearSolverDescription& d,
++                            const Parameters& params) {
++    const char* const Preconditioner = "Preconditioner";
++    const char* const Krylov_Dimension = "KDim";
++    const auto is_gmres_solver =
++        (dynamic_cast<mfem::GMRESSolver*>(&s) != nullptr) ||
++        (dynamic_cast<mfem::FGMRESSolver*>(&s) != nullptr);
++    s.iterative_mode = false;
++    auto allowed_parameters = getIterativeSolverParametersList();
++    allowed_parameters.push_back(Preconditioner);
++    if (is_gmres_solver) {
++      allowed_parameters.push_back(Krylov_Dimension);
++    }
++    if (!checkParameters(ctx, params, allowed_parameters)) {
++      return {};
++    }
++    const auto oparams =
++        extract(ctx, params, getIterativeSolverParametersList());
++    if (isInvalid(oparams)) {
++      return {};
++    }
++    if (!setSolverParameters(ctx, s, *oparams)) {
++      return {};
++    }
++    if ((is_gmres_solver) && (contains(params, Krylov_Dimension))) {
++      const auto odim = get<int>(ctx, params, Krylov_Dimension);
++      if (isInvalid(odim)) {
++        return {};
++      }
++      if (*odim < 1) {
++        std::ignore = ctx.registerErrorMessage(
++            "invalid Krylov dimension (must be greater than one)");
++        return {};
++      }
++      if (auto* const ptr = dynamic_cast<mfem::GMRESSolver*>(&s);
++          ptr != nullptr) {
++        ptr->SetKDim(*odim);
++      }
++      if (auto* const ptr = dynamic_cast<mfem::FGMRESSolver*>(&s);
++          ptr != nullptr) {
++        ptr->SetKDim(*odim);
++      }
++    }
++    auto oprec =
++        internals::makePreconditioner<parallel>(ctx, fespace, n, d, params);
++    if (isInvalid(oprec)) {
++      return {};
++    }
++    if (*oprec != nullptr) {
++      s.SetPreconditioner(**oprec);
++    }
++    return oprec;
++  }  // end of setLinearSolverParameters
++
++  /*!
++   * \return the generator of an iterative solver of MFEM
++   * \param[in] n: name of the solver
++   * \param[in] d: description of the solver
++   */
++  template <bool parallel, typename LinearSolverType>
++  static typename LinearSolverFactory<parallel>::Generator
++  buildIterativeSolverGenerator(const std::string n,
++                                const LinearSolverDescription d) {
++    if constexpr (parallel) {
++#ifdef MFEM_USE_MPI
++      return [n, d](Context& ctx, FiniteElementSpace<true>& fespace,
++                    const Parameters& params) {
++        auto s = std::make_unique<LinearSolverType>(fespace.GetComm());
++        auto oprec =
++            setLinearSolverParameters<true>(ctx, *s, fespace, n, d, params);
++        if (isInvalid(oprec)) {
++          return LinearSolverHandler{};
++        }
++        return LinearSolverHandler{std::move(s), std::move(*oprec)};
++      };
++#else  /* MFEM_USE_MPI */
++      return {};
++#endif /* MFEM_USE_MPI */
++    } else {
++      return [n, d](Context& ctx, FiniteElementSpace<false>& fespace,
++                    const Parameters& params) {
++        auto s = std::make_unique<LinearSolverType>();
++        auto oprec =
++            setLinearSolverParameters<false>(ctx, *s, fespace, n, d, params);
++        if (isInvalid(oprec)) {
++          return LinearSolverHandler{};
++        }
++        return LinearSolverHandler{std::move(s), std::move(*oprec)};
++      };
++    }
++  }  // end of buildIterativeSolverGenerator
++
++  /*!
++   * \return the Jacobi smoother of MFEM, whose diagonal is computed by the
++   * operator (`AssembleDiagonal`): usable with an operator applied without
++   * assembly (see `MatrixFreeTangentOperator`)
++   * \param[in, out] ctx: execution context
++   * \param[in] opts: options (`Damping`)
++   */
++  template <bool parallel>
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  makeOperatorJacobiSmoother(Context& ctx,
++                             FiniteElementSpace<parallel>&,
++                             const Parameters& opts) {
++    if (!checkParameters(ctx, opts, {"Damping"})) {
++      return {};
++    }
++    const auto odamping = get_if<double>(ctx, opts, "Damping", 1.);
++    if (isInvalid(odamping)) {
++      return {};
++    }
++    return std::make_unique<JacobiSmoother>(*odamping);
++  }  // end of makeOperatorJacobiSmoother
++
++  /*!
++   * \return the Chebyshev smoother of MFEM: usable with an operator applied
++   * without assembly
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] opts: options (`Order`, `NumberOfPowerIterations`)
++   */
++  template <bool parallel>
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  makeOperatorChebyshevSmoother(
++      Context& ctx,
++      [[maybe_unused]] FiniteElementSpace<parallel>& fespace,
++      const Parameters& opts) {
++    if (!checkParameters(
++            ctx, opts,
++            std::vector<std::string>{"Order", "NumberOfPowerIterations"})) {
++      return {};
++    }
++    const auto oorder = get_if<int>(ctx, opts, "Order", 2);
++    const auto oiterations =
++        get_if<int>(ctx, opts, "NumberOfPowerIterations", 10);
++    if (isInvalid(oorder) || isInvalid(oiterations)) {
++      return {};
++    }
++    // orders implemented by MFEM
++    if ((*oorder < 1) || (*oorder > 5)) {
++      return ctx.registerErrorMessage(
++          "setLinearSolverPreconditioner: the order of the Chebyshev "
++          "smoother must be between 1 and 5");
++    }
++    if (*oiterations < 1) {
++      return ctx.registerErrorMessage(
++          "setLinearSolverPreconditioner: the number of iterations of the "
++          "power method of the Chebyshev smoother must be strictly "
++          "positive");
++    }
++#ifdef MFEM_USE_MPI
++    auto comm = MPI_Comm{MPI_COMM_NULL};
++    if constexpr (parallel) {
++      comm = fespace.GetComm();
++    }
++    return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations, comm);
++#else  /* MFEM_USE_MPI */
++    return std::make_unique<ChebyshevSmoother>(*oorder, *oiterations);
++#endif /* MFEM_USE_MPI */
++  }  // end of makeOperatorChebyshevSmoother
++
++  /*!
++   * \return the preconditioner built on the assembled version of an operator
++   * applied without assembly (see `MatrixFreeTangentOperator`)
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] opts: options (`Preconditioner`, the wrapped preconditioner,
++   * and `UpdatePeriod`)
++   */
++  template <bool parallel>
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  makeAssembledOperatorPreconditioner(Context& ctx,
++                                      FiniteElementSpace<parallel>& fespace,
++                                      const Parameters& opts) {
++    if (!checkParameters(
++            ctx, opts,
++            std::vector<std::string>{"Preconditioner", "UpdatePeriod"})) {
++      return {};
++    }
++    const auto oprec = get<Parameters>(ctx, opts, "Preconditioner");
++    const auto operiod = get_if<int>(ctx, opts, "UpdatePeriod", 1);
++    if ((isInvalid(oprec)) || (isInvalid(operiod))) {
++      return {};
++    }
++    if (*operiod < 1) {
++      return ctx.registerErrorMessage(
++          "setLinearSolverPreconditioner: invalid update period of the "
++          "'AssembledOperator' preconditioner");
++    }
++    auto p = internals::generatePreconditioner<parallel>(ctx, fespace, *oprec);
++    if (p == nullptr) {
++      return ctx.registerErrorMessage(
++          "setLinearSolverPreconditioner: no preconditioner given to the "
++          "'AssembledOperator' preconditioner");
++    }
++    return std::make_unique<AssembledOperatorPreconditioner>(std::move(p),
++                                                             *operiod);
++  }  // end of makeAssembledOperatorPreconditioner
++
++}  // end of namespace mfem_mgis
++
++namespace mfem_mgis::internals {
++
++  template <bool parallel>
++  void declareMFEMLinearSolvers(LinearSolverFactory<parallel>& f) {
++    auto options = getIterativeSolverParametersList();
++    options.push_back("Preconditioner");
++    auto gmres_options = options;
++    gmres_options.push_back("KDim");
++    const auto krylov = [](std::vector<std::string> o, std::string d) {
++      return LinearSolverDescription{
++          .library = "MFEM",
++          .kind = LinearSolverKind::ITERATIVE,
++          .placement = LinearSolverPlacement::MFEM,
++          .preconditioners = AcceptedPreconditioners::ANY,
++          .options = std::move(o),
++          .description = std::move(d)};
++    };
++    const auto add = [&f]<typename SolverType>(const std::string& n,
++                                               LinearSolverDescription d) {
++      declare(f, n, d,
++              buildIterativeSolverGenerator<parallel, SolverType>(n, d));
++    };
++    add.template operator()<mfem::CGSolver>(
++        "CGSolver", krylov(options, "conjugate gradient of MFEM"));
++    add.template operator()<mfem::GMRESSolver>(
++        "GMRESSolver", krylov(gmres_options, "GMRES of MFEM"));
++    add.template operator()<mfem::FGMRESSolver>(
++        "FGMRESSolver", krylov(gmres_options, "flexible GMRES of MFEM"));
++    add.template operator()<mfem::BiCGSTABSolver>(
++        "BiCGSTABSolver", krylov(options, "BiCGSTAB of MFEM"));
++    add.template operator()<mfem::MINRESSolver>(
++        "MINRESSolver", krylov(options, "MINRES of MFEM"));
++    add.template operator()<mfem::SLISolver>(
++        "SLISolver", krylov(options, "stationary linear iterations of MFEM"));
++    if constexpr (!parallel) {
++#ifdef MFEM_USE_SUITESPARSE
++      declare(f, "UMFPackSolver",
++              LinearSolverDescription{
++                  .library = "SuiteSparse",
++                  .kind = LinearSolverKind::DIRECT,
++                  .placement = LinearSolverPlacement::HOST,
++                  .preconditioners = AcceptedPreconditioners::NONE,
++                  .options = {},
++                  .description = "UMFPACK direct solver of SuiteSparse"},
++              [](Context&, FiniteElementSpace<false>&, const Parameters&) {
++                return LinearSolverHandler{
++                    std::make_unique<mfem::UMFPackSolver>(),
++                    std::unique_ptr<LinearSolverPreconditioner>{}};
++              });
++#endif /* MFEM_USE_SUITESPARSE */
++    }
++  }  // end of declareMFEMLinearSolvers
++
++  template <bool parallel>
++  void declareMFEMPreconditioners(PreconditionerFactory<parallel>& f) {
++    const auto smoother = [](std::vector<std::string> o, std::string d) {
++      return LinearSolverDescription{
++          .library = "MFEM",
++          .kind = LinearSolverKind::PRECONDITIONER,
++          .placement = LinearSolverPlacement::MFEM,
++          .preconditioners = AcceptedPreconditioners::NONE,
++          .options = std::move(o),
++          .description = std::move(d)};
++    };
++    declare(f, "OperatorJacobiSmoother",
++            smoother({"Damping"}, "Jacobi smoother of MFEM"),
++            makeOperatorJacobiSmoother<parallel>);
++    declare(f, "OperatorChebyshevSmoother",
++            smoother({"Order", "NumberOfPowerIterations"},
++                     "Chebyshev smoother of MFEM"),
++            makeOperatorChebyshevSmoother<parallel>);
++    // a wrapper: the location of the wrapped preconditioner is checked
++    declare(f, "AssembledOperator",
++            LinearSolverDescription{
++                .library = "mfem-mgis",
++                .kind = LinearSolverKind::PRECONDITIONER,
++                .placement = std::nullopt,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = {"Preconditioner", "UpdatePeriod"},
++                .description =
++                    "preconditioner set up on the assembled version of an "
++                    "operator applied without assembly"},
++            makeAssembledOperatorPreconditioner<parallel>);
++  }  // end of declareMFEMPreconditioners
++
++#ifdef MFEM_USE_MPI
++  template void declareMFEMLinearSolvers<true>(LinearSolverFactory<true>&);
++  template void declareMFEMPreconditioners<true>(PreconditionerFactory<true>&);
++#endif /* MFEM_USE_MPI */
++  template void declareMFEMLinearSolvers<false>(LinearSolverFactory<false>&);
++  template void declareMFEMPreconditioners<false>(
++      PreconditionerFactory<false>&);
++
++}  // end of namespace mfem_mgis::internals
+diff --git a/src/MUMPSSolvers.cxx b/src/MUMPSSolvers.cxx
+index 47b7fcfc8e..9f2f7a6864 100644
+--- a/src/MUMPSSolvers.cxx
++++ b/src/MUMPSSolvers.cxx
+@@ -10,6 +10,12 @@
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
+ 
+ #include <utility>
++#include <memory>
++#include <string>
++#include <vector>
++#include "mfem/fem/pfespace.hpp"
++#include "MFEMMGIS/Parameters.hxx"
++#include "LinearSolverModules.hxx"
+ 
+ namespace mfem_mgis::internals {
+ 
+@@ -42,6 +48,66 @@ namespace mfem_mgis::internals {
+     return this->number_of_analyses;
+   }  // end of getNumberOfAnalyses
+ 
++  [[nodiscard]] static std::function<LinearSolverHandler(
++      Context&, FiniteElementSpace<true>&, const Parameters&)>
++  buildMUMPSSolverGenerator() {
++    return [](Context& ctx, FiniteElementSpace<true>& fespace,
++              const Parameters& params) -> LinearSolverHandler {
++      if (!checkParameters(
++              ctx, params,
++              std::vector<std::string>{"Symmetric", "PositiveDefinite",
++                                       "ReuseAnalysis"})) {
++        return {};
++      }
++      const auto oreuse_analysis =
++          get_if<bool>(ctx, params, "ReuseAnalysis", false);
++      if (isInvalid(oreuse_analysis)) {
++        return {};
++      }
++      auto s = std::unique_ptr<mfem::MUMPSSolver>{};
++      if (*oreuse_analysis) {
++        s = std::make_unique<internals::MUMPSSolverReusingAnalysis>(
++            fespace.GetComm());
++      } else {
++        s = std::make_unique<mfem::MUMPSSolver>(fespace.GetComm());
++      }
++      const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
++      if (isInvalid(osymmetric)) {
++        return {};
++      }
++      const auto opositive_definite =
++          get_if<bool>(ctx, params, "PositiveDefinite", false);
++      if (isInvalid(opositive_definite)) {
++        return {};
++      }
++      s->SetPrintLevel(1);
++      if (*osymmetric) {
++        if (*opositive_definite) {
++          s->SetMatrixSymType(
++              mfem::MUMPSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE);
++        } else {
++          s->SetMatrixSymType(mfem::MUMPSSolver::MatType::SYMMETRIC_INDEFINITE);
++        }
++      } else {
++        s->SetMatrixSymType(mfem::MUMPSSolver::MatType::UNSYMMETRIC);
++      }
++      return LinearSolverHandler{std::move(s),
++                                 std::unique_ptr<LinearSolverPreconditioner>{}};
++    };
++  }  // end of buildMUMPSSolverGenerator
++
++  void declareMUMPSLinearSolvers(LinearSolverFactory<true>& f) {
++    declare(f, "MUMPSSolver",
++            LinearSolverDescription{
++                .library = "MUMPS",
++                .kind = LinearSolverKind::DIRECT,
++                .placement = LinearSolverPlacement::HOST,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = {"Symmetric", "PositiveDefinite", "ReuseAnalysis"},
++                .description = "MUMPS parallel direct solver"},
++            buildMUMPSSolverGenerator());
++  }  // end of declareMUMPSLinearSolvers
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+diff --git a/src/PreconditionerFactory.cxx b/src/PreconditionerFactory.cxx
+new file mode 100644
+index 0000000000..839f0a6518
+--- /dev/null
++++ b/src/PreconditionerFactory.cxx
+@@ -0,0 +1,125 @@
++/*!
++ * \file   src/PreconditionerFactory.cxx
++ * \brief  This file implements the `PreconditionerFactory` class
++ * \date   15/10/2026
++ */
++
++#include <string>
++#include <utility>
++#include <exception>
++#include "mfem/config/config.hpp"
++#include "mfem/linalg/solvers.hpp"
++#include "mfem/fem/fespace.hpp"
++#ifdef MFEM_USE_MPI
++#include "mfem/fem/pfespace.hpp"
++#endif /* MFEM_USE_MPI */
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/PreconditionerFactory.hxx"
++#include "ExecutionSettings.hxx"
++#include "LinearSolverModules.hxx"
++
++namespace mfem_mgis {
++
++  template <bool parallel>
++  PreconditionerFactory<parallel>&
++  PreconditionerFactory<parallel>::getFactory() {
++    static PreconditionerFactory factory;
++    return factory;
++  }  // end of getFactory
++
++  template <bool parallel>
++  bool PreconditionerFactory<parallel>::add(Context& ctx,
++                                            std::string_view n,
++                                            LinearSolverDescription d,
++                                            Generator g) noexcept {
++    if (this->entries.find(n) != this->entries.end()) {
++      return ctx.registerErrorMessage(
++          "PreconditionerFactory::add: a preconditioner called '" +
++          std::string{n} + "' has already been declared");
++    }
++    this->entries.insert({std::string{n}, Entry{std::move(d), std::move(g)}});
++    return true;
++  }  // end of add
++
++  template <bool parallel>
++  std::unique_ptr<LinearSolverPreconditioner>
++  PreconditionerFactory<parallel>::generate(
++      Context& ctx,
++      std::string_view n,
++      FiniteElementSpace<parallel>& fespace,
++      const Parameters& opts) const {
++    const auto pe = this->entries.find(n);
++    if (pe == this->entries.end()) {
++#ifdef MFEM_USE_MPI
++      if constexpr (!parallel) {
++        if (PreconditionerFactory<true>::getFactory().getDescription(n) !=
++            nullptr) {
++          return ctx.registerErrorMessage(
++              "setLinearSolverPreconditioner: the preconditioner '" +
++              std::string{n} + "' is only available in parallel");
++        }
++      }
++#endif /* MFEM_USE_MPI */
++      const auto hint = internals::getUnavailableLibraryHint(n);
++      if (!hint.empty()) {
++        return ctx.registerErrorMessage(
++            "setLinearSolverPreconditioner: unsupported preconditioner '" +
++            std::string{n} + "': " + hint);
++      }
++      auto msg = "setLinearSolverPreconditioner: unsupported preconditioner '" +
++                 std::string{n} +
++                 "'. Here is the list of available "
++                 "preconditioners:";
++      for (const auto& e : this->entries) {
++        msg += " " + e.first;
++      }
++      return ctx.registerErrorMessage(msg);
++    }
++    const auto& e = pe->second;
++    if ((e.description.placement.has_value()) &&
++        (!internals::checkLinearSolverExecutionLocation(
++            ctx, n, *(e.description.placement)))) {
++      return {};
++    }
++    try {
++      return e.generator(ctx, fespace, opts);
++    } catch (std::exception& ex) {
++      return ctx.registerErrorMessage(
++          "PreconditionerFactory::generate: error while generating "
++          "preconditioner '" +
++          std::string{n} + "'\n" + ex.what());
++    }
++  }  // end of generate
++
++  template <bool parallel>
++  const LinearSolverDescription*
++  PreconditionerFactory<parallel>::getDescription(
++      std::string_view n) const noexcept {
++    const auto pe = this->entries.find(n);
++    return pe == this->entries.end() ? nullptr : &(pe->second.description);
++  }  // end of getDescription
++
++  template <bool parallel>
++  std::vector<std::string> PreconditionerFactory<parallel>::getNames() const {
++    auto names = std::vector<std::string>{};
++    names.reserve(this->entries.size());
++    for (const auto& e : this->entries) {
++      names.push_back(e.first);
++    }
++    return names;
++  }  // end of getNames
++
++  template <bool parallel>
++  PreconditionerFactory<parallel>::PreconditionerFactory() {
++    internals::declarePreconditioners(*this);
++  }  // end of PreconditionerFactory
++
++  template <bool parallel>
++  PreconditionerFactory<parallel>::~PreconditionerFactory() = default;
++
++#ifdef MFEM_USE_MPI
++  template struct PreconditionerFactory<true>;
++#endif /* MFEM_USE_MPI */
++  template struct PreconditionerFactory<false>;
++
++}  // end of namespace mfem_mgis
+diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
+index 65afdc22cd..25ef5f195c 100644
+--- a/src/SolverUtilities.cxx
++++ b/src/SolverUtilities.cxx
+@@ -19,7 +19,7 @@
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+-#include "AmgXSolvers.hxx"
++#include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
+ #include "MUMPSSolvers.hxx"
+ #include "CuDSSSolvers.hxx"
+ 
+@@ -116,27 +116,20 @@ namespace mfem_mgis {
+ #endif /* MFEM_USE_MPI */
+   }    // end of clearHypreErrors
+ 
++  LinearSolverConvergenceReport::~LinearSolverConvergenceReport() = default;
++
+   bool hasConverged(const LinearSolver& ls) noexcept {
+     if (const auto* isolver = dynamic_cast<const IterativeSolver*>(&ls);
+         isolver != nullptr) {
+       return isolver->GetConverged();
+     }
+-#ifdef MFEM_MGIS_HAVE_AMGX
+-    if (const auto* aptr = dynamic_cast<const internals::AmgXSolver*>(&ls);
+-        aptr != nullptr) {
+-      return aptr->hasConverged();
++    // solvers of the other libraries (for instance AmgX, or cuDSS which
++    // checks its solutions by their relative residuals)
++    if (const auto* const r =
++            dynamic_cast<const LinearSolverConvergenceReport*>(&ls);
++        r != nullptr) {
++      return r->hasConverged();
+     }
+-#endif /* MFEM_MGIS_HAVE_AMGX */
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+-    // cuDSS does not report the failures of the factorization: the
+-    // solutions are checked by their relative residuals (see
+-    // `CuDSSDirectSolver::hasSucceeded`)
+-    if (const auto* const cptr =
+-            dynamic_cast<const internals::CuDSSDirectSolver*>(&ls);
+-        cptr != nullptr) {
+-      return cptr->hasSucceeded();
+-    }
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+ #ifdef MFEM_USE_MPI
+     auto check_hypre_solver_convergence =
+         []<typename SolverType>(const SolverType* ptr) {
+@@ -170,12 +163,11 @@ namespace mfem_mgis {
+         isolver != nullptr) {
+       return isolver->GetNumIterations();
+     }
+-#ifdef MFEM_MGIS_HAVE_AMGX
+-    if (const auto* aptr = dynamic_cast<const internals::AmgXSolver*>(&ls);
+-        aptr != nullptr) {
+-      return aptr->getNumberOfIterations();
++    if (const auto* const r =
++            dynamic_cast<const LinearSolverConvergenceReport*>(&ls);
++        r != nullptr) {
++      return r->getNumberOfIterations();
+     }
+-#endif /* MFEM_MGIS_HAVE_AMGX */
+ #ifdef MFEM_USE_MPI
+     auto get_hypre_solver_iterations =
+         []<typename SolverType>(const SolverType* ptr) {
+-- 
+2.43.0
+

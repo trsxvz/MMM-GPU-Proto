@@ -15,6 +15,7 @@
 #include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/ExecutionSettings.hxx"
+#include "MFEMMGIS/LinearSolverDescription.hxx"
 
 namespace mfem_mgis::internals {
 
@@ -133,9 +134,10 @@ namespace mfem_mgis::internals {
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[in] n: name of the linear solver or of the preconditioner
+   * \param[in] p: where it computes (see `LinearSolverDescription`)
    */
   [[nodiscard]] bool checkLinearSolverExecutionLocation(
-      Context& ctx, std::string_view n) noexcept;
+      Context& ctx, std::string_view n, LinearSolverPlacement p) noexcept;
 
 }  // end of namespace mfem_mgis::internals
 

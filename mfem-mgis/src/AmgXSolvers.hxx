@@ -33,6 +33,7 @@
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/MFEMForward.hxx"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
 
 namespace mfem_mgis::internals {
 
@@ -91,7 +92,8 @@ namespace mfem_mgis::internals {
    * `src/CMakeLists.txt`), and a program exiting with a solver alive may
    * abort or hang (static objects of the two copies).
    */
-  struct AmgXSolver final : public mfem::Solver {
+  struct AmgXSolver final : public mfem::Solver,
+                            public LinearSolverConvergenceReport {
 #ifdef MFEM_USE_MPI
     /*!
      * \brief constructor
@@ -129,12 +131,13 @@ namespace mfem_mgis::internals {
      * \return the number of iterations of the last resolution of an
      * iterative solver, if a resolution was made
      */
-    [[nodiscard]] std::optional<int> getNumberOfIterations() const noexcept;
+    [[nodiscard]] std::optional<int> getNumberOfIterations()
+        const noexcept override;
     /*!
      * \return if the last resolution of an iterative solver succeeded
      * (status of AmgX), true for the other solvers
      */
-    [[nodiscard]] bool hasConverged() const noexcept;
+    [[nodiscard]] bool hasConverged() const noexcept override;
     //! \brief destructor
     ~AmgXSolver() override;
     // the handles of AmgX are owned by the solver

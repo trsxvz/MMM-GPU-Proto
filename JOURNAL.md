@@ -4815,3 +4815,21 @@ formula as MTest). All the others give the Newton solution to within
   all the stress measures and tangent operators, initialize functions and
   post-processings. TFEL was right in this hypothesis (never tested
   before).
+
+### 2026-10-15, linear solvers of the major libraries: phase 0
+
+- Plan [docs/plan-solver-libraries.md](docs/plan-solver-libraries.md):
+  the whole coverage of what MFEM 4.10 wraps (MFEM, hypre, PETSc, Ginkgo,
+  MUMPS, SuperLU_DIST, STRUMPACK, cuDSS, SuiteSparse, oneMKL, AmgX,
+  KINSOL), plus MAGMA and Trilinos, PaStiX through PETSc.
+- Phase 0 in mfem-mgis: each linear solver and preconditioner is
+  registered with a description (library, kind, location, accepted
+  preconditioners, options); a factory of preconditioners replaces the
+  chain of tests on their names; the location is checked from the
+  description instead of the name; one module per library (MFEM, hypre,
+  MUMPS, cuDSS, AmgX); the other libraries report their convergence
+  through an interface. Moved without change of behaviour (independent
+  review); placements locked by the generic test, which solves the
+  Laplace equation with every entry, in sequential, parallel and on the
+  GPU. Suites: 228 (GPU MFEM, on the host), 233 (CPU double), 232 (CPU
+  float); Doxygen and Sphinx without warnings.

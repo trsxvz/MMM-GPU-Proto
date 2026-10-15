@@ -9,6 +9,14 @@
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
 
 #include <utility>
+#include <memory>
+#include <string>
+#include <vector>
+#include "mfem/general/device.hpp"
+#include "mfem/fem/pfespace.hpp"
+#include "MFEMMGIS/Parameters.hxx"
+#include "ExecutionSettings.hxx"
+#include "LinearSolverModules.hxx"
 #include <cuda_runtime_api.h>
 #include "mfem/general/error.hpp"
 
@@ -137,6 +145,14 @@ namespace mfem_mgis::internals {
     return this->succeeded;
   }  // end of hasSucceeded
 
+  bool CuDSSDirectSolver::hasConverged() const noexcept {
+    return this->hasSucceeded();
+  }  // end of hasConverged
+
+  std::optional<int> CuDSSDirectSolver::getNumberOfIterations() const noexcept {
+    return {};
+  }  // end of getNumberOfIterations
+
   bool CuDSSDirectSolver::reusesAnalysis() const noexcept {
     return this->reuse_analysis;
   }  // end of reusesAnalysis
@@ -144,6 +160,72 @@ namespace mfem_mgis::internals {
   size_type CuDSSDirectSolver::getNumberOfAnalyses() const noexcept {
     return this->number_of_analyses;
   }  // end of getNumberOfAnalyses
+
+  [[nodiscard]] static std::function<LinearSolverHandler(
+      Context&, FiniteElementSpace<true>&, const Parameters&)>
+  buildCuDSSSolverGenerator() {
+    return [](Context& ctx, FiniteElementSpace<true>& fespace,
+              const Parameters& params) -> LinearSolverHandler {
+      if (!checkParameters(
+              ctx, params,
+              std::vector<std::string>{"Symmetric", "PositiveDefinite",
+                                       "ReuseAnalysis"})) {
+        return {};
+      }
+      // cuDSS reads the matrices and the vectors on the GPU
+      if (!mfem::Device::Allows(mfem::Backend::CUDA_MASK)) {
+        return ctx.registerErrorMessage(
+            "CuDSSSolver: the cuDSS solver requires a device on a CUDA GPU "
+            "(option --device cuda of mfem_mgis::initialize)");
+      }
+      // when hypre computes on the host, MFEM gives cuDSS the arrays of the
+      // matrices stored on the host through a copy between device arrays
+      if ((!isHypreUsingGPU()) &&
+          (!internals::canGPUReadPageableHostMemory())) {
+        return ctx.registerErrorMessage(
+            "CuDSSSolver: when hypre computes on the host (option "
+            "--hypre-on-host of mfem_mgis::initialize, or hypre built "
+            "without GPU support), the cuDSS solver requires a GPU reading "
+            "the pageable memory of the host (heterogeneous memory "
+            "management)");
+      }
+      const auto osymmetric = get_if<bool>(ctx, params, "Symmetric", false);
+      const auto opositive_definite =
+          get_if<bool>(ctx, params, "PositiveDefinite", false);
+      const auto oreuse_analysis =
+          get_if<bool>(ctx, params, "ReuseAnalysis", false);
+      if (isInvalid(osymmetric) || isInvalid(opositive_definite) ||
+          isInvalid(oreuse_analysis)) {
+        return {};
+      }
+      // as MUMPS, the symmetric modes read the lower triangle of the
+      // matrices
+      auto settings = internals::CuDSSSolverSettings{};
+      if (*osymmetric) {
+        settings.matrix_type =
+            *opositive_definite
+                ? mfem::CuDSSSolver::MatType::SYMMETRIC_POSITIVE_DEFINITE
+                : mfem::CuDSSSolver::MatType::SYMMETRIC_INDEFINITE;
+        settings.view = mfem::CuDSSSolver::MatViewType::LOWER;
+      }
+      auto s = std::make_unique<internals::CuDSSDirectSolver>(
+          fespace.GetComm(), settings, *oreuse_analysis);
+      return LinearSolverHandler{std::move(s),
+                                 std::unique_ptr<LinearSolverPreconditioner>{}};
+    };
+  }  // end of buildCuDSSSolverGenerator
+
+  void declareCuDSSLinearSolvers(LinearSolverFactory<true>& f) {
+    declare(f, "CuDSSSolver",
+            LinearSolverDescription{
+                .library = "cuDSS",
+                .kind = LinearSolverKind::DIRECT,
+                .placement = LinearSolverPlacement::DEVICE,
+                .preconditioners = AcceptedPreconditioners::NONE,
+                .options = {"Symmetric", "PositiveDefinite", "ReuseAnalysis"},
+                .description = "cuDSS direct solver of NVIDIA (CUDA GPU)"},
+            buildCuDSSSolverGenerator());
+  }  // end of declareCuDSSLinearSolvers
 
 }  // end of namespace mfem_mgis::internals
 
