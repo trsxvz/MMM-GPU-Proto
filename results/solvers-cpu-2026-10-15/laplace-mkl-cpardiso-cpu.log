@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=laplace/mkl-cpardiso/cpu problem=laplace unknowns=274625 processes=8 solver=MKLClusterSparseSolver setup=5.41752 first=0.208434 solve=0.206245 resetup=5.41029 refirst=0.208284 iterations=-1 residual=4.74602e-14 residual2=4.71067e-14 converged=1

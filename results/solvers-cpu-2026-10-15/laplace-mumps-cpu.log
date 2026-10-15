@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=laplace/mumps/cpu problem=laplace unknowns=274625 processes=8 solver=MUMPSSolver setup=5.55785 first=0.0989939 solve=0.0979398 resetup=5.55566 refirst=0.0996841 iterations=-1 residual=2.06126e-13 residual2=2.06044e-13 converged=1

@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=elasticity/petsc-cg-gamg/cpu problem=elasticity unknowns=56355 processes=8 solver=PETScLinearSolver setup=0.453552 first=0.551646 solve=0.199522 resetup=0.012972 refirst=0.493049 iterations=177 residual=3.53794e-06 residual2=3.53794e-06 converged=1

@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=heterogeneous/superlu/cpu problem=elasticity unknowns=56355 processes=8 solver=SuperLUSolver setup=0.00493004 first=1.70192 solve=0.0453041 resetup=0.00452837 refirst=1.04553 iterations=-1 residual=1.05483e-10 residual2=1.03879e-10 converged=1

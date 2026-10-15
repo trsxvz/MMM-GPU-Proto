@@ -1,0 +1,5 @@
+date: jeu. 15 oct. 2026 18:08:34 CEST
+build: build/ginkgo/mfem-mgis-solvers
+size: 16
+mfem-mgis: 8d829b4c26-dirty
+NVIDIA GeForce RTX 5080, 595.99.02

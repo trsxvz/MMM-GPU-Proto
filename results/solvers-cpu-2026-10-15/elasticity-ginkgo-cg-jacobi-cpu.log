@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=elasticity/ginkgo-cg-jacobi/cpu problem=elasticity unknowns=56355 processes=8 solver=GinkgoCG setup=0.0115089 first=0.372126 solve=0.368064 resetup=0.00924081 refirst=0.364805 iterations=623 residual=1.00013e-08 residual2=1.00013e-08 converged=1

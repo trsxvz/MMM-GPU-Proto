@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=laplace/cudss/gpu problem=laplace unknowns=274625 processes=1 solver=CuDSSSolver setup=3.20147 first=0.0353193 solve=0.0163386 resetup=3.17537 refirst=0.0154758 iterations=-1 residual=1.24811e-13 residual2=1.25305e-13 converged=1

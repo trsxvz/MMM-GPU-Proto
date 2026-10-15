@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=laplace/superlu/cpu problem=laplace unknowns=274625 processes=8 solver=SuperLUSolver setup=0.0112331 first=8.22051 solve=0.292923 resetup=0.0107546 refirst=7.7122 iterations=-1 residual=5.59652e-14 residual2=5.59837e-14 converged=1

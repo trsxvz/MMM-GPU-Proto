@@ -1,0 +1,3 @@
+Warning: program compiled against libxml 213 using older 209
+WARNING: MPI_THREAD_MULTIPLE is required for SLATE
+label=laplace/strumpack/cpu problem=laplace unknowns=274625 processes=8 solver=STRUMPACKSolver setup=0.0171365 first=5.79459 solve=0.153874 resetup=0.0175736 refirst=5.33497 iterations=1 residual=2.08399e-13 residual2=2.08275e-13 converged=1

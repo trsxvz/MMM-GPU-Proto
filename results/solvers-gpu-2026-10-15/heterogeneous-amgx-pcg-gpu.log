@@ -1,0 +1,5 @@
+Warning: program compiled against libxml 213 using older 209
+AMGX version 2.5.0
+Built on Oct 10 2026, 13:38:20
+Compiled with CUDA Runtime 13.0, using CUDA driver 13.2
+label=heterogeneous/amgx-pcg/gpu problem=elasticity unknowns=56355 processes=1 solver=AmgXPCG setup=0.0961121 first=0.514461 solve=0.509554 resetup=0.0890981 refirst=0.492737 iterations=457 residual=9.24371e-09 residual2=9.24371e-09 converged=1

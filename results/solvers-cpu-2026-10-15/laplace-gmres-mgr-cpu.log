@@ -1,0 +1,16 @@
+Warning: program compiled against libxml 213 using older 209
+error: the multigrid reduction of hypre requires at least two components of the unknowns
+error: the multigrid reduction of hypre requires at least two components of the unknowns
+error: the multigrid reduction of hypre requires at least two components of the unknowns
+error: the multigrid reduction of hypre requires at least two components of the unknowns
+error: the multigrid reduction of hypre requires at least two components of the unknowns
+error: the multigrid reduction of hypre requires at least two components of the unknowns
+error: the multigrid reduction of hypre requires at least two components of the unknowns
+error: the multigrid reduction of hypre requires at least two components of the unknowns
+--------------------------------------------------------------------------
+prterun detected that one or more processes exited with non-zero status,
+thus causing the job to be terminated. The first process to do so was:
+
+   Process name: [prterun-t-MS-7E47-4015693@1,0]
+   Exit code:    1
+--------------------------------------------------------------------------

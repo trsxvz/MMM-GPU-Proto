@@ -1,0 +1,7 @@
+Warning: program compiled against libxml 213 using older 209
+MapSMtoCores for SM 12.0is undefined. The default value of 128 Cores/SM is used.
+No convergence!
+No convergence!
+No convergence!
+No convergence!
+label=elasticity/ginkgo-cg-multigrid/gpu problem=elasticity unknowns=56355 processes=1 solver=GinkgoCG setup=0.127366 first=27.9414 solve=26.8715 resetup=0.0580627 refirst=28.449 iterations=2000 residual=146.541 residual2=135.545 converged=0

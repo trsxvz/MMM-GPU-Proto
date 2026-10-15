@@ -1,0 +1,5 @@
+Warning: program compiled against libxml 213 using older 209
+AMGX version 2.5.0
+Built on Oct 10 2026, 13:38:20
+Compiled with CUDA Runtime 13.0, using CUDA driver 13.2
+label=laplace/cg-amgx/gpu problem=laplace unknowns=274625 processes=1 solver=CGSolver setup=0.133826 first=0.0227677 solve=0.0182577 resetup=0.108562 refirst=0.0181831 iterations=11 residual=1.48034e-07 residual2=1.48034e-07 converged=1

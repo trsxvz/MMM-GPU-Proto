@@ -1,0 +1,1 @@
+laplace/gmres-mgr/gpu: exit 1: Warning: program compiled against libxml 213 using older 209 error: the multigrid reduction of hypre requires at least two components of the unknowns 

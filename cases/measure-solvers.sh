@@ -44,15 +44,17 @@ export OMPI_MCA_btl=self,vader
 export OMP_NUM_THREADS=1
 unset OMP_PROC_BIND OMP_PLACES
 
-# configurations: label|placement|solver|parameters. The placement is
-# `any` (CPU and GPU), `cpu` or `gpu`. The tolerances are relative (1e-8),
-# with at most 2000 iterations.
+# configurations: label|placement|solver|parameters[|arguments]. The
+# placement is `any` (CPU and GPU), `cpu` or `gpu`; the optional arguments
+# are given to the benchmark (for instance `-bv`, unknowns ordered by vector
+# dimension, which the elasticity options of BoomerAMG require). The
+# tolerances are relative (1e-8), with at most 2000 iterations.
 it='RelativeTolerance=1e-8,AbsoluteTolerance=0.,MaximumNumberOfIterations=2000'
 configurations=(
   # Krylov solvers of MFEM and hypre, preconditioners of hypre
   "cg-jacobi|any|CGSolver|{$it,Preconditioner={Name=OperatorJacobiSmoother}}"
   "cg-boomeramg|any|CGSolver|{$it,Preconditioner={Name=HypreBoomerAMG}}"
-  "cg-boomeramg-elasticity|any|CGSolver|{$it,Preconditioner={Name=HypreBoomerAMG,Options={Strategy=Elasticity}}}"
+  "cg-boomeramg-elasticity|any|CGSolver|{$it,Preconditioner={Name=HypreBoomerAMG,Options={Strategy=Elasticity}}}|-bv"
   "pcg-boomeramg|any|HyprePCG|{VerbosityLevel=0,Tolerance=1e-8,MaximumNumberOfIterations=2000,Preconditioner={Name=HypreBoomerAMG}}"
   "gmres-mgr|any|GMRESSolver|{$it,KDim=50,Preconditioner={Name=HypreMGR,Options={RelaxationType=2}}}"
   "cg-nodal-block-jacobi|any|CGSolver|{$it,Preconditioner={Name=NodalBlockJacobi}}"
@@ -97,12 +99,12 @@ problem_arguments() {
   echo "size: $size"
   echo "mfem-mgis: $(git -C "$P/scratch/ginkgo/mfem-mgis" describe --always --dirty 2>/dev/null)"
   nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null
-  lscpu | /usr/bin/grep "Model name"
+  LC_ALL=C lscpu | /usr/bin/grep "Model name"
 } > "$out/context.txt"
 
 for problem in $problems; do
   for configuration in "${configurations[@]}"; do
-    IFS='|' read -r label placement solver parameters <<< "$configuration"
+    IFS='|' read -r label placement solver parameters arguments <<< "$configuration"
     echo "$label" | /usr/bin/grep -Eq "$filter" || continue
     for target in $targets; do
       if [ "$placement" != any ] && [ "$placement" != "$target" ]; then
@@ -113,15 +115,17 @@ for problem in $problems; do
           -x LD_LIBRARY_PATH -x OMPI_MCA_btl -x OMP_NUM_THREADS)
         device=()
       else
-        launcher=(mpirun -np 1 -x LD_LIBRARY_PATH -x OMPI_MCA_btl
-          -x OMP_NUM_THREADS)
+        # one process, on the cores 0 and 1 (the other cores may be used by
+        # timed computations of other work)
+        launcher=(taskset -c 0,1 mpirun -np 1 --bind-to none
+          -x LD_LIBRARY_PATH -x OMPI_MCA_btl -x OMP_NUM_THREADS)
         device=(--device cuda)
       fi
       log=$out/$problem-$label-$target.log
       # shellcheck disable=SC2046
       timeout 1800 "${launcher[@]}" "$exe" $(problem_arguments "$problem") \
-        -s "$solver" -sp "$parameters" -lb "$problem/$label/$target" \
-        "${device[@]}" > "$log" 2>&1
+        ${arguments:-} -s "$solver" -sp "$parameters" \
+        -lb "$problem/$label/$target" "${device[@]}" > "$log" 2>&1
       status=$?
       if /usr/bin/grep -q "^label=" "$log"; then
         /usr/bin/grep "^label=" "$log" | sed "s/$/ target=$target status=$status/" >> "$out/runs.txt"

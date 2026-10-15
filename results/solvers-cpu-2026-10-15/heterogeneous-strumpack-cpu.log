@@ -1,0 +1,3 @@
+Warning: program compiled against libxml 213 using older 209
+WARNING: MPI_THREAD_MULTIPLE is required for SLATE
+label=heterogeneous/strumpack/cpu problem=elasticity unknowns=56355 processes=8 solver=STRUMPACKSolver setup=0.00713979 first=1.22367 solve=0.0431665 resetup=0.00757605 refirst=0.792348 iterations=1 residual=2.43442e-10 residual2=2.40947e-10 converged=1

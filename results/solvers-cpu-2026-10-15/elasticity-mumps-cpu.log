@@ -1,0 +1,21 @@
+Warning: program compiled against libxml 213 using older 209
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               0
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               0
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               0
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=          274077
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=          274077
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               0
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               0
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               0
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               0
+Re-running MUMPS factorization with memory relaxation 40
+label=elasticity/mumps/cpu problem=elasticity unknowns=56355 processes=8 solver=MUMPSSolver setup=1.19014 first=0.0261309 solve=0.0207562 resetup=0.571385 refirst=0.0188764 iterations=-1 residual=7.09508e-11 residual2=7.36907e-11 converged=1

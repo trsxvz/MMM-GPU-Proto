@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=heterogeneous/gmres-mgr/cpu problem=elasticity unknowns=56355 processes=8 solver=GMRESSolver setup=4.191e-05 first=11.5973 solve=11.6442 resetup=0.000742772 refirst=12.1091 iterations=1147 residual=1.72558e-05 residual2=1.72558e-05 converged=1

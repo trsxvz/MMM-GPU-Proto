@@ -1,0 +1,3 @@
+Warning: program compiled against libxml 213 using older 209
+MapSMtoCores for SM 12.0is undefined. The default value of 128 Cores/SM is used.
+label=heterogeneous/ginkgo-cg-jacobi/gpu problem=elasticity unknowns=56355 processes=1 solver=GinkgoCG setup=0.0312628 first=0.318452 solve=0.292868 resetup=0.0111278 refirst=0.294153 iterations=1096 residual=9.21383e-09 residual2=9.21383e-09 converged=1

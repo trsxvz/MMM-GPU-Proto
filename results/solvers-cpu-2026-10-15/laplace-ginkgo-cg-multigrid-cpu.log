@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=laplace/ginkgo-cg-multigrid/cpu problem=laplace unknowns=274625 processes=8 solver=GinkgoCG setup=0.168577 first=0.321203 solve=0.319555 resetup=0.169575 refirst=0.320725 iterations=38 residual=5.88893e-09 residual2=5.88893e-09 converged=1
