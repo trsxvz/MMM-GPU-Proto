@@ -164,6 +164,31 @@ Each entry is described by a configuration of Ginkgo, completed by its
 :cxx:`GinkgoPreconditioner` entries accept any configuration of Ginkgo.
 See :ref:`ginkgo_linear_solvers`.
 
+Solvers and preconditioners of hypre
+------------------------------------
+
+The BiCGSTAB, COGMRES and LGMRES Krylov solvers of hypre, its hybrid
+solver (diagonal scaling, then BoomerAMG when the convergence is slow),
+its factorized sparse approximate inverse (:cxx:`HypreFSAI`) and its
+smoothers (:cxx:`HypreSmoother`: Jacobi, l1-Jacobi, Gauss-Seidel,
+polynomial smoothers) are available. The BoomerAMG preconditioner has new
+options: truncation of the interpolation, aggressive coarsening, size of
+the coarsest level, relaxation weight, order of the Chebyshev smoothers
+and transposed interpolations kept. The values of the
+:cxx:`StrengthThreshold` option of BoomerAMG out of :math:`[0, 1]` and the
+Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused.
+See :ref:`linear_solvers`.
+
+Direct solvers of SuperLU_DIST and STRUMPACK
+--------------------------------------------
+
+The direct solver of SuperLU_DIST (:cxx:`SuperLUSolver`) and the direct
+solvers of STRUMPACK, in double and in mixed precision, with optional
+compression of the frontal matrices (:cxx:`STRUMPACKSolver`,
+:cxx:`STRUMPACKMixedPrecisionSolver`, :cxx:`STRUMPACKPreconditioner`),
+are available when |MFEM| is built with these libraries. See
+:ref:`strumpack_linear_solvers`.
+
 Prediction of the solution
 --------------------------
 

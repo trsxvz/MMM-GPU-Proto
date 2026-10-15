@@ -88,6 +88,25 @@ namespace mfem_mgis::internals {
    */
   void declareCuDSSLinearSolvers(LinearSolverFactory<true>& f);
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)
+  /*!
+   * \brief register the direct solver of SuperLU_DIST
+   * \param[in, out] f: factory
+   */
+  void declareSuperLULinearSolvers(LinearSolverFactory<true>& f);
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU) */
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK)
+  /*!
+   * \brief register the direct solvers of STRUMPACK
+   * \param[in, out] f: factory
+   */
+  void declareSTRUMPACKLinearSolvers(LinearSolverFactory<true>& f);
+  /*!
+   * \brief register the preconditioner of STRUMPACK
+   * \param[in, out] f: factory
+   */
+  void declareSTRUMPACKPreconditioners(PreconditionerFactory<true>& f);
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK) */
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
   /*!
    * \brief register the Krylov solver of PETSc

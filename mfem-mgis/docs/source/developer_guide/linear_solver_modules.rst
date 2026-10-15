@@ -17,8 +17,11 @@ The existing modules are the ones of MFEM and mfem-mgis
 (:file:`src/HypreLinearSolvers.cxx`), MUMPS
 (:file:`src/MUMPSSolvers.cxx`), cuDSS (:file:`src/CuDSSSolvers.cxx`),
 AmgX (:file:`src/AmgXSolvers.cxx`), PETSc
-(:file:`src/PETScLinearSolvers.cxx`) and Ginkgo
-(:file:`src/GinkgoLinearSolvers.cxx`).
+(:file:`src/PETScLinearSolvers.cxx`), Ginkgo
+(:file:`src/GinkgoLinearSolvers.cxx`), SuperLU_DIST
+(:file:`src/SuperLUSolvers.cxx`) and STRUMPACK
+(:file:`src/STRUMPACKSolvers.cxx`). The solvers of hypre which MFEM does
+not wrap are implemented in :file:`src/HypreSolvers.cxx`.
 
 Adding a library consists of:
 

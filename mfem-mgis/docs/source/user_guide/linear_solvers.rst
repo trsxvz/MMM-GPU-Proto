@@ -68,14 +68,30 @@ The solvers marked as parallel are only available in parallel.
      - :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
        :cxx:`Preconditioner`, :cxx:`KDim` (GMRES solvers)
-   * - :cxx:`HyprePCG`, :cxx:`HypreGMRES`, :cxx:`HypreFGMRES` (parallel)
+   * - :cxx:`HyprePCG`, :cxx:`HypreGMRES`, :cxx:`HypreFGMRES`,
+       :cxx:`HypreBiCGSTAB`, :cxx:`HypreCOGMRES`, :cxx:`HypreLGMRES`
+       (parallel)
+     - hypre
+     - iterative
+     - as hypre (host for :cxx:`HypreCOGMRES`)
+     - hypre (applied by hypre, i.e. not :cxx:`HypreSmoother`)
+     - :cxx:`VerbosityLevel`, :cxx:`Tolerance`, :cxx:`AbsoluteTolerance`,
+       :cxx:`MaximumNumberOfIterations`, :cxx:`Preconditioner`,
+       :cxx:`KDim` (GMRES solvers, 50 by default)
+   * - :cxx:`HypreHybrid` (parallel)
      - hypre
      - iterative
      - as hypre
-     - hypre
-     - :cxx:`VerbosityLevel`, :cxx:`Tolerance`, :cxx:`AbsoluteTolerance`,
-       :cxx:`MaximumNumberOfIterations`, :cxx:`Preconditioner`,
-       :cxx:`KDim` (GMRES solvers)
+     - none
+     - :cxx:`VerbosityLevel`, :cxx:`Tolerance` (relative, 1e-6 by
+       default), :cxx:`MaximumNumberOfIterations` (of each phase, 1000 by
+       default), :cxx:`SolverType` (:cxx:`PCG`, by default, :cxx:`GMRES`,
+       :cxx:`BiCGSTAB`), :cxx:`KDim` (50 by default),
+       :cxx:`ConvergenceRate` (0.9 by default), options of BoomerAMG
+       (:cxx:`StrengthThreshold`, :cxx:`CoarseningType`,
+       :cxx:`InterpolationType`, :cxx:`RelaxationType`,
+       :cxx:`AggressiveCoarseningLevels`, :cxx:`MaximumNumberOfLevels`); no
+       absolute tolerance
    * - :cxx:`HypreBoomerAMG` (parallel)
      - hypre
      - approximate
@@ -88,6 +104,30 @@ The solvers marked as parallel are only available in parallel.
      - host
      - none
      - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`
+   * - :cxx:`SuperLUSolver` (parallel)
+     - SuperLU_DIST
+     - direct
+     - host
+     - none
+     - :cxx:`ReuseAnalysis`, :cxx:`ColumnPermutation` (:cxx:`Natural`,
+       :cxx:`MMD_ATA`, :cxx:`MMD_AT_PLUS_A`, :cxx:`COLAMD`,
+       :cxx:`METIS_AT_PLUS_A`, :cxx:`ParMETIS`), :cxx:`RowPermutation`
+       (:cxx:`None`, :cxx:`LargeDiag_MC64`, :cxx:`LargeDiag_HWPM`),
+       :cxx:`IterativeRefinement` (:cxx:`None`, :cxx:`Single`,
+       :cxx:`Double`, :cxx:`Extra`), :cxx:`Equilibrate`,
+       :cxx:`ReplaceTinyPivot`, :cxx:`SymmetricPattern`,
+       :cxx:`ParallelSymbolicFactorization`, :cxx:`NumberOfLookAheads`,
+       :cxx:`DeviceOffload`, :cxx:`VerbosityLevel`
+   * - :cxx:`STRUMPACKSolver`, :cxx:`STRUMPACKMixedPrecisionSolver`
+       (parallel)
+     - STRUMPACK
+     - direct
+     - host
+     - none
+     - :cxx:`Options` (see :ref:`strumpack_linear_solvers`),
+       :cxx:`ReuseAnalysis`, :cxx:`VerbosityLevel`,
+       :cxx:`RelativeTolerance`, :cxx:`AbsoluteTolerance`,
+       :cxx:`MaximumNumberOfIterations`
    * - :cxx:`CuDSSSolver` (parallel)
      - cuDSS
      - direct
@@ -167,7 +207,11 @@ Preconditioners
        :cxx:`AggressiveCoarseningLevels`, :cxx:`InterpolationType`,
        :cxx:`RelaxationType`, :cxx:`RelaxationSweeps`, :cxx:`CycleType`,
        :cxx:`NumberOfCycles`, :cxx:`MaximumNumberOfLevels`,
-       :cxx:`VerbosityLevel`
+       :cxx:`TruncationFactor`, :cxx:`MaximumElementsPerRow`,
+       :cxx:`AggressiveInterpolationType`, :cxx:`NumberOfPaths`,
+       :cxx:`MaximumCoarseSize`, :cxx:`MinimumCoarseSize`,
+       :cxx:`RelaxationWeight`, :cxx:`ChebyshevOrder`,
+       :cxx:`KeepTranspose`, :cxx:`VerbosityLevel`
    * - :cxx:`HypreILU` (parallel)
      - hypre
      - as hypre
@@ -176,6 +220,28 @@ Preconditioners
      - hypre
      - as hypre
      - :cxx:`VerbosityLevel`
+   * - :cxx:`HypreSmoother` (parallel)
+     - hypre
+     - as hypre
+     - :cxx:`Type` (:cxx:`Jacobi`, :cxx:`l1Jacobi`, :cxx:`l1GS`,
+       :cxx:`l1GStr`, :cxx:`lumpedJacobi`, :cxx:`GS`, :cxx:`OPFS`,
+       :cxx:`Chebyshev`, :cxx:`Taubin`, :cxx:`FIR`),
+       :cxx:`RelaxationSweeps`, :cxx:`RelaxationWeight`, :cxx:`Omega`,
+       :cxx:`PolynomialOrder`, :cxx:`PolynomialFraction`,
+       :cxx:`EigenvalueEstimationIterations` (10 by default, 0 selecting
+       the estimate of hypre), :cxx:`TaubinLambda`, :cxx:`TaubinMu`,
+       :cxx:`TaubinIterations`, :cxx:`Window`; applied by MFEM, it can't
+       precondition the Krylov solvers of hypre; the lumped Jacobi smoother
+       divides by the sums of the rows, which vanish for a stiffness
+       matrix; the :cxx:`OPFS`, :cxx:`Taubin`, :cxx:`FIR` and
+       :cxx:`lumpedJacobi` smoothers only compute on the host
+   * - :cxx:`HypreFSAI` (parallel)
+     - hypre
+     - as hypre
+     - :cxx:`AlgorithmType`, :cxx:`LocalSolveType`, :cxx:`MaximumSteps`,
+       :cxx:`MaximumStepSize`, :cxx:`MaximumNonZerosPerRow`,
+       :cxx:`NumberOfLevels`, :cxx:`Threshold`, :cxx:`KapTolerance`,
+       :cxx:`EigenvalueEstimationIterations`, :cxx:`VerbosityLevel`
    * - :cxx:`HypreEuclid`, :cxx:`HypreParaSails` (parallel)
      - hypre
      - host
@@ -195,6 +261,11 @@ Preconditioners
      - PETSc
      - host
      - :cxx:`Options` (see :ref:`petsc_linear_solvers`)
+   * - :cxx:`STRUMPACKPreconditioner` (parallel)
+     - STRUMPACK
+     - host
+     - :cxx:`Options` (see :ref:`strumpack_linear_solvers`),
+       :cxx:`ReuseAnalysis`, :cxx:`VerbosityLevel`
 
 The libraries which are not available (MFEM built without them, or
 mfem-mgis built without AmgX) register nothing.
@@ -277,6 +348,65 @@ by the program itself. The command line is not given to PETSc: the
 options of the solvers are only given by their :cxx:`Options` parameter.
 The non linear solver of PETSc, selected by the :cxx:`--use-petsc`
 command line option, is not related to these solvers.
+
+.. _strumpack_linear_solvers:
+
+Direct solvers of SuperLU_DIST and STRUMPACK
+============================================
+
+The matrices of hypre are copied to the formats of SuperLU_DIST and
+STRUMPACK, which factorize them on the host (SuperLU_DIST may offload
+parts of the factorization to the GPU, see :cxx:`DeviceOffload`).
+
+The :cxx:`ReuseAnalysis` option of :cxx:`SuperLUSolver` keeps the column
+permutation of the previous factorization for the next operators, which
+must have the same sparsity pattern (as the successive operators of a
+Newton solver); the solver is built again when the size of the operator
+changes. The parallel symbolic factorization of SuperLU_DIST, selected by
+the :cxx:`ParallelSymbolicFactorization` option or by the :cxx:`ParMETIS`
+column permutation (unless the :cxx:`ParallelSymbolicFactorization` option
+is false), requires at least two processes and can't be combined with the
+reuse of the analysis.
+
+The options of STRUMPACK are given by the :cxx:`Options` parameter, by
+their names on the command line of STRUMPACK without the leading dashes,
+for instance:
+
+.. code-block:: cpp
+
+   problem.setLinearSolver(
+       ctx, "STRUMPACKSolver",
+       {{"RelativeTolerance", 1e-10},
+        {"Options", Parameters{{"sp_compression", "blr"},
+                               {"blr_rel_tol", 1e-2},
+                               {"sp_Krylov_solver", "pgmres"}}}}) |
+       or_die;
+
+The :cxx:`sp_compression` option compresses the frontal matrices (block
+low-rank, HSS, HODLR, lossy compression), the factorization being then
+approximate and used as the preconditioner of a Krylov solver of STRUMPACK
+(:cxx:`sp_Krylov_solver`, whose tolerances are given by the options of
+mfem-mgis). :cxx:`STRUMPACKMixedPrecisionSolver` factorizes in single
+precision and refines the solution in double precision (up to the relative
+tolerance of STRUMPACK, 1e-6, unless :cxx:`RelativeTolerance` is given);
+STRUMPACK refuses a Krylov solver without preconditioner as its outer
+solver. The :cxx:`STRUMPACKPreconditioner` preconditioner applies an
+approximate factorization once (block low-rank compression by default) and
+may be used by the Krylov solvers of MFEM. The :cxx:`ReuseAnalysis` option
+keeps the reordering of the matrix for the next operators of the same
+sparsity pattern; the solver is built again when the size of the operator
+changes.
+
+An option without value (a flag) is given by an empty string or by the
+boolean :cxx:`true`, the boolean :cxx:`false` giving nothing. The options
+unknown to STRUMPACK, misspelled ones included, are ignored without
+message. The :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
+:cxx:`AbsoluteTolerance` and :cxx:`MaximumNumberOfIterations` options of
+mfem-mgis are applied after the :cxx:`Options` parameter, and override the
+:cxx:`sp_verbose`, :cxx:`sp_rel_tol`, :cxx:`sp_abs_tol` and
+:cxx:`sp_maxit` options of STRUMPACK. STRUMPACK reports a success when its
+Krylov solver or its iterative refinement stops at the maximum number of
+iterations: mfem-mgis reports such a resolution as not converged.
 
 .. _ginkgo_linear_solvers:
 

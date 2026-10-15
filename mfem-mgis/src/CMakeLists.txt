@@ -57,7 +57,10 @@ list(APPEND MFEMMGIS_SOURCES
   LinearSolverModules.cxx
   MFEMLinearSolvers.cxx
   HypreLinearSolvers.cxx
+  HypreSolvers.cxx
   PETScLinearSolvers.cxx
+  SuperLUSolvers.cxx
+  STRUMPACKSolvers.cxx
   GinkgoLinearSolvers.cxx
   AmgXSolvers.cxx
   HypreMatrixPattern.cxx

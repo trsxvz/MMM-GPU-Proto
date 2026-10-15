@@ -10,7 +10,12 @@ guide of mfem-mgis. Phase 1 started: PETSc (patches `0189` to `0191`):
 of PETSc, any preconditioner of mfem-mgis as shell preconditioner; Ginkgo
 (patches `0192` to `0194`): 15 solvers and 10 preconditioners described
 by configurations of Ginkgo, on the CPU and the GPU, local
-preconditioners in the Schwarz preconditioner of Ginkgo in parallel. It
+preconditioners in the Schwarz preconditioner of Ginkgo in parallel;
+hypre completions, SuperLU_DIST and STRUMPACK (patches `0195` to
+`0197`): BiCGSTAB, COGMRES, LGMRES, hybrid solver, factorized sparse
+approximate inverse, smoothers and new options of BoomerAMG,
+`SuperLUSolver`, `STRUMPACKSolver`, `STRUMPACKMixedPrecisionSolver` and
+`STRUMPACKPreconditioner`. It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug

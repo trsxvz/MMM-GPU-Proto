@@ -61,9 +61,18 @@ namespace mfem_mgis::tests {
     }
     //! \return the norm of the residual relative to the right hand side
     double getRelativeResidual(const mfem::Vector& x) {
+      return this->getRelativeResidual(this->A, x);
+    }
+    /*!
+     * \return the norm of the residual of the system of another matrix, with
+     * the same right hand side, relative to the right hand side
+     * \param[in] m: matrix
+     * \param[in] x: solution
+     */
+    double getRelativeResidual(const Matrix& m, const mfem::Vector& x) {
       auto r = mfem::Vector(this->B.Size());
       r.UseDevice(true);
-      this->A.Mult(x, r);
+      m.Mult(x, r);
       r -= this->B;
       return std::sqrt(this->dot(r, r) / this->dot(this->B, this->B));
     }

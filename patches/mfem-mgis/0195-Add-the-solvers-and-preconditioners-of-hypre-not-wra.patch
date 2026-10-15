@@ -1,0 +1,1619 @@
+From 3dcd1f68ab18de35177ff03c981c97706191196f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 05:34:07 +0200
+Subject: [PATCH] Add the solvers and preconditioners of hypre not wrapped by
+ MFEM
+
+The BiCGSTAB, COGMRES and LGMRES Krylov solvers of hypre, its hybrid
+solver (diagonal scaling, then BoomerAMG when the convergence is slow)
+and its factorized sparse approximate inverse are implemented in
+src/HypreSolvers.{hxx,cxx}, after mfem::HypreGMRES:
+
+- the convergence of the Krylov solvers is given by the indicator of
+  hypre and by the code returned by the resolution (a breakdown of
+  BiCGSTAB is not a convergence, a null right hand side is one);
+- the dimension of the Krylov space is 50 by default, as for HypreGMRES;
+- the hybrid solver logs its final residual (otherwise hypre does not
+  compute it), and is built again for each operator and each change of
+  its tolerance (its inner solver keeps the first tolerance);
+- the factorized approximate inverse is built again for each operator.
+
+In src/HypreLinearSolvers.cxx:
+
+- one generator for all the Krylov solvers of hypre; COGMRES only
+  computes on the host and is refused when hypre computes on a GPU; the
+  Krylov solvers of hypre refuse the preconditioners applied by MFEM;
+- the options of BoomerAMG are given by a table, with the ranges of
+  hypre (TruncationFactor, MaximumElementsPerRow,
+  AggressiveInterpolationType, NumberOfPaths, MaximumCoarseSize,
+  MinimumCoarseSize, RelaxationWeight, ChebyshevOrder and KeepTranspose
+  are new; StrengthThreshold is checked in [0, 1]);
+- the HypreSmoother preconditioner gives the smoothers of hypre applied
+  by MFEM (Jacobi, l1-Jacobi, Gauss-Seidel, polynomial smoothers); the
+  OPFS, Taubin, FIR and lumped Jacobi smoothers only compute on the host
+  and are refused when hypre computes on a GPU;
+- the HypreFSAI preconditioner and the HypreHybrid solver.
+---
+ src/CMakeLists.txt         |   1 +
+ src/HypreLinearSolvers.cxx | 776 +++++++++++++++++++++++++++----------
+ src/HypreSolvers.cxx       | 351 +++++++++++++++++
+ src/HypreSolvers.hxx       | 258 ++++++++++++
+ 4 files changed, 1183 insertions(+), 203 deletions(-)
+ create mode 100644 src/HypreSolvers.cxx
+ create mode 100644 src/HypreSolvers.hxx
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 832fe3cf16..0d6aaa07b4 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -57,6 +57,7 @@ list(APPEND MFEMMGIS_SOURCES
+   LinearSolverModules.cxx
+   MFEMLinearSolvers.cxx
+   HypreLinearSolvers.cxx
++  HypreSolvers.cxx
+   PETScLinearSolvers.cxx
+   GinkgoLinearSolvers.cxx
+   AmgXSolvers.cxx
+diff --git a/src/HypreLinearSolvers.cxx b/src/HypreLinearSolvers.cxx
+index 64116cfdca..cd4870dc9e 100644
+--- a/src/HypreLinearSolvers.cxx
++++ b/src/HypreLinearSolvers.cxx
+@@ -1,11 +1,13 @@
+ /*!
+  * \file   src/HypreLinearSolvers.cxx
+  * \brief  This file implements the module of the linear solvers and of the
+- * preconditioners of hypre (see `LinearSolverModules.hxx`)
++ * preconditioners of hypre (see `LinearSolverModules.hxx`): the ones wrapped
++ * by MFEM and the ones of `HypreSolvers.hxx`
+  * \author Thomas Helfer
+  * \date   24/03/2021
+  */
+ 
++#include <cmath>
+ #include <array>
+ #include <tuple>
+ #include <memory>
+@@ -16,6 +18,7 @@
+ #include <algorithm>
+ #include <functional>
+ #include <string_view>
++#include <type_traits>
+ #include "mfem/config/config.hpp"
+ #ifdef MFEM_USE_MPI
+ #include "mfem/linalg/hypre.hpp"
+@@ -25,6 +28,7 @@
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ #include "ExecutionSettings.hxx"
++#include "HypreSolvers.hxx"
+ #include "LinearSolverModules.hxx"
+ 
+ #ifdef MFEM_USE_MPI
+@@ -122,23 +126,104 @@ namespace mfem_mgis::internals {
+ 
+ namespace mfem_mgis {
+ 
++  //! \brief an option of BoomerAMG given to hypre
++  struct HypreBoomerAMGOption {
++    //! \brief name of the option
++    const char* name;
++    //! \brief minimum value
++    double minimum;
++    //! \brief maximum value
++    double maximum;
++    //! \brief if true, the value is an integer
++    bool integer;
++    //! \brief setting of the option
++    std::function<void(mfem::HypreBoomerAMG&, double)> set;
++  };
++
+   /*!
+-   * \return the options of the BoomerAMG preconditioner of hypre whose
+-   * values are integers (see `setHypreBoomerAMGPreconditioner`)
++   * \return the options of the BoomerAMG preconditioner of hypre given to
++   * hypre (see `setHypreBoomerAMGPreconditioner`), whose values are numbers
+    */
+-  [[nodiscard]] static std::vector<std::string>
+-  getHypreBoomerAMGIntegerOptions() {
+-    return {"CoarseningType", "AggressiveCoarseningLevels", "InterpolationType",
+-            "RelaxationType", "RelaxationSweeps",           "CycleType",
+-            "NumberOfCycles", "MaximumNumberOfLevels"};
+-  }  // end of getHypreBoomerAMGIntegerOptions
++  [[nodiscard]] static const std::vector<HypreBoomerAMGOption>&
++  getHypreBoomerAMGNumericalOptions() {
++    using AMG = mfem::HypreBoomerAMG;
++    constexpr auto large = 1e30;
++    static const auto options = std::vector<HypreBoomerAMGOption>{
++        {"StrengthThreshold", 0, 1, false,
++         [](AMG& amg, const double v) { amg.SetStrengthThresh(v); }},
++        {"CoarseningType", 0, large, true,
++         [](AMG& amg, const double v) {
++           amg.SetCoarsening(static_cast<int>(v));
++         }},
++        {"AggressiveCoarseningLevels", 0, large, true,
++         [](AMG& amg, const double v) {
++           amg.SetAggressiveCoarsening(static_cast<int>(v));
++         }},
++        // types 0 to 25 of hypre (the type 100 is not supported)
++        {"InterpolationType", 0, 25, true,
++         [](AMG& amg, const double v) {
++           amg.SetInterpolation(static_cast<int>(v));
++         }},
++        {"RelaxationType", 0, large, true,
++         [](AMG& amg, const double v) {
++           amg.SetRelaxType(static_cast<int>(v));
++         }},
++        {"RelaxationSweeps", 1, large, true,
++         [](AMG& amg, const double v) {
++           amg.SetCycleNumSweeps(static_cast<int>(v), static_cast<int>(v));
++         }},
++        {"CycleType", 1, 2, true,
++         [](AMG& amg, const double v) {
++           amg.SetCycleType(static_cast<int>(v));
++         }},
++        {"NumberOfCycles", 1, large, true,
++         [](AMG& amg, const double v) { amg.SetMaxIter(static_cast<int>(v)); }},
++        {"MaximumNumberOfLevels", 1, large, true,
++         [](AMG& amg, const double v) {
++           amg.SetMaxLevels(static_cast<int>(v));
++         }},
++        // options which MFEM does not wrap
++        // strictly lower than one for hypre
++        {"TruncationFactor", 0, std::nextafter(1., 0.), false,
++         [](AMG& amg, const double v) {
++           HYPRE_BoomerAMGSetTruncFactor(amg, v);
++         }},
++        {"MaximumElementsPerRow", 0, large, true,
++         [](AMG& amg, const double v) {
++           HYPRE_BoomerAMGSetPMaxElmts(amg, static_cast<int>(v));
++         }},
++        {"AggressiveInterpolationType", 0, 9, true,
++         [](AMG& amg, const double v) {
++           HYPRE_BoomerAMGSetAggInterpType(amg, static_cast<int>(v));
++         }},
++        {"NumberOfPaths", 1, large, true,
++         [](AMG& amg, const double v) {
++           HYPRE_BoomerAMGSetNumPaths(amg, static_cast<int>(v));
++         }},
++        {"MaximumCoarseSize", 1, large, true,
++         [](AMG& amg, const double v) {
++           HYPRE_BoomerAMGSetMaxCoarseSize(amg, static_cast<int>(v));
++         }},
++        {"MinimumCoarseSize", 0, large, true,
++         [](AMG& amg, const double v) {
++           HYPRE_BoomerAMGSetMinCoarseSize(amg, static_cast<int>(v));
++         }},
++        {"RelaxationWeight", 0, large, false,
++         [](AMG& amg, const double v) { HYPRE_BoomerAMGSetRelaxWt(amg, v); }},
++        {"ChebyshevOrder", 1, 4, true, [](AMG& amg, const double v) {
++           HYPRE_BoomerAMGSetChebyOrder(amg, static_cast<int>(v));
++         }}};
++    return options;
++  }  // end of getHypreBoomerAMGNumericalOptions
+ 
+   //! \return the options of the BoomerAMG preconditioner of hypre
+   [[nodiscard]] static std::vector<std::string> getHypreBoomerAMGOptions() {
+     using Problem = AbstractNonLinearEvolutionProblem;
+-    auto options = getHypreBoomerAMGIntegerOptions();
+-    options.insert(options.end(), {"Strategy", "StrengthThreshold",
+-                                   Problem::SolverVerbosityLevel});
++    auto options = std::vector<std::string>{"Strategy", "KeepTranspose",
++                                            Problem::SolverVerbosityLevel};
++    for (const auto& o : getHypreBoomerAMGNumericalOptions()) {
++      options.push_back(o.name);
++    }
+     return options;
+   }  // end of getHypreBoomerAMGOptions
+ 
+@@ -157,7 +242,13 @@ namespace mfem_mgis {
+    *   `AggressiveCoarseningLevels`, `InterpolationType`, `RelaxationType`,
+    *   `RelaxationSweeps` (sweeps before and after the coarse levels),
+    *   `CycleType` (1: V-cycle, 2: W-cycle), `NumberOfCycles` (cycles per
+-   *   application, 1 by default) and `MaximumNumberOfLevels`.
++   *   application, 1 by default), `MaximumNumberOfLevels`,
++   *   `TruncationFactor` and `MaximumElementsPerRow` (truncation of the
++   *   interpolation), `AggressiveInterpolationType` and `NumberOfPaths`
++   *   (aggressive coarsening), `MaximumCoarseSize` and `MinimumCoarseSize`
++   *   (size of the coarsest level), `RelaxationWeight`, `ChebyshevOrder`
++   *   (Chebyshev smoothers, `RelaxationType` 16) and `KeepTranspose`
++   *   (transposed interpolations kept, faster on a GPU).
+    */
+   [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+   setHypreBoomerAMGPreconditioner(Context& ctx,
+@@ -165,11 +256,7 @@ namespace mfem_mgis {
+                                   const Parameters& opts) noexcept {
+     using Problem = AbstractNonLinearEvolutionProblem;
+     using Setting = internals::ConfiguredHypreBoomerAMG::Setting;
+-    const auto integer_options = getHypreBoomerAMGIntegerOptions();
+-    auto allowed = integer_options;
+-    allowed.insert(allowed.end(), {"Strategy", "StrengthThreshold",
+-                                   Problem::SolverVerbosityLevel});
+-    if (!checkParameters(ctx, opts, allowed)) {
++    if (!checkParameters(ctx, opts, getHypreBoomerAMGOptions())) {
+       return {};
+     }
+     auto settings = std::vector<Setting>{};
+@@ -211,56 +298,41 @@ namespace mfem_mgis {
+       });
+     }
+     // options of hypre
+-    if (contains(opts, "StrengthThreshold")) {
+-      const auto ov = get<double>(ctx, opts, "StrengthThreshold");
+-      if (isInvalid(ov)) {
+-        return {};
+-      }
+-      settings.push_back(
+-          [v = *ov](mfem::HypreBoomerAMG& amg) { amg.SetStrengthThresh(v); });
+-    }
+-    for (const auto& o : integer_options) {
+-      if (!contains(opts, o)) {
++    for (const auto& o : getHypreBoomerAMGNumericalOptions()) {
++      if (!contains(opts, o.name)) {
+         continue;
+       }
+-      const auto ov = get<int>(ctx, opts, o);
+-      if (isInvalid(ov)) {
+-        return {};
++      auto v = 0.;
++      if (o.integer) {
++        const auto ov = get<int>(ctx, opts, o.name);
++        if (isInvalid(ov)) {
++          return {};
++        }
++        v = *ov;
++      } else {
++        const auto ov = get<double>(ctx, opts, o.name);
++        if (isInvalid(ov)) {
++          return {};
++        }
++        v = *ov;
+       }
+-      const auto v = *ov;
+-      if ((v < 0) || ((v == 0) && (o != "CoarseningType") &&
+-                      (o != "AggressiveCoarseningLevels") &&
+-                      (o != "InterpolationType") && (o != "RelaxationType"))) {
++      if ((v < o.minimum) || (v > o.maximum)) {
+         return ctx.registerErrorMessage(
+             "setLinearSolverParameters: invalid "
+             "value for option '" +
+-            o + "' of HypreBoomerAMG");
+-      }
+-      if (o == "CoarseningType") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetCoarsening(v); });
+-      } else if (o == "AggressiveCoarseningLevels") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetAggressiveCoarsening(v); });
+-      } else if (o == "InterpolationType") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetInterpolation(v); });
+-      } else if (o == "RelaxationType") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetRelaxType(v); });
+-      } else if (o == "RelaxationSweeps") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetCycleNumSweeps(v, v); });
+-      } else if (o == "CycleType") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetCycleType(v); });
+-      } else if (o == "NumberOfCycles") {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetMaxIter(v); });
+-      } else {
+-        settings.push_back(
+-            [v](mfem::HypreBoomerAMG& amg) { amg.SetMaxLevels(v); });
++            std::string{o.name} + "' of HypreBoomerAMG");
++      }
++      settings.push_back(
++          [v, set = o.set](mfem::HypreBoomerAMG& amg) { set(amg, v); });
++    }
++    if (contains(opts, "KeepTranspose")) {
++      const auto ov = get<bool>(ctx, opts, "KeepTranspose");
++      if (isInvalid(ov)) {
++        return {};
+       }
++      settings.push_back([v = *ov](mfem::HypreBoomerAMG& amg) {
++        HYPRE_BoomerAMGSetKeepTranspose(amg, v ? 1 : 0);
++      });
+     }
+     auto amg = std::make_unique<internals::ConfiguredHypreBoomerAMG>(settings);
+     if (elasticity) {
+@@ -408,6 +480,232 @@ namespace mfem_mgis {
+     return std::make_unique<mfem::HypreDiagScale>();
+   }  // end of setHypreDiagScalePreconditioner
+ 
++  /*!
++   * \return the smoother of hypre (`mfem::HypreSmoother`)
++   * \param[in, out] ctx: execution context
++   * \param[in] opts: options:
++   * - `Type`: type of the smoother (`Jacobi`, `l1Jacobi`, `l1GS`, `l1GStr`,
++   *   `lumpedJacobi`, `GS`, `OPFS`, `Chebyshev`, `Taubin` or `FIR`), `l1GS`
++   *   when hypre computes on the host, `l1Jacobi` on a GPU, by default;
++   * - `RelaxationSweeps`: number of sweeps (one by default);
++   * - `RelaxationWeight` and `Omega`: damping and SOR parameters (one by
++   *   default);
++   * - `PolynomialOrder`, `PolynomialFraction` and
++   *   `EigenvalueEstimationIterations`: options of the polynomial smoothers
++   *   (2, 0.3 and 10 by default; with no iteration, the largest eigenvalue
++   *   is estimated by hypre);
++   * - `TaubinLambda`, `TaubinMu` and `TaubinIterations`: options of the
++   *   Taubin smoother (0.5, -0.5 and 40 by default);
++   * - `Window`: window of the FIR smoother (`Rectangular`, by default,
++   *   `Hanning`, `Hamming` or `Blackman`).
++   */
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  setHypreSmootherPreconditioner(Context& ctx,
++                                 FiniteElementSpace<true>&,
++                                 const Parameters& opts) {
++    using Smoother = mfem::HypreSmoother;
++    if (!checkParameters(ctx, opts,
++                         std::vector<std::string>{
++                             "Type", "RelaxationSweeps", "RelaxationWeight",
++                             "Omega", "PolynomialOrder", "PolynomialFraction",
++                             "EigenvalueEstimationIterations", "TaubinLambda",
++                             "TaubinMu", "TaubinIterations", "Window"})) {
++      return {};
++    }
++    const auto types = std::array<std::pair<const char*, Smoother::Type>, 10>{
++        {{"Jacobi", Smoother::Jacobi},
++         {"l1Jacobi", Smoother::l1Jacobi},
++         {"l1GS", Smoother::l1GS},
++         {"l1GStr", Smoother::l1GStr},
++         {"lumpedJacobi", Smoother::lumpedJacobi},
++         {"GS", Smoother::GS},
++         {"OPFS", Smoother::OPFS},
++         {"Chebyshev", Smoother::Chebyshev},
++         {"Taubin", Smoother::Taubin},
++         {"FIR", Smoother::FIR}}};
++    auto type = Smoother::DefaultType();
++    if (contains(opts, "Type")) {
++      const auto otype = get<std::string>(ctx, opts, "Type");
++      if (isInvalid(otype)) {
++        return {};
++      }
++      const auto p =
++          std::find_if(types.begin(), types.end(),
++                       [&otype](const auto& t) { return *otype == t.first; });
++      if (p == types.end()) {
++        return ctx.registerErrorMessage(
++            "setHypreSmootherPreconditioner: invalid type '" + *otype +
++            "' of the smoother of hypre");
++      }
++      type = p->second;
++    }
++    // the on-processor forward solve sorts the matrix on the host
++    // (segmentation fault in hypre_topo_sort with hypre 3.2.0 on a GPU), MFEM
++    // applies the Taubin and FIR smoothers by loops on the host and computes
++    // the sums of the rows of the lumped Jacobi smoother in a vector of the
++    // host wrapping the memory of hypre
++    if (((type == Smoother::OPFS) || (type == Smoother::Taubin) ||
++         (type == Smoother::FIR) || (type == Smoother::lumpedJacobi)) &&
++        (isHypreUsingGPU())) {
++      return ctx.registerErrorMessage(
++          "setHypreSmootherPreconditioner: the smoothers 'OPFS', 'Taubin', "
++          "'FIR' and 'lumpedJacobi' only compute on the host, which hypre "
++          "does not");
++    }
++    const auto osweeps = get_if<int>(ctx, opts, "RelaxationSweeps", 1);
++    const auto oweight = get_if<double>(ctx, opts, "RelaxationWeight", 1.);
++    const auto oomega = get_if<double>(ctx, opts, "Omega", 1.);
++    const auto oorder = get_if<int>(ctx, opts, "PolynomialOrder", 2);
++    const auto ofraction = get_if<double>(ctx, opts, "PolynomialFraction", 0.3);
++    const auto oeig =
++        get_if<int>(ctx, opts, "EigenvalueEstimationIterations", 10);
++    const auto olambda = get_if<double>(ctx, opts, "TaubinLambda", 0.5);
++    const auto omu = get_if<double>(ctx, opts, "TaubinMu", -0.5);
++    const auto otaubin = get_if<int>(ctx, opts, "TaubinIterations", 40);
++    if (isInvalid(osweeps) || isInvalid(oweight) || isInvalid(oomega) ||
++        isInvalid(oorder) || isInvalid(ofraction) || isInvalid(oeig) ||
++        isInvalid(olambda) || isInvalid(omu) || isInvalid(otaubin)) {
++      return {};
++    }
++    if ((*osweeps < 1) || (*oorder < 1) || (*oeig < 0) || (*otaubin < 1)) {
++      return ctx.registerErrorMessage(
++          "setHypreSmootherPreconditioner: invalid value of the number of "
++          "sweeps, of the order of the polynomial or of the number of "
++          "iterations");
++    }
++    auto smoother = std::make_unique<Smoother>();
++    smoother->SetType(type, *osweeps);
++    smoother->SetSOROptions(*oweight, *oomega);
++    smoother->SetPolyOptions(*oorder, *ofraction, *oeig);
++    smoother->SetTaubinOptions(*olambda, *omu, *otaubin);
++    // the parameters of the window are not initialized by the default
++    // constructor of `mfem::HypreSmoother`
++    const auto owindow =
++        get_if<std::string>(ctx, opts, "Window", std::string{"Rectangular"});
++    if (isInvalid(owindow)) {
++      return {};
++    }
++    if ((*owindow != "Rectangular") && (*owindow != "Hanning") &&
++        (*owindow != "Hamming") && (*owindow != "Blackman")) {
++      return ctx.registerErrorMessage(
++          "setHypreSmootherPreconditioner: invalid window '" + *owindow +
++          "' of the FIR smoother");
++    }
++    smoother->SetWindowByName(owindow->c_str());
++    return smoother;
++  }  // end of setHypreSmootherPreconditioner
++
++  /*!
++   * \brief an option of a solver of hypre whose value is given to hypre
++   * \tparam ValueType: type of the value (`HYPRE_Int` or `HYPRE_Real`)
++   */
++  template <typename ValueType>
++  struct HypreOption {
++    //! \brief name of the option
++    const char* name;
++    //! \brief minimum value
++    ValueType minimum;
++    //! \brief maximum value
++    ValueType maximum;
++    //! \brief function of hypre setting the option
++    HYPRE_Int (*set)(HYPRE_Solver, ValueType);
++  };
++
++  //! \brief largest value of an option of hypre
++  static constexpr auto hypre_option_maximum = HYPRE_Int{1 << 30};
++
++  /*!
++   * \brief add the settings of the options of a solver of hypre given by the
++   * parameters, refusing the values out of the ranges accepted by hypre
++   * (which ignores them)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] settings: settings
++   * \param[in] params: parameters
++   * \param[in] options: options
++   * \param[in] n: name of the solver, for the error messages
++   */
++  template <typename ValueType, std::size_t N>
++  [[nodiscard]] static bool addHypreSettings(
++      Context& ctx,
++      std::vector<internals::HypreSetting>& settings,
++      const Parameters& params,
++      const std::array<HypreOption<ValueType>, N>& options,
++      const std::string_view n) {
++    for (const auto& o : options) {
++      if (!contains(params, o.name)) {
++        continue;
++      }
++      auto v = ValueType{};
++      if constexpr (std::is_same_v<ValueType, HYPRE_Real>) {
++        const auto ov = get<double>(ctx, params, o.name);
++        if (isInvalid(ov)) {
++          return false;
++        }
++        v = static_cast<ValueType>(*ov);
++      } else {
++        const auto ov = get<int>(ctx, params, o.name);
++        if (isInvalid(ov)) {
++          return false;
++        }
++        v = static_cast<ValueType>(*ov);
++      }
++      if ((v < o.minimum) || (v > o.maximum)) {
++        return ctx.registerErrorMessage("invalid value for option '" +
++                                        std::string{o.name} + "' of " +
++                                        std::string{n});
++      }
++      settings.push_back([f = o.set, v](HYPRE_Solver s) { f(s, v); });
++    }
++    return true;
++  }  // end of addHypreSettings
++
++  /*!
++   * \return the factorized sparse approximate inverse of hypre (FSAI)
++   * \param[in, out] ctx: execution context
++   * \param[in] opts: options, whose values are the ones of hypre (see its
++   * documentation): `AlgorithmType`, `LocalSolveType`, `MaximumSteps`,
++   * `MaximumStepSize`, `MaximumNonZerosPerRow`, `NumberOfLevels`,
++   * `Threshold`, `KapTolerance`, `EigenvalueEstimationIterations` and
++   * `VerbosityLevel`
++   */
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  setHypreFSAIPreconditioner(Context& ctx,
++                             FiniteElementSpace<true>&,
++                             const Parameters& opts) {
++    using Problem = AbstractNonLinearEvolutionProblem;
++    constexpr auto m = hypre_option_maximum;
++    const auto integers = std::array<HypreOption<HYPRE_Int>, 8>{
++        {{"AlgorithmType", 1, 3, HYPRE_FSAISetAlgoType},
++         {"LocalSolveType", 0, 2, HYPRE_FSAISetLocalSolveType},
++         {"MaximumSteps", 0, m, HYPRE_FSAISetMaxSteps},
++         {"MaximumStepSize", 0, m, HYPRE_FSAISetMaxStepSize},
++         {"MaximumNonZerosPerRow", 0, m, HYPRE_FSAISetMaxNnzRow},
++         {"NumberOfLevels", 1, m, HYPRE_FSAISetNumLevels},
++         {"EigenvalueEstimationIterations", 0, m, HYPRE_FSAISetEigMaxIters},
++         {Problem::SolverVerbosityLevel, 0, m, HYPRE_FSAISetPrintLevel}}};
++    const auto reals = std::array<HypreOption<HYPRE_Real>, 2>{
++        {{"Threshold", 0, HYPRE_Real{m}, HYPRE_FSAISetThreshold},
++         {"KapTolerance", 0, HYPRE_Real{m}, HYPRE_FSAISetKapTolerance}}};
++    auto allowed = std::vector<std::string>{};
++    for (const auto& o : integers) {
++      allowed.push_back(o.name);
++    }
++    for (const auto& o : reals) {
++      allowed.push_back(o.name);
++    }
++    if (!checkParameters(ctx, opts, allowed)) {
++      return {};
++    }
++    auto settings = std::vector<internals::HypreSetting>{};
++    const auto n = "the factorized sparse approximate inverse of hypre";
++    if ((!addHypreSettings(ctx, settings, opts, integers, n)) ||
++        (!addHypreSettings(ctx, settings, opts, reals, n))) {
++      return {};
++    }
++    return std::make_unique<internals::HypreFSAI>(std::move(settings));
++  }  // end of setHypreFSAIPreconditioner
++
+   /*!
+    * \brief set the preconditioner of a Krylov solver of hypre, which only
+    * accepts the preconditioners of hypre (see
+@@ -441,7 +739,8 @@ namespace mfem_mgis {
+       if (hypre_prec == nullptr) {
+         std::ignore = ctx.registerErrorMessage(
+             "the linear solver '" + std::string{n} +
+-            "' only accepts the preconditioners of hypre");
++            "' only accepts the preconditioners applied by hypre (the "
++            "'HypreSmoother' preconditioner is applied by MFEM)");
+         return {};
+       }
+       s.SetPreconditioner(*hypre_prec);
+@@ -469,83 +768,67 @@ namespace mfem_mgis {
+     };
+   }  // end of buildHypreBoomerAMGSolverGenerator
+ 
+-  [[nodiscard]] static std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildHyprePCGSolverGenerator(const LinearSolverDescription d) {
+-    return [d](Context& ctx, FiniteElementSpace<true>& fespace,
+-               const Parameters& params) -> LinearSolverHandler {
++  /*!
++   * \brief set the absolute tolerance of a Krylov solver of hypre
++   * \param[in, out] s: solver
++   * \param[in] tol: tolerance
++   */
++  template <typename SolverType>
++  static void setHypreAbsoluteTolerance(SolverType& s, const real tol) {
++    if constexpr (std::is_same_v<SolverType, mfem::HypreFGMRES>) {
++      // mfem::HypreFGMRES has no `SetAbsTol` method
++      HYPRE_ParCSRFlexGMRESSetAbsoluteTol(s, tol);
++    } else {
++      s.SetAbsTol(tol);
++    }
++  }  // end of setHypreAbsoluteTolerance
++
++  /*!
++   * \brief set the dimension of the Krylov space of a GMRES solver of hypre
++   * \param[in, out] s: solver
++   * \param[in] n: dimension
++   */
++  template <typename SolverType>
++  static void setHypreKrylovDimension(SolverType& s, const int n) {
++    if constexpr (std::is_same_v<SolverType, internals::HypreKrylovSolver>) {
++      std::ignore = s.SetKDim(n);
++    } else if constexpr (requires { s.SetKDim(n); }) {
++      s.SetKDim(n);
++    }
++  }  // end of setHypreKrylovDimension
++
++  /*!
++   * \return the generator of a Krylov solver of hypre, whose options are its
++   * verbosity level, its relative (`Tolerance`) and absolute tolerances, its
++   * maximum number of iterations, its preconditioner (a preconditioner of
++   * hypre) and, for the GMRES solvers, the dimension of the Krylov space
++   * (`KDim`)
++   * \param[in] n: name of the solver
++   * \param[in] d: description of the solver
++   * \param[in] make: function building the solver from the communicator
++   */
++  template <typename SolverType>
++  [[nodiscard]] static LinearSolverFactory<true>::Generator
++  buildHypreKrylovSolverGenerator(
++      const std::string n,
++      const LinearSolverDescription d,
++      std::function<std::unique_ptr<SolverType>(MPI_Comm)> make) {
++    return [n, d, make](Context& ctx, FiniteElementSpace<true>& fespace,
++                        const Parameters& params) -> LinearSolverHandler {
+       using Problem = AbstractNonLinearEvolutionProblem;
+-      const char* const SolverTolerance = "Tolerance";
+-      const char* const Preconditioner = "Preconditioner";
+-      const auto allowed_parameters = std::vector<std::string>{
+-          Problem::SolverVerbosityLevel, SolverTolerance,
+-          Problem::SolverAbsoluteTolerance,
+-          Problem::SolverMaximumNumberOfIterations, Preconditioner};
+-      auto s = std::make_unique<mfem::HyprePCG>(fespace.GetComm());
+-      s->iterative_mode = false;
+-      if (!checkParameters(ctx, params, allowed_parameters)) {
++      if (!checkParameters(ctx, params, d.options)) {
+         return {};
+       }
+-      if (contains(params, Problem::SolverVerbosityLevel)) {
+-        const auto olvl = get<int>(ctx, params, Problem::SolverVerbosityLevel);
+-        if (isInvalid(olvl)) {
+-          return {};
+-        }
+-        s->SetPrintLevel(*olvl);
+-      }
+-      if (contains(params, Problem::SolverAbsoluteTolerance)) {
+-        const auto otol =
+-            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        s->SetAbsTol(*otol);
+-      }
+-      if (contains(params, SolverTolerance)) {
+-        const auto otol = get<double>(ctx, params, SolverTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        s->SetTol(boundRelativeTolerance(*otol));
+-      }
+-      if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
+-        const auto oiterMax =
+-            get<int>(ctx, params, Problem::SolverMaximumNumberOfIterations);
+-        if (isInvalid(oiterMax)) {
+-          return {};
+-        }
+-        s->SetMaxIter(*oiterMax);
+-      }
+-      auto oprec = setHypreKrylovSolverPreconditioner(ctx, fespace, "HyprePCG",
+-                                                      d, *s, params);
+-      if (isInvalid(oprec)) {
++      // the solvers which only compute on the host can't use the matrices
++      // and the vectors of hypre stored on a GPU
++      if ((d.placement == LinearSolverPlacement::HOST) && (isHypreUsingGPU())) {
++        std::ignore = ctx.registerErrorMessage(
++            "the linear solver '" + n +
++            "' only computes on the host, which hypre does not");
+         return {};
+       }
+-      return LinearSolverHandler{std::move(s), std::move(*oprec)};
+-    };
+-  }  // end of buildHyprePCGSolverGenerator
+-
+-  [[nodiscard]] static std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>&, const Parameters&)>
+-  buildHypreGMRESSolverGenerator(const LinearSolverDescription d) {
+-    return [d](Context& ctx, FiniteElementSpace<true>& fespace,
+-               const Parameters& params) -> LinearSolverHandler {
+-      using Problem = AbstractNonLinearEvolutionProblem;
+-      const char* const SolverTolerance = "Tolerance";
+-      const char* const Preconditioner = "Preconditioner";
+-      const char* const Krylov_Dimension = "KDim";
+-      const auto allowed_parameters =
+-          std::vector<std::string>{Problem::SolverVerbosityLevel,
+-                                   SolverTolerance,
+-                                   Problem::SolverAbsoluteTolerance,
+-                                   Problem::SolverMaximumNumberOfIterations,
+-                                   Preconditioner,
+-                                   Krylov_Dimension};
+-      auto s = std::make_unique<mfem::HypreGMRES>(fespace.GetComm());
++      auto s = make(fespace.GetComm());
+       s->iterative_mode = false;
+-      if (!checkParameters(ctx, params, allowed_parameters)) {
+-        return {};
+-      }
+       if (contains(params, Problem::SolverVerbosityLevel)) {
+         const auto olvl = get<int>(ctx, params, Problem::SolverVerbosityLevel);
+         if (isInvalid(olvl)) {
+@@ -559,25 +842,26 @@ namespace mfem_mgis {
+         if (isInvalid(otol)) {
+           return {};
+         }
+-        s->SetAbsTol(*otol);
++        setHypreAbsoluteTolerance(*s, *otol);
+       }
+-      if (contains(params, SolverTolerance)) {
+-        const auto otol = get<double>(ctx, params, SolverTolerance);
++      if (contains(params, "Tolerance")) {
++        const auto otol = get<double>(ctx, params, "Tolerance");
+         if (isInvalid(otol)) {
+           return {};
+         }
+         s->SetTol(boundRelativeTolerance(*otol));
+       }
+-      if (contains(params, Krylov_Dimension)) {
+-        const auto odim = get<int>(ctx, params, Krylov_Dimension);
++      if (contains(params, "KDim")) {
++        const auto odim = get<int>(ctx, params, "KDim");
+         if (isInvalid(odim)) {
+           return {};
+         }
+         if (*odim < 1) {
+-          return ctx.registerErrorMessage(
+-              "invalid Krylov dimension (must be greater than one)");
++          std::ignore = ctx.registerErrorMessage(
++              "invalid Krylov dimension (must be strictly positive)");
++          return {};
+         }
+-        s->SetKDim(*odim);
++        setHypreKrylovDimension(*s, *odim);
+       }
+       if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
+         const auto oiterMax =
+@@ -587,82 +871,96 @@ namespace mfem_mgis {
+         }
+         s->SetMaxIter(*oiterMax);
+       }
+-      auto oprec = setHypreKrylovSolverPreconditioner(
+-          ctx, fespace, "HypreGMRES", d, *s, params);
++      auto oprec =
++          setHypreKrylovSolverPreconditioner(ctx, fespace, n, d, *s, params);
+       if (isInvalid(oprec)) {
+         return {};
+       }
+       return LinearSolverHandler{std::move(s), std::move(*oprec)};
+     };
+-  }  // end of buildHypreGMRESSolverGenerator
++  }  // end of buildHypreKrylovSolverGenerator
+ 
+-  [[nodiscard]] static std::function<LinearSolverHandler(
+-      Context&, FiniteElementSpace<true>& p, const Parameters&)>
+-  buildHypreFGMRESSolverGenerator(const LinearSolverDescription d) {
+-    return [d](Context& ctx, FiniteElementSpace<true>& fespace,
++  /*!
++   * \return the generator of the hybrid solver of hypre, whose options are
++   * its verbosity level, its relative tolerance (`Tolerance`), its maximum
++   * number of iterations (of each phase), its Krylov solver (`SolverType`:
++   * `PCG`, by default, `GMRES` or `BiCGSTAB`), the dimension of the Krylov
++   * space of the GMRES solver (`KDim`), the convergence rate below which
++   * the diagonal scaling is replaced by BoomerAMG (`ConvergenceRate`, 0.9
++   * by default) and options of BoomerAMG (`StrengthThreshold`,
++   * `CoarseningType`, `InterpolationType`, `RelaxationType`,
++   * `AggressiveCoarseningLevels`, `MaximumNumberOfLevels`)
++   * \param[in] d: description of the solver
++   */
++  [[nodiscard]] static LinearSolverFactory<true>::Generator
++  buildHypreHybridSolverGenerator(const LinearSolverDescription d) {
++    return [d](Context& ctx, FiniteElementSpace<true>&,
+                const Parameters& params) -> LinearSolverHandler {
+       using Problem = AbstractNonLinearEvolutionProblem;
+-      const char* const SolverTolerance = "Tolerance";
+-      const char* const Preconditioner = "Preconditioner";
+-      const char* const Krylov_Dimension = "KDim";
+-      const auto allowed_parameters =
+-          std::vector<std::string>{Problem::SolverVerbosityLevel,
+-                                   SolverTolerance,
+-                                   Problem::SolverAbsoluteTolerance,
+-                                   Problem::SolverMaximumNumberOfIterations,
+-                                   Preconditioner,
+-                                   Krylov_Dimension};
+-      auto s = std::make_unique<mfem::HypreFGMRES>(fespace.GetComm());
+-      s->iterative_mode = false;
+-      if (!checkParameters(ctx, params, allowed_parameters)) {
++      using Setting = internals::HypreSetting;
++      if (!checkParameters(ctx, params, d.options)) {
+         return {};
+       }
+-      if (contains(params, Problem::SolverVerbosityLevel)) {
+-        const auto olvl = get<int>(ctx, params, Problem::SolverVerbosityLevel);
+-        if (isInvalid(olvl)) {
+-          return {};
+-        }
+-        s->SetPrintLevel(*olvl);
+-      }
+-      if (contains(params, Problem::SolverAbsoluteTolerance)) {
+-        const auto otol =
+-            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        // mfem::HypreFGMRES has no `SetAbsTol` method
+-        HYPRE_ParCSRFlexGMRESSetAbsoluteTol(*s, *otol);
++      auto settings = std::vector<Setting>{};
++      const auto otol = get_if<double>(ctx, params, "Tolerance", 1e-6);
++      const auto omaxit = get_if<int>(
++          ctx, params, Problem::SolverMaximumNumberOfIterations, 1000);
++      if (isInvalid(otol) || isInvalid(omaxit)) {
++        return {};
+       }
+-      if (contains(params, SolverTolerance)) {
+-        const auto otol = get<double>(ctx, params, SolverTolerance);
+-        if (isInvalid(otol)) {
+-          return {};
+-        }
+-        s->SetTol(boundRelativeTolerance(*otol));
++      // the ranges accepted by hypre, which ignores the other values
++      if ((*otol < 0) || (*otol > 1) || (*omaxit < 0)) {
++        std::ignore = ctx.registerErrorMessage(
++            "invalid tolerance or maximum number of iterations of the "
++            "hybrid solver of hypre");
++        return {};
+       }
+-      if (contains(params, Krylov_Dimension)) {
+-        const auto odim = get<int>(ctx, params, Krylov_Dimension);
+-        if (isInvalid(odim)) {
++      if (contains(params, "SolverType")) {
++        const auto otype = get<std::string>(ctx, params, "SolverType");
++        if (isInvalid(otype)) {
+           return {};
+         }
+-        s->SetKDim(*odim);
+-      }
+-      if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
+-        const auto oiterMax =
+-            get<int>(ctx, params, Problem::SolverMaximumNumberOfIterations);
+-        if (isInvalid(oiterMax)) {
++        const auto types = std::array<std::pair<const char*, int>, 3>{
++            {{"PCG", 1}, {"GMRES", 2}, {"BiCGSTAB", 3}}};
++        const auto p =
++            std::find_if(types.begin(), types.end(),
++                         [&otype](const auto& t) { return *otype == t.first; });
++        if (p == types.end()) {
++          std::ignore = ctx.registerErrorMessage(
++              "invalid type '" + *otype +
++              "' of the Krylov solver of the hybrid solver of hypre");
+           return {};
+         }
+-        s->SetMaxIter(*oiterMax);
++        settings.push_back([v = p->second](HYPRE_Solver s) {
++          HYPRE_ParCSRHybridSetSolverType(s, v);
++        });
+       }
+-      auto oprec = setHypreKrylovSolverPreconditioner(
+-          ctx, fespace, "HypreFGMRES", d, *s, params);
+-      if (isInvalid(oprec)) {
++      constexpr auto m = hypre_option_maximum;
++      const auto integers = std::array<HypreOption<HYPRE_Int>, 7>{
++          {{Problem::SolverVerbosityLevel, 0, m,
++            HYPRE_ParCSRHybridSetPrintLevel},
++           {"KDim", 1, m, HYPRE_ParCSRHybridSetKDim},
++           {"CoarseningType", 0, m, HYPRE_ParCSRHybridSetCoarsenType},
++           {"InterpolationType", 0, m, HYPRE_ParCSRHybridSetInterpType},
++           {"RelaxationType", 0, m, HYPRE_ParCSRHybridSetRelaxType},
++           {"AggressiveCoarseningLevels", 0, m,
++            HYPRE_ParCSRHybridSetAggNumLevels},
++           {"MaximumNumberOfLevels", 1, m, HYPRE_ParCSRHybridSetMaxLevels}}};
++      const auto reals = std::array<HypreOption<HYPRE_Real>, 2>{
++          {{"ConvergenceRate", 0, 1, HYPRE_ParCSRHybridSetConvergenceTol},
++           {"StrengthThreshold", 0, 1, HYPRE_ParCSRHybridSetStrongThreshold}}};
++
++      const auto n = "the hybrid solver of hypre";
++      if ((!addHypreSettings(ctx, settings, params, integers, n)) ||
++          (!addHypreSettings(ctx, settings, params, reals, n))) {
+         return {};
+       }
+-      return LinearSolverHandler{std::move(s), std::move(*oprec)};
++      return LinearSolverHandler{
++          std::make_unique<internals::HypreHybridSolver>(
++              std::move(settings), boundRelativeTolerance(*otol), *omaxit),
++          std::unique_ptr<LinearSolverPreconditioner>{}};
+     };
+-  }  // end of buildHypreFGMRESSolverGenerator
++  }  // end of buildHypreHybridSolverGenerator
+ }  // end of namespace mfem_mgis
+ 
+ namespace mfem_mgis::internals {
+@@ -686,6 +984,7 @@ namespace mfem_mgis::internals {
+   }  // end of getHypreKrylovSolverOptions
+ 
+   void declareHypreLinearSolvers(LinearSolverFactory<true>& f) {
++    using Problem = AbstractNonLinearEvolutionProblem;
+     const auto krylov = [](const bool gmres, std::string description) {
+       return LinearSolverDescription{
+           .library = "hypre",
+@@ -695,12 +994,64 @@ namespace mfem_mgis::internals {
+           .options = getHypreKrylovSolverOptions(gmres),
+           .description = std::move(description)};
+     };
+-    const auto pcg = krylov(false, "conjugate gradient of hypre");
+-    declare(f, "HyprePCG", pcg, buildHyprePCGSolverGenerator(pcg));
+-    const auto gmres = krylov(true, "GMRES of hypre");
+-    declare(f, "HypreGMRES", gmres, buildHypreGMRESSolverGenerator(gmres));
+-    const auto fgmres = krylov(true, "flexible GMRES of hypre");
+-    declare(f, "HypreFGMRES", fgmres, buildHypreFGMRESSolverGenerator(fgmres));
++    // Krylov solvers wrapped by MFEM
++    const auto add = [&f]<typename SolverType>(
++                         const std::string& n,
++                         const LinearSolverDescription& d) {
++      declare(
++          f, n, d,
++          buildHypreKrylovSolverGenerator<SolverType>(n, d, [](MPI_Comm comm) {
++            return std::make_unique<SolverType>(comm);
++          }));
++    };
++    add.template operator()<mfem::HyprePCG>(
++        "HyprePCG", krylov(false, "conjugate gradient of hypre"));
++    add.template operator()<mfem::HypreGMRES>("HypreGMRES",
++                                              krylov(true, "GMRES of hypre"));
++    add.template operator()<mfem::HypreFGMRES>(
++        "HypreFGMRES", krylov(true, "flexible GMRES of hypre"));
++    // Krylov solvers of hypre which are not wrapped by MFEM
++    using internals::HypreKrylovSolver;
++    using internals::HypreKrylovSolverFunctions;
++    const auto add_native = [&f](const std::string& n,
++                                 const LinearSolverDescription& d,
++                                 const HypreKrylovSolverFunctions& functions) {
++      declare(f, n, d,
++              buildHypreKrylovSolverGenerator<HypreKrylovSolver>(
++                  n, d, [functions](MPI_Comm comm) {
++                    return std::make_unique<HypreKrylovSolver>(comm, functions);
++                  }));
++    };
++    add_native("HypreBiCGSTAB", krylov(false, "BiCGSTAB of hypre"),
++               internals::getHypreBiCGSTABFunctions());
++    // the products of COGMRES only compute on the host (segmentation fault
++    // in hypre_SeqVectorMassInnerProd with hypre 3.2.0 on a GPU)
++    auto cogmres = krylov(true,
++                          "GMRES of hypre with classical Gram-Schmidt "
++                          "orthogonalization (communication optimal)");
++    cogmres.placement = LinearSolverPlacement::HOST;
++    add_native("HypreCOGMRES", cogmres, internals::getHypreCOGMRESFunctions());
++    add_native("HypreLGMRES",
++               krylov(true,
++                      "GMRES of hypre augmented with approximations of "
++                      "the error (LGMRES)"),
++               internals::getHypreLGMRESFunctions());
++    const auto hybrid = LinearSolverDescription{
++        .library = "hypre",
++        .kind = LinearSolverKind::ITERATIVE,
++        .placement = LinearSolverPlacement::HYPRE,
++        .preconditioners = AcceptedPreconditioners::NONE,
++        // no absolute tolerance: hypre bounds it by one, and the convergence
++        // is checked on the relative residual (see `HypreHybridSolver`)
++        .options = {Problem::SolverVerbosityLevel, "Tolerance",
++                    Problem::SolverMaximumNumberOfIterations, "SolverType",
++                    "KDim", "ConvergenceRate", "StrengthThreshold",
++                    "CoarseningType", "InterpolationType", "RelaxationType",
++                    "AggressiveCoarseningLevels", "MaximumNumberOfLevels"},
++        .description =
++            "hybrid solver of hypre: Krylov solver preconditioned by the "
++            "diagonal scaling, then by BoomerAMG if the convergence is slow"};
++    declare(f, "HypreHybrid", hybrid, buildHypreHybridSolverGenerator(hybrid));
+     declare(f, "HypreBoomerAMG",
+             LinearSolverDescription{
+                 .library = "hypre",
+@@ -753,6 +1104,25 @@ namespace mfem_mgis::internals {
+                            {Problem::SolverVerbosityLevel},
+                            "diagonal scaling of hypre"),
+             setHypreDiagScalePreconditioner);
++    declare(
++        f, "HypreSmoother",
++        preconditioner(LinearSolverPlacement::HYPRE,
++                       {"Type", "RelaxationSweeps", "RelaxationWeight", "Omega",
++                        "PolynomialOrder", "PolynomialFraction",
++                        "EigenvalueEstimationIterations", "TaubinLambda",
++                        "TaubinMu", "TaubinIterations", "Window"},
++                       "smoothers of hypre (Jacobi, l1-Jacobi, Gauss-Seidel, "
++                       "polynomial smoothers)"),
++        setHypreSmootherPreconditioner);
++    declare(f, "HypreFSAI",
++            preconditioner(
++                LinearSolverPlacement::HYPRE,
++                {"AlgorithmType", "LocalSolveType", "MaximumSteps",
++                 "MaximumStepSize", "MaximumNonZerosPerRow", "NumberOfLevels",
++                 "Threshold", "KapTolerance", "EigenvalueEstimationIterations",
++                 Problem::SolverVerbosityLevel},
++                "factorized sparse approximate inverse of hypre"),
++            setHypreFSAIPreconditioner);
+   }  // end of declareHyprePreconditioners
+ 
+ }  // end of namespace mfem_mgis::internals
+diff --git a/src/HypreSolvers.cxx b/src/HypreSolvers.cxx
+new file mode 100644
+index 0000000000..352fdb29f1
+--- /dev/null
++++ b/src/HypreSolvers.cxx
+@@ -0,0 +1,351 @@
++/*!
++ * \file   src/HypreSolvers.cxx
++ * \brief  This file implements the solvers and the preconditioners of hypre
++ * which are not wrapped by MFEM (see `HypreSolvers.hxx`)
++ * \date   15/10/2026
++ */
++
++#include "mfem/config/config.hpp"
++
++#ifdef MFEM_USE_MPI
++
++#include <utility>
++#include "_hypre_krylov.h"
++#include "MGIS/Raise.hxx"
++#include "HypreSolvers.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \return the matrix of hypre given to a solver of hypre, raises an
++   * exception for another operator
++   * \param[in] op: operator
++   * \param[in] n: name of the solver
++   */
++  [[nodiscard]] static const mfem::HypreParMatrix& getHypreParMatrix(
++      const mfem::Operator& op, const char* const n) {
++    const auto* const a = dynamic_cast<const mfem::HypreParMatrix*>(&op);
++    if (a == nullptr) {
++      mgis::raise(std::string{n} +
++                  "::SetOperator: the operator is not a matrix of hypre");
++    }
++    return *a;
++  }  // end of getHypreParMatrix
++
++  HypreKrylovSolverFunctions getHypreBiCGSTABFunctions() {
++    return {.create = HYPRE_ParCSRBiCGSTABCreate,
++            .destroy = HYPRE_ParCSRBiCGSTABDestroy,
++            .setup = HYPRE_ParCSRBiCGSTABSetup,
++            .solve = HYPRE_ParCSRBiCGSTABSolve,
++            .set_tolerance = HYPRE_ParCSRBiCGSTABSetTol,
++            .set_absolute_tolerance = HYPRE_ParCSRBiCGSTABSetAbsoluteTol,
++            .set_maximum_number_of_iterations = HYPRE_ParCSRBiCGSTABSetMaxIter,
++            .set_print_level = HYPRE_ParCSRBiCGSTABSetPrintLevel,
++            .set_preconditioner = HYPRE_ParCSRBiCGSTABSetPrecond,
++            .get_number_of_iterations = HYPRE_ParCSRBiCGSTABGetNumIterations,
++            .get_final_relative_residual_norm =
++                HYPRE_ParCSRBiCGSTABGetFinalRelativeResidualNorm,
++            // only given by the internal interface of hypre
++            .get_converged = [](HYPRE_Solver s, HYPRE_Int* c) {
++              return hypre_BiCGSTABGetConverged(static_cast<void*>(s), c);
++            }};
++  }  // end of getHypreBiCGSTABFunctions
++
++  HypreKrylovSolverFunctions getHypreCOGMRESFunctions() {
++    return {.create = HYPRE_ParCSRCOGMRESCreate,
++            .destroy = HYPRE_ParCSRCOGMRESDestroy,
++            .setup = HYPRE_ParCSRCOGMRESSetup,
++            .solve = HYPRE_ParCSRCOGMRESSolve,
++            .set_tolerance = HYPRE_ParCSRCOGMRESSetTol,
++            .set_absolute_tolerance = HYPRE_ParCSRCOGMRESSetAbsoluteTol,
++            .set_maximum_number_of_iterations = HYPRE_ParCSRCOGMRESSetMaxIter,
++            .set_print_level = HYPRE_ParCSRCOGMRESSetPrintLevel,
++            .set_preconditioner = HYPRE_ParCSRCOGMRESSetPrecond,
++            .get_number_of_iterations = HYPRE_ParCSRCOGMRESGetNumIterations,
++            .get_final_relative_residual_norm =
++                HYPRE_ParCSRCOGMRESGetFinalRelativeResidualNorm,
++            .get_converged = HYPRE_COGMRESGetConverged,
++            .set_krylov_dimension = HYPRE_ParCSRCOGMRESSetKDim};
++  }  // end of getHypreCOGMRESFunctions
++
++  HypreKrylovSolverFunctions getHypreLGMRESFunctions() {
++    return {.create = HYPRE_ParCSRLGMRESCreate,
++            .destroy = HYPRE_ParCSRLGMRESDestroy,
++            .setup = HYPRE_ParCSRLGMRESSetup,
++            .solve = HYPRE_ParCSRLGMRESSolve,
++            .set_tolerance = HYPRE_ParCSRLGMRESSetTol,
++            .set_absolute_tolerance = HYPRE_ParCSRLGMRESSetAbsoluteTol,
++            .set_maximum_number_of_iterations = HYPRE_ParCSRLGMRESSetMaxIter,
++            .set_print_level = HYPRE_ParCSRLGMRESSetPrintLevel,
++            .set_preconditioner = HYPRE_ParCSRLGMRESSetPrecond,
++            .get_number_of_iterations = HYPRE_ParCSRLGMRESGetNumIterations,
++            .get_final_relative_residual_norm =
++                HYPRE_ParCSRLGMRESGetFinalRelativeResidualNorm,
++            .get_converged = HYPRE_LGMRESGetConverged,
++            .set_krylov_dimension = HYPRE_ParCSRLGMRESSetKDim};
++  }  // end of getHypreLGMRESFunctions
++
++  HypreKrylovSolver::HypreKrylovSolver(MPI_Comm comm,
++                                       const HypreKrylovSolverFunctions& f)
++      : functions(f) {
++    this->functions.create(comm, &(this->solver));
++    // the default values of the Krylov solvers of hypre wrapped by MFEM (the
++    // ones of `mfem::HypreGMRES` for the dimension of the Krylov space)
++    this->SetTol(this->relative_tolerance);
++    this->SetMaxIter(this->maximum_number_of_iterations);
++    std::ignore = this->SetKDim(50);
++    // as the Krylov solvers of hypre wrapped by MFEM, a resolution which
++    // does not converge is not an error (see `hasConverged`)
++    this->SetErrorMode(IGNORE_HYPRE_ERRORS);
++  }  // end of HypreKrylovSolver
++
++  HypreKrylovSolver::operator HYPRE_Solver() const { return this->solver; }
++
++  HYPRE_PtrToParSolverFcn HypreKrylovSolver::SetupFcn() const {
++    return this->functions.setup;
++  }  // end of SetupFcn
++
++  HYPRE_PtrToParSolverFcn HypreKrylovSolver::SolveFcn() const {
++    return this->functions.solve;
++  }  // end of SolveFcn
++
++  void HypreKrylovSolver::SetOperator(const mfem::Operator& op) {
++    // as mfem::HypreGMRES::SetOperator
++    const auto& a = getHypreParMatrix(op, "HypreKrylovSolver");
++    this->height = a.Height();
++    this->width = a.Width();
++    this->A = &a;
++    if (this->preconditioner != nullptr) {
++      this->preconditioner->SetOperator(a);
++      this->SetPreconditioner(*(this->preconditioner));
++    }
++    this->setup_called = 0;
++    delete this->X;
++    delete this->B;
++    this->B = nullptr;
++    this->X = nullptr;
++    this->auxB.Delete();
++    this->auxB.Reset();
++    this->auxX.Delete();
++    this->auxX.Reset();
++  }  // end of SetOperator
++
++  void HypreKrylovSolver::SetPreconditioner(mfem::HypreSolver& p) {
++    this->preconditioner = &p;
++    this->functions.set_preconditioner(this->solver, p.SolveFcn(), p.SetupFcn(),
++                                       p);
++  }  // end of SetPreconditioner
++
++  void HypreKrylovSolver::SetTol(const real tol) {
++    this->relative_tolerance = tol;
++    this->functions.set_tolerance(this->solver, tol);
++  }  // end of SetTol
++
++  void HypreKrylovSolver::SetAbsTol(const real tol) {
++    this->functions.set_absolute_tolerance(this->solver, tol);
++  }  // end of SetAbsTol
++
++  void HypreKrylovSolver::SetMaxIter(const int n) {
++    this->maximum_number_of_iterations = n;
++    this->functions.set_maximum_number_of_iterations(this->solver, n);
++  }  // end of SetMaxIter
++
++  void HypreKrylovSolver::SetPrintLevel(const int l) {
++    this->functions.set_print_level(this->solver, l);
++  }  // end of SetPrintLevel
++
++  bool HypreKrylovSolver::SetKDim(const int n) {
++    if (this->functions.set_krylov_dimension == nullptr) {
++      return false;
++    }
++    this->functions.set_krylov_dimension(this->solver, n);
++    return true;
++  }  // end of SetKDim
++
++  void HypreKrylovSolver::Mult(const mfem::HypreParVector& b,
++                               mfem::HypreParVector& x) const {
++    if (this->A == nullptr) {
++      mgis::raise("HypreKrylovSolver::Mult: the operator is not set");
++    }
++    if (!this->iterative_mode) {
++      x.HypreWrite();
++      hypre_ParVectorSetConstantValues(x, 0.0);
++    }
++    b.HypreRead();
++    x.HypreReadWrite();
++    this->Setup(b, x);
++    this->error_code = this->SolveFcn()(*this, *(this->A), b, x);
++    hypre_error_flag = 0;
++  }  // end of Mult
++
++  bool HypreKrylovSolver::hasConverged() const noexcept {
++    // with a null tolerance (a fixed number of iterations, see
++    // `boundRelativeTolerance`), hypre reports no error at the maximum number
++    // of iterations: the resolution is then converged
++    // the flag of hypre is reset at the beginning of each resolution and
++    // only set by the convergence test of the iterations: the solvers of
++    // hypre return before it when the initial residual is null, or when it
++    // satisfies the absolute tolerance, without error. A breakdown, or the
++    // maximum number of iterations, is reported by an error.
++    auto converged = HYPRE_Int{};
++    this->functions.get_converged(this->solver, &converged);
++    return (converged != 0) || (this->error_code == 0);
++  }  // end of hasConverged
++
++  std::optional<int> HypreKrylovSolver::getNumberOfIterations() const noexcept {
++    auto n = HYPRE_Int{};
++    this->functions.get_number_of_iterations(this->solver, &n);
++    return static_cast<int>(n);
++  }  // end of getNumberOfIterations
++
++  std::optional<real> HypreKrylovSolver::getRelativeTolerance() const noexcept {
++    return this->relative_tolerance;
++  }  // end of getRelativeTolerance
++
++  bool HypreKrylovSolver::setRelativeTolerance(const real tol) noexcept {
++    this->SetTol(tol);
++    return true;
++  }  // end of setRelativeTolerance
++
++  HypreKrylovSolver::~HypreKrylovSolver() {
++    this->functions.destroy(this->solver);
++  }  // end of ~HypreKrylovSolver
++
++  HypreHybridSolver::HypreHybridSolver(std::vector<HypreSetting> s,
++                                       const real tol,
++                                       const int n)
++      : settings(std::move(s)),
++        relative_tolerance(tol),
++        maximum_number_of_iterations(n) {
++    this->create();
++    // a resolution which does not converge is not an error (see
++    // `hasConverged`)
++    this->SetErrorMode(IGNORE_HYPRE_ERRORS);
++  }  // end of HypreHybridSolver
++
++  void HypreHybridSolver::create() {
++    if (this->solver != nullptr) {
++      HYPRE_ParCSRHybridDestroy(this->solver);
++    }
++    HYPRE_ParCSRHybridCreate(&(this->solver));
++    // the final relative residual norm is only computed with logging
++    HYPRE_ParCSRHybridSetLogging(this->solver, 1);
++    // the dimension of the Krylov space of `mfem::HypreGMRES` (hypre: 5)
++    HYPRE_ParCSRHybridSetKDim(this->solver, 50);
++    HYPRE_ParCSRHybridSetTol(this->solver, this->relative_tolerance);
++    HYPRE_ParCSRHybridSetDSCGMaxIter(this->solver,
++                                     this->maximum_number_of_iterations);
++    HYPRE_ParCSRHybridSetPCGMaxIter(this->solver,
++                                    this->maximum_number_of_iterations);
++    for (const auto& setting : this->settings) {
++      setting(this->solver);
++    }
++  }  // end of create
++
++  HypreHybridSolver::operator HYPRE_Solver() const { return this->solver; }
++
++  HYPRE_PtrToParSolverFcn HypreHybridSolver::SetupFcn() const {
++    return HYPRE_ParCSRHybridSetup;
++  }  // end of SetupFcn
++
++  HYPRE_PtrToParSolverFcn HypreHybridSolver::SolveFcn() const {
++    return HYPRE_ParCSRHybridSolve;
++  }  // end of SolveFcn
++
++  void HypreHybridSolver::SetOperator(const mfem::Operator& op) {
++    const auto& a = getHypreParMatrix(op, "HypreHybridSolver");
++    this->height = a.Height();
++    this->width = a.Width();
++    this->A = &a;
++    // the inner Krylov solver of the hybrid solver of hypre is created at
++    // the first resolution, with the current tolerance: the solver of hypre
++    // is created again for each operator and each change of the tolerance
++    this->create();
++    this->setup_called = 0;
++    delete this->X;
++    delete this->B;
++    this->B = nullptr;
++    this->X = nullptr;
++    this->auxB.Delete();
++    this->auxB.Reset();
++    this->auxX.Delete();
++    this->auxX.Reset();
++  }  // end of SetOperator
++
++  bool HypreHybridSolver::hasConverged() const noexcept {
++    auto r = HYPRE_Real{};
++    HYPRE_ParCSRHybridGetFinalRelativeResidualNorm(this->solver, &r);
++    return r <= this->relative_tolerance;
++  }  // end of hasConverged
++
++  std::optional<int> HypreHybridSolver::getNumberOfIterations() const noexcept {
++    auto n = HYPRE_Int{};
++    HYPRE_ParCSRHybridGetNumIterations(this->solver, &n);
++    return static_cast<int>(n);
++  }  // end of getNumberOfIterations
++
++  std::optional<real> HypreHybridSolver::getRelativeTolerance() const noexcept {
++    return this->relative_tolerance;
++  }  // end of getRelativeTolerance
++
++  bool HypreHybridSolver::setRelativeTolerance(const real tol) noexcept {
++    this->relative_tolerance = tol;
++    this->create();
++    this->setup_called = 0;
++    return true;
++  }  // end of setRelativeTolerance
++
++  HypreHybridSolver::~HypreHybridSolver() {
++    HYPRE_ParCSRHybridDestroy(this->solver);
++  }  // end of ~HypreHybridSolver
++
++  HypreFSAI::HypreFSAI(std::vector<HypreSetting> s) : settings(std::move(s)) {
++    this->create();
++  }  // end of HypreFSAI
++
++  void HypreFSAI::create() {
++    if (this->solver != nullptr) {
++      HYPRE_FSAIDestroy(this->solver);
++    }
++    HYPRE_FSAICreate(&(this->solver));
++    // one application from a null initial guess, as a preconditioner
++    HYPRE_FSAISetMaxIterations(this->solver, 1);
++    HYPRE_FSAISetTolerance(this->solver, 0);
++    HYPRE_FSAISetZeroGuess(this->solver, 1);
++    for (const auto& setting : this->settings) {
++      setting(this->solver);
++    }
++  }  // end of create
++
++  HypreFSAI::operator HYPRE_Solver() const { return this->solver; }
++
++  HYPRE_PtrToParSolverFcn HypreFSAI::SetupFcn() const {
++    return HYPRE_FSAISetup;
++  }  // end of SetupFcn
++
++  HYPRE_PtrToParSolverFcn HypreFSAI::SolveFcn() const {
++    return HYPRE_FSAISolve;
++  }  // end of SolveFcn
++
++  void HypreFSAI::SetOperator(const mfem::Operator& op) {
++    const auto& a = getHypreParMatrix(op, "HypreFSAI");
++    this->height = a.Height();
++    this->width = a.Width();
++    this->A = &a;
++    this->create();
++    this->setup_called = 0;
++    delete this->X;
++    delete this->B;
++    this->B = nullptr;
++    this->X = nullptr;
++    this->auxB.Delete();
++    this->auxB.Reset();
++    this->auxX.Delete();
++    this->auxX.Reset();
++  }  // end of SetOperator
++
++  HypreFSAI::~HypreFSAI() { HYPRE_FSAIDestroy(this->solver); }
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* MFEM_USE_MPI */
+diff --git a/src/HypreSolvers.hxx b/src/HypreSolvers.hxx
+new file mode 100644
+index 0000000000..5746c40d5e
+--- /dev/null
++++ b/src/HypreSolvers.hxx
+@@ -0,0 +1,258 @@
++/*!
++ * \file   src/HypreSolvers.hxx
++ * \brief  This file declares the solvers and the preconditioners of hypre
++ * which are not wrapped by MFEM: its BiCGSTAB, COGMRES and LGMRES Krylov
++ * solvers, its hybrid solver and its factorized sparse approximate inverse
++ * (internal header, see `HypreLinearSolvers.cxx`)
++ * \date   15/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_HYPRESOLVERS_HXX
++#define LIB_MFEM_MGIS_SRC_HYPRESOLVERS_HXX
++
++#include "mfem/config/config.hpp"
++
++#ifdef MFEM_USE_MPI
++
++#include <vector>
++#include <optional>
++#include <functional>
++#include "mfem/linalg/hypre.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
++
++namespace mfem_mgis::internals {
++
++  //! \brief functions of the interface of a Krylov solver of hypre
++  struct HypreKrylovSolverFunctions {
++    //! \brief creation of the solver
++    HYPRE_Int (*create)(MPI_Comm, HYPRE_Solver*);
++    //! \brief destruction of the solver
++    HYPRE_Int (*destroy)(HYPRE_Solver);
++    //! \brief setup of the solver
++    HYPRE_PtrToParSolverFcn setup;
++    //! \brief resolution
++    HYPRE_PtrToParSolverFcn solve;
++    //! \brief relative tolerance
++    HYPRE_Int (*set_tolerance)(HYPRE_Solver, HYPRE_Real);
++    //! \brief absolute tolerance
++    HYPRE_Int (*set_absolute_tolerance)(HYPRE_Solver, HYPRE_Real);
++    //! \brief maximum number of iterations
++    HYPRE_Int (*set_maximum_number_of_iterations)(HYPRE_Solver, HYPRE_Int);
++    //! \brief print level
++    HYPRE_Int (*set_print_level)(HYPRE_Solver, HYPRE_Int);
++    //! \brief preconditioner
++    HYPRE_Int (*set_preconditioner)(HYPRE_Solver,
++                                    HYPRE_PtrToParSolverFcn,
++                                    HYPRE_PtrToParSolverFcn,
++                                    HYPRE_Solver);
++    //! \brief number of iterations of the last resolution
++    HYPRE_Int (*get_number_of_iterations)(HYPRE_Solver, HYPRE_Int*);
++    //! \brief final relative residual norm of the last resolution
++    HYPRE_Int (*get_final_relative_residual_norm)(HYPRE_Solver, HYPRE_Real*);
++    //! \brief convergence of the last resolution
++    HYPRE_Int (*get_converged)(HYPRE_Solver, HYPRE_Int*);
++    //! \brief dimension of the Krylov space, if any
++    HYPRE_Int (*set_krylov_dimension)(HYPRE_Solver, HYPRE_Int) = nullptr;
++  };
++
++  //! \return the functions of the BiCGSTAB solver of hypre
++  [[nodiscard]] HypreKrylovSolverFunctions getHypreBiCGSTABFunctions();
++  //! \return the functions of the COGMRES solver of hypre
++  [[nodiscard]] HypreKrylovSolverFunctions getHypreCOGMRESFunctions();
++  //! \return the functions of the LGMRES solver of hypre
++  [[nodiscard]] HypreKrylovSolverFunctions getHypreLGMRESFunctions();
++
++  /*!
++   * \brief Krylov solver of hypre which is not wrapped by MFEM, described by
++   * the functions of its interface (see `HypreKrylovSolverFunctions`), and
++   * used as the Krylov solvers of hypre wrapped by MFEM (`mfem::HypreGMRES`
++   * for instance): its preconditioner is a solver of hypre, which is given
++   * the operators. A resolution which does not converge is not an error
++   * (the errors of hypre are ignored): its convergence is given by the flag
++   * of hypre and by the code returned by hypre (see `hasConverged`).
++   */
++  struct HypreKrylovSolver final : public mfem::HypreSolver,
++                                   public LinearSolverConvergenceReport {
++    /*!
++     * \param[in] comm: communicator
++     * \param[in] f: functions of the solver
++     */
++    HypreKrylovSolver(MPI_Comm comm, const HypreKrylovSolverFunctions& f);
++    HypreKrylovSolver(HypreKrylovSolver&&) = delete;
++    HypreKrylovSolver(const HypreKrylovSolver&) = delete;
++    HypreKrylovSolver& operator=(HypreKrylovSolver&&) = delete;
++    HypreKrylovSolver& operator=(const HypreKrylovSolver&) = delete;
++    //! \return the solver of hypre
++    operator HYPRE_Solver() const override;
++    //! \return the setup function of hypre
++    HYPRE_PtrToParSolverFcn SetupFcn() const override;
++    //! \return the solve function of hypre
++    HYPRE_PtrToParSolverFcn SolveFcn() const override;
++    /*!
++     * \brief set the operator, which must be a matrix of hypre, and give it
++     * to the preconditioner, as `mfem::HypreGMRES::SetOperator`
++     * \param[in] op: operator
++     */
++    void SetOperator(const mfem::Operator& op) override;
++    /*!
++     * \brief solve the system, as `mfem::HypreSolver::Mult`, the code
++     * returned by hypre being kept (see `hasConverged`)
++     * \param[in] b: right hand side
++     * \param[in, out] x: solution
++     */
++    void Mult(const mfem::HypreParVector& b,
++              mfem::HypreParVector& x) const override;
++    using mfem::HypreSolver::Mult;
++    /*!
++     * \brief set the preconditioner
++     * \param[in] p: preconditioner (not owned)
++     */
++    void SetPreconditioner(mfem::HypreSolver& p);
++    /*!
++     * \brief set the relative tolerance
++     * \param[in] tol: tolerance
++     */
++    void SetTol(const real tol);
++    /*!
++     * \brief set the absolute tolerance
++     * \param[in] tol: tolerance
++     */
++    void SetAbsTol(const real tol);
++    /*!
++     * \brief set the maximum number of iterations
++     * \param[in] n: maximum number of iterations
++     */
++    void SetMaxIter(const int n);
++    /*!
++     * \brief set the print level of hypre
++     * \param[in] l: print level
++     */
++    void SetPrintLevel(const int l);
++    /*!
++     * \brief set the dimension of the Krylov space
++     * \return false if the solver has no Krylov space dimension
++     * \param[in] n: dimension
++     */
++    [[nodiscard]] bool SetKDim(const int n);
++    [[nodiscard]] bool hasConverged() const noexcept override;
++    [[nodiscard]] std::optional<int> getNumberOfIterations()
++        const noexcept override;
++    [[nodiscard]] std::optional<real> getRelativeTolerance()
++        const noexcept override;
++    [[nodiscard]] bool setRelativeTolerance(const real tol) noexcept override;
++    //! \brief destructor
++    ~HypreKrylovSolver() override;
++
++   private:
++    //! \brief functions of the solver
++    const HypreKrylovSolverFunctions functions;
++    //! \brief solver of hypre
++    HYPRE_Solver solver = nullptr;
++    //! \brief preconditioner, if any (not owned)
++    mfem::HypreSolver* preconditioner = nullptr;
++    //! \brief code returned by hypre at the last resolution
++    mutable HYPRE_Int error_code = 0;
++    //! \brief relative tolerance
++    real relative_tolerance = 1e-6;
++    //! \brief maximum number of iterations
++    int maximum_number_of_iterations = 100;
++  };  // end of struct HypreKrylovSolver
++
++  //! \brief a setting of a solver of hypre, applied to its handle
++  using HypreSetting = std::function<void(HYPRE_Solver)>;
++
++  /*!
++   * \brief hybrid solver of hypre: a Krylov solver (conjugate gradient by
++   * default) preconditioned by the diagonal scaling, switching to the
++   * BoomerAMG preconditioner when the convergence is too slow. The solver of
++   * hypre is created again, with the settings, for each new operator.
++   */
++  struct HypreHybridSolver final : public mfem::HypreSolver,
++                                   public LinearSolverConvergenceReport {
++    /*!
++     * \param[in] s: settings
++     * \param[in] tol: relative tolerance
++     * \param[in] n: maximum number of iterations of each phase
++     */
++    HypreHybridSolver(std::vector<HypreSetting> s, const real tol, const int n);
++    HypreHybridSolver(HypreHybridSolver&&) = delete;
++    HypreHybridSolver(const HypreHybridSolver&) = delete;
++    HypreHybridSolver& operator=(HypreHybridSolver&&) = delete;
++    HypreHybridSolver& operator=(const HypreHybridSolver&) = delete;
++    //! \return the solver of hypre
++    operator HYPRE_Solver() const override;
++    //! \return the setup function of hypre
++    HYPRE_PtrToParSolverFcn SetupFcn() const override;
++    //! \return the solve function of hypre
++    HYPRE_PtrToParSolverFcn SolveFcn() const override;
++    /*!
++     * \brief set the operator, which must be a matrix of hypre: the hybrid
++     * solver of hypre is built again
++     * \param[in] op: operator
++     */
++    void SetOperator(const mfem::Operator& op) override;
++    [[nodiscard]] bool hasConverged() const noexcept override;
++    [[nodiscard]] std::optional<int> getNumberOfIterations()
++        const noexcept override;
++    [[nodiscard]] std::optional<real> getRelativeTolerance()
++        const noexcept override;
++    [[nodiscard]] bool setRelativeTolerance(const real tol) noexcept override;
++    //! \brief destructor
++    ~HypreHybridSolver() override;
++
++   private:
++    //! \brief create the solver of hypre and apply the settings
++    void create();
++    //! \brief solver of hypre
++    HYPRE_Solver solver = nullptr;
++    //! \brief settings
++    const std::vector<HypreSetting> settings;
++    //! \brief relative tolerance
++    real relative_tolerance;
++    //! \brief maximum number of iterations of each phase
++    const int maximum_number_of_iterations;
++  };  // end of struct HypreHybridSolver
++
++  /*!
++   * \brief factorized sparse approximate inverse of hypre (FSAI), applied
++   * as a preconditioner (one iteration from a null initial guess). The
++   * solver of hypre is created again, with the settings, for each new
++   * operator.
++   */
++  struct HypreFSAI final : public mfem::HypreSolver {
++    //! \param[in] s: settings
++    explicit HypreFSAI(std::vector<HypreSetting> s);
++    HypreFSAI(HypreFSAI&&) = delete;
++    HypreFSAI(const HypreFSAI&) = delete;
++    HypreFSAI& operator=(HypreFSAI&&) = delete;
++    HypreFSAI& operator=(const HypreFSAI&) = delete;
++    //! \return the solver of hypre
++    operator HYPRE_Solver() const override;
++    //! \return the setup function of hypre
++    HYPRE_PtrToParSolverFcn SetupFcn() const override;
++    //! \return the solve function of hypre
++    HYPRE_PtrToParSolverFcn SolveFcn() const override;
++    /*!
++     * \brief set the operator, which must be a matrix of hypre: the
++     * factorized sparse approximate inverse of hypre is built again
++     * \param[in] op: operator
++     */
++    void SetOperator(const mfem::Operator& op) override;
++    //! \brief destructor
++    ~HypreFSAI() override;
++
++   private:
++    //! \brief create the solver of hypre and apply the settings
++    void create();
++    //! \brief solver of hypre
++    HYPRE_Solver solver = nullptr;
++    //! \brief settings
++    const std::vector<HypreSetting> settings;
++  };  // end of struct HypreFSAI
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* MFEM_USE_MPI */
++
++#endif /* LIB_MFEM_MGIS_SRC_HYPRESOLVERS_HXX */
+-- 
+2.43.0
+

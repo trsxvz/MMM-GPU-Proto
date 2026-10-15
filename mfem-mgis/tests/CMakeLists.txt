@@ -1646,6 +1646,28 @@ if(MFEM_USE_GINKGO STREQUAL "YES")
   endif()
 endif()
 
+# HypreSolversTest executable: solvers and preconditioners of hypre which
+# are not wrapped by MFEM, smoothers of hypre and options of BoomerAMG
+if(MFEM_USE_MPI)
+  add_test_executable(HypreSolversTest)
+  add_test(NAME HypreSolversTest COMMAND HypreSolversTest)
+  add_test(NAME HypreSolversTestP COMMAND mpirun -n 2 ./HypreSolversTest)
+  set_tests_properties(HypreSolversTest HypreSolversTestP PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed")
+endif(MFEM_USE_MPI)
+
+# SparseDirectSolversTest executable: direct solvers of SuperLU_DIST and
+# STRUMPACK, preconditioner of STRUMPACK
+if(MFEM_USE_MPI AND ((MFEM_USE_SUPERLU STREQUAL "YES") OR
+                     (MFEM_USE_STRUMPACK STREQUAL "YES")))
+  add_test_executable(SparseDirectSolversTest)
+  add_test(NAME SparseDirectSolversTest COMMAND SparseDirectSolversTest)
+  add_test(NAME SparseDirectSolversTestP
+           COMMAND mpirun -n 2 ./SparseDirectSolversTest)
+  set_tests_properties(SparseDirectSolversTest SparseDirectSolversTestP
+    PROPERTIES FAIL_REGULAR_EXPRESSION "check failed")
+endif()
+
 # PETScSolversTest executable: Krylov solver and preconditioner of PETSc
 # configured by the options of PETSc
 if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))

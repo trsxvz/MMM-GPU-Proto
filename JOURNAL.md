@@ -4882,3 +4882,38 @@ formula as MTest). All the others give the Newton solution to within
   criteria, termination on configuration errors). Suites: 232 (GPU MFEM,
   on the host), targeted CPU double and float; Doxygen and Sphinx without
   warnings.
+
+### 2026-10-15, linear solvers of the major libraries: hypre completions, SuperLU_DIST and STRUMPACK
+
+- hypre: the BiCGSTAB, COGMRES (host only) and LGMRES Krylov solvers,
+  the hybrid solver (diagonal scaling, then BoomerAMG when the
+  convergence is slow) and the factorized sparse approximate inverse,
+  which MFEM does not wrap, are implemented after `mfem::HypreGMRES`;
+  the smoothers of hypre applied by MFEM (`HypreSmoother`); new options
+  of BoomerAMG with the ranges of hypre (truncation, aggressive
+  interpolation, size of the coarsest level, Chebyshev order, ...).
+  The convergence of the Krylov solvers is given by the indicator of
+  hypre and by the code of the resolution: a breakdown of BiCGSTAB is
+  not a convergence. The hybrid solver only computes its final residual
+  when its logging is enabled: without it, every resolution was reported
+  as converged.
+- SuperLU_DIST: the matrix is given to the solver of MFEM just before
+  the resolution (a solver of MFEM destroyed with an operator never
+  factorized is avoided); the parallel symbolic factorization is refused
+  on one process and with the reuse of the analysis, where SuperLU_DIST
+  9.2.1 crashes; ParMETIS with the sequential symbolic factorization
+  works in both cases.
+- STRUMPACK: options given by its command line, double and mixed
+  precision, compression of the frontal matrices with a Krylov solver of
+  STRUMPACK, approximate factorization as a preconditioner. STRUMPACK
+  reports a success when its Krylov solver stops at the maximum number of
+  iterations (relative residual of 2e-2 measured): mfem-mgis reports it
+  as not converged.
+- Each new entry solves a second operator of the same pattern (the
+  Newton path). Found on the way: on a GPU, `mfem::Add` sorts the columns
+  of each row, while the diagonal scaling of hypre reads the diagonal as
+  the first entry: NaN, then a crash in MPI with 2 processes (upstream
+  note written, nothing posted).
+- Independent review: one 5/5 (hybrid convergence) and the 3/5 handled
+  during the integration. Suites: 236 (GPU MFEM, on the host), targeted
+  CPU double (72) and float (71); Doxygen and Sphinx without warnings.
