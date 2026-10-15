@@ -15,7 +15,12 @@ hypre completions, SuperLU_DIST and STRUMPACK (patches `0195` to
 `0197`): BiCGSTAB, COGMRES, LGMRES, hybrid solver, factorized sparse
 approximate inverse, smoothers and new options of BoomerAMG,
 `SuperLUSolver`, `STRUMPACKSolver`, `STRUMPACKMixedPrecisionSolver` and
-`STRUMPACKPreconditioner`. It
+`STRUMPACKPreconditioner`; MFEM completions and MUMPS (patches `0198` to
+`0200`): preconditioners of the sparse matrices of MFEM (`GSSmoother`,
+`DSmoother`, `BlockILU`, `UMFPack`, `KLU`, on the diagonal block of each
+process in parallel), `KLUSolver`, `OrthoSolver`, reordering, block
+low-rank and verbosity options of MUMPS. Remaining in phase 1: KINSOL,
+the options of cuDSS. It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug

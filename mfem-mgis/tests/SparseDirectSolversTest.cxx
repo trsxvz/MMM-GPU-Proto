@@ -1,11 +1,14 @@
 /*!
  * \file   SparseDirectSolversTest.cxx
- * \brief  Test of the direct solvers of SuperLU_DIST and STRUMPACK, and of
- * the preconditioner of STRUMPACK, built by the factories, on the Laplace
- * equation on a cube, in parallel (the generic test
+ * \brief  Test of the direct solvers of MUMPS, SuperLU_DIST and STRUMPACK,
+ * and of the preconditioner of STRUMPACK, built by the factories, on the
+ * Laplace equation on a cube, in parallel (the generic test
  * `LinearSolverFactoriesTest` solves it with each entry and its default
  * options):
  *
+ * - MUMPS accepts each reordering strategy and the tolerance of its block
+ *   low-rank factorization, and solves the system (the strategy used is not
+ *   reported by MFEM);
  * - SuperLU_DIST solves the system with its options, reuses its analysis
  *   for a new operator of the same pattern and is built again for an
  *   operator of another size; the ParMETIS ordering with the parallel
@@ -27,6 +30,7 @@
 
 #include <cmath>
 #include <string>
+#include <type_traits>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -43,6 +47,12 @@ using mfem_mgis::tests::LaplaceSystem;
 static int failures = 0;
 //! \brief rank of the process
 static int rank = 0;
+/*!
+ * \brief tolerance on the relative residual of the direct solvers of MUMPS
+ * (SuperLU_DIST and STRUMPACK are only available in double precision)
+ */
+static constexpr double direct_tolerance =
+    std::is_same_v<mfem::real_t, double> ? 1e-12 : 1e-5;
 
 static void check(const bool b, const std::string& msg) {
   if (!b) {
@@ -124,12 +134,42 @@ static double solve(LaplaceSystem<true>& s,
   return solve(s, s.A, ls, name);
 }  // end of solve
 
-static void run(LaplaceSystem<true>& s, LaplaceSystem<true>& s2) {
+static void run(LaplaceSystem<true>& s,
+                [[maybe_unused]] LaplaceSystem<true>& s2) {
   using namespace mfem_mgis;
   // a second operator of the same pattern, as in the iterations of a Newton
   // solver: the matrix of the system times two
   auto a2 = mfem::HypreParMatrix(s.A);
   a2 *= 2.;
+#ifdef MFEM_USE_MUMPS
+  // MUMPS and its reordering strategies (the ones which are not available
+  // are replaced by MUMPS with a warning)
+  for (const auto& r : {"Automatic", "AMD", "PORD", "METIS"}) {
+    auto mumps =
+        generate(s, "MUMPSSolver",
+                 Parameters{{"ReorderingStrategy", r}, {"VerbosityLevel", 0}});
+    check(solve(s, *(mumps.linear_solver), std::string{"MUMPSSolver, "} + r) <
+              direct_tolerance,
+          std::string{"MUMPSSolver, "} + r + ": resolution");
+  }
+  // the block low-rank factorization is approximate; on this small mesh,
+  // MUMPS activates it (ICNTL(35)) but compresses no front, which are too
+  // small: the resolution is exact. The option is only checked to be
+  // accepted, the use of the block low-rank factorization not being
+  // reported by MFEM
+  {
+    auto blr = generate(s, "MUMPSSolver", Parameters{{"BLRTolerance", 1e-6}});
+    check(solve(s, *(blr.linear_solver), "MUMPSSolver, BLR") < direct_tolerance,
+          "MUMPSSolver, BLR: resolution");
+  }
+  check(getGenerationError(s, "MUMPSSolver",
+                           Parameters{{"ReorderingStrategy", "RCM"}})
+                .find("invalid reordering strategy") != std::string::npos,
+        "MUMPSSolver: invalid reordering strategy not refused");
+  check(getGenerationError(s, "MUMPSSolver", Parameters{{"BLRTolerance", -1.}})
+                .find("invalid tolerance") != std::string::npos,
+        "MUMPSSolver: negative tolerance not refused");
+#endif /* MFEM_USE_MUMPS */
 #ifdef MFEM_USE_SUPERLU
   // SuperLU_DIST, its options, the reuse of its analysis
   auto superlu = generate(s, "SuperLUSolver",

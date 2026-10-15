@@ -1,0 +1,942 @@
+From ba8a0fe0545bb954765e9c4da2e2db00330d24ff Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 06:11:39 +0200
+Subject: [PATCH] Test and document the preconditioners of MFEM, KLU,
+ OrthoSolver and MUMPS
+
+MFEMSolversTest (sequential and parallel, and on a GPU when the tests on
+the GPU are enabled) solves the Laplace equation with each smoother type,
+the reorderings of BlockILU, UMFPack and KLU, then a second operator of
+the same pattern; KLUSolver reports a singular matrix; OrthoSolver gives
+a solution orthogonal to the constant vector on a problem with null flux
+boundary conditions; invalid options are refused. SparseDirectSolversTest
+checks the options of MUMPS, with a tolerance depending on the precision.
+The generic test checks the placements of the new entries and no longer
+skips the host entries of MFEM and SuiteSparse when hypre computes on a
+GPU. LaplaceSystem gives a problem with null flux boundary conditions.
+
+The user guide, the glossary, the page on the execution settings and the
+release notes describe the new entries and options.
+---
+ docs/source/user_guide/batch_computations.rst |  26 +-
+ docs/source/user_guide/glossary.rst           |  56 ++-
+ docs/source/user_guide/linear_solvers.rst     |  65 ++-
+ .../release_notes/release_notes-1.1.0.rst     |  14 +
+ tests/CMakeLists.txt                          |  40 +-
+ tests/LaplaceSystem.hxx                       |  30 +-
+ tests/LinearSolverFactoriesTest.cxx           |  20 +-
+ tests/MFEMSolversTest.cxx                     | 397 ++++++++++++++++++
+ tests/SparseDirectSolversTest.cxx             |  48 ++-
+ 9 files changed, 662 insertions(+), 34 deletions(-)
+ create mode 100644 tests/MFEMSolversTest.cxx
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 466f3facc4..c098118b23 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -532,15 +532,23 @@ settings, since they decide where they compute:
+   on the CPU while the others are on the GPU, :code:`getBehavioursLibrary`
+   following the global settings). It is not available for the point-wise
+   models;
+-- the direct solvers :code:`MUMPSSolver` and :code:`UMFPackSolver`, the
+-  preconditioners :code:`HypreEuclid` and :code:`HypreParaSails`, and
+-  :code:`PETSc` compute on the CPU; :code:`AmgX`, :code:`AmgXPCG` and
+-  :code:`CuDSSSolver` on the GPU; the other solvers of hypre where its
+-  memory is (on the host if hypre is built without GPU support); the
+-  solvers and smoothers of :code:`MFEM` where the device of :code:`MFEM`
+-  computes (on the GPU in the :code:`gpu` and :code:`mixed` modes). The
+-  linear solvers registered by an application are taken as solvers of
+-  :code:`MFEM`.
++- the direct solvers :code:`MUMPSSolver`, :code:`SuperLUSolver`,
++  :code:`STRUMPACKSolver`, :code:`STRUMPACKMixedPrecisionSolver`,
++  :code:`UMFPackSolver` and :code:`KLUSolver`, the solver
++  :code:`HypreCOGMRES`, the preconditioners :code:`HypreEuclid`,
++  :code:`HypreParaSails`, :code:`STRUMPACKPreconditioner`, the smoothers and
++  factorizations of the sparse matrices of :code:`MFEM` (:code:`GSSmoother`,
++  :code:`DSmoother`, :code:`BlockILU`, :code:`UMFPack`, :code:`KLU`), the
++  wrapper :code:`OrthoSolver`, and :code:`PETSc` compute on the CPU;
++  :code:`AmgX`, :code:`AmgXPCG` and :code:`CuDSSSolver` on the GPU; the
++  other solvers of hypre where its memory is (on the host if hypre is built
++  without GPU support); the Krylov solvers of :code:`MFEM`, its operator
++  smoothers (:code:`OperatorJacobiSmoother`,
++  :code:`OperatorChebyshevSmoother`) and the solvers of :code:`Ginkgo`
++  where the device of :code:`MFEM` computes (on the GPU in the :code:`gpu`
++  and :code:`mixed` modes). The location of each entry is given in
++  :ref:`linear_solvers`. The linear solvers registered by an application
++  are taken as solvers of :code:`MFEM`.
+ 
+ A library or a solver computing elsewhere than the settings place it is
+ refused, with a message giving the options which would accept it. The
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 4fe9c45e37..2da04c172a 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -55,18 +55,31 @@ MUMPS Solver
+ 
+ - Parameters:
+ 
+-+----------------------+----------------------------------------------------+
+-| Key                  | Description                                        |
+-+======================+====================================================+
+-| ``Symmetric``        | Specify if the matrix is symmetric. [bool]         |
+-+----------------------+----------------------------------------------------+
+-| ``PositiveDefinite`` | Specify if the matrix is positive definite. [bool] |
+-+----------------------+----------------------------------------------------+
+-| ``ReuseAnalysis``    | Reuse the analysis (ordering and symbolic          |
+-|                      | factorization) of the previous matrix when the new |
+-|                      | one has the same pattern on all processes. [bool,  |
+-|                      | false by default]                                  |
+-+----------------------+----------------------------------------------------+
+++--------------------------+------------------------------------------------------+
++| Key                      | Description                                          |
+++==========================+======================================================+
++| ``Symmetric``            | Specify if the matrix is symmetric. [bool]           |
+++--------------------------+------------------------------------------------------+
++| ``PositiveDefinite``     | Specify if the matrix is positive definite. [bool]   |
+++--------------------------+------------------------------------------------------+
++| ``ReuseAnalysis``        | Reuse the analysis (ordering and symbolic            |
++|                          | factorization) of the previous matrix when the new   |
++|                          | one has the same pattern on all processes. [bool,    |
++|                          | false by default]                                    |
+++--------------------------+------------------------------------------------------+
++| ``ReorderingStrategy``   | Reordering of the matrix: ``Automatic`` (by          |
++|                          | default), ``AMD``, ``AMF``, ``PORD``, ``METIS``,     |
++|                          | ``ParMETIS``, ``Scotch``, ``PTScotch`` (MUMPS must   |
++|                          | be built with the corresponding library). [string]   |
+++--------------------------+------------------------------------------------------+
++| ``BLRTolerance``         | Tolerance of the block low-rank factorization, which |
++|                          | is approximate and whose result is not checked       |
++|                          | (zero, exact factorization, by default). [double]    |
+++--------------------------+------------------------------------------------------+
++| ``VerbosityLevel``       | Print level of MUMPS (``ICNTL(4)``): 0 nothing, 1    |
++|                          | errors (by default), 2 warnings and statistics, up   |
++|                          | to 4. [int]                                          |
+++--------------------------+------------------------------------------------------+
+ 
+ The matrices of the successive iterations of a non linear solver usually
+ have the same pattern: with ``ReuseAnalysis``, only the first one is
+@@ -165,6 +178,25 @@ UMFPack Solver
+ 
+   problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
+ 
++KLU Solver
++^^^^^^^^^^
++
++- Solver name: ``KLUSolver``
++- Dependencies:
++
++  - ``MFEM_USE_SUITESPARSE``
++  - not parallel
++
++- Parameters: None
++
++A singular matrix makes the resolution fail.
++
++**Example:**
++
++.. code-block:: cpp
++
++  problem.setLinearSolver(ctx, "KLUSolver", {}) | or_die;
++
+ .. note::
+ 
+   Direct solvers do not need any tolerance parameter or preconditioner parameter.
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 98ae18f344..27c450c06b 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -103,7 +103,18 @@ The solvers marked as parallel are only available in parallel.
+      - direct
+      - host
+      - none
+-     - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`
++     - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`,
++       :cxx:`ReorderingStrategy` (:cxx:`Automatic`, :cxx:`AMD`,
++       :cxx:`AMF`, :cxx:`PORD`, :cxx:`METIS`, :cxx:`ParMETIS`,
++       :cxx:`Scotch`, :cxx:`PTScotch`; MUMPS replaces a sequential
++       strategy it was built without, while a missing parallel one,
++       :cxx:`ParMETIS` or :cxx:`PTScotch`, may make MFEM stop the program),
++       :cxx:`BLRTolerance` (block low-rank factorization of the fronts
++       large enough, approximate: its result is not checked, small values
++       such as 1e-10 keep a direct solver), :cxx:`VerbosityLevel` (print
++       level of MUMPS, 0: nothing, 1: errors, by default, 2: warnings and
++       statistics, up to 4; unlike the iterative solvers, 0 hides the
++       errors)
+    * - :cxx:`SuperLUSolver` (parallel)
+      - SuperLU_DIST
+      - direct
+@@ -140,6 +151,12 @@ The solvers marked as parallel are only available in parallel.
+      - host
+      - none
+      -
++   * - :cxx:`KLUSolver` (sequential)
++     - SuiteSparse
++     - direct
++     - host
++     - none
++     -
+    * - :cxx:`AmgX`
+      - AmgX
+      - approximate
+@@ -200,6 +217,40 @@ Preconditioners
+      - :cxx:`Preconditioner` (the wrapped preconditioner, set up on the
+        assembled version of an operator applied without assembly),
+        :cxx:`UpdatePeriod`
++   * - :cxx:`GSSmoother`
++     - MFEM
++     - host
++     - :cxx:`Type` (:cxx:`Symmetric`, by default, :cxx:`Forward`,
++       :cxx:`Backward`), :cxx:`NumberOfIterations` (1 by default)
++   * - :cxx:`DSmoother`
++     - MFEM
++     - host
++     - :cxx:`Type` (:cxx:`Jacobi`, by default, :cxx:`l1Jacobi`,
++       :cxx:`LumpedJacobi`), :cxx:`Damping` (1 by default),
++       :cxx:`NumberOfIterations` (1 by default); the lumped Jacobi smoother
++       divides by the sums of the rows, meant for matrices whose rows have
++       positive sums (mass matrices): the sums of the rows of a stiffness
++       matrix vanish up to the rounding errors, and MFEM then stops the
++       program or the preconditioner is meaningless
++   * - :cxx:`BlockILU`
++     - MFEM
++     - host
++     - :cxx:`BlockSize` (by default, the number of components of the
++       unknowns if they are ordered by vector dimension, one otherwise),
++       :cxx:`Reordering` (:cxx:`MinimumDiscardedFill`, by default,
++       :cxx:`None`); without fill, the only level supported by MFEM
++   * - :cxx:`UMFPack`, :cxx:`KLU`
++     - SuiteSparse
++     - host
++     - none; exact solvers in sequential
++   * - :cxx:`OrthoSolver`
++     - MFEM
++     - host
++     - :cxx:`Preconditioner` (the wrapped preconditioner, applied to the
++       vectors orthogonalized to the constant vector: operators whose
++       kernel is the constant vector, such as the ones of scalar problems
++       with pure Neumann boundary conditions, not the ones of mechanics,
++       whose kernel holds the rigid body motions)
+    * - :cxx:`HypreBoomerAMG` (parallel)
+      - hypre
+      - as hypre
+@@ -267,6 +318,18 @@ Preconditioners
+      - :cxx:`Options` (see :ref:`strumpack_linear_solvers`),
+        :cxx:`ReuseAnalysis`, :cxx:`VerbosityLevel`
+ 
++The preconditioners :cxx:`GSSmoother`, :cxx:`DSmoother`, :cxx:`BlockILU`,
++:cxx:`UMFPack` and :cxx:`KLU` are defined on the sparse matrices of MFEM:
++in parallel, each process applies them to its diagonal block of the matrix
++of hypre (block Jacobi method, one block per process), the number of
++iterations then growing with the number of processes. They compute on the
++host, the matrix being copied on the host and the vectors from and to the
++device when MFEM computes on a GPU. With the execution settings
++(:cxx:`--execution`), they are refused when the linear solvers are placed
++on the GPU, and, when they are placed on the CPU in the :cxx:`mixed` mode,
++the Krylov solvers of MFEM, which compute where MFEM computes, are refused:
++they are then given to the Krylov solvers of PETSc.
++
+ The libraries which are not available (MFEM built without them, or
+ mfem-mgis built without AmgX) register nothing.
+ 
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 83f19cb795..45258e244c 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -179,6 +179,20 @@ and transposed interpolations kept. The values of the
+ Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused.
+ See :ref:`linear_solvers`.
+ 
++Preconditioners of the sparse matrices of MFEM, options of MUMPS
++----------------------------------------------------------------
++
++The Gauss-Seidel and Jacobi smoothers of the sparse matrices of MFEM
++(:cxx:`GSSmoother`, :cxx:`DSmoother`), its block incomplete LU
++factorization (:cxx:`BlockILU`) and the direct solvers of SuiteSparse
++(:cxx:`UMFPack`, :cxx:`KLU`) are available as preconditioners, applied to
++the diagonal block of each process in parallel, as well as the
++:cxx:`KLUSolver` direct solver in sequential and the orthogonalizing
++wrapper :cxx:`OrthoSolver` for the operators whose kernel is the constant
++vector. The :cxx:`MUMPSSolver` direct solver accepts a reordering
++strategy, a tolerance of its block low-rank factorization and a verbosity
++level. See :ref:`linear_solvers`.
++
+ Direct solvers of SuperLU_DIST and STRUMPACK
+ --------------------------------------------
+ 
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index fc10ac8af0..d506b014c7 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1646,6 +1646,39 @@ if(MFEM_USE_GINKGO STREQUAL "YES")
+   endif()
+ endif()
+ 
++# MFEMSolversTest executable: smoothers and incomplete factorization of the
++# sparse matrices of MFEM, direct solvers of SuiteSparse used as
++# preconditioners or solvers, orthogonalizing wrapper of a preconditioner
++add_test_executable(MFEMSolversTest)
++add_test(NAME MFEMSolversTest COMMAND MFEMSolversTest)
++set_tests_properties(MFEMSolversTest PROPERTIES
++  FAIL_REGULAR_EXPRESSION "check failed")
++if(MFEM_USE_MPI)
++  add_test(NAME MFEMSolversTestP COMMAND mpirun -n 2 ./MFEMSolversTest -p)
++  set_tests_properties(MFEMSolversTestP PROPERTIES
++    FAIL_REGULAR_EXPRESSION "check failed")
++endif(MFEM_USE_MPI)
++# on a GPU, the matrices and the vectors are copied on the host
++if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
++   AND enable-gpu-tests)
++  if(MFEM_USE_CUDA STREQUAL "YES")
++    set(mfem_solvers_test_device cuda)
++  else()
++    set(mfem_solvers_test_device hip)
++  endif()
++  add_test(NAME MFEMSolversTest-gpu
++           COMMAND MFEMSolversTest --device ${mfem_solvers_test_device})
++  set(mfem_solvers_gpu_tests MFEMSolversTest-gpu)
++  if(MFEM_USE_MPI)
++    add_test(NAME MFEMSolversTestP-gpu
++             COMMAND mpirun -n 2 ./MFEMSolversTest -p
++                     --device ${mfem_solvers_test_device})
++    list(APPEND mfem_solvers_gpu_tests MFEMSolversTestP-gpu)
++  endif(MFEM_USE_MPI)
++  set_tests_properties(${mfem_solvers_gpu_tests} PROPERTIES
++    FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
++endif()
++
+ # HypreSolversTest executable: solvers and preconditioners of hypre which
+ # are not wrapped by MFEM, smoothers of hypre and options of BoomerAMG
+ if(MFEM_USE_MPI)
+@@ -1656,9 +1689,10 @@ if(MFEM_USE_MPI)
+     FAIL_REGULAR_EXPRESSION "check failed")
+ endif(MFEM_USE_MPI)
+ 
+-# SparseDirectSolversTest executable: direct solvers of SuperLU_DIST and
+-# STRUMPACK, preconditioner of STRUMPACK
+-if(MFEM_USE_MPI AND ((MFEM_USE_SUPERLU STREQUAL "YES") OR
++# SparseDirectSolversTest executable: direct solvers of MUMPS, SuperLU_DIST
++# and STRUMPACK, preconditioner of STRUMPACK
++if(MFEM_USE_MPI AND ((MFEM_USE_MUMPS STREQUAL "YES") OR
++                     (MFEM_USE_SUPERLU STREQUAL "YES") OR
+                      (MFEM_USE_STRUMPACK STREQUAL "YES")))
+   add_test_executable(SparseDirectSolversTest)
+   add_test(NAME SparseDirectSolversTest COMMAND SparseDirectSolversTest)
+diff --git a/tests/LaplaceSystem.hxx b/tests/LaplaceSystem.hxx
+index 2b1eaf0f22..d55c2190eb 100644
+--- a/tests/LaplaceSystem.hxx
++++ b/tests/LaplaceSystem.hxx
+@@ -36,19 +36,31 @@ namespace mfem_mgis::tests {
+     /*!
+      * \param[in] smesh: sequential mesh (partitioned in parallel)
+      * \param[in] fec: finite element collection
++     * \param[in] dirichlet: if true, the unknown is null on the boundary and
++     * the source is uniform; otherwise, the flux is null on the boundary (the
++     * kernel of the operator is the constant vector) and the source, whose
++     * integral is null, is `x - 0.5` (on the unit cube)
+      */
+-    LaplaceSystem(mfem::Mesh& smesh, mfem::FiniteElementCollection& fec)
++    LaplaceSystem(mfem::Mesh& smesh,
++                  mfem::FiniteElementCollection& fec,
++                  const bool dirichlet = true)
+         : mesh(makeMesh(smesh)), fespace(mesh.get(), &fec), a(&fespace) {
+       auto ess_bdr = mfem::Array<int>(this->mesh->bdr_attributes.Max());
+-      ess_bdr = 1;
++      ess_bdr = dirichlet ? 1 : 0;
+       auto ess_tdofs = mfem::Array<int>{};
+       this->fespace.GetEssentialTrueDofs(ess_bdr, ess_tdofs);
+       this->a.AddDomainIntegrator(new mfem::DiffusionIntegrator);
+       this->a.SetDiagonalPolicy(mfem::Operator::DIAG_ONE);
+       this->a.Assemble();
+       auto one = mfem::ConstantCoefficient(1.);
++      auto source = mfem::FunctionCoefficient(
++          [](const mfem::Vector& p) { return p[0] - mfem::real_t{0.5}; });
+       auto b = LinearForm(&(this->fespace));
+-      b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
++      if (dirichlet) {
++        b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
++      } else {
++        b.AddDomainIntegrator(new mfem::DomainLFIntegrator(source));
++      }
+       b.Assemble();
+       auto x = GridFunction(&(this->fespace));
+       x = 0.;
+@@ -76,6 +88,18 @@ namespace mfem_mgis::tests {
+       r -= this->B;
+       return std::sqrt(this->dot(r, r) / this->dot(this->B, this->B));
+     }
++    /*!
++     * \return the mean of a vector relative to its norm, |sum_i x_i| /
++     * (sqrt(n) ||x||), null for a vector orthogonal to the constant vector
++     * \param[in] x: vector
++     */
++    double getRelativeMean(const mfem::Vector& x) {
++      auto one = mfem::Vector(x.Size());
++      one.UseDevice(true);
++      one = 1.;
++      return std::abs(this->dot(one, x)) /
++             std::sqrt(this->dot(one, one) * this->dot(x, x));
++    }
+     //! \brief mesh (copy of the sequential mesh, or partition of it)
+     std::unique_ptr<Mesh> mesh;
+     //! \brief finite element space
+diff --git a/tests/LinearSolverFactoriesTest.cxx b/tests/LinearSolverFactoriesTest.cxx
+index 3efd1c9c15..f56ad38579 100644
+--- a/tests/LinearSolverFactoriesTest.cxx
++++ b/tests/LinearSolverFactoriesTest.cxx
+@@ -65,7 +65,8 @@ static void check(const bool b, const std::string& msg) {
+  * \return true if the solver or preconditioner can compute in this run:
+  * the entries which only compute on the GPU require MFEM computing on a
+  * CUDA GPU, the ones which only compute on the host require hypre computing
+- * on the host
++ * on the host, except the ones of MFEM and SuiteSparse, which copy the
++ * matrices and the vectors on the host
+  * \param[in] d: description
+  */
+ static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
+@@ -74,7 +75,8 @@ static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
+     return mfem::Device::Allows(mfem::Backend::CUDA_MASK);
+   }
+   if (d.placement == LinearSolverPlacement::HOST) {
+-    return !mfem_mgis::isHypreUsingGPU();
++    return (d.library == "MFEM") || (d.library == "SuiteSparse") ||
++           (!mfem_mgis::isHypreUsingGPU());
+   }
+   return true;
+ }  // end of isAvailable
+@@ -242,10 +244,13 @@ static void checkPlacement(const std::string& n,
+       {"AmgXPCG", LinearSolverPlacement::DEVICE},
+       {"AssembledOperator", Placement{}},
+       {"BiCGSTABSolver", LinearSolverPlacement::MFEM},
++      {"BlockILU", LinearSolverPlacement::HOST},
+       {"CGSolver", LinearSolverPlacement::MFEM},
+       {"CuDSSSolver", LinearSolverPlacement::DEVICE},
++      {"DSmoother", LinearSolverPlacement::HOST},
+       {"FGMRESSolver", LinearSolverPlacement::MFEM},
+       {"GMRESSolver", LinearSolverPlacement::MFEM},
++      {"GSSmoother", LinearSolverPlacement::HOST},
+       {"HypreBoomerAMG", LinearSolverPlacement::HYPRE},
+       {"HypreDiagScale", LinearSolverPlacement::HYPRE},
+       {"HypreEuclid", LinearSolverPlacement::HOST},
+@@ -254,11 +259,15 @@ static void checkPlacement(const std::string& n,
+       {"HypreILU", LinearSolverPlacement::HYPRE},
+       {"HypreParaSails", LinearSolverPlacement::HOST},
+       {"HyprePCG", LinearSolverPlacement::HYPRE},
++      {"KLU", LinearSolverPlacement::HOST},
++      {"KLUSolver", LinearSolverPlacement::HOST},
+       {"MINRESSolver", LinearSolverPlacement::MFEM},
+       {"MUMPSSolver", LinearSolverPlacement::HOST},
+       {"OperatorChebyshevSmoother", LinearSolverPlacement::MFEM},
+       {"OperatorJacobiSmoother", LinearSolverPlacement::MFEM},
++      {"OrthoSolver", LinearSolverPlacement::HOST},
+       {"SLISolver", LinearSolverPlacement::MFEM},
++      {"UMFPack", LinearSolverPlacement::HOST},
+       {"UMFPackSolver", LinearSolverPlacement::HOST}};
+   const auto p = placements.find(n);
+   if (p != placements.end()) {
+@@ -334,6 +343,13 @@ static void run(LaplaceSystem<is_parallel>& s) {
+       print(n + ": skipped (not available in this run)");
+       continue;
+     }
++    // the orthogonalizing wrapper is meant for the operators whose kernel
++    // is the constant vector, which is not the case of this system: it is
++    // tested by MFEMSolversTest
++    if (n == "OrthoSolver") {
++      print(n + ": skipped (operators whose kernel is the constant vector)");
++      continue;
++    }
+     auto ctx = Context{};
+     auto ls = lf.generate(
+         ctx, "GMRESSolver", s.fespace,
+diff --git a/tests/MFEMSolversTest.cxx b/tests/MFEMSolversTest.cxx
+new file mode 100644
+index 0000000000..52f0f544a3
+--- /dev/null
++++ b/tests/MFEMSolversTest.cxx
+@@ -0,0 +1,397 @@
++/*!
++ * \file   MFEMSolversTest.cxx
++ * \brief  Test of the preconditioners of the sparse matrices of MFEM
++ * (Gauss-Seidel and Jacobi smoothers, block ILU factorization), of the
++ * direct solvers of SuiteSparse used as preconditioners or solvers, and of
++ * the orthogonalizing wrapper of a preconditioner, on the Laplace equation
++ * on a cube, in sequential and in parallel (the preconditioners being
++ * applied to the diagonal block of each process), with the `--device`
++ * option on a GPU (the matrices and the vectors being copied on the host):
++ *
++ * - each type of the smoothers, with one or two iterations, and the
++ *   reorderings of the block ILU factorization precondition the GMRES
++ *   solver of MFEM;
++ * - the direct solvers of SuiteSparse give the solution in one iteration in
++ *   sequential, and precondition the diagonal blocks in parallel;
++ * - the KLU direct solver (sequential), which reports a singular matrix;
++ * - each preconditioner is set up again for a second operator of the same
++ *   pattern (the matrix times two);
++ * - the orthogonalizing wrapper solves the Laplace equation with null flux
++ *   boundary conditions, whose kernel is the constant vector, its solution
++ *   being orthogonal to the constant vector;
++ * - an operator applied without assembly and invalid options are refused.
++ * \date   15/10/2026
++ */
++
++#include <cmath>
++#include <string>
++#include <tuple>
++#include <type_traits>
++#include <cstdlib>
++#include <iostream>
++#include <stdexcept>
++#include "mfem.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MPI.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++#include "LaplaceSystem.hxx"
++
++using mfem_mgis::tests::LaplaceSystem;
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief rank of the process
++static int rank = 0;
++//! \brief parallel computations
++static bool parallel = false;
++//! \brief tolerance of the resolutions
++static constexpr double tolerance =
++    std::is_same_v<mfem::real_t, double> ? 1e-10 : 1e-5;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \brief outcome of a resolution
++struct Resolution {
++  //! \brief if true, the resolution converged
++  bool converged = false;
++  //! \brief number of iterations
++  int iterations = 0;
++  //! \brief norm of the residual relative to the right hand side
++  double residual = 1;
++};
++
++/*!
++ * \return true if a resolution converged with a relative residual lower
++ * than 100 times the tolerance
++ * \param[in] r: resolution
++ */
++static bool isSolved(const Resolution& r) {
++  return r.converged && (r.residual < 100 * tolerance);
++}  // end of isSolved
++
++/*!
++ * \return the linear solver of the factory, throws on failure
++ * \param[in] s: system
++ * \param[in] name: name of the linear solver
++ * \param[in] parameters: parameters of the linear solver
++ */
++template <bool is_parallel>
++static mfem_mgis::LinearSolverHandler generate(
++    LaplaceSystem<is_parallel>& s,
++    const std::string& name,
++    const mfem_mgis::Parameters& parameters) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++      ctx, name, s.fespace, parameters);
++  if (isInvalid(ls)) {
++    throw std::runtime_error(name + ": " + ctx.getErrorMessage());
++  }
++  return ls;
++}  // end of generate
++
++/*!
++ * \return the error message of the generation of a linear solver which
++ * shall fail, or an empty string if the generation succeeds
++ * \param[in] s: system
++ * \param[in] name: name of the linear solver
++ * \param[in] parameters: parameters of the linear solver
++ */
++template <bool is_parallel>
++static std::string getGenerationError(LaplaceSystem<is_parallel>& s,
++                                      const std::string& name,
++                                      const mfem_mgis::Parameters& parameters) {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  const auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++      ctx, name, s.fespace, parameters);
++  return isInvalid(ls) ? ctx.getErrorMessage() : "";
++}  // end of getGenerationError
++
++/*!
++ * \return the resolution of the system of a matrix, with the right hand
++ * side of a system, by a linear solver
++ * \param[in] s: system
++ * \param[in] a: matrix
++ * \param[in] ls: linear solver
++ * \param[in] name: name of the resolution
++ * \param[out] solution: solution, if not null
++ */
++template <bool is_parallel>
++static Resolution solve(LaplaceSystem<is_parallel>& s,
++                        const typename LaplaceSystem<is_parallel>::Matrix& a,
++                        mfem::Solver& ls,
++                        const std::string& name,
++                        mfem::Vector* const solution = nullptr) {
++  using namespace mfem_mgis;
++  auto x = mfem::Vector(s.B.Size());
++  x.UseDevice(true);
++  x = 0.;
++  ls.SetOperator(a);
++  ls.Mult(s.B, x);
++  auto r = Resolution{};
++  r.converged = hasConverged(ls);
++  r.iterations = getNumberOfIterationsAtConvergence(ls).value_or(-1);
++  r.residual = s.getRelativeResidual(a, x);
++  if (rank == 0) {
++    std::cout << name << ": " << r.iterations << " iterations, residual "
++              << r.residual << (r.converged ? "" : " (not converged)") << '\n';
++  }
++  if (solution != nullptr) {
++    *solution = x;
++  }
++  return r;
++}  // end of solve
++
++/*!
++ * \return the resolution of a system by a linear solver
++ * \param[in] s: system
++ * \param[in] ls: linear solver
++ * \param[in] name: name of the resolution
++ */
++template <bool is_parallel>
++static Resolution solve(LaplaceSystem<is_parallel>& s,
++                        mfem::Solver& ls,
++                        const std::string& name) {
++  return solve(s, s.A, ls, name);
++}  // end of solve
++
++/*!
++ * \return true if a linear solver solves the system, then the system of a
++ * second operator of the same pattern
++ * \param[in] s: system
++ * \param[in] a2: second operator
++ * \param[in] ls: linear solver
++ * \param[in] name: name of the resolution
++ */
++template <bool is_parallel>
++static bool solveTwice(LaplaceSystem<is_parallel>& s,
++                       const typename LaplaceSystem<is_parallel>::Matrix& a2,
++                       mfem::Solver& ls,
++                       const std::string& name) {
++  const auto r = solve(s, ls, name);
++  const auto r2 = solve(s, a2, ls, name + ", second operator");
++  return isSolved(r) && isSolved(r2);
++}  // end of solveTwice
++
++/*!
++ * \return the parameters of the GMRES solver of MFEM
++ * \param[in] p: preconditioner
++ * \param[in] o: options of the preconditioner
++ */
++static mfem_mgis::Parameters getGMRESParameters(
++    const std::string& p, const mfem_mgis::Parameters& o = {}) {
++  using namespace mfem_mgis;
++  return Parameters{
++      {"RelativeTolerance", tolerance},
++      {"MaximumNumberOfIterations", 1000},
++      {"KDim", 100},
++      {"Preconditioner", Parameters{{"Name", p}, {"Options", o}}}};
++}  // end of getGMRESParameters
++
++//! \brief operator applied without assembly, wrapping a matrix
++template <typename Matrix>
++struct MatrixFreeOperator final : public mfem::Operator {
++  //! \param[in] m: matrix
++  explicit MatrixFreeOperator(const Matrix& m)
++      : mfem::Operator(m.Height(), m.Width()), matrix(m) {}
++  void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
++    this->matrix.Mult(x, y);
++  }
++
++ private:
++  //! \brief matrix
++  const Matrix& matrix;
++};
++
++template <bool is_parallel>
++static void run(LaplaceSystem<is_parallel>& s,
++                LaplaceSystem<is_parallel>& neumann) {
++  using namespace mfem_mgis;
++  using Matrix = typename LaplaceSystem<is_parallel>::Matrix;
++  // a second operator of the same pattern: the matrix times two
++  auto a2 = Matrix(s.A);
++  a2 *= 2.;
++  // smoothers and incomplete factorization of the sparse matrices
++  for (const auto& t : {"Symmetric", "Forward", "Backward"}) {
++    auto gs = generate(
++        s, "GMRESSolver",
++        getGMRESParameters("GSSmoother",
++                           Parameters{{"Type", t}, {"NumberOfIterations", 2}}));
++    check(solveTwice(s, a2, *(gs.linear_solver),
++                     std::string{"GMRESSolver, GSSmoother "} + t),
++          std::string{"GSSmoother "} + t);
++  }
++  for (const auto& t : {"Jacobi", "l1Jacobi"}) {
++    for (const auto n : {1, 2}) {
++      auto d =
++          generate(s, "GMRESSolver",
++                   getGMRESParameters("DSmoother",
++                                      Parameters{{"Type", t},
++                                                 {"Damping", 0.8},
++                                                 {"NumberOfIterations", n}}));
++      const auto name = std::string{"GMRESSolver, DSmoother "} + t + ", " +
++                        std::to_string(n) + " iteration(s)";
++      check(solveTwice(s, a2, *(d.linear_solver), name), name);
++    }
++  }
++  for (const auto& r : {"MinimumDiscardedFill", "None"}) {
++    auto ilu =
++        generate(s, "GMRESSolver",
++                 getGMRESParameters("BlockILU", Parameters{{"Reordering", r}}));
++    check(solveTwice(s, a2, *(ilu.linear_solver),
++                     std::string{"GMRESSolver, BlockILU "} + r),
++          std::string{"BlockILU "} + r);
++  }
++#ifdef MFEM_USE_SUITESPARSE
++  // the direct solvers of SuiteSparse
++  for (const auto& n : {"UMFPack", "KLU"}) {
++    auto direct = generate(s, "GMRESSolver", getGMRESParameters(n));
++    const auto name = std::string{"GMRESSolver, "} + n;
++    const auto r = solve(s, *(direct.linear_solver), name);
++    const auto r2 =
++        solve(s, a2, *(direct.linear_solver), name + ", second operator");
++    check(isSolved(r) && isSolved(r2) &&
++              (is_parallel || ((r.iterations <= 1) && (r2.iterations <= 1))),
++          name);
++  }
++  if constexpr (!is_parallel) {
++    auto klu = generate(s, "KLUSolver", Parameters{});
++    check((solve(s, *(klu.linear_solver), "KLUSolver").residual < 1e-12) &&
++              (solve(s, a2, *(klu.linear_solver), "KLUSolver, second operator")
++                   .residual < 1e-12),
++          "KLUSolver: resolution");
++    // a singular matrix (a null row) is reported by all the processes
++    // `EliminateRow` modifies the arrays of the host, made valid before
++    auto singular = Matrix(s.A);
++    std::ignore = singular.HostReadWriteI();
++    std::ignore = singular.HostReadWriteJ();
++    std::ignore = singular.HostReadWriteData();
++    singular.EliminateRow(0, mfem::Operator::DIAG_ZERO);
++    auto reported = false;
++    try {
++      klu.linear_solver->SetOperator(singular);
++    } catch (CollectiveFailure&) {
++      reported = true;
++    }
++    check(reported, "KLUSolver: singular matrix not reported");
++    check(getGenerationError(s, "KLUSolver", Parameters{{"Verbosity", 1}})
++                  .find("Verbosity") != std::string::npos,
++          "KLUSolver: unknown option not refused");
++  }
++#endif /* MFEM_USE_SUITESPARSE */
++  // the orthogonalizing wrapper, for an operator whose kernel is the
++  // constant vector
++  auto ortho = generate(
++      neumann, "CGSolver",
++      Parameters{
++          {"RelativeTolerance", tolerance},
++          {"MaximumNumberOfIterations", 1000},
++          {"Preconditioner",
++           Parameters{{"Name", "OrthoSolver"},
++                      {"Options",
++                       Parameters{{"Preconditioner",
++                                   Parameters{{"Name", "GSSmoother"}}}}}}}});
++  auto x = mfem::Vector{};
++  const auto ro = solve(neumann, neumann.A, *(ortho.linear_solver),
++                        "CGSolver, OrthoSolver, null flux", &x);
++  const auto mean = neumann.getRelativeMean(x);
++  // without the wrapper, the solution is not orthogonal to the constant
++  // vector
++  auto plain = generate(
++      neumann, "CGSolver",
++      Parameters{{"RelativeTolerance", tolerance},
++                 {"MaximumNumberOfIterations", 1000},
++                 {"Preconditioner", Parameters{{"Name", "GSSmoother"}}}});
++  auto x_plain = mfem::Vector{};
++  std::ignore = solve(neumann, neumann.A, *(plain.linear_solver),
++                      "CGSolver, GSSmoother, null flux", &x_plain);
++  const auto mean_plain = neumann.getRelativeMean(x_plain);
++  if (rank == 0) {
++    std::cout << "relative mean of the solution: " << mean
++              << " with OrthoSolver, " << mean_plain << " without\n";
++  }
++  check(isSolved(ro) && (mean < 100 * tolerance),
++        "CGSolver, OrthoSolver: resolution with null flux boundary "
++        "conditions");
++  // refusals
++  auto gs = generate(s, "GMRESSolver", getGMRESParameters("GSSmoother"));
++  auto matrix_free = MatrixFreeOperator(s.A);
++  auto raised = false;
++  try {
++    gs.linear_solver->SetOperator(matrix_free);
++  } catch (std::exception&) {
++    raised = true;
++  }
++  check(raised, "GSSmoother: operator applied without assembly not refused");
++  const auto refused = [&s](const std::string& p, const Parameters& o,
++                            const std::string& msg) {
++    return getGenerationError(s, "GMRESSolver", getGMRESParameters(p, o))
++               .find(msg) != std::string::npos;
++  };
++  check(refused("GSSmoother", Parameters{{"Type", "Diagonal"}}, "invalid type"),
++        "GSSmoother: invalid type not refused");
++  check(refused("DSmoother", Parameters{{"Type", "SOR"}}, "invalid type"),
++        "DSmoother: invalid type not refused");
++  check(refused("BlockILU", Parameters{{"Reordering", "RCM"}},
++                "invalid reordering"),
++        "BlockILU: invalid reordering not refused");
++  check(refused("DSmoother", Parameters{{"Damping", 0.}},
++                "invalid damping factor"),
++        "DSmoother: null damping factor not refused");
++  check(
++      refused("OrthoSolver", Parameters{}, "'Preconditioner' is not declared"),
++      "OrthoSolver: missing preconditioner not refused");
++  check(refused("OrthoSolver",
++                Parameters{{"Preconditioner", Parameters{{"Name", "None"}}}},
++                "requires a preconditioner"),
++        "OrthoSolver: no preconditioner not refused");
++}  // end of run
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++#ifdef MFEM_USE_MPI
++  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
++#endif /* MFEM_USE_MPI */
++  auto mesh = mfem::Mesh::MakeCartesian3D(8, 8, 8, mfem::Element::HEXAHEDRON);
++  auto fec = mfem::H1_FECollection(1, 3);
++  try {
++    if (parallel) {
++#ifdef MFEM_USE_MPI
++      auto s = LaplaceSystem<true>(mesh, fec);
++      auto neumann = LaplaceSystem<true>(mesh, fec, false);
++      run<true>(s, neumann);
++#else  /* MFEM_USE_MPI */
++      throw std::runtime_error("parallel computations are not supported");
++#endif /* MFEM_USE_MPI */
++    } else {
++      auto s = LaplaceSystem<false>(mesh, fec);
++      auto neumann = LaplaceSystem<false>(mesh, fec, false);
++      run<false>(s, neumann);
++    }
++  } catch (std::exception& e) {
++    std::cerr << "error: " << e.what() << '\n';
++    return EXIT_FAILURE;
++  }
++  if (rank == 0) {
++    std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  }
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+diff --git a/tests/SparseDirectSolversTest.cxx b/tests/SparseDirectSolversTest.cxx
+index 76a9b83000..62bf287c14 100644
+--- a/tests/SparseDirectSolversTest.cxx
++++ b/tests/SparseDirectSolversTest.cxx
+@@ -1,11 +1,14 @@
+ /*!
+  * \file   SparseDirectSolversTest.cxx
+- * \brief  Test of the direct solvers of SuperLU_DIST and STRUMPACK, and of
+- * the preconditioner of STRUMPACK, built by the factories, on the Laplace
+- * equation on a cube, in parallel (the generic test
++ * \brief  Test of the direct solvers of MUMPS, SuperLU_DIST and STRUMPACK,
++ * and of the preconditioner of STRUMPACK, built by the factories, on the
++ * Laplace equation on a cube, in parallel (the generic test
+  * `LinearSolverFactoriesTest` solves it with each entry and its default
+  * options):
+  *
++ * - MUMPS accepts each reordering strategy and the tolerance of its block
++ *   low-rank factorization, and solves the system (the strategy used is not
++ *   reported by MFEM);
+  * - SuperLU_DIST solves the system with its options, reuses its analysis
+  *   for a new operator of the same pattern and is built again for an
+  *   operator of another size; the ParMETIS ordering with the parallel
+@@ -27,6 +30,7 @@
+ 
+ #include <cmath>
+ #include <string>
++#include <type_traits>
+ #include <cstdlib>
+ #include <iostream>
+ #include <stdexcept>
+@@ -43,6 +47,12 @@ using mfem_mgis::tests::LaplaceSystem;
+ static int failures = 0;
+ //! \brief rank of the process
+ static int rank = 0;
++/*!
++ * \brief tolerance on the relative residual of the direct solvers of MUMPS
++ * (SuperLU_DIST and STRUMPACK are only available in double precision)
++ */
++static constexpr double direct_tolerance =
++    std::is_same_v<mfem::real_t, double> ? 1e-12 : 1e-5;
+ 
+ static void check(const bool b, const std::string& msg) {
+   if (!b) {
+@@ -124,12 +134,42 @@ static double solve(LaplaceSystem<true>& s,
+   return solve(s, s.A, ls, name);
+ }  // end of solve
+ 
+-static void run(LaplaceSystem<true>& s, LaplaceSystem<true>& s2) {
++static void run(LaplaceSystem<true>& s,
++                [[maybe_unused]] LaplaceSystem<true>& s2) {
+   using namespace mfem_mgis;
+   // a second operator of the same pattern, as in the iterations of a Newton
+   // solver: the matrix of the system times two
+   auto a2 = mfem::HypreParMatrix(s.A);
+   a2 *= 2.;
++#ifdef MFEM_USE_MUMPS
++  // MUMPS and its reordering strategies (the ones which are not available
++  // are replaced by MUMPS with a warning)
++  for (const auto& r : {"Automatic", "AMD", "PORD", "METIS"}) {
++    auto mumps =
++        generate(s, "MUMPSSolver",
++                 Parameters{{"ReorderingStrategy", r}, {"VerbosityLevel", 0}});
++    check(solve(s, *(mumps.linear_solver), std::string{"MUMPSSolver, "} + r) <
++              direct_tolerance,
++          std::string{"MUMPSSolver, "} + r + ": resolution");
++  }
++  // the block low-rank factorization is approximate; on this small mesh,
++  // MUMPS activates it (ICNTL(35)) but compresses no front, which are too
++  // small: the resolution is exact. The option is only checked to be
++  // accepted, the use of the block low-rank factorization not being
++  // reported by MFEM
++  {
++    auto blr = generate(s, "MUMPSSolver", Parameters{{"BLRTolerance", 1e-6}});
++    check(solve(s, *(blr.linear_solver), "MUMPSSolver, BLR") < direct_tolerance,
++          "MUMPSSolver, BLR: resolution");
++  }
++  check(getGenerationError(s, "MUMPSSolver",
++                           Parameters{{"ReorderingStrategy", "RCM"}})
++                .find("invalid reordering strategy") != std::string::npos,
++        "MUMPSSolver: invalid reordering strategy not refused");
++  check(getGenerationError(s, "MUMPSSolver", Parameters{{"BLRTolerance", -1.}})
++                .find("invalid tolerance") != std::string::npos,
++        "MUMPSSolver: negative tolerance not refused");
++#endif /* MFEM_USE_MUMPS */
+ #ifdef MFEM_USE_SUPERLU
+   // SuperLU_DIST, its options, the reuse of its analysis
+   auto superlu = generate(s, "SuperLUSolver",
+-- 
+2.43.0
+

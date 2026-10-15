@@ -50,14 +50,17 @@ namespace mfem_mgis::internals {
   void declarePreconditioners(PreconditionerFactory<parallel>& f);
 
   /*!
-   * \brief register the solvers of MFEM (Krylov solvers, UMFPACK)
+   * \brief register the solvers of MFEM (Krylov solvers, direct solvers
+   * UMFPACK and KLU of SuiteSparse in sequential)
    * \param[in, out] f: factory
    */
   template <bool parallel>
   void declareMFEMLinearSolvers(LinearSolverFactory<parallel>& f);
   /*!
    * \brief register the preconditioners of MFEM (Jacobi and Chebyshev
-   * smoothers) and of mfem-mgis (`AssembledOperator`)
+   * smoothers, smoothers and block incomplete LU factorization of the sparse
+   * matrices, direct solvers UMFPACK and KLU of SuiteSparse, orthogonalizing
+   * wrapper) and of mfem-mgis (`AssembledOperator`)
    * \param[in, out] f: factory
    */
   template <bool parallel>

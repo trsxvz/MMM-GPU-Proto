@@ -179,6 +179,20 @@ and transposed interpolations kept. The values of the
 Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused.
 See :ref:`linear_solvers`.
 
+Preconditioners of the sparse matrices of MFEM, options of MUMPS
+----------------------------------------------------------------
+
+The Gauss-Seidel and Jacobi smoothers of the sparse matrices of MFEM
+(:cxx:`GSSmoother`, :cxx:`DSmoother`), its block incomplete LU
+factorization (:cxx:`BlockILU`) and the direct solvers of SuiteSparse
+(:cxx:`UMFPack`, :cxx:`KLU`) are available as preconditioners, applied to
+the diagonal block of each process in parallel, as well as the
+:cxx:`KLUSolver` direct solver in sequential and the orthogonalizing
+wrapper :cxx:`OrthoSolver` for the operators whose kernel is the constant
+vector. The :cxx:`MUMPSSolver` direct solver accepts a reordering
+strategy, a tolerance of its block low-rank factorization and a verbosity
+level. See :ref:`linear_solvers`.
+
 Direct solvers of SuperLU_DIST and STRUMPACK
 --------------------------------------------
 

@@ -55,18 +55,31 @@ MUMPS Solver
 
 - Parameters:
 
-+----------------------+----------------------------------------------------+
-| Key                  | Description                                        |
-+======================+====================================================+
-| ``Symmetric``        | Specify if the matrix is symmetric. [bool]         |
-+----------------------+----------------------------------------------------+
-| ``PositiveDefinite`` | Specify if the matrix is positive definite. [bool] |
-+----------------------+----------------------------------------------------+
-| ``ReuseAnalysis``    | Reuse the analysis (ordering and symbolic          |
-|                      | factorization) of the previous matrix when the new |
-|                      | one has the same pattern on all processes. [bool,  |
-|                      | false by default]                                  |
-+----------------------+----------------------------------------------------+
++--------------------------+------------------------------------------------------+
+| Key                      | Description                                          |
++==========================+======================================================+
+| ``Symmetric``            | Specify if the matrix is symmetric. [bool]           |
++--------------------------+------------------------------------------------------+
+| ``PositiveDefinite``     | Specify if the matrix is positive definite. [bool]   |
++--------------------------+------------------------------------------------------+
+| ``ReuseAnalysis``        | Reuse the analysis (ordering and symbolic            |
+|                          | factorization) of the previous matrix when the new   |
+|                          | one has the same pattern on all processes. [bool,    |
+|                          | false by default]                                    |
++--------------------------+------------------------------------------------------+
+| ``ReorderingStrategy``   | Reordering of the matrix: ``Automatic`` (by          |
+|                          | default), ``AMD``, ``AMF``, ``PORD``, ``METIS``,     |
+|                          | ``ParMETIS``, ``Scotch``, ``PTScotch`` (MUMPS must   |
+|                          | be built with the corresponding library). [string]   |
++--------------------------+------------------------------------------------------+
+| ``BLRTolerance``         | Tolerance of the block low-rank factorization, which |
+|                          | is approximate and whose result is not checked       |
+|                          | (zero, exact factorization, by default). [double]    |
++--------------------------+------------------------------------------------------+
+| ``VerbosityLevel``       | Print level of MUMPS (``ICNTL(4)``): 0 nothing, 1    |
+|                          | errors (by default), 2 warnings and statistics, up   |
+|                          | to 4. [int]                                          |
++--------------------------+------------------------------------------------------+
 
 The matrices of the successive iterations of a non linear solver usually
 have the same pattern: with ``ReuseAnalysis``, only the first one is
@@ -164,6 +177,25 @@ UMFPack Solver
 .. code-block:: cpp
 
   problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
+
+KLU Solver
+^^^^^^^^^^
+
+- Solver name: ``KLUSolver``
+- Dependencies:
+
+  - ``MFEM_USE_SUITESPARSE``
+  - not parallel
+
+- Parameters: None
+
+A singular matrix makes the resolution fail.
+
+**Example:**
+
+.. code-block:: cpp
+
+  problem.setLinearSolver(ctx, "KLUSolver", {}) | or_die;
 
 .. note::
 

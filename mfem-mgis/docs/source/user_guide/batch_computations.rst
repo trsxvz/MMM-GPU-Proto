@@ -532,15 +532,23 @@ settings, since they decide where they compute:
   on the CPU while the others are on the GPU, :code:`getBehavioursLibrary`
   following the global settings). It is not available for the point-wise
   models;
-- the direct solvers :code:`MUMPSSolver` and :code:`UMFPackSolver`, the
-  preconditioners :code:`HypreEuclid` and :code:`HypreParaSails`, and
-  :code:`PETSc` compute on the CPU; :code:`AmgX`, :code:`AmgXPCG` and
-  :code:`CuDSSSolver` on the GPU; the other solvers of hypre where its
-  memory is (on the host if hypre is built without GPU support); the
-  solvers and smoothers of :code:`MFEM` where the device of :code:`MFEM`
-  computes (on the GPU in the :code:`gpu` and :code:`mixed` modes). The
-  linear solvers registered by an application are taken as solvers of
-  :code:`MFEM`.
+- the direct solvers :code:`MUMPSSolver`, :code:`SuperLUSolver`,
+  :code:`STRUMPACKSolver`, :code:`STRUMPACKMixedPrecisionSolver`,
+  :code:`UMFPackSolver` and :code:`KLUSolver`, the solver
+  :code:`HypreCOGMRES`, the preconditioners :code:`HypreEuclid`,
+  :code:`HypreParaSails`, :code:`STRUMPACKPreconditioner`, the smoothers and
+  factorizations of the sparse matrices of :code:`MFEM` (:code:`GSSmoother`,
+  :code:`DSmoother`, :code:`BlockILU`, :code:`UMFPack`, :code:`KLU`), the
+  wrapper :code:`OrthoSolver`, and :code:`PETSc` compute on the CPU;
+  :code:`AmgX`, :code:`AmgXPCG` and :code:`CuDSSSolver` on the GPU; the
+  other solvers of hypre where its memory is (on the host if hypre is built
+  without GPU support); the Krylov solvers of :code:`MFEM`, its operator
+  smoothers (:code:`OperatorJacobiSmoother`,
+  :code:`OperatorChebyshevSmoother`) and the solvers of :code:`Ginkgo`
+  where the device of :code:`MFEM` computes (on the GPU in the :code:`gpu`
+  and :code:`mixed` modes). The location of each entry is given in
+  :ref:`linear_solvers`. The linear solvers registered by an application
+  are taken as solvers of :code:`MFEM`.
 
 A library or a solver computing elsewhere than the settings place it is
 refused, with a message giving the options which would accept it. The

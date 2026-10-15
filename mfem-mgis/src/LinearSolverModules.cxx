@@ -87,7 +87,8 @@ namespace mfem_mgis::internals {
     }
 #endif /* MFEM_USE_GINKGO */
 #ifndef MFEM_USE_SUITESPARSE
-    if (n == "UMFPackSolver") {
+    if ((n == "UMFPackSolver") || (n == "KLUSolver") || (n == "UMFPack") ||
+        (n == "KLU")) {
       return "MFEM is not compiled with SuiteSparse";
     }
 #endif /* MFEM_USE_SUITESPARSE */

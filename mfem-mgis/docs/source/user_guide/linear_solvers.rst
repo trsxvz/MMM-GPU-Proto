@@ -103,7 +103,18 @@ The solvers marked as parallel are only available in parallel.
      - direct
      - host
      - none
-     - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`
+     - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`,
+       :cxx:`ReorderingStrategy` (:cxx:`Automatic`, :cxx:`AMD`,
+       :cxx:`AMF`, :cxx:`PORD`, :cxx:`METIS`, :cxx:`ParMETIS`,
+       :cxx:`Scotch`, :cxx:`PTScotch`; MUMPS replaces a sequential
+       strategy it was built without, while a missing parallel one,
+       :cxx:`ParMETIS` or :cxx:`PTScotch`, may make MFEM stop the program),
+       :cxx:`BLRTolerance` (block low-rank factorization of the fronts
+       large enough, approximate: its result is not checked, small values
+       such as 1e-10 keep a direct solver), :cxx:`VerbosityLevel` (print
+       level of MUMPS, 0: nothing, 1: errors, by default, 2: warnings and
+       statistics, up to 4; unlike the iterative solvers, 0 hides the
+       errors)
    * - :cxx:`SuperLUSolver` (parallel)
      - SuperLU_DIST
      - direct
@@ -135,6 +146,12 @@ The solvers marked as parallel are only available in parallel.
      - none
      - :cxx:`Symmetric`, :cxx:`PositiveDefinite`, :cxx:`ReuseAnalysis`
    * - :cxx:`UMFPackSolver` (sequential)
+     - SuiteSparse
+     - direct
+     - host
+     - none
+     -
+   * - :cxx:`KLUSolver` (sequential)
      - SuiteSparse
      - direct
      - host
@@ -200,6 +217,40 @@ Preconditioners
      - :cxx:`Preconditioner` (the wrapped preconditioner, set up on the
        assembled version of an operator applied without assembly),
        :cxx:`UpdatePeriod`
+   * - :cxx:`GSSmoother`
+     - MFEM
+     - host
+     - :cxx:`Type` (:cxx:`Symmetric`, by default, :cxx:`Forward`,
+       :cxx:`Backward`), :cxx:`NumberOfIterations` (1 by default)
+   * - :cxx:`DSmoother`
+     - MFEM
+     - host
+     - :cxx:`Type` (:cxx:`Jacobi`, by default, :cxx:`l1Jacobi`,
+       :cxx:`LumpedJacobi`), :cxx:`Damping` (1 by default),
+       :cxx:`NumberOfIterations` (1 by default); the lumped Jacobi smoother
+       divides by the sums of the rows, meant for matrices whose rows have
+       positive sums (mass matrices): the sums of the rows of a stiffness
+       matrix vanish up to the rounding errors, and MFEM then stops the
+       program or the preconditioner is meaningless
+   * - :cxx:`BlockILU`
+     - MFEM
+     - host
+     - :cxx:`BlockSize` (by default, the number of components of the
+       unknowns if they are ordered by vector dimension, one otherwise),
+       :cxx:`Reordering` (:cxx:`MinimumDiscardedFill`, by default,
+       :cxx:`None`); without fill, the only level supported by MFEM
+   * - :cxx:`UMFPack`, :cxx:`KLU`
+     - SuiteSparse
+     - host
+     - none; exact solvers in sequential
+   * - :cxx:`OrthoSolver`
+     - MFEM
+     - host
+     - :cxx:`Preconditioner` (the wrapped preconditioner, applied to the
+       vectors orthogonalized to the constant vector: operators whose
+       kernel is the constant vector, such as the ones of scalar problems
+       with pure Neumann boundary conditions, not the ones of mechanics,
+       whose kernel holds the rigid body motions)
    * - :cxx:`HypreBoomerAMG` (parallel)
      - hypre
      - as hypre
@@ -266,6 +317,18 @@ Preconditioners
      - host
      - :cxx:`Options` (see :ref:`strumpack_linear_solvers`),
        :cxx:`ReuseAnalysis`, :cxx:`VerbosityLevel`
+
+The preconditioners :cxx:`GSSmoother`, :cxx:`DSmoother`, :cxx:`BlockILU`,
+:cxx:`UMFPack` and :cxx:`KLU` are defined on the sparse matrices of MFEM:
+in parallel, each process applies them to its diagonal block of the matrix
+of hypre (block Jacobi method, one block per process), the number of
+iterations then growing with the number of processes. They compute on the
+host, the matrix being copied on the host and the vectors from and to the
+device when MFEM computes on a GPU. With the execution settings
+(:cxx:`--execution`), they are refused when the linear solvers are placed
+on the GPU, and, when they are placed on the CPU in the :cxx:`mixed` mode,
+the Krylov solvers of MFEM, which compute where MFEM computes, are refused:
+they are then given to the Krylov solvers of PETSc.
 
 The libraries which are not available (MFEM built without them, or
 mfem-mgis built without AmgX) register nothing.

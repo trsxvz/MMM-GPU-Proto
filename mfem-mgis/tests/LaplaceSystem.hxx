@@ -36,19 +36,31 @@ namespace mfem_mgis::tests {
     /*!
      * \param[in] smesh: sequential mesh (partitioned in parallel)
      * \param[in] fec: finite element collection
+     * \param[in] dirichlet: if true, the unknown is null on the boundary and
+     * the source is uniform; otherwise, the flux is null on the boundary (the
+     * kernel of the operator is the constant vector) and the source, whose
+     * integral is null, is `x - 0.5` (on the unit cube)
      */
-    LaplaceSystem(mfem::Mesh& smesh, mfem::FiniteElementCollection& fec)
+    LaplaceSystem(mfem::Mesh& smesh,
+                  mfem::FiniteElementCollection& fec,
+                  const bool dirichlet = true)
         : mesh(makeMesh(smesh)), fespace(mesh.get(), &fec), a(&fespace) {
       auto ess_bdr = mfem::Array<int>(this->mesh->bdr_attributes.Max());
-      ess_bdr = 1;
+      ess_bdr = dirichlet ? 1 : 0;
       auto ess_tdofs = mfem::Array<int>{};
       this->fespace.GetEssentialTrueDofs(ess_bdr, ess_tdofs);
       this->a.AddDomainIntegrator(new mfem::DiffusionIntegrator);
       this->a.SetDiagonalPolicy(mfem::Operator::DIAG_ONE);
       this->a.Assemble();
       auto one = mfem::ConstantCoefficient(1.);
+      auto source = mfem::FunctionCoefficient(
+          [](const mfem::Vector& p) { return p[0] - mfem::real_t{0.5}; });
       auto b = LinearForm(&(this->fespace));
-      b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
+      if (dirichlet) {
+        b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
+      } else {
+        b.AddDomainIntegrator(new mfem::DomainLFIntegrator(source));
+      }
       b.Assemble();
       auto x = GridFunction(&(this->fespace));
       x = 0.;
@@ -75,6 +87,18 @@ namespace mfem_mgis::tests {
       m.Mult(x, r);
       r -= this->B;
       return std::sqrt(this->dot(r, r) / this->dot(this->B, this->B));
+    }
+    /*!
+     * \return the mean of a vector relative to its norm, |sum_i x_i| /
+     * (sqrt(n) ||x||), null for a vector orthogonal to the constant vector
+     * \param[in] x: vector
+     */
+    double getRelativeMean(const mfem::Vector& x) {
+      auto one = mfem::Vector(x.Size());
+      one.UseDevice(true);
+      one = 1.;
+      return std::abs(this->dot(one, x)) /
+             std::sqrt(this->dot(one, one) * this->dot(x, x));
     }
     //! \brief mesh (copy of the sequential mesh, or partition of it)
     std::unique_ptr<Mesh> mesh;

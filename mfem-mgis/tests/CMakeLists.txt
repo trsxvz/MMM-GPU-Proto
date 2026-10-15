@@ -1646,6 +1646,39 @@ if(MFEM_USE_GINKGO STREQUAL "YES")
   endif()
 endif()
 
+# MFEMSolversTest executable: smoothers and incomplete factorization of the
+# sparse matrices of MFEM, direct solvers of SuiteSparse used as
+# preconditioners or solvers, orthogonalizing wrapper of a preconditioner
+add_test_executable(MFEMSolversTest)
+add_test(NAME MFEMSolversTest COMMAND MFEMSolversTest)
+set_tests_properties(MFEMSolversTest PROPERTIES
+  FAIL_REGULAR_EXPRESSION "check failed")
+if(MFEM_USE_MPI)
+  add_test(NAME MFEMSolversTestP COMMAND mpirun -n 2 ./MFEMSolversTest -p)
+  set_tests_properties(MFEMSolversTestP PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed")
+endif(MFEM_USE_MPI)
+# on a GPU, the matrices and the vectors are copied on the host
+if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
+   AND enable-gpu-tests)
+  if(MFEM_USE_CUDA STREQUAL "YES")
+    set(mfem_solvers_test_device cuda)
+  else()
+    set(mfem_solvers_test_device hip)
+  endif()
+  add_test(NAME MFEMSolversTest-gpu
+           COMMAND MFEMSolversTest --device ${mfem_solvers_test_device})
+  set(mfem_solvers_gpu_tests MFEMSolversTest-gpu)
+  if(MFEM_USE_MPI)
+    add_test(NAME MFEMSolversTestP-gpu
+             COMMAND mpirun -n 2 ./MFEMSolversTest -p
+                     --device ${mfem_solvers_test_device})
+    list(APPEND mfem_solvers_gpu_tests MFEMSolversTestP-gpu)
+  endif(MFEM_USE_MPI)
+  set_tests_properties(${mfem_solvers_gpu_tests} PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+endif()
+
 # HypreSolversTest executable: solvers and preconditioners of hypre which
 # are not wrapped by MFEM, smoothers of hypre and options of BoomerAMG
 if(MFEM_USE_MPI)
@@ -1656,9 +1689,10 @@ if(MFEM_USE_MPI)
     FAIL_REGULAR_EXPRESSION "check failed")
 endif(MFEM_USE_MPI)
 
-# SparseDirectSolversTest executable: direct solvers of SuperLU_DIST and
-# STRUMPACK, preconditioner of STRUMPACK
-if(MFEM_USE_MPI AND ((MFEM_USE_SUPERLU STREQUAL "YES") OR
+# SparseDirectSolversTest executable: direct solvers of MUMPS, SuperLU_DIST
+# and STRUMPACK, preconditioner of STRUMPACK
+if(MFEM_USE_MPI AND ((MFEM_USE_MUMPS STREQUAL "YES") OR
+                     (MFEM_USE_SUPERLU STREQUAL "YES") OR
                      (MFEM_USE_STRUMPACK STREQUAL "YES")))
   add_test_executable(SparseDirectSolversTest)
   add_test(NAME SparseDirectSolversTest COMMAND SparseDirectSolversTest)

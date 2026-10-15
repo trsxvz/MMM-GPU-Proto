@@ -4917,3 +4917,25 @@ formula as MTest). All the others give the Newton solution to within
 - Independent review: one 5/5 (hybrid convergence) and the 3/5 handled
   during the integration. Suites: 236 (GPU MFEM, on the host), targeted
   CPU double (72) and float (71); Doxygen and Sphinx without warnings.
+
+### 2026-10-15, linear solvers of the major libraries: MFEM completions and MUMPS
+
+- The Gauss-Seidel and Jacobi smoothers of the sparse matrices of MFEM,
+  its block ILU(0) factorization and the direct solvers UMFPACK and KLU
+  are preconditioners, applied to the diagonal block of each process in
+  parallel; KLU is also a direct solver in sequential; `OrthoSolver`
+  orthogonalizes the vectors to the constant vector (scalar problems with
+  null flux conditions). MUMPS accepts a reordering strategy, the
+  tolerance of its block low-rank factorization and a print level.
+- With `--device cuda`, `mfem::KLUSolver` and `mfem::BlockILU` gave wrong
+  results (residual 0.9): they read the memory of the host without
+  synchronizing it, while the vectors live on the GPU, and KLU reads the
+  arrays of the host after sorting the columns on the GPU. They are given
+  a copy of the matrix on the host only and copies of the vectors. MFEM
+  does not check the status of KLU: a singular matrix now fails on all the
+  processes.
+- Independent review: two 3/5 (the two points above), all the points
+  handled (`review-mfem-mumps.md`). The generic test now runs these host
+  entries when hypre computes on the GPU. Suites: 238 (GPU MFEM, on the
+  host), targeted CPU double (74) and float (73).
+

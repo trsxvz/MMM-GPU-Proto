@@ -65,7 +65,8 @@ static void check(const bool b, const std::string& msg) {
  * \return true if the solver or preconditioner can compute in this run:
  * the entries which only compute on the GPU require MFEM computing on a
  * CUDA GPU, the ones which only compute on the host require hypre computing
- * on the host
+ * on the host, except the ones of MFEM and SuiteSparse, which copy the
+ * matrices and the vectors on the host
  * \param[in] d: description
  */
 static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
@@ -74,7 +75,8 @@ static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
     return mfem::Device::Allows(mfem::Backend::CUDA_MASK);
   }
   if (d.placement == LinearSolverPlacement::HOST) {
-    return !mfem_mgis::isHypreUsingGPU();
+    return (d.library == "MFEM") || (d.library == "SuiteSparse") ||
+           (!mfem_mgis::isHypreUsingGPU());
   }
   return true;
 }  // end of isAvailable
@@ -242,10 +244,13 @@ static void checkPlacement(const std::string& n,
       {"AmgXPCG", LinearSolverPlacement::DEVICE},
       {"AssembledOperator", Placement{}},
       {"BiCGSTABSolver", LinearSolverPlacement::MFEM},
+      {"BlockILU", LinearSolverPlacement::HOST},
       {"CGSolver", LinearSolverPlacement::MFEM},
       {"CuDSSSolver", LinearSolverPlacement::DEVICE},
+      {"DSmoother", LinearSolverPlacement::HOST},
       {"FGMRESSolver", LinearSolverPlacement::MFEM},
       {"GMRESSolver", LinearSolverPlacement::MFEM},
+      {"GSSmoother", LinearSolverPlacement::HOST},
       {"HypreBoomerAMG", LinearSolverPlacement::HYPRE},
       {"HypreDiagScale", LinearSolverPlacement::HYPRE},
       {"HypreEuclid", LinearSolverPlacement::HOST},
@@ -254,11 +259,15 @@ static void checkPlacement(const std::string& n,
       {"HypreILU", LinearSolverPlacement::HYPRE},
       {"HypreParaSails", LinearSolverPlacement::HOST},
       {"HyprePCG", LinearSolverPlacement::HYPRE},
+      {"KLU", LinearSolverPlacement::HOST},
+      {"KLUSolver", LinearSolverPlacement::HOST},
       {"MINRESSolver", LinearSolverPlacement::MFEM},
       {"MUMPSSolver", LinearSolverPlacement::HOST},
       {"OperatorChebyshevSmoother", LinearSolverPlacement::MFEM},
       {"OperatorJacobiSmoother", LinearSolverPlacement::MFEM},
+      {"OrthoSolver", LinearSolverPlacement::HOST},
       {"SLISolver", LinearSolverPlacement::MFEM},
+      {"UMFPack", LinearSolverPlacement::HOST},
       {"UMFPackSolver", LinearSolverPlacement::HOST}};
   const auto p = placements.find(n);
   if (p != placements.end()) {
@@ -332,6 +341,13 @@ static void run(LaplaceSystem<is_parallel>& s) {
     checkPlacement(n, *d);
     if ((d->placement.has_value()) && (!isAvailable(*d))) {
       print(n + ": skipped (not available in this run)");
+      continue;
+    }
+    // the orthogonalizing wrapper is meant for the operators whose kernel
+    // is the constant vector, which is not the case of this system: it is
+    // tested by MFEMSolversTest
+    if (n == "OrthoSolver") {
+      print(n + ": skipped (operators whose kernel is the constant vector)");
       continue;
     }
     auto ctx = Context{};
