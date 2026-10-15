@@ -71,7 +71,9 @@ To read in this order:
    precision on the whole chain, done.
 9. [docs/plan-ci-site.md](docs/plan-ci-site.md): continuous integration and
    site of the prototype (decisions taken on 13/10; repository public
-   since 15/10/2026, CI and site started at each push on main).
+   since 15/10/2026, CI and site started at each push on main); their
+   description, caches and durations in
+   [docs/ci-and-site.md](docs/ci-and-site.md).
 10. [docs/gpu-solvers.md](docs/gpu-solvers.md): CPU and GPU solvers,
     preconditioners and techniques retained for the study of
     mfem-mgis.
