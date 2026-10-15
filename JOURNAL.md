@@ -4995,3 +4995,39 @@ formula as MTest). All the others give the Newton solution to within
 - Independent review of the oneMKL module: two 3/5, handled
   (`review-mkl.md`). Suite of the `mmm-solvers` build: 257 tests, all
   green; oneMKL also on the CUDA device, sequential and parallel.
+
+### 2026-10-15, MAGMA: sparse solvers and nodal blocks (phase 3)
+
+- The sparse part of MAGMA 2.10 (environment `mmm-solvers`) is wrapped by
+  a module of mfem-mgis: seven Krylov solvers (sequential, one GPU) and
+  the Jacobi, incomplete LU and incomplete Cholesky preconditioners of
+  MAGMA, the preconditioners being applied to the diagonal block of each
+  process in parallel and usable by any solver. MAGMA is called directly:
+  its option parser prints its usage at each call.
+- Defects of MAGMA found on the way: the preconditioned TFQMR reports its
+  breakdowns as successes (convergence now checked on the residual
+  recomputed by MAGMA); QMR applies the transposed incomplete Cholesky
+  factors in the wrong order (refused, the incomplete LU factorization
+  being the same for a symmetric matrix); QMR without look-ahead breaks
+  down on the Laplace equation; a null diagonal entry goes undetected by
+  the incomplete factorizations (now refused, on all the processes).
+- Independent review: no finding rated 4 or 5, two rated 3 (the TFQMR
+  breakdown, and a test which did not run the path giving the vectors of
+  MFEM to MAGMA without copy), all the findings handled.
+- The batched dense algebra of MFEM (native kernels, cuBLAS or hipBLAS,
+  MAGMA) inverts the blocks of the new `NodalBlockJacobi` preconditioner:
+  the 3 x 3 blocks which couple the components of the displacement at each
+  node, extracted from the assembled matrix, or computed by kernels for the
+  tangent operator applied without assembly (standard integrators, FBar
+  formulation, regularization of Faltus et al., essential degrees of
+  freedom). The nodal blocks computed without assembly match the ones of
+  the assembled operator (relative difference 6e-17 at most over 120
+  comparisons), and Newton's method with this preconditioner reproduces
+  the reference solutions.
+- Found on the way: the MAGMA backend of the batched algebra of MFEM
+  computes on its own queue without waiting for the kernels of MFEM: the
+  GMRES solver of MFEM diverged in parallel on the GPU; the device is now
+  synchronized around the external backends. Also, on a GPU, reading on
+  the device the diagonal block given by `HypreParMatrix::GetDiag` ended
+  with an invalid `cudaFree`: the arrays of hypre are now read directly.
+  Upstream notes written, nothing posted.

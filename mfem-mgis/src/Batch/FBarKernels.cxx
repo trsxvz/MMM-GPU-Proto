@@ -337,6 +337,30 @@ namespace mfem_mgis::batch::internals {
     });
   }  // end of launchFBarRankOneDiagonalsKernel
 
+  void launchFBarRankOneNodalBlocksKernel(const FBarRankOneKernelArguments& a,
+                                          const int vdim,
+                                          real* const values,
+                                          const std::size_t stride,
+                                          const bool use_device) {
+    const auto n = a.number_of_elements * a.n;
+    mfem::forall_switch(
+        use_device, n, [a, vdim, values, stride] MFEM_HOST_DEVICE(int t) {
+          // row i = node + nd * c of the element
+          const auto k = t / a.n;
+          const auto i = static_cast<std::size_t>(t - k * a.n);
+          const auto sn = static_cast<std::size_t>(a.n);
+          const auto sv = static_cast<std::size_t>(vdim);
+          const auto nd = sn / sv;
+          const auto node = i % nd;
+          const auto e = static_cast<std::size_t>(a.elements[k]);
+          const auto p = sn * static_cast<std::size_t>(k);
+          const auto ai = a.a[p + i];
+          for (std::size_t d = 0; d != sv; ++d) {
+            values[stride * d + sn * e + i] += ai * a.b[p + node + nd * d];
+          }
+        });
+  }  // end of launchFBarRankOneNodalBlocksKernel
+
   void launchFBarRankOneActionKernel(const FBarRankOneKernelArguments& a,
                                      const real* const x,
                                      real* const y,

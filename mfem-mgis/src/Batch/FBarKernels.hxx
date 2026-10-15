@@ -8,6 +8,7 @@
 #ifndef LIB_MFEM_MGIS_SRC_BATCH_FBARKERNELS_HXX
 #define LIB_MFEM_MGIS_SRC_BATCH_FBARKERNELS_HXX
 
+#include <cstddef>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
 #include "StiffnessMatricesKernels.hxx"
@@ -200,6 +201,21 @@ namespace mfem_mgis::batch::internals {
   void launchFBarRankOneDiagonalsKernel(const FBarRankOneKernelArguments& a,
                                         real* const d,
                                         const bool use_device);
+  /*!
+   * \brief adds the nodal blocks of the matrices `a ⊗ b` (see
+   * `launchStiffnessMatricesNodalBlocksKernel`): one thread per degree of
+   * freedom of an element, which adds the row of the block of its node
+   * \param[in] a: arguments
+   * \param[in] vdim: number of components of the unknowns
+   * \param[in, out] values: values element by element
+   * \param[in] stride: size of the values of one column of the blocks
+   * \param[in] use_device: if true, the kernel runs on the device
+   */
+  void launchFBarRankOneNodalBlocksKernel(const FBarRankOneKernelArguments& a,
+                                          const int vdim,
+                                          real* const values,
+                                          const std::size_t stride,
+                                          const bool use_device);
   /*!
    * \brief adds the action of the matrices `a ⊗ b`, `a (b · x)`: one thread
    * per element

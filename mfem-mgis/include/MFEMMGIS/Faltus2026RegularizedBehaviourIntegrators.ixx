@@ -452,6 +452,31 @@ namespace mfem_mgis {
         data.kind);
   }  // end of addTangentOperatorDiagonalByKernels
 
+  template <Hypothesis H>
+  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<
+      H>::addTangentOperatorNodalBlocksByKernels(Context& ctx,
+                                                 mfem::Vector& b,
+                                                 const batch::
+                                                     ElementsGeometrySet&
+                                                         g) noexcept {
+    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
+            H>::addTangentOperatorNodalBlocksByKernels(ctx, b, g)) {
+      return false;
+    }
+    auto data = BehaviourIntegratorBase::KernelsData{};
+    const batch::ElementsGeometry* g0 = nullptr;
+    if (!this->getFaltusKernelsData(
+            ctx, data, g0, "addTangentOperatorNodalBlocksByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return batch::addFaltusStiffnessMatricesNodalBlocks(
+        ctx, b, *(this->quadrature_space), this->alpha, *(data.geometry), *g0,
+        data.kind);
+  }  // end of addTangentOperatorNodalBlocksByKernels
+
 }  // end of namespace mfem_mgis
 
 #endif /* LIB_MFEMMGIS_FALTUS2026REGULARIZEDBEHAVIOURINTEGRATORS_IXX */

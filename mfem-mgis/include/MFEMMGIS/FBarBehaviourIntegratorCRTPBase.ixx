@@ -783,6 +783,29 @@ namespace mfem_mgis {
   }  // end of addTangentOperatorDiagonalByKernels
 
   template <typename Child, Hypothesis H>
+  bool FBarBehaviourIntegratorCRTPBase<Child, H>::
+      addTangentOperatorNodalBlocksByKernels(
+          Context& ctx,
+          mfem::Vector& blocks,
+          const batch::ElementsGeometrySet& g) noexcept {
+    auto data = KernelsData{};
+    if (!this->prepareFBarTangentOperatorForKernels(
+            ctx, data, "addTangentOperatorNodalBlocksByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    return this->callWithTangentOperatorBlocks(
+        ctx, "addTangentOperatorNodalBlocksByKernels",
+        [this, &ctx, &blocks, &data](const mgis::FieldView<const real>& Kb) {
+          return batch::addFBarStiffnessMatricesNodalBlocks(
+              ctx, blocks, this->fbar_data, *(this->quadrature_space), Kb,
+              *(data.geometry), data.kind);
+        });
+  }  // end of addTangentOperatorNodalBlocksByKernels
+
+  template <typename Child, Hypothesis H>
   FBarBehaviourIntegratorCRTPBase<Child,
                                   H>::~FBarBehaviourIntegratorCRTPBase() =
       default;

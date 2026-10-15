@@ -214,6 +214,15 @@ namespace mfem_mgis {
         Context&,
         mfem::Vector&,
         const batch::ElementsGeometrySet&) noexcept override;
+    /*!
+     * \brief add the nodal blocks of the stiffness matrices of all the
+     * elements, computed by kernels, including the regularization term (see
+     * `batch::addFaltusStiffnessMatricesNodalBlocks`)
+     */
+    [[nodiscard]] bool addTangentOperatorNodalBlocksByKernels(
+        Context&,
+        mfem::Vector&,
+        const batch::ElementsGeometrySet&) noexcept override;
 
    private:
     /*!

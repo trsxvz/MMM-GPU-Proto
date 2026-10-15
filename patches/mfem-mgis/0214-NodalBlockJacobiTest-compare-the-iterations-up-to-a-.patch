@@ -1,0 +1,92 @@
+From b719718ed669a33fd525c50255827eb133e80fe0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 11:15:04 +0200
+Subject: [PATCH] NodalBlockJacobiTest: compare the iterations up to a quarter
+ in single precision
+
+In single precision, the rounding errors change the numbers of
+iterations of the variants of the same preconditioner (inverse or LU
+factors of the blocks, ordering of the unknowns) by up to a tenth, and
+the restarted GMRES stagnates close to its tolerance: the numbers of
+iterations are compared up to a quarter, the convergence of GMRES only
+is checked, and the reduction of the number of iterations by the nodal
+blocks is checked in double precision only.
+---
+ tests/NodalBlockJacobiTest.cxx | 30 +++++++++++++++++++++++++-----
+ 1 file changed, 25 insertions(+), 5 deletions(-)
+
+diff --git a/tests/NodalBlockJacobiTest.cxx b/tests/NodalBlockJacobiTest.cxx
+index 3dbcd3aae0..2fffc08d6f 100644
+--- a/tests/NodalBlockJacobiTest.cxx
++++ b/tests/NodalBlockJacobiTest.cxx
+@@ -10,7 +10,9 @@
+  *   kernels, cuBLAS or hipBLAS, MAGMA), with the inverses or the LU factors
+  *   of the blocks, and with both orderings of the unknowns;
+  * - with blocks of size one, the preconditioner is the Jacobi smoother of
+- *   MFEM; the nodal blocks need fewer iterations; the GMRES solver of MFEM
++ *   MFEM; the nodal blocks need fewer iterations (in double precision; in
++ *   single precision, the numbers of iterations are only compared up to a
++ *   quarter); the GMRES solver of MFEM
+  *   converges with the default backend (MAGMA, if available, which must be
+  *   synchronized with the kernels of MFEM);
+  * - in sequential, the preconditioner of the block diagonal part of the
+@@ -21,6 +23,7 @@
+  */
+ 
+ #include <array>
++#include <algorithm>
+ #include <cmath>
+ #include <memory>
+ #include <string>
+@@ -160,9 +163,21 @@ static mfem_mgis::Parameters makeNodalBlockJacobi(
+                                {"Options", options}};
+ }  // end of makeNodalBlockJacobi
+ 
+-//! \return true if two numbers of iterations are equal, up to one
++//! \brief computations in double precision
++static constexpr bool double_precision = std::is_same_v<mfem::real_t, double>;
++
++/*!
++ * \return true if two numbers of iterations are close: equal up to one in
++ * double precision, up to a quarter in single precision, where the
++ * rounding errors change the numbers of iterations of the variants of the
++ * same preconditioner (inverse or LU factors, ordering of the unknowns)
++ */
+ static bool areClose(const std::optional<int>& a, const std::optional<int>& b) {
+-  return a.has_value() && b.has_value() && (std::abs(*a - *b) <= 1);
++  if ((!a.has_value()) || (!b.has_value())) {
++    return false;
++  }
++  const auto d = std::abs(*a - *b);
++  return double_precision ? d <= 1 : 4 * d <= std::max(*a, *b);
+ }  // end of areClose
+ 
+ /*!
+@@ -213,8 +228,10 @@ static std::optional<int> run(ElasticitySystem<is_parallel>& s,
+     const auto jacobi =
+         solve(s, s.A, Parameters{{"Name", "DSmoother"}},
+               "GMRESSolver + DSmoother, " + ordering, "GMRESSolver");
++    // in single precision, the restarted GMRES stagnates close to its
++    // tolerance: only its convergence is checked
+     check(it.has_value() && jacobi.has_value() &&
+-              ((bs == 3) || areClose(it, jacobi)),
++              ((bs == 3) || (!double_precision) || areClose(it, jacobi)),
+           ordering + ": GMRES with the nodal blocks of size " +
+               std::to_string(bs));
+   }
+@@ -226,8 +243,11 @@ static std::optional<int> run(ElasticitySystem<is_parallel>& s,
+                             "DSmoother, " + ordering);
+   check(areClose(scalar, jacobi),
+         ordering + ": blocks of size one differ from the Jacobi smoother");
+-  check(reference.has_value() && scalar.has_value() && (*reference < *scalar),
++  if constexpr (double_precision) {
++    check(
++        reference.has_value() && scalar.has_value() && (*reference < *scalar),
+         ordering + ": the nodal blocks do not reduce the number of iterations");
++  }
+   // block diagonal part of the matrix: the preconditioner is its inverse
+   if constexpr (!is_parallel) {
+     const auto n = s.A.Height();
+-- 
+2.43.0
+

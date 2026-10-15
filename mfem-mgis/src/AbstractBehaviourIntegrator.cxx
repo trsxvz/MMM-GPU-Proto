@@ -104,6 +104,14 @@ namespace mfem_mgis {
         "be computed by kernels");
   }  // end of addTangentOperatorDiagonalByKernels
 
+  bool AbstractBehaviourIntegrator::addTangentOperatorNodalBlocksByKernels(
+      Context& ctx, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept {
+    return ctx.registerErrorMessage(
+        "AbstractBehaviourIntegrator::addTangentOperatorNodalBlocksByKernels: "
+        "the nodal blocks of the tangent operator of this behaviour "
+        "integrator can't be computed by kernels");
+  }  // end of addTangentOperatorNodalBlocksByKernels
+
   bool AbstractBehaviourIntegrator::addStiffnessMatricesByKernels(
       Context& ctx,
       const batch::AssembledStiffnessMatrix&,

@@ -377,6 +377,45 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of addFaltusStiffnessMatricesDiagonals
 
+  bool addFaltusStiffnessMatricesNodalBlocks(Context& ctx,
+                                             mfem::Vector& b,
+                                             const PartialQuadratureSpace& qs,
+                                             const real alpha,
+                                             const ElementsGeometry& g,
+                                             const ElementsGeometry& g0,
+                                             const GradientsKind k) noexcept {
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      const auto n = getNumberOfElementDegreesOfFreedom(g, k);
+      auto a = internals::FaltusGeometryKernelArguments{};
+      // one thread per node of an element
+      if (!getFaltusGeometryKernelArguments(
+              ctx, a, qs, alpha, g, g0, k, use_device,
+              "addFaltusStiffnessMatricesNodalBlocks", g.nd)) {
+        return false;
+      }
+      if (a.number_of_elements == 0) {
+        return true;
+      }
+      const auto vdim = std::int64_t{getUnknownsSize(k)};
+      if (static_cast<std::int64_t>(b.Size()) != vdim * n * g.ne) {
+        return ctx.registerErrorMessage(
+            "addFaltusStiffnessMatricesNodalBlocks: unexpected size of the "
+            "values element by element");
+      }
+      internals::launchFaltusNodalBlocksKernel(
+          k, a, b.ReadWrite(use_device), static_cast<std::size_t>(n * g.ne),
+          use_device);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"addFaltusStiffnessMatricesNodalBlocks: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addFaltusStiffnessMatricesNodalBlocks: unknown exception");
+    }
+    return true;
+  }  // end of addFaltusStiffnessMatricesNodalBlocks
+
   bool addFaltusTangentOperatorAction(Context& ctx,
                                       mfem::Vector& y,
                                       const PartialQuadratureSpace& qs,

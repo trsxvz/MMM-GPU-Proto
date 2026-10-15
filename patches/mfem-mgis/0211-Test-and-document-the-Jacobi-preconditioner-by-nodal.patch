@@ -1,0 +1,516 @@
+From 02f83bd6ad20953b98215cbf3473ce6166ffc923 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 11:11:44 +0200
+Subject: [PATCH] Test and document the Jacobi preconditioner by nodal blocks
+
+NodalBlockJacobiTest solves a cantilever beam in linear elasticity, with
+the unknowns ordered by nodes and by vector dimension, in sequential and
+in parallel, on the CPU and on the GPU: same numbers of iterations with
+each available backend and with the inverses or the LU factors of the
+blocks, blocks of size one equivalent to the Jacobi smoother of MFEM,
+fewer iterations with the nodal blocks, convergence of GMRES, inverse of
+the block diagonal part of the matrix (one iteration), refusal of invalid
+options and of unavailable backends.
+---
+ docs/source/user_guide/glossary.rst           |  26 ++
+ docs/source/user_guide/linear_solvers.rst     |  39 +++
+ .../release_notes/release_notes-1.1.0.rst     |   8 +
+ tests/CMakeLists.txt                          |  33 ++
+ tests/NodalBlockJacobiTest.cxx                | 328 ++++++++++++++++++
+ 5 files changed, 434 insertions(+)
+ create mode 100644 tests/NodalBlockJacobiTest.cxx
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 7ae852fccd..7f826dabc7 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -713,6 +713,32 @@ Jacobi (HypreDiagScale)
+     auto options = mfem_mgis::Parameters{{"VerbosityLevel", 0}};
+     auto diagscale = mfem_mgis::Parameters{{"Name","HypreDiagScale"}, {"Options",options}};
+ 
++Jacobi preconditioner by nodal blocks (NodalBlockJacobi)
++--------------------------------------------------------
++
++Jacobi preconditioner whose blocks couple the components of the unknown at
++each node, inverted by the batched dense linear algebra of ``MFEM``. The
++blocks are extracted from an assembled matrix (the diagonal block of each
++process in parallel), in sequential and in parallel (see
++:ref:`nodal_block_jacobi`).
++
++- Preconditioner name: ``NodalBlockJacobi``
++- Options:
++
+++-------------------+--------------------------------------------------------+
++| Key               | Description                                            |
+++===================+========================================================+
++| ``Backend``       | ``Native``, ``GPUBLAS`` or ``MAGMA``, the active       |
++|                   | backend of ``MFEM`` by default. [string]               |
+++-------------------+--------------------------------------------------------+
++| ``BlockSize``     | Size of the blocks, the number of components of the    |
++|                   | unknowns by default. [int]                             |
+++-------------------+--------------------------------------------------------+
++| ``Factorization`` | ``Inverse`` (by default) or ``LU``. [string]           |
+++-------------------+--------------------------------------------------------+
++| ``Damping``       | Damping factor, 1 by default. [double]                 |
+++-------------------+--------------------------------------------------------+
++
+ Jacobi smoother (OperatorJacobiSmoother)
+ ----------------------------------------
+ 
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 172748ef62..ae379a0621 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -312,6 +312,11 @@ Preconditioners
+        :cxx:`MaximumStepSize`, :cxx:`MaximumNonZerosPerRow`,
+        :cxx:`NumberOfLevels`, :cxx:`Threshold`, :cxx:`KapTolerance`,
+        :cxx:`EigenvalueEstimationIterations`, :cxx:`VerbosityLevel`
++   * - :cxx:`NodalBlockJacobi`
++     - MFEM
++     - as MFEM
++     - :cxx:`Backend`, :cxx:`BlockSize`, :cxx:`Factorization`,
++       :cxx:`Damping` (see :ref:`nodal_block_jacobi`)
+    * - :cxx:`HypreEuclid`, :cxx:`HypreParaSails` (parallel)
+      - hypre
+      - host
+@@ -357,6 +362,40 @@ they are then given to the Krylov solvers of PETSc.
+ The libraries which are not available (MFEM built without them, or
+ mfem-mgis built without AmgX or the sparse part of MAGMA) register nothing.
+ 
++.. _nodal_block_jacobi:
++
++Jacobi preconditioner by nodal blocks
++-------------------------------------
++
++The :cxx:`NodalBlockJacobi` preconditioner inverts, node by node, the
++block of the matrix which couples the components of the unknown at this
++node (:math:`3 \times 3` blocks in three dimensional mechanics), which is
++more robust than the Jacobi preconditioner when these components are
++strongly coupled. The blocks are extracted from the matrix (from the
++diagonal block of each process in parallel), then inverted or factorized
++by the batched dense linear algebra of :code:`MFEM`, which computes where
++:code:`MFEM` computes. Its options are:
++
++- :cxx:`Backend`: :cxx:`Native` (kernels of :code:`MFEM`), :cxx:`GPUBLAS`
++  (cuBLAS or hipBLAS) or :cxx:`MAGMA`. By default, the active backend of
++  :code:`MFEM` (:code:`BatchedLinAlg::GetActiveBackend`, initially the first
++  one available among MAGMA, cuBLAS or hipBLAS, and the kernels of
++  :code:`MFEM`), or :cxx:`Native` if it is not available. The backends
++  :cxx:`GPUBLAS` and :cxx:`MAGMA` require :code:`MFEM` computing on a GPU;
++- :cxx:`BlockSize`: the size of the blocks, the number of components of
++  the unknowns by default (blocks of size one give the Jacobi
++  preconditioner);
++- :cxx:`Factorization`: :cxx:`Inverse` (the inverses of the blocks are
++  applied by batched products, by default) or :cxx:`LU` (the LU factors are
++  applied by batched solves);
++- :cxx:`Damping`: a damping factor, one by default.
++
++The unknowns may be ordered by nodes or by vector dimension: when they are
++ordered by nodes, the vectors are gathered by nodes before the batched
++products or solves, and scattered back. The backends :cxx:`GPUBLAS` and
++:cxx:`MAGMA` compute on their own queue: the device is synchronized before
++and after their operations.
++
+ .. _petsc_linear_solvers:
+ 
+ Linear solvers and preconditioners of PETSc
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 2491197443..ebc4198d9e 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -197,6 +197,14 @@ GPU, are available when :code:`MFEM` is built with MAGMA in double
+ precision and the library :code:`magma_sparse` of MAGMA is found. See
+ :ref:`magma_linear_solvers`.
+ 
++Jacobi preconditioner by nodal blocks
++-------------------------------------
++
++The :cxx:`NodalBlockJacobi` preconditioner inverts the blocks of the
++matrix which couple the components of the unknown at each node, with the
++batched dense linear algebra of :code:`MFEM` (native kernels, cuBLAS or
++hipBLAS, MAGMA). See :ref:`nodal_block_jacobi`.
++
+ Nonlinear solver of KINSOL
+ --------------------------
+ 
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 32f1ec6369..c9f8444736 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1754,6 +1754,39 @@ if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
+     FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+ endif()
+ 
++# NodalBlockJacobiTest executable: Jacobi preconditioner by nodal blocks,
++# with the backends of the batched linear algebra of MFEM available
++add_test_executable(NodalBlockJacobiTest)
++add_test(NAME NodalBlockJacobiTest COMMAND NodalBlockJacobiTest)
++set(nodal_block_jacobi_tests NodalBlockJacobiTest)
++if(MFEM_USE_MPI)
++  add_test(NAME NodalBlockJacobiTestP
++           COMMAND mpirun -n 2 ./NodalBlockJacobiTest -p)
++  list(APPEND nodal_block_jacobi_tests NodalBlockJacobiTestP)
++endif()
++set_tests_properties(${nodal_block_jacobi_tests} PROPERTIES
++  FAIL_REGULAR_EXPRESSION "check failed")
++if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
++   enable-gpu-tests)
++  if(MFEM_USE_CUDA STREQUAL "YES")
++    set(nodal_block_jacobi_test_device cuda)
++  else()
++    set(nodal_block_jacobi_test_device hip)
++  endif()
++  add_test(NAME NodalBlockJacobiTest-gpu
++           COMMAND NodalBlockJacobiTest
++                   --device ${nodal_block_jacobi_test_device})
++  set(nodal_block_jacobi_gpu_tests NodalBlockJacobiTest-gpu)
++  if(MFEM_USE_MPI)
++    add_test(NAME NodalBlockJacobiTestP-gpu
++             COMMAND mpirun -n 2 ./NodalBlockJacobiTest -p
++                     --device ${nodal_block_jacobi_test_device})
++    list(APPEND nodal_block_jacobi_gpu_tests NodalBlockJacobiTestP-gpu)
++  endif()
++  set_tests_properties(${nodal_block_jacobi_gpu_tests} PROPERTIES
++    FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
++endif()
++
+ # MAGMASolversTest executable: sparse solvers of MAGMA, which always
+ # compute on a GPU: Krylov solvers in sequential, preconditioners applied by
+ # the conjugate gradient of MFEM in sequential and in parallel; the vectors
+diff --git a/tests/NodalBlockJacobiTest.cxx b/tests/NodalBlockJacobiTest.cxx
+new file mode 100644
+index 0000000000..3dbcd3aae0
+--- /dev/null
++++ b/tests/NodalBlockJacobiTest.cxx
+@@ -0,0 +1,328 @@
++/*!
++ * \file   NodalBlockJacobiTest.cxx
++ * \brief  Test of the Jacobi preconditioner by nodal blocks
++ * (`NodalBlockJacobi`) on a cantilever beam in linear elasticity, with the
++ * unknowns ordered by nodes and by vector dimension, in sequential and in
++ * parallel (`--parallel`):
++ *
++ * - the conjugate gradient of MFEM needs the same number of iterations with
++ *   each available backend of the batched linear algebra of MFEM (native
++ *   kernels, cuBLAS or hipBLAS, MAGMA), with the inverses or the LU factors
++ *   of the blocks, and with both orderings of the unknowns;
++ * - with blocks of size one, the preconditioner is the Jacobi smoother of
++ *   MFEM; the nodal blocks need fewer iterations; the GMRES solver of MFEM
++ *   converges with the default backend (MAGMA, if available, which must be
++ *   synchronized with the kernels of MFEM);
++ * - in sequential, the preconditioner of the block diagonal part of the
++ *   matrix is its inverse: the conjugate gradient converges in one
++ *   iteration (check of the extraction of the blocks);
++ * - invalid options and unavailable backends are refused.
++ * \date   15/10/2026
++ */
++
++#include <array>
++#include <cmath>
++#include <memory>
++#include <string>
++#include <cstdlib>
++#include <iostream>
++#include <optional>
++#include <stdexcept>
++#include <type_traits>
++#include "mfem.hpp"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MPI.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/PreconditionerFactory.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++
++//! \brief number of failed checks
++static int failures = 0;
++//! \brief rank of the process
++static int rank = 0;
++//! \brief parallel computations
++static bool parallel = false;
++//! \brief relative tolerance of the conjugate gradient
++static constexpr double tolerance =
++    std::is_same_v<mfem::real_t, double> ? 1e-10 : 1e-5;
++
++static void check(const bool b, const std::string& msg) {
++  if (!b) {
++    std::cerr << "check failed: " << msg << '\n';
++    ++failures;
++  }
++}  // end of check
++
++//! \brief cantilever beam in linear elasticity, clamped on the face x = 0
++template <bool is_parallel>
++struct ElasticitySystem {
++  using Matrix =
++      std::conditional_t<is_parallel, mfem::HypreParMatrix, mfem::SparseMatrix>;
++  /*!
++   * \param[in] smesh: sequential mesh (partitioned in parallel)
++   * \param[in] fec: finite element collection
++   * \param[in] o: ordering of the unknowns
++   */
++  ElasticitySystem(mfem::Mesh& smesh,
++                   mfem::FiniteElementCollection& fec,
++                   const mfem::Ordering::Type o)
++      : mesh(makeMesh(smesh)), fespace(mesh.get(), &fec, 3, o), a(&fespace) {
++    auto lambda = mfem::ConstantCoefficient(1.5);
++    auto mu = mfem::ConstantCoefficient(1);
++    this->a.AddDomainIntegrator(new mfem::ElasticityIntegrator(lambda, mu));
++    this->a.Assemble();
++    auto f = mfem::Vector(3);
++    f = 0.;
++    f(2) = -1;
++    auto fc = mfem::VectorConstantCoefficient(f);
++    auto b = mfem_mgis::LinearForm<is_parallel>(&(this->fespace));
++    b.AddDomainIntegrator(new mfem::VectorDomainLFIntegrator(fc));
++    b.Assemble();
++    auto x = mfem_mgis::GridFunction<is_parallel>(&(this->fespace));
++    x = 0.;
++    auto boundaries = mfem::Array<int>(this->mesh->bdr_attributes.Max());
++    boundaries = 0;
++    boundaries[4] = 1;
++    auto ess_tdofs = mfem::Array<int>{};
++    this->fespace.GetEssentialTrueDofs(boundaries, ess_tdofs);
++    auto X = mfem::Vector{};
++    auto rhs = mfem::Vector{};
++    this->a.FormLinearSystem(ess_tdofs, x, b, this->A, X, rhs);
++    this->B = rhs;
++  }
++  std::unique_ptr<mfem_mgis::Mesh<is_parallel>> mesh;
++  mfem_mgis::FiniteElementSpace<is_parallel> fespace;
++  mfem_mgis::BilinearForm<is_parallel> a;
++  Matrix A;
++  mfem::Vector B;
++
++ private:
++  static std::unique_ptr<mfem_mgis::Mesh<is_parallel>> makeMesh(
++      mfem::Mesh& smesh) {
++    if constexpr (is_parallel) {
++      return std::make_unique<mfem::ParMesh>(MPI_COMM_WORLD, smesh);
++    } else {
++      return std::make_unique<mfem::Mesh>(smesh);
++    }
++  }
++};
++
++/*!
++ * \return the number of iterations of the conjugate gradient of MFEM with
++ * a preconditioner, if it converged
++ * \param[in] s: system
++ * \param[in] a: matrix
++ * \param[in] p: parameters of the preconditioner
++ * \param[in] name: name of the resolution
++ * \param[in] solver: name of the Krylov solver
++ */
++template <bool is_parallel>
++static std::optional<int> solve(
++    ElasticitySystem<is_parallel>& s,
++    const typename ElasticitySystem<is_parallel>::Matrix& a,
++    const mfem_mgis::Parameters& p,
++    const std::string& name,
++    const char* const solver = "CGSolver") {
++  using namespace mfem_mgis;
++  auto ctx = Context{};
++  auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
++      ctx, solver, s.fespace,
++      Parameters{{"RelativeTolerance", tolerance},
++                 {"AbsoluteTolerance", 0.},
++                 {"MaximumNumberOfIterations", 5000},
++                 {"Preconditioner", p}});
++  if (isInvalid(ls)) {
++    throw std::runtime_error(ctx.getErrorMessage());
++  }
++  auto x = mfem::Vector(s.B.Size());
++  x.UseDevice(true);
++  x = 0.;
++  ls.linear_solver->SetOperator(a);
++  ls.linear_solver->Mult(s.B, x);
++  const auto converged = hasConverged(*(ls.linear_solver));
++  const auto iterations =
++      getNumberOfIterationsAtConvergence(*(ls.linear_solver)).value_or(-1);
++  if (rank == 0) {
++    std::cout << name << ": " << iterations << " iterations"
++              << (converged ? "" : " (not converged)") << '\n';
++  }
++  if (!converged) {
++    return {};
++  }
++  return iterations;
++}  // end of solve
++
++//! \return the parameters of the preconditioner
++static mfem_mgis::Parameters makeNodalBlockJacobi(
++    const mfem_mgis::Parameters& options) {
++  return mfem_mgis::Parameters{{"Name", "NodalBlockJacobi"},
++                               {"Options", options}};
++}  // end of makeNodalBlockJacobi
++
++//! \return true if two numbers of iterations are equal, up to one
++static bool areClose(const std::optional<int>& a, const std::optional<int>& b) {
++  return a.has_value() && b.has_value() && (std::abs(*a - *b) <= 1);
++}  // end of areClose
++
++/*!
++ * \return the number of iterations with the nodal blocks
++ * \param[in] s: system
++ * \param[in] ordering: name of the ordering
++ */
++template <bool is_parallel>
++static std::optional<int> run(ElasticitySystem<is_parallel>& s,
++                              const std::string& ordering) {
++  using namespace mfem_mgis;
++  using Batched = mfem::BatchedLinAlg;
++  const auto reference = solve(s, s.A, makeNodalBlockJacobi(Parameters{}),
++                               "NodalBlockJacobi, " + ordering);
++  check(reference.has_value(), ordering + ": resolution");
++  const auto backends = std::array<std::pair<const char*, Batched::Backend>, 3>{
++      {{"Native", Batched::NATIVE},
++       {"GPUBLAS", Batched::GPU_BLAS},
++       {"MAGMA", Batched::MAGMA}}};
++  for (const auto& [name, backend] : backends) {
++    if (!Batched::IsAvailable(backend)) {
++      if (rank == 0) {
++        std::cout << "backend " << name << ": not available\n";
++      }
++      continue;
++    }
++    for (const auto* const factorization : {"Inverse", "LU"}) {
++      const auto it =
++          solve(s, s.A,
++                makeNodalBlockJacobi(Parameters{
++                    {"Backend", name}, {"Factorization", factorization}}),
++                std::string{"NodalBlockJacobi ("} + name + ", " +
++                    factorization + "), " + ordering);
++      check(areClose(it, reference),
++            ordering + ": the backend " + name + " with the factorization " +
++                factorization + " changes the number of iterations");
++    }
++  }
++  // GMRES of MFEM, which gives to the preconditioner the vectors it has
++  // just computed: with the backends computing on their own queue (MAGMA),
++  // the device must be synchronized
++  for (const auto bs : {3, 1}) {
++    const auto it =
++        solve(s, s.A, makeNodalBlockJacobi(Parameters{{"BlockSize", bs}}),
++              "GMRESSolver + NodalBlockJacobi (blocks of size " +
++                  std::to_string(bs) + "), " + ordering,
++              "GMRESSolver");
++    const auto jacobi =
++        solve(s, s.A, Parameters{{"Name", "DSmoother"}},
++              "GMRESSolver + DSmoother, " + ordering, "GMRESSolver");
++    check(it.has_value() && jacobi.has_value() &&
++              ((bs == 3) || areClose(it, jacobi)),
++          ordering + ": GMRES with the nodal blocks of size " +
++              std::to_string(bs));
++  }
++  // blocks of size one: Jacobi preconditioner
++  const auto scalar =
++      solve(s, s.A, makeNodalBlockJacobi(Parameters{{"BlockSize", 1}}),
++            "NodalBlockJacobi (blocks of size one), " + ordering);
++  const auto jacobi = solve(s, s.A, Parameters{{"Name", "DSmoother"}},
++                            "DSmoother, " + ordering);
++  check(areClose(scalar, jacobi),
++        ordering + ": blocks of size one differ from the Jacobi smoother");
++  check(reference.has_value() && scalar.has_value() && (*reference < *scalar),
++        ordering + ": the nodal blocks do not reduce the number of iterations");
++  // block diagonal part of the matrix: the preconditioner is its inverse
++  if constexpr (!is_parallel) {
++    const auto n = s.A.Height();
++    const auto nnodes = n / 3;
++    const auto by_nodes = s.fespace.GetOrdering() == mfem::Ordering::byNODES;
++    const auto node = [nnodes, by_nodes](const int i) {
++      return by_nodes ? i % nnodes : i / 3;
++    };
++    auto d = mfem::SparseMatrix(s.A);
++    const auto* const I = d.HostReadI();
++    const auto* const J = d.HostReadJ();
++    auto* const values = d.HostReadWriteData();
++    for (int i = 0; i != n; ++i) {
++      for (int k = I[i]; k != I[i + 1]; ++k) {
++        if (node(i) != node(J[k])) {
++          values[k] = 0;
++        }
++      }
++    }
++    const auto it =
++        solve(s, d, makeNodalBlockJacobi(Parameters{}),
++              "NodalBlockJacobi, block diagonal matrix, " + ordering);
++    check(it.has_value() && (*it <= 1),
++          ordering +
++              ": the preconditioner is not the inverse of the block "
++              "diagonal part");
++  }
++  return reference;
++}  // end of run
++
++//! \brief checks the refusals of invalid options
++template <bool is_parallel>
++static void checkRefusals(ElasticitySystem<is_parallel>& s) {
++  using namespace mfem_mgis;
++  const auto refused = [&s](const Parameters& options, const std::string& msg) {
++    auto ctx = Context{};
++    const auto p = PreconditionerFactory<is_parallel>::getFactory().generate(
++        ctx, "NodalBlockJacobi", s.fespace, options);
++    const auto error = std::string{ctx.getErrorMessage()};
++    check((p == nullptr) && (error.find(msg) != std::string::npos),
++          "invalid options not refused ('" + error + "')");
++  };
++  refused(Parameters{{"Backend", "cuSOLVER"}}, "invalid backend");
++  refused(Parameters{{"Factorization", "Cholesky"}}, "invalid factorization");
++  refused(Parameters{{"BlockSize", 0}}, "invalid block size");
++  refused(Parameters{{"Damping", -1.}}, "invalid damping factor");
++  if (!mfem::BatchedLinAlg::IsAvailable(mfem::BatchedLinAlg::MAGMA)) {
++    refused(Parameters{{"Backend", "MAGMA"}}, "is not available");
++  }
++}  // end of checkRefusals
++
++int main(int argc, char** argv) {
++  using namespace mfem_mgis;
++  initialize(argc, argv);
++  auto args = mfem::OptionsParser(argc, argv);
++  declareDefaultOptions(args);
++  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
++                 "parallel computations");
++  args.Parse();
++  if (!args.Good()) {
++    args.PrintUsage(std::cerr);
++    return EXIT_FAILURE;
++  }
++#ifdef MFEM_USE_MPI
++  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
++#endif /* MFEM_USE_MPI */
++  auto mesh = mfem::Mesh::MakeCartesian3D(12, 3, 3, mfem::Element::HEXAHEDRON,
++                                          4., 1., 1.);
++  auto fec = mfem::H1_FECollection(1, 3);
++  try {
++    const auto test = [&mesh, &fec]<bool is_parallel>() {
++      auto s1 =
++          ElasticitySystem<is_parallel>(mesh, fec, mfem::Ordering::byNODES);
++      auto s2 =
++          ElasticitySystem<is_parallel>(mesh, fec, mfem::Ordering::byVDIM);
++      const auto i1 = run(s1, "byNODES");
++      const auto i2 = run(s2, "byVDIM");
++      check(areClose(i1, i2), "the orderings change the number of iterations");
++      checkRefusals(s1);
++    };
++    if (parallel) {
++#ifdef MFEM_USE_MPI
++      test.template operator()<true>();
++#else
++      throw std::runtime_error("MFEM is not built with MPI");
++#endif
++    } else {
++      test.template operator()<false>();
++    }
++  } catch (std::exception& e) {
++    std::cerr << "error: " << e.what() << '\n';
++    return EXIT_FAILURE;
++  }
++  if (rank == 0) {
++    std::cout << (failures == 0 ? "success" : "failure") << '\n';
++  }
++  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

@@ -405,6 +405,35 @@ namespace mfem_mgis {
   }  // end of addTangentOperatorDiagonalByKernels
 
   template <typename Child>
+  bool StandardBehaviourIntegratorCRTPBase<Child>::
+      addTangentOperatorNodalBlocksByKernels(
+          Context &ctx,
+          mfem::Vector &b,
+          const batch::ElementsGeometrySet &g) noexcept {
+    auto data = KernelsData{};
+    if (!this->getKernelsData(ctx, data,
+                              "addTangentOperatorNodalBlocksByKernels", g)) {
+      return false;
+    }
+    if (data.rule == nullptr) {
+      return true;
+    }
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      return batch::addStiffnessMatricesNodalBlocks(
+          ctx, b, *(this->quadrature_space),
+          this->readTangentOperatorBlocks(use_device), *(data.geometry),
+          data.kind);
+    } catch (std::exception &e) {
+      return ctx.registerErrorMessage(
+          std::string{"addTangentOperatorNodalBlocksByKernels: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addTangentOperatorNodalBlocksByKernels: unknown exception");
+    }
+  }  // end of addTangentOperatorNodalBlocksByKernels
+
+  template <typename Child>
   bool
   StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
       Context& ctx,

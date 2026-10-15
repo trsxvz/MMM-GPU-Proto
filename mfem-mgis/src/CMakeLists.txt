@@ -62,6 +62,8 @@ list(APPEND MFEMMGIS_SOURCES
   SuperLUSolvers.cxx
   STRUMPACKSolvers.cxx
   MKLSparseSolvers.cxx
+  MAGMASparseSolvers.cxx
+  NodalBlockJacobiPreconditioner.cxx
   GinkgoLinearSolvers.cxx
   AmgXSolvers.cxx
   HypreMatrixPattern.cxx
@@ -178,7 +180,8 @@ set(MFEMMGIS_DEVICE_SOURCES
   Batch/StiffnessMatricesKernels.cxx
   Batch/FBarKernels.cxx
   Batch/FaltusKernels.cxx
-  Batch/ElementsGeometryKernels.cxx)
+  Batch/ElementsGeometryKernels.cxx
+  NodalBlockJacobiKernels.cxx)
 # scaling and conversions of the vectors exchanged with AmgX (single
 # precision)
 if(MFEM_MGIS_HAVE_AMGX)
@@ -234,6 +237,13 @@ if(MFEM_MGIS_HAVE_AMGX)
     set_property(TARGET MFEMMGIS PROPERTY ${_property}
                  AMGX::amgxsh ${_libraries})
   endforeach(_property)
+endif()
+# sparse part of MAGMA, whose interface is only used by the library
+if(MFEM_MGIS_HAVE_MAGMA_SPARSE)
+  target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_MAGMA_SPARSE)
+  target_include_directories(MFEMMGIS PRIVATE
+                             ${MFEM_MGIS_MAGMA_SPARSE_INCLUDE_DIR})
+  target_link_libraries(MFEMMGIS PRIVATE ${MFEM_MGIS_MAGMA_SPARSE_LIBRARY})
 endif()
 # Kokkos: the only source including Kokkos is compiled by the compiler of
 # Kokkos in a shared library privately linked to Kokkos, so that neither the

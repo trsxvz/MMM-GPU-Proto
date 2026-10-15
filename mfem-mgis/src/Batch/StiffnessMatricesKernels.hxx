@@ -281,6 +281,26 @@ namespace mfem_mgis::batch::internals {
       real* const d,
       const bool use_device);
   /*!
+   * \brief launches the kernel adding the nodal blocks of the stiffness
+   * matrices of the elements of a material (the `vdim x vdim` blocks of the
+   * pairs of a node with itself, which couple the components of the
+   * unknowns at the node) to values stored element by element: the column
+   * `d` of the blocks is stored in the layout of the element restriction of
+   * MFEM (`node + nd * (component + vdim * element)`), shifted by `d *
+   * stride`
+   * \param[in] k: kind of the gradients
+   * \param[in] a: arguments (`matrices` is not used)
+   * \param[in, out] b: values element by element
+   * \param[in] stride: size of the values of one column of the blocks
+   * \param[in] use_device: if true, the kernel runs on the device
+   */
+  void launchStiffnessMatricesNodalBlocksKernel(
+      const GradientsKind k,
+      const StiffnessMatricesKernelArguments& a,
+      real* const b,
+      const std::size_t stride,
+      const bool use_device);
+  /*!
    * \brief launches the kernel adding the action of the stiffness matrices of
    * the elements of a material, `Σ Bᵀ K B x w det J` (plus `Σ Bᵀ (dq/dT) N x
    * w det J` for the stationary heat transfer behaviours), on values given

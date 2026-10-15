@@ -64,7 +64,8 @@ static void check(const bool b, const std::string& msg) {
 /*!
  * \return true if the solver or preconditioner can compute in this run:
  * the entries which only compute on the GPU require MFEM computing on a
- * CUDA GPU, the ones which only compute on the host require hypre computing
+ * CUDA GPU (or on a HIP GPU for MAGMA, which supports both), the ones
+ * which only compute on the host require hypre computing
  * on the host, except the ones of MFEM, SuiteSparse and oneMKL, which copy
  * the matrices and the vectors on the host
  * \param[in] d: description
@@ -72,6 +73,10 @@ static void check(const bool b, const std::string& msg) {
 static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
   using mfem_mgis::LinearSolverPlacement;
   if (d.placement == LinearSolverPlacement::DEVICE) {
+    if (d.library == "MAGMA") {
+      return mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                                  mfem::Backend::HIP_MASK);
+    }
     return mfem::Device::Allows(mfem::Backend::CUDA_MASK);
   }
   if (d.placement == LinearSolverPlacement::HOST) {
@@ -261,6 +266,16 @@ static void checkPlacement(const std::string& n,
       {"HyprePCG", LinearSolverPlacement::HYPRE},
       {"KLU", LinearSolverPlacement::HOST},
       {"KLUSolver", LinearSolverPlacement::HOST},
+      {"MAGMABiCGSTAB", LinearSolverPlacement::DEVICE},
+      {"MAGMACG", LinearSolverPlacement::DEVICE},
+      {"MAGMACGS", LinearSolverPlacement::DEVICE},
+      {"MAGMAGMRES", LinearSolverPlacement::DEVICE},
+      {"MAGMAIC", LinearSolverPlacement::DEVICE},
+      {"MAGMAIDR", LinearSolverPlacement::DEVICE},
+      {"MAGMAILU", LinearSolverPlacement::DEVICE},
+      {"MAGMAJacobi", LinearSolverPlacement::DEVICE},
+      {"MAGMAQMR", LinearSolverPlacement::DEVICE},
+      {"MAGMATFQMR", LinearSolverPlacement::DEVICE},
       {"MKLClusterSparseSolver", LinearSolverPlacement::HOST},
       {"MKLPardisoSolver", LinearSolverPlacement::HOST},
       {"MINRESSolver", LinearSolverPlacement::MFEM},

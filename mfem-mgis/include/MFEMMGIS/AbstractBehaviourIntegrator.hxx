@@ -284,6 +284,24 @@ namespace mfem_mgis {
         mfem::Vector& d,
         const batch::ElementsGeometrySet& g) noexcept;
     /*!
+     * \brief add the nodal blocks of the stiffness matrices of all the
+     * elements (the blocks which couple the components of the unknowns at
+     * a node), computed by kernels, in the layout of the element restriction
+     * of MFEM, one column of the blocks after the other (see
+     * `batch::addStiffnessMatricesNodalBlocks`)
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in, out] b: values element by element
+     * \param[in] g: geometric data, which must contain the ones of the
+     * integration rule of the elements and of the rules returned by
+     * `getAdditionalIntegrationRulesForKernels`
+     * \note the default implementation reports an error
+     */
+    [[nodiscard]] virtual bool addTangentOperatorNodalBlocksByKernels(
+        Context& ctx,
+        mfem::Vector& b,
+        const batch::ElementsGeometrySet& g) noexcept;
+    /*!
      * \brief compute the contribution of the given element to the inner forces
      * \param[out] Fe: inner forces
      * \param[in] e: finite element

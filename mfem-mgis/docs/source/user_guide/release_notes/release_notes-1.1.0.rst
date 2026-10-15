@@ -187,6 +187,25 @@ its Cluster Sparse Solver (:cxx:`MKLClusterSparseSolver`, parallel) are
 available when :code:`MFEM` is built with them. See
 :ref:`mkl_linear_solvers`.
 
+Sparse solvers of MAGMA
+-----------------------
+
+The Krylov solvers of the sparse part of MAGMA (sequential) and its
+Jacobi, incomplete LU and incomplete Cholesky preconditioners (applied to
+the diagonal block of each process in parallel), which compute on one
+GPU, are available when :code:`MFEM` is built with MAGMA in double
+precision and the library :code:`magma_sparse` of MAGMA is found. See
+:ref:`magma_linear_solvers`.
+
+Jacobi preconditioner by nodal blocks
+-------------------------------------
+
+The :cxx:`NodalBlockJacobi` preconditioner inverts the blocks of the
+matrix which couple the components of the unknown at each node, with the
+batched dense linear algebra of :code:`MFEM` (native kernels, cuBLAS or
+hipBLAS, MAGMA). With the tangent operator applied without assembly, the
+blocks are computed by kernels. See :ref:`nodal_block_jacobi`.
+
 Nonlinear solver of KINSOL
 --------------------------
 

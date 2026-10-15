@@ -23,14 +23,28 @@ low-rank and verbosity options of MUMPS; KINSOL (patches `0201` to
 `0203`): `KINSOL` non linear solver (Newton's method with or without
 line search, modified Newton method, Picard's method with Anderson's
 acceleration). The options of cuDSS exposed by MFEM (matrix type, view,
-reuse of the reordering) were already covered: phase 1 is done. Phase 2
+reuse of the reordering) were already covered: phase 1 is done, except
+the entries listed at the end of this paragraph. Phase 2
 done on 15/10/2026: separate spack environment `mmm-solvers`
 ([deps/spack](../deps/spack/README.md)) with the MFEM of `mmm-gpu` plus
 oneMKL PARDISO and Cluster Sparse Solver and MAGMA, and PETSc with
 HPDDM and PaStiX (PETSc with MUMPS requires a Fortran compiler: not
 built); `MKLPardisoSolver` and `MKLClusterSparseSolver` (patches `0205`
 and `0206`), external packages of PETSc tested (patch `0207`: LU
-factorization of PaStiX, GCRODR of HPDDM recycling a subspace). It
+factorization of PaStiX, GCRODR of HPDDM recycling a subspace). Phase 3
+done on 15/10/2026: sparse solvers of MAGMA (patches `0208` and `0209`:
+seven Krylov solvers, Jacobi, incomplete LU and Cholesky preconditioners;
+the plan above listed ParILU, ParILUT and ISAI, which the preconditioner
+interface of MAGMA 2.10 does not expose), and the batched dense algebra
+of MFEM (native, cuBLAS or hipBLAS, MAGMA) in the Jacobi preconditioner
+by nodal blocks, for assembled matrices (patches `0210`, `0211` and
+`0214`) and
+for the tangent operator applied without assembly, whose nodal blocks are
+computed by kernels (patches `0212` and `0213`). Left from phase 1, to
+do: MGR of hypre, `AMGFSolver`, `LORSolver` and the p-multigrid of MFEM,
+SNES of PETSc in the factory of nonlinear solvers, MUMPS as a
+preconditioner, named configurations of AmgX, and the generic test on
+elasticity. It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug

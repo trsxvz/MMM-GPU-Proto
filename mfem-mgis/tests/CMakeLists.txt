@@ -1754,6 +1754,66 @@ if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
     FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
 endif()
 
+# NodalBlockJacobiTest executable: Jacobi preconditioner by nodal blocks,
+# with the backends of the batched linear algebra of MFEM available
+add_test_executable(NodalBlockJacobiTest)
+add_test(NAME NodalBlockJacobiTest COMMAND NodalBlockJacobiTest)
+set(nodal_block_jacobi_tests NodalBlockJacobiTest)
+if(MFEM_USE_MPI)
+  add_test(NAME NodalBlockJacobiTestP
+           COMMAND mpirun -n 2 ./NodalBlockJacobiTest -p)
+  list(APPEND nodal_block_jacobi_tests NodalBlockJacobiTestP)
+endif()
+set_tests_properties(${nodal_block_jacobi_tests} PROPERTIES
+  FAIL_REGULAR_EXPRESSION "check failed")
+if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
+   enable-gpu-tests)
+  if(MFEM_USE_CUDA STREQUAL "YES")
+    set(nodal_block_jacobi_test_device cuda)
+  else()
+    set(nodal_block_jacobi_test_device hip)
+  endif()
+  add_test(NAME NodalBlockJacobiTest-gpu
+           COMMAND NodalBlockJacobiTest
+                   --device ${nodal_block_jacobi_test_device})
+  set(nodal_block_jacobi_gpu_tests NodalBlockJacobiTest-gpu)
+  if(MFEM_USE_MPI)
+    add_test(NAME NodalBlockJacobiTestP-gpu
+             COMMAND mpirun -n 2 ./NodalBlockJacobiTest -p
+                     --device ${nodal_block_jacobi_test_device})
+    list(APPEND nodal_block_jacobi_gpu_tests NodalBlockJacobiTestP-gpu)
+  endif()
+  set_tests_properties(${nodal_block_jacobi_gpu_tests} PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+endif()
+
+# MAGMASolversTest executable: sparse solvers of MAGMA, which always
+# compute on a GPU: Krylov solvers in sequential, preconditioners applied by
+# the conjugate gradient of MFEM in sequential and in parallel; the vectors
+# are copied on the GPU with the device cpu of MFEM, and given to MAGMA
+# with the device of the GPU
+if(MFEM_MGIS_HAVE_MAGMA_SPARSE AND enable-gpu-tests)
+  add_test_executable(MAGMASolversTest)
+  if(MFEM_USE_CUDA STREQUAL "YES")
+    set(magma_solvers_test_device cuda)
+  else()
+    set(magma_solvers_test_device hip)
+  endif()
+  add_test(NAME MAGMASolversTest COMMAND MAGMASolversTest)
+  add_test(NAME MAGMASolversTest-gpu
+           COMMAND MAGMASolversTest --device ${magma_solvers_test_device})
+  set(magma_solvers_tests MAGMASolversTest MAGMASolversTest-gpu)
+  if(MFEM_USE_MPI)
+    add_test(NAME MAGMASolversTestP COMMAND mpirun -n 2 ./MAGMASolversTest -p)
+    add_test(NAME MAGMASolversTestP-gpu
+             COMMAND mpirun -n 2 ./MAGMASolversTest -p
+                     --device ${magma_solvers_test_device})
+    list(APPEND magma_solvers_tests MAGMASolversTestP MAGMASolversTestP-gpu)
+  endif()
+  set_tests_properties(${magma_solvers_tests} PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
+endif()
+
 # HypreSolversTest executable: solvers and preconditioners of hypre which
 # are not wrapped by MFEM, smoothers of hypre and options of BoomerAMG
 if(MFEM_USE_MPI)

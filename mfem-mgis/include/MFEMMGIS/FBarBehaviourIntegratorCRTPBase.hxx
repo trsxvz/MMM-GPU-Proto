@@ -148,6 +148,15 @@ namespace mfem_mgis {
         Context& ctx,
         mfem::Vector& d,
         const batch::ElementsGeometrySet& g) noexcept override;
+    /*!
+     * \brief add the nodal blocks of the stiffness matrices of the FBar
+     * formulation of all the elements, computed by kernels (see
+     * `batch::addFBarStiffnessMatricesNodalBlocks`)
+     */
+    [[nodiscard]] bool addTangentOperatorNodalBlocksByKernels(
+        Context& ctx,
+        mfem::Vector& b,
+        const batch::ElementsGeometrySet& g) noexcept override;
 
    protected:
     static_assert(((H == Hypothesis::PLANESTRAIN) ||

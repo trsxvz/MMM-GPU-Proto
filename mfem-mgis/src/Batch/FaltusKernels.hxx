@@ -8,6 +8,7 @@
 #ifndef LIB_MFEM_MGIS_SRC_BATCH_FALTUSKERNELS_HXX
 #define LIB_MFEM_MGIS_SRC_BATCH_FALTUSKERNELS_HXX
 
+#include <cstddef>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
 #include "StiffnessMatricesKernels.hxx"
@@ -169,6 +170,22 @@ namespace mfem_mgis::batch::internals {
                                    const FaltusGeometryKernelArguments& a,
                                    real* const d,
                                    const bool use_device);
+  /*!
+   * \brief launches the kernel adding the nodal blocks of `α Σ_q w_q det J_q
+   * Dᵀ D` to values element by element (see
+   * `launchStiffnessMatricesNodalBlocksKernel`): one thread per node of an
+   * element, the block of a node being diagonal
+   * \param[in] k: kind of the gradients
+   * \param[in] a: arguments
+   * \param[in, out] values: values element by element
+   * \param[in] stride: size of the values of one column of the blocks
+   * \param[in] use_device: if true, the kernel runs on the device
+   */
+  void launchFaltusNodalBlocksKernel(const GradientsKind k,
+                                     const FaltusGeometryKernelArguments& a,
+                                     real* const values,
+                                     const std::size_t stride,
+                                     const bool use_device);
   /*!
    * \brief launches the kernel adding the action of `α Σ_q w_q det J_q Dᵀ D` on
    * values given element by element: one thread per element

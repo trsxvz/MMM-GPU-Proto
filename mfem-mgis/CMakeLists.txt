@@ -165,6 +165,69 @@ else()
       "--dsl-option=real_type:${MFEM_MGIS_REAL_TYPE}")
 endif()
 
+# sparse part of MAGMA (library magma_sparse and header magmasparse.h),
+# searched next to the library of MAGMA which MFEM uses for its batched
+# dense algebra (given by its full path, or by a -L flag followed by
+# -lmagma), in double precision (the module of mfem-mgis calls the double
+# precision interface). The variables MFEM_MGIS_MAGMA_SPARSE_LIBRARY and
+# MFEM_MGIS_MAGMA_SPARSE_INCLUDE_DIR may be given to use other locations;
+# they are searched again when the library of MAGMA of MFEM changes.
+set(MFEM_MGIS_HAVE_MAGMA_SPARSE OFF)
+if(MFEM_USE_MAGMA STREQUAL "YES")
+  if(MFEM_MGIS_REAL_TYPE STREQUAL "double")
+    separate_arguments(_mfem_ext_libs UNIX_COMMAND "${MFEM_EXT_LIBS}")
+    set(_mfem_library_directories)
+    set(_magma_library_directory)
+    foreach(_flag ${_mfem_ext_libs})
+      if(_flag MATCHES "^-L(.+)$")
+        list(APPEND _mfem_library_directories "${CMAKE_MATCH_1}")
+      elseif(_flag MATCHES "^(.+)/libmagma\\.(so|a|dylib)$")
+        set(_magma_library_directory "${CMAKE_MATCH_1}")
+      endif()
+    endforeach()
+    if(NOT _magma_library_directory)
+      foreach(_directory ${_mfem_library_directories})
+        if(EXISTS "${_directory}/libmagma.so" OR
+           EXISTS "${_directory}/libmagma.a" OR
+           EXISTS "${_directory}/libmagma.dylib")
+          set(_magma_library_directory "${_directory}")
+          break()
+        endif()
+      endforeach()
+    endif()
+    if(NOT "${_magma_library_directory}" STREQUAL
+       "${MFEM_MGIS_MAGMA_LIBRARY_DIRECTORY}")
+      unset(MFEM_MGIS_MAGMA_SPARSE_LIBRARY CACHE)
+      unset(MFEM_MGIS_MAGMA_SPARSE_INCLUDE_DIR CACHE)
+      set(MFEM_MGIS_MAGMA_LIBRARY_DIRECTORY "${_magma_library_directory}"
+          CACHE INTERNAL "directory of the library of MAGMA used by MFEM")
+    endif()
+    if(_magma_library_directory)
+      find_library(MFEM_MGIS_MAGMA_SPARSE_LIBRARY magma_sparse
+                   HINTS "${_magma_library_directory}" NO_DEFAULT_PATH)
+      get_filename_component(_magma_directory "${_magma_library_directory}"
+                             DIRECTORY)
+      find_path(MFEM_MGIS_MAGMA_SPARSE_INCLUDE_DIR magmasparse.h
+                HINTS "${_magma_directory}/include" NO_DEFAULT_PATH)
+    endif()
+    if(MFEM_MGIS_MAGMA_SPARSE_LIBRARY AND MFEM_MGIS_MAGMA_SPARSE_INCLUDE_DIR)
+      set(MFEM_MGIS_HAVE_MAGMA_SPARSE ON)
+    else()
+      message(WARNING "mfem-mgis: MFEM is built with MAGMA, but the "
+              "library magma_sparse or the header magmasparse.h is not "
+              "found next to the library of MAGMA used by MFEM: the sparse "
+              "solvers of MAGMA are not available (see the variables "
+              "MFEM_MGIS_MAGMA_SPARSE_LIBRARY and "
+              "MFEM_MGIS_MAGMA_SPARSE_INCLUDE_DIR)")
+    endif()
+  else()
+    message(STATUS "mfem-mgis: the sparse solvers of MAGMA are only "
+            "available in double precision")
+  endif()
+endif()
+message(STATUS "mfem-mgis sparse solvers of MAGMA: "
+        "${MFEM_MGIS_HAVE_MAGMA_SPARSE}")
+
 set(MFEM_MGIS_ENABLE_TFEL_TESTS OFF)
 if(MGIS_HAVE_TFEL)
   if(TARGET tfel::TFELTests)

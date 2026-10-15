@@ -324,8 +324,11 @@ behaviours, without being assembled:
 
 where :math:`P` is the prolongation of the finite element space. The
 essential degrees of freedom are constrained as by
-:code:`mfem::ConstrainedOperator`. The diagonal of the operator is also
-computed by kernels; on a non conforming mesh, it is approximated as by
+:code:`mfem::ConstrainedOperator`. The diagonal of the operator, and its
+nodal blocks (the blocks which couple the components of the unknowns at
+each node), are also computed by kernels (standard behaviour integrators,
+FBar formulation, regularization of Faltus et al.); on a non conforming
+mesh, they are approximated as by
 :code:`mfem::BilinearForm::AssembleDiagonal`.
 
 The linear systems are then solved by an iterative solver of
@@ -334,6 +337,9 @@ does not require the assembled operator (see :doc:`glossary`):
 
 - :code:`OperatorJacobiSmoother` and :code:`OperatorChebyshevSmoother`,
   which only use products by the operator and its diagonal;
+- :code:`NodalBlockJacobi`, the Jacobi preconditioner by nodal blocks (see
+  :ref:`nodal_block_jacobi`), whose blocks are computed by kernels and
+  inverted by the batched dense linear algebra of :code:`MFEM`;
 - :code:`AssembledOperator`, which sets up another preconditioner, for
   instance :code:`HypreBoomerAMG`, on the tangent operator assembled by
   kernels. The setup is performed every :code:`UpdatePeriod` calls (one by
@@ -541,7 +547,8 @@ settings, since they decide where they compute:
   factorizations of the sparse matrices of :code:`MFEM` (:code:`GSSmoother`,
   :code:`DSmoother`, :code:`BlockILU`, :code:`UMFPack`, :code:`KLU`), the
   wrapper :code:`OrthoSolver`, and :code:`PETSc` compute on the CPU;
-  :code:`AmgX`, :code:`AmgXPCG` and :code:`CuDSSSolver` on the GPU; the
+  :code:`AmgX`, :code:`AmgXPCG`, :code:`CuDSSSolver` and the solvers and
+  preconditioners of :code:`MAGMA` on the GPU; the
   other solvers of hypre where its memory is (on the host if hypre is built
   without GPU support); the Krylov solvers of :code:`MFEM`, its operator
   smoothers (:code:`OperatorJacobiSmoother`,

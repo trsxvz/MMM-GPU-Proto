@@ -726,6 +726,49 @@ namespace mfem_mgis {
     return true;
   }  // end of addTangentOperatorDiagonalByKernels
 
+  bool MultiMaterialNonLinearIntegrator::addTangentOperatorNodalBlocksByKernels(
+      Context& ctx,
+      const mfem::FiniteElementSpace& fes,
+      mfem::Vector& b) noexcept {
+    if (!this->computeElementsGeometry(ctx, fes)) {
+      return false;
+    }
+    try {
+      const auto vdim = fes.GetVDim();
+      const auto* const restriction =
+          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
+      const auto ne = restriction->Height();
+      const auto nl = restriction->Width();
+      if (b.Size() != vdim * nl) {
+        return ctx.registerErrorMessage(
+            "MultiMaterialNonLinearIntegrator::"
+            "addTangentOperatorNodalBlocksByKernels: unexpected size of the "
+            "nodal blocks");
+      }
+      auto& be = this->tangent_operator_element_values;
+      be.UseDevice(true);
+      be.SetSize(vdim * ne);
+      be = real{0};
+      for (auto& bis : this->behaviour_integrators) {
+        for (auto& bi : bis) {
+          if (!bi->addTangentOperatorNodalBlocksByKernels(
+                  ctx, be, this->elements_geometry)) {
+            return false;
+          }
+        }
+      }
+      // one column of the blocks after the other
+      for (int c = 0; c != vdim; ++c) {
+        auto bc = mfem::Vector(b, c * nl, nl);
+        const auto bec = mfem::Vector(be, c * ne, ne);
+        restriction->AddMultTranspose(bec, bc);
+      }
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
+    return true;
+  }  // end of addTangentOperatorNodalBlocksByKernels
+
   bool MultiMaterialNonLinearIntegrator::computeElementsDegreesOfFreedom(
       Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
     if ((this->element_dofs.Size() != 0) || (fes.GetNE() == 0)) {

@@ -1,0 +1,581 @@
+From 7c627dc90567741d0771f47b1c425f33e6674748 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 11:11:44 +0200
+Subject: [PATCH] Add the Jacobi preconditioner by nodal blocks
+
+NodalBlockJacobi inverts, node by node, the blocks of the matrix which
+couple the components of the unknown at each node (3 x 3 blocks in three
+dimensional mechanics), with the batched dense linear algebra of MFEM:
+native kernels, cuBLAS or hipBLAS, or MAGMA (option Backend, the active
+backend of MFEM by default), the inverses being applied by batched
+products or the LU factors by batched solves (option Factorization). The
+blocks are extracted by a kernel from the sparse matrix, or from the
+diagonal block of each process of the matrix of hypre, read where hypre
+stores it. The unknowns may be ordered by nodes, the vectors being then
+gathered and scattered, or by vector dimension.
+
+The backends cuBLAS, hipBLAS and MAGMA compute on their own queue: the
+device is synchronized around their operations. Without it, with MAGMA,
+the GMRES solver of MFEM in parallel on the GPU gave to MAGMA vectors
+still being computed, and diverged.
+---
+ src/CMakeLists.txt                     |   4 +-
+ src/LinearSolverModules.cxx            |   1 +
+ src/LinearSolverModules.hxx            |   8 +
+ src/NodalBlockJacobiKernels.cxx        |  45 +++
+ src/NodalBlockJacobiKernels.hxx        |  49 ++++
+ src/NodalBlockJacobiPreconditioner.cxx | 381 +++++++++++++++++++++++++
+ 6 files changed, 487 insertions(+), 1 deletion(-)
+ create mode 100644 src/NodalBlockJacobiKernels.cxx
+ create mode 100644 src/NodalBlockJacobiKernels.hxx
+ create mode 100644 src/NodalBlockJacobiPreconditioner.cxx
+
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 383fdb6b73..52d08f9f49 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -63,6 +63,7 @@ list(APPEND MFEMMGIS_SOURCES
+   STRUMPACKSolvers.cxx
+   MKLSparseSolvers.cxx
+   MAGMASparseSolvers.cxx
++  NodalBlockJacobiPreconditioner.cxx
+   GinkgoLinearSolvers.cxx
+   AmgXSolvers.cxx
+   HypreMatrixPattern.cxx
+@@ -179,7 +180,8 @@ set(MFEMMGIS_DEVICE_SOURCES
+   Batch/StiffnessMatricesKernels.cxx
+   Batch/FBarKernels.cxx
+   Batch/FaltusKernels.cxx
+-  Batch/ElementsGeometryKernels.cxx)
++  Batch/ElementsGeometryKernels.cxx
++  NodalBlockJacobiKernels.cxx)
+ # scaling and conversions of the vectors exchanged with AmgX (single
+ # precision)
+ if(MFEM_MGIS_HAVE_AMGX)
+diff --git a/src/LinearSolverModules.cxx b/src/LinearSolverModules.cxx
+index e44ecc4a3c..0b43c40c94 100644
+--- a/src/LinearSolverModules.cxx
++++ b/src/LinearSolverModules.cxx
+@@ -238,6 +238,7 @@ namespace mfem_mgis::internals {
+   template <bool parallel>
+   void declarePreconditioners(PreconditionerFactory<parallel>& f) {
+     declareMFEMPreconditioners(f);
++    declareNodalBlockJacobiPreconditioner(f);
+ #ifdef MFEM_USE_GINKGO
+     declareGinkgoPreconditioners(f);
+ #endif /* MFEM_USE_GINKGO */
+diff --git a/src/LinearSolverModules.hxx b/src/LinearSolverModules.hxx
+index 9c91621756..033c9bfd54 100644
+--- a/src/LinearSolverModules.hxx
++++ b/src/LinearSolverModules.hxx
+@@ -119,6 +119,14 @@ namespace mfem_mgis::internals {
+   template <bool parallel>
+   void declareMAGMAPreconditioners(PreconditionerFactory<parallel>& f);
+ #endif /* MFEM_MGIS_HAVE_MAGMA_SPARSE */
++  /*!
++   * \brief register the Jacobi preconditioner by nodal blocks, inverted by
++   * the batched dense linear algebra of MFEM
++   * \param[in, out] f: factory
++   */
++  template <bool parallel>
++  void declareNodalBlockJacobiPreconditioner(
++      PreconditionerFactory<parallel>& f);
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)
+   /*!
+    * \brief register the direct solver of SuperLU_DIST
+diff --git a/src/NodalBlockJacobiKernels.cxx b/src/NodalBlockJacobiKernels.cxx
+new file mode 100644
+index 0000000000..d70dddff89
+--- /dev/null
++++ b/src/NodalBlockJacobiKernels.cxx
+@@ -0,0 +1,45 @@
++/*!
++ * \file   src/NodalBlockJacobiKernels.cxx
++ * \brief  This file implements the kernels building the nodal blocks of the
++ * Jacobi preconditioner by nodal blocks. It contains kernels of MFEM: it is
++ * compiled as CUDA or HIP code when MFEM is compiled with CUDA or HIP (see
++ * `src/CMakeLists.txt`).
++ * \date   15/10/2026
++ */
++
++#include "mfem/general/backends.hpp"
++#include "mfem/general/forall.hpp"
++#include "NodalBlockJacobiKernels.hxx"
++
++namespace mfem_mgis::internals {
++
++  void launchNodalBlocksExtractionKernel(const NodalBlocksLayout& l,
++                                         const int* const I,
++                                         const int* const J,
++                                         const real* const A,
++                                         real* const blocks,
++                                         const bool use_device) {
++    const auto n = l.nb * l.bs;
++    mfem::forall_switch(use_device, n,
++                        [l, I, J, A, blocks] MFEM_HOST_DEVICE(int i) {
++                          const auto bs = l.bs;
++                          const auto node = l.by_nodes ? i % l.nb : i / bs;
++                          const auto c = l.by_nodes ? i / l.nb : i % bs;
++                          // the row c of the block of the node, written by this
++                          // thread only
++                          auto* const b = blocks + bs * bs * node;
++                          for (int d = 0; d != bs; ++d) {
++                            b[c + bs * d] = 0;
++                          }
++                          for (int k = I[i]; k != I[i + 1]; ++k) {
++                            const auto j = J[k];
++                            const auto nj = l.by_nodes ? j % l.nb : j / bs;
++                            if (nj == node) {
++                              const auto d = l.by_nodes ? j / l.nb : j % bs;
++                              b[c + bs * d] += A[k];
++                            }
++                          }
++                        });
++  }  // end of launchNodalBlocksExtractionKernel
++
++}  // end of namespace mfem_mgis::internals
+diff --git a/src/NodalBlockJacobiKernels.hxx b/src/NodalBlockJacobiKernels.hxx
+new file mode 100644
+index 0000000000..a39fdb9e04
+--- /dev/null
++++ b/src/NodalBlockJacobiKernels.hxx
+@@ -0,0 +1,49 @@
++/*!
++ * \file   src/NodalBlockJacobiKernels.hxx
++ * \brief  This file declares the kernels building the nodal blocks of the
++ * Jacobi preconditioner by nodal blocks (internal header)
++ * \date   15/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_NODALBLOCKJACOBIKERNELS_HXX
++#define LIB_MFEM_MGIS_SRC_NODALBLOCKJACOBIKERNELS_HXX
++
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief layout of the unknowns of the nodal blocks: the component `c` of
++   * the node `i` is the unknown `c * nb + i` when the unknowns are ordered
++   * by nodes (`byNODES`), `i * bs + c` otherwise (`byVDIM`), `nb` being the
++   * number of nodes and `bs` the size of the blocks
++   */
++  struct NodalBlocksLayout {
++    //! \brief number of nodes
++    int nb = 0;
++    //! \brief size of the blocks
++    int bs = 1;
++    //! \brief if true, the unknowns are ordered by nodes
++    bool by_nodes = true;
++  };
++
++  /*!
++   * \brief launches the kernel extracting the nodal blocks of a sparse
++   * matrix in the compressed row format: one thread per row
++   * \param[in] l: layout of the unknowns
++   * \param[in] I: offsets of the rows
++   * \param[in] J: columns
++   * \param[in] A: values
++   * \param[out] blocks: blocks, stored column by column, one after the other
++   * \param[in] use_device: if true, the kernel runs on the device
++   */
++  void launchNodalBlocksExtractionKernel(const NodalBlocksLayout& l,
++                                         const int* const I,
++                                         const int* const J,
++                                         const real* const A,
++                                         real* const blocks,
++                                         const bool use_device);
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_NODALBLOCKJACOBIKERNELS_HXX */
+diff --git a/src/NodalBlockJacobiPreconditioner.cxx b/src/NodalBlockJacobiPreconditioner.cxx
+new file mode 100644
+index 0000000000..f2fe7e4f94
+--- /dev/null
++++ b/src/NodalBlockJacobiPreconditioner.cxx
+@@ -0,0 +1,381 @@
++/*!
++ * \file   src/NodalBlockJacobiPreconditioner.cxx
++ * \brief  This file implements the Jacobi preconditioner by nodal blocks,
++ * whose blocks are inverted and applied by the batched dense linear algebra
++ * of MFEM (see `LinearSolverModules.hxx`)
++ * \date   15/10/2026
++ */
++
++#include <array>
++#include <memory>
++#include <string>
++#include <vector>
++#include <utility>
++#include <optional>
++#include <string_view>
++#include <type_traits>
++#include "mfem/general/backends.hpp"
++#include "mfem/general/device.hpp"
++#include "mfem/linalg/densemat.hpp"
++#include "mfem/linalg/sparsemat.hpp"
++#include "mfem/linalg/batched/batched.hpp"
++#include "mfem/fem/fespace.hpp"
++#ifdef MFEM_USE_MPI
++#include "mfem/linalg/hypre.hpp"
++#include "mfem/fem/pfespace.hpp"
++#endif /* MFEM_USE_MPI */
++#include "MGIS/Raise.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++#include "LinearSolverModules.hxx"
++#include "NodalBlockJacobiKernels.hxx"
++
++namespace mfem_mgis::internals {
++
++  //! \brief settings of the Jacobi preconditioner by nodal blocks
++  struct NodalBlockJacobiSettings {
++    //! \brief backend of the batched linear algebra of MFEM
++    mfem::BatchedLinAlg::Backend backend = mfem::BatchedLinAlg::NATIVE;
++    //! \brief size of the blocks
++    int block_size = 1;
++    //! \brief if true, the unknowns are ordered by nodes (`byNODES`)
++    bool ordered_by_nodes = true;
++    /*!
++     * \brief if true, the blocks are factorized (LU factors applied by
++     * batched solves), otherwise inverted (inverses applied by batched
++     * products)
++     */
++    bool factorize = false;
++    //! \brief damping factor, if any
++    std::optional<real> damping;
++  };
++
++  /*!
++   * \brief Jacobi preconditioner by nodal blocks: the blocks coupling the
++   * components of each node, extracted from the matrix (from the diagonal
++   * block of each process in parallel), are inverted or factorized by the
++   * batched dense linear algebra of MFEM (native kernels, cuBLAS or
++   * hipBLAS, or MAGMA), which computes where MFEM computes. The vectors are
++   * gathered by nodes before the batched products or solves, and scattered
++   * back, when the unknowns are ordered by nodes.
++   */
++  struct NodalBlockJacobiPreconditioner final : public mfem::Solver {
++    //! \param[in] s: settings
++    explicit NodalBlockJacobiPreconditioner(const NodalBlockJacobiSettings& s)
++        : settings(s) {
++      // the vectors ordered by nodes are gathered and scattered where MFEM
++      // computes
++      this->rhs.UseDevice(true);
++      this->solution.UseDevice(true);
++    }
++    void SetOperator(const mfem::Operator& op) override {
++      if (const auto* const a = dynamic_cast<const mfem::SparseMatrix*>(&op);
++          a != nullptr) {
++        this->setup(*a);
++        return;
++      }
++#ifdef MFEM_USE_MPI
++      if (const auto* const a = dynamic_cast<const mfem::HypreParMatrix*>(&op);
++          a != nullptr) {
++        this->setup(*a);
++        return;
++      }
++#endif /* MFEM_USE_MPI */
++      mgis::raise(
++          "NodalBlockJacobiPreconditioner::SetOperator: the operator is not "
++          "an assembled matrix");
++    }
++    void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
++      if (this->blocks.TotalSize() == 0) {
++        mgis::raise(
++            "NodalBlockJacobiPreconditioner::Mult: the operator is not set");
++      }
++      if ((b.Size() != this->Width()) || (x.Size() != this->Height())) {
++        mgis::raise("NodalBlockJacobiPreconditioner::Mult: invalid sizes");
++      }
++      const auto& batched = mfem::BatchedLinAlg::Get(this->settings.backend);
++      const auto gathered =
++          this->settings.ordered_by_nodes && (this->settings.block_size != 1);
++      // vectors ordered by nodes
++      if (gathered) {
++        b.GetSubVector(this->nodes, this->rhs);
++      }
++      const auto& rb = gathered ? this->rhs : b;
++      auto& xb = gathered ? this->solution : x;
++      if (gathered) {
++        xb.SetSize(b.Size());
++      }
++      if (this->settings.factorize) {
++        xb = rb;
++        this->synchronize();
++        batched.LUSolve(this->blocks, this->pivots, xb);
++      } else {
++        this->synchronize();
++        batched.Mult(this->blocks, rb, xb);
++      }
++      this->synchronize();
++      if (gathered) {
++        x.SetSubVector(this->nodes, xb);
++      }
++      if (this->settings.damping.has_value()) {
++        x *= *(this->settings.damping);
++      }
++    }
++
++   private:
++    /*!
++     * \brief extract the blocks of a matrix, and invert or factorize them
++     * \param[in] a: matrix
++     */
++    void setup(const mfem::SparseMatrix& a) {
++      const auto use_device = mfem::Device::IsEnabled();
++      this->setup(a.Height(), a.Width(), a.ReadI(use_device),
++                  a.ReadJ(use_device), a.ReadData(use_device), use_device);
++    }
++#ifdef MFEM_USE_MPI
++    /*!
++     * \brief extract the blocks of the diagonal block of the process of a
++     * matrix of hypre, read where hypre stores it
++     * \param[in] a: matrix
++     */
++    void setup(const mfem::HypreParMatrix& a) {
++      static_assert(std::is_same_v<HYPRE_Int, int>,
++                    "unsupported integer type of hypre");
++      static_assert(std::is_same_v<HYPRE_Real, real>,
++                    "unsupported real type of hypre");
++      const auto use_device =
++          mfem::Device::IsEnabled() &&
++          (mfem::GetHypreMemoryClass() != mfem::MemoryClass::HOST);
++      if (use_device) {
++        a.HypreRead();
++      } else {
++        a.HostRead();
++      }
++      auto* const diagonal =
++          hypre_ParCSRMatrixDiag(static_cast<hypre_ParCSRMatrix*>(a));
++      this->setup(hypre_CSRMatrixNumRows(diagonal),
++                  hypre_CSRMatrixNumCols(diagonal), hypre_CSRMatrixI(diagonal),
++                  hypre_CSRMatrixJ(diagonal), hypre_CSRMatrixData(diagonal),
++                  use_device);
++      if (!use_device) {
++        a.HypreRead();
++      }
++    }
++#endif /* MFEM_USE_MPI */
++    /*!
++     * \brief extract the blocks of a matrix in the compressed row format
++     * \param[in] n: number of rows
++     * \param[in] m: number of columns
++     * \param[in] I: offsets of the rows
++     * \param[in] J: columns
++     * \param[in] A: values
++     * \param[in] use_device: if true, the arrays are read on the device
++     */
++    void setup(const int n,
++               const int m,
++               const int* const I,
++               const int* const J,
++               const real* const A,
++               const bool use_device) {
++      const auto bs = this->settings.block_size;
++      if ((m != n) || (n % bs != 0)) {
++        mgis::raise(
++            "NodalBlockJacobiPreconditioner::SetOperator: the size of the "
++            "matrix is not a multiple of the size of the blocks");
++      }
++      const auto l = this->getLayout(n);
++      this->blocks.SetSize(bs, bs, l.nb);
++      launchNodalBlocksExtractionKernel(
++          l, I, J, A, this->blocks.Write(use_device), use_device);
++      this->factorize(n);
++    }
++    /*!
++     * \return the layout of the unknowns
++     * \param[in] n: number of unknowns
++     */
++    [[nodiscard]] NodalBlocksLayout getLayout(const int n) const noexcept {
++      const auto bs = this->settings.block_size;
++      return NodalBlocksLayout{
++          .nb = n / bs, .bs = bs, .by_nodes = this->settings.ordered_by_nodes};
++    }
++    /*!
++     * \brief invert or factorize the blocks, and prepare the vectors
++     * \param[in] n: number of unknowns
++     */
++    void factorize(const int n) {
++      const auto bs = this->settings.block_size;
++      if (this->settings.ordered_by_nodes && (bs != 1) &&
++          (this->nodes.Size() != n)) {
++        // position of the unknowns in the vectors ordered by nodes
++        const auto nb = n / bs;
++        this->nodes.SetSize(n);
++        this->nodes.UseDevice(true);
++        auto* const nodes_ = this->nodes.HostWrite();
++        for (int i = 0; i != n; ++i) {
++          nodes_[(i % nb) * bs + i / nb] = i;
++        }
++      }
++      const auto& batched = mfem::BatchedLinAlg::Get(this->settings.backend);
++      this->synchronize();
++      if (this->settings.factorize) {
++        batched.LUFactor(this->blocks, this->pivots);
++      } else {
++        batched.Invert(this->blocks);
++      }
++      this->synchronize();
++      this->height = this->width = n;
++    }
++    /*!
++     * \brief synchronize the device around the operations of the backends
++     * cuBLAS, hipBLAS and MAGMA, which compute on their own queue: the
++     * kernels of MFEM writing their arguments are completed before them,
++     * and their results before the next kernels of MFEM. Without it, with
++     * the backend MAGMA, the GMRES solver of MFEM in parallel on the GPU
++     * gave arguments still being computed to MAGMA, and diverged.
++     */
++    void synchronize() const {
++      if (this->settings.backend != mfem::BatchedLinAlg::NATIVE) {
++        MFEM_DEVICE_SYNC;
++      }
++    }
++    //! \brief settings
++    const NodalBlockJacobiSettings settings;
++    //! \brief inverses or LU factors of the blocks
++    mfem::DenseTensor blocks;
++    //! \brief pivots of the LU factors
++    mfem::Array<int> pivots;
++    //! \brief unknowns ordered by nodes
++    mfem::Array<int> nodes;
++    //! \brief right hand side ordered by nodes
++    mutable mfem::Vector rhs;
++    //! \brief solution ordered by nodes
++    mutable mfem::Vector solution;
++  };  // end of struct NodalBlockJacobiPreconditioner
++
++  /*!
++   * \return the backend of the batched linear algebra of MFEM given by its
++   * name, or an empty value if it is unknown or not available
++   * \param[in, out] ctx: execution context
++   * \param[in] n: name
++   */
++  [[nodiscard]] static std::optional<mfem::BatchedLinAlg::Backend>
++  getBatchedLinearAlgebraBackend(Context& ctx, const std::string& n) {
++    using Batched = mfem::BatchedLinAlg;
++    const auto backends =
++        std::array<std::pair<const char*, Batched::Backend>, 3>{
++            {{"Native", Batched::NATIVE},
++             {"GPUBLAS", Batched::GPU_BLAS},
++             {"MAGMA", Batched::MAGMA}}};
++    for (const auto& [name, backend] : backends) {
++      if (n != name) {
++        continue;
++      }
++      if (!Batched::IsAvailable(backend)) {
++        return ctx.registerErrorMessage(
++            "the backend '" + n +
++            "' of the batched linear algebra of MFEM is not available (it "
++            "requires MFEM built with CUDA or HIP, and MAGMA for the backend "
++            "'MAGMA', and the device of MFEM on the GPU)");
++      }
++      return backend;
++    }
++    return ctx.registerErrorMessage(
++        "invalid backend '" + n +
++        "' of the batched linear algebra of MFEM (expected 'Native', "
++        "'GPUBLAS' or 'MAGMA')");
++  }  // end of getBatchedLinearAlgebraBackend
++
++  /*!
++   * \return the Jacobi preconditioner by nodal blocks
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] opts: options (`Backend`: `Native`, `GPUBLAS` or `MAGMA`,
++   * the active backend of MFEM by default; `BlockSize`, the number of
++   * components of the unknowns by default; `Factorization`: `Inverse`, by
++   * default, or `LU`; `Damping`, one by default)
++   */
++  template <bool parallel>
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  makeNodalBlockJacobiPreconditioner(Context& ctx,
++                                     FiniteElementSpace<parallel>& fespace,
++                                     const Parameters& opts) {
++    using Batched = mfem::BatchedLinAlg;
++    if (!checkParameters(
++            ctx, opts,
++            std::vector<std::string>{"Backend", "BlockSize", "Factorization",
++                                     "Damping"})) {
++      return {};
++    }
++    // the active backend of MFEM, if available (MAGMA, then cuBLAS or
++    // hipBLAS, then the native kernels)
++    const auto active = Batched::GetActiveBackend();
++    auto settings = NodalBlockJacobiSettings{};
++    settings.backend = Batched::IsAvailable(active) ? active : Batched::NATIVE;
++    if (contains(opts, "Backend")) {
++      const auto oname = get<std::string>(ctx, opts, "Backend");
++      if (isInvalid(oname)) {
++        return {};
++      }
++      const auto obackend = getBatchedLinearAlgebraBackend(ctx, *oname);
++      if (isInvalid(obackend)) {
++        return {};
++      }
++      settings.backend = *obackend;
++    }
++    const auto osize = get_if<int>(ctx, opts, "BlockSize", fespace.GetVDim());
++    const auto ofactorization =
++        get_if<std::string>(ctx, opts, "Factorization", std::string{"Inverse"});
++    const auto odamping = get_if<double>(ctx, opts, "Damping", 1.);
++    const auto damped = contains(opts, "Damping");
++    if (isInvalid(osize) || isInvalid(ofactorization) || isInvalid(odamping)) {
++      return {};
++    }
++    if ((*ofactorization != "Inverse") && (*ofactorization != "LU")) {
++      return ctx.registerErrorMessage(
++          "invalid factorization '" + *ofactorization +
++          "' of the Jacobi preconditioner by nodal blocks (expected "
++          "'Inverse' or 'LU')");
++    }
++    if (*osize < 1) {
++      return ctx.registerErrorMessage(
++          "invalid block size of the Jacobi preconditioner by nodal blocks");
++    }
++    if (*odamping <= 0) {
++      return ctx.registerErrorMessage(
++          "invalid damping factor of the Jacobi preconditioner by nodal "
++          "blocks");
++    }
++    settings.block_size = *osize;
++    settings.ordered_by_nodes =
++        fespace.GetOrdering() == mfem::Ordering::byNODES;
++    settings.factorize = *ofactorization == "LU";
++    if (damped) {
++      settings.damping = static_cast<real>(*odamping);
++    }
++    return std::make_unique<NodalBlockJacobiPreconditioner>(settings);
++  }  // end of makeNodalBlockJacobiPreconditioner
++
++  template <bool parallel>
++  void declareNodalBlockJacobiPreconditioner(
++      PreconditionerFactory<parallel>& f) {
++    declare(f, "NodalBlockJacobi",
++            LinearSolverDescription{
++                .library = "MFEM",
++                .kind = LinearSolverKind::PRECONDITIONER,
++                .placement = LinearSolverPlacement::MFEM,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = {"Backend", "BlockSize", "Factorization", "Damping"},
++                .description =
++                    "Jacobi preconditioner by nodal blocks, inverted by the "
++                    "batched dense linear algebra of MFEM, applied to the "
++                    "diagonal block of each process in parallel"},
++            makeNodalBlockJacobiPreconditioner<parallel>);
++  }  // end of declareNodalBlockJacobiPreconditioner
++
++#ifdef MFEM_USE_MPI
++  template void declareNodalBlockJacobiPreconditioner<true>(
++      PreconditionerFactory<true>&);
++#endif /* MFEM_USE_MPI */
++  template void declareNodalBlockJacobiPreconditioner<false>(
++      PreconditionerFactory<false>&);
++
++}  // end of namespace mfem_mgis::internals
+-- 
+2.43.0
+

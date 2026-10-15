@@ -70,6 +70,10 @@ if(("@MFEM_USE_HIP@" STREQUAL "YES") AND (NOT TARGET hip::host))
   endif()
 endif()
 
+# sparse solvers of MAGMA, if mfem-mgis uses them (linked privately to the
+# library of mfem-mgis)
+set(MFEMMGIS_HAVE_MAGMA_SPARSE @MFEM_MGIS_HAVE_MAGMA_SPARSE@)
+
 # AmgX, if mfem-mgis uses it (see `FindAMGX.cmake`), the installation used
 # to build mfem-mgis being searched first
 set(MFEMMGIS_HAVE_AMGX @MFEM_MGIS_HAVE_AMGX@)

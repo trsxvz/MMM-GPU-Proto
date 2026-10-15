@@ -713,6 +713,33 @@ Jacobi (HypreDiagScale)
     auto options = mfem_mgis::Parameters{{"VerbosityLevel", 0}};
     auto diagscale = mfem_mgis::Parameters{{"Name","HypreDiagScale"}, {"Options",options}};
 
+Jacobi preconditioner by nodal blocks (NodalBlockJacobi)
+--------------------------------------------------------
+
+Jacobi preconditioner whose blocks couple the components of the unknown at
+each node, inverted by the batched dense linear algebra of ``MFEM``. The
+blocks are extracted from an assembled matrix (the diagonal block of each
+process in parallel), or computed by kernels for an operator applied
+without assembly (``TangentOperatorComputation`` set to ``MatrixFree``),
+in sequential and in parallel (see :ref:`nodal_block_jacobi`).
+
+- Preconditioner name: ``NodalBlockJacobi``
+- Options:
+
++-------------------+--------------------------------------------------------+
+| Key               | Description                                            |
++===================+========================================================+
+| ``Backend``       | ``Native``, ``GPUBLAS`` or ``MAGMA``, the active       |
+|                   | backend of ``MFEM`` by default. [string]               |
++-------------------+--------------------------------------------------------+
+| ``BlockSize``     | Size of the blocks, the number of components of the    |
+|                   | unknowns by default. [int]                             |
++-------------------+--------------------------------------------------------+
+| ``Factorization`` | ``Inverse`` (by default) or ``LU``. [string]           |
++-------------------+--------------------------------------------------------+
+| ``Damping``       | Damping factor, 1 by default. [double]                 |
++-------------------+--------------------------------------------------------+
+
 Jacobi smoother (OperatorJacobiSmoother)
 ----------------------------------------
 

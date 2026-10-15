@@ -268,6 +268,43 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of addStiffnessMatricesDiagonals
 
+  bool addStiffnessMatricesNodalBlocks(
+      Context& ctx,
+      mfem::Vector& b,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k,
+      const TangentOperatorModification& mod) noexcept {
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      auto a = internals::StiffnessMatricesKernelArguments{};
+      auto error = false;
+      if (!getStiffnessMatricesKernelArguments(
+              ctx, a, error, qs, K, g, k, mod, use_device,
+              "addStiffnessMatricesNodalBlocks", true)) {
+        return !error;
+      }
+      const auto vdim = std::int64_t{getUnknownsSize(k)};
+      const auto stride = std::int64_t{g.nd} * vdim * std::int64_t{g.ne};
+      if (static_cast<std::int64_t>(b.Size()) != vdim * stride) {
+        return ctx.registerErrorMessage(
+            "addStiffnessMatricesNodalBlocks: unexpected size of the values "
+            "element by element");
+      }
+      internals::launchStiffnessMatricesNodalBlocksKernel(
+          k, a, b.ReadWrite(use_device), static_cast<std::size_t>(stride),
+          use_device);
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"addStiffnessMatricesNodalBlocks: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addStiffnessMatricesNodalBlocks: unknown exception");
+    }
+    return true;
+  }  // end of addStiffnessMatricesNodalBlocks
+
   bool addTangentOperatorAction(
       Context& ctx,
       mfem::Vector& y,

@@ -209,6 +209,27 @@ namespace mfem_mgis::batch {
       const ElementsGeometry& g0,
       const GradientsKind k) noexcept;
   /*!
+   * \brief adds the nodal blocks of the contribution of the regularization
+   * to the stiffness matrices of the elements of a material (see
+   * `addStiffnessMatricesNodalBlocks`)
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in, out] b: values element by element
+   * \param[in] qs: quadrature space of the material
+   * \param[in] alpha: penalization coefficient
+   * \param[in] g: geometric data of the integration rule of the material
+   * \param[in] g0: geometric data of the center of the elements
+   * \param[in] k: kind of the gradients
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusStiffnessMatricesNodalBlocks(
+      Context& ctx,
+      mfem::Vector& b,
+      const PartialQuadratureSpace& qs,
+      const real alpha,
+      const ElementsGeometry& g,
+      const ElementsGeometry& g0,
+      const GradientsKind k) noexcept;
+  /*!
    * \brief adds the action of the contribution of the regularization to the
    * stiffness matrices of the elements of a material, without assembling
    * them (see `addTangentOperatorAction`)

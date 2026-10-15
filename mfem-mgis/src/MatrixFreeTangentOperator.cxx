@@ -16,9 +16,9 @@ namespace mfem_mgis {
   MatrixFreeTangentOperator::MatrixFreeTangentOperator(
       const FiniteElementDiscretization& fed,
       MultiMaterialNonLinearIntegrator& mi)
-      : mfem::Operator(getFiniteElementSpace(fed).GetTrueVSize()),
+      : mfem::Operator(mfem_mgis::getFiniteElementSpace(fed).GetTrueVSize()),
         fe_discretization(fed),
-        fe_space(getFiniteElementSpace(fed)),
+        fe_space(mfem_mgis::getFiniteElementSpace(fed)),
         integrator(mi) {
     this->xl.UseDevice(true);
     this->yl.UseDevice(true);
@@ -71,7 +71,46 @@ namespace mfem_mgis {
     }
   }  // end of AssembleDiagonal
 
+  void MatrixFreeTangentOperator::AssembleNodalBlocks(mfem::Vector& b) const {
+    const auto vdim = this->fe_space.GetVDim();
+    const auto nl = this->fe_space.GetVSize();
+    const auto* const P = this->fe_space.GetProlongationMatrix();
+    auto& bl_ = (P != nullptr) ? this->bl : b;
+    bl_.UseDevice(true);
+    bl_.SetSize(vdim * nl);
+    bl_ = real{0};
+    auto ctx = Context{};
+    const auto success =
+        this->integrator.addTangentOperatorNodalBlocksByKernels(
+            ctx, this->fe_space, bl_);
+    raiseOnFailureOnAnyProcess(this->fe_discretization, ctx, success,
+                               "nodal blocks of the tangent operator");
+    if (P == nullptr) {
+      return;
+    }
+    // one column of the blocks after the other (see `AssembleDiagonal`)
+    const auto nt = this->Height();
+    b.UseDevice(true);
+    b.SetSize(vdim * nt);
+    for (int c = 0; c != vdim; ++c) {
+      auto bc = mfem::Vector(b, c * nt, nt);
+      const auto blc = mfem::Vector(bl_, c * nl, nl);
+      if (this->fe_space.Conforming()) {
+        P->MultTranspose(blc, bc);
+      } else {
+        P->AbsMultTranspose(blc, bc);
+      }
+    }
+  }  // end of AssembleNodalBlocks
+
+  const mfem::FiniteElementSpace&
+  MatrixFreeTangentOperator::getFiniteElementSpace() const noexcept {
+    return this->fe_space;
+  }  // end of getFiniteElementSpace
+
   MatrixFreeTangentOperator::~MatrixFreeTangentOperator() = default;
+
+  NodalBlocksProvider::~NodalBlocksProvider() = default;
 
   AssembledOperatorProvider::~AssembledOperatorProvider() = default;
 
@@ -83,8 +122,52 @@ namespace mfem_mgis {
       : mfem::ConstrainedOperator(
             &op, essential_dofs, false, mfem::Operator::DIAG_ONE),
         assemble(std::move(f)),
-        revision(std::move(r)) {
+        revision(std::move(r)),
+        tangent_operator(op) {
   }  // end of ConstrainedMatrixFreeTangentOperator
+
+  void ConstrainedMatrixFreeTangentOperator::AssembleNodalBlocks(
+      mfem::Vector& b) const {
+    this->tangent_operator.AssembleNodalBlocks(b);
+    const auto ne = this->constraint_list.Size();
+    if (ne == 0) {
+      return;
+    }
+    const auto& fes = this->tangent_operator.getFiniteElementSpace();
+    const auto vdim = fes.GetVDim();
+    if (this->unit_entries.Size() != ne) {
+      // entries of the rows and of the columns of the essential degrees of
+      // freedom, computed once (the essential degrees of freedom do not
+      // change)
+      const auto nt = this->Height();
+      const auto nb = nt / vdim;
+      const auto by_nodes = fes.GetOrdering() == mfem::Ordering::byNODES;
+      const auto unknown = [nb, vdim, by_nodes](const int node, const int c) {
+        return by_nodes ? c * nb + node : node * vdim + c;
+      };
+      const auto* const dofs = this->constraint_list.HostRead();
+      this->null_entries.SetSize(2 * ne * vdim);
+      this->unit_entries.SetSize(ne);
+      auto* const null_entries_ = this->null_entries.HostWrite();
+      auto* const unit_entries_ = this->unit_entries.HostWrite();
+      for (int i = 0; i != ne; ++i) {
+        const auto t = dofs[i];
+        const auto node = by_nodes ? t % nb : t / vdim;
+        const auto c = by_nodes ? t / nb : t % vdim;
+        for (int d = 0; d != vdim; ++d) {
+          // row of the degree of freedom, column d of the block
+          null_entries_[2 * (vdim * i + d)] = d * nt + t;
+          // column of the degree of freedom, row d of the block
+          null_entries_[2 * (vdim * i + d) + 1] = c * nt + unknown(node, d);
+        }
+        unit_entries_[i] = c * nt + t;
+      }
+      this->null_entries.UseDevice(true);
+      this->unit_entries.UseDevice(true);
+    }
+    b.SetSubVector(this->null_entries, real{0});
+    b.SetSubVector(this->unit_entries, real{1});
+  }  // end of AssembleNodalBlocks
 
   mfem::Operator& ConstrainedMatrixFreeTangentOperator::getAssembledOperator()
       const {

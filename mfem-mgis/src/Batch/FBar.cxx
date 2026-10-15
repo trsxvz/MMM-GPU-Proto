@@ -524,6 +524,44 @@ namespace mfem_mgis::batch {
     return true;
   }  // end of addFBarStiffnessMatricesDiagonals
 
+  bool addFBarStiffnessMatricesNodalBlocks(Context& ctx,
+                                           mfem::Vector& b,
+                                           const FBarData& data,
+                                           const PartialQuadratureSpace& qs,
+                                           const mgis::FieldView<const real>& K,
+                                           const ElementsGeometry& g,
+                                           const GradientsKind k) noexcept {
+    try {
+      const auto use_device = mfem::Device::IsEnabled();
+      const auto vdim = getUnknownsSize(k);
+      auto a = internals::FBarRankOneKernelArguments{};
+      // one thread per degree of freedom
+      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, K, g, k, use_device,
+                                         "addFBarStiffnessMatricesNodalBlocks",
+                                         std::int64_t{g.nd} * vdim)) {
+        return false;
+      }
+      if (!addStiffnessMatricesNodalBlocks(
+              ctx, b, qs, K, g, k,
+              getFBarTangentOperatorModification(data, use_device))) {
+        return false;
+      }
+      if (a.number_of_elements != 0) {
+        const auto stride = std::int64_t{g.nd} * vdim * std::int64_t{g.ne};
+        internals::launchFBarRankOneNodalBlocksKernel(
+            a, vdim, b.ReadWrite(use_device), static_cast<std::size_t>(stride),
+            use_device);
+      }
+    } catch (std::exception& e) {
+      return ctx.registerErrorMessage(
+          std::string{"addFBarStiffnessMatricesNodalBlocks: "} + e.what());
+    } catch (...) {
+      return ctx.registerErrorMessage(
+          "addFBarStiffnessMatricesNodalBlocks: unknown exception");
+    }
+    return true;
+  }  // end of addFBarStiffnessMatricesNodalBlocks
+
   bool addFBarTangentOperatorAction(Context& ctx,
                                     mfem::Vector& y,
                                     const FBarData& data,

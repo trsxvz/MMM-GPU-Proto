@@ -19,9 +19,12 @@ The existing modules are the ones of MFEM and mfem-mgis
 AmgX (:file:`src/AmgXSolvers.cxx`), PETSc
 (:file:`src/PETScLinearSolvers.cxx`), Ginkgo
 (:file:`src/GinkgoLinearSolvers.cxx`), SuperLU_DIST
-(:file:`src/SuperLUSolvers.cxx`) and STRUMPACK
-(:file:`src/STRUMPACKSolvers.cxx`). The solvers of hypre which MFEM does
-not wrap are implemented in :file:`src/HypreSolvers.cxx`.
+(:file:`src/SuperLUSolvers.cxx`), STRUMPACK
+(:file:`src/STRUMPACKSolvers.cxx`), oneMKL
+(:file:`src/MKLSparseSolvers.cxx`) and the sparse part of MAGMA
+(:file:`src/MAGMASparseSolvers.cxx`, compiled when
+:cxx:`MFEM_MGIS_HAVE_MAGMA_SPARSE` is defined). The solvers of hypre which
+MFEM does not wrap are implemented in :file:`src/HypreSolvers.cxx`.
 
 Adding a library consists of:
 

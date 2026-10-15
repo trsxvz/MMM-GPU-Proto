@@ -49,7 +49,7 @@ rows.
 | Addition: choice of the integration rule (8 points instead of 27 on the first order hexahedron) | both | 8 | done: parameter `IntegrationRuleOrder` of the discretization of mfem-mgis |
 | Inexact Newton (Eisenstat-Walker, `NewtonSolver::SetAdaptiveLinRtol` of MFEM) | both | 8 | done in the Newton of mfem-mgis and the method `NewtonK0` (option `AdaptiveLinearSolverTolerance`) |
 | Matrix free Jacobi and Chebyshev smoothers on the diagonal (`OperatorJacobiSmoother`, `OperatorChebyshevSmoother`), required by a fully matrix free option a | both | 8 | done: preconditioners `OperatorJacobiSmoother` and `OperatorChebyshevSmoother` of the factory of mfem-mgis (MFEM) |
-| Addition: matrix free Jacobi by 3×3 nodal blocks (block diagonal of the tangent) | both | 7 | mfem-mgis, like the `hooke` mini-application of MFEM |
+| Addition: matrix free Jacobi by 3×3 nodal blocks (block diagonal of the tangent) | both | 7 | mfem-mgis, like the `hooke` mini-application of MFEM; done on 15/10/2026 (`NodalBlockJacobi`, patches `0210` to `0213`) |
 | Addition: matrix free "absolute value" l1-Jacobi | both | 5 | MFEM 4.9, `miniapps/diag-smoothers` |
 | GPU settings of BoomerAMG exposed in mfem-mgis (PMIS, ext+i, l1-Jacobi, Chebyshev, number of levels, thresholds) | both | 8 | done: options of `HypreBoomerAMG` in mfem-mgis (see [below](#boomeramg-hypre)) |
 | Addition: BoomerAMG for systems on GPU ("System" strategy, settings preserved at each `SetOperator`; "Elasticity" stops the program with hypre built for GPU) | both | 8 | done in mfem-mgis: "Elasticity" replaced by "System" with a warning, settings applied again after each `SetOperator` |
@@ -216,7 +216,11 @@ p-multigrid).
   nonlinear elasticity, on GPU) does it
   (`ElasticityDiagonalPreconditioner`, type `BlockDiagonal`): it is a
   direct model for mfem-mgis. The batched dense algebra of MFEM
-  (`BatchedLinAlg`, since 4.8) can invert these blocks on GPU.
+  (`BatchedLinAlg`, since 4.8) can invert these blocks on GPU. Done on
+  15/10/2026: the `NodalBlockJacobi` preconditioner, whose blocks are
+  extracted from the assembled matrix or computed by kernels for the
+  operator applied without assembly, inverted by the native kernels,
+  cuBLAS or MAGMA.
 - **Absolute value l1-Jacobi** (addition, interest 5): family of matrix free
   smoothers convergent by construction (MFEM 4.9,
   `miniapps/diag-smoothers`, examples in elasticity and in multigrid).

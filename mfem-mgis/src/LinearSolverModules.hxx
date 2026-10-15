@@ -105,6 +105,28 @@ namespace mfem_mgis::internals {
    */
   void declareMKLClusterSparseLinearSolvers(LinearSolverFactory<true>& f);
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
+#ifdef MFEM_MGIS_HAVE_MAGMA_SPARSE
+  /*!
+   * \brief register the Krylov solvers of MAGMA (sequential, one GPU)
+   * \param[in, out] f: factory
+   */
+  void declareMAGMALinearSolvers(LinearSolverFactory<false>& f);
+  /*!
+   * \brief register the preconditioners of MAGMA (applied to the diagonal
+   * block of each process in parallel)
+   * \param[in, out] f: factory
+   */
+  template <bool parallel>
+  void declareMAGMAPreconditioners(PreconditionerFactory<parallel>& f);
+#endif /* MFEM_MGIS_HAVE_MAGMA_SPARSE */
+  /*!
+   * \brief register the Jacobi preconditioner by nodal blocks, inverted by
+   * the batched dense linear algebra of MFEM
+   * \param[in, out] f: factory
+   */
+  template <bool parallel>
+  void declareNodalBlockJacobiPreconditioner(
+      PreconditionerFactory<parallel>& f);
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)
   /*!
    * \brief register the direct solver of SuperLU_DIST

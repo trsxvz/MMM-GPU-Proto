@@ -93,6 +93,42 @@ namespace mfem_mgis::batch::internals {
     }
   };
 
+  //! \brief blocks computed by the kernels of the stiffness matrices
+  enum struct StiffnessBlocks {
+    //! \brief the blocks of all the pairs of nodes of an element
+    ALL,
+    //! \brief the blocks of the pairs of a node with itself
+    NODAL,
+    //! \brief the diagonals of the blocks of the pairs of a node with itself
+    DIAGONAL
+  };
+
+  /*!
+   * \brief adds the blocks of the pairs of a node with itself to values
+   * element by element: column `d` of the blocks in the layout of the
+   * element restriction (see `ElementDiagonalsStorage`), shifted by `d *
+   * stride`
+   */
+  struct ElementNodalBlocksStorage {
+    //! \brief values element by element
+    real* values;
+    //! \brief size of the values of one column of the blocks
+    std::size_t stride;
+    //! \brief see `ElementMatricesStorage::add`
+    template <int N>
+    MFEM_HOST_DEVICE void add(const std::size_t e,
+                              const std::size_t nd,
+                              const std::size_t na,
+                              const std::size_t,
+                              const real (&m)[N][N]) const {
+      for (std::size_t c = 0; c != N; ++c) {
+        for (std::size_t d = 0; d != N; ++d) {
+          this->values[this->stride * d + na + nd * (c + N * e)] += m[c][d];
+        }
+      }
+    }
+  };
+
   //! \brief adds the diagonals of the blocks to values element by element
   struct ElementDiagonalsStorage {
     //! \brief values element by element (layout of the element restriction)
@@ -279,12 +315,11 @@ namespace mfem_mgis::batch::internals {
    * same order as by the kernel: the results are identical.
    * \tparam K: kind of the gradients
    * \tparam Output: destination of the blocks
-   * \tparam diagonal: if true, only the pairs of a node with itself are
-   * computed
+   * \tparam blocks: blocks computed
    * \param[in] a: arguments of the kernels
    * \param[in] o: destination of the blocks
    */
-  template <GradientsKind K, typename Output, bool diagonal>
+  template <GradientsKind K, typename Output, StiffnessBlocks blocks>
   static void computeStiffnessMatricesOnHost(
       const StiffnessMatricesKernelArguments& a, const Output& o) {
     constexpr auto N = getDimension<K>();
@@ -327,17 +362,18 @@ namespace mfem_mgis::batch::internals {
           }
         }
       }
-      const auto npairs = diagonal ? nd : nd * nd;
+      constexpr auto all = blocks == StiffnessBlocks::ALL;
+      const auto npairs = all ? nd * nd : nd;
       for (std::size_t r = 0; r != npairs; ++r) {
-        const auto na = diagonal ? r : r % nd;
-        const auto nb = diagonal ? r : r / nd;
+        const auto na = all ? r % nd : r;
+        const auto nb = all ? r / nd : r;
         real m[V][V] = {};
         for (std::size_t q = 0; q != nq; ++q) {
           const auto& xa = operators[q * nd + na].x;
           const auto& KB = operators[q * nd + nb].KB;
           const auto w = weights[q];
           for (std::size_t d = 0; d != V; ++d) {
-            if constexpr (diagonal) {
+            if constexpr (blocks == StiffnessBlocks::DIAGONAL) {
               // only the diagonal of the block is used
               m[d][d] += w * multiplyByTransposedB<K>(xa, d, KB[d]);
             } else {
@@ -367,22 +403,24 @@ namespace mfem_mgis::batch::internals {
    * host (`omp`, `debug`) use the kernel.
    * \tparam K: kind of the gradients
    * \tparam Output: destination of the blocks
-   * \tparam diagonal: if true, only the pairs of a node with itself are
-   * computed
+   * \tparam blocks: blocks computed
    * \param[in] a: arguments of the kernels
    * \param[in] o: destination of the blocks
    * \param[in] use_device: if true, the kernel runs on the device
    */
-  template <GradientsKind K, typename Output, bool diagonal = false>
+  template <GradientsKind K,
+            typename Output,
+            StiffnessBlocks blocks = StiffnessBlocks::ALL>
   static void launchStiffnessMatricesKernel(
       const StiffnessMatricesKernelArguments& a,
       const Output o,
       const bool use_device) {
     if (!use_device) {
-      computeStiffnessMatricesOnHost<K, Output, diagonal>(a, o);
+      computeStiffnessMatricesOnHost<K, Output, blocks>(a, o);
       return;
     }
-    const auto npairs = diagonal ? a.nd : a.nd * a.nd;
+    constexpr auto all = blocks == StiffnessBlocks::ALL;
+    const auto npairs = all ? a.nd * a.nd : a.nd;
     const auto n = a.number_of_elements * npairs;
     mfem::forall_switch(use_device, n, [a, o, npairs] MFEM_HOST_DEVICE(int i) {
       // dimension and number of components of the unknowns
@@ -393,8 +431,8 @@ namespace mfem_mgis::batch::internals {
       const auto np = static_cast<std::size_t>(npairs);
       const auto k = static_cast<std::size_t>(i) / np;
       const auto r = static_cast<std::size_t>(i) - k * np;
-      const auto na = diagonal ? r : r % nd;
-      const auto nb = diagonal ? r : r / nd;
+      const auto na = all ? r % nd : r;
+      const auto nb = all ? r / nd : r;
       const auto e = static_cast<std::size_t>(a.elements[k]);
       real m[V][V] = {};
       for (std::size_t q = 0; q != nq; ++q) {
@@ -423,7 +461,7 @@ namespace mfem_mgis::batch::internals {
         for (std::size_t d = 0; d != V; ++d) {
           real KB[getGradientsSize<K>()];
           multiplyByTangentOperatorAndB<K>(KB, a, o2, xb, d);
-          if constexpr (diagonal) {
+          if constexpr (blocks == StiffnessBlocks::DIAGONAL) {
             // only the diagonal of the block is used
             m[d][d] += w * multiplyByTransposedB<K>(xa, d, KB);
           } else {
@@ -443,14 +481,13 @@ namespace mfem_mgis::batch::internals {
   /*!
    * \brief launches the kernel for the given kind of gradients
    * \tparam Output: destination of the blocks
-   * \tparam diagonal: if true, only the pairs of a node with itself are
-   * computed
+   * \tparam blocks: blocks computed
    * \param[in] k: kind of the gradients
    * \param[in] a: arguments of the kernels
    * \param[in] o: destination of the blocks
    * \param[in] use_device: if true, the kernel runs on the device
    */
-  template <typename Output, bool diagonal = false>
+  template <typename Output, StiffnessBlocks blocks = StiffnessBlocks::ALL>
   static void dispatch(const GradientsKind k,
                        const StiffnessMatricesKernelArguments& a,
                        const Output& o,
@@ -458,43 +495,43 @@ namespace mfem_mgis::batch::internals {
     switch (k) {
       case GradientsKind::SMALL_STRAIN_3D:
         launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_3D, Output,
-                                      diagonal>(a, o, use_device);
+                                      blocks>(a, o, use_device);
         break;
       case GradientsKind::SMALL_STRAIN_2D:
         launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_2D, Output,
-                                      diagonal>(a, o, use_device);
+                                      blocks>(a, o, use_device);
         break;
       case GradientsKind::DEFORMATION_GRADIENT_3D:
         launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_3D,
-                                      Output, diagonal>(a, o, use_device);
+                                      Output, blocks>(a, o, use_device);
         break;
       case GradientsKind::DEFORMATION_GRADIENT_2D:
         launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_2D,
-                                      Output, diagonal>(a, o, use_device);
+                                      Output, blocks>(a, o, use_device);
         break;
       case GradientsKind::TEMPERATURE_GRADIENT_3D:
         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_GRADIENT_3D,
-                                      Output, diagonal>(a, o, use_device);
+                                      Output, blocks>(a, o, use_device);
         break;
       case GradientsKind::TEMPERATURE_GRADIENT_2D:
         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_GRADIENT_2D,
-                                      Output, diagonal>(a, o, use_device);
+                                      Output, blocks>(a, o, use_device);
         break;
       case GradientsKind::TEMPERATURE_3D:
         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_3D, Output,
-                                      diagonal>(a, o, use_device);
+                                      blocks>(a, o, use_device);
         break;
       case GradientsKind::TEMPERATURE_2D:
         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_2D, Output,
-                                      diagonal>(a, o, use_device);
+                                      blocks>(a, o, use_device);
         break;
       case GradientsKind::MICROMORPHIC_DAMAGE_3D:
         launchStiffnessMatricesKernel<GradientsKind::MICROMORPHIC_DAMAGE_3D,
-                                      Output, diagonal>(a, o, use_device);
+                                      Output, blocks>(a, o, use_device);
         break;
       case GradientsKind::MICROMORPHIC_DAMAGE_2D:
         launchStiffnessMatricesKernel<GradientsKind::MICROMORPHIC_DAMAGE_2D,
-                                      Output, diagonal>(a, o, use_device);
+                                      Output, blocks>(a, o, use_device);
         break;
     }
   }  // end of dispatch
@@ -583,9 +620,20 @@ namespace mfem_mgis::batch::internals {
       const StiffnessMatricesKernelArguments& a,
       real* const d,
       const bool use_device) {
-    dispatch<ElementDiagonalsStorage, true>(k, a, ElementDiagonalsStorage{d},
-                                            use_device);
+    dispatch<ElementDiagonalsStorage, StiffnessBlocks::DIAGONAL>(
+        k, a, ElementDiagonalsStorage{d}, use_device);
   }  // end of launchStiffnessMatricesDiagonalsKernel
+
+  void launchStiffnessMatricesNodalBlocksKernel(
+      const GradientsKind k,
+      const StiffnessMatricesKernelArguments& a,
+      real* const b,
+      const std::size_t stride,
+      const bool use_device) {
+    dispatch<ElementNodalBlocksStorage, StiffnessBlocks::NODAL>(
+        k, a, ElementNodalBlocksStorage{.values = b, .stride = stride},
+        use_device);
+  }  // end of launchStiffnessMatricesNodalBlocksKernel
 
   /*!
    * \brief launches the kernel adding the action of the stiffness matrices of

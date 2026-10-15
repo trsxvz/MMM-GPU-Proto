@@ -288,6 +288,28 @@ namespace mfem_mgis::batch {
       const ElementsGeometry& g,
       const GradientsKind k) noexcept;
   /*!
+   * \brief adds the nodal blocks of the stiffness matrices of the elements
+   * of a material in the FBar formulation (see
+   * `addStiffnessMatricesNodalBlocks`)
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in, out] b: values element by element
+   * \param[in] data: data of the FBar formulation
+   * \param[in] qs: quadrature space of the material
+   * \param[in] K: tangent operator blocks of the behaviour in the global
+   * frame (see `computeFBarTangentOperator`)
+   * \param[in] g: geometric data of the integration rule of the material
+   * \param[in] k: kind of the gradients
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarStiffnessMatricesNodalBlocks(
+      Context& ctx,
+      mfem::Vector& b,
+      const FBarData& data,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k) noexcept;
+  /*!
    * \brief adds the action of the stiffness matrices of the elements of a
    * material in the FBar formulation, without assembling them (see
    * `addTangentOperatorAction`)

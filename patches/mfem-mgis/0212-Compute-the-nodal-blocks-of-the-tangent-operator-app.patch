@@ -1,0 +1,1395 @@
+From f631c15779f672398e6b2c18d89dbbc336033d4c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 11:12:03 +0200
+Subject: [PATCH] Compute the nodal blocks of the tangent operator applied
+ without assembly
+
+The kernels of the stiffness matrices compute, besides all the blocks of
+the pairs of nodes and the diagonals, the blocks of the pairs of a node
+with itself (nodal blocks), also for the rank one terms of the FBar
+formulation and the regularization of Faltus et al. The behaviour
+integrators and the multi-material integrator add them in the layout of
+the element restriction, one column of the blocks after the other; the
+tangent operator applied without assembly gives them on the true degrees
+of freedom (NodalBlocksProvider), the constrained operator setting the
+rows and the columns of the essential degrees of freedom to the ones of
+the identity. The Jacobi preconditioner by nodal blocks uses them with an
+operator applied without assembly, the blocks being gathered by a kernel.
+---
+ .../MFEMMGIS/AbstractBehaviourIntegrator.hxx  |  18 +++
+ include/MFEMMGIS/Batch/FBar.hxx               |  22 ++++
+ include/MFEMMGIS/Batch/Faltus.hxx             |  21 ++++
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx  |  27 +++++
+ .../FBarBehaviourIntegratorCRTPBase.hxx       |   9 ++
+ .../FBarBehaviourIntegratorCRTPBase.ixx       |  23 ++++
+ ...tus2026RegularizedBehaviourIntegrators.hxx |   9 ++
+ ...tus2026RegularizedBehaviourIntegrators.ixx |  25 ++++
+ .../MFEMMGIS/MatrixFreeTangentOperator.hxx    |  56 ++++++++-
+ .../MultiMaterialNonLinearIntegrator.hxx      |  17 +++
+ .../StandardBehaviourIntegratorCRTPBase.hxx   |  10 ++
+ .../StandardBehaviourIntegratorCRTPBase.ixx   |  29 +++++
+ src/AbstractBehaviourIntegrator.cxx           |   8 ++
+ src/Batch/FBar.cxx                            |  38 ++++++
+ src/Batch/FBarKernels.cxx                     |  24 ++++
+ src/Batch/FBarKernels.hxx                     |  16 +++
+ src/Batch/Faltus.cxx                          |  39 +++++++
+ src/Batch/FaltusKernels.cxx                   |  37 ++++++
+ src/Batch/FaltusKernels.hxx                   |  17 +++
+ src/Batch/StiffnessMatrices.cxx               |  37 ++++++
+ src/Batch/StiffnessMatricesKernels.cxx        | 108 +++++++++++++-----
+ src/Batch/StiffnessMatricesKernels.hxx        |  20 ++++
+ src/MatrixFreeTangentOperator.cxx             |  89 ++++++++++++++-
+ src/MultiMaterialNonLinearIntegrator.cxx      |  43 +++++++
+ src/NodalBlockJacobiKernels.cxx               |  28 +++++
+ src/NodalBlockJacobiKernels.hxx               |  15 +++
+ src/NodalBlockJacobiPreconditioner.cxx        |  36 +++++-
+ 27 files changed, 784 insertions(+), 37 deletions(-)
+
+diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+index b894e0b575..12a36d8818 100644
+--- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
+@@ -283,6 +283,24 @@ namespace mfem_mgis {
+         Context& ctx,
+         mfem::Vector& d,
+         const batch::ElementsGeometrySet& g) noexcept;
++    /*!
++     * \brief add the nodal blocks of the stiffness matrices of all the
++     * elements (the blocks which couple the components of the unknowns at
++     * a node), computed by kernels, in the layout of the element restriction
++     * of MFEM, one column of the blocks after the other (see
++     * `batch::addStiffnessMatricesNodalBlocks`)
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in, out] b: values element by element
++     * \param[in] g: geometric data, which must contain the ones of the
++     * integration rule of the elements and of the rules returned by
++     * `getAdditionalIntegrationRulesForKernels`
++     * \note the default implementation reports an error
++     */
++    [[nodiscard]] virtual bool addTangentOperatorNodalBlocksByKernels(
++        Context& ctx,
++        mfem::Vector& b,
++        const batch::ElementsGeometrySet& g) noexcept;
+     /*!
+      * \brief compute the contribution of the given element to the inner forces
+      * \param[out] Fe: inner forces
+diff --git a/include/MFEMMGIS/Batch/FBar.hxx b/include/MFEMMGIS/Batch/FBar.hxx
+index 4a2ddb0aa8..ee9b68ed2c 100644
+--- a/include/MFEMMGIS/Batch/FBar.hxx
++++ b/include/MFEMMGIS/Batch/FBar.hxx
+@@ -287,6 +287,28 @@ namespace mfem_mgis::batch {
+       const mgis::FieldView<const real>& K,
+       const ElementsGeometry& g,
+       const GradientsKind k) noexcept;
++  /*!
++   * \brief adds the nodal blocks of the stiffness matrices of the elements
++   * of a material in the FBar formulation (see
++   * `addStiffnessMatricesNodalBlocks`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] b: values element by element
++   * \param[in] data: data of the FBar formulation
++   * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks of the behaviour in the global
++   * frame (see `computeFBarTangentOperator`)
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFBarStiffnessMatricesNodalBlocks(
++      Context& ctx,
++      mfem::Vector& b,
++      const FBarData& data,
++      const PartialQuadratureSpace& qs,
++      const mgis::FieldView<const real>& K,
++      const ElementsGeometry& g,
++      const GradientsKind k) noexcept;
+   /*!
+    * \brief adds the action of the stiffness matrices of the elements of a
+    * material in the FBar formulation, without assembling them (see
+diff --git a/include/MFEMMGIS/Batch/Faltus.hxx b/include/MFEMMGIS/Batch/Faltus.hxx
+index e8c4359814..b48b212d1a 100644
+--- a/include/MFEMMGIS/Batch/Faltus.hxx
++++ b/include/MFEMMGIS/Batch/Faltus.hxx
+@@ -208,6 +208,27 @@ namespace mfem_mgis::batch {
+       const ElementsGeometry& g,
+       const ElementsGeometry& g0,
+       const GradientsKind k) noexcept;
++  /*!
++   * \brief adds the nodal blocks of the contribution of the regularization
++   * to the stiffness matrices of the elements of a material (see
++   * `addStiffnessMatricesNodalBlocks`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] b: values element by element
++   * \param[in] qs: quadrature space of the material
++   * \param[in] alpha: penalization coefficient
++   * \param[in] g: geometric data of the integration rule of the material
++   * \param[in] g0: geometric data of the center of the elements
++   * \param[in] k: kind of the gradients
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addFaltusStiffnessMatricesNodalBlocks(
++      Context& ctx,
++      mfem::Vector& b,
++      const PartialQuadratureSpace& qs,
++      const real alpha,
++      const ElementsGeometry& g,
++      const ElementsGeometry& g0,
++      const GradientsKind k) noexcept;
+   /*!
+    * \brief adds the action of the contribution of the regularization to the
+    * stiffness matrices of the elements of a material, without assembling
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index fdbc08a94b..f2a5f0a9fe 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -111,6 +111,33 @@ namespace mfem_mgis::batch {
+       const ElementsGeometry& g,
+       const GradientsKind k,
+       const TangentOperatorModification& mod = {}) noexcept;
++  /*!
++   * \brief adds the nodal blocks of the stiffness matrices of the elements
++   * of a material (the `vdim x vdim` blocks which couple the components of
++   * the unknowns at a node, `vdim` being the number of components of the
++   * unknowns) to values stored element by element: `vdim` vectors in the
++   * layout of the element restriction of MFEM, one per column `c2` of the
++   * blocks, the entry `(c1, c2)` of the block of a node being stored at
++   * `node + nd * (c1 + vdim * element) + c2 * n`, `n` being the size of the
++   * values of the element restriction (`nd * vdim * ne`), on the device if
++   * a device is enabled
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in, out] b: values element by element
++   * \param[in] qs: quadrature space of the material
++   * \param[in] K: tangent operator blocks in the global frame
++   * \param[in] g: geometric data
++   * \param[in] k: kind of the gradients
++   * \param[in] mod: modification of the tangent operator blocks, if any
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatricesNodalBlocks(
++      Context& ctx,
++      mfem::Vector& b,
++      const PartialQuadratureSpace& qs,
++      const mgis::FieldView<const real>& K,
++      const ElementsGeometry& g,
++      const GradientsKind k,
++      const TangentOperatorModification& mod = {}) noexcept;
+   /*!
+    * \brief adds the action of the stiffness matrices of the elements of a
+    * material, computed from the tangent operator blocks without assembling
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+index 339d044182..b4b451c4e3 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+@@ -148,6 +148,15 @@ namespace mfem_mgis {
+         Context& ctx,
+         mfem::Vector& d,
+         const batch::ElementsGeometrySet& g) noexcept override;
++    /*!
++     * \brief add the nodal blocks of the stiffness matrices of the FBar
++     * formulation of all the elements, computed by kernels (see
++     * `batch::addFBarStiffnessMatricesNodalBlocks`)
++     */
++    [[nodiscard]] bool addTangentOperatorNodalBlocksByKernels(
++        Context& ctx,
++        mfem::Vector& b,
++        const batch::ElementsGeometrySet& g) noexcept override;
+ 
+    protected:
+     static_assert(((H == Hypothesis::PLANESTRAIN) ||
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+index daa842a5bc..1ae36aada4 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+@@ -782,6 +782,29 @@ namespace mfem_mgis {
+         });
+   }  // end of addTangentOperatorDiagonalByKernels
+ 
++  template <typename Child, Hypothesis H>
++  bool FBarBehaviourIntegratorCRTPBase<Child, H>::
++      addTangentOperatorNodalBlocksByKernels(
++          Context& ctx,
++          mfem::Vector& blocks,
++          const batch::ElementsGeometrySet& g) noexcept {
++    auto data = KernelsData{};
++    if (!this->prepareFBarTangentOperatorForKernels(
++            ctx, data, "addTangentOperatorNodalBlocksByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return this->callWithTangentOperatorBlocks(
++        ctx, "addTangentOperatorNodalBlocksByKernels",
++        [this, &ctx, &blocks, &data](const mgis::FieldView<const real>& Kb) {
++          return batch::addFBarStiffnessMatricesNodalBlocks(
++              ctx, blocks, this->fbar_data, *(this->quadrature_space), Kb,
++              *(data.geometry), data.kind);
++        });
++  }  // end of addTangentOperatorNodalBlocksByKernels
++
+   template <typename Child, Hypothesis H>
+   FBarBehaviourIntegratorCRTPBase<Child,
+                                   H>::~FBarBehaviourIntegratorCRTPBase() =
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+index 367e423d51..468592fb7b 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+@@ -214,6 +214,15 @@ namespace mfem_mgis {
+         Context&,
+         mfem::Vector&,
+         const batch::ElementsGeometrySet&) noexcept override;
++    /*!
++     * \brief add the nodal blocks of the stiffness matrices of all the
++     * elements, computed by kernels, including the regularization term (see
++     * `batch::addFaltusStiffnessMatricesNodalBlocks`)
++     */
++    [[nodiscard]] bool addTangentOperatorNodalBlocksByKernels(
++        Context&,
++        mfem::Vector&,
++        const batch::ElementsGeometrySet&) noexcept override;
+ 
+    private:
+     /*!
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+index 9f941d356d..7321b38e6d 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+@@ -452,6 +452,31 @@ namespace mfem_mgis {
+         data.kind);
+   }  // end of addTangentOperatorDiagonalByKernels
+ 
++  template <Hypothesis H>
++  bool Faltus2026RegularizedIsotropicBehaviourIntegrator<
++      H>::addTangentOperatorNodalBlocksByKernels(Context& ctx,
++                                                 mfem::Vector& b,
++                                                 const batch::
++                                                     ElementsGeometrySet&
++                                                         g) noexcept {
++    if (!Faltus2026RegularizedIsotropicBehaviourIntegratorBase<
++            H>::addTangentOperatorNodalBlocksByKernels(ctx, b, g)) {
++      return false;
++    }
++    auto data = BehaviourIntegratorBase::KernelsData{};
++    const batch::ElementsGeometry* g0 = nullptr;
++    if (!this->getFaltusKernelsData(
++            ctx, data, g0, "addTangentOperatorNodalBlocksByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    return batch::addFaltusStiffnessMatricesNodalBlocks(
++        ctx, b, *(this->quadrature_space), this->alpha, *(data.geometry), *g0,
++        data.kind);
++  }  // end of addTangentOperatorNodalBlocksByKernels
++
+ }  // end of namespace mfem_mgis
+ 
+ #endif /* LIB_MFEMMGIS_FALTUS2026REGULARIZEDBEHAVIOURINTEGRATORS_IXX */
+diff --git a/include/MFEMMGIS/MatrixFreeTangentOperator.hxx b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+index 39769eb093..595d7ce2cd 100644
+--- a/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
++++ b/include/MFEMMGIS/MatrixFreeTangentOperator.hxx
+@@ -24,6 +24,25 @@ namespace mfem_mgis {
+   struct FiniteElementDiscretization;
+   struct MultiMaterialNonLinearIntegrator;
+ 
++  /*!
++   * \brief interface of the operators applied without assembly which can
++   * give the nodal blocks of their diagonal, the blocks which couple the
++   * components of the unknowns at a node (used by the Jacobi preconditioner
++   * by nodal blocks)
++   */
++  struct MFEM_MGIS_EXPORT NodalBlocksProvider {
++    /*!
++     * \brief compute the nodal blocks
++     * \param[out] b: columns of the blocks, one vector of the true degrees of
++     * freedom after the other: the entry `(c1, c2)` of the block of a node
++     * is the entry of the component `c1` of this node in the vector of the
++     * column `c2`
++     */
++    virtual void AssembleNodalBlocks(mfem::Vector& b) const = 0;
++    //! \brief destructor
++    virtual ~NodalBlocksProvider();
++  };  // end of struct NodalBlocksProvider
++
+   /*!
+    * \brief tangent operator of the behaviour integrators of mfem-mgis,
+    * applied without assembly by kernels on the true degrees of freedom:
+@@ -42,7 +61,9 @@ namespace mfem_mgis {
+    * computations by kernels on a process is reported by an exception on
+    * all the processes.
+    */
+-  struct MFEM_MGIS_EXPORT MatrixFreeTangentOperator final : mfem::Operator {
++  struct MFEM_MGIS_EXPORT MatrixFreeTangentOperator final
++      : mfem::Operator,
++        NodalBlocksProvider {
+     /*!
+      * \brief constructor
+      * \param[in] fed: finite element discretization
+@@ -62,6 +83,16 @@ namespace mfem_mgis {
+      * \param[out] d: diagonal, on the true degrees of freedom
+      */
+     void AssembleDiagonal(mfem::Vector& d) const override;
++    /*!
++     * \brief compute the nodal blocks of the tangent operator (see
++     * `NodalBlocksProvider`), by kernels. As the diagonal, they are
++     * approximated on a non-conforming mesh by `|Pᵀ|` applied to the blocks
++     * of the local degrees of freedom.
++     */
++    void AssembleNodalBlocks(mfem::Vector& b) const override;
++    //! \return the finite element space
++    [[nodiscard]] const mfem::FiniteElementSpace& getFiniteElementSpace()
++        const noexcept;
+     //! \brief destructor
+     ~MatrixFreeTangentOperator() override;
+ 
+@@ -76,6 +107,8 @@ namespace mfem_mgis {
+     mutable mfem::Vector xl;
+     //! \brief local vector of the result (workspace)
+     mutable mfem::Vector yl;
++    //! \brief local columns of the nodal blocks (workspace)
++    mutable mfem::Vector bl;
+   };  // end of struct MatrixFreeTangentOperator
+ 
+   /*!
+@@ -113,7 +146,8 @@ namespace mfem_mgis {
+    */
+   struct MFEM_MGIS_EXPORT ConstrainedMatrixFreeTangentOperator final
+       : mfem::ConstrainedOperator,
+-        AssembledOperatorProvider {
++        AssembledOperatorProvider,
++        NodalBlocksProvider {
+     /*!
+      * \brief constructor
+      * \param[in] op: tangent operator applied without assembly, referenced:
+@@ -133,6 +167,12 @@ namespace mfem_mgis {
+     [[nodiscard]] mfem::Operator& getAssembledOperator() const override;
+     [[nodiscard]] std::shared_ptr<const size_type>
+     getAssembledOperatorRevision() const override;
++    /*!
++     * \brief compute the nodal blocks of the constrained operator (see
++     * `NodalBlocksProvider`): the rows and the columns of the essential
++     * degrees of freedom are the ones of the identity
++     */
++    void AssembleNodalBlocks(mfem::Vector& b) const override;
+     //! \brief destructor
+     ~ConstrainedMatrixFreeTangentOperator() override;
+ 
+@@ -141,6 +181,18 @@ namespace mfem_mgis {
+     std::function<mfem::Operator&()> assemble;
+     //! \brief number of assemblies of the assembled tangent operator
+     std::shared_ptr<const size_type> revision;
++    //! \brief tangent operator applied without assembly
++    const MatrixFreeTangentOperator& tangent_operator;
++    /*!
++     * \brief entries of the columns of the nodal blocks set to zero, in the
++     * rows and the columns of the essential degrees of freedom
++     */
++    mutable mfem::Array<int> null_entries;
++    /*!
++     * \brief entries of the columns of the nodal blocks set to one, on the
++     * diagonal of the essential degrees of freedom
++     */
++    mutable mfem::Array<int> unit_entries;
+   };  // end of struct ConstrainedMatrixFreeTangentOperator
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index 2dfc717526..bca16cbfd3 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -306,6 +306,23 @@ namespace mfem_mgis {
+         Context& ctx,
+         const mfem::FiniteElementSpace& fes,
+         mfem::Vector& d) noexcept;
++    /*!
++     * \brief add the nodal blocks of the tangent operator assembled from the
++     * stiffness matrices of the elements computed by kernels (see
++     * `AbstractBehaviourIntegrator::addTangentOperatorNodalBlocksByKernels`):
++     * the blocks which couple the components of the unknowns at a node
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] fes: finite element space
++     * \param[in, out] b: columns of the blocks, one local vector of the
++     * finite element space per column (the entry `(c1, c2)` of the block of
++     * a node is the entry of the component `c1` of the node in the vector
++     * of the column `c2`)
++     */
++    [[nodiscard]] bool addTangentOperatorNodalBlocksByKernels(
++        Context& ctx,
++        const mfem::FiniteElementSpace& fes,
++        mfem::Vector& b) noexcept;
+     /*!
+      * \brief create the sparse matrix in which
+      * `assembleStiffnessMatrixByKernels` assembles the stiffness matrices of
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+index 0b0c3f4040..c2b5f7fcfc 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+@@ -133,6 +133,16 @@ namespace mfem_mgis {
+         Context& ctx,
+         mfem::Vector& d,
+         const batch::ElementsGeometrySet& g) noexcept override;
++    /*!
++     * \brief add the nodal blocks of the stiffness matrices of all the
++     * elements, computed by kernels (see
++     * `AbstractBehaviourIntegrator::addTangentOperatorNodalBlocksByKernels`
++     * and `batch::addStiffnessMatricesNodalBlocks`)
++     */
++    [[nodiscard]] bool addTangentOperatorNodalBlocksByKernels(
++        Context& ctx,
++        mfem::Vector& b,
++        const batch::ElementsGeometrySet& g) noexcept override;
+ 
+    protected:
+     /*!
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index 96e30354d3..8c2097238b 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -404,6 +404,35 @@ namespace mfem_mgis {
+     }
+   }  // end of addTangentOperatorDiagonalByKernels
+ 
++  template <typename Child>
++  bool StandardBehaviourIntegratorCRTPBase<Child>::
++      addTangentOperatorNodalBlocksByKernels(
++          Context &ctx,
++          mfem::Vector &b,
++          const batch::ElementsGeometrySet &g) noexcept {
++    auto data = KernelsData{};
++    if (!this->getKernelsData(ctx, data,
++                              "addTangentOperatorNodalBlocksByKernels", g)) {
++      return false;
++    }
++    if (data.rule == nullptr) {
++      return true;
++    }
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      return batch::addStiffnessMatricesNodalBlocks(
++          ctx, b, *(this->quadrature_space),
++          this->readTangentOperatorBlocks(use_device), *(data.geometry),
++          data.kind);
++    } catch (std::exception &e) {
++      return ctx.registerErrorMessage(
++          std::string{"addTangentOperatorNodalBlocksByKernels: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addTangentOperatorNodalBlocksByKernels: unknown exception");
++    }
++  }  // end of addTangentOperatorNodalBlocksByKernels
++
+   template <typename Child>
+   bool
+   StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
+diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
+index 6e05b596ff..65cd2b1efa 100644
+--- a/src/AbstractBehaviourIntegrator.cxx
++++ b/src/AbstractBehaviourIntegrator.cxx
+@@ -104,6 +104,14 @@ namespace mfem_mgis {
+         "be computed by kernels");
+   }  // end of addTangentOperatorDiagonalByKernels
+ 
++  bool AbstractBehaviourIntegrator::addTangentOperatorNodalBlocksByKernels(
++      Context& ctx, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept {
++    return ctx.registerErrorMessage(
++        "AbstractBehaviourIntegrator::addTangentOperatorNodalBlocksByKernels: "
++        "the nodal blocks of the tangent operator of this behaviour "
++        "integrator can't be computed by kernels");
++  }  // end of addTangentOperatorNodalBlocksByKernels
++
+   bool AbstractBehaviourIntegrator::addStiffnessMatricesByKernels(
+       Context& ctx,
+       const batch::AssembledStiffnessMatrix&,
+diff --git a/src/Batch/FBar.cxx b/src/Batch/FBar.cxx
+index 3bfe6779cd..54b6988e80 100644
+--- a/src/Batch/FBar.cxx
++++ b/src/Batch/FBar.cxx
+@@ -524,6 +524,44 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of addFBarStiffnessMatricesDiagonals
+ 
++  bool addFBarStiffnessMatricesNodalBlocks(Context& ctx,
++                                           mfem::Vector& b,
++                                           const FBarData& data,
++                                           const PartialQuadratureSpace& qs,
++                                           const mgis::FieldView<const real>& K,
++                                           const ElementsGeometry& g,
++                                           const GradientsKind k) noexcept {
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      const auto vdim = getUnknownsSize(k);
++      auto a = internals::FBarRankOneKernelArguments{};
++      // one thread per degree of freedom
++      if (!getFBarRankOneKernelArguments(ctx, a, data, qs, K, g, k, use_device,
++                                         "addFBarStiffnessMatricesNodalBlocks",
++                                         std::int64_t{g.nd} * vdim)) {
++        return false;
++      }
++      if (!addStiffnessMatricesNodalBlocks(
++              ctx, b, qs, K, g, k,
++              getFBarTangentOperatorModification(data, use_device))) {
++        return false;
++      }
++      if (a.number_of_elements != 0) {
++        const auto stride = std::int64_t{g.nd} * vdim * std::int64_t{g.ne};
++        internals::launchFBarRankOneNodalBlocksKernel(
++            a, vdim, b.ReadWrite(use_device), static_cast<std::size_t>(stride),
++            use_device);
++      }
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFBarStiffnessMatricesNodalBlocks: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFBarStiffnessMatricesNodalBlocks: unknown exception");
++    }
++    return true;
++  }  // end of addFBarStiffnessMatricesNodalBlocks
++
+   bool addFBarTangentOperatorAction(Context& ctx,
+                                     mfem::Vector& y,
+                                     const FBarData& data,
+diff --git a/src/Batch/FBarKernels.cxx b/src/Batch/FBarKernels.cxx
+index 7505be96cc..d5b0941b5c 100644
+--- a/src/Batch/FBarKernels.cxx
++++ b/src/Batch/FBarKernels.cxx
+@@ -337,6 +337,30 @@ namespace mfem_mgis::batch::internals {
+     });
+   }  // end of launchFBarRankOneDiagonalsKernel
+ 
++  void launchFBarRankOneNodalBlocksKernel(const FBarRankOneKernelArguments& a,
++                                          const int vdim,
++                                          real* const values,
++                                          const std::size_t stride,
++                                          const bool use_device) {
++    const auto n = a.number_of_elements * a.n;
++    mfem::forall_switch(
++        use_device, n, [a, vdim, values, stride] MFEM_HOST_DEVICE(int t) {
++          // row i = node + nd * c of the element
++          const auto k = t / a.n;
++          const auto i = static_cast<std::size_t>(t - k * a.n);
++          const auto sn = static_cast<std::size_t>(a.n);
++          const auto sv = static_cast<std::size_t>(vdim);
++          const auto nd = sn / sv;
++          const auto node = i % nd;
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto p = sn * static_cast<std::size_t>(k);
++          const auto ai = a.a[p + i];
++          for (std::size_t d = 0; d != sv; ++d) {
++            values[stride * d + sn * e + i] += ai * a.b[p + node + nd * d];
++          }
++        });
++  }  // end of launchFBarRankOneNodalBlocksKernel
++
+   void launchFBarRankOneActionKernel(const FBarRankOneKernelArguments& a,
+                                      const real* const x,
+                                      real* const y,
+diff --git a/src/Batch/FBarKernels.hxx b/src/Batch/FBarKernels.hxx
+index d335ce524d..5dc87ee5af 100644
+--- a/src/Batch/FBarKernels.hxx
++++ b/src/Batch/FBarKernels.hxx
+@@ -8,6 +8,7 @@
+ #ifndef LIB_MFEM_MGIS_SRC_BATCH_FBARKERNELS_HXX
+ #define LIB_MFEM_MGIS_SRC_BATCH_FBARKERNELS_HXX
+ 
++#include <cstddef>
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+ #include "StiffnessMatricesKernels.hxx"
+@@ -200,6 +201,21 @@ namespace mfem_mgis::batch::internals {
+   void launchFBarRankOneDiagonalsKernel(const FBarRankOneKernelArguments& a,
+                                         real* const d,
+                                         const bool use_device);
++  /*!
++   * \brief adds the nodal blocks of the matrices `a ⊗ b` (see
++   * `launchStiffnessMatricesNodalBlocksKernel`): one thread per degree of
++   * freedom of an element, which adds the row of the block of its node
++   * \param[in] a: arguments
++   * \param[in] vdim: number of components of the unknowns
++   * \param[in, out] values: values element by element
++   * \param[in] stride: size of the values of one column of the blocks
++   * \param[in] use_device: if true, the kernel runs on the device
++   */
++  void launchFBarRankOneNodalBlocksKernel(const FBarRankOneKernelArguments& a,
++                                          const int vdim,
++                                          real* const values,
++                                          const std::size_t stride,
++                                          const bool use_device);
+   /*!
+    * \brief adds the action of the matrices `a ⊗ b`, `a (b · x)`: one thread
+    * per element
+diff --git a/src/Batch/Faltus.cxx b/src/Batch/Faltus.cxx
+index 370c6881fe..dac5713943 100644
+--- a/src/Batch/Faltus.cxx
++++ b/src/Batch/Faltus.cxx
+@@ -377,6 +377,45 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of addFaltusStiffnessMatricesDiagonals
+ 
++  bool addFaltusStiffnessMatricesNodalBlocks(Context& ctx,
++                                             mfem::Vector& b,
++                                             const PartialQuadratureSpace& qs,
++                                             const real alpha,
++                                             const ElementsGeometry& g,
++                                             const ElementsGeometry& g0,
++                                             const GradientsKind k) noexcept {
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      const auto n = getNumberOfElementDegreesOfFreedom(g, k);
++      auto a = internals::FaltusGeometryKernelArguments{};
++      // one thread per node of an element
++      if (!getFaltusGeometryKernelArguments(
++              ctx, a, qs, alpha, g, g0, k, use_device,
++              "addFaltusStiffnessMatricesNodalBlocks", g.nd)) {
++        return false;
++      }
++      if (a.number_of_elements == 0) {
++        return true;
++      }
++      const auto vdim = std::int64_t{getUnknownsSize(k)};
++      if (static_cast<std::int64_t>(b.Size()) != vdim * n * g.ne) {
++        return ctx.registerErrorMessage(
++            "addFaltusStiffnessMatricesNodalBlocks: unexpected size of the "
++            "values element by element");
++      }
++      internals::launchFaltusNodalBlocksKernel(
++          k, a, b.ReadWrite(use_device), static_cast<std::size_t>(n * g.ne),
++          use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addFaltusStiffnessMatricesNodalBlocks: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addFaltusStiffnessMatricesNodalBlocks: unknown exception");
++    }
++    return true;
++  }  // end of addFaltusStiffnessMatricesNodalBlocks
++
+   bool addFaltusTangentOperatorAction(Context& ctx,
+                                       mfem::Vector& y,
+                                       const PartialQuadratureSpace& qs,
+diff --git a/src/Batch/FaltusKernels.cxx b/src/Batch/FaltusKernels.cxx
+index 8cadace600..ddeae2efaf 100644
+--- a/src/Batch/FaltusKernels.cxx
++++ b/src/Batch/FaltusKernels.cxx
+@@ -316,6 +316,29 @@ namespace mfem_mgis::batch::internals {
+         });
+   }  // end of launchFaltusDiagonalsKernel
+ 
++  template <GradientsKind K>
++  static void launchFaltusNodalBlocksKernel(
++      const FaltusGeometryKernelArguments& a,
++      real* const values,
++      const std::size_t stride,
++      const bool use_device) {
++    // one thread per node of an element; the block of a node is `s I`
++    const auto nd = a.nd;
++    mfem::forall_switch(
++        use_device, a.number_of_elements * nd,
++        [a, values, stride, nd] MFEM_HOST_DEVICE(int t) {
++          constexpr auto V = getUnknownsSize<K>();
++          const auto k = t / nd;
++          const auto na = static_cast<std::size_t>(t - k * nd);
++          const auto e = static_cast<std::size_t>(a.elements[k]);
++          const auto snd = static_cast<std::size_t>(nd);
++          const auto s = computeFaltusNodesCoefficient<K>(a, e, na, na);
++          for (std::size_t v = 0; v != V; ++v) {
++            values[stride * v + snd * V * e + na + snd * v] += s;
++          }
++        });
++  }  // end of launchFaltusNodalBlocksKernel
++
+   template <GradientsKind K>
+   static void launchFaltusActionKernel(const FaltusGeometryKernelArguments& a,
+                                        const real* const x,
+@@ -426,6 +449,20 @@ namespace mfem_mgis::batch::internals {
+     }
+   }  // end of launchFaltusDiagonalsKernel
+ 
++  void launchFaltusNodalBlocksKernel(const GradientsKind k,
++                                     const FaltusGeometryKernelArguments& a,
++                                     real* const values,
++                                     const std::size_t stride,
++                                     const bool use_device) {
++    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
++      launchFaltusNodalBlocksKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
++          a, values, stride, use_device);
++    } else {
++      launchFaltusNodalBlocksKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
++          a, values, stride, use_device);
++    }
++  }  // end of launchFaltusNodalBlocksKernel
++
+   void launchFaltusActionKernel(const GradientsKind k,
+                                 const FaltusGeometryKernelArguments& a,
+                                 const real* const x,
+diff --git a/src/Batch/FaltusKernels.hxx b/src/Batch/FaltusKernels.hxx
+index 4cad5bf737..b06180864c 100644
+--- a/src/Batch/FaltusKernels.hxx
++++ b/src/Batch/FaltusKernels.hxx
+@@ -8,6 +8,7 @@
+ #ifndef LIB_MFEM_MGIS_SRC_BATCH_FALTUSKERNELS_HXX
+ #define LIB_MFEM_MGIS_SRC_BATCH_FALTUSKERNELS_HXX
+ 
++#include <cstddef>
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+ #include "StiffnessMatricesKernels.hxx"
+@@ -169,6 +170,22 @@ namespace mfem_mgis::batch::internals {
+                                    const FaltusGeometryKernelArguments& a,
+                                    real* const d,
+                                    const bool use_device);
++  /*!
++   * \brief launches the kernel adding the nodal blocks of `α Σ_q w_q det J_q
++   * Dᵀ D` to values element by element (see
++   * `launchStiffnessMatricesNodalBlocksKernel`): one thread per node of an
++   * element, the block of a node being diagonal
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments
++   * \param[in, out] values: values element by element
++   * \param[in] stride: size of the values of one column of the blocks
++   * \param[in] use_device: if true, the kernel runs on the device
++   */
++  void launchFaltusNodalBlocksKernel(const GradientsKind k,
++                                     const FaltusGeometryKernelArguments& a,
++                                     real* const values,
++                                     const std::size_t stride,
++                                     const bool use_device);
+   /*!
+    * \brief launches the kernel adding the action of `α Σ_q w_q det J_q Dᵀ D` on
+    * values given element by element: one thread per element
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 1eed1e560d..5b1e247e2a 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -268,6 +268,43 @@ namespace mfem_mgis::batch {
+     return true;
+   }  // end of addStiffnessMatricesDiagonals
+ 
++  bool addStiffnessMatricesNodalBlocks(
++      Context& ctx,
++      mfem::Vector& b,
++      const PartialQuadratureSpace& qs,
++      const mgis::FieldView<const real>& K,
++      const ElementsGeometry& g,
++      const GradientsKind k,
++      const TangentOperatorModification& mod) noexcept {
++    try {
++      const auto use_device = mfem::Device::IsEnabled();
++      auto a = internals::StiffnessMatricesKernelArguments{};
++      auto error = false;
++      if (!getStiffnessMatricesKernelArguments(
++              ctx, a, error, qs, K, g, k, mod, use_device,
++              "addStiffnessMatricesNodalBlocks", true)) {
++        return !error;
++      }
++      const auto vdim = std::int64_t{getUnknownsSize(k)};
++      const auto stride = std::int64_t{g.nd} * vdim * std::int64_t{g.ne};
++      if (static_cast<std::int64_t>(b.Size()) != vdim * stride) {
++        return ctx.registerErrorMessage(
++            "addStiffnessMatricesNodalBlocks: unexpected size of the values "
++            "element by element");
++      }
++      internals::launchStiffnessMatricesNodalBlocksKernel(
++          k, a, b.ReadWrite(use_device), static_cast<std::size_t>(stride),
++          use_device);
++    } catch (std::exception& e) {
++      return ctx.registerErrorMessage(
++          std::string{"addStiffnessMatricesNodalBlocks: "} + e.what());
++    } catch (...) {
++      return ctx.registerErrorMessage(
++          "addStiffnessMatricesNodalBlocks: unknown exception");
++    }
++    return true;
++  }  // end of addStiffnessMatricesNodalBlocks
++
+   bool addTangentOperatorAction(
+       Context& ctx,
+       mfem::Vector& y,
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index 1fd3342358..947b1ff034 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -93,6 +93,42 @@ namespace mfem_mgis::batch::internals {
+     }
+   };
+ 
++  //! \brief blocks computed by the kernels of the stiffness matrices
++  enum struct StiffnessBlocks {
++    //! \brief the blocks of all the pairs of nodes of an element
++    ALL,
++    //! \brief the blocks of the pairs of a node with itself
++    NODAL,
++    //! \brief the diagonals of the blocks of the pairs of a node with itself
++    DIAGONAL
++  };
++
++  /*!
++   * \brief adds the blocks of the pairs of a node with itself to values
++   * element by element: column `d` of the blocks in the layout of the
++   * element restriction (see `ElementDiagonalsStorage`), shifted by `d *
++   * stride`
++   */
++  struct ElementNodalBlocksStorage {
++    //! \brief values element by element
++    real* values;
++    //! \brief size of the values of one column of the blocks
++    std::size_t stride;
++    //! \brief see `ElementMatricesStorage::add`
++    template <int N>
++    MFEM_HOST_DEVICE void add(const std::size_t e,
++                              const std::size_t nd,
++                              const std::size_t na,
++                              const std::size_t,
++                              const real (&m)[N][N]) const {
++      for (std::size_t c = 0; c != N; ++c) {
++        for (std::size_t d = 0; d != N; ++d) {
++          this->values[this->stride * d + na + nd * (c + N * e)] += m[c][d];
++        }
++      }
++    }
++  };
++
+   //! \brief adds the diagonals of the blocks to values element by element
+   struct ElementDiagonalsStorage {
+     //! \brief values element by element (layout of the element restriction)
+@@ -279,12 +315,11 @@ namespace mfem_mgis::batch::internals {
+    * same order as by the kernel: the results are identical.
+    * \tparam K: kind of the gradients
+    * \tparam Output: destination of the blocks
+-   * \tparam diagonal: if true, only the pairs of a node with itself are
+-   * computed
++   * \tparam blocks: blocks computed
+    * \param[in] a: arguments of the kernels
+    * \param[in] o: destination of the blocks
+    */
+-  template <GradientsKind K, typename Output, bool diagonal>
++  template <GradientsKind K, typename Output, StiffnessBlocks blocks>
+   static void computeStiffnessMatricesOnHost(
+       const StiffnessMatricesKernelArguments& a, const Output& o) {
+     constexpr auto N = getDimension<K>();
+@@ -327,17 +362,18 @@ namespace mfem_mgis::batch::internals {
+           }
+         }
+       }
+-      const auto npairs = diagonal ? nd : nd * nd;
++      constexpr auto all = blocks == StiffnessBlocks::ALL;
++      const auto npairs = all ? nd * nd : nd;
+       for (std::size_t r = 0; r != npairs; ++r) {
+-        const auto na = diagonal ? r : r % nd;
+-        const auto nb = diagonal ? r : r / nd;
++        const auto na = all ? r % nd : r;
++        const auto nb = all ? r / nd : r;
+         real m[V][V] = {};
+         for (std::size_t q = 0; q != nq; ++q) {
+           const auto& xa = operators[q * nd + na].x;
+           const auto& KB = operators[q * nd + nb].KB;
+           const auto w = weights[q];
+           for (std::size_t d = 0; d != V; ++d) {
+-            if constexpr (diagonal) {
++            if constexpr (blocks == StiffnessBlocks::DIAGONAL) {
+               // only the diagonal of the block is used
+               m[d][d] += w * multiplyByTransposedB<K>(xa, d, KB[d]);
+             } else {
+@@ -367,22 +403,24 @@ namespace mfem_mgis::batch::internals {
+    * host (`omp`, `debug`) use the kernel.
+    * \tparam K: kind of the gradients
+    * \tparam Output: destination of the blocks
+-   * \tparam diagonal: if true, only the pairs of a node with itself are
+-   * computed
++   * \tparam blocks: blocks computed
+    * \param[in] a: arguments of the kernels
+    * \param[in] o: destination of the blocks
+    * \param[in] use_device: if true, the kernel runs on the device
+    */
+-  template <GradientsKind K, typename Output, bool diagonal = false>
++  template <GradientsKind K,
++            typename Output,
++            StiffnessBlocks blocks = StiffnessBlocks::ALL>
+   static void launchStiffnessMatricesKernel(
+       const StiffnessMatricesKernelArguments& a,
+       const Output o,
+       const bool use_device) {
+     if (!use_device) {
+-      computeStiffnessMatricesOnHost<K, Output, diagonal>(a, o);
++      computeStiffnessMatricesOnHost<K, Output, blocks>(a, o);
+       return;
+     }
+-    const auto npairs = diagonal ? a.nd : a.nd * a.nd;
++    constexpr auto all = blocks == StiffnessBlocks::ALL;
++    const auto npairs = all ? a.nd * a.nd : a.nd;
+     const auto n = a.number_of_elements * npairs;
+     mfem::forall_switch(use_device, n, [a, o, npairs] MFEM_HOST_DEVICE(int i) {
+       // dimension and number of components of the unknowns
+@@ -393,8 +431,8 @@ namespace mfem_mgis::batch::internals {
+       const auto np = static_cast<std::size_t>(npairs);
+       const auto k = static_cast<std::size_t>(i) / np;
+       const auto r = static_cast<std::size_t>(i) - k * np;
+-      const auto na = diagonal ? r : r % nd;
+-      const auto nb = diagonal ? r : r / nd;
++      const auto na = all ? r % nd : r;
++      const auto nb = all ? r / nd : r;
+       const auto e = static_cast<std::size_t>(a.elements[k]);
+       real m[V][V] = {};
+       for (std::size_t q = 0; q != nq; ++q) {
+@@ -423,7 +461,7 @@ namespace mfem_mgis::batch::internals {
+         for (std::size_t d = 0; d != V; ++d) {
+           real KB[getGradientsSize<K>()];
+           multiplyByTangentOperatorAndB<K>(KB, a, o2, xb, d);
+-          if constexpr (diagonal) {
++          if constexpr (blocks == StiffnessBlocks::DIAGONAL) {
+             // only the diagonal of the block is used
+             m[d][d] += w * multiplyByTransposedB<K>(xa, d, KB);
+           } else {
+@@ -443,14 +481,13 @@ namespace mfem_mgis::batch::internals {
+   /*!
+    * \brief launches the kernel for the given kind of gradients
+    * \tparam Output: destination of the blocks
+-   * \tparam diagonal: if true, only the pairs of a node with itself are
+-   * computed
++   * \tparam blocks: blocks computed
+    * \param[in] k: kind of the gradients
+    * \param[in] a: arguments of the kernels
+    * \param[in] o: destination of the blocks
+    * \param[in] use_device: if true, the kernel runs on the device
+    */
+-  template <typename Output, bool diagonal = false>
++  template <typename Output, StiffnessBlocks blocks = StiffnessBlocks::ALL>
+   static void dispatch(const GradientsKind k,
+                        const StiffnessMatricesKernelArguments& a,
+                        const Output& o,
+@@ -458,43 +495,43 @@ namespace mfem_mgis::batch::internals {
+     switch (k) {
+       case GradientsKind::SMALL_STRAIN_3D:
+         launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_3D, Output,
+-                                      diagonal>(a, o, use_device);
++                                      blocks>(a, o, use_device);
+         break;
+       case GradientsKind::SMALL_STRAIN_2D:
+         launchStiffnessMatricesKernel<GradientsKind::SMALL_STRAIN_2D, Output,
+-                                      diagonal>(a, o, use_device);
++                                      blocks>(a, o, use_device);
+         break;
+       case GradientsKind::DEFORMATION_GRADIENT_3D:
+         launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_3D,
+-                                      Output, diagonal>(a, o, use_device);
++                                      Output, blocks>(a, o, use_device);
+         break;
+       case GradientsKind::DEFORMATION_GRADIENT_2D:
+         launchStiffnessMatricesKernel<GradientsKind::DEFORMATION_GRADIENT_2D,
+-                                      Output, diagonal>(a, o, use_device);
++                                      Output, blocks>(a, o, use_device);
+         break;
+       case GradientsKind::TEMPERATURE_GRADIENT_3D:
+         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_GRADIENT_3D,
+-                                      Output, diagonal>(a, o, use_device);
++                                      Output, blocks>(a, o, use_device);
+         break;
+       case GradientsKind::TEMPERATURE_GRADIENT_2D:
+         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_GRADIENT_2D,
+-                                      Output, diagonal>(a, o, use_device);
++                                      Output, blocks>(a, o, use_device);
+         break;
+       case GradientsKind::TEMPERATURE_3D:
+         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_3D, Output,
+-                                      diagonal>(a, o, use_device);
++                                      blocks>(a, o, use_device);
+         break;
+       case GradientsKind::TEMPERATURE_2D:
+         launchStiffnessMatricesKernel<GradientsKind::TEMPERATURE_2D, Output,
+-                                      diagonal>(a, o, use_device);
++                                      blocks>(a, o, use_device);
+         break;
+       case GradientsKind::MICROMORPHIC_DAMAGE_3D:
+         launchStiffnessMatricesKernel<GradientsKind::MICROMORPHIC_DAMAGE_3D,
+-                                      Output, diagonal>(a, o, use_device);
++                                      Output, blocks>(a, o, use_device);
+         break;
+       case GradientsKind::MICROMORPHIC_DAMAGE_2D:
+         launchStiffnessMatricesKernel<GradientsKind::MICROMORPHIC_DAMAGE_2D,
+-                                      Output, diagonal>(a, o, use_device);
++                                      Output, blocks>(a, o, use_device);
+         break;
+     }
+   }  // end of dispatch
+@@ -583,10 +620,21 @@ namespace mfem_mgis::batch::internals {
+       const StiffnessMatricesKernelArguments& a,
+       real* const d,
+       const bool use_device) {
+-    dispatch<ElementDiagonalsStorage, true>(k, a, ElementDiagonalsStorage{d},
+-                                            use_device);
++    dispatch<ElementDiagonalsStorage, StiffnessBlocks::DIAGONAL>(
++        k, a, ElementDiagonalsStorage{d}, use_device);
+   }  // end of launchStiffnessMatricesDiagonalsKernel
+ 
++  void launchStiffnessMatricesNodalBlocksKernel(
++      const GradientsKind k,
++      const StiffnessMatricesKernelArguments& a,
++      real* const b,
++      const std::size_t stride,
++      const bool use_device) {
++    dispatch<ElementNodalBlocksStorage, StiffnessBlocks::NODAL>(
++        k, a, ElementNodalBlocksStorage{.values = b, .stride = stride},
++        use_device);
++  }  // end of launchStiffnessMatricesNodalBlocksKernel
++
+   /*!
+    * \brief launches the kernel adding the action of the stiffness matrices of
+    * the elements of a material on values given element by element (see
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index cf04dcf689..159c41b03a 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -280,6 +280,26 @@ namespace mfem_mgis::batch::internals {
+       const StiffnessMatricesKernelArguments& a,
+       real* const d,
+       const bool use_device);
++  /*!
++   * \brief launches the kernel adding the nodal blocks of the stiffness
++   * matrices of the elements of a material (the `vdim x vdim` blocks of the
++   * pairs of a node with itself, which couple the components of the
++   * unknowns at the node) to values stored element by element: the column
++   * `d` of the blocks is stored in the layout of the element restriction of
++   * MFEM (`node + nd * (component + vdim * element)`), shifted by `d *
++   * stride`
++   * \param[in] k: kind of the gradients
++   * \param[in] a: arguments (`matrices` is not used)
++   * \param[in, out] b: values element by element
++   * \param[in] stride: size of the values of one column of the blocks
++   * \param[in] use_device: if true, the kernel runs on the device
++   */
++  void launchStiffnessMatricesNodalBlocksKernel(
++      const GradientsKind k,
++      const StiffnessMatricesKernelArguments& a,
++      real* const b,
++      const std::size_t stride,
++      const bool use_device);
+   /*!
+    * \brief launches the kernel adding the action of the stiffness matrices of
+    * the elements of a material, `Σ Bᵀ K B x w det J` (plus `Σ Bᵀ (dq/dT) N x
+diff --git a/src/MatrixFreeTangentOperator.cxx b/src/MatrixFreeTangentOperator.cxx
+index 55c54c7118..d5b7bdcc60 100644
+--- a/src/MatrixFreeTangentOperator.cxx
++++ b/src/MatrixFreeTangentOperator.cxx
+@@ -16,9 +16,9 @@ namespace mfem_mgis {
+   MatrixFreeTangentOperator::MatrixFreeTangentOperator(
+       const FiniteElementDiscretization& fed,
+       MultiMaterialNonLinearIntegrator& mi)
+-      : mfem::Operator(getFiniteElementSpace(fed).GetTrueVSize()),
++      : mfem::Operator(mfem_mgis::getFiniteElementSpace(fed).GetTrueVSize()),
+         fe_discretization(fed),
+-        fe_space(getFiniteElementSpace(fed)),
++        fe_space(mfem_mgis::getFiniteElementSpace(fed)),
+         integrator(mi) {
+     this->xl.UseDevice(true);
+     this->yl.UseDevice(true);
+@@ -71,8 +71,47 @@ namespace mfem_mgis {
+     }
+   }  // end of AssembleDiagonal
+ 
++  void MatrixFreeTangentOperator::AssembleNodalBlocks(mfem::Vector& b) const {
++    const auto vdim = this->fe_space.GetVDim();
++    const auto nl = this->fe_space.GetVSize();
++    const auto* const P = this->fe_space.GetProlongationMatrix();
++    auto& bl_ = (P != nullptr) ? this->bl : b;
++    bl_.UseDevice(true);
++    bl_.SetSize(vdim * nl);
++    bl_ = real{0};
++    auto ctx = Context{};
++    const auto success =
++        this->integrator.addTangentOperatorNodalBlocksByKernels(
++            ctx, this->fe_space, bl_);
++    raiseOnFailureOnAnyProcess(this->fe_discretization, ctx, success,
++                               "nodal blocks of the tangent operator");
++    if (P == nullptr) {
++      return;
++    }
++    // one column of the blocks after the other (see `AssembleDiagonal`)
++    const auto nt = this->Height();
++    b.UseDevice(true);
++    b.SetSize(vdim * nt);
++    for (int c = 0; c != vdim; ++c) {
++      auto bc = mfem::Vector(b, c * nt, nt);
++      const auto blc = mfem::Vector(bl_, c * nl, nl);
++      if (this->fe_space.Conforming()) {
++        P->MultTranspose(blc, bc);
++      } else {
++        P->AbsMultTranspose(blc, bc);
++      }
++    }
++  }  // end of AssembleNodalBlocks
++
++  const mfem::FiniteElementSpace&
++  MatrixFreeTangentOperator::getFiniteElementSpace() const noexcept {
++    return this->fe_space;
++  }  // end of getFiniteElementSpace
++
+   MatrixFreeTangentOperator::~MatrixFreeTangentOperator() = default;
+ 
++  NodalBlocksProvider::~NodalBlocksProvider() = default;
++
+   AssembledOperatorProvider::~AssembledOperatorProvider() = default;
+ 
+   ConstrainedMatrixFreeTangentOperator::ConstrainedMatrixFreeTangentOperator(
+@@ -83,9 +122,53 @@ namespace mfem_mgis {
+       : mfem::ConstrainedOperator(
+             &op, essential_dofs, false, mfem::Operator::DIAG_ONE),
+         assemble(std::move(f)),
+-        revision(std::move(r)) {
++        revision(std::move(r)),
++        tangent_operator(op) {
+   }  // end of ConstrainedMatrixFreeTangentOperator
+ 
++  void ConstrainedMatrixFreeTangentOperator::AssembleNodalBlocks(
++      mfem::Vector& b) const {
++    this->tangent_operator.AssembleNodalBlocks(b);
++    const auto ne = this->constraint_list.Size();
++    if (ne == 0) {
++      return;
++    }
++    const auto& fes = this->tangent_operator.getFiniteElementSpace();
++    const auto vdim = fes.GetVDim();
++    if (this->unit_entries.Size() != ne) {
++      // entries of the rows and of the columns of the essential degrees of
++      // freedom, computed once (the essential degrees of freedom do not
++      // change)
++      const auto nt = this->Height();
++      const auto nb = nt / vdim;
++      const auto by_nodes = fes.GetOrdering() == mfem::Ordering::byNODES;
++      const auto unknown = [nb, vdim, by_nodes](const int node, const int c) {
++        return by_nodes ? c * nb + node : node * vdim + c;
++      };
++      const auto* const dofs = this->constraint_list.HostRead();
++      this->null_entries.SetSize(2 * ne * vdim);
++      this->unit_entries.SetSize(ne);
++      auto* const null_entries_ = this->null_entries.HostWrite();
++      auto* const unit_entries_ = this->unit_entries.HostWrite();
++      for (int i = 0; i != ne; ++i) {
++        const auto t = dofs[i];
++        const auto node = by_nodes ? t % nb : t / vdim;
++        const auto c = by_nodes ? t / nb : t % vdim;
++        for (int d = 0; d != vdim; ++d) {
++          // row of the degree of freedom, column d of the block
++          null_entries_[2 * (vdim * i + d)] = d * nt + t;
++          // column of the degree of freedom, row d of the block
++          null_entries_[2 * (vdim * i + d) + 1] = c * nt + unknown(node, d);
++        }
++        unit_entries_[i] = c * nt + t;
++      }
++      this->null_entries.UseDevice(true);
++      this->unit_entries.UseDevice(true);
++    }
++    b.SetSubVector(this->null_entries, real{0});
++    b.SetSubVector(this->unit_entries, real{1});
++  }  // end of AssembleNodalBlocks
++
+   mfem::Operator& ConstrainedMatrixFreeTangentOperator::getAssembledOperator()
+       const {
+     return this->assemble();
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index 611ad81dcf..8c3fa0dd4f 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -726,6 +726,49 @@ namespace mfem_mgis {
+     return true;
+   }  // end of addTangentOperatorDiagonalByKernels
+ 
++  bool MultiMaterialNonLinearIntegrator::addTangentOperatorNodalBlocksByKernels(
++      Context& ctx,
++      const mfem::FiniteElementSpace& fes,
++      mfem::Vector& b) noexcept {
++    if (!this->computeElementsGeometry(ctx, fes)) {
++      return false;
++    }
++    try {
++      const auto vdim = fes.GetVDim();
++      const auto* const restriction =
++          fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
++      const auto ne = restriction->Height();
++      const auto nl = restriction->Width();
++      if (b.Size() != vdim * nl) {
++        return ctx.registerErrorMessage(
++            "MultiMaterialNonLinearIntegrator::"
++            "addTangentOperatorNodalBlocksByKernels: unexpected size of the "
++            "nodal blocks");
++      }
++      auto& be = this->tangent_operator_element_values;
++      be.UseDevice(true);
++      be.SetSize(vdim * ne);
++      be = real{0};
++      for (auto& bis : this->behaviour_integrators) {
++        for (auto& bi : bis) {
++          if (!bi->addTangentOperatorNodalBlocksByKernels(
++                  ctx, be, this->elements_geometry)) {
++            return false;
++          }
++        }
++      }
++      // one column of the blocks after the other
++      for (int c = 0; c != vdim; ++c) {
++        auto bc = mfem::Vector(b, c * nl, nl);
++        const auto bec = mfem::Vector(be, c * ne, ne);
++        restriction->AddMultTranspose(bec, bc);
++      }
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
++    return true;
++  }  // end of addTangentOperatorNodalBlocksByKernels
++
+   bool MultiMaterialNonLinearIntegrator::computeElementsDegreesOfFreedom(
+       Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
+     if ((this->element_dofs.Size() != 0) || (fes.GetNE() == 0)) {
+diff --git a/src/NodalBlockJacobiKernels.cxx b/src/NodalBlockJacobiKernels.cxx
+index d70dddff89..501ee6d0aa 100644
+--- a/src/NodalBlockJacobiKernels.cxx
++++ b/src/NodalBlockJacobiKernels.cxx
+@@ -13,6 +13,18 @@
+ 
+ namespace mfem_mgis::internals {
+ 
++  /*!
++   * \return the unknown of a component of a node
++   * \param[in] l: layout of the unknowns
++   * \param[in] node: node
++   * \param[in] c: component
++   */
++  MFEM_HOST_DEVICE inline int getUnknown(const NodalBlocksLayout& l,
++                                         const int node,
++                                         const int c) {
++    return l.by_nodes ? c * l.nb + node : node * l.bs + c;
++  }  // end of getUnknown
++
+   void launchNodalBlocksExtractionKernel(const NodalBlocksLayout& l,
+                                          const int* const I,
+                                          const int* const J,
+@@ -42,4 +54,20 @@ namespace mfem_mgis::internals {
+                         });
+   }  // end of launchNodalBlocksExtractionKernel
+ 
++  void launchNodalBlocksGatherKernel(const NodalBlocksLayout& l,
++                                     const real* const columns,
++                                     real* const blocks,
++                                     const bool use_device) {
++    const auto bs = l.bs;
++    const auto n = l.nb * bs * bs;
++    mfem::forall_switch(
++        use_device, n, [l, columns, blocks] MFEM_HOST_DEVICE(int t) {
++          const auto bs = l.bs;
++          const auto c = t % bs;
++          const auto d = (t / bs) % bs;
++          const auto node = t / (bs * bs);
++          blocks[t] = columns[d * l.nb * bs + getUnknown(l, node, c)];
++        });
++  }  // end of launchNodalBlocksGatherKernel
++
+ }  // end of namespace mfem_mgis::internals
+diff --git a/src/NodalBlockJacobiKernels.hxx b/src/NodalBlockJacobiKernels.hxx
+index a39fdb9e04..22b348dfd0 100644
+--- a/src/NodalBlockJacobiKernels.hxx
++++ b/src/NodalBlockJacobiKernels.hxx
+@@ -43,6 +43,21 @@ namespace mfem_mgis::internals {
+                                          const real* const A,
+                                          real* const blocks,
+                                          const bool use_device);
++  /*!
++   * \brief launches the kernel building the nodal blocks from their columns:
++   * the vector of the column `c2` of the blocks gives, at the unknown of
++   * the component `c1` of a node, the entry `(c1, c2)` of the block of this
++   * node. One thread per entry of the blocks.
++   * \param[in] l: layout of the unknowns
++   * \param[in] columns: columns of the blocks, one vector of the unknowns
++   * after the other
++   * \param[out] blocks: blocks, stored column by column, one after the other
++   * \param[in] use_device: if true, the kernel runs on the device
++   */
++  void launchNodalBlocksGatherKernel(const NodalBlocksLayout& l,
++                                     const real* const columns,
++                                     real* const blocks,
++                                     const bool use_device);
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+diff --git a/src/NodalBlockJacobiPreconditioner.cxx b/src/NodalBlockJacobiPreconditioner.cxx
+index f2fe7e4f94..64d624f63d 100644
+--- a/src/NodalBlockJacobiPreconditioner.cxx
++++ b/src/NodalBlockJacobiPreconditioner.cxx
+@@ -26,6 +26,7 @@
+ #endif /* MFEM_USE_MPI */
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
+ #include "LinearSolverModules.hxx"
+ #include "NodalBlockJacobiKernels.hxx"
+ 
+@@ -66,6 +67,7 @@ namespace mfem_mgis::internals {
+       // computes
+       this->rhs.UseDevice(true);
+       this->solution.UseDevice(true);
++      this->columns.UseDevice(true);
+     }
+     void SetOperator(const mfem::Operator& op) override {
+       if (const auto* const a = dynamic_cast<const mfem::SparseMatrix*>(&op);
+@@ -80,9 +82,15 @@ namespace mfem_mgis::internals {
+         return;
+       }
+ #endif /* MFEM_USE_MPI */
++      if (const auto* const p = dynamic_cast<const NodalBlocksProvider*>(&op);
++          p != nullptr) {
++        this->setup(*p, op.Height());
++        return;
++      }
+       mgis::raise(
+-          "NodalBlockJacobiPreconditioner::SetOperator: the operator is not "
+-          "an assembled matrix");
++          "NodalBlockJacobiPreconditioner::SetOperator: the operator is "
++          "neither an assembled matrix nor an operator giving its nodal "
++          "blocks");
+     }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+       if (this->blocks.TotalSize() == 0) {
+@@ -188,6 +196,28 @@ namespace mfem_mgis::internals {
+           l, I, J, A, this->blocks.Write(use_device), use_device);
+       this->factorize(n);
+     }
++    /*!
++     * \brief gather the blocks of an operator applied without assembly, and
++     * invert or factorize them
++     * \param[in] p: operator giving its nodal blocks
++     * \param[in] n: number of unknowns
++     */
++    void setup(const NodalBlocksProvider& p, const int n) {
++      const auto bs = this->settings.block_size;
++      p.AssembleNodalBlocks(this->columns);
++      if ((n % bs != 0) || (this->columns.Size() != bs * n)) {
++        mgis::raise(
++            "NodalBlockJacobiPreconditioner::SetOperator: the size of the "
++            "blocks must be the number of components of the unknowns for an "
++            "operator applied without assembly");
++      }
++      const auto l = this->getLayout(n);
++      const auto use_device = mfem::Device::IsEnabled();
++      this->blocks.SetSize(bs, bs, l.nb);
++      launchNodalBlocksGatherKernel(l, this->columns.Read(use_device),
++                                    this->blocks.Write(use_device), use_device);
++      this->factorize(n);
++    }
+     /*!
+      * \return the layout of the unknowns
+      * \param[in] n: number of unknowns
+@@ -245,6 +275,8 @@ namespace mfem_mgis::internals {
+     mfem::Array<int> pivots;
+     //! \brief unknowns ordered by nodes
+     mfem::Array<int> nodes;
++    //! \brief columns of the blocks of an operator applied without assembly
++    mfem::Vector columns;
+     //! \brief right hand side ordered by nodes
+     mutable mfem::Vector rhs;
+     //! \brief solution ordered by nodes
+-- 
+2.43.0
+

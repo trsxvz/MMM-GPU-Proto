@@ -307,6 +307,23 @@ namespace mfem_mgis {
         const mfem::FiniteElementSpace& fes,
         mfem::Vector& d) noexcept;
     /*!
+     * \brief add the nodal blocks of the tangent operator assembled from the
+     * stiffness matrices of the elements computed by kernels (see
+     * `AbstractBehaviourIntegrator::addTangentOperatorNodalBlocksByKernels`):
+     * the blocks which couple the components of the unknowns at a node
+     * \return true on success
+     * \param[in, out] ctx: execution context
+     * \param[in] fes: finite element space
+     * \param[in, out] b: columns of the blocks, one local vector of the
+     * finite element space per column (the entry `(c1, c2)` of the block of
+     * a node is the entry of the component `c1` of the node in the vector
+     * of the column `c2`)
+     */
+    [[nodiscard]] bool addTangentOperatorNodalBlocksByKernels(
+        Context& ctx,
+        const mfem::FiniteElementSpace& fes,
+        mfem::Vector& b) noexcept;
+    /*!
      * \brief create the sparse matrix in which
      * `assembleStiffnessMatrixByKernels` assembles the stiffness matrices of
      * all the elements (see `batch::makeAssembledStiffnessMatrix`)

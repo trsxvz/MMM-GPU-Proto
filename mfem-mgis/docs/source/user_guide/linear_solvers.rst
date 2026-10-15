@@ -190,6 +190,17 @@ The solvers marked as parallel are only available in parallel.
        :cxx:`RelativeTolerance`, :cxx:`AbsoluteTolerance`,
        :cxx:`MaximumNumberOfIterations`, :cxx:`Preconditioner`, :cxx:`KDim`
        (GMRES, CB-GMRES and GCR solvers)
+   * - :cxx:`MAGMACG`, :cxx:`MAGMABiCGSTAB`, :cxx:`MAGMAGMRES`,
+       :cxx:`MAGMAIDR`, :cxx:`MAGMACGS`, :cxx:`MAGMAQMR`,
+       :cxx:`MAGMATFQMR` (sequential)
+     - MAGMA
+     - iterative
+     - GPU
+     - MAGMA
+     - :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
+       :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
+       :cxx:`Preconditioner`, :cxx:`KDim` (GMRES),
+       :cxx:`ShadowSpaceDimension` (IDR) (see :ref:`magma_linear_solvers`)
    * - :cxx:`PETScLinearSolver` (parallel)
      - PETSc
      - iterative
@@ -301,6 +312,11 @@ Preconditioners
        :cxx:`MaximumStepSize`, :cxx:`MaximumNonZerosPerRow`,
        :cxx:`NumberOfLevels`, :cxx:`Threshold`, :cxx:`KapTolerance`,
        :cxx:`EigenvalueEstimationIterations`, :cxx:`VerbosityLevel`
+   * - :cxx:`NodalBlockJacobi`
+     - MFEM
+     - as MFEM
+     - :cxx:`Backend`, :cxx:`BlockSize`, :cxx:`Factorization`,
+       :cxx:`Damping` (see :ref:`nodal_block_jacobi`)
    * - :cxx:`HypreEuclid`, :cxx:`HypreParaSails` (parallel)
      - hypre
      - host
@@ -316,6 +332,11 @@ Preconditioners
      - as MFEM
      - :cxx:`Configuration`, :cxx:`L1Smoother` (local preconditioners in
        parallel)
+   * - :cxx:`MAGMAJacobi`, :cxx:`MAGMAILU`, :cxx:`MAGMAIC` (see
+       :ref:`magma_linear_solvers`)
+     - MAGMA
+     - GPU
+     - none
    * - :cxx:`PETScPreconditioner` (parallel)
      - PETSc
      - host
@@ -339,7 +360,44 @@ the Krylov solvers of MFEM, which compute where MFEM computes, are refused:
 they are then given to the Krylov solvers of PETSc.
 
 The libraries which are not available (MFEM built without them, or
-mfem-mgis built without AmgX) register nothing.
+mfem-mgis built without AmgX or the sparse part of MAGMA) register nothing.
+
+.. _nodal_block_jacobi:
+
+Jacobi preconditioner by nodal blocks
+-------------------------------------
+
+The :cxx:`NodalBlockJacobi` preconditioner inverts, node by node, the
+block of the matrix which couples the components of the unknown at this
+node (:math:`3 \times 3` blocks in three dimensional mechanics), which is
+more robust than the Jacobi preconditioner when these components are
+strongly coupled. The blocks are extracted from the matrix (from the
+diagonal block of each process in parallel), or computed by kernels for the
+tangent operator applied without assembly (see
+:ref:`mfem_mgis_batch_computations_matrix_free`), then inverted or
+factorized by the batched dense linear algebra of :code:`MFEM`, which
+computes where :code:`MFEM` computes. Its options are:
+
+- :cxx:`Backend`: :cxx:`Native` (kernels of :code:`MFEM`), :cxx:`GPUBLAS`
+  (cuBLAS or hipBLAS) or :cxx:`MAGMA`. By default, the active backend of
+  :code:`MFEM` (:code:`BatchedLinAlg::GetActiveBackend`, initially the first
+  one available among MAGMA, cuBLAS or hipBLAS, and the kernels of
+  :code:`MFEM`), or :cxx:`Native` if it is not available. The backends
+  :cxx:`GPUBLAS` and :cxx:`MAGMA` require :code:`MFEM` computing on a GPU;
+- :cxx:`BlockSize`: the size of the blocks, the number of components of
+  the unknowns by default (blocks of size one give the Jacobi
+  preconditioner; with an operator applied without assembly, the size of
+  the blocks is the number of components of the unknowns);
+- :cxx:`Factorization`: :cxx:`Inverse` (the inverses of the blocks are
+  applied by batched products, by default) or :cxx:`LU` (the LU factors are
+  applied by batched solves);
+- :cxx:`Damping`: a damping factor, one by default.
+
+The unknowns may be ordered by nodes or by vector dimension: when they are
+ordered by nodes, the vectors are gathered by nodes before the batched
+products or solves, and scattered back. The backends :cxx:`GPUBLAS` and
+:cxx:`MAGMA` compute on their own queue: the device is synchronized before
+and after their operations.
 
 .. _petsc_linear_solvers:
 
@@ -513,6 +571,63 @@ perturbs the pivots which are too small, and factorizes a singular matrix
 without error: as for cuDSS, a resolution is reported as converged only if
 its residual is lower than :math:`10^{-3}` times the right hand side.
 :cxx:`VerbosityLevel` prints the statistics of oneMKL.
+
+.. _magma_linear_solvers:
+
+Sparse solvers of MAGMA
+=======================
+
+When :code:`MFEM` is built with MAGMA (:code:`MFEM_USE_MAGMA`, used by
+:code:`MFEM` for its batched dense algebra) in double precision, and the
+library of the sparse part of MAGMA (:code:`magma_sparse`) and its header
+(:code:`magmasparse.h`) are found next to the library of MAGMA used by
+:code:`MFEM` (or given by the CMake variables
+:code:`MFEM_MGIS_MAGMA_SPARSE_LIBRARY` and
+:code:`MFEM_MGIS_MAGMA_SPARSE_INCLUDE_DIR`), mfem-mgis registers the Krylov
+solvers and the preconditioners of MAGMA, which compute on one GPU (an
+error is reported when generating them without GPU):
+
+- the Krylov solvers :cxx:`MAGMACG`, :cxx:`MAGMABiCGSTAB`,
+  :cxx:`MAGMAGMRES` (restarted flexible GMRES, :cxx:`KDim` giving the
+  dimension of the Krylov space, 50 by default), :cxx:`MAGMAIDR`
+  (:cxx:`ShadowSpaceDimension` giving the dimension :math:`s` of the shadow
+  space of IDR(s), 1 by default, bounded by MAGMA by the size of the
+  system; MAGMA reads 50 as its default dimension, and this value is
+  refused), :cxx:`MAGMACGS`, :cxx:`MAGMAQMR` and :cxx:`MAGMATFQMR`, in
+  sequential. Their tolerances are relative to the norm of the right hand
+  side (MAGMA's defaults: :math:`10^{-10}` relative, :math:`10^{-16}`
+  absolute, 1000 iterations). A resolution is reported as converged if
+  MAGMA reports a success and if the residual recomputed by MAGMA at the
+  end is lower than ten times the tolerance (the preconditioned TFQMR of
+  MAGMA 2.10 reports its breakdowns as successes). They only accept the
+  preconditioners of MAGMA, which they apply themselves. GMRES counts the
+  products by the matrix, one more at each restart. QMR, without
+  look-ahead, may break down (reported as not converged), and refuses the
+  incomplete Cholesky factorization, whose transpose MAGMA 2.10 applies
+  wrongly: for a symmetric matrix, :cxx:`MAGMAILU` gives the same
+  factorization;
+- the preconditioners :cxx:`MAGMAJacobi`, :cxx:`MAGMAILU` and
+  :cxx:`MAGMAIC` (incomplete LU and Cholesky factorizations without fill-in
+  of cuSPARSE or hipSPARSE, :cxx:`MAGMAIC` reading the lower triangle of
+  the matrix), without options, given to the Krylov solvers of MAGMA or to
+  any other solver, for instance the Krylov solvers of MFEM. In parallel,
+  each process applies them to its diagonal block of the matrix of hypre,
+  as :cxx:`BlockILU`. A null or missing diagonal entry is refused (on all
+  the processes in parallel).
+
+The matrix is copied on the host, its columns being sorted, then on the
+GPU for each operator, and the preconditioner set up at the same time. The
+vectors of MFEM are given to MAGMA when MFEM computes on the GPU and they
+use the memory of its device (:cxx:`UseDevice`); otherwise they are copied
+at each resolution or application of a preconditioner.
+
+.. code-block:: cpp
+
+   problem.setLinearSolver(
+       ctx, "MAGMACG",
+       {{"RelativeTolerance", 1e-10},
+        {"Preconditioner", Parameters{{"Name", "MAGMAIC"}}}}) |
+       or_die;
 
 .. _ginkgo_linear_solvers:
 

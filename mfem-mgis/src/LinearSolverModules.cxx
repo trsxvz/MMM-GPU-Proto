@@ -96,6 +96,13 @@ namespace mfem_mgis::internals {
       return "MFEM is not compiled with the Cluster Sparse Solver of oneMKL";
     }
 #endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)) */
+#ifndef MFEM_MGIS_HAVE_MAGMA_SPARSE
+    if (n.starts_with("MAGMA")) {
+      return "mfem-mgis is not compiled with the sparse part of MAGMA (MFEM "
+             "compiled with MAGMA in double precision, and the library "
+             "magma_sparse)";
+    }
+#endif /* MFEM_MGIS_HAVE_MAGMA_SPARSE */
 #ifndef MFEM_USE_SUITESPARSE
     if ((n == "UMFPackSolver") || (n == "KLUSolver") || (n == "UMFPack") ||
         (n == "KLU")) {
@@ -221,17 +228,26 @@ namespace mfem_mgis::internals {
       declareMKLPardisoLinearSolvers(f);
     }
 #endif /* MFEM_USE_MKL_PARDISO */
+#ifdef MFEM_MGIS_HAVE_MAGMA_SPARSE
+    if constexpr (!parallel) {
+      declareMAGMALinearSolvers(f);
+    }
+#endif /* MFEM_MGIS_HAVE_MAGMA_SPARSE */
   }  // end of declareLinearSolvers
 
   template <bool parallel>
   void declarePreconditioners(PreconditionerFactory<parallel>& f) {
     declareMFEMPreconditioners(f);
+    declareNodalBlockJacobiPreconditioner(f);
 #ifdef MFEM_USE_GINKGO
     declareGinkgoPreconditioners(f);
 #endif /* MFEM_USE_GINKGO */
 #ifdef MFEM_MGIS_HAVE_AMGX
     declareAmgXPreconditioners(f);
 #endif /* MFEM_MGIS_HAVE_AMGX */
+#ifdef MFEM_MGIS_HAVE_MAGMA_SPARSE
+    declareMAGMAPreconditioners(f);
+#endif /* MFEM_MGIS_HAVE_MAGMA_SPARSE */
 #ifdef MFEM_USE_MPI
     if constexpr (parallel) {
       declareHyprePreconditioners(f);

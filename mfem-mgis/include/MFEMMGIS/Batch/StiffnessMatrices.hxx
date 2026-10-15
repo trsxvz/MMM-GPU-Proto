@@ -112,6 +112,33 @@ namespace mfem_mgis::batch {
       const GradientsKind k,
       const TangentOperatorModification& mod = {}) noexcept;
   /*!
+   * \brief adds the nodal blocks of the stiffness matrices of the elements
+   * of a material (the `vdim x vdim` blocks which couple the components of
+   * the unknowns at a node, `vdim` being the number of components of the
+   * unknowns) to values stored element by element: `vdim` vectors in the
+   * layout of the element restriction of MFEM, one per column `c2` of the
+   * blocks, the entry `(c1, c2)` of the block of a node being stored at
+   * `node + nd * (c1 + vdim * element) + c2 * n`, `n` being the size of the
+   * values of the element restriction (`nd * vdim * ne`), on the device if
+   * a device is enabled
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in, out] b: values element by element
+   * \param[in] qs: quadrature space of the material
+   * \param[in] K: tangent operator blocks in the global frame
+   * \param[in] g: geometric data
+   * \param[in] k: kind of the gradients
+   * \param[in] mod: modification of the tangent operator blocks, if any
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool addStiffnessMatricesNodalBlocks(
+      Context& ctx,
+      mfem::Vector& b,
+      const PartialQuadratureSpace& qs,
+      const mgis::FieldView<const real>& K,
+      const ElementsGeometry& g,
+      const GradientsKind k,
+      const TangentOperatorModification& mod = {}) noexcept;
+  /*!
    * \brief adds the action of the stiffness matrices of the elements of a
    * material, computed from the tangent operator blocks without assembling
    * them, `Σ Bᵀ K B x w det J`, plus, for the stationary heat transfer

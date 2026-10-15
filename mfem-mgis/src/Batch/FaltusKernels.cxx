@@ -317,6 +317,29 @@ namespace mfem_mgis::batch::internals {
   }  // end of launchFaltusDiagonalsKernel
 
   template <GradientsKind K>
+  static void launchFaltusNodalBlocksKernel(
+      const FaltusGeometryKernelArguments& a,
+      real* const values,
+      const std::size_t stride,
+      const bool use_device) {
+    // one thread per node of an element; the block of a node is `s I`
+    const auto nd = a.nd;
+    mfem::forall_switch(
+        use_device, a.number_of_elements * nd,
+        [a, values, stride, nd] MFEM_HOST_DEVICE(int t) {
+          constexpr auto V = getUnknownsSize<K>();
+          const auto k = t / nd;
+          const auto na = static_cast<std::size_t>(t - k * nd);
+          const auto e = static_cast<std::size_t>(a.elements[k]);
+          const auto snd = static_cast<std::size_t>(nd);
+          const auto s = computeFaltusNodesCoefficient<K>(a, e, na, na);
+          for (std::size_t v = 0; v != V; ++v) {
+            values[stride * v + snd * V * e + na + snd * v] += s;
+          }
+        });
+  }  // end of launchFaltusNodalBlocksKernel
+
+  template <GradientsKind K>
   static void launchFaltusActionKernel(const FaltusGeometryKernelArguments& a,
                                        const real* const x,
                                        real* const y,
@@ -425,6 +448,20 @@ namespace mfem_mgis::batch::internals {
           a, d, use_device);
     }
   }  // end of launchFaltusDiagonalsKernel
+
+  void launchFaltusNodalBlocksKernel(const GradientsKind k,
+                                     const FaltusGeometryKernelArguments& a,
+                                     real* const values,
+                                     const std::size_t stride,
+                                     const bool use_device) {
+    if (k == GradientsKind::DEFORMATION_GRADIENT_3D) {
+      launchFaltusNodalBlocksKernel<GradientsKind::DEFORMATION_GRADIENT_3D>(
+          a, values, stride, use_device);
+    } else {
+      launchFaltusNodalBlocksKernel<GradientsKind::DEFORMATION_GRADIENT_2D>(
+          a, values, stride, use_device);
+    }
+  }  // end of launchFaltusNodalBlocksKernel
 
   void launchFaltusActionKernel(const GradientsKind k,
                                 const FaltusGeometryKernelArguments& a,
