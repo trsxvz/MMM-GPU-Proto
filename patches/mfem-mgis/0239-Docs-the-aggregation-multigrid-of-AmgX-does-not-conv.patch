@@ -1,0 +1,36 @@
+From fbd1a6619da26180af759e9220d9673bef74258d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 21:01:04 +0200
+Subject: [PATCH] Docs: the aggregation multigrid of AmgX does not converge on
+ the elasticity
+
+Measured on the beam of the benchmark of the linear solvers (56,355
+unknowns): no convergence in 2000 iterations with the conjugate gradients
+of MFEM and of AmgX, nor with FGMRES, while it converges in 18 iterations
+on the Laplace equation. Its aggregates ignore the components of the
+unknowns and the rigid body modes.
+---
+ docs/source/user_guide/batch_computations.rst | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 642d2bc11a..4fe3052df6 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -861,8 +861,11 @@ host at each setup, and the resolutions start from a zero initial guess.
+        :code:`PCG_AGGREGATION_JACOBI` of :code:`AmgX`: aggregates of size
+        two, three post-smoothing sweeps of a damped Jacobi smoother and no
+        pre-smoothing sweep, a cycle which is not symmetric, but with which
+-       the conjugate gradients converge, as in the configuration of
+-       :code:`AmgX`).
++       the conjugate gradients converge on scalar problems, as in the
++       configuration of :code:`AmgX`). Its aggregates ignore the
++       components of the unknowns and the rigid body modes: on the linear
++       elasticity of a beam, it does not converge in 2000 iterations, with
++       the conjugate gradients or FGMRES.
+    * - :code:`AmgXParameters`
+      - Parameters of :code:`AmgX`, with their names in :code:`AmgX`, which
+        complete or override the default configuration. A name without
+-- 
+2.43.0
+

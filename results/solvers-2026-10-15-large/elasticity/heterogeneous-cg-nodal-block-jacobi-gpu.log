@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=heterogeneous/cg-nodal-block-jacobi/gpu problem=elasticity unknowns=421443 processes=1 solver=CGSolver setup=0.00914017 first=2.5063 solve=2.47978 resetup=0.00149062 refirst=2.46575 iterations=1752 residual=1.49291e-07 residual2=1.49291e-07 converged=1

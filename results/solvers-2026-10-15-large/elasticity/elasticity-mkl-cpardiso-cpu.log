@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=elasticity/mkl-cpardiso/cpu problem=elasticity unknowns=421443 processes=8 solver=MKLClusterSparseSolver setup=21.5747 first=0.618835 solve=0.588366 resetup=21.0747 refirst=0.694128 iterations=-1 residual=9.82881e-11 residual2=9.84934e-11 converged=1

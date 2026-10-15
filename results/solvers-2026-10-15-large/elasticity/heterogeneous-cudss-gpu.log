@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=heterogeneous/cudss/gpu problem=elasticity unknowns=421443 processes=1 solver=CuDSSSolver setup=5.34713 first=0.0503117 solve=0.0463604 resetup=5.36792 refirst=0.0456936 iterations=-1 residual=8.41146e-10 residual2=8.37293e-10 converged=1

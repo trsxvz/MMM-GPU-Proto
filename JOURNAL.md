@@ -5156,3 +5156,19 @@ formula as MTest). All the others give the Newton solution to within
   the host without synchronizing them.
 - Two rounds of independent review: nothing rated above 2; all the
   remarks handled. Defects of MFEM and PETSc noted for upstream reports.
+
+### 2026-10-15, large elasticity systems and recommendations (phase 5)
+
+- Pass of the campaign at 421,443 unknowns
+  (`results/solvers-2026-10-15-large/elasticity`): per operator, GAMG with
+  the rigid body modes takes 1.76 seconds on 8 cores (BoomerAMG 3.8), and
+  BoomerAMG of hypre on the GPU 0.33 second, 5 times faster (6 with the
+  inclusions). cuDSS factorizes 3.4 times faster than MUMPS. The classical
+  multigrid of AmgX ignores the components of the unknowns: ten times
+  slower than BoomerAMG on the elasticity.
+- The aggregation multigrid of AmgX does not converge on the elasticity
+  (patch 0239, documentation). Configurations added to the campaign: GAMG
+  stopped on the true residual, aggregation multigrid of AmgX.
+- First version of [docs/solver-recommendations.md](docs/solver-recommendations.md):
+  recommendations by case, without Trilinos and the large Laplace systems.
+

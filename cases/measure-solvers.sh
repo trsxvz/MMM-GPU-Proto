@@ -60,10 +60,14 @@ configurations=(
   "cg-nodal-block-jacobi|any|CGSolver|{$it,Preconditioner={Name=NodalBlockJacobi}}"
   # AmgX (GPU)
   "cg-amgx|gpu|CGSolver|{$it,Preconditioner={Name=AmgX}}"
+  "cg-amgx-aggregation|gpu|CGSolver|{$it,Preconditioner={Name=AmgX,Options={Multigrid=Aggregation}}}"
   "amgx-pcg|gpu|AmgXPCG|{$it}"
   # PETSc (host); ordered by vector dimension, GAMG receives the rigid body
   # modes
   "petsc-cg-gamg|cpu|PETScLinearSolver|{$it,Options={ksp_type=cg,pc_type=gamg}}|-bv"
+  # the same, stopped on the true residual (the conjugate gradient of PETSc
+  # stops on the preconditioned residual by default)
+  "petsc-cg-gamg-true-residual|cpu|PETScLinearSolver|{$it,Options={ksp_type=cg,pc_type=gamg,ksp_norm_type=unpreconditioned}}|-bv"
   # Ginkgo
   "ginkgo-cg-jacobi|any|GinkgoCG|{$it,Preconditioner={Name=GinkgoJacobi}}"
   "ginkgo-cg-multigrid|any|GinkgoCG|{$it,Preconditioner={Name=GinkgoMultigrid}}"

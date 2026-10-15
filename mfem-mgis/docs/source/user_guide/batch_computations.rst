@@ -861,8 +861,11 @@ host at each setup, and the resolutions start from a zero initial guess.
        :code:`PCG_AGGREGATION_JACOBI` of :code:`AmgX`: aggregates of size
        two, three post-smoothing sweeps of a damped Jacobi smoother and no
        pre-smoothing sweep, a cycle which is not symmetric, but with which
-       the conjugate gradients converge, as in the configuration of
-       :code:`AmgX`).
+       the conjugate gradients converge on scalar problems, as in the
+       configuration of :code:`AmgX`). Its aggregates ignore the
+       components of the unknowns and the rigid body modes: on the linear
+       elasticity of a beam, it does not converge in 2000 iterations, with
+       the conjugate gradients or FGMRES.
    * - :code:`AmgXParameters`
      - Parameters of :code:`AmgX`, with their names in :code:`AmgX`, which
        complete or override the default configuration. A name without

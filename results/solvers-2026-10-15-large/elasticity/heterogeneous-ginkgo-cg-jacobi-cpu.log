@@ -1,0 +1,6 @@
+Warning: program compiled against libxml 213 using older 209
+No convergence!
+No convergence!
+No convergence!
+No convergence!
+label=heterogeneous/ginkgo-cg-jacobi/cpu problem=elasticity unknowns=421443 processes=8 solver=GinkgoCG setup=0.0802301 first=19.941 solve=21.3699 resetup=0.0746684 refirst=19.8749 iterations=2000 residual=0.121579 residual2=0.121579 converged=0

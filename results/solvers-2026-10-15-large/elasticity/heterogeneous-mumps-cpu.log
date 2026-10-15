@@ -1,0 +1,40 @@
+Warning: program compiled against libxml 213 using older 209
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=         1681652
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=         1681652
+Re-running MUMPS factorization with memory relaxation 40
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -9
+ ** INFO(2)=         1681652
+ ** ERROR RETURN ** FROM DMUMPS INFO(1)=   -1
+ ** INFO(2)=               4
+ On return from DMUMPS, INFOG(1)=              -9
+ On return from DMUMPS, INFOG(2)=         1681652
+Re-running MUMPS factorization with memory relaxation 40
+label=heterogeneous/mumps/cpu problem=elasticity unknowns=421443 processes=8 solver=MUMPSSolver setup=19.0393 first=0.201458 solve=0.202381 resetup=18.967 refirst=0.194371 iterations=-1 residual=1.55438e-09 residual2=1.55485e-09 converged=1

@@ -1,0 +1,146 @@
+Warning: program compiled against libxml 213 using older 209
+
+
+ Num MPI tasks = 8
+ Num OpenMP threads = 1
+ Execution policy = Host
+
+ Max levels = 25
+ Num levels = 9
+
+ Strength Threshold = 0.500000
+ Interpolation Truncation Factor = 0.000000
+ Maximum Row Sum Threshold for Dependency Weakening = 0.900000
+
+ Coarsening Type = HMIS 
+ measures are determined locally
+
+ Interpolation = extended+i
+ Number of functions = 3
+ Functions filtering is off
+
+Operator Matrix Information:
+
+             nonzero            entries/row          row sums
+lev    rows  entries sparse   min  max     avg      min         max
+======================================================================
+  0  421443 32602185  0.000    24   81    77.4  -7.813e+00   1.094e+02
+  1  198386 21380170  0.001    20  219   107.8  -1.546e+01   1.168e+02
+  2   48927 12079213  0.005    42  511   246.9  -1.799e+01   1.328e+02
+  3   14625  4378651  0.020    46  836   299.4  -2.576e+01   1.427e+02
+  4    2978   741446  0.084    53  560   249.0  -8.586e+00   2.079e+02
+  5     724   144232  0.275    41  441   199.2  -1.590e+01   2.341e+02
+  6     160    15040  0.588    46  147    94.0  -3.060e+00   2.630e+02
+  7      31      831  0.865    16   31    26.8  -1.607e+00   2.919e+02
+  8       6       36  1.000     6    6     6.0   2.298e+01   7.513e+02
+
+
+Interpolation Matrix Information:
+                      entries/row        min        max            row sums
+lev   rows x cols   min  max  avgW     weight      weight       min         max
+==================================================================================
+  0 421443 x 198386   0    4   2.3  -1.665e-01   1.000e+00   0.000e+00   1.000e+00
+  1 198386 x 48927    1    4   4.0  -1.134e+00   1.068e+00   8.916e-02   1.000e+00
+  2  48927 x 14625    1    4   3.7  -6.522e+00   7.190e+00   1.160e-01   1.000e+00
+  3  14625 x 2978     1    4   3.7  -8.884e-01   1.400e+00   8.032e-02   1.000e+00
+  4   2978 x 724      0    4   3.1  -1.380e+00   1.363e+00   0.000e+00   1.000e+00
+  5    724 x 160      0    4   3.2  -5.189e-01   1.000e+00   0.000e+00   1.000e+00
+  6    160 x 31       0    4   2.4  -2.185e-01   1.000e+00   0.000e+00   1.000e+00
+  7     31 x 6        0    2   1.4   2.005e-02   1.000e+00   0.000e+00   1.000e+00
+
+
+     Complexity:   grid = 1.630778
+               operator = 2.188252
+                 memory = 2.235955
+
+
+
+
+BoomerAMG SOLVER PARAMETERS:
+
+  Maximum number of cycles:         1 
+  Stopping Tolerance:               0.000000e+00 
+  Cycle type (1 = V, 2 = W, etc.):  1
+
+  Relaxation Parameters:
+   Visiting Grid:                     down   up  coarse
+            Number of sweeps:            1    1     1 
+   Type 0=Jac, 3=hGS, 6=hSGS, 9=GE:      8    8     9 
+   Point types, partial sweeps (1=C, -1=F):
+                  Pre-CG relaxation (down):   0
+                   Post-CG relaxation (up):   0
+                             Coarsest grid:   0
+
+
+
+ Num MPI tasks = 8
+ Num OpenMP threads = 1
+ Execution policy = Host
+
+ Max levels = 25
+ Num levels = 9
+
+ Strength Threshold = 0.500000
+ Interpolation Truncation Factor = 0.000000
+ Maximum Row Sum Threshold for Dependency Weakening = 0.900000
+
+ Coarsening Type = HMIS 
+ measures are determined locally
+
+ Interpolation = extended+i
+ Number of functions = 3
+ Functions filtering is off
+
+Operator Matrix Information:
+
+             nonzero            entries/row          row sums
+lev    rows  entries sparse   min  max     avg      min         max
+======================================================================
+  0  421443 32602185  0.000    24   81    77.4  -1.563e+01   2.188e+02
+  1  198386 21380170  0.001    20  219   107.8  -3.093e+01   2.336e+02
+  2   48927 12079213  0.005    42  511   246.9  -3.597e+01   2.656e+02
+  3   14625  4378651  0.020    46  836   299.4  -5.152e+01   2.854e+02
+  4    2978   741446  0.084    53  560   249.0  -1.717e+01   4.158e+02
+  5     724   144232  0.275    41  441   199.2  -3.180e+01   4.682e+02
+  6     160    15040  0.588    46  147    94.0  -6.120e+00   5.260e+02
+  7      31      831  0.865    16   31    26.8  -3.214e+00   5.839e+02
+  8       6       36  1.000     6    6     6.0   4.597e+01   1.503e+03
+
+
+Interpolation Matrix Information:
+                      entries/row        min        max            row sums
+lev   rows x cols   min  max  avgW     weight      weight       min         max
+==================================================================================
+  0 421443 x 198386   0    4   2.3  -1.665e-01   1.000e+00   0.000e+00   1.000e+00
+  1 198386 x 48927    1    4   4.0  -1.134e+00   1.068e+00   8.916e-02   1.000e+00
+  2  48927 x 14625    1    4   3.7  -6.522e+00   7.190e+00   1.160e-01   1.000e+00
+  3  14625 x 2978     1    4   3.7  -8.884e-01   1.400e+00   8.032e-02   1.000e+00
+  4   2978 x 724      0    4   3.1  -1.380e+00   1.363e+00   0.000e+00   1.000e+00
+  5    724 x 160      0    4   3.2  -5.189e-01   1.000e+00   0.000e+00   1.000e+00
+  6    160 x 31       0    4   2.4  -2.185e-01   1.000e+00   0.000e+00   1.000e+00
+  7     31 x 6        0    2   1.4   2.005e-02   1.000e+00   0.000e+00   1.000e+00
+
+
+     Complexity:   grid = 1.630778
+               operator = 2.188252
+                 memory = 2.235955
+
+
+
+
+BoomerAMG SOLVER PARAMETERS:
+
+  Maximum number of cycles:         1 
+  Stopping Tolerance:               0.000000e+00 
+  Cycle type (1 = V, 2 = W, etc.):  1
+
+  Relaxation Parameters:
+   Visiting Grid:                     down   up  coarse
+            Number of sweeps:            1    1     1 
+   Type 0=Jac, 3=hGS, 6=hSGS, 9=GE:      8    8     9 
+   Point types, partial sweeps (1=C, -1=F):
+                  Pre-CG relaxation (down):   0
+                   Post-CG relaxation (up):   0
+                             Coarsest grid:   0
+
+label=heterogeneous/pcg-boomeramg/cpu problem=elasticity unknowns=421443 processes=8 solver=HyprePCG setup=9.0071e-05 first=5.53996 solve=4.80108 resetup=0.000212941 refirst=5.17126 iterations=56 residual=4.06373e-07 residual2=4.06373e-07 converged=1

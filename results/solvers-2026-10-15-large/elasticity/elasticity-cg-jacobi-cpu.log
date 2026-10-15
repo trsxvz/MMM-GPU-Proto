@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=elasticity/cg-jacobi/cpu problem=elasticity unknowns=421443 processes=8 solver=CGSolver setup=0.00199309 first=4.64852 solve=4.67172 resetup=0.00139119 refirst=4.62924 iterations=643 residual=8.96338e-09 residual2=8.96338e-09 converged=1
