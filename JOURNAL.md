@@ -5076,3 +5076,36 @@ formula as MTest). All the others give the Newton solution to within
   MGR (one 4/5 reproduced, one 3/5, handled), SNES (one 4/5 already fixed
   by the GPU commit, the 3/5 and 2/5 handled). Upstream notes written for
   hypre, MFEM and PETSc, nothing posted.
+
+### 2026-10-15, Trilinos (phase 4, in progress) and benchmark of the linear solvers
+
+- Environment `mmm-trilinos` (deps/spack): Trilinos 17.2.1 with CUDA,
+  Kokkos and Kokkos Kernels 5.2.1 (the versions Trilinos 17.2 requires),
+  hence PETSc and MFEM built again. The `shylu` variant of the package of
+  spack only enables FROSch: the local repository `mmm_trilinos` adds the
+  variant `tacho` (Tacho in Amesos2; GoogleTest disabled, otherwise TriBITS
+  stops). Trilinos took 1 h 29 to build with nvcc.
+- mfem-mgis: module of Trilinos written and reviewed, not yet built in
+  mfem-mgis. The calls to Trilinos are compiled by the compiler of Kokkos
+  in a shared library, `MFEMMGISTrilinos`, whose interface only uses
+  standard types; it compiles with nvcc without warning. Entries:
+  `BelosSolver`, `Amesos2Solver`, `Ifpack2`, `MueLu` (rigid body modes),
+  `FROSch` (two level Schwarz), `Amesos2Preconditioner`. The unknowns
+  ordered by nodes are seen by Trilinos ordered by vector dimension, as
+  MueLu expects. The static review found one defect rated 5 (the matrix of
+  hypre left on the host after the conversion), one rated 4 (a test of
+  MueLu on a system too small for a multigrid) and several rated 3 and 2
+  (options of Amesos2 ignored, failures of Belos aborting the run, Dirichlet
+  rows not seen by FROSch): all handled before the first build.
+- Blocked: the MFEM of `mmm-trilinos` is not built. One of its files,
+  `fem/lor/lor_batched.cpp`, needs about 22 GB for ptxas with sm_120; with
+  another large compilation on the machine, the memory ran out twice, and
+  the compilation was stopped. `install-mmm-trilinos.sh` builds MFEM alone
+  with two jobs.
+- mfem-mgis 8d829b4c26 (patch 0231): `LinearSolversBenchmark` measures any
+  entry of the factory of linear solvers, its parameters being given on the
+  command line in a small text syntax, on assembled systems (Laplace
+  equation, beam in linear elasticity, stiff inclusions): setup, first and
+  following resolutions, second operator of the same sparsity.
+  `cases/measure-solvers.sh` runs the campaign of phase 5 with it, on 8
+  processes and on the GPU, and `cases/summary-solvers.py` makes the tables.

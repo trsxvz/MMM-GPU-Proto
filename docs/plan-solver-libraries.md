@@ -49,7 +49,12 @@ computes on a GPU). `AMGFSolver`, `LORSolver` and the p-multigrid of MFEM
 are not applicable as is to the tangent operators of mfem-mgis: AMGF needs
 a filtered subspace (contact problems), LOR a high order bilinear form to
 refine, and the p-multigrid the operators of each level, which the
-behaviour integrators would have to assemble on coarser spaces. It
+behaviour integrators would have to assemble on coarser spaces. Phase 4
+in progress on 15/10/2026: environment `mmm-trilinos` (Trilinos 17.2.1
+with Tacho and FROSch, Kokkos 5.2.1), module of Trilinos written and
+reviewed, waiting for the build of the MFEM of this environment. Phase 5
+prepared: benchmark `LinearSolversBenchmark` (patch `0231`) and
+`cases/measure-solvers.sh`. It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug

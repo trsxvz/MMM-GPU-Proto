@@ -130,7 +130,13 @@ backends of the `generic-parallel` interface), `measure-ex8.sh` (ex8 end
 to end), `measure-post-processings.sh` (post-processings, work package
 L8), `measure-execution-beam.sh` (placements given by `--execution`, task
 9a), `measure-precision-beam.sh` (float against double on the CPU, twin
-spack environments, task 9b). Tools: `summary-profiling.py` (time per
+spack environments, task 9b), `measure-solvers.sh` (campaign of the linear
+solvers of the factories, phase 5 of
+[docs/plan-solver-libraries.md](../docs/plan-solver-libraries.md): each
+configuration of its list solves assembled systems, linear elasticity of a
+beam, with stiff inclusions, and Laplace equation, with the benchmark
+`LinearSolversBenchmark` of mfem-mgis, on 8 processes and on the GPU;
+table by `summary-solvers.py`). Tools: `summary-profiling.py` (time per
 phase of the `--profiling` outputs), `summary-precision.py` (synthesis of
 the float against double measurements: times, iterations, gap between the
 norms), `compare-outputs.py` (comparison of numerical outputs, `--csv` for

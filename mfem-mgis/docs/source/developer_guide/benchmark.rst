@@ -172,3 +172,45 @@ Run this example on Topaze supercomputer:
   ccc_mprun -n 16 -c 1 -m work -T 600 -p milan -Q test ./MFEMLinearElasticityBenchmark --mesh ../beam-tet.mesh -r 5
   ccc_mprun -n 16 -c 1 -m work -T 600 -p milan -Q test ./MFEMMGISLinearElasticityBenchmark --mesh ../beam-tet.mesh -r 5 
 
+
+Linear solvers
+--------------
+
+The ``LinearSolversBenchmark`` program (``benchmarks/``, CMake option
+``BENCHMARKS``, parallel builds) measures a linear solver of the factory
+of linear solvers (see :ref:`linear_solvers`) on an assembled system: the
+Laplace equation on a cube (``--problem laplace``), or the linear
+elasticity of a cantilever beam (``--problem elasticity``, length 4,
+square section of side 1, clamped at one end, vertical volume force).
+The options are:
+
+- ``--size``: the number of hexahedra across the section (the beam has
+  four times more along its length);
+- ``--order``: the polynomial degree;
+- ``--by-nodes``, ``--by-vdim``: the ordering of the unknowns of the
+  elasticity;
+- ``--contrast``, ``--inclusions``: the coefficients of the cells of a
+  checkerboard of ``--inclusions`` cells across the section are multiplied
+  by ``--contrast``;
+- ``--solver``, ``--solver-parameters``: the name of the linear solver
+  and its parameters, written between braces, as
+  ``{Solver=CG,RelativeTolerance=1e-8,Preconditioner={Name=MueLu}}``: a
+  list of values is written between brackets, a string is quoted when it
+  contains other characters than letters, digits, ``_``, ``.``, ``+`` and
+  ``-``, ``true`` and ``false`` are booleans;
+- ``--repeat``: the number of resolutions;
+- ``--label``: a label printed with the results;
+- the options of :cxx:`mfem_mgis::initialize`, such as ``--device cuda``.
+
+It prints one line of ``key=value`` fields: the time of the setup
+(``SetOperator``), of the first resolution (some preconditioners, such as
+the ones of hypre, are built at their first application), the mean time of
+the following resolutions, the time of the setup and of the resolution for
+a second operator of the same sparsity (the first one times two), the
+number of iterations, the relative residuals and the convergence reported.
+The processes and the device are synchronized around each measurement.
+
+.. code-block:: bash
+
+  mpirun -n 8 ./LinearSolversBenchmark -p elasticity -n 16 -c 1000 \
+    -s BelosSolver -sp '{Solver=CG,RelativeTolerance=1e-8,Preconditioner={Name=MueLu}}'

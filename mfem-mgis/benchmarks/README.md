@@ -34,3 +34,24 @@ Run this example on Topaze supercomputer:
 ccc_mprun -n 16 -c 1 -m work -T 600 -p milan -Q test ./MFEMLinearElasticityBenchmark --mesh ../beam-tet.mesh -r 5
 ccc_mprun -n 16 -c 1 -m work -T 600 -p milan -Q test ./MFEMMGISLinearElasticityBenchmark --mesh ../beam-tet.mesh -r 5
 ```
+
+## Linear solvers
+
+`LinearSolversBenchmark` measures a linear solver of the factory of linear
+solvers (option `--solver`, its parameters being given by
+`--solver-parameters` in a text syntax described in the source) on an
+assembled system: the Laplace equation on a cube (`--problem laplace`) or
+the linear elasticity of a cantilever beam (`--problem elasticity`), with
+`--size` elements across the section, cubic inclusions whose coefficients
+are multiplied by `--contrast`, and the unknowns ordered by nodes or by
+vector dimension (`--by-nodes`, `--by-vdim`). It prints the time of the
+setup, the mean time of `--repeat` resolutions, the time of the setup of a
+second operator of the same sparsity, the number of iterations, the
+relative residual and the convergence reported (the first resolution after
+each setup is timed apart, since some preconditioners are built at their
+first application):
+
+```
+mpirun -n 4 ./LinearSolversBenchmark -p elasticity -n 16 -c 1000 \
+  -s BelosSolver -sp '{Solver=CG,RelativeTolerance=1e-8,Preconditioner={Name=MueLu}}'
+```

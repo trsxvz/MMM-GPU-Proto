@@ -35,3 +35,10 @@ add_dependencies(MFEMMGISLinearElasticityBenchmark generate-libBehaviour-benchma
       PUBLIC MFEMMGIS)
 
 endif()
+
+# benchmark of the linear solvers of the factory on assembled systems
+# (Laplace equation, linear elasticity of a beam, possibly heterogeneous)
+if(MFEM_USE_MPI)
+  add_executable(LinearSolversBenchmark LinearSolversBenchmark.cxx)
+  target_link_libraries(LinearSolversBenchmark PUBLIC MFEMMGIS)
+endif()

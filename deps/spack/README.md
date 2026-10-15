@@ -94,6 +94,27 @@ Content:
 - `install-mmm-solvers.sh`: installation of `mmm-solvers`, as
   `install-mmm-gpu.sh`, on the cores 2-7 and 10-15 with the lowest
   priority;
+- `mmm-trilinos/spack.yaml`: environment of the phase 4 of the solver
+  libraries: the specs of `mmm-solvers`, plus Trilinos 17.2.1 (Tpetra,
+  Belos, Ifpack2, MueLu, Amesos2 with Tacho and Basker, FROSch), with
+  CUDA. Trilinos 17.2.1 requires Kokkos and Kokkos Kernels 5.2.1, where
+  the other environments have 5.2.2: the packages which depend on Kokkos
+  (PETSc, and MFEM through PETSc) are built again, `mmm-solvers` is left
+  unchanged. Trilinos with Kokkos and CUDA requires hwloc with CUDA:
+  LLVM, AdaptiveCpp and TBB, which would be built again with it and are
+  not used by the solvers, are left out;
+- `repos/spack_repo/mmm_trilinos`: package repository of the phase 4,
+  with priority over `mmm_solvers`: `trilinos` derives from the builtin
+  package, with the variant `tacho` (sparse direct solver Tacho in
+  Amesos2: the variant `shylu` only enables ShyLU_DD, and the optional
+  dependencies of Amesos2 are not enabled; the tests of Tacho require
+  GoogleTest, which TriBITS requires as soon as Tacho is enabled, and are
+  disabled);
+- `install-mmm-trilinos.sh`: installation of `mmm-trilinos`, as
+  `install-mmm-solvers.sh`: the dependencies of MFEM and Trilinos first,
+  then MFEM alone with two jobs (the file `fem/lor/lor_batched.cpp` needs
+  about 22 GB for ptxas with sm_120, which leaves no room for other
+  compilations on a machine of 32 GB);
 - `make-nvhpc-cuda-prefix.sh`: CUDA prefix with the layout of the
   standalone toolkit, built from the SDK (whose mathematical libraries are
   in a separate directory);
