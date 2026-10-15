@@ -35,8 +35,9 @@ only. The tests on the GPU stay local
 - Compilations of the prototype: ccache, one cache per job and
   precision.
 
-The dependencies are pushed to the build cache even when their
-installation fails or stops (step `Install the dependencies` limited to
+The CUDA job installs `libnvjitlink-13-0`, needed by libcusparse of
+CUDA 13 and not installed by its package. The dependencies are pushed to
+the build cache even when their installation fails or stops (step `Install the dependencies` limited to
 300 minutes): the packages already built are kept, and the next run
 resumes from them. The push runs with the spack environment of the job
 active (`SPACK_ENV`), which declares the repository `mmm_gpu` of the
@@ -51,6 +52,8 @@ packages `mfem` and `openmpi` of the job `cuda`.
 | fourth run, build cache filled | `cpu` (float) | 14 min |
 | fourth run | `hip` | 28 min |
 | fourth run, empty build cache for CUDA | `cuda` | 3 h 41 min for the dependencies (hypre and MFEM compiled with one job) |
+| seventh run (first one entirely green), build cache filled | `cuda` | 12 min |
+| seventh run | `cpu` (double), `cpu` (float), `hip` | 13 min, 14 min, 12 min |
 
 ### Memory of the runners
 
