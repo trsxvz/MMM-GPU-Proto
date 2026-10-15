@@ -1,0 +1,37 @@
+From 6862fbb62639905bc785b3e20cffe3c3e86a8091 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 07:57:24 +0200
+Subject: [PATCH] FindMFEM: directory of the CUDA toolkit given as a run path
+
+MFEM compiled with CUDA names the libraries of the toolkit (-lcusparse,
+...) in its external libraries, given to the C++ compiler with the
+directory of the toolkit (-L). The linker looks for the dependencies of
+these libraries (libnvJitLink, needed by libcusparse with CUDA 13) in the
+run paths, not in the directories given by -L: the executables of
+mfem-mgis-examples failed to link on a machine where the toolkit is not
+in the default paths of the linker (continuous integration). The
+directory is now also given as a run path.
+---
+ cmake/modules/FindMFEM.cmake | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/cmake/modules/FindMFEM.cmake b/cmake/modules/FindMFEM.cmake
+index 61d364d768..f4d63df3d6 100644
+--- a/cmake/modules/FindMFEM.cmake
++++ b/cmake/modules/FindMFEM.cmake
+@@ -179,7 +179,11 @@ if(MFEM_USE_CUDA STREQUAL "YES")
+   cmake_policy(SET CMP0074 NEW)
+   find_package(CUDAToolkit REQUIRED)
+   cmake_policy(POP)
+-  list(PREPEND MFEM_EXT_LIBS_LIST "-L${CUDAToolkit_LIBRARY_DIR}")
++  # the directory is also given as a run path: the linker looks for the
++  # dependencies of the libraries of the toolkit (libnvJitLink, needed by
++  # libcusparse) in the run paths, not in the directories given by `-L`
++  list(PREPEND MFEM_EXT_LIBS_LIST "-L${CUDAToolkit_LIBRARY_DIR}"
++       "-Wl,-rpath,${CUDAToolkit_LIBRARY_DIR}")
+   set_property(TARGET MFEM::mfem APPEND
+     PROPERTY INTERFACE_LINK_LIBRARIES CUDA::cudart)
+ endif()
+-- 
+2.43.0
+

@@ -179,7 +179,11 @@ if(MFEM_USE_CUDA STREQUAL "YES")
   cmake_policy(SET CMP0074 NEW)
   find_package(CUDAToolkit REQUIRED)
   cmake_policy(POP)
-  list(PREPEND MFEM_EXT_LIBS_LIST "-L${CUDAToolkit_LIBRARY_DIR}")
+  # the directory is also given as a run path: the linker looks for the
+  # dependencies of the libraries of the toolkit (libnvJitLink, needed by
+  # libcusparse) in the run paths, not in the directories given by `-L`
+  list(PREPEND MFEM_EXT_LIBS_LIST "-L${CUDAToolkit_LIBRARY_DIR}"
+       "-Wl,-rpath,${CUDAToolkit_LIBRARY_DIR}")
   set_property(TARGET MFEM::mfem APPEND
     PROPERTY INTERFACE_LINK_LIBRARIES CUDA::cudart)
 endif()
