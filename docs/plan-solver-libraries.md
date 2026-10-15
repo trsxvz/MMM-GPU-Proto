@@ -5,7 +5,10 @@ Status: survey of 15/10/2026, scope and order decided the same day (see
 15/10/2026 (patches `patches/mfem-mgis/0186` to `0188`): descriptions,
 factory of preconditioners, one module per library, generic test
 `LinearSolverFactoriesTest`, documentation of the solvers in the user
-guide of mfem-mgis. It complements [gpu-solvers.md](gpu-solvers.md), organised
+guide of mfem-mgis. Phase 1 started: PETSc (patches `0189` to `0191`):
+`PETScLinearSolver` and `PETScPreconditioner`, configured by the options
+of PETSc, any preconditioner of mfem-mgis as shell preconditioner. It
+complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug
 the rest in a modular way.

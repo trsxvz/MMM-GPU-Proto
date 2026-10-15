@@ -88,6 +88,18 @@ namespace mfem_mgis::internals {
    */
   void declareCuDSSLinearSolvers(LinearSolverFactory<true>& f);
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+  /*!
+   * \brief register the Krylov solver of PETSc
+   * \param[in, out] f: factory
+   */
+  void declarePETScLinearSolvers(LinearSolverFactory<true>& f);
+  /*!
+   * \brief register the preconditioner of PETSc
+   * \param[in, out] f: factory
+   */
+  void declarePETScPreconditioners(PreconditionerFactory<true>& f);
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
 #ifdef MFEM_MGIS_HAVE_AMGX
   /*!
    * \brief register the solvers of AmgX

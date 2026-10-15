@@ -4833,3 +4833,24 @@ formula as MTest). All the others give the Newton solution to within
   Laplace equation with every entry, in sequential, parallel and on the
   GPU. Suites: 228 (GPU MFEM, on the host), 233 (CPU double), 232 (CPU
   float); Doxygen and Sphinx without warnings.
+
+### 2026-10-15, linear solvers of the major libraries: PETSc
+
+- Phase 1 of the plan, first library: `PETScLinearSolver` (a Krylov
+  solver of PETSc, `KSP`) and `PETScPreconditioner` (`PC`), configured by
+  the options of PETSc given by their `Options` parameter. The options are
+  written in the options database with a prefix unique to each solver and
+  removed when it is destroyed; those which PETSc never read are reported.
+  A preconditioner of another library is a shell preconditioner of PETSc,
+  which receives the operators; the options of the preconditioner of PETSc
+  are then refused in the options of the solver, since PETSc would replace
+  it. PETSc is initialized when the first solver is built.
+- The interface of the solvers of the other libraries now gives access to
+  their relative tolerance, used by the adaptive tolerance of the Newton
+  solver.
+- Dedicated test (sequential and parallel): on a 16³ mesh in parallel,
+  CG with Jacobi 25 iterations, with GAMG 9, with BoomerAMG as shell
+  preconditioner 11, CG of MFEM with the GAMG of PETSc 10. Independent
+  review: no defect of severity 4 or 5, its points handled. Suites: 230
+  (GPU MFEM, on the host), targeted CPU double and float; Doxygen and
+  Sphinx without warnings.

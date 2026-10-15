@@ -41,6 +41,7 @@
 #include "MGIS/Profiling.hxx"
 #include <MFEMMGIS/Profiler.hxx>
 #include "MFEMMGIS/Config.hxx"
+#include "PETScSupport.hxx"
 
 namespace mfem_mgis {
 
@@ -99,6 +100,14 @@ namespace mfem_mgis {
      * \param[in] petscrc_file: PETSc configuration file
      */
     void setPETSc(const char* petscrc_file);
+    /*!
+     * \brief initialize PETSc, if not done yet, for the solvers and the
+     * preconditioners of PETSc (see `PETScLinearSolvers.cxx`, which does not
+     * call this method if the program initialized PETSc itself). PETSc is
+     * then finalized by `finalize`. This does not select the non linear
+     * solver of PETSc (see `usePETSc`).
+     */
+    void initializePETScOnDemand();
     //! \brief finalize the execution of the mfem-mgis
     void finalize();
     /*!
@@ -110,6 +119,13 @@ namespace mfem_mgis {
    private:
     //! \brief boolean stating if PETSc shall be used
     bool use_petsc = false;
+#ifdef MFEM_USE_PETSC
+    /*!
+     * \brief boolean stating if PETSc has been initialized for its solvers
+     * and its preconditioners (see `initializePETScOnDemand`)
+     */
+    bool petsc_initialized_on_demand = false;
+#endif /* MFEM_USE_PETSC */
     /*!
      * \brief MFEM device, created by `initialize` (option `--device`,
      * environment variable `MFEM_MGIS_DEVICE`, or device `gpu` by default in
@@ -392,9 +408,21 @@ namespace mfem_mgis {
     this->use_petsc = true;
     mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
   }
+  void Finalizer::initializePETScOnDemand() {
+    // PETSc is already initialized when its non linear solver is used
+    if ((this->use_petsc) || (this->petsc_initialized_on_demand)) {
+      return;
+    }
+    mfem::MFEMInitializePetsc();
+    this->petsc_initialized_on_demand = true;
+  }  // end of initializePETScOnDemand
 #else  /* MFEM_USE_PETSC */
   void Finalizer::setPETSc(const char*) {
     mgis::raise("Finalizer::setPETSc: PETSc is not supported");
+  }
+
+  void Finalizer::initializePETScOnDemand() {
+    mgis::raise("Finalizer::initializePETScOnDemand: PETSc is not supported");
   }
 #endif /*MFEM_USE_PETSC*/
 
@@ -656,7 +684,7 @@ namespace mfem_mgis {
     if (!this->pendingExit) {
 #ifdef MFEM_USE_MPI
 #ifdef MFEM_USE_PETSC
-      if (this->use_petsc) {
+      if ((this->use_petsc) || (this->petsc_initialized_on_demand)) {
         mfem::MFEMFinalizePetsc();
       }
 #endif /* MFEM_USE_PETSC */
@@ -879,6 +907,10 @@ namespace mfem_mgis {
   void setPETSc(const char* petscrc_file) {
     Finalizer::get().setPETSc(petscrc_file);
   }  // end of setPETSc
+
+  void internals::initializePETScOnDemand() {
+    Finalizer::get().initializePETScOnDemand();
+  }  // end of initializePETScOnDemand
 
   bool isMPIMainProcessForDefaultCommunicator() noexcept {
     return getMPIRankForDefaultCommunicator() == 0;

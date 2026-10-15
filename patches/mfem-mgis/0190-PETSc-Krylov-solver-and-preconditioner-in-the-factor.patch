@@ -1,0 +1,834 @@
+From ae9d0a3b21d2f85f6f73e00bfb0e8ef29725ac6d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 03:57:11 +0200
+Subject: [PATCH] PETSc: Krylov solver and preconditioner in the factories
+
+PETScLinearSolver (KSP) and PETScPreconditioner (PC) are configured by
+the options of PETSc given by their Options parameter, written in the
+options database with a prefix unique to each solver and removed when
+the solver is destroyed; the options never read by PETSc are reported.
+The tolerances of mfem-mgis are overridden by the options of PETSc. A
+preconditioner of another library is a shell preconditioner of PETSc,
+which receives the operators; PETScPreconditioner becomes the
+preconditioner of the Krylov solver, and may be used by the Krylov
+solvers of MFEM. The options of the preconditioner of PETSc are refused
+in the options of a solver given a preconditioner.
+
+PETSc is initialized when the first solver of PETSc is built, and
+finalized by finalize, unless the program initialized it.
+---
+ .../developer_guide/linear_solver_modules.rst |  16 +-
+ docs/source/user_guide/linear_solvers.rst     |  92 ++++
+ .../release_notes/release_notes-1.1.0.rst     |  13 +
+ src/CMakeLists.txt                            |   1 +
+ src/Config.cxx                                |  34 +-
+ src/LinearSolverModules.cxx                   |  11 +
+ src/LinearSolverModules.hxx                   |  12 +
+ src/PETScLinearSolvers.cxx                    | 431 ++++++++++++++++++
+ src/PETScSupport.hxx                          |  26 ++
+ 9 files changed, 630 insertions(+), 6 deletions(-)
+ create mode 100644 src/PETScLinearSolvers.cxx
+ create mode 100644 src/PETScSupport.hxx
+
+diff --git a/docs/source/developer_guide/linear_solver_modules.rst b/docs/source/developer_guide/linear_solver_modules.rst
+index ab87723533..f3bbfa3c1b 100644
+--- a/docs/source/developer_guide/linear_solver_modules.rst
++++ b/docs/source/developer_guide/linear_solver_modules.rst
+@@ -15,8 +15,9 @@ library is available:
+ The existing modules are the ones of MFEM and mfem-mgis
+ (:file:`src/MFEMLinearSolvers.cxx`), hypre
+ (:file:`src/HypreLinearSolvers.cxx`), MUMPS
+-(:file:`src/MUMPSSolvers.cxx`), cuDSS (:file:`src/CuDSSSolvers.cxx`) and
+-AmgX (:file:`src/AmgXSolvers.cxx`).
++(:file:`src/MUMPSSolvers.cxx`), cuDSS (:file:`src/CuDSSSolvers.cxx`),
++AmgX (:file:`src/AmgXSolvers.cxx`) and PETSc
++(:file:`src/PETScLinearSolvers.cxx`).
+ 
+ Adding a library consists of:
+ 
+@@ -26,7 +27,10 @@ Adding a library consists of:
+    an option of mfem-mgis for the others, as :cxx:`MFEM_MGIS_HAVE_AMGX`);
+ 2. declaring its functions in :file:`src/LinearSolverModules.hxx` and
+    calling them in :cxx:`declareLinearSolvers` and
+-   :cxx:`declarePreconditioners` (:file:`src/LinearSolverModules.cxx`).
++   :cxx:`declarePreconditioners` (:file:`src/LinearSolverModules.cxx`);
++3. adding its entries to :cxx:`getUnavailableLibraryHint`
++   (:file:`src/LinearSolverModules.cxx`), so that the error message of an
++   unknown entry explains that the library is not available.
+ 
+ Each entry is registered by the :cxx:`declare` function with its
+ description (:cxx:`LinearSolverDescription`): library, kind, placement,
+@@ -40,8 +44,10 @@ of its library.
+ 
+ A linear solver which is neither an iterative solver of MFEM nor a Krylov
+ solver of hypre implements the :cxx:`LinearSolverConvergenceReport`
+-interface, read by the :cxx:`hasConverged` and
+-:cxx:`getNumberOfIterationsAtConvergence` functions.
++interface, read by the :cxx:`hasConverged`,
++:cxx:`getNumberOfIterationsAtConvergence`, :cxx:`getRelativeTolerance` and
++:cxx:`setRelativeTolerance` functions (the last two are used by the
++adaptive tolerance of the linear solver of the Newton solver).
+ 
+ The generic test :file:`tests/LinearSolverFactoriesTest.cxx` solves the
+ Laplace equation with each registered linear solver and each registered
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 0beeb04469..0c9fc7ba96 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -115,6 +115,15 @@ The solvers marked as parallel are only available in parallel.
+      - :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
+        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
+        :cxx:`AmgXParameters`, :cxx:`Precision`
++   * - :cxx:`PETScLinearSolver` (parallel)
++     - PETSc
++     - iterative
++     - host
++     - any
++     - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
++       :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
++       :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
++       :cxx:`Preconditioner`
+ 
+ Preconditioners
+ ===============
+@@ -166,6 +175,89 @@ Preconditioners
+      - GPU
+      - :cxx:`Configuration`, :cxx:`ConfigurationFile`, :cxx:`VerbosityLevel`,
+        :cxx:`AmgXParameters`, :cxx:`Precision`
++   * - :cxx:`PETScPreconditioner` (parallel)
++     - PETSc
++     - host
++     - :cxx:`Options` (see :ref:`petsc_linear_solvers`)
+ 
+ The libraries which are not available (MFEM built without them, or
+ mfem-mgis built without AmgX) register nothing.
++
++.. _petsc_linear_solvers:
++
++Linear solvers and preconditioners of PETSc
++===========================================
++
++The :cxx:`PETScLinearSolver` linear solver is a Krylov solver of PETSc
++(:cxx:`KSP`), and the :cxx:`PETScPreconditioner` preconditioner a
++preconditioner of PETSc (:cxx:`PC`). Both are configured by the options
++of PETSc, given by the :cxx:`Options` parameter without the leading dash:
++
++.. code-block:: cpp
++
++   problem.setLinearSolver(
++       ctx, "PETScLinearSolver",
++       {{"RelativeTolerance", 1e-10},
++        {"Options", Parameters{{"ksp_type", "cg"},
++                               {"pc_type", "gamg"},
++                               {"pc_gamg_threshold", 0.02},
++                               {"ksp_monitor", ""}}}}) |
++       or_die;
++
++The value of an option is a boolean, an integer, a floating-point value
++or a string, an empty string giving an option without value (such as
++:cxx:`ksp_monitor`). The options are written in the options database of
++PETSc with a prefix which is unique to each solver, so that the options of
++two solvers do not interfere, and removed from it when the solver is
++destroyed. They are read by PETSc when the solver is first used: they
++thus override the tolerances and the maximum number of iterations given by
++the parameters of mfem-mgis, and an invalid value is only detected then.
++PETSc ignores the options it does not know: the options which PETSc never
++read (for instance a misspelt option) are reported when a solver which
++has been used is destroyed.
++
++Without options, the defaults of PETSc apply: the GMRES solver restarted
++every 30 iterations, preconditioned by an incomplete LU factorization in
++sequential, and by the block Jacobi method with incomplete LU
++factorizations of the blocks in parallel. The convergence is checked on
++the norm of the preconditioned residual (:cxx:`ksp_norm_type`).
++
++The operators are converted to the AIJ format of PETSc each time they are
++set, so that most preconditioners of PETSc can be built, and the
++preconditioner of PETSc is then built again: the operators shall be
++assembled (an operator applied without assembly is converted column by
++column).
++
++A preconditioner of mfem-mgis may be given by the :cxx:`Preconditioner`
++parameter of :cxx:`PETScLinearSolver`:
++
++- a preconditioner of another library is seen by PETSc as a shell
++  preconditioner (:cxx:`pc_type shell`);
++- the :cxx:`PETScPreconditioner` preconditioner becomes the preconditioner
++  of the Krylov solver, its options being given by its own :cxx:`Options`
++  option.
++
++In both cases, the options of the preconditioner of PETSc (beginning with
++:cxx:`pc_`) are refused in the options of the solver, since they would
++replace the given preconditioner. The :cxx:`PETScPreconditioner`
++preconditioner may also be used by the Krylov solvers of MFEM:
++
++.. code-block:: cpp
++
++   problem.setLinearSolver(
++       ctx, "CGSolver",
++       {{"RelativeTolerance", 1e-10},
++        {"Preconditioner",
++         Parameters{{"Name", "PETScPreconditioner"},
++                    {"Options",
++                     Parameters{{"Options",
++                                 Parameters{{"pc_type", "gamg"}}}}}}}}) |
++       or_die;
++
++PETSc is initialized when the first linear solver or preconditioner of
++PETSc is built, which shall thus be built by all the processes. It is
++then finalized by the :cxx:`finalize` function, unless it was initialized
++by the program itself. The command line is not given to PETSc: the
++options of the solvers are only given by their :cxx:`Options` parameter.
++The non linear solver of PETSc, selected by the :cxx:`--use-petsc`
++command line option, is not related to these solvers.
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 4ffa9a0ff3..d42b91b413 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -135,6 +135,19 @@ message. The available linear solvers and preconditioners are listed in
+ :ref:`linear_solvers`; the solvers of each library are registered by a
+ module (see :ref:`linear_solver_modules`).
+ 
++Linear solvers and preconditioners of PETSc
++-------------------------------------------
++
++The :cxx:`PETScLinearSolver` linear solver (a Krylov solver of PETSc)
++and the :cxx:`PETScPreconditioner` preconditioner (a preconditioner of
++PETSc) are available when |MFEM| is built with PETSc. They are
++configured by the options of PETSc given by their :cxx:`Options`
++parameter, and give access to the Krylov solvers and to most
++preconditioners of PETSc, among which its algebraic multigrid (GAMG). A preconditioner of
++mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
++:cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
++See :ref:`petsc_linear_solvers`.
++
+ Prediction of the solution
+ --------------------------
+ 
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 7ab14cc8a1..6b97798398 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -57,6 +57,7 @@ list(APPEND MFEMMGIS_SOURCES
+   LinearSolverModules.cxx
+   MFEMLinearSolvers.cxx
+   HypreLinearSolvers.cxx
++  PETScLinearSolvers.cxx
+   AmgXSolvers.cxx
+   HypreMatrixPattern.cxx
+   MUMPSSolvers.cxx
+diff --git a/src/Config.cxx b/src/Config.cxx
+index 0928f31dc7..13ead3c4ee 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -41,6 +41,7 @@
+ #include "MGIS/Profiling.hxx"
+ #include <MFEMMGIS/Profiler.hxx>
+ #include "MFEMMGIS/Config.hxx"
++#include "PETScSupport.hxx"
+ 
+ namespace mfem_mgis {
+ 
+@@ -99,6 +100,14 @@ namespace mfem_mgis {
+      * \param[in] petscrc_file: PETSc configuration file
+      */
+     void setPETSc(const char* petscrc_file);
++    /*!
++     * \brief initialize PETSc, if not done yet, for the solvers and the
++     * preconditioners of PETSc (see `PETScLinearSolvers.cxx`, which does not
++     * call this method if the program initialized PETSc itself). PETSc is
++     * then finalized by `finalize`. This does not select the non linear
++     * solver of PETSc (see `usePETSc`).
++     */
++    void initializePETScOnDemand();
+     //! \brief finalize the execution of the mfem-mgis
+     void finalize();
+     /*!
+@@ -110,6 +119,13 @@ namespace mfem_mgis {
+    private:
+     //! \brief boolean stating if PETSc shall be used
+     bool use_petsc = false;
++#ifdef MFEM_USE_PETSC
++    /*!
++     * \brief boolean stating if PETSc has been initialized for its solvers
++     * and its preconditioners (see `initializePETScOnDemand`)
++     */
++    bool petsc_initialized_on_demand = false;
++#endif /* MFEM_USE_PETSC */
+     /*!
+      * \brief MFEM device, created by `initialize` (option `--device`,
+      * environment variable `MFEM_MGIS_DEVICE`, or device `gpu` by default in
+@@ -392,10 +408,22 @@ namespace mfem_mgis {
+     this->use_petsc = true;
+     mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
+   }
++  void Finalizer::initializePETScOnDemand() {
++    // PETSc is already initialized when its non linear solver is used
++    if ((this->use_petsc) || (this->petsc_initialized_on_demand)) {
++      return;
++    }
++    mfem::MFEMInitializePetsc();
++    this->petsc_initialized_on_demand = true;
++  }  // end of initializePETScOnDemand
+ #else  /* MFEM_USE_PETSC */
+   void Finalizer::setPETSc(const char*) {
+     mgis::raise("Finalizer::setPETSc: PETSc is not supported");
+   }
++
++  void Finalizer::initializePETScOnDemand() {
++    mgis::raise("Finalizer::initializePETScOnDemand: PETSc is not supported");
++  }
+ #endif /*MFEM_USE_PETSC*/
+ 
+   void Finalizer::initialize(int& argc, MainFunctionArguments& argv) {
+@@ -656,7 +684,7 @@ namespace mfem_mgis {
+     if (!this->pendingExit) {
+ #ifdef MFEM_USE_MPI
+ #ifdef MFEM_USE_PETSC
+-      if (this->use_petsc) {
++      if ((this->use_petsc) || (this->petsc_initialized_on_demand)) {
+         mfem::MFEMFinalizePetsc();
+       }
+ #endif /* MFEM_USE_PETSC */
+@@ -880,6 +908,10 @@ namespace mfem_mgis {
+     Finalizer::get().setPETSc(petscrc_file);
+   }  // end of setPETSc
+ 
++  void internals::initializePETScOnDemand() {
++    Finalizer::get().initializePETScOnDemand();
++  }  // end of initializePETScOnDemand
++
+   bool isMPIMainProcessForDefaultCommunicator() noexcept {
+     return getMPIRankForDefaultCommunicator() == 0;
+   }  // end of isMPIMainProcess
+diff --git a/src/LinearSolverModules.cxx b/src/LinearSolverModules.cxx
+index ec1a07444e..6634537a80 100644
+--- a/src/LinearSolverModules.cxx
++++ b/src/LinearSolverModules.cxx
+@@ -66,6 +66,11 @@ namespace mfem_mgis::internals {
+       return "MFEM is not compiled with cuDSS";
+     }
+ #endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)) */
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC))
++    if ((n == "PETScLinearSolver") || (n == "PETScPreconditioner")) {
++      return "MFEM is not compiled with PETSc";
++    }
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)) */
+ #ifndef MFEM_USE_SUITESPARSE
+     if (n == "UMFPackSolver") {
+       return "MFEM is not compiled with SuiteSparse";
+@@ -168,6 +173,9 @@ namespace mfem_mgis::internals {
+ #ifdef MFEM_USE_CUDSS
+       declareCuDSSLinearSolvers(f);
+ #endif /* MFEM_USE_CUDSS */
++#ifdef MFEM_USE_PETSC
++      declarePETScLinearSolvers(f);
++#endif /* MFEM_USE_PETSC */
+     }
+ #endif /* MFEM_USE_MPI */
+   }  // end of declareLinearSolvers
+@@ -181,6 +189,9 @@ namespace mfem_mgis::internals {
+ #ifdef MFEM_USE_MPI
+     if constexpr (parallel) {
+       declareHyprePreconditioners(f);
++#ifdef MFEM_USE_PETSC
++      declarePETScPreconditioners(f);
++#endif /* MFEM_USE_PETSC */
+     }
+ #endif /* MFEM_USE_MPI */
+   }  // end of declarePreconditioners
+diff --git a/src/LinearSolverModules.hxx b/src/LinearSolverModules.hxx
+index ffb57a1d4c..c4ff78982f 100644
+--- a/src/LinearSolverModules.hxx
++++ b/src/LinearSolverModules.hxx
+@@ -88,6 +88,18 @@ namespace mfem_mgis::internals {
+    */
+   void declareCuDSSLinearSolvers(LinearSolverFactory<true>& f);
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++  /*!
++   * \brief register the Krylov solver of PETSc
++   * \param[in, out] f: factory
++   */
++  void declarePETScLinearSolvers(LinearSolverFactory<true>& f);
++  /*!
++   * \brief register the preconditioner of PETSc
++   * \param[in, out] f: factory
++   */
++  void declarePETScPreconditioners(PreconditionerFactory<true>& f);
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+ #ifdef MFEM_MGIS_HAVE_AMGX
+   /*!
+    * \brief register the solvers of AmgX
+diff --git a/src/PETScLinearSolvers.cxx b/src/PETScLinearSolvers.cxx
+new file mode 100644
+index 0000000000..7415e1ee64
+--- /dev/null
++++ b/src/PETScLinearSolvers.cxx
+@@ -0,0 +1,431 @@
++/*!
++ * \file   src/PETScLinearSolvers.cxx
++ * \brief  This file implements the module of the linear solvers and of the
++ * preconditioners of PETSc (see `LinearSolverModules.hxx`): a Krylov
++ * solver (`KSP`) and a preconditioner (`PC`) of PETSc, configured by the
++ * options database of PETSc
++ * \date   15/10/2026
++ */
++
++#include "mfem/config/config.hpp"
++
++#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++
++#include <atomic>
++#include <memory>
++#include <tuple>
++#include <string>
++#include <vector>
++#include <iomanip>
++#include <optional>
++#include <sstream>
++#include <utility>
++#include <string_view>
++#include "petscsys.h"
++#include "petscksp.h"
++#include "mfem/linalg/petsc.hpp"
++#include "mfem/fem/pfespace.hpp"
++#include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/LinearSolverConvergenceReport.hxx"
++#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
++#include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
++#include "PETScSupport.hxx"
++#include "LinearSolverModules.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief initialize PETSc, unless it is already initialized (by
++   * mfem-mgis, or by the program, which then finalizes it)
++   */
++  static void initializePETSc() {
++    auto initialized = PetscBool{};
++    if ((PetscInitialized(&initialized) == 0) && (initialized == PETSC_TRUE)) {
++      return;
++    }
++    initializePETScOnDemand();
++  }  // end of initializePETSc
++
++  /*!
++   * \return a prefix of the options database of PETSc which is unique in
++   * the process, so that the options of two solvers do not interfere
++   * \param[in] kind: kind of object (`ksp`, `pc`)
++   */
++  [[nodiscard]] static std::string makePETScOptionsPrefix(
++      const std::string_view kind) {
++    static auto count = std::atomic<std::size_t>{};
++    return "mfem_mgis_" + std::string{kind} + std::to_string(count++) + "_";
++  }  // end of makePETScOptionsPrefix
++
++  /*!
++   * \return the value of an option of PETSc given by a parameter, or an
++   * empty value on error: a boolean (`true` or `false`), an integer, a
++   * floating-point value (written with all its digits) or a string (an empty
++   * string being an option without value)
++   * \param[in, out] ctx: execution context
++   * \param[in] n: name of the option
++   * \param[in] p: parameter
++   */
++  [[nodiscard]] static std::optional<std::string> getPETScOptionValue(
++      Context& ctx, const std::string& n, const Parameter& p) {
++    if (mfem_mgis::is<bool>(p)) {
++      const auto ov = mfem_mgis::get<bool>(ctx, p);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      return std::string{*ov ? "true" : "false"};
++    }
++    if (mfem_mgis::is<int>(p)) {
++      const auto ov = mfem_mgis::get<int>(ctx, p);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      return std::to_string(*ov);
++    }
++    if (mfem_mgis::is<double>(p)) {
++      const auto ov = mfem_mgis::get<double>(ctx, p);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      auto os = std::ostringstream{};
++      os << std::setprecision(17) << *ov;
++      return os.str();
++    }
++    if (mfem_mgis::is<std::string>(p)) {
++      const auto ov = mfem_mgis::get<std::string>(ctx, p);
++      if (isInvalid(ov)) {
++        return {};
++      }
++      return std::string{*ov};
++    }
++    std::ignore = ctx.registerErrorMessage(
++        "invalid value of the option '" + n +
++        "' of PETSc (a boolean, an integer, a floating-point value or a "
++        "string is expected)");
++    return {};
++  }  // end of getPETScOptionValue
++
++  /*!
++   * \brief options of a solver of PETSc, written in the options database of
++   * PETSc with a prefix which is unique to the solver, and removed from it
++   * when the solver is destroyed. This class is the first base class of the
++   * solvers of PETSc, so that the prefix is known when the object of PETSc
++   * is created and that the options are removed after its destruction.
++   *
++   * PETSc ignores the options it does not know (for instance a misspelt
++   * option): the options which PETSc never read are reported when a solver
++   * which has been used is destroyed.
++   */
++  struct PETScOptions {
++    /*!
++     * \param[in] c: communicator
++     * \param[in] kind: kind of object (`ksp`, `pc`)
++     */
++    PETScOptions(MPI_Comm c, const std::string_view kind)
++        : prefix(makePETScOptionsPrefix(kind)), communicator(c) {}
++    PETScOptions(PETScOptions&&) = delete;
++    PETScOptions(const PETScOptions&) = delete;
++    PETScOptions& operator=(PETScOptions&&) = delete;
++    PETScOptions& operator=(const PETScOptions&) = delete;
++    /*!
++     * \brief write options in the options database of PETSc
++     * \return true on success
++     * \param[in, out] ctx: execution context
++     * \param[in] options: options, given without the leading dash and the
++     * prefix (for instance `{"ksp_type", "cg"}`)
++     */
++    [[nodiscard]] bool setOptions(Context& ctx, const Parameters& options) {
++      for (const auto& [n, p] : options) {
++        if (n.empty() || n.starts_with('-')) {
++          return ctx.registerErrorMessage(
++              "invalid option '" + n +
++              "' of PETSc (the options are given without the leading dash)");
++        }
++        const auto ovalue = getPETScOptionValue(ctx, n, p);
++        if (isInvalid(ovalue)) {
++          return false;
++        }
++        auto option = "-" + this->prefix + n;
++        const auto* const value = ovalue->empty() ? nullptr : ovalue->c_str();
++        if (PetscOptionsSetValue(nullptr, option.c_str(), value) != 0) {
++          return ctx.registerErrorMessage("the option '" + n +
++                                          "' can't be given to PETSc");
++        }
++        this->options.push_back(std::move(option));
++      }
++      return true;
++    }
++    /*!
++     * \brief destructor, reporting the options which PETSc never read, if
++     * the solver has been used, and removing the options from the options
++     * database (unless PETSc has been finalized)
++     */
++    ~PETScOptions() {
++      auto finalized = PetscBool{};
++      if ((PetscFinalized(&finalized) != 0) || (finalized == PETSC_TRUE)) {
++        return;
++      }
++      auto rank = int{};
++      MPI_Comm_rank(this->communicator, &rank);
++      for (const auto& o : this->options) {
++        auto read = PetscBool{};
++        if ((this->used) && (rank == 0) &&
++            (PetscOptionsUsed(nullptr, o.c_str() + 1, &read) == 0) &&
++            (read == PETSC_FALSE)) {
++          getErrorStream() << "warning: the option '"
++                           << o.substr(this->prefix.size() + 1)
++                           << "' was never read by PETSc\n";
++        }
++        std::ignore = PetscOptionsClearValue(nullptr, o.c_str());
++      }
++    }
++    //! \brief prefix of the options
++    const std::string prefix;
++
++   protected:
++    //! \brief mark the solver as used (called by the `Mult` methods)
++    void markAsUsed() const noexcept { this->used = true; }
++
++   private:
++    //! \brief communicator of the solver
++    const MPI_Comm communicator;
++    //! \brief options written in the options database, with their prefix
++    std::vector<std::string> options;
++    //! \brief if true, the solver has been used
++    mutable bool used = false;
++  };  // end of struct PETScOptions
++
++  /*!
++   * \brief Krylov solver of PETSc (`KSP`) configured by the options database
++   * of PETSc. The operators are converted to the AIJ format of PETSc at each
++   * call to `SetOperator`, so that the preconditioners of PETSc can be built
++   * (they are thus built again at each call). A preconditioner of mfem-mgis
++   * is seen by PETSc as a shell preconditioner, a preconditioner of PETSc
++   * (`PETScPreconditioner`) becomes the preconditioner of the Krylov solver.
++   *
++   * The `iterative_mode` member of MFEM is given to PETSc at the
++   * construction only (the solvers of mfem-mgis start from a null initial
++   * guess). A resolution stopped by the maximum number of iterations
++   * without norm (option `ksp_norm_type none`) is reported as converged, as
++   * PETSc does.
++   */
++  struct PETScKrylovSolver final : public PETScOptions,
++                                   public mfem::PetscLinearSolver,
++                                   public LinearSolverConvergenceReport {
++    /*!
++     * \param[in] comm: communicator
++     */
++    explicit PETScKrylovSolver(MPI_Comm comm)
++        : PETScOptions(comm, "ksp"),
++          mfem::PetscLinearSolver(comm, this->prefix, false) {}
++    /*!
++     * \brief set a preconditioner of mfem-mgis: a preconditioner of PETSc
++     * (`PETScPreconditioner`) becomes the preconditioner of the Krylov
++     * solver, the others are seen by PETSc as shell preconditioners. This
++     * method hides the one of MFEM, which is not virtual.
++     * \param[in] p: preconditioner
++     */
++    void SetPreconditioner(mfem::Solver& p) {
++      if (dynamic_cast<mfem::PetscPreconditioner*>(&p) == nullptr) {
++        this->shell_preconditioner = &p;
++      }
++      mfem::PetscLinearSolver::SetPreconditioner(p);
++    }
++    void SetOperator(const mfem::Operator& op) override {
++      // unlike the Krylov solvers of MFEM, the solver of PETSc does not give
++      // the operator to a shell preconditioner (the operator of a
++      // preconditioner of PETSc is set by PETSc)
++      if (this->shell_preconditioner != nullptr) {
++        this->shell_preconditioner->SetOperator(op);
++      }
++      mfem::PetscLinearSolver::SetOperator(op);
++    }
++    void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
++      this->markAsUsed();
++      mfem::PetscLinearSolver::Mult(b, x);
++    }
++    [[nodiscard]] bool hasConverged() const noexcept override {
++      // the accessors of MFEM are not constant
++      return const_cast<PETScKrylovSolver*>(this)->GetConverged() > 0;
++    }
++    [[nodiscard]] std::optional<int> getNumberOfIterations()
++        const noexcept override {
++      return const_cast<PETScKrylovSolver*>(this)->GetNumIterations();
++    }
++    [[nodiscard]] std::optional<real> getRelativeTolerance()
++        const noexcept override {
++      auto rtol = PetscReal{};
++      if (KSPGetTolerances(KSP(*this), &rtol, nullptr, nullptr, nullptr) != 0) {
++        return {};
++      }
++      return static_cast<real>(rtol);
++    }
++    [[nodiscard]] bool setRelativeTolerance(const real tol) noexcept override {
++      this->SetRelTol(tol);
++      return true;
++    }
++
++   private:
++    //! \brief shell preconditioner, if any (not owned)
++    mfem::Solver* shell_preconditioner = nullptr;
++  };  // end of struct PETScKrylovSolver
++
++  //! \brief preconditioner of PETSc (`PC`) configured by the options database
++  struct PETScPreconditioner final : public PETScOptions,
++                                     public mfem::PetscPreconditioner {
++    /*!
++     * \param[in] comm: communicator
++     */
++    explicit PETScPreconditioner(MPI_Comm comm)
++        : PETScOptions(comm, "pc"),
++          mfem::PetscPreconditioner(comm, this->prefix) {}
++    void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
++      this->markAsUsed();
++      mfem::PetscPreconditioner::Mult(b, x);
++    }
++  };  // end of struct PETScPreconditioner
++
++  //! \return the options of the Krylov solver of PETSc
++  [[nodiscard]] static std::vector<std::string> getPETScKrylovSolverOptions() {
++    auto options = getIterativeSolverParametersList();
++    options.insert(options.end(), {"Options", "Preconditioner"});
++    return options;
++  }  // end of getPETScKrylovSolverOptions
++
++  /*!
++   * \return the generator of the Krylov solver of PETSc
++   * \param[in] d: description of the solver
++   */
++  [[nodiscard]] static LinearSolverFactory<true>::Generator
++  buildPETScKrylovSolverGenerator(const LinearSolverDescription d) {
++    return [d](Context& ctx, FiniteElementSpace<true>& fespace,
++               const Parameters& params) -> LinearSolverHandler {
++      using Problem = AbstractNonLinearEvolutionProblem;
++      if (!checkParameters(ctx, params, d.options)) {
++        return {};
++      }
++      const auto oopts =
++          get_if<Parameters>(ctx, params, "Options", Parameters{});
++      if (isInvalid(oopts)) {
++        return {};
++      }
++      initializePETSc();
++      auto s = std::make_unique<PETScKrylovSolver>(fespace.GetComm());
++      if (!s->setOptions(ctx, *oopts)) {
++        return {};
++      }
++      auto& ksp = *s;
++      // the options of mfem-mgis, overridden by the ones of PETSc
++      if (contains(params, Problem::SolverRelativeTolerance)) {
++        const auto ov =
++            get<double>(ctx, params, Problem::SolverRelativeTolerance);
++        if (isInvalid(ov)) {
++          return {};
++        }
++        ksp.SetRelTol(boundRelativeTolerance(*ov));
++      }
++      if (contains(params, Problem::SolverAbsoluteTolerance)) {
++        const auto ov =
++            get<double>(ctx, params, Problem::SolverAbsoluteTolerance);
++        if (isInvalid(ov)) {
++          return {};
++        }
++        ksp.SetAbsTol(*ov);
++      }
++      if (contains(params, Problem::SolverMaximumNumberOfIterations)) {
++        const auto ov =
++            get<int>(ctx, params, Problem::SolverMaximumNumberOfIterations);
++        if (isInvalid(ov)) {
++          return {};
++        }
++        ksp.SetMaxIter(*ov);
++      }
++      if (contains(params, Problem::SolverVerbosityLevel)) {
++        const auto ov = get<int>(ctx, params, Problem::SolverVerbosityLevel);
++        if (isInvalid(ov)) {
++          return {};
++        }
++        ksp.SetPrintLevel(*ov);
++      }
++      // a preconditioner of mfem-mgis is seen by PETSc as a shell
++      // preconditioner
++      auto oprec = makePreconditioner<true>(ctx, fespace, "PETScLinearSolver",
++                                            d, params);
++      if (isInvalid(oprec)) {
++        return {};
++      }
++      if (*oprec != nullptr) {
++        // PETSc would replace the preconditioner by the one given by these
++        // options
++        for (const auto& [n, p] : *oopts) {
++          if (n.starts_with("pc_")) {
++            std::ignore = ctx.registerErrorMessage(
++                "the option '" + n +
++                "' of the preconditioner of PETSc can't be given to a solver "
++                "with a preconditioner of mfem-mgis (the options of the "
++                "'PETScPreconditioner' preconditioner are given by its "
++                "'Options' option)");
++            return {};
++          }
++        }
++        s->SetPreconditioner(**oprec);
++      }
++      return LinearSolverHandler{std::move(s), std::move(*oprec)};
++    };
++  }  // end of buildPETScKrylovSolverGenerator
++
++  /*!
++   * \return the preconditioner of PETSc
++   * \param[in, out] ctx: execution context
++   * \param[in] fespace: finite element space
++   * \param[in] opts: options (`Options`, the options of PETSc)
++   */
++  [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
++  makePETScPreconditioner(Context& ctx,
++                          FiniteElementSpace<true>& fespace,
++                          const Parameters& opts) {
++    if (!checkParameters(ctx, opts, {"Options"})) {
++      return {};
++    }
++    const auto oopts = get_if<Parameters>(ctx, opts, "Options", Parameters{});
++    if (isInvalid(oopts)) {
++      return {};
++    }
++    initializePETSc();
++    auto p = std::make_unique<PETScPreconditioner>(fespace.GetComm());
++    if (!p->setOptions(ctx, *oopts)) {
++      return {};
++    }
++    return p;
++  }  // end of makePETScPreconditioner
++
++  void declarePETScLinearSolvers(LinearSolverFactory<true>& f) {
++    const auto d = LinearSolverDescription{
++        .library = "PETSc",
++        .kind = LinearSolverKind::ITERATIVE,
++        .placement = LinearSolverPlacement::HOST,
++        .preconditioners = AcceptedPreconditioners::ANY,
++        .options = getPETScKrylovSolverOptions(),
++        .description =
++            "Krylov solver of PETSc (KSP), configured by the "
++            "options of PETSc given by the 'Options' parameter"};
++    declare(f, "PETScLinearSolver", d, buildPETScKrylovSolverGenerator(d));
++  }  // end of declarePETScLinearSolvers
++
++  void declarePETScPreconditioners(PreconditionerFactory<true>& f) {
++    declare(f, "PETScPreconditioner",
++            LinearSolverDescription{
++                .library = "PETSc",
++                .kind = LinearSolverKind::PRECONDITIONER,
++                .placement = LinearSolverPlacement::HOST,
++                .preconditioners = AcceptedPreconditioners::NONE,
++                .options = {"Options"},
++                .description = "preconditioner of PETSc (PC), configured by "
++                               "the options of PETSc given by the 'Options' "
++                               "parameter"},
++            makePETScPreconditioner);
++  }  // end of declarePETScPreconditioners
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+new file mode 100644
+index 0000000000..f7fb1e106f
+--- /dev/null
++++ b/src/PETScSupport.hxx
+@@ -0,0 +1,26 @@
++/*!
++ * \file   src/PETScSupport.hxx
++ * \brief  This file declares the functions supporting the solvers and the
++ * preconditioners of PETSc (internal header)
++ * \date   15/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_PETSCSUPPORT_HXX
++#define LIB_MFEM_MGIS_SRC_PETSCSUPPORT_HXX
++
++#include "MFEMMGIS/Config.hxx"
++
++namespace mfem_mgis::internals {
++
++  /*!
++   * \brief initialize PETSc, if not done yet by mfem-mgis, for its solvers
++   * and its preconditioners, PETSc being finalized at the end of the
++   * execution of mfem-mgis. This does not select the non linear solver of
++   * PETSc (see `usePETSc`). This function shall not be called if the program
++   * initialized PETSc itself.
++   */
++  void initializePETScOnDemand();
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* LIB_MFEM_MGIS_SRC_PETSCSUPPORT_HXX */
+-- 
+2.43.0
+

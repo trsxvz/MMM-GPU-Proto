@@ -14,12 +14,14 @@ namespace mfem_mgis {
 
   /*!
    * \brief interface of the linear solvers which report the outcome of their
-   * last resolution. The functions `hasConverged` and
-   * `getNumberOfIterationsAtConvergence` (see `SolverUtilities.hxx`) use it
-   * for the solvers which are neither iterative solvers of MFEM nor Krylov
-   * solvers of hypre: a linear solver wrapping another library implements
-   * this interface, so that these functions need no change when a library
-   * is added.
+   * last resolution, and, for the iterative ones, give access to their
+   * relative tolerance. The functions `hasConverged`,
+   * `getNumberOfIterationsAtConvergence`, `getRelativeTolerance` and
+   * `setRelativeTolerance` (see `SolverUtilities.hxx`) use it for the
+   * solvers which are neither iterative solvers of MFEM nor Krylov solvers
+   * of hypre: a linear solver wrapping another library implements this
+   * interface, so that these functions need no change when a library is
+   * added.
    */
   struct MFEM_MGIS_EXPORT LinearSolverConvergenceReport {
     /*!
@@ -33,6 +35,18 @@ namespace mfem_mgis {
      */
     [[nodiscard]] virtual std::optional<int> getNumberOfIterations()
         const noexcept = 0;
+    /*!
+     * \return the relative tolerance of an iterative solver, empty by
+     * default (the solver has no relative tolerance)
+     */
+    [[nodiscard]] virtual std::optional<real> getRelativeTolerance()
+        const noexcept;
+    /*!
+     * \brief set the relative tolerance of an iterative solver
+     * \return false by default (the solver has no relative tolerance)
+     * \param[in] tol: relative tolerance
+     */
+    [[nodiscard]] virtual bool setRelativeTolerance(const real tol) noexcept;
     //! \brief destructor
     virtual ~LinearSolverConvergenceReport();
   };  // end of struct LinearSolverConvergenceReport

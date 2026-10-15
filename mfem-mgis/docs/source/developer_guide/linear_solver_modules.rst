@@ -15,8 +15,9 @@ library is available:
 The existing modules are the ones of MFEM and mfem-mgis
 (:file:`src/MFEMLinearSolvers.cxx`), hypre
 (:file:`src/HypreLinearSolvers.cxx`), MUMPS
-(:file:`src/MUMPSSolvers.cxx`), cuDSS (:file:`src/CuDSSSolvers.cxx`) and
-AmgX (:file:`src/AmgXSolvers.cxx`).
+(:file:`src/MUMPSSolvers.cxx`), cuDSS (:file:`src/CuDSSSolvers.cxx`),
+AmgX (:file:`src/AmgXSolvers.cxx`) and PETSc
+(:file:`src/PETScLinearSolvers.cxx`).
 
 Adding a library consists of:
 
@@ -26,7 +27,10 @@ Adding a library consists of:
    an option of mfem-mgis for the others, as :cxx:`MFEM_MGIS_HAVE_AMGX`);
 2. declaring its functions in :file:`src/LinearSolverModules.hxx` and
    calling them in :cxx:`declareLinearSolvers` and
-   :cxx:`declarePreconditioners` (:file:`src/LinearSolverModules.cxx`).
+   :cxx:`declarePreconditioners` (:file:`src/LinearSolverModules.cxx`);
+3. adding its entries to :cxx:`getUnavailableLibraryHint`
+   (:file:`src/LinearSolverModules.cxx`), so that the error message of an
+   unknown entry explains that the library is not available.
 
 Each entry is registered by the :cxx:`declare` function with its
 description (:cxx:`LinearSolverDescription`): library, kind, placement,
@@ -40,8 +44,10 @@ of its library.
 
 A linear solver which is neither an iterative solver of MFEM nor a Krylov
 solver of hypre implements the :cxx:`LinearSolverConvergenceReport`
-interface, read by the :cxx:`hasConverged` and
-:cxx:`getNumberOfIterationsAtConvergence` functions.
+interface, read by the :cxx:`hasConverged`,
+:cxx:`getNumberOfIterationsAtConvergence`, :cxx:`getRelativeTolerance` and
+:cxx:`setRelativeTolerance` functions (the last two are used by the
+adaptive tolerance of the linear solver of the Newton solver).
 
 The generic test :file:`tests/LinearSolverFactoriesTest.cxx` solves the
 Laplace equation with each registered linear solver and each registered

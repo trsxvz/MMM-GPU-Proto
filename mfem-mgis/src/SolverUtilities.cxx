@@ -116,6 +116,16 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_MPI */
   }    // end of clearHypreErrors
 
+  std::optional<real> LinearSolverConvergenceReport::getRelativeTolerance()
+      const noexcept {
+    return {};
+  }  // end of getRelativeTolerance
+
+  bool LinearSolverConvergenceReport::setRelativeTolerance(
+      const real) noexcept {
+    return false;
+  }  // end of setRelativeTolerance
+
   LinearSolverConvergenceReport::~LinearSolverConvergenceReport() = default;
 
   bool hasConverged(const LinearSolver& ls) noexcept {
@@ -250,6 +260,12 @@ namespace mfem_mgis {
       return static_cast<real>(tol);
     }
 #endif /* MFEM_USE_MPI */
+    // solvers of the other libraries
+    if (const auto* const r =
+            dynamic_cast<const LinearSolverConvergenceReport*>(&ls);
+        r != nullptr) {
+      return r->getRelativeTolerance();
+    }
     return {};
   }  // end of getRelativeTolerance
 
@@ -285,6 +301,11 @@ namespace mfem_mgis {
       return true;
     }
 #endif /* MFEM_USE_MPI */
+    // solvers of the other libraries
+    if (auto* const r = dynamic_cast<LinearSolverConvergenceReport*>(&ls);
+        r != nullptr) {
+      return r->setRelativeTolerance(tol);
+    }
     return false;
   }  // end of setRelativeTolerance
 }  // end of namespace mfem_mgis

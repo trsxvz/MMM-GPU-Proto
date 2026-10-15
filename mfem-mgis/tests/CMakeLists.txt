@@ -1601,6 +1601,15 @@ if(MFEM_USE_MPI)
   set_tests_properties(LinearSolverFactoriesTestP PROPERTIES
     FAIL_REGULAR_EXPRESSION "check failed")
 endif(MFEM_USE_MPI)
+# PETScSolversTest executable: Krylov solver and preconditioner of PETSc
+# configured by the options of PETSc
+if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
+  add_test_executable(PETScSolversTest)
+  add_test(NAME PETScSolversTest COMMAND PETScSolversTest)
+  add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
+  set_tests_properties(PETScSolversTest PETScSolversTestP PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed")
+endif()
 # on a CUDA GPU, the entries which only compute on the GPU (AmgX, cuDSS) are
 # also checked
 if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)

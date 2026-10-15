@@ -66,6 +66,11 @@ namespace mfem_mgis::internals {
       return "MFEM is not compiled with cuDSS";
     }
 #endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)) */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC))
+    if ((n == "PETScLinearSolver") || (n == "PETScPreconditioner")) {
+      return "MFEM is not compiled with PETSc";
+    }
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)) */
 #ifndef MFEM_USE_SUITESPARSE
     if (n == "UMFPackSolver") {
       return "MFEM is not compiled with SuiteSparse";
@@ -168,6 +173,9 @@ namespace mfem_mgis::internals {
 #ifdef MFEM_USE_CUDSS
       declareCuDSSLinearSolvers(f);
 #endif /* MFEM_USE_CUDSS */
+#ifdef MFEM_USE_PETSC
+      declarePETScLinearSolvers(f);
+#endif /* MFEM_USE_PETSC */
     }
 #endif /* MFEM_USE_MPI */
   }  // end of declareLinearSolvers
@@ -181,6 +189,9 @@ namespace mfem_mgis::internals {
 #ifdef MFEM_USE_MPI
     if constexpr (parallel) {
       declareHyprePreconditioners(f);
+#ifdef MFEM_USE_PETSC
+      declarePETScPreconditioners(f);
+#endif /* MFEM_USE_PETSC */
     }
 #endif /* MFEM_USE_MPI */
   }  // end of declarePreconditioners

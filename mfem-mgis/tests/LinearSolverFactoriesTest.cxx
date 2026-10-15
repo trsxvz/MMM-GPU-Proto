@@ -36,6 +36,9 @@
 #include "MFEMMGIS/PreconditionerFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "MFEMMGIS/MPI.hxx"
+#include "LaplaceSystem.hxx"
+
+using mfem_mgis::tests::LaplaceSystem;
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -57,82 +60,6 @@ static void check(const bool b, const std::string& msg) {
     ++failures;
   }
 }  // end of check
-
-//! \brief Laplace equation on a cube, sequential or parallel
-template <bool is_parallel>
-struct LaplaceSystem {
-  using Mesh = std::conditional_t<is_parallel, mfem::ParMesh, mfem::Mesh>;
-  using BilinearForm = std::
-      conditional_t<is_parallel, mfem::ParBilinearForm, mfem::BilinearForm>;
-  using LinearForm =
-      std::conditional_t<is_parallel, mfem::ParLinearForm, mfem::LinearForm>;
-  using GridFunction = std::
-      conditional_t<is_parallel, mfem::ParGridFunction, mfem::GridFunction>;
-  using Matrix =
-      std::conditional_t<is_parallel, mfem::HypreParMatrix, mfem::SparseMatrix>;
-  /*!
-   * \param[in] smesh: sequential mesh (partitioned in parallel)
-   * \param[in] fec: finite element collection
-   */
-  LaplaceSystem(mfem::Mesh& smesh, mfem::FiniteElementCollection& fec)
-      : mesh(makeMesh(smesh)), fespace(mesh.get(), &fec), a(&fespace) {
-    auto ess_bdr = mfem::Array<int>(this->mesh->bdr_attributes.Max());
-    ess_bdr = 1;
-    auto ess_tdofs = mfem::Array<int>{};
-    this->fespace.GetEssentialTrueDofs(ess_bdr, ess_tdofs);
-    this->a.AddDomainIntegrator(new mfem::DiffusionIntegrator);
-    this->a.SetDiagonalPolicy(mfem::Operator::DIAG_ONE);
-    this->a.Assemble();
-    auto one = mfem::ConstantCoefficient(1.);
-    auto b = LinearForm(&(this->fespace));
-    b.AddDomainIntegrator(new mfem::DomainLFIntegrator(one));
-    b.Assemble();
-    auto x = GridFunction(&(this->fespace));
-    x = 0.;
-    // the right hand side given by MFEM may refer to the memory of the
-    // linear form: it is copied
-    auto X = mfem::Vector{};
-    auto rhs = mfem::Vector{};
-    this->a.FormLinearSystem(ess_tdofs, x, b, this->A, X, rhs);
-    this->B = rhs;
-  }
-  //! \return the norm of the residual relative to the right hand side
-  double getRelativeResidual(const mfem::Vector& x) {
-    auto r = mfem::Vector(this->B.Size());
-    r.UseDevice(true);
-    this->A.Mult(x, r);
-    r -= this->B;
-    return std::sqrt(this->dot(r, r) / this->dot(this->B, this->B));
-  }
-  //! \brief mesh (copy of the sequential mesh, or partition of it)
-  std::unique_ptr<Mesh> mesh;
-  //! \brief finite element space
-  mfem_mgis::FiniteElementSpace<is_parallel> fespace;
-  //! \brief bilinear form
-  BilinearForm a;
-  //! \brief matrix
-  Matrix A;
-  //! \brief right hand side
-  mfem::Vector B;
-
- private:
-  //! \return the mesh of the system
-  static std::unique_ptr<Mesh> makeMesh(mfem::Mesh& smesh) {
-    if constexpr (is_parallel) {
-      return std::make_unique<mfem::ParMesh>(MPI_COMM_WORLD, smesh);
-    } else {
-      return std::make_unique<mfem::Mesh>(smesh);
-    }
-  }
-  //! \return the scalar product of two vectors
-  double dot(const mfem::Vector& u, const mfem::Vector& v) {
-    if constexpr (is_parallel) {
-      return mfem::InnerProduct(this->fespace.GetComm(), u, v);
-    } else {
-      return mfem::InnerProduct(u, v);
-    }
-  }
-};
 
 /*!
  * \return true if the solver or preconditioner can compute in this run:

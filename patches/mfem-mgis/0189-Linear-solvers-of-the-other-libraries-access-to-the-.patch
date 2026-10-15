@@ -1,0 +1,142 @@
+From a0f91f7632eb19c26f1579af8e9126cccc8e3742 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 03:57:11 +0200
+Subject: [PATCH] Linear solvers of the other libraries: access to the relative
+ tolerance
+
+The LinearSolverConvergenceReport interface gives access to the relative
+tolerance of the iterative solvers of the other libraries (by default,
+none). getRelativeTolerance and setRelativeTolerance, used by the
+adaptive tolerance of the linear solver of the Newton solver, use it, so
+that they need no change when a library is added.
+---
+ .../LinearSolverConvergenceReport.hxx         | 26 ++++++++++++++-----
+ .../MFEMMGIS/Utilities/SolverUtilities.hxx    | 15 ++++++-----
+ src/SolverUtilities.cxx                       | 21 +++++++++++++++
+ 3 files changed, 50 insertions(+), 12 deletions(-)
+
+diff --git a/include/MFEMMGIS/LinearSolverConvergenceReport.hxx b/include/MFEMMGIS/LinearSolverConvergenceReport.hxx
+index ac2ab6a586..a2dde3dd98 100644
+--- a/include/MFEMMGIS/LinearSolverConvergenceReport.hxx
++++ b/include/MFEMMGIS/LinearSolverConvergenceReport.hxx
+@@ -14,12 +14,14 @@ namespace mfem_mgis {
+ 
+   /*!
+    * \brief interface of the linear solvers which report the outcome of their
+-   * last resolution. The functions `hasConverged` and
+-   * `getNumberOfIterationsAtConvergence` (see `SolverUtilities.hxx`) use it
+-   * for the solvers which are neither iterative solvers of MFEM nor Krylov
+-   * solvers of hypre: a linear solver wrapping another library implements
+-   * this interface, so that these functions need no change when a library
+-   * is added.
++   * last resolution, and, for the iterative ones, give access to their
++   * relative tolerance. The functions `hasConverged`,
++   * `getNumberOfIterationsAtConvergence`, `getRelativeTolerance` and
++   * `setRelativeTolerance` (see `SolverUtilities.hxx`) use it for the
++   * solvers which are neither iterative solvers of MFEM nor Krylov solvers
++   * of hypre: a linear solver wrapping another library implements this
++   * interface, so that these functions need no change when a library is
++   * added.
+    */
+   struct MFEM_MGIS_EXPORT LinearSolverConvergenceReport {
+     /*!
+@@ -33,6 +35,18 @@ namespace mfem_mgis {
+      */
+     [[nodiscard]] virtual std::optional<int> getNumberOfIterations()
+         const noexcept = 0;
++    /*!
++     * \return the relative tolerance of an iterative solver, empty by
++     * default (the solver has no relative tolerance)
++     */
++    [[nodiscard]] virtual std::optional<real> getRelativeTolerance()
++        const noexcept;
++    /*!
++     * \brief set the relative tolerance of an iterative solver
++     * \return false by default (the solver has no relative tolerance)
++     * \param[in] tol: relative tolerance
++     */
++    [[nodiscard]] virtual bool setRelativeTolerance(const real tol) noexcept;
+     //! \brief destructor
+     virtual ~LinearSolverConvergenceReport();
+   };  // end of struct LinearSolverConvergenceReport
+diff --git a/include/MFEMMGIS/Utilities/SolverUtilities.hxx b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+index 5e2ca99946..4ab51a036b 100644
+--- a/include/MFEMMGIS/Utilities/SolverUtilities.hxx
++++ b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+@@ -129,18 +129,21 @@ namespace mfem_mgis {
+   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<size_type> getNumberOfAnalyses(
+       const LinearSolver& ls) noexcept;
+   /*!
+-   * \return the relative tolerance of the iterative solvers of MFEM and of
+-   * the Krylov solvers of hypre (`HyprePCG`, `HypreGMRES`, `HypreFGMRES`),
+-   * empty for the other solvers (including the solvers of AmgX)
++   * \return the relative tolerance of the iterative solvers of MFEM, of the
++   * Krylov solvers of hypre (`HyprePCG`, `HypreGMRES`, `HypreFGMRES`) and of
++   * the solvers of the other libraries which give access to it (see
++   * `LinearSolverConvergenceReport`), empty for the other solvers (for
++   * instance the solvers of AmgX)
+    * \param[in] ls: linear solver
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] std::optional<real> getRelativeTolerance(
+       const LinearSolver& ls) noexcept;
+   /*!
+    * \brief sets the relative tolerance of an iterative linear solver
+-   * (iterative solvers of MFEM, Krylov solvers of hypre)
+-   * \return false if the solver is not an iterative solver of MFEM or a
+-   * Krylov solver of hypre (for instance a solver of AmgX)
++   * (iterative solvers of MFEM, Krylov solvers of hypre, solvers of the other
++   * libraries which give access to it, see `LinearSolverConvergenceReport`)
++   * \return false if the relative tolerance of the solver can't be set (for
++   * instance for a solver of AmgX)
+    * \param[in, out] ls: linear solver
+    * \param[in] tol: relative tolerance
+    */
+diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
+index 25ef5f195c..346aa34a2f 100644
+--- a/src/SolverUtilities.cxx
++++ b/src/SolverUtilities.cxx
+@@ -116,6 +116,16 @@ namespace mfem_mgis {
+ #endif /* MFEM_USE_MPI */
+   }    // end of clearHypreErrors
+ 
++  std::optional<real> LinearSolverConvergenceReport::getRelativeTolerance()
++      const noexcept {
++    return {};
++  }  // end of getRelativeTolerance
++
++  bool LinearSolverConvergenceReport::setRelativeTolerance(
++      const real) noexcept {
++    return false;
++  }  // end of setRelativeTolerance
++
+   LinearSolverConvergenceReport::~LinearSolverConvergenceReport() = default;
+ 
+   bool hasConverged(const LinearSolver& ls) noexcept {
+@@ -250,6 +260,12 @@ namespace mfem_mgis {
+       return static_cast<real>(tol);
+     }
+ #endif /* MFEM_USE_MPI */
++    // solvers of the other libraries
++    if (const auto* const r =
++            dynamic_cast<const LinearSolverConvergenceReport*>(&ls);
++        r != nullptr) {
++      return r->getRelativeTolerance();
++    }
+     return {};
+   }  // end of getRelativeTolerance
+ 
+@@ -285,6 +301,11 @@ namespace mfem_mgis {
+       return true;
+     }
+ #endif /* MFEM_USE_MPI */
++    // solvers of the other libraries
++    if (auto* const r = dynamic_cast<LinearSolverConvergenceReport*>(&ls);
++        r != nullptr) {
++      return r->setRelativeTolerance(tol);
++    }
+     return false;
+   }  // end of setRelativeTolerance
+ }  // end of namespace mfem_mgis
+-- 
+2.43.0
+

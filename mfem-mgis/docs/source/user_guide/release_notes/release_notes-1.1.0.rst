@@ -135,6 +135,19 @@ message. The available linear solvers and preconditioners are listed in
 :ref:`linear_solvers`; the solvers of each library are registered by a
 module (see :ref:`linear_solver_modules`).
 
+Linear solvers and preconditioners of PETSc
+-------------------------------------------
+
+The :cxx:`PETScLinearSolver` linear solver (a Krylov solver of PETSc)
+and the :cxx:`PETScPreconditioner` preconditioner (a preconditioner of
+PETSc) are available when |MFEM| is built with PETSc. They are
+configured by the options of PETSc given by their :cxx:`Options`
+parameter, and give access to the Krylov solvers and to most
+preconditioners of PETSc, among which its algebraic multigrid (GAMG). A preconditioner of
+mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
+:cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
+See :ref:`petsc_linear_solvers`.
+
 Prediction of the solution
 --------------------------
 
