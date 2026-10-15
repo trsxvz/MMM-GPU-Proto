@@ -485,7 +485,11 @@ systems:
   Krylov solver and the preconditioner are the ones of :code:`PETSc` given
   by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...). The option
   :cxx:`DiscardLinearSolverFailure` lets SNES go on after a failure of the
-  Krylov solver.
+  Krylov solver. When the number of components of the unknowns is the
+  space dimension and the unknowns are ordered by vector dimension, the
+  converted tangent operator receives the rigid body modes, for the
+  algebraic multigrid of :code:`PETSc` (option :cxx:`RigidBodyModes`, true
+  by default, see :ref:`petsc_linear_solvers`).
 
 With a GPU, SNES and the solvers of :code:`PETSc` compute on the host: the
 functions called by :code:`PETSc` copy its vectors from and to the vectors

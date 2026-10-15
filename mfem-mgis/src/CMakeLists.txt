@@ -58,6 +58,7 @@ list(APPEND MFEMMGIS_SOURCES
   MFEMLinearSolvers.cxx
   HypreLinearSolvers.cxx
   HypreSolvers.cxx
+  NodesCoordinates.cxx
   PETScSupport.cxx
   PETScLinearSolvers.cxx
   SuperLUSolvers.cxx

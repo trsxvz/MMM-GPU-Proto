@@ -209,7 +209,7 @@ The solvers marked as parallel are only available in parallel.
      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
        :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
-       :cxx:`Preconditioner`
+       :cxx:`Preconditioner`, :cxx:`RigidBodyModes`
 
 Preconditioners
 ===============
@@ -356,7 +356,8 @@ Preconditioners
    * - :cxx:`PETScPreconditioner` (parallel)
      - PETSc
      - host
-     - :cxx:`Options` (see :ref:`petsc_linear_solvers`)
+     - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
+       :cxx:`RigidBodyModes`
    * - :cxx:`STRUMPACKPreconditioner` (parallel)
      - STRUMPACK
      - host
@@ -563,6 +564,27 @@ set, so that most preconditioners of PETSc can be built, and the
 preconditioner of PETSc is then built again: the operators shall be
 assembled (an operator applied without assembly is converted column by
 column).
+
+When the number of components of the unknowns is the space dimension (2 or
+3) and the unknowns are ordered by vector dimension, the converted matrices
+receive the number of components as block size and the rigid body modes
+of the finite element space as near null space (computed from the
+coordinates of its nodes): the algebraic multigrid of PETSc (GAMG) then
+aggregates the nodes and builds its coarse spaces from these modes (15
+conjugate gradient iterations instead of 51 on the beam of the tests). The
+option :cxx:`RigidBodyModes` (true by default) of
+:cxx:`PETScLinearSolver` and :cxx:`PETScPreconditioner` disables them;
+when :cxx:`PETScPreconditioner` preconditions :cxx:`PETScLinearSolver`,
+the two share the same object of PETSc and the option of the
+preconditioner applies. They are not given with the unknowns ordered by
+nodes (the default of mfem-mgis, see the parameter
+:cxx:`FiniteElementSpaceOrdering`), the block size of PETSc grouping
+consecutive rows, nor to a matrix of another size than the finite element
+space. The block size is also seen by the other preconditioners of PETSc
+(the point block Jacobi method uses blocks of this size, the field split
+splits by default by components). The nonlinear solver :cxx:`SNES` gives
+them likewise to the tangent operator converted for the linear solvers of
+PETSc (option :cxx:`RigidBodyModes` of :cxx:`SNES`).
 
 A preconditioner of mfem-mgis may be given by the :cxx:`Preconditioner`
 parameter of :cxx:`PETScLinearSolver`:

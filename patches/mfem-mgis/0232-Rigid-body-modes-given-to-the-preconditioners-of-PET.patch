@@ -1,0 +1,646 @@
+From 5678e8bdd95763642f69b43348f88ee5e72a6e5f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 18:45:06 +0200
+Subject: [PATCH] Rigid body modes given to the preconditioners of PETSc
+
+When the number of components of the unknowns is the space dimension (2
+or 3) and the unknowns are ordered by vector dimension, the matrices
+converted for PETScLinearSolver and PETScPreconditioner receive the
+number of components as block size and the rigid body modes of the finite
+element space as near null space (MatNullSpaceCreateRigidBody, from the
+coordinates of the nodes): the algebraic multigrid of PETSc (GAMG) then
+aggregates the nodes and builds its coarse spaces from these modes. On the
+beam of PETScSolversTest, the conjugate gradient needs 15 iterations
+instead of 51. Option RigidBodyModes (true by default) to disable them.
+
+The coordinates of the nodes of the true degrees of freedom are computed
+by a shared internal function (NodesCoordinates.hxx), for the other
+algebraic multigrids which need them.
+---
+ docs/source/user_guide/linear_solvers.rst     | 17 ++++-
+ .../release_notes/release_notes-1.1.0.rst     |  3 +-
+ src/CMakeLists.txt                            |  1 +
+ src/NodesCoordinates.cxx                      | 46 ++++++++++++
+ src/NodesCoordinates.hxx                      | 58 +++++++++++++++
+ src/PETScLinearSolvers.cxx                    | 68 ++++++++++++-----
+ src/PETScSupport.cxx                          | 72 ++++++++++++++++++
+ src/PETScSupport.hxx                          | 33 +++++++++
+ tests/PETScSolversTest.cxx                    | 74 ++++++++++++++++++-
+ 9 files changed, 350 insertions(+), 22 deletions(-)
+ create mode 100644 src/NodesCoordinates.cxx
+ create mode 100644 src/NodesCoordinates.hxx
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index acc50bb13f..41f61595fd 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -209,7 +209,7 @@ The solvers marked as parallel are only available in parallel.
+      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
+        :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
+        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
+-       :cxx:`Preconditioner`
++       :cxx:`Preconditioner`, :cxx:`RigidBodyModes`
+ 
+ Preconditioners
+ ===============
+@@ -356,7 +356,8 @@ Preconditioners
+    * - :cxx:`PETScPreconditioner` (parallel)
+      - PETSc
+      - host
+-     - :cxx:`Options` (see :ref:`petsc_linear_solvers`)
++     - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
++       :cxx:`RigidBodyModes`
+    * - :cxx:`STRUMPACKPreconditioner` (parallel)
+      - STRUMPACK
+      - host
+@@ -564,6 +565,18 @@ preconditioner of PETSc is then built again: the operators shall be
+ assembled (an operator applied without assembly is converted column by
+ column).
+ 
++When the number of components of the unknowns is the space dimension (2 or
++3) and the unknowns are ordered by vector dimension, the converted matrices
++receive the number of components as block size and the rigid body modes
++of the finite element space as near null space (computed from the
++coordinates of its nodes): the algebraic multigrid of PETSc (GAMG) then
++aggregates the nodes and builds its coarse spaces from these modes (15
++conjugate gradient iterations instead of 51 on the beam of the tests). The
++option :cxx:`RigidBodyModes` (true by default) of
++:cxx:`PETScLinearSolver` and :cxx:`PETScPreconditioner` disables them.
++They are not given with the unknowns ordered by nodes, the block size of
++PETSc grouping consecutive rows.
++
+ A preconditioner of mfem-mgis may be given by the :cxx:`Preconditioner`
+ parameter of :cxx:`PETScLinearSolver`:
+ 
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 12bd9978d5..f5271d5378 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -146,7 +146,8 @@ parameter, and give access to the Krylov solvers and to most
+ preconditioners of PETSc, among which its algebraic multigrid (GAMG). A preconditioner of
+ mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
+ :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
+-See :ref:`petsc_linear_solvers`.
++For the linear elasticity, the rigid body modes are given to the
++preconditioners of PETSc (GAMG). See :ref:`petsc_linear_solvers`.
+ 
+ Linear solvers and preconditioners of Ginkgo
+ --------------------------------------------
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index ba26612cda..626920943d 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -58,6 +58,7 @@ list(APPEND MFEMMGIS_SOURCES
+   MFEMLinearSolvers.cxx
+   HypreLinearSolvers.cxx
+   HypreSolvers.cxx
++  NodesCoordinates.cxx
+   PETScSupport.cxx
+   PETScLinearSolvers.cxx
+   SuperLUSolvers.cxx
+diff --git a/src/NodesCoordinates.cxx b/src/NodesCoordinates.cxx
+new file mode 100644
+index 0000000000..a5579fba69
+--- /dev/null
++++ b/src/NodesCoordinates.cxx
+@@ -0,0 +1,46 @@
++/*!
++ * \file   src/NodesCoordinates.cxx
++ * \brief  This file implements the computation of the coordinates of the
++ * nodes of the true degrees of freedom of a finite element space (see
++ * `NodesCoordinates.hxx`)
++ * \date   15/10/2026
++ */
++
++#include "mfem/config/config.hpp"
++
++#ifdef MFEM_USE_MPI
++
++#include "mfem/fem/pfespace.hpp"
++#include "mfem/fem/pgridfunc.hpp"
++#include "mfem/fem/coefficient.hpp"
++#include "NodesCoordinates.hxx"
++
++namespace mfem_mgis::internals {
++
++  NodesCoordinates getNodesCoordinates(FiniteElementSpace<true>& fespace) {
++    auto c = NodesCoordinates{};
++    auto* const mesh = fespace.GetParMesh();
++    const auto d = mesh->SpaceDimension();
++    c.dimension = d;
++    auto scalar = mfem::ParFiniteElementSpace(mesh, fespace.FEColl(), 1);
++    for (int k = 0; k != d; ++k) {
++      auto gf = mfem::ParGridFunction(&scalar);
++      auto position = mfem::FunctionCoefficient(
++          [k](const mfem::Vector& x) { return x(k); });
++      gf.ProjectCoefficient(position);
++      auto t = mfem::Vector{};
++      gf.GetTrueDofs(t);
++      const auto* const pt = t.HostRead();
++      c.values.insert(c.values.end(), pt, pt + t.Size());
++    }
++    return c;
++  }  // end of getNodesCoordinates
++
++  bool hasRigidBodyModes(const FiniteElementSpace<true>& fespace) {
++    const auto d = fespace.GetParMesh()->SpaceDimension();
++    return (fespace.GetVDim() == d) && ((d == 2) || (d == 3));
++  }  // end of hasRigidBodyModes
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* MFEM_USE_MPI */
+diff --git a/src/NodesCoordinates.hxx b/src/NodesCoordinates.hxx
+new file mode 100644
+index 0000000000..5ba600ebf8
+--- /dev/null
++++ b/src/NodesCoordinates.hxx
+@@ -0,0 +1,58 @@
++/*!
++ * \file   src/NodesCoordinates.hxx
++ * \brief  This file declares the computation of the coordinates of the nodes
++ * of the true degrees of freedom of a finite element space, used to build
++ * the rigid body modes given to the algebraic multigrids (internal header)
++ * \date   15/10/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_SRC_NODESCOORDINATES_HXX
++#define LIB_MFEM_MGIS_SRC_NODESCOORDINATES_HXX
++
++#include "mfem/config/config.hpp"
++
++#ifdef MFEM_USE_MPI
++
++#include <vector>
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/MFEMForward.hxx"
++
++namespace mfem_mgis::internals {
++
++  //! \brief coordinates of the nodes of the true degrees of freedom
++  struct NodesCoordinates {
++    //! \brief space dimension
++    int dimension = 0;
++    /*!
++     * \brief coordinates of the nodes of the process, component by component
++     * (`dimension` arrays of the number of nodes)
++     */
++    std::vector<real> values;
++  };
++
++  /*!
++   * \return the coordinates of the nodes of the true degrees of freedom of
++   * the process, interpolated on the scalar finite element space of the
++   * same collection: the node `k` carries the true degree of freedom `k` of
++   * a scalar space, and the true degrees of freedom `c * n + k` (ordering
++   * by nodes) or `k * vdim + c` (ordering by vector dimension) of a space
++   * with `vdim` components, `n` being the number of nodes
++   * \param[in] fespace: finite element space
++   * \note this function is collective
++   */
++  [[nodiscard]] NodesCoordinates getNodesCoordinates(
++      FiniteElementSpace<true>& fespace);
++
++  /*!
++   * \return true if the rigid body modes of the unknowns of a finite element
++   * space are defined: the number of components of the unknowns is the space
++   * dimension, 2 or 3
++   * \param[in] fespace: finite element space
++   */
++  [[nodiscard]] bool hasRigidBodyModes(const FiniteElementSpace<true>& fespace);
++
++}  // end of namespace mfem_mgis::internals
++
++#endif /* MFEM_USE_MPI */
++
++#endif /* LIB_MFEM_MGIS_SRC_NODESCOORDINATES_HXX */
+diff --git a/src/PETScLinearSolvers.cxx b/src/PETScLinearSolvers.cxx
+index 1e564688ed..2f98ac9020 100644
+--- a/src/PETScLinearSolvers.cxx
++++ b/src/PETScLinearSolvers.cxx
+@@ -105,18 +105,27 @@ namespace mfem_mgis::internals {
+         this->shell_preconditioner->SetOperator(op);
+       }
+       mfem::PetscLinearSolver::SetOperator(op);
++      auto a = Mat{};
++      auto p = Mat{};
++      if (KSPGetOperators(static_cast<KSP>(*this), &a, &p) != 0) {
++        mgis::raise("PETScKrylovSolver::SetOperator: KSPGetOperators failed");
++      }
+       if (mfem::Device::IsEnabled()) {
+         // see the description of this file
+-        auto a = Mat{};
+-        auto p = Mat{};
+-        if (KSPGetOperators(static_cast<KSP>(*this), &a, &p) != 0) {
+-          mgis::raise("PETScKrylovSolver::SetOperator: KSPGetOperators failed");
+-        }
+         convertToHostMatrix(a);
+         if (p != a) {
+           convertToHostMatrix(p);
+         }
+       }
++      this->rigid_body_modes.attach(p);
++    }
++    /*!
++     * \brief compute the rigid body modes given to the preconditioners of
++     * PETSc (see `PETScRigidBodyModes`)
++     * \param[in] fespace: finite element space
++     */
++    void initializeRigidBodyModes(FiniteElementSpace<true>& fespace) {
++      this->rigid_body_modes.initialize(fespace);
+     }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+       this->markAsUsed();
+@@ -206,6 +215,8 @@ namespace mfem_mgis::internals {
+     mutable mfem::Vector shell_rhs;
+     //! \brief result of the shell preconditioner
+     mutable mfem::Vector shell_solution;
++    //! \brief rigid body modes given to the preconditioners of PETSc
++    PETScRigidBodyModes rigid_body_modes;
+   };  // end of struct PETScKrylovSolver
+ 
+   //! \brief preconditioner of PETSc (`PC`) configured by the options database
+@@ -219,19 +230,27 @@ namespace mfem_mgis::internals {
+           mfem::PetscPreconditioner(comm, this->prefix) {}
+     void SetOperator(const mfem::Operator& op) override {
+       mfem::PetscPreconditioner::SetOperator(op);
++      auto a = Mat{};
++      auto p = Mat{};
++      if (PCGetOperators(static_cast<PC>(*this), &a, &p) != 0) {
++        mgis::raise("PETScPreconditioner::SetOperator: PCGetOperators failed");
++      }
+       if (mfem::Device::IsEnabled()) {
+         // see the description of this file
+-        auto a = Mat{};
+-        auto p = Mat{};
+-        if (PCGetOperators(static_cast<PC>(*this), &a, &p) != 0) {
+-          mgis::raise(
+-              "PETScPreconditioner::SetOperator: PCGetOperators failed");
+-        }
+         convertToHostMatrix(a);
+         if (p != a) {
+           convertToHostMatrix(p);
+         }
+       }
++      this->rigid_body_modes.attach(p);
++    }
++    /*!
++     * \brief compute the rigid body modes given to the preconditioner of
++     * PETSc (see `PETScRigidBodyModes`)
++     * \param[in] fespace: finite element space
++     */
++    void initializeRigidBodyModes(FiniteElementSpace<true>& fespace) {
++      this->rigid_body_modes.initialize(fespace);
+     }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+       this->markAsUsed();
+@@ -252,12 +271,17 @@ namespace mfem_mgis::internals {
+       }
+       copyFromPETScVector(x, vx.v);
+     }
++
++   private:
++    //! \brief rigid body modes given to the preconditioner
++    PETScRigidBodyModes rigid_body_modes;
+   };  // end of struct PETScPreconditioner
+ 
+   //! \return the options of the Krylov solver of PETSc
+   [[nodiscard]] static std::vector<std::string> getPETScKrylovSolverOptions() {
+     auto options = getIterativeSolverParametersList();
+-    options.insert(options.end(), {"Options", "Preconditioner"});
++    options.insert(options.end(),
++                   {"Options", "Preconditioner", "RigidBodyModes"});
+     return options;
+   }  // end of getPETScKrylovSolverOptions
+ 
+@@ -275,7 +299,8 @@ namespace mfem_mgis::internals {
+       }
+       const auto oopts =
+           get_if<Parameters>(ctx, params, "Options", Parameters{});
+-      if (isInvalid(oopts)) {
++      const auto orbm = get_if<bool>(ctx, params, "RigidBodyModes", true);
++      if (isInvalid(oopts) || isInvalid(orbm)) {
+         return {};
+       }
+       initializePETSc();
+@@ -283,6 +308,9 @@ namespace mfem_mgis::internals {
+       if (!s->setOptions(ctx, *oopts)) {
+         return {};
+       }
++      if (*orbm) {
++        s->initializeRigidBodyModes(fespace);
++      }
+       auto& ksp = *s;
+       // the options of mfem-mgis, overridden by the ones of PETSc
+       if (contains(params, Problem::SolverRelativeTolerance)) {
+@@ -347,17 +375,20 @@ namespace mfem_mgis::internals {
+    * \return the preconditioner of PETSc
+    * \param[in, out] ctx: execution context
+    * \param[in] fespace: finite element space
+-   * \param[in] opts: options (`Options`, the options of PETSc)
++   * \param[in] opts: options (`Options`, the options of PETSc;
++   * `RigidBodyModes`, true by default, see `PETScRigidBodyModes`)
+    */
+   [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+   makePETScPreconditioner(Context& ctx,
+                           FiniteElementSpace<true>& fespace,
+                           const Parameters& opts) {
+-    if (!checkParameters(ctx, opts, {"Options"})) {
++    if (!checkParameters(
++            ctx, opts, std::vector<std::string>{"Options", "RigidBodyModes"})) {
+       return {};
+     }
+     const auto oopts = get_if<Parameters>(ctx, opts, "Options", Parameters{});
+-    if (isInvalid(oopts)) {
++    const auto orbm = get_if<bool>(ctx, opts, "RigidBodyModes", true);
++    if (isInvalid(oopts) || isInvalid(orbm)) {
+       return {};
+     }
+     initializePETSc();
+@@ -365,6 +396,9 @@ namespace mfem_mgis::internals {
+     if (!p->setOptions(ctx, *oopts)) {
+       return {};
+     }
++    if (*orbm) {
++      p->initializeRigidBodyModes(fespace);
++    }
+     return p;
+   }  // end of makePETScPreconditioner
+ 
+@@ -388,7 +422,7 @@ namespace mfem_mgis::internals {
+                 .kind = LinearSolverKind::PRECONDITIONER,
+                 .placement = LinearSolverPlacement::HOST,
+                 .preconditioners = AcceptedPreconditioners::NONE,
+-                .options = {"Options"},
++                .options = {"Options", "RigidBodyModes"},
+                 .description = "preconditioner of PETSc (PC), configured by "
+                                "the options of PETSc given by the 'Options' "
+                                "parameter"},
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+index f8fde044e9..583a984afc 100644
+--- a/src/PETScSupport.cxx
++++ b/src/PETScSupport.cxx
+@@ -20,8 +20,10 @@
+ #include "petscsys.h"
+ #include "petscvec.h"
+ #include "petscmat.h"
++#include "mfem/fem/pfespace.hpp"
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "NodesCoordinates.hxx"
+ #include "PETScSupport.hxx"
+ 
+ namespace mfem_mgis::internals {
+@@ -198,6 +200,76 @@ namespace mfem_mgis::internals {
+     }
+   }  // end of convertToHostMatrix
+ 
++  void PETScRigidBodyModes::initialize(FiniteElementSpace<true>& fespace) {
++    this->dimension = 0;
++    this->coordinates.clear();
++    if ((!hasRigidBodyModes(fespace)) ||
++        (fespace.GetOrdering() != mfem::Ordering::byVDIM)) {
++      return;
++    }
++    const auto c = getNodesCoordinates(fespace);
++    const auto d = static_cast<std::size_t>(c.dimension);
++    const auto n = c.values.size() / d;
++    this->coordinates.resize(c.values.size());
++    for (std::size_t node = 0; node != n; ++node) {
++      for (std::size_t k = 0; k != d; ++k) {
++        this->coordinates[node * d + k] =
++            static_cast<PetscScalar>(c.values[k * n + node]);
++      }
++    }
++    this->dimension = c.dimension;
++  }  // end of initialize
++
++  bool PETScRigidBodyModes::isDefined() const noexcept {
++    return this->dimension != 0;
++  }  // end of isDefined
++
++  void PETScRigidBodyModes::attach(Mat m) const {
++    if ((this->dimension == 0) || (m == nullptr)) {
++      return;
++    }
++    // only the assembled matrices (not the shell matrices of the operators
++    // applied without assembly)
++    auto aij = PetscBool{};
++    if (PetscObjectTypeCompareAny(reinterpret_cast<PetscObject>(m), &aij,
++                                  MATAIJ, MATSEQAIJ, MATMPIAIJ, "") != 0) {
++      mgis::raise(
++          "PETScRigidBodyModes::attach: PetscObjectTypeCompareAny failed");
++    }
++    if (aij == PETSC_FALSE) {
++      return;
++    }
++    auto comm = MPI_Comm{};
++    if (PetscObjectGetComm(reinterpret_cast<PetscObject>(m), &comm) != 0) {
++      mgis::raise("PETScRigidBodyModes::attach: PetscObjectGetComm failed");
++    }
++    auto x = PETScVector{};
++    const auto n = static_cast<PetscInt>(this->coordinates.size());
++    auto* values = static_cast<PetscScalar*>(nullptr);
++    if ((MatSetBlockSize(m, this->dimension) != 0) ||
++        (VecCreate(comm, &(x.v)) != 0) ||
++        (VecSetSizes(x.v, n, PETSC_DETERMINE) != 0) ||
++        (VecSetBlockSize(x.v, this->dimension) != 0) ||
++        (VecSetType(x.v, VECSTANDARD) != 0) ||
++        (VecGetArray(x.v, &values) != 0)) {
++      mgis::raise(
++          "PETScRigidBodyModes::attach: the coordinates can't be given to "
++          "PETSc");
++    }
++    std::copy(this->coordinates.begin(), this->coordinates.end(), values);
++    auto nsp = MatNullSpace{};
++    if ((VecRestoreArray(x.v, &values) != 0) ||
++        (MatNullSpaceCreateRigidBody(x.v, &nsp) != 0)) {
++      mgis::raise(
++          "PETScRigidBodyModes::attach: MatNullSpaceCreateRigidBody failed");
++    }
++    const auto status = MatSetNearNullSpace(m, nsp);
++    std::ignore = MatNullSpaceDestroy(&nsp);
++    if (status != 0) {
++      mgis::raise("PETScRigidBodyModes::attach: MatSetNearNullSpace failed");
++    }
++  }  // end of attach
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+index 13b7e860b3..e0ba786a6b 100644
+--- a/src/PETScSupport.hxx
++++ b/src/PETScSupport.hxx
+@@ -17,6 +17,7 @@
+ #include "petscvec.h"
+ #include "petscmat.h"
+ #include "mfem/linalg/vector.hpp"
++#include "MFEMMGIS/MFEMForward.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+ #include "MFEMMGIS/Config.hxx"
+@@ -132,6 +133,38 @@ namespace mfem_mgis::internals {
+    */
+   void convertToHostMatrix(Mat a);
+ 
++  /*!
++   * \brief rigid body modes of the unknowns of a finite element space,
++   * given to the assembled matrices of PETSc as near null space, the number
++   * of components being their block size: the algebraic multigrid of PETSc
++   * (GAMG) aggregates the nodes and builds its coarse spaces from them. The
++   * modes are only defined when the number of components of the unknowns
++   * is the space dimension (2 or 3), and given when the unknowns are ordered
++   * by vector dimension, the block size of PETSc grouping consecutive rows.
++   */
++  struct PETScRigidBodyModes {
++    /*!
++     * \brief compute the coordinates of the nodes of a finite element space
++     * (collective)
++     * \param[in] fespace: finite element space
++     */
++    void initialize(FiniteElementSpace<true>& fespace);
++    /*!
++     * \brief set the block size and the near null space of an assembled
++     * matrix (AIJ formats), if the modes are given
++     * \param[in] m: matrix
++     */
++    void attach(Mat m) const;
++    //! \return true if the rigid body modes are given to the matrices
++    [[nodiscard]] bool isDefined() const noexcept;
++
++   private:
++    //! \brief space dimension, null if the modes are not given
++    int dimension = 0;
++    //! \brief coordinates of the nodes, node by node
++    std::vector<PetscScalar> coordinates;
++  };  // end of struct PETScRigidBodyModes
++
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+ 
+ }  // end of namespace mfem_mgis::internals
+diff --git a/tests/PETScSolversTest.cxx b/tests/PETScSolversTest.cxx
+index 9e42dea8ff..de68211eb5 100644
+--- a/tests/PETScSolversTest.cxx
++++ b/tests/PETScSolversTest.cxx
+@@ -18,6 +18,10 @@
+  *   when the solver is destroyed;
+  * - the algebraic multigrid of PETSc (GAMG) reduces the number of
+  *   iterations compared to a Jacobi preconditioner;
++ * - on the linear elasticity of a beam, the rigid body modes given to GAMG
++ *   (unknowns ordered by vector dimension) reduce the number of iterations,
++ *   for the Krylov solvers of PETSc and of MFEM, and are not given with the
++ *   unknowns ordered by nodes;
+  * - a preconditioner of mfem-mgis is used as a shell preconditioner, which
+  *   receives the operators of different sizes given to the solver;
+  * - the preconditioner of PETSc preconditions the Krylov solvers of PETSc
+@@ -44,7 +48,9 @@
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "LaplaceSystem.hxx"
++#include "ElasticitySystem.hxx"
+ 
++using mfem_mgis::tests::ElasticitySystem;
+ using mfem_mgis::tests::LaplaceSystem;
+ 
+ //! \brief number of failed checks
+@@ -95,8 +101,9 @@ static bool isFaster(const Resolution& r, const Resolution& rj) {
+  * \param[in] name: name of the linear solver
+  * \param[in] parameters: parameters of the linear solver
+  */
++template <typename System>
+ static mfem_mgis::LinearSolverHandler generate(
+-    LaplaceSystem<true>& s,
++    System& s,
+     const std::string& name,
+     const mfem_mgis::Parameters& parameters) {
+   using namespace mfem_mgis;
+@@ -125,7 +132,8 @@ static std::string getGenerationError(LaplaceSystem<true>& s,
+ }  // end of getGenerationError
+ 
+ //! \return the resolution of the system by a linear solver
+-static Resolution solve(LaplaceSystem<true>& s, mfem::Solver& ls) {
++template <typename System>
++static Resolution solve(System& s, mfem::Solver& ls) {
+   using namespace mfem_mgis;
+   auto x = mfem::Vector(s.B.Size());
+   x.UseDevice(true);
+@@ -411,6 +419,62 @@ static void checkPreconditioners(LaplaceSystem<true>& s) {
+         "CGSolver, PETScPreconditioner: resolution");
+ }  // end of checkPreconditioners
+ 
++/*!
++ * \brief checks the rigid body modes given to the algebraic multigrid of
++ * PETSc (GAMG) on the linear elasticity: with the unknowns ordered by vector
++ * dimension, they reduce the number of iterations compared to the same
++ * resolution without them (option `RigidBodyModes`), whereas they are not
++ * given with the unknowns ordered by nodes (same iterations with and
++ * without the option)
++ * \param[in] e1: system, unknowns ordered by vector dimension
++ * \param[in] e2: system, unknowns ordered by nodes
++ */
++static void checkRigidBodyModes(ElasticitySystem<true>& e1,
++                                ElasticitySystem<true>& e2) {
++  using namespace mfem_mgis;
++  // the conjugate gradients stop on the norm of the preconditioned
++  // residual, the residual being then about 1e-7
++  const auto solved = [](const Resolution& r) {
++    return r.converged && (r.residual < 1e-5);
++  };
++  const auto parameters = [](const bool rbm) {
++    return Parameters{
++        {"Options", Parameters{{"ksp_type", "cg"}, {"pc_type", "gamg"}}},
++        {"RelativeTolerance", 1e-8},
++        {"MaximumNumberOfIterations", 1000},
++        {"RigidBodyModes", rbm}};
++  };
++  auto with = generate(e1, "PETScLinearSolver", parameters(true));
++  const auto r1 = solve(e1, *(with.linear_solver));
++  auto without = generate(e1, "PETScLinearSolver", parameters(false));
++  const auto r2 = solve(e1, *(without.linear_solver));
++  check(solved(r1) && solved(r2) && isFaster(r1, r2),
++        "CG, GAMG: the rigid body modes do not reduce the number of "
++        "iterations");
++  auto with2 = generate(e2, "PETScLinearSolver", parameters(true));
++  const auto r3 = solve(e2, *(with2.linear_solver));
++  auto without2 = generate(e2, "PETScLinearSolver", parameters(false));
++  const auto r4 = solve(e2, *(without2.linear_solver));
++  check(solved(r3) && (r3.iterations == r4.iterations),
++        "CG, GAMG: rigid body modes given with the unknowns ordered by "
++        "nodes");
++  // the preconditioner of PETSc with the Krylov solver of MFEM
++  auto cg = generate(
++      e1, "CGSolver",
++      Parameters{
++          {"RelativeTolerance", 1e-8},
++          {"MaximumNumberOfIterations", 1000},
++          {"Preconditioner",
++           Parameters{
++               {"Name", "PETScPreconditioner"},
++               {"Options",
++                Parameters{{"Options", Parameters{{"pc_type", "gamg"}}}}}}}});
++  const auto r5 = solve(e1, *(cg.linear_solver));
++  check(solved(r5) && isFaster(r5, r2),
++        "CGSolver, PETScPreconditioner (GAMG): the rigid body modes do not "
++        "reduce the number of iterations");
++}  // end of checkRigidBodyModes
++
+ /*!
+  * \brief checks that invalid options are refused
+  * \param[in] s: system
+@@ -454,6 +518,12 @@ int main(int argc, char** argv) {
+     checkPreconditioners(s);
+     checkInvalidOptions(s);
+     checkExternalPackages(s);
++    // linear elasticity of a beam
++    auto beam = mfem::Mesh::MakeCartesian3D(16, 4, 4, mfem::Element::HEXAHEDRON,
++                                            4., 1., 1.);
++    auto e1 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byVDIM);
++    auto e2 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byNODES);
++    checkRigidBodyModes(e1, e2);
+   } catch (std::exception& e) {
+     std::cerr << "error: " << e.what() << '\n';
+     return EXIT_FAILURE;
+-- 
+2.43.0
+

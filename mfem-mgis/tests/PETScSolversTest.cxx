@@ -18,6 +18,11 @@
  *   when the solver is destroyed;
  * - the algebraic multigrid of PETSc (GAMG) reduces the number of
  *   iterations compared to a Jacobi preconditioner;
+ * - on the linear elasticity of a beam, the rigid body modes given to GAMG
+ *   (unknowns ordered by vector dimension) reduce the number of iterations,
+ *   for the Krylov solvers of PETSc and of MFEM, and are not given with the
+ *   unknowns ordered by nodes; when the preconditioner of PETSc
+ *   preconditions the Krylov solver of PETSc, its own option applies;
  * - a preconditioner of mfem-mgis is used as a shell preconditioner, which
  *   receives the operators of different sizes given to the solver;
  * - the preconditioner of PETSc preconditions the Krylov solvers of PETSc
@@ -44,7 +49,9 @@
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "LaplaceSystem.hxx"
+#include "ElasticitySystem.hxx"
 
+using mfem_mgis::tests::ElasticitySystem;
 using mfem_mgis::tests::LaplaceSystem;
 
 //! \brief number of failed checks
@@ -95,8 +102,9 @@ static bool isFaster(const Resolution& r, const Resolution& rj) {
  * \param[in] name: name of the linear solver
  * \param[in] parameters: parameters of the linear solver
  */
+template <typename System>
 static mfem_mgis::LinearSolverHandler generate(
-    LaplaceSystem<true>& s,
+    System& s,
     const std::string& name,
     const mfem_mgis::Parameters& parameters) {
   using namespace mfem_mgis;
@@ -125,7 +133,8 @@ static std::string getGenerationError(LaplaceSystem<true>& s,
 }  // end of getGenerationError
 
 //! \return the resolution of the system by a linear solver
-static Resolution solve(LaplaceSystem<true>& s, mfem::Solver& ls) {
+template <typename System>
+static Resolution solve(System& s, mfem::Solver& ls) {
   using namespace mfem_mgis;
   auto x = mfem::Vector(s.B.Size());
   x.UseDevice(true);
@@ -412,6 +421,86 @@ static void checkPreconditioners(LaplaceSystem<true>& s) {
 }  // end of checkPreconditioners
 
 /*!
+ * \brief checks the rigid body modes given to the algebraic multigrid of
+ * PETSc (GAMG) on the linear elasticity: with the unknowns ordered by vector
+ * dimension, they reduce the number of iterations compared to the same
+ * resolution without them (option `RigidBodyModes`), whereas they are not
+ * given with the unknowns ordered by nodes (same iterations with and
+ * without the option)
+ * \param[in] e1: system, unknowns ordered by vector dimension
+ * \param[in] e2: system, unknowns ordered by nodes
+ */
+static void checkRigidBodyModes(ElasticitySystem<true>& e1,
+                                ElasticitySystem<true>& e2) {
+  using namespace mfem_mgis;
+  // the conjugate gradients stop on the norm of the preconditioned
+  // residual, the residual being then about 1e-7
+  const auto solved = [](const Resolution& r) {
+    return r.converged && (r.residual < 1e-5);
+  };
+  const auto parameters = [](const bool rbm) {
+    return Parameters{
+        {"Options", Parameters{{"ksp_type", "cg"}, {"pc_type", "gamg"}}},
+        {"RelativeTolerance", 1e-8},
+        {"MaximumNumberOfIterations", 1000},
+        {"RigidBodyModes", rbm}};
+  };
+  auto with = generate(e1, "PETScLinearSolver", parameters(true));
+  const auto r1 = solve(e1, *(with.linear_solver));
+  auto without = generate(e1, "PETScLinearSolver", parameters(false));
+  const auto r2 = solve(e1, *(without.linear_solver));
+  check(solved(r1) && solved(r2) && isFaster(r1, r2),
+        "CG, GAMG: the rigid body modes do not reduce the number of "
+        "iterations");
+  auto with2 = generate(e2, "PETScLinearSolver", parameters(true));
+  const auto r3 = solve(e2, *(with2.linear_solver));
+  auto without2 = generate(e2, "PETScLinearSolver", parameters(false));
+  const auto r4 = solve(e2, *(without2.linear_solver));
+  check(solved(r3) && (r3.iterations == r4.iterations),
+        "CG, GAMG: rigid body modes given with the unknowns ordered by "
+        "nodes");
+  // the preconditioner of PETSc with the Krylov solver of MFEM
+  auto cg = generate(
+      e1, "CGSolver",
+      Parameters{
+          {"RelativeTolerance", 1e-8},
+          {"MaximumNumberOfIterations", 1000},
+          {"Preconditioner",
+           Parameters{
+               {"Name", "PETScPreconditioner"},
+               {"Options",
+                Parameters{{"Options", Parameters{{"pc_type", "gamg"}}}}}}}});
+  const auto r5 = solve(e1, *(cg.linear_solver));
+  check(solved(r5) && isFaster(r5, r2),
+        "CGSolver, PETScPreconditioner (GAMG): the rigid body modes do not "
+        "reduce the number of iterations");
+  // the preconditioner of PETSc with the Krylov solver of PETSc, which
+  // share their object of PETSc: the option of the preconditioner applies
+  const auto nested = [](const bool solver_rbm, const bool pc_rbm) {
+    return Parameters{
+        {"Options", Parameters{{"ksp_type", "cg"}}},
+        {"RelativeTolerance", 1e-8},
+        {"MaximumNumberOfIterations", 1000},
+        {"RigidBodyModes", solver_rbm},
+        {"Preconditioner",
+         Parameters{{"Name", "PETScPreconditioner"},
+                    {"Options",
+                     Parameters{{"Options", Parameters{{"pc_type", "gamg"}}},
+                                {"RigidBodyModes", pc_rbm}}}}}};
+  };
+  auto n1 = generate(e1, "PETScLinearSolver", nested(false, true));
+  const auto r6 = solve(e1, *(n1.linear_solver));
+  check(solved(r6) && (r6.iterations == r1.iterations),
+        "CG, PETScPreconditioner (GAMG): the rigid body modes of the "
+        "preconditioner are not used");
+  auto n2 = generate(e1, "PETScLinearSolver", nested(true, false));
+  const auto r7 = solve(e1, *(n2.linear_solver));
+  check(solved(r7) && (r7.iterations == r2.iterations),
+        "CG, PETScPreconditioner (GAMG): rigid body modes given despite the "
+        "option of the preconditioner");
+}  // end of checkRigidBodyModes
+
+/*!
  * \brief checks that invalid options are refused
  * \param[in] s: system
  */
@@ -454,6 +543,12 @@ int main(int argc, char** argv) {
     checkPreconditioners(s);
     checkInvalidOptions(s);
     checkExternalPackages(s);
+    // linear elasticity of a beam
+    auto beam = mfem::Mesh::MakeCartesian3D(16, 4, 4, mfem::Element::HEXAHEDRON,
+                                            4., 1., 1.);
+    auto e1 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byVDIM);
+    auto e2 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byNODES);
+    checkRigidBodyModes(e1, e2);
   } catch (std::exception& e) {
     std::cerr << "error: " << e.what() << '\n';
     return EXIT_FAILURE;

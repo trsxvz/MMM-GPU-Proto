@@ -146,7 +146,9 @@ parameter, and give access to the Krylov solvers and to most
 preconditioners of PETSc, among which its algebraic multigrid (GAMG). A preconditioner of
 mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
 :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
-See :ref:`petsc_linear_solvers`.
+For the linear elasticity, with the unknowns ordered by vector dimension,
+the rigid body modes are given to the preconditioners of PETSc (GAMG). See
+:ref:`petsc_linear_solvers`.
 
 Linear solvers and preconditioners of Ginkgo
 --------------------------------------------

@@ -1,0 +1,504 @@
+From d4001d1edcc5c0cc81cd1cacbd011e54db5085dc Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 19:08:55 +0200
+Subject: [PATCH] Rigid body modes of PETSc: remarks of the review
+
+- the coordinates are given relative to the centroid of the nodes of all
+  the processes (PETSc orthogonalizes the rotations against the
+  translations in a single pass, which loses accuracy far from the
+  origin, and fails the check of a debug build of PETSc);
+- the modes are only given to a matrix of the size and of the
+  distribution of the finite element space, decided on all the processes
+  (an operator of another size is left unchanged instead of an error, or
+  a deadlock if only some processes saw the mismatch);
+- a PETScPreconditioner given to PETScLinearSolver shares its object of
+  PETSc with the solver, which sets its operators: the option
+  RigidBodyModes of the preconditioner now applies (it was ignored), and
+  the coordinates are computed once;
+- SNES with the linear solvers of PETSc converts the tangent operator to
+  the AIJ format itself, also on the host, and gives it the rigid body
+  modes (MFEM hands this matrix to SNES with its near null space), option
+  RigidBodyModes of SNES;
+- base types of the matrices compared, unused method removed;
+- tests: the preconditioner of PETSc with the solver of PETSc and opposite
+  options, SNES with the unknowns ordered by vector dimension; docs: the
+  ordering by vector dimension is required (not the default), side effects
+  of the block size on the other preconditioners.
+---
+ docs/source/user_guide/linear_solvers.rst     | 15 +++++--
+ .../user_guide/nonlinear_algorithms.rst       |  6 ++-
+ .../release_notes/release_notes-1.1.0.rst     |  5 ++-
+ src/PETScLinearSolvers.cxx                    | 29 ++++++++++--
+ src/PETScSNESSolver.cxx                       | 40 +++++++++++------
+ src/PETScSNESSolver.hxx                       | 18 +++++++-
+ src/PETScSupport.cxx                          | 44 ++++++++++++++-----
+ src/PETScSupport.hxx                          | 11 +++--
+ tests/PETScSolversTest.cxx                    | 27 +++++++++++-
+ tests/SNESSolverTest.cxx                      | 24 +++++++++-
+ 10 files changed, 179 insertions(+), 40 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 41f61595fd..8d16fa8980 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -573,9 +573,18 @@ coordinates of its nodes): the algebraic multigrid of PETSc (GAMG) then
+ aggregates the nodes and builds its coarse spaces from these modes (15
+ conjugate gradient iterations instead of 51 on the beam of the tests). The
+ option :cxx:`RigidBodyModes` (true by default) of
+-:cxx:`PETScLinearSolver` and :cxx:`PETScPreconditioner` disables them.
+-They are not given with the unknowns ordered by nodes, the block size of
+-PETSc grouping consecutive rows.
++:cxx:`PETScLinearSolver` and :cxx:`PETScPreconditioner` disables them;
++when :cxx:`PETScPreconditioner` preconditions :cxx:`PETScLinearSolver`,
++the two share the same object of PETSc and the option of the
++preconditioner applies. They are not given with the unknowns ordered by
++nodes (the default of mfem-mgis, see the parameter
++:cxx:`FiniteElementSpaceOrdering`), the block size of PETSc grouping
++consecutive rows, nor to a matrix of another size than the finite element
++space. The block size is also seen by the other preconditioners of PETSc
++(the point block Jacobi method uses blocks of this size, the field split
++splits by default by components). The nonlinear solver :cxx:`SNES` gives
++them likewise to the tangent operator converted for the linear solvers of
++PETSc (option :cxx:`RigidBodyModes` of :cxx:`SNES`).
+ 
+ A preconditioner of mfem-mgis may be given by the :cxx:`Preconditioner`
+ parameter of :cxx:`PETScLinearSolver`:
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index cf927833a0..e0fe5a66b3 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -485,7 +485,11 @@ systems:
+   Krylov solver and the preconditioner are the ones of :code:`PETSc` given
+   by the options (:cxx:`ksp_type`, :cxx:`pc_type`, ...). The option
+   :cxx:`DiscardLinearSolverFailure` lets SNES go on after a failure of the
+-  Krylov solver.
++  Krylov solver. When the number of components of the unknowns is the
++  space dimension and the unknowns are ordered by vector dimension, the
++  converted tangent operator receives the rigid body modes, for the
++  algebraic multigrid of :code:`PETSc` (option :cxx:`RigidBodyModes`, true
++  by default, see :ref:`petsc_linear_solvers`).
+ 
+ With a GPU, SNES and the solvers of :code:`PETSc` compute on the host: the
+ functions called by :code:`PETSc` copy its vectors from and to the vectors
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index f5271d5378..b555735006 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -146,8 +146,9 @@ parameter, and give access to the Krylov solvers and to most
+ preconditioners of PETSc, among which its algebraic multigrid (GAMG). A preconditioner of
+ mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
+ :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
+-For the linear elasticity, the rigid body modes are given to the
+-preconditioners of PETSc (GAMG). See :ref:`petsc_linear_solvers`.
++For the linear elasticity, with the unknowns ordered by vector dimension,
++the rigid body modes are given to the preconditioners of PETSc (GAMG). See
++:ref:`petsc_linear_solvers`.
+ 
+ Linear solvers and preconditioners of Ginkgo
+ --------------------------------------------
+diff --git a/src/PETScLinearSolvers.cxx b/src/PETScLinearSolvers.cxx
+index 2f98ac9020..1c45167969 100644
+--- a/src/PETScLinearSolvers.cxx
++++ b/src/PETScLinearSolvers.cxx
+@@ -127,6 +127,13 @@ namespace mfem_mgis::internals {
+     void initializeRigidBodyModes(FiniteElementSpace<true>& fespace) {
+       this->rigid_body_modes.initialize(fespace);
+     }
++    /*!
++     * \brief set the rigid body modes given to the preconditioners of PETSc
++     * \param[in] m: rigid body modes
++     */
++    void setRigidBodyModes(const PETScRigidBodyModes& m) {
++      this->rigid_body_modes = m;
++    }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+       this->markAsUsed();
+       if (!mfem::Device::IsEnabled()) {
+@@ -252,6 +259,15 @@ namespace mfem_mgis::internals {
+     void initializeRigidBodyModes(FiniteElementSpace<true>& fespace) {
+       this->rigid_body_modes.initialize(fespace);
+     }
++    /*!
++     * \return the rigid body modes given to the preconditioner, used by a
++     * Krylov solver of PETSc which it preconditions (the Krylov solver sets
++     * the operators of its preconditioner itself)
++     */
++    [[nodiscard]] const PETScRigidBodyModes& getRigidBodyModes()
++        const noexcept {
++      return this->rigid_body_modes;
++    }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+       this->markAsUsed();
+       if (!mfem::Device::IsEnabled()) {
+@@ -308,9 +324,6 @@ namespace mfem_mgis::internals {
+       if (!s->setOptions(ctx, *oopts)) {
+         return {};
+       }
+-      if (*orbm) {
+-        s->initializeRigidBodyModes(fespace);
+-      }
+       auto& ksp = *s;
+       // the options of mfem-mgis, overridden by the ones of PETSc
+       if (contains(params, Problem::SolverRelativeTolerance)) {
+@@ -367,6 +380,16 @@ namespace mfem_mgis::internals {
+         }
+         s->SetPreconditioner(**oprec);
+       }
++      // rigid body modes: a preconditioner of PETSc shares its object of
++      // PETSc with the solver, which sets its operators: its own option
++      // applies
++      const auto* const pp =
++          dynamic_cast<const PETScPreconditioner*>(oprec->get());
++      if (pp != nullptr) {
++        s->setRigidBodyModes(pp->getRigidBodyModes());
++      } else if (*orbm) {
++        s->initializeRigidBodyModes(fespace);
++      }
+       return LinearSolverHandler{std::move(s), std::move(*oprec)};
+     };
+   }  // end of buildPETScKrylovSolverGenerator
+diff --git a/src/PETScSNESSolver.cxx b/src/PETScSNESSolver.cxx
+index 5201b424c8..694b719332 100644
+--- a/src/PETScSNESSolver.cxx
++++ b/src/PETScSNESSolver.cxx
+@@ -337,17 +337,24 @@ namespace mfem_mgis::internals {
+         }
+         if (success) {
+           if (s.petsc_linear_solver) {
+-            if (!mfem::Device::IsEnabled()) {
+-              return *j;
+-            }
+-            // when MFEM computes on a GPU, the tangent operator is converted
+-            // to the AIJ format of PETSc of the host here (MFEM chooses the
+-            // format of the GPU), the solvers of PETSc computing on the host
+-            // (see the description of PETScLinearSolvers.cxx)
++            // the tangent operator is converted to the AIJ format of PETSc
++            // here, so that it receives the rigid body modes (MFEM gives
++            // this matrix to SNES with its near null space). When MFEM
++            // computes on a GPU, it is converted to the format of the host
++            // (MFEM chooses the format of the GPU), the solvers of PETSc
++            // computing on the host (see the description of
++            // PETScLinearSolvers.cxx)
+             this->petsc_tangent_operator =
+                 std::make_unique<mfem::PetscParMatrix>(
+                     this->communicator, j, mfem::Operator::PETSC_MATAIJ);
+-            convertToHostMatrix(*(this->petsc_tangent_operator));
++            if (mfem::Device::IsEnabled()) {
++              convertToHostMatrix(*(this->petsc_tangent_operator));
++            }
++            if ((s.rigid_body_modes) && (!this->rigid_body_modes_computed)) {
++              this->rigid_body_modes.initialize(*(s.fespace));
++              this->rigid_body_modes_computed = true;
++            }
++            this->rigid_body_modes.attach(*(this->petsc_tangent_operator));
+             return *(this->petsc_tangent_operator);
+           }
+           this->tangent_operator.setOperator(*j);
+@@ -538,10 +545,13 @@ namespace mfem_mgis::internals {
+     mutable TangentOperatorForPETSc tangent_operator;
+     /*!
+      * \brief tangent operator converted to the AIJ format of PETSc of the
+-     * host, when MFEM computes on a GPU and the linear solvers of PETSc are
+-     * used
++     * host, when the linear solvers of PETSc are used
+      */
+     mutable std::unique_ptr<mfem::PetscParMatrix> petsc_tangent_operator;
++    //! \brief rigid body modes given to the converted tangent operator
++    mutable PETScRigidBodyModes rigid_body_modes;
++    //! \brief if true, the rigid body modes are computed
++    mutable bool rigid_body_modes_computed = false;
+ 
+     //! \brief SNES of MFEM
+     std::unique_ptr<mfem::PetscNonlinearSolver> snes;
+@@ -668,7 +678,7 @@ namespace mfem_mgis::internals {
+ 
+   PETScSNESSolver::PETScSNESSolver(
+       NonLinearEvolutionProblemImplementation<true>& p)
+-      : NonLinearSolverBase(p) {
++      : NonLinearSolverBase(p), fespace(&(p.getFiniteElementSpace())) {
+     initializePETSc();
+   }  // end of PETScSNESSolver
+ 
+@@ -776,7 +786,8 @@ namespace mfem_mgis::internals {
+   bool PETScSNESSolver::setSolverParameters(Context& ctx,
+                                             const Parameters& params) noexcept {
+     const auto own = std::vector<std::string>{"LinearSolver", "Options",
+-                                              "StagnationRelativeTolerance"};
++                                              "StagnationRelativeTolerance",
++                                              "RigidBodyModes"};
+     // the options are read and checked before being applied: a refused call
+     // leaves the solver unchanged
+     auto new_petsc_linear_solver = this->petsc_linear_solver;
+@@ -820,7 +831,9 @@ namespace mfem_mgis::internals {
+     const auto ostagnation = get_if<double>(
+         ctx, params, "StagnationRelativeTolerance",
+         static_cast<double>(this->stagnation_relative_tolerance));
+-    if (isInvalid(ostagnation)) {
++    const auto orbm =
++        get_if<bool>(ctx, params, "RigidBodyModes", this->rigid_body_modes);
++    if (isInvalid(ostagnation) || isInvalid(orbm)) {
+       return false;
+     }
+     if ((*ostagnation < 0) || (*ostagnation >= 1)) {
+@@ -842,6 +855,7 @@ namespace mfem_mgis::internals {
+     this->petsc_linear_solver = new_petsc_linear_solver;
+     this->options = std::move(new_options);
+     this->stagnation_relative_tolerance = static_cast<real>(*ostagnation);
++    this->rigid_body_modes = *orbm;
+     return true;
+   }  // end of setSolverParameters
+ 
+diff --git a/src/PETScSNESSolver.hxx b/src/PETScSNESSolver.hxx
+index 67683017ab..a45a63b7e6 100644
+--- a/src/PETScSNESSolver.hxx
++++ b/src/PETScSNESSolver.hxx
+@@ -70,9 +70,17 @@ namespace mfem_mgis::internals {
+    * their last integration was made elsewhere (a trial point of the line
+    * search), so that the state of the materials matches the solution.
+    *
++   * With `LinearSolver` set to `PETSc`, the tangent operator converted to
++   * the AIJ format receives the rigid body modes as near null space and
++   * the number of components as block size, for the algebraic multigrid of
++   * PETSc, when the number of components of the unknowns is the space
++   * dimension and the unknowns are ordered by vector dimension (option
++   * `RigidBodyModes`, true by default, see `PETScRigidBodyModes`).
++   *
+    * Options: the ones of the iterative solvers (`RelativeTolerance`,
+    * `AbsoluteTolerance`, `MaximumNumberOfIterations`, strictly positive,
+-   * `VerbosityLevel`), `DiscardLinearSolverFailure`, `LinearSolver`
++   * `VerbosityLevel`), `DiscardLinearSolverFailure`, `RigidBodyModes`,
++   * `LinearSolver`
+    * (`Problem`, by default, or `PETSc`), `Options` (the options of PETSc,
+    * for SNES, its line search and its Krylov solver; the options of the
+    * preconditioner, `pc_...`, are refused with the linear solver of the
+@@ -120,6 +128,14 @@ namespace mfem_mgis::internals {
+      */
+     real stagnation_relative_tolerance =
+         10000 * std::numeric_limits<real>::epsilon();
++    /*!
++     * \brief if true, the rigid body modes are given to the tangent
++     * operator converted for the linear solvers of PETSc (see
++     * `PETScRigidBodyModes`)
++     */
++    bool rigid_body_modes = true;
++    //! \brief finite element space of the problem
++    FiniteElementSpace<true>* const fespace = nullptr;
+   };  // end of struct PETScSNESSolver
+ 
+ }  // end of namespace mfem_mgis::internals
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+index 583a984afc..2748edbe6c 100644
+--- a/src/PETScSupport.cxx
++++ b/src/PETScSupport.cxx
+@@ -9,6 +9,7 @@
+ 
+ #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+ 
++#include <array>
+ #include <tuple>
+ #include <atomic>
+ #include <string>
+@@ -210,20 +211,29 @@ namespace mfem_mgis::internals {
+     const auto c = getNodesCoordinates(fespace);
+     const auto d = static_cast<std::size_t>(c.dimension);
+     const auto n = c.values.size() / d;
++    // coordinates relative to the centroid of the nodes of all the
++    // processes: PETSc orthogonalizes the rotations against the
++    // translations in a single pass, which loses accuracy far from the
++    // origin
++    auto sums = std::array<double, 4>{0, 0, 0, static_cast<double>(n)};
++    for (std::size_t k = 0; k != d; ++k) {
++      for (std::size_t node = 0; node != n; ++node) {
++        sums[k] += static_cast<double>(c.values[k * n + node]);
++      }
++    }
++    MPI_Allreduce(MPI_IN_PLACE, sums.data(), 4, MPI_DOUBLE, MPI_SUM,
++                  fespace.GetComm());
+     this->coordinates.resize(c.values.size());
+     for (std::size_t node = 0; node != n; ++node) {
+       for (std::size_t k = 0; k != d; ++k) {
+-        this->coordinates[node * d + k] =
+-            static_cast<PetscScalar>(c.values[k * n + node]);
++        this->coordinates[node * d + k] = static_cast<PetscScalar>(
++            static_cast<double>(c.values[k * n + node]) -
++            sums[k] / std::max(sums[3], 1.));
+       }
+     }
+     this->dimension = c.dimension;
+   }  // end of initialize
+ 
+-  bool PETScRigidBodyModes::isDefined() const noexcept {
+-    return this->dimension != 0;
+-  }  // end of isDefined
+-
+   void PETScRigidBodyModes::attach(Mat m) const {
+     if ((this->dimension == 0) || (m == nullptr)) {
+       return;
+@@ -231,17 +241,29 @@ namespace mfem_mgis::internals {
+     // only the assembled matrices (not the shell matrices of the operators
+     // applied without assembly)
+     auto aij = PetscBool{};
+-    if (PetscObjectTypeCompareAny(reinterpret_cast<PetscObject>(m), &aij,
+-                                  MATAIJ, MATSEQAIJ, MATMPIAIJ, "") != 0) {
++    if (PetscObjectBaseTypeCompareAny(reinterpret_cast<PetscObject>(m), &aij,
++                                      MATSEQAIJ, MATMPIAIJ, "") != 0) {
+       mgis::raise(
+-          "PETScRigidBodyModes::attach: PetscObjectTypeCompareAny failed");
++          "PETScRigidBodyModes::attach: PetscObjectBaseTypeCompareAny failed");
+     }
+     if (aij == PETSC_FALSE) {
+       return;
+     }
+     auto comm = MPI_Comm{};
+-    if (PetscObjectGetComm(reinterpret_cast<PetscObject>(m), &comm) != 0) {
+-      mgis::raise("PETScRigidBodyModes::attach: PetscObjectGetComm failed");
++    auto nrows = PetscInt{};
++    auto ncolumns = PetscInt{};
++    if ((PetscObjectGetComm(reinterpret_cast<PetscObject>(m), &comm) != 0) ||
++        (MatGetLocalSize(m, &nrows, &ncolumns) != 0)) {
++      mgis::raise("PETScRigidBodyModes::attach: the matrix can't be described");
++    }
++    // the modes are only given to the matrices of the finite element space
++    // (a matrix of another size or distribution is left unchanged), the
++    // decision being taken on all the processes
++    auto mismatch = static_cast<int>(static_cast<std::size_t>(nrows) !=
++                                     this->coordinates.size());
++    MPI_Allreduce(MPI_IN_PLACE, &mismatch, 1, MPI_INT, MPI_LOR, comm);
++    if (mismatch != 0) {
++      return;
+     }
+     auto x = PETScVector{};
+     const auto n = static_cast<PetscInt>(this->coordinates.size());
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+index e0ba786a6b..508ab97249 100644
+--- a/src/PETScSupport.hxx
++++ b/src/PETScSupport.hxx
+@@ -151,17 +151,20 @@ namespace mfem_mgis::internals {
+     void initialize(FiniteElementSpace<true>& fespace);
+     /*!
+      * \brief set the block size and the near null space of an assembled
+-     * matrix (AIJ formats), if the modes are given
++     * matrix (AIJ formats), if the modes are given and if the matrix has
++     * the size and the distribution of the finite element space (checked on
++     * all the processes)
+      * \param[in] m: matrix
+      */
+     void attach(Mat m) const;
+-    //! \return true if the rigid body modes are given to the matrices
+-    [[nodiscard]] bool isDefined() const noexcept;
+ 
+    private:
+     //! \brief space dimension, null if the modes are not given
+     int dimension = 0;
+-    //! \brief coordinates of the nodes, node by node
++    /*!
++     * \brief coordinates of the nodes, node by node, relative to the
++     * centroid of the nodes
++     */
+     std::vector<PetscScalar> coordinates;
+   };  // end of struct PETScRigidBodyModes
+ 
+diff --git a/tests/PETScSolversTest.cxx b/tests/PETScSolversTest.cxx
+index de68211eb5..79f193bdcd 100644
+--- a/tests/PETScSolversTest.cxx
++++ b/tests/PETScSolversTest.cxx
+@@ -21,7 +21,8 @@
+  * - on the linear elasticity of a beam, the rigid body modes given to GAMG
+  *   (unknowns ordered by vector dimension) reduce the number of iterations,
+  *   for the Krylov solvers of PETSc and of MFEM, and are not given with the
+- *   unknowns ordered by nodes;
++ *   unknowns ordered by nodes; when the preconditioner of PETSc
++ *   preconditions the Krylov solver of PETSc, its own option applies;
+  * - a preconditioner of mfem-mgis is used as a shell preconditioner, which
+  *   receives the operators of different sizes given to the solver;
+  * - the preconditioner of PETSc preconditions the Krylov solvers of PETSc
+@@ -473,6 +474,30 @@ static void checkRigidBodyModes(ElasticitySystem<true>& e1,
+   check(solved(r5) && isFaster(r5, r2),
+         "CGSolver, PETScPreconditioner (GAMG): the rigid body modes do not "
+         "reduce the number of iterations");
++  // the preconditioner of PETSc with the Krylov solver of PETSc, which
++  // share their object of PETSc: the option of the preconditioner applies
++  const auto nested = [](const bool solver_rbm, const bool pc_rbm) {
++    return Parameters{
++        {"Options", Parameters{{"ksp_type", "cg"}}},
++        {"RelativeTolerance", 1e-8},
++        {"MaximumNumberOfIterations", 1000},
++        {"RigidBodyModes", solver_rbm},
++        {"Preconditioner",
++         Parameters{{"Name", "PETScPreconditioner"},
++                    {"Options",
++                     Parameters{{"Options", Parameters{{"pc_type", "gamg"}}},
++                                {"RigidBodyModes", pc_rbm}}}}}};
++  };
++  auto n1 = generate(e1, "PETScLinearSolver", nested(false, true));
++  const auto r6 = solve(e1, *(n1.linear_solver));
++  check(solved(r6) && (r6.iterations == r1.iterations),
++        "CG, PETScPreconditioner (GAMG): the rigid body modes of the "
++        "preconditioner are not used");
++  auto n2 = generate(e1, "PETScLinearSolver", nested(true, false));
++  const auto r7 = solve(e1, *(n2.linear_solver));
++  check(solved(r7) && (r7.iterations == r2.iterations),
++        "CG, PETScPreconditioner (GAMG): rigid body modes given despite the "
++        "option of the preconditioner");
+ }  // end of checkRigidBodyModes
+ 
+ /*!
+diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
+index 54ba7d29b5..1b676437af 100644
+--- a/tests/SNESSolverTest.cxx
++++ b/tests/SNESSolverTest.cxx
+@@ -9,7 +9,9 @@
+  *   problem (MUMPS) applied once or preconditioning a Krylov solver of
+  *   PETSc, and with the Krylov solver and the preconditioner of PETSc,
+  *   given by the option `LinearSolver` or as the linear solver of the
+- *   problem, gives the solution of the Newton solver of mfem-mgis;
++ *   problem, gives the solution of the Newton solver of mfem-mgis, also
++ *   with the unknowns ordered by vector dimension (rigid body modes given
++ *   to the algebraic multigrid of PETSc);
+  * - Newton's method of SNES without line search, and the trust region
+  *   method, make the iterations of the Newton solver (same criterion),
+  *   within two iterations, and with the line search at most as many plus
+@@ -95,6 +97,11 @@ struct Settings {
+   mfem_mgis::real relative_tolerance = 1e-12;
+   //! \brief if true, the tangent operator is applied without assembly
+   bool matrix_free = false;
++  /*!
++   * \brief if true, the unknowns are ordered by vector dimension (the rigid
++   * body modes are then given to the solvers of PETSc)
++   */
++  bool by_vdim = false;
+ };
+ 
+ /*!
+@@ -129,6 +136,9 @@ static Results compute(const char* const mesh,
+   if (!s.solver.empty()) {
+     params.insert(throwing, {{"NonLinearSolver", s.solver}});
+   }
++  if (s.by_vdim) {
++    params.insert(throwing, {{"FiniteElementSpaceOrdering", "byVDIM"}});
++  }
+   auto problem = construct<NonLinearEvolutionProblem>(ctx, params) | or_die;
+   problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
+                                  "IsotropicLinearHardeningPlasticity") |
+@@ -365,6 +375,18 @@ int main(int argc, char** argv) {
+   std::ignore =
+       run("SNES, GMRES and GAMG of PETSc", reference,
+           snes({{"LinearSolver", "PETSc"}, {"Options", petsc_options}}));
++  // the same, the unknowns being ordered by vector dimension: the rigid body
++  // modes are given to GAMG
++  {
++    auto sv = Settings{};
++    sv.by_vdim = true;
++    const auto reference_vdim = compute(mesh, library, sv);
++    check(reference_vdim.status, "Newton, byVDIM: resolution failed");
++    auto s = snes({{"LinearSolver", "PETSc"}, {"Options", petsc_options}});
++    s.by_vdim = true;
++    std::ignore =
++        run("SNES, GMRES and GAMG of PETSc, byVDIM", reference_vdim, s);
++  }
+   // the same solvers of PETSc as the linear solver of the problem
+   {
+     auto s = snes({});
+-- 
+2.43.0
+

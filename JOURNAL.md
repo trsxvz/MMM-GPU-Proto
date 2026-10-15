@@ -5109,3 +5109,23 @@ formula as MTest). All the others give the Newton solution to within
   following resolutions, second operator of the same sparsity.
   `cases/measure-solvers.sh` runs the campaign of phase 5 with it, on 8
   processes and on the GPU, and `cases/summary-solvers.py` makes the tables.
+
+### 2026-10-15, rigid body modes for the algebraic multigrid of PETSc
+
+- The first pass of the campaign showed GAMG of PETSc needing 177 to 284
+  iterations on the elasticity: mfem-mgis gave it neither the block size
+  nor the near null space. mfem-mgis 5678e8bdd9 and d4001d1edc (patches
+  0232 and 0233): when the number of components is the space dimension
+  and the unknowns are ordered by vector dimension, the matrices converted
+  for PETScLinearSolver, PETScPreconditioner and SNES (linear solvers of
+  PETSc) receive the number of components as block size and the rigid
+  body modes, computed from the coordinates of the nodes (shared function
+  `NodesCoordinates.hxx`, also used by the module of Trilinos in progress).
+  On the beam of the tests, the conjugate gradient preconditioned by GAMG
+  needs 15 iterations instead of 51. Option `RigidBodyModes`.
+- Independent review: nothing rated 4 or 5; the mapping of the nodes was
+  checked numerically (stiffness times modes, 2e-15, conforming and non
+  conforming meshes, orders 1 to 3). Handled: coordinates centred on the
+  global centroid, sizes checked on all the processes, option of a
+  preconditioner of PETSc applied when it shares its object with the
+  solver, SNES covered, docs.

@@ -9,6 +9,7 @@
 
 #if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
 
+#include <array>
 #include <tuple>
 #include <atomic>
 #include <string>
@@ -20,8 +21,10 @@
 #include "petscsys.h"
 #include "petscvec.h"
 #include "petscmat.h"
+#include "mfem/fem/pfespace.hpp"
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/Parameters.hxx"
+#include "NodesCoordinates.hxx"
 #include "PETScSupport.hxx"
 
 namespace mfem_mgis::internals {
@@ -197,6 +200,97 @@ namespace mfem_mgis::internals {
       mgis::raise("convertToHostMatrix: MatConvert failed");
     }
   }  // end of convertToHostMatrix
+
+  void PETScRigidBodyModes::initialize(FiniteElementSpace<true>& fespace) {
+    this->dimension = 0;
+    this->coordinates.clear();
+    if ((!hasRigidBodyModes(fespace)) ||
+        (fespace.GetOrdering() != mfem::Ordering::byVDIM)) {
+      return;
+    }
+    const auto c = getNodesCoordinates(fespace);
+    const auto d = static_cast<std::size_t>(c.dimension);
+    const auto n = c.values.size() / d;
+    // coordinates relative to the centroid of the nodes of all the
+    // processes: PETSc orthogonalizes the rotations against the
+    // translations in a single pass, which loses accuracy far from the
+    // origin
+    auto sums = std::array<double, 4>{0, 0, 0, static_cast<double>(n)};
+    for (std::size_t k = 0; k != d; ++k) {
+      for (std::size_t node = 0; node != n; ++node) {
+        sums[k] += static_cast<double>(c.values[k * n + node]);
+      }
+    }
+    MPI_Allreduce(MPI_IN_PLACE, sums.data(), 4, MPI_DOUBLE, MPI_SUM,
+                  fespace.GetComm());
+    this->coordinates.resize(c.values.size());
+    for (std::size_t node = 0; node != n; ++node) {
+      for (std::size_t k = 0; k != d; ++k) {
+        this->coordinates[node * d + k] = static_cast<PetscScalar>(
+            static_cast<double>(c.values[k * n + node]) -
+            sums[k] / std::max(sums[3], 1.));
+      }
+    }
+    this->dimension = c.dimension;
+  }  // end of initialize
+
+  void PETScRigidBodyModes::attach(Mat m) const {
+    if ((this->dimension == 0) || (m == nullptr)) {
+      return;
+    }
+    // only the assembled matrices (not the shell matrices of the operators
+    // applied without assembly)
+    auto aij = PetscBool{};
+    if (PetscObjectBaseTypeCompareAny(reinterpret_cast<PetscObject>(m), &aij,
+                                      MATSEQAIJ, MATMPIAIJ, "") != 0) {
+      mgis::raise(
+          "PETScRigidBodyModes::attach: PetscObjectBaseTypeCompareAny failed");
+    }
+    if (aij == PETSC_FALSE) {
+      return;
+    }
+    auto comm = MPI_Comm{};
+    auto nrows = PetscInt{};
+    auto ncolumns = PetscInt{};
+    if ((PetscObjectGetComm(reinterpret_cast<PetscObject>(m), &comm) != 0) ||
+        (MatGetLocalSize(m, &nrows, &ncolumns) != 0)) {
+      mgis::raise("PETScRigidBodyModes::attach: the matrix can't be described");
+    }
+    // the modes are only given to the matrices of the finite element space
+    // (a matrix of another size or distribution is left unchanged), the
+    // decision being taken on all the processes
+    auto mismatch = static_cast<int>(static_cast<std::size_t>(nrows) !=
+                                     this->coordinates.size());
+    MPI_Allreduce(MPI_IN_PLACE, &mismatch, 1, MPI_INT, MPI_LOR, comm);
+    if (mismatch != 0) {
+      return;
+    }
+    auto x = PETScVector{};
+    const auto n = static_cast<PetscInt>(this->coordinates.size());
+    auto* values = static_cast<PetscScalar*>(nullptr);
+    if ((MatSetBlockSize(m, this->dimension) != 0) ||
+        (VecCreate(comm, &(x.v)) != 0) ||
+        (VecSetSizes(x.v, n, PETSC_DETERMINE) != 0) ||
+        (VecSetBlockSize(x.v, this->dimension) != 0) ||
+        (VecSetType(x.v, VECSTANDARD) != 0) ||
+        (VecGetArray(x.v, &values) != 0)) {
+      mgis::raise(
+          "PETScRigidBodyModes::attach: the coordinates can't be given to "
+          "PETSc");
+    }
+    std::copy(this->coordinates.begin(), this->coordinates.end(), values);
+    auto nsp = MatNullSpace{};
+    if ((VecRestoreArray(x.v, &values) != 0) ||
+        (MatNullSpaceCreateRigidBody(x.v, &nsp) != 0)) {
+      mgis::raise(
+          "PETScRigidBodyModes::attach: MatNullSpaceCreateRigidBody failed");
+    }
+    const auto status = MatSetNearNullSpace(m, nsp);
+    std::ignore = MatNullSpaceDestroy(&nsp);
+    if (status != 0) {
+      mgis::raise("PETScRigidBodyModes::attach: MatSetNearNullSpace failed");
+    }
+  }  // end of attach
 
 }  // end of namespace mfem_mgis::internals
 

@@ -70,9 +70,17 @@ namespace mfem_mgis::internals {
    * their last integration was made elsewhere (a trial point of the line
    * search), so that the state of the materials matches the solution.
    *
+   * With `LinearSolver` set to `PETSc`, the tangent operator converted to
+   * the AIJ format receives the rigid body modes as near null space and
+   * the number of components as block size, for the algebraic multigrid of
+   * PETSc, when the number of components of the unknowns is the space
+   * dimension and the unknowns are ordered by vector dimension (option
+   * `RigidBodyModes`, true by default, see `PETScRigidBodyModes`).
+   *
    * Options: the ones of the iterative solvers (`RelativeTolerance`,
    * `AbsoluteTolerance`, `MaximumNumberOfIterations`, strictly positive,
-   * `VerbosityLevel`), `DiscardLinearSolverFailure`, `LinearSolver`
+   * `VerbosityLevel`), `DiscardLinearSolverFailure`, `RigidBodyModes`,
+   * `LinearSolver`
    * (`Problem`, by default, or `PETSc`), `Options` (the options of PETSc,
    * for SNES, its line search and its Krylov solver; the options of the
    * preconditioner, `pc_...`, are refused with the linear solver of the
@@ -120,6 +128,14 @@ namespace mfem_mgis::internals {
      */
     real stagnation_relative_tolerance =
         10000 * std::numeric_limits<real>::epsilon();
+    /*!
+     * \brief if true, the rigid body modes are given to the tangent
+     * operator converted for the linear solvers of PETSc (see
+     * `PETScRigidBodyModes`)
+     */
+    bool rigid_body_modes = true;
+    //! \brief finite element space of the problem
+    FiniteElementSpace<true>* const fespace = nullptr;
   };  // end of struct PETScSNESSolver
 
 }  // end of namespace mfem_mgis::internals

@@ -337,17 +337,24 @@ namespace mfem_mgis::internals {
         }
         if (success) {
           if (s.petsc_linear_solver) {
-            if (!mfem::Device::IsEnabled()) {
-              return *j;
-            }
-            // when MFEM computes on a GPU, the tangent operator is converted
-            // to the AIJ format of PETSc of the host here (MFEM chooses the
-            // format of the GPU), the solvers of PETSc computing on the host
-            // (see the description of PETScLinearSolvers.cxx)
+            // the tangent operator is converted to the AIJ format of PETSc
+            // here, so that it receives the rigid body modes (MFEM gives
+            // this matrix to SNES with its near null space). When MFEM
+            // computes on a GPU, it is converted to the format of the host
+            // (MFEM chooses the format of the GPU), the solvers of PETSc
+            // computing on the host (see the description of
+            // PETScLinearSolvers.cxx)
             this->petsc_tangent_operator =
                 std::make_unique<mfem::PetscParMatrix>(
                     this->communicator, j, mfem::Operator::PETSC_MATAIJ);
-            convertToHostMatrix(*(this->petsc_tangent_operator));
+            if (mfem::Device::IsEnabled()) {
+              convertToHostMatrix(*(this->petsc_tangent_operator));
+            }
+            if ((s.rigid_body_modes) && (!this->rigid_body_modes_computed)) {
+              this->rigid_body_modes.initialize(*(s.fespace));
+              this->rigid_body_modes_computed = true;
+            }
+            this->rigid_body_modes.attach(*(this->petsc_tangent_operator));
             return *(this->petsc_tangent_operator);
           }
           this->tangent_operator.setOperator(*j);
@@ -538,10 +545,13 @@ namespace mfem_mgis::internals {
     mutable TangentOperatorForPETSc tangent_operator;
     /*!
      * \brief tangent operator converted to the AIJ format of PETSc of the
-     * host, when MFEM computes on a GPU and the linear solvers of PETSc are
-     * used
+     * host, when the linear solvers of PETSc are used
      */
     mutable std::unique_ptr<mfem::PetscParMatrix> petsc_tangent_operator;
+    //! \brief rigid body modes given to the converted tangent operator
+    mutable PETScRigidBodyModes rigid_body_modes;
+    //! \brief if true, the rigid body modes are computed
+    mutable bool rigid_body_modes_computed = false;
 
     //! \brief SNES of MFEM
     std::unique_ptr<mfem::PetscNonlinearSolver> snes;
@@ -668,7 +678,7 @@ namespace mfem_mgis::internals {
 
   PETScSNESSolver::PETScSNESSolver(
       NonLinearEvolutionProblemImplementation<true>& p)
-      : NonLinearSolverBase(p) {
+      : NonLinearSolverBase(p), fespace(&(p.getFiniteElementSpace())) {
     initializePETSc();
   }  // end of PETScSNESSolver
 
@@ -776,7 +786,8 @@ namespace mfem_mgis::internals {
   bool PETScSNESSolver::setSolverParameters(Context& ctx,
                                             const Parameters& params) noexcept {
     const auto own = std::vector<std::string>{"LinearSolver", "Options",
-                                              "StagnationRelativeTolerance"};
+                                              "StagnationRelativeTolerance",
+                                              "RigidBodyModes"};
     // the options are read and checked before being applied: a refused call
     // leaves the solver unchanged
     auto new_petsc_linear_solver = this->petsc_linear_solver;
@@ -820,7 +831,9 @@ namespace mfem_mgis::internals {
     const auto ostagnation = get_if<double>(
         ctx, params, "StagnationRelativeTolerance",
         static_cast<double>(this->stagnation_relative_tolerance));
-    if (isInvalid(ostagnation)) {
+    const auto orbm =
+        get_if<bool>(ctx, params, "RigidBodyModes", this->rigid_body_modes);
+    if (isInvalid(ostagnation) || isInvalid(orbm)) {
       return false;
     }
     if ((*ostagnation < 0) || (*ostagnation >= 1)) {
@@ -842,6 +855,7 @@ namespace mfem_mgis::internals {
     this->petsc_linear_solver = new_petsc_linear_solver;
     this->options = std::move(new_options);
     this->stagnation_relative_tolerance = static_cast<real>(*ostagnation);
+    this->rigid_body_modes = *orbm;
     return true;
   }  // end of setSolverParameters
 

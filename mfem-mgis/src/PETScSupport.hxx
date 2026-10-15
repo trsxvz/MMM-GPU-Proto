@@ -17,6 +17,7 @@
 #include "petscvec.h"
 #include "petscmat.h"
 #include "mfem/linalg/vector.hpp"
+#include "MFEMMGIS/MFEMForward.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
 #include "MFEMMGIS/Config.hxx"
@@ -131,6 +132,41 @@ namespace mfem_mgis::internals {
    * \param[in, out] a: matrix
    */
   void convertToHostMatrix(Mat a);
+
+  /*!
+   * \brief rigid body modes of the unknowns of a finite element space,
+   * given to the assembled matrices of PETSc as near null space, the number
+   * of components being their block size: the algebraic multigrid of PETSc
+   * (GAMG) aggregates the nodes and builds its coarse spaces from them. The
+   * modes are only defined when the number of components of the unknowns
+   * is the space dimension (2 or 3), and given when the unknowns are ordered
+   * by vector dimension, the block size of PETSc grouping consecutive rows.
+   */
+  struct PETScRigidBodyModes {
+    /*!
+     * \brief compute the coordinates of the nodes of a finite element space
+     * (collective)
+     * \param[in] fespace: finite element space
+     */
+    void initialize(FiniteElementSpace<true>& fespace);
+    /*!
+     * \brief set the block size and the near null space of an assembled
+     * matrix (AIJ formats), if the modes are given and if the matrix has
+     * the size and the distribution of the finite element space (checked on
+     * all the processes)
+     * \param[in] m: matrix
+     */
+    void attach(Mat m) const;
+
+   private:
+    //! \brief space dimension, null if the modes are not given
+    int dimension = 0;
+    /*!
+     * \brief coordinates of the nodes, node by node, relative to the
+     * centroid of the nodes
+     */
+    std::vector<PetscScalar> coordinates;
+  };  // end of struct PETScRigidBodyModes
 
 #endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
 

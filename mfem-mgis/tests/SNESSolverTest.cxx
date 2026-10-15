@@ -9,7 +9,9 @@
  *   problem (MUMPS) applied once or preconditioning a Krylov solver of
  *   PETSc, and with the Krylov solver and the preconditioner of PETSc,
  *   given by the option `LinearSolver` or as the linear solver of the
- *   problem, gives the solution of the Newton solver of mfem-mgis;
+ *   problem, gives the solution of the Newton solver of mfem-mgis, also
+ *   with the unknowns ordered by vector dimension (rigid body modes given
+ *   to the algebraic multigrid of PETSc);
  * - Newton's method of SNES without line search, and the trust region
  *   method, make the iterations of the Newton solver (same criterion),
  *   within two iterations, and with the line search at most as many plus
@@ -95,6 +97,11 @@ struct Settings {
   mfem_mgis::real relative_tolerance = 1e-12;
   //! \brief if true, the tangent operator is applied without assembly
   bool matrix_free = false;
+  /*!
+   * \brief if true, the unknowns are ordered by vector dimension (the rigid
+   * body modes are then given to the solvers of PETSc)
+   */
+  bool by_vdim = false;
 };
 
 /*!
@@ -128,6 +135,9 @@ static Results compute(const char* const mesh,
   }
   if (!s.solver.empty()) {
     params.insert(throwing, {{"NonLinearSolver", s.solver}});
+  }
+  if (s.by_vdim) {
+    params.insert(throwing, {{"FiniteElementSpaceOrdering", "byVDIM"}});
   }
   auto problem = construct<NonLinearEvolutionProblem>(ctx, params) | or_die;
   problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube", library,
@@ -365,6 +375,18 @@ int main(int argc, char** argv) {
   std::ignore =
       run("SNES, GMRES and GAMG of PETSc", reference,
           snes({{"LinearSolver", "PETSc"}, {"Options", petsc_options}}));
+  // the same, the unknowns being ordered by vector dimension: the rigid body
+  // modes are given to GAMG
+  {
+    auto sv = Settings{};
+    sv.by_vdim = true;
+    const auto reference_vdim = compute(mesh, library, sv);
+    check(reference_vdim.status, "Newton, byVDIM: resolution failed");
+    auto s = snes({{"LinearSolver", "PETSc"}, {"Options", petsc_options}});
+    s.by_vdim = true;
+    std::ignore =
+        run("SNES, GMRES and GAMG of PETSc, byVDIM", reference_vdim, s);
+  }
   // the same solvers of PETSc as the linear solver of the problem
   {
     auto s = snes({});
