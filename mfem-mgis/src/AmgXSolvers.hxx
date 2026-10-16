@@ -72,6 +72,13 @@ namespace mfem_mgis::internals {
      * the statistics printed by AmgX are the ones of the scaled system.
      */
     bool scale_right_hand_side = false;
+    /*!
+     * \brief size of the square blocks of the matrices and of the vectors
+     * given to AmgX: 1, or the number of components of unknowns ordered by
+     * vector dimension (nodal blocks), the number of rows of each process
+     * being a multiple of it
+     */
+    int block_size = 1;
   };  // end of AmgXSolverOptions
 
   /*!
@@ -163,6 +170,8 @@ namespace mfem_mgis::internals {
     const bool iterative;
     //! \brief if true, the right hand side is scaled
     const bool scale_right_hand_side;
+    //! \brief size of the blocks of the matrices and of the vectors
+    const int block_size;
     //! \brief configuration
     AMGX_config_handle configuration = nullptr;
     //! \brief resources, shared by the solvers of the process
@@ -213,10 +222,21 @@ namespace mfem_mgis::internals {
    *   given to the multigrid (scope `amg`), a parameter `scope:name` as is
    *   (the smoother has the scope `smoother`);
    * - `Precision`: `Double` (default) or `Single` (computations of AmgX in
-   *   single precision).
-   * `Configuration` and `ConfigurationFile` are exclusive; `VerbosityLevel`
-   * and `AmgXParameters` only apply to the default configuration and are
-   * refused with a configuration given.
+   *   single precision);
+   * - `Multigrid`: multigrid of the default configuration, `Classical`
+   *   (default, see below) or `Aggregation` (one symmetric V-cycle of the
+   *   aggregation multigrid of AmgX, aggregates of size two, one sweep of a
+   *   Jacobi smoother damped by 0.6 before and after the coarse correction);
+   * - `NodalBlocks`: if true, the matrices and the vectors are given to
+   *   AmgX by square blocks of the size of the number of components of the
+   *   unknowns, which must be ordered by vector dimension (the classical
+   *   multigrid of AmgX does not support blocks). On several processes,
+   *   the smoothers of AmgX 2.5 used alone (a configuration whose solver is
+   *   a smoother) give wrong results with blocks: they must be used within
+   *   a Krylov solver or a multigrid of AmgX.
+   * `Configuration` and `ConfigurationFile` are exclusive; `VerbosityLevel`,
+   * `Multigrid` and `AmgXParameters` only apply to the default
+   * configuration and are refused with a configuration given.
    * The default configuration is the one of MFEM: one V-cycle of the
    * classical algebraic multigrid with a L1-Jacobi smoother (one sweep
    * before and one after the coarse correction), the D2 interpolation and
@@ -249,9 +269,9 @@ namespace mfem_mgis::internals {
    * than the relative tolerance times the norm of the initial residual (the
    * norm of the right hand side, the initial guess being zero). The
    * conjugate gradient of MFEM checks instead the norm of the
-   * preconditioned residual. The options `AmgXParameters` and `Precision` are
-   * the ones of the `AmgX` solver; the parameters of the conjugate gradient
-   * (scope `main`) are refused.
+   * preconditioned residual. The options `AmgXParameters`, `Precision`,
+   * `Multigrid` and `NodalBlocks` are the ones of the `AmgX` solver; the
+   * parameters of the conjugate gradient (scope `main`) are refused.
    *
    * AmgX also reports a convergence when the norm of the residual is lower
    * than the maximum of `e` times the norm of the initial residual and of

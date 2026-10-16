@@ -1,0 +1,120 @@
+From 830ad7428f06a3ff5271577a35e243d2428b5940 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 02:40:41 +0200
+Subject: [PATCH] AmgX nodal blocks: second review
+
+- the tests of the aggregation multigrid check that the nodal blocks do
+  not increase much its number of iterations (a degraded multigrid would
+  only cost iterations), and the residual of the system at 1e-8 for the
+  conjugate gradient of MFEM, which checks the preconditioned residual;
+- the solvers of AmgX refuse non square operators;
+- comments and documentation: coarsest level smoothed twice, measurements
+  on the beam of the benchmark, uniform mesh whose nodal blocks are mostly
+  diagonal.
+---
+ docs/source/user_guide/batch_computations.rst |  6 +++++-
+ src/AmgXSolvers.cxx                           | 18 +++++++++++-------
+ tests/AmgXSolverTest.cxx                      | 17 +++++++++++++++--
+ 3 files changed, 31 insertions(+), 10 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 81d5a36b95..6871740fb0 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -880,7 +880,11 @@ host at each setup, and the resolutions start from a zero initial guess.
+        aggregation multigrid or a configuration given. On the beam, the
+        nodal blocks do not reduce the iterations of the aggregation
+        multigrid (151 against 141): :code:`AmgX` 2.5 pairs the nodes from
+-       the first entry of each block only. On several processes, the
++       the first entry of each block only, and the diagonal blocks of the
++       stiffness of this uniform mesh of hexahedra are diagonal except at
++       its edges (319 iterations with the Jacobi preconditioner, 314 with
++       the nodal block Jacobi one); the result may differ on other
++       meshes. On several processes, the
+        smoothers of :code:`AmgX` 2.5 used alone (a configuration whose
+        solver is :code:`BLOCK_JACOBI`, for instance) give wrong results
+        with blocks: they must be used within a Krylov solver or a
+diff --git a/src/AmgXSolvers.cxx b/src/AmgXSolvers.cxx
+index 00bf2c801d..b39811c67f 100644
+--- a/src/AmgXSolvers.cxx
++++ b/src/AmgXSolvers.cxx
+@@ -570,6 +570,9 @@ namespace mfem_mgis::internals {
+   void AmgXSolver::SetOperator(const mfem::Operator& op) {
+     // the solver is set up again only if the setup succeeds
+     this->setup = false;
++    if (op.Height() != op.Width()) {
++      mgis::raise("AmgXSolver::SetOperator: a square matrix is expected");
++    }
+     this->status.reset();
+     this->iterations.reset();
+     if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
+@@ -867,14 +870,15 @@ namespace mfem_mgis::internals {
+    * configurations (scope `amg`): one V-cycle of the classical algebraic
+    * multigrid with a L1-Jacobi smoother (the default multigrid of MFEM), or
+    * of the aggregation algebraic multigrid of AmgX (aggregates of size two,
+-   * no coarse solver, one sweep of a Jacobi smoother damped by 0.6 before
+-   * and after the coarse correction, the block Jacobi smoother of AmgX
+-   * acting on the blocks of the matrices given to AmgX). The cycle is
+-   * symmetric, as the conjugate gradients require. The configuration
++   * one sweep of a Jacobi smoother damped by 0.6 before and after the
++   * coarse correction, the coarsest level being smoothed twice instead of
++   * solved, the block Jacobi smoother of AmgX acting on the blocks of the
++   * matrices given to AmgX). The cycle is symmetric, as the conjugate
++   * gradients require. On the linear elasticity of the beam of the
++   * benchmark of the linear solvers, the configuration
+    * `PCG_AGGREGATION_JACOBI` of AmgX (three post-smoothing sweeps damped by
+-   * 0.8, no pre-smoothing sweep) does not converge on the linear
+-   * elasticity, nor a symmetric cycle damped by 0.8: the Jacobi smoother
+-   * damped by 0.8 does not reduce the error of the linear elasticity
++   * 0.8, no pre-smoothing sweep) does not converge, nor a symmetric cycle
++   * damped by 0.8
+    * \param[in, out] c: configuration
+    * \param[in] verbose: print the statistics of the grids
+    * \param[in] m: algebraic multigrid
+diff --git a/tests/AmgXSolverTest.cxx b/tests/AmgXSolverTest.cxx
+index 974bae891d..e7b1bf4461 100644
+--- a/tests/AmgXSolverTest.cxx
++++ b/tests/AmgXSolverTest.cxx
+@@ -839,7 +839,12 @@ static void checkNodalBlocks(mfem::FiniteElementCollection& fec) {
+   }
+   // aggregation multigrid of the default configurations, with and without
+   // the nodal blocks: conjugate gradient of AmgX, in double and single
+-  // precision, and preconditioner of the conjugate gradient of MFEM
++  // precision, and preconditioner of the conjugate gradient of MFEM, which
++  // checks the preconditioned residual (the residual of the system is
++  // checked at 1e-8 for a tolerance of 1e-10). The nodal blocks must not
++  // increase much the number of iterations (a degraded multigrid would only
++  // cost iterations)
++  auto iterations = std::array<std::array<std::optional<int>, 2>, 2>{};
+   for (const auto blocks : {false, true}) {
+     const auto suffix = std::string{blocks ? ", nodal blocks" : ""};
+     {
+@@ -854,6 +859,7 @@ static void checkNodalBlocks(mfem::FiniteElementCollection& fec) {
+       const auto name = "AmgXPCG, aggregation, linear elasticity" + suffix;
+       print(name, r);
+       check(r.converged && (r.residual < 1e-9), name + ": resolution");
++      iterations[0][blocks ? 1 : 0] = r.iterations;
+     }
+     {
+       auto ls =
+@@ -884,9 +890,16 @@ static void checkNodalBlocks(mfem::FiniteElementCollection& fec) {
+       const auto name =
+           "CGSolver, AmgX, aggregation, linear elasticity" + suffix;
+       print(name, r);
+-      check(r.converged && (r.residual < 1e-9), name + ": resolution");
++      check(r.converged && (r.residual < 1e-8), name + ": resolution");
++      iterations[1][blocks ? 1 : 0] = r.iterations;
+     }
+   }
++  for (const auto& [scalar, blocks] : iterations) {
++    check(scalar.has_value() && blocks.has_value() &&
++              (2 * *blocks <= 3 * *scalar),
++          "AmgX: the nodal blocks increase the number of iterations of the "
++          "aggregation multigrid");
++  }
+ }  // end of checkNodalBlocks
+ 
+ //! \brief Laplace equation on a sequential mesh
+-- 
+2.43.0
+

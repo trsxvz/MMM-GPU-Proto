@@ -857,15 +857,41 @@ host at each setup, and the resolutions start from a zero initial guess.
      - Algebraic multigrid of the default configuration:
        :code:`Classical` (default; one V-cycle, L1-Jacobi smoother, D2
        interpolation) or :code:`Aggregation` (one V-cycle of the
-       aggregation multigrid of the configuration
-       :code:`PCG_AGGREGATION_JACOBI` of :code:`AmgX`: aggregates of size
-       two, three post-smoothing sweeps of a damped Jacobi smoother and no
-       pre-smoothing sweep, a cycle which is not symmetric, but with which
-       the conjugate gradients converge on scalar problems, as in the
-       configuration of :code:`AmgX`). Its aggregates ignore the
-       components of the unknowns and the rigid body modes: on the linear
-       elasticity of a beam, it does not converge in 2000 iterations, with
-       the conjugate gradients or FGMRES.
+       aggregation multigrid of :code:`AmgX`: aggregates of size two, one
+       sweep of a Jacobi smoother damped by 0.6 before and after the coarse
+       correction, a symmetric cycle, the coarsest level being smoothed
+       twice instead of solved). The configuration
+       :code:`PCG_AGGREGATION_JACOBI` of :code:`AmgX` (three post-smoothing
+       sweeps damped by 0.8, no pre-smoothing sweep) does not converge on
+       the linear elasticity of the beam of the benchmark of the linear
+       solvers (56,355 unknowns); with the aggregation multigrid of
+       mfem-mgis, the conjugate gradient of :code:`MFEM` needs 141
+       iterations (271 with stiff inclusions), against 261 with the
+       classical multigrid of :code:`AmgX` and 54 with BoomerAMG on the
+       GPU.
+   * - :code:`NodalBlocks`
+     - If :code:`true` (:code:`false` by default), the matrices and the
+       vectors are given to :code:`AmgX` by nodal blocks: square blocks of
+       the size of the number of components of the unknowns, which must be
+       ordered by vector dimension (:code:`FiniteElementSpaceOrdering` set
+       to :code:`byVDIM`). The aggregates are then made of nodes, and the
+       Jacobi smoother inverts the nodal blocks. The classical multigrid of
+       :code:`AmgX` does not support blocks: the option requires the
+       aggregation multigrid or a configuration given. On the beam, the
+       nodal blocks do not reduce the iterations of the aggregation
+       multigrid (151 against 141): :code:`AmgX` 2.5 pairs the nodes from
+       the first entry of each block only, and the diagonal blocks of the
+       stiffness of this uniform mesh of hexahedra are diagonal except at
+       its edges (319 iterations with the Jacobi preconditioner, 314 with
+       the nodal block Jacobi one); the result may differ on other
+       meshes. On several processes, the
+       smoothers of :code:`AmgX` 2.5 used alone (a configuration whose
+       solver is :code:`BLOCK_JACOBI`, for instance) give wrong results
+       with blocks: they must be used within a Krylov solver or a
+       multigrid of :code:`AmgX`. With a
+       configuration given, :code:`AmgX` checks the convergence of each
+       component of the blocks separately unless its parameter
+       :code:`use_scalar_norm` is set (:code:`AmgXPCG` sets it).
    * - :code:`AmgXParameters`
      - Parameters of :code:`AmgX`, with their names in :code:`AmgX`, which
        complete or override the default configuration. A name without

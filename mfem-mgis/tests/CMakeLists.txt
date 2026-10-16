@@ -1957,7 +1957,11 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
              COMMAND mpirun -n 2 ./AmgXSolverTest --parallel)
     add_test(NAME AmgXSolverTestP-cuda
              COMMAND mpirun -n 2 ./AmgXSolverTest --parallel --device cuda)
-    list(APPEND amgx_tests AmgXSolverTestP-gpu AmgXSolverTestP-cuda)
+    # parallel matrices on one process (uploaded as sequential matrices)
+    add_test(NAME AmgXSolverTestP1-gpu
+             COMMAND mpirun -n 1 ./AmgXSolverTest --parallel)
+    list(APPEND amgx_tests AmgXSolverTestP-gpu AmgXSolverTestP-cuda
+         AmgXSolverTestP1-gpu)
   endif(MFEM_USE_MPI)
   # a deadlock fails quickly
   set_tests_properties(${amgx_tests} PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)

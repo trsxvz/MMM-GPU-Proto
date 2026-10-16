@@ -5172,3 +5172,37 @@ formula as MTest). All the others give the Newton solution to within
 - First version of [docs/solver-recommendations.md](docs/solver-recommendations.md):
   recommendations by case, without Trilinos and the large Laplace systems.
 
+### 2026-10-16, AmgX: nodal blocks and a symmetric aggregation cycle
+
+- The aggregation multigrid of the default configurations of AmgX was the
+  one of its configuration `PCG_AGGREGATION_JACOBI` (three post-smoothing
+  sweeps of a Jacobi smoother damped by 0.8, no pre-smoothing sweep): it
+  does not converge on the linear elasticity. It is now a symmetric cycle,
+  one sweep damped by 0.6 before and after the coarse correction: 141
+  iterations of the conjugate gradient of MFEM on the beam of 56,355
+  unknowns, 271 with the stiff inclusions, 31 instead of 26 on the
+  Laplace equation with cheaper cycles.
+- Option `NodalBlocks`: the matrices and the vectors are given to AmgX by
+  square blocks of the size of the number of components (unknowns ordered
+  by vector dimension). Checked: one application of the block Jacobi
+  smoother of AmgX on the nodal blocks is the one of `NodalBlockJacobi`,
+  and a resolution by AmgX satisfies the system of MFEM, on one and two
+  processes. The nodal blocks do not reduce the iterations of the
+  aggregation multigrid (151 against 141): AmgX 2.5 pairs the nodes from
+  the first entry of each block only.
+- Found: on several processes, the smoothers of AmgX 2.5 used alone give
+  wrong results with blocks (norm 8 times too large); they work within the
+  conjugate gradient and the multigrid of AmgX. Documented, to be reduced
+  to a reproducer before reporting.
+- Two rounds of independent review, all the remarks handled (patches
+  0240 to 0242): the conjugate gradient of AmgX checks the norm of the
+  whole residual with blocks (`use_scalar_norm`), the conversion to blocks
+  uses memory proportional to the local size, the matrices must be
+  square, and the tests compare one application of the block Jacobi
+  smoother with `NodalBlockJacobi` exactly, run the aggregation multigrid
+  with blocks as a preconditioner of the conjugate gradient of MFEM, in
+  single precision, and on one process with parallel matrices.
+- The MFEM of `mmm-trilinos` is built with `fem/lor/lor_batched.cpp`
+  compiled to PTX code only (no ptxas, which needs 22 GB): procedure in
+  [deps/spack/README.md](deps/spack/README.md).
+

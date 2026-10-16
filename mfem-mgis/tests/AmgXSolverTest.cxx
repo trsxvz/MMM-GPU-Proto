@@ -3,8 +3,9 @@
  * \brief  Test of the solvers of the AmgX library built by the factory of
  * linear solvers (`AmgX` preconditioner and linear solver, `AmgXPCG` linear
  * solver), on the Laplace equation on a cube, the essential degrees of
- * freedom being eliminated with a diagonal set to one. AmgX computes on the
- * GPU whatever the device used by MFEM. With the `--parallel` option, the
+ * freedom being eliminated with a diagonal set to one, and of its nodal
+ * blocks on the linear elasticity of a beam. AmgX computes on the GPU
+ * whatever the device used by MFEM. With the `--parallel` option, the
  * computations are parallel. With the `--no-gpu` option, no GPU is expected
  * to be visible: the solvers of AmgX must be refused.
  * \date   10/10/2026
@@ -26,8 +27,10 @@
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
+#include "MFEMMGIS/PreconditionerFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "MFEMMGIS/MPI.hxx"
+#include "ElasticitySystem.hxx"
 
 //! \brief number of failed checks
 static int failures = 0;
@@ -50,8 +53,8 @@ static const char* const aggregation =
     "{\"config_version\": 2, \"solver\": {\"solver\": \"AMG\", "
     "\"scope\": \"main\", \"algorithm\": \"AGGREGATION\", "
     "\"selector\": \"SIZE_2\", \"smoother\": {\"scope\": \"jacobi\", "
-    "\"solver\": \"BLOCK_JACOBI\", \"relaxation_factor\": 0.8}, "
-    "\"presweeps\": 0, \"postsweeps\": 3, \"coarse_solver\": \"NOSOLVER\", "
+    "\"solver\": \"BLOCK_JACOBI\", \"relaxation_factor\": 0.6}, "
+    "\"presweeps\": 1, \"postsweeps\": 1, \"coarse_solver\": \"NOSOLVER\", "
     "\"max_iters\": 1, \"max_levels\": 50, \"cycle\": \"V\"}}";
 
 //! \brief result of a resolution
@@ -192,6 +195,18 @@ static bool close(const std::optional<int> a, const std::optional<int> b) {
   return a.has_value() && b.has_value() && (std::abs(*a - *b) <= *b / 20 + 1);
 }  // end of close
 
+//! \brief prints the outcome of a resolution on the first process
+static void print(const std::string& name, const Resolution& r) {
+  if (rank == 0) {
+    std::cout << name << ": ";
+    if (r.iterations.has_value()) {
+      std::cout << *(r.iterations) << " iterations, ";
+    }
+    std::cout << "residual " << r.residual
+              << (r.converged ? "" : " (not converged)") << '\n';
+  }
+}  // end of print
+
 /*!
  * \brief checks the solvers of AmgX on a linear system
  * \param[in] fespace: finite element space
@@ -206,16 +221,6 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
                       const mfem::Vector& B,
                       const std::function<void()>& release = {}) {
   using namespace mfem_mgis;
-  auto print = [](const std::string& name, const Resolution& r) {
-    if (rank == 0) {
-      std::cout << name << ": ";
-      if (r.iterations.has_value()) {
-        std::cout << *(r.iterations) << " iterations, ";
-      }
-      std::cout << "residual " << r.residual
-                << (r.converged ? "" : " (not converged)") << '\n';
-    }
-  };
   // two solvers, the first one being destroyed before the second one is
   // used (in sequential, the first solvers of AmgX of the process)
   {
@@ -683,9 +688,10 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
                            Parameters{{"interpolator", "D2;amg:cycle=W"}}}}},
       {"AmgX", Parameters{{"Precision", "Quadruple"}}},
       {"AmgX", Parameters{{"Multigrid", "Smoothed"}}},
-      {"AmgX",
-       Parameters{{"Configuration", aggregation}, {"Multigrid", "Aggregation"}}},
+      {"AmgX", Parameters{{"Configuration", aggregation},
+                          {"Multigrid", "Aggregation"}}},
       {"AmgXPCG", Parameters{{"Multigrid", "Classic"}}},
+      {"AmgX", Parameters{{"Multigrid", "Aggregation"}, {"NodalBlocks", true}}},
       {"AmgXPCG",
        Parameters{{"RelativeTolerance", 1e-8}, {"Precision", "Single"}}},
       {"AmgXPCG", Parameters{{"RelativeTolerance", 0.},
@@ -718,6 +724,183 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
     check(isInvalid(ls), "AmgX accepted as a preconditioner of HyprePCG");
   }
 }  // end of checkAmgX
+
+/*!
+ * \brief checks the nodal blocks of AmgX on the linear elasticity of a
+ * beam: refusals (unknowns ordered by nodes, classical multigrid, invalid
+ * value), matrix given by blocks (one application of the block Jacobi
+ * smoother of AmgX is then the one of NodalBlockJacobi, and a resolution
+ * by AmgX satisfies the system of MFEM), and convergence of the
+ * aggregation multigrid of the default configurations, with and without
+ * the nodal blocks
+ * \param[in] fec: finite element collection
+ */
+template <bool is_parallel>
+static void checkNodalBlocks(mfem::FiniteElementCollection& fec) {
+  using namespace mfem_mgis;
+  using mfem_mgis::tests::ElasticitySystem;
+  auto beam = mfem::Mesh::MakeCartesian3D(16, 4, 4, mfem::Element::HEXAHEDRON,
+                                          4., 1., 1.);
+  // refusals, with their messages
+  auto refused = [](FiniteElementSpace<is_parallel>& fespace,
+                    const std::string& name, const Parameters& parameters,
+                    const std::string& message) {
+    auto ctx = Context{};
+    const auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
+        ctx, name, fespace, parameters);
+    return isInvalid(ls) &&
+           (ctx.getErrorMessage().find(message) != std::string::npos);
+  };
+  {
+    auto by_nodes =
+        ElasticitySystem<is_parallel>(beam, fec, mfem::Ordering::byNODES);
+    check(
+        refused(by_nodes.fespace, "AmgX",
+                Parameters{{"Multigrid", "Aggregation"}, {"NodalBlocks", true}},
+                "ordered by vector dimension"),
+        "AmgX: nodal blocks accepted with the unknowns ordered by nodes");
+  }
+  auto e = ElasticitySystem<is_parallel>(beam, fec, mfem::Ordering::byVDIM);
+  check(refused(e.fespace, "AmgXPCG", Parameters{{"NodalBlocks", true}},
+                "classical multigrid"),
+        "AmgXPCG: nodal blocks accepted with the classical multigrid");
+  check(
+      refused(e.fespace, "AmgX",
+              Parameters{{"Multigrid", "Aggregation"}, {"NodalBlocks", 1}}, ""),
+      "AmgX: invalid value of the option 'NodalBlocks' accepted");
+  // one application of the block Jacobi smoother of AmgX, from a zero
+  // initial guess, inverts the diagonal blocks of the matrix given to AmgX:
+  // with the nodal blocks, it is the application of NodalBlockJacobi, and
+  // it differs from the Jacobi smoother on the scalar entries. On several
+  // processes, the smoothers of AmgX 2.5 used alone give wrong results with
+  // blocks (a solution whose norm is about 8 times the one of
+  // NodalBlockJacobi on this beam): checked on one process only
+  const auto block_jacobi = std::string{
+      "config_version=2, solver=BLOCK_JACOBI, max_iters=1, "
+      "relaxation_factor=1"};
+  auto applyBlockJacobi = [&e, &block_jacobi](const bool blocks) {
+    auto ls = generate<is_parallel>(
+        e.fespace, "AmgX",
+        Parameters{{"Configuration", block_jacobi}, {"NodalBlocks", blocks}});
+    ls.linear_solver->SetOperator(e.A);
+    auto x = mfem::Vector(e.B.Size());
+    x.UseDevice(true);
+    x = 0.;
+    ls.linear_solver->Mult(e.B, x);
+    return x;
+  };
+  {
+    auto ctx = Context{};
+    auto nbj = PreconditionerFactory<is_parallel>::getFactory().generate(
+        ctx, "NodalBlockJacobi", e.fespace, Parameters{});
+    if (nbj == nullptr) {
+      throw std::runtime_error(ctx.getErrorMessage());
+    }
+    nbj->SetOperator(e.A);
+    auto y = mfem::Vector(e.B.Size());
+    y.UseDevice(true);
+    y = 0.;
+    nbj->Mult(e.B, y);
+    auto difference = [&e, &y](const mfem::Vector& x) {
+      auto d = mfem::Vector(x.Size());
+      d.UseDevice(true);
+      subtract(x, y, d);
+      return getRelativeNorm<is_parallel>(e.fespace, d, y);
+    };
+    const auto xs = applyBlockJacobi(false);
+    check(difference(xs) > 1e-3,
+          "AmgX: the block Jacobi smoother on the scalar entries is "
+          "NodalBlockJacobi");
+    auto size = 1;
+    if constexpr (is_parallel) {
+      MPI_Comm_size(e.fespace.GetComm(), &size);
+    }
+    if (size == 1) {
+      const auto xb = applyBlockJacobi(true);
+      check(difference(xb) < 1e-12,
+            "AmgX: the block Jacobi smoother on the nodal blocks differs "
+            "from NodalBlockJacobi");
+    }
+  }
+  // resolution by AmgX: the matrix given by blocks is the one of MFEM
+  {
+    const auto pcg = std::string{
+        "config_version=2, solver(main)=PCG, main:max_iters=5000, "
+        "main:preconditioner(p)=BLOCK_JACOBI, p:max_iters=1, "
+        "main:tolerance=1e-11, main:monitor_residual=1, "
+        "main:use_scalar_norm=1, main:convergence=RELATIVE_INI_CORE"};
+    auto ls = generate<is_parallel>(
+        e.fespace, "AmgX",
+        Parameters{{"Configuration", pcg}, {"NodalBlocks", true}});
+    const auto r = solve<is_parallel>(e.fespace, *(ls.linear_solver), e.A, e.B);
+    print("AmgX, conjugate gradient, nodal blocks", r);
+    check(r.residual < 1e-9,
+          "AmgX: resolution of the system given by nodal blocks");
+  }
+  // aggregation multigrid of the default configurations, with and without
+  // the nodal blocks: conjugate gradient of AmgX, in double and single
+  // precision, and preconditioner of the conjugate gradient of MFEM, which
+  // checks the preconditioned residual (the residual of the system is
+  // checked at 1e-8 for a tolerance of 1e-10). The nodal blocks must not
+  // increase much the number of iterations (a degraded multigrid would only
+  // cost iterations)
+  auto iterations = std::array<std::array<std::optional<int>, 2>, 2>{};
+  for (const auto blocks : {false, true}) {
+    const auto suffix = std::string{blocks ? ", nodal blocks" : ""};
+    {
+      auto ls =
+          generate<is_parallel>(e.fespace, "AmgXPCG",
+                                Parameters{{"RelativeTolerance", 1e-10},
+                                           {"MaximumNumberOfIterations", 1000},
+                                           {"Multigrid", "Aggregation"},
+                                           {"NodalBlocks", blocks}});
+      const auto r =
+          solve<is_parallel>(e.fespace, *(ls.linear_solver), e.A, e.B);
+      const auto name = "AmgXPCG, aggregation, linear elasticity" + suffix;
+      print(name, r);
+      check(r.converged && (r.residual < 1e-9), name + ": resolution");
+      iterations[0][blocks ? 1 : 0] = r.iterations;
+    }
+    {
+      auto ls =
+          generate<is_parallel>(e.fespace, "AmgXPCG",
+                                Parameters{{"RelativeTolerance", 1e-6},
+                                           {"MaximumNumberOfIterations", 1000},
+                                           {"Multigrid", "Aggregation"},
+                                           {"Precision", "Single"},
+                                           {"NodalBlocks", blocks}});
+      const auto r =
+          solve<is_parallel>(e.fespace, *(ls.linear_solver), e.A, e.B);
+      const auto name =
+          "AmgXPCG, aggregation, linear elasticity, single precision" + suffix;
+      print(name, r);
+      // the residual computed in single precision by AmgX reaches the
+      // tolerance, the residual of the system in double precision stays
+      // about 1e-3 (conditioning of the linear elasticity)
+      check(r.converged && (r.residual < 1e-2), name + ": resolution");
+    }
+    {
+      auto ls = makeConjugateGradient<is_parallel>(
+          e.fespace,
+          Parameters{{"Name", "AmgX"},
+                     {"Options", Parameters{{"Multigrid", "Aggregation"},
+                                            {"NodalBlocks", blocks}}}});
+      const auto r =
+          solve<is_parallel>(e.fespace, *(ls.linear_solver), e.A, e.B);
+      const auto name =
+          "CGSolver, AmgX, aggregation, linear elasticity" + suffix;
+      print(name, r);
+      check(r.converged && (r.residual < 1e-8), name + ": resolution");
+      iterations[1][blocks ? 1 : 0] = r.iterations;
+    }
+  }
+  for (const auto& [scalar, blocks] : iterations) {
+    check(scalar.has_value() && blocks.has_value() &&
+              (2 * *blocks <= 3 * *scalar),
+          "AmgX: the nodal blocks increase the number of iterations of the "
+          "aggregation multigrid");
+  }
+}  // end of checkNodalBlocks
 
 //! \brief Laplace equation on a sequential mesh
 struct SequentialSystem {
@@ -944,12 +1127,14 @@ static void run(mfem::Mesh& mesh, mfem::FiniteElementCollection& fec) {
       ls = LinearSolverHandler{};
     });
     checkCommunicators(mesh, fec, world, sequential);
+    checkNodalBlocks<true>(fec);
 #else  /* MFEM_USE_MPI */
     throw std::runtime_error("parallel computations are not supported");
 #endif /* MFEM_USE_MPI */
   } else {
     auto sequential = SequentialSystem(mesh, fec);
     checkAmgX<false>(sequential.fespace, sequential.A, sequential.B);
+    checkNodalBlocks<false>(fec);
   }
 }  // end of run
 

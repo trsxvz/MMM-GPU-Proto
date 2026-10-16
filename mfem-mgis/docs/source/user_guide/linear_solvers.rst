@@ -171,7 +171,8 @@ The solvers marked as parallel are only available in parallel.
      - GPU
      - none
      - :cxx:`Configuration`, :cxx:`ConfigurationFile`, :cxx:`VerbosityLevel`,
-       :cxx:`AmgXParameters`, :cxx:`Precision`, :cxx:`Multigrid`
+       :cxx:`AmgXParameters`, :cxx:`Precision`, :cxx:`Multigrid`,
+       :cxx:`NodalBlocks`
    * - :cxx:`AmgXPCG`
      - AmgX
      - iterative
@@ -179,7 +180,8 @@ The solvers marked as parallel are only available in parallel.
      - none
      - :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
-       :cxx:`AmgXParameters`, :cxx:`Precision`, :cxx:`Multigrid`
+       :cxx:`AmgXParameters`, :cxx:`Precision`, :cxx:`Multigrid`,
+       :cxx:`NodalBlocks`
    * - :cxx:`GinkgoCG`, :cxx:`GinkgoGMRES`, ... (see
        :ref:`ginkgo_linear_solvers`)
      - Ginkgo
@@ -332,7 +334,8 @@ Preconditioners
      - AmgX
      - GPU
      - :cxx:`Configuration`, :cxx:`ConfigurationFile`, :cxx:`VerbosityLevel`,
-       :cxx:`AmgXParameters`, :cxx:`Precision`, :cxx:`Multigrid`
+       :cxx:`AmgXParameters`, :cxx:`Precision`, :cxx:`Multigrid`,
+       :cxx:`NodalBlocks`
    * - :cxx:`GinkgoJacobi`, :cxx:`GinkgoILU`, :cxx:`GinkgoMultigrid`, ...
        (see :ref:`ginkgo_linear_solvers`)
      - Ginkgo

@@ -15,6 +15,7 @@
 #include <limits>
 #include <locale>
 #include <vector>
+#include <unordered_map>
 #include <optional>
 #include <cstdint>
 #include <fstream>
@@ -201,6 +202,89 @@ namespace mfem_mgis::internals {
     }  // end of getMatrixValues
 
     /*!
+     * \brief rows of a matrix in the block compressed row format of AmgX
+     * \tparam Index: type of the indices of the block columns
+     */
+    template <typename Index>
+    struct BlockRows {
+      //! \brief offsets of the block rows
+      std::vector<int> offsets;
+      //! \brief indices of the block columns
+      std::vector<Index> columns;
+      //! \brief values of the blocks, each block being stored by rows
+      std::vector<real> values;
+    };
+
+    /*!
+     * \return the rows of a matrix grouped in square blocks of size `b`:
+     * the block `(i, j)` gathers the rows `b * i + r` and the columns
+     * `b * j + c`, `r` and `c` going from 0 to `b - 1`, the entries missing
+     * in a block being zero (and the duplicated entries summed)
+     * \param[in] n: number of rows, multiple of `b`
+     * \param[in] offsets: offsets of the rows
+     * \param[in] columns: indices of the columns
+     * \param[in] values: values
+     * \param[in] b: size of the blocks
+     * \param[in] first_block_column: index of the first block column of
+     * the diagonal block of the process (0 in sequential)
+     * \param[in] number_of_local_block_columns: number of block columns of
+     * the diagonal block of the process (all the columns in sequential)
+     */
+    template <typename Index>
+    BlockRows<Index> makeBlockRows(const int n,
+                                   const int* const offsets,
+                                   const Index* const columns,
+                                   const real* const values,
+                                   const int b,
+                                   const Index first_block_column,
+                                   const int number_of_local_block_columns) {
+      auto r = BlockRows<Index>{};
+      const auto nb = n / b;
+      const auto bs = static_cast<std::size_t>(b);
+      r.offsets.reserve(static_cast<std::size_t>(nb) + 1);
+      r.offsets.push_back(0);
+      // positions of the block columns in the current block row: the block
+      // columns of the diagonal block of the process are stored in an
+      // array, the other ones (columns of other processes) in a map, so
+      // that the memory used is proportional to the local size
+      auto local_positions = std::vector<int>(
+          static_cast<std::size_t>(number_of_local_block_columns), -1);
+      auto other_positions = std::unordered_map<Index, int>{};
+      auto position = [&](const Index j) -> int& {
+        const auto l = j - first_block_column;
+        if ((l >= 0) && (l < number_of_local_block_columns)) {
+          return local_positions[static_cast<std::size_t>(l)];
+        }
+        return other_positions.try_emplace(j, -1).first->second;
+      };
+      for (int i = 0; i != nb; ++i) {
+        for (int rb = 0; rb != b; ++rb) {
+          const auto row = i * b + rb;
+          for (auto k = offsets[row]; k != offsets[row + 1]; ++k) {
+            const auto j = static_cast<Index>(columns[k] / b);
+            auto& p = position(j);
+            if (p < 0) {
+              p = static_cast<int>(r.columns.size());
+              r.columns.push_back(j);
+              r.values.resize(r.values.size() + bs * bs, real{});
+            }
+            const auto block = static_cast<std::size_t>(p);
+            const auto c = static_cast<std::size_t>(columns[k] % b);
+            r.values[(block * bs + static_cast<std::size_t>(rb)) * bs + c] +=
+                values[k];
+          }
+        }
+        for (auto q = static_cast<std::size_t>(r.offsets.back());
+             q != r.columns.size(); ++q) {
+          position(r.columns[q]) = -1;
+        }
+        other_positions.clear();
+        r.offsets.push_back(static_cast<int>(r.columns.size()));
+      }
+      return r;
+    }  // end of makeBlockRows
+
+    /*!
      * \return a power of two giving to the given positive value a value
      * between one and two, if the value is finite and if this power is
      * representable
@@ -226,7 +310,8 @@ namespace mfem_mgis::internals {
                          const AmgXSolverOptions& o)
       : mode(getMode(o.precision)),
         iterative(o.iterative),
-        scale_right_hand_side(o.scale_right_hand_side) {
+        scale_right_hand_side(o.scale_right_hand_side),
+        block_size(o.block_size) {
     this->iterative_mode = false;
     auto size = 0;
     MPI_Comm_size(c, &size);
@@ -254,7 +339,8 @@ namespace mfem_mgis::internals {
   AmgXSolver::AmgXSolver(const std::string& config, const AmgXSolverOptions& o)
       : mode(getMode(o.precision)),
         iterative(o.iterative),
-        scale_right_hand_side(o.scale_right_hand_side) {
+        scale_right_hand_side(o.scale_right_hand_side),
+        block_size(o.block_size) {
     this->iterative_mode = false;
     try {
       this->create(config);
@@ -267,6 +353,9 @@ namespace mfem_mgis::internals {
 #endif /* MFEM_USE_MPI */
 
   void AmgXSolver::create(const std::string& config) {
+    if (this->block_size < 1) {
+      mgis::raise("AmgX: invalid size of the blocks");
+    }
     this->resources = acquireAmgXProcessResources();
     checkAmgX(AMGX_config_create(&(this->configuration), config.c_str()),
               "creation of the configuration");
@@ -321,6 +410,27 @@ namespace mfem_mgis::internals {
 
   void AmgXSolver::upload(const mfem::SparseMatrix& m) {
     auto values = std::vector<float>{};
+    if (this->block_size > 1) {
+      const auto b = this->block_size;
+      if ((m.Height() != m.Width()) || (m.Height() % b != 0)) {
+        mgis::raise(
+            "AmgX: the matrix given by blocks must be square, its number of "
+            "rows being a multiple of the size of the blocks");
+      }
+      const auto blocks =
+          makeBlockRows(m.Height(), m.HostReadI(), m.HostReadJ(),
+                        m.HostReadData(), b, 0, m.Width() / b);
+      const auto nnzb = static_cast<int>(blocks.columns.size());
+      checkAmgX(
+          AMGX_matrix_upload_all(
+              this->matrix, m.Height() / b, nnzb, b, b, blocks.offsets.data(),
+              blocks.columns.data(),
+              getMatrixValues(values, this->mode, blocks.values.data(),
+                              static_cast<size_type>(blocks.values.size())),
+              nullptr),
+          "upload of the matrix");
+      return;
+    }
     const auto nnz = m.NumNonZeroElems();
     checkAmgX(
         AMGX_matrix_upload_all(
@@ -358,29 +468,64 @@ namespace mfem_mgis::internals {
     const auto n = hypre_CSRMatrixNumRows(merged.get());
     const auto nnz = hypre_CSRMatrixNumNonzeros(merged.get());
     const auto* const columns = hypre_CSRMatrixBigJ(merged.get());
+    const auto first = m.GetRowStarts()[0];
+    const auto global_size = m.GetGlobalNumRows();
+    // size of the blocks: the matrix must be square, with the same
+    // distribution of its rows and of its columns, and the rows of each
+    // process and the global size must be multiples of the size of the
+    // blocks (checked by all the processes, which fail together)
+    const auto b = this->block_size;
+    if (b > 1) {
+      auto valid = static_cast<int>(
+          (m.Height() == m.Width()) && (m.GetColStarts()[0] == first) &&
+          (m.GetGlobalNumCols() == global_size) && (n % b == 0) &&
+          (first % b == 0) && (global_size % b == 0));
+      MPI_Allreduce(MPI_IN_PLACE, &valid, 1, MPI_INT, MPI_MIN, this->comm);
+      if (valid == 0) {
+        throw CollectiveFailure(
+            "AmgX: the matrix given by blocks must be square, with the same "
+            "distribution of its rows and columns, the rows of each process "
+            "being a multiple of the size of the blocks");
+      }
+    }
     auto values = std::vector<float>{};
-    const auto* const data = getMatrixValues(
-        values, this->mode, hypre_CSRMatrixData(merged.get()), nnz);
     auto size = 0;
     MPI_Comm_size(this->comm, &size);
     if (size == 1) {
       // matrix of one process, whose communicator may differ from the one
       // of the resources: uploaded as a sequential matrix
       const auto local_columns = std::vector<int>(columns, columns + nnz);
-      checkAmgX(AMGX_matrix_upload_all(this->matrix, n, nnz, 1, 1,
-                                       hypre_CSRMatrixI(merged.get()),
-                                       local_columns.data(), data, nullptr),
+      if (b > 1) {
+        const auto blocks = makeBlockRows(
+            n, hypre_CSRMatrixI(merged.get()), local_columns.data(),
+            hypre_CSRMatrixData(merged.get()), b, 0, n / b);
+        checkAmgX(
+            AMGX_matrix_upload_all(
+                this->matrix, n / b, static_cast<int>(blocks.columns.size()), b,
+                b, blocks.offsets.data(), blocks.columns.data(),
+                getMatrixValues(values, this->mode, blocks.values.data(),
+                                static_cast<size_type>(blocks.values.size())),
+                nullptr),
+            "upload of the matrix");
+        return;
+      }
+      checkAmgX(AMGX_matrix_upload_all(
+                    this->matrix, n, nnz, 1, 1, hypre_CSRMatrixI(merged.get()),
+                    local_columns.data(),
+                    getMatrixValues(values, this->mode,
+                                    hypre_CSRMatrixData(merged.get()), nnz),
+                    nullptr),
                 "upload of the matrix");
       return;
     }
-    // offsets of the rows of the processes, with the type of the global
-    // indices of the columns
+    // offsets of the block rows of the processes, with the type of the
+    // global indices of the columns
     auto offsets =
         std::vector<HYPRE_BigInt>(static_cast<std::size_t>(size) + 1);
-    const auto first = m.GetRowStarts()[0];
-    MPI_Allgather(&first, 1, HYPRE_MPI_BIG_INT, offsets.data(), 1,
+    const auto first_block = first / b;
+    MPI_Allgather(&first_block, 1, HYPRE_MPI_BIG_INT, offsets.data(), 1,
                   HYPRE_MPI_BIG_INT, this->comm);
-    offsets.back() = m.GetGlobalNumRows();
+    offsets.back() = global_size / b;
     auto distribution = AMGX_distribution_handle{};
     checkAmgX(AMGX_distribution_create(&distribution, this->configuration),
               "creation of the distribution");
@@ -396,10 +541,27 @@ namespace mfem_mgis::internals {
     checkAmgX(AMGX_distribution_set_32bit_colindices(
                   distribution, sizeof(HYPRE_BigInt) == 4 ? 1 : 0),
               "definition of the type of the indices");
+    if (b > 1) {
+      const auto blocks =
+          makeBlockRows(n, hypre_CSRMatrixI(merged.get()), columns,
+                        hypre_CSRMatrixData(merged.get()), b, first / b, n / b);
+      checkAmgX(
+          AMGX_matrix_upload_distributed(
+              this->matrix, static_cast<int>(global_size / b), n / b,
+              static_cast<int>(blocks.columns.size()), b, b,
+              blocks.offsets.data(), blocks.columns.data(),
+              getMatrixValues(values, this->mode, blocks.values.data(),
+                              static_cast<size_type>(blocks.values.size())),
+              nullptr, distribution),
+          "upload of the matrix");
+      return;
+    }
     checkAmgX(AMGX_matrix_upload_distributed(
-                  this->matrix, static_cast<int>(m.GetGlobalNumRows()), n, nnz,
-                  1, 1, hypre_CSRMatrixI(merged.get()), columns, data, nullptr,
-                  distribution),
+                  this->matrix, static_cast<int>(global_size), n, nnz, 1, 1,
+                  hypre_CSRMatrixI(merged.get()), columns,
+                  getMatrixValues(values, this->mode,
+                                  hypre_CSRMatrixData(merged.get()), nnz),
+                  nullptr, distribution),
               "upload of the matrix");
   }  // end of upload
 
@@ -408,6 +570,9 @@ namespace mfem_mgis::internals {
   void AmgXSolver::SetOperator(const mfem::Operator& op) {
     // the solver is set up again only if the setup succeeds
     this->setup = false;
+    if (op.Height() != op.Width()) {
+      mgis::raise("AmgXSolver::SetOperator: a square matrix is expected");
+    }
     this->status.reset();
     this->iterations.reset();
     if (const auto* const m = dynamic_cast<const mfem::SparseMatrix*>(&op);
@@ -467,16 +632,21 @@ namespace mfem_mgis::internals {
       }
       factor = getScalingFactor(m);
     }
+    // the vectors are given by blocks of the size of the blocks of the
+    // matrix
+    const auto bs = this->block_size;
     if (single) {
       convertToSinglePrecision(this->single_rhs, b, factor.value_or(1));
-      checkAmgX(AMGX_vector_upload(this->rhs, n, 1, this->single_rhs.Read()),
-                "upload of the right hand side");
+      checkAmgX(
+          AMGX_vector_upload(this->rhs, n / bs, bs, this->single_rhs.Read()),
+          "upload of the right hand side");
     } else if (factor.has_value()) {
       scale(this->scaled_rhs, b, *factor);
-      checkAmgX(AMGX_vector_upload(this->rhs, n, 1, this->scaled_rhs.Read()),
-                "upload of the right hand side");
+      checkAmgX(
+          AMGX_vector_upload(this->rhs, n / bs, bs, this->scaled_rhs.Read()),
+          "upload of the right hand side");
     } else {
-      checkAmgX(AMGX_vector_upload(this->rhs, n, 1, b.Read()),
+      checkAmgX(AMGX_vector_upload(this->rhs, n / bs, bs, b.Read()),
                 "upload of the right hand side");
     }
     // zero initial guess, uploaded: `AMGX_vector_set_zero` resizes the
@@ -490,7 +660,7 @@ namespace mfem_mgis::internals {
       }
     }
     checkAmgX(AMGX_vector_upload(
-                  this->solution, n, 1,
+                  this->solution, n / bs, bs,
                   single ? static_cast<const void*>(this->single_zeros.Read())
                          : static_cast<const void*>(this->zeros.Read())),
               "initialisation of the solution");
@@ -539,6 +709,8 @@ namespace mfem_mgis::internals {
   static const char* const Precision = "Precision";
   //! \brief name of the option selecting the default multigrid
   static const char* const Multigrid = "Multigrid";
+  //! \brief name of the option giving the matrices by nodal blocks
+  static const char* const NodalBlocks = "NodalBlocks";
 
   //! \brief algebraic multigrids of the default configurations
   enum struct AmgXMultigrid {
@@ -546,8 +718,8 @@ namespace mfem_mgis::internals {
     CLASSICAL,
     /*!
      * \brief aggregation algebraic multigrid, Jacobi smoother (the block
-     * Jacobi smoother of AmgX on the blocks of size one of the matrices
-     * given to AmgX)
+     * Jacobi smoother of AmgX on the blocks of the matrices given to AmgX,
+     * of size one or nodal blocks)
      */
     AGGREGATION
   };
@@ -655,16 +827,58 @@ namespace mfem_mgis::internals {
   }  // end of getMultigrid
 
   /*!
+   * \return the size of the blocks of the matrices and of the vectors given
+   * to AmgX: the number of components of the unknowns with the option
+   * `NodalBlocks`, one otherwise, or an empty value on error
+   * \param[in, out] ctx: execution context
+   * \param[in] fespace: finite element space
+   * \param[in] params: options
+   * \param[in] classical: if true, the configuration is the default one
+   * with the classical multigrid, which does not support blocks
+   */
+  template <bool parallel>
+  static std::optional<int> getBlockSize(
+      Context& ctx,
+      const FiniteElementSpace<parallel>& fespace,
+      const Parameters& params,
+      const bool classical) noexcept {
+    const auto o = get_if<bool>(ctx, params, NodalBlocks, false);
+    if (isInvalid(o)) {
+      return {};
+    }
+    if (!(*o)) {
+      return 1;
+    }
+    if ((fespace.GetVDim() < 2) ||
+        (fespace.GetOrdering() != mfem::Ordering::byVDIM)) {
+      return ctx.registerErrorMessage(
+          "AmgX: the nodal blocks require vector unknowns ordered by vector "
+          "dimension (i.e. the parameter 'FiniteElementSpaceOrdering' set "
+          "to 'byVDIM')");
+    }
+    if (classical) {
+      return ctx.registerErrorMessage(
+          "AmgX: the classical multigrid of AmgX does not support blocks: "
+          "the nodal blocks require the aggregation multigrid (option "
+          "'Multigrid' set to 'Aggregation') or a configuration given");
+    }
+    return fespace.GetVDim();
+  }  // end of getBlockSize
+
+  /*!
    * \brief writes the parameters of the multigrid of the default
    * configurations (scope `amg`): one V-cycle of the classical algebraic
    * multigrid with a L1-Jacobi smoother (the default multigrid of MFEM), or
-   * of the aggregation algebraic multigrid of the configuration
-   * `PCG_AGGREGATION_JACOBI` of AmgX (aggregates of size two, three
-   * post-smoothing sweeps of a damped Jacobi smoother, the block Jacobi
-   * smoother of AmgX on the blocks of size one of the matrices given to
-   * AmgX, and no pre-smoothing sweep: the cycle is not symmetric, but the
-   * conjugate gradients of AmgX and of MFEM converge with it, as in the
-   * configuration of AmgX)
+   * of the aggregation algebraic multigrid of AmgX (aggregates of size two,
+   * one sweep of a Jacobi smoother damped by 0.6 before and after the
+   * coarse correction, the coarsest level being smoothed twice instead of
+   * solved, the block Jacobi smoother of AmgX acting on the blocks of the
+   * matrices given to AmgX). The cycle is symmetric, as the conjugate
+   * gradients require. On the linear elasticity of the beam of the
+   * benchmark of the linear solvers, the configuration
+   * `PCG_AGGREGATION_JACOBI` of AmgX (three post-smoothing sweeps damped by
+   * 0.8, no pre-smoothing sweep) does not converge, nor a symmetric cycle
+   * damped by 0.8
    * \param[in, out] c: configuration
    * \param[in] verbose: print the statistics of the grids
    * \param[in] m: algebraic multigrid
@@ -676,8 +890,8 @@ namespace mfem_mgis::internals {
       c << "amg:algorithm=AGGREGATION, amg:selector=SIZE_2, "
         << "amg:max_iters=1, amg:cycle=V, amg:max_levels=50, "
         << "amg:smoother(smoother)=BLOCK_JACOBI, "
-        << "smoother:relaxation_factor=0.8, amg:presweeps=0, "
-        << "amg:postsweeps=3, amg:coarse_solver=NOSOLVER";
+        << "smoother:relaxation_factor=0.6, amg:presweeps=1, "
+        << "amg:postsweeps=1, amg:coarse_solver=NOSOLVER";
     } else {
       c << "amg:max_iters=1, amg:cycle=V, amg:max_levels=100, "
         << "amg:smoother(smoother)=JACOBI_L1, amg:presweeps=1, "
@@ -765,10 +979,11 @@ namespace mfem_mgis::internals {
     const char* const Configuration = "Configuration";
     const char* const ConfigurationFile = "ConfigurationFile";
     const char* const VerbosityLevel = "VerbosityLevel";
-    if (!checkParameters(ctx, params,
-                         std::vector<std::string>{
-                             Configuration, ConfigurationFile, VerbosityLevel,
-                             AmgXParameters, Precision, Multigrid})) {
+    if (!checkParameters(
+            ctx, params,
+            std::vector<std::string>{Configuration, ConfigurationFile,
+                                     VerbosityLevel, AmgXParameters, Precision,
+                                     Multigrid, NodalBlocks})) {
       return {};
     }
     const auto oconfiguration =
@@ -801,6 +1016,13 @@ namespace mfem_mgis::internals {
     if (has_configuration && oconfiguration->empty()) {
       return ctx.registerErrorMessage("AmgX: empty configuration");
     }
+    const auto oblock_size =
+        getBlockSize<parallel>(ctx, fespace, params,
+                               !(has_configuration || has_file) &&
+                                   (*omultigrid == AmgXMultigrid::CLASSICAL));
+    if (isInvalid(oblock_size)) {
+      return {};
+    }
     if (!checkGPU(ctx)) {
       return {};
     }
@@ -812,12 +1034,16 @@ namespace mfem_mgis::internals {
       }
       auto c = std::ostringstream{};
       c << f.rdbuf();
-      return makeSolver<parallel>(ctx, fespace, c.str(),
-                                  AmgXSolverOptions{.precision = *oprecision});
+      return makeSolver<parallel>(
+          ctx, fespace, c.str(),
+          AmgXSolverOptions{.precision = *oprecision,
+                            .block_size = *oblock_size});
     }
     if (has_configuration) {
-      return makeSolver<parallel>(ctx, fespace, *oconfiguration,
-                                  AmgXSolverOptions{.precision = *oprecision});
+      return makeSolver<parallel>(
+          ctx, fespace, *oconfiguration,
+          AmgXSolverOptions{.precision = *oprecision,
+                            .block_size = *oblock_size});
     }
     // default configuration, completed by the parameters given
     auto c = makeConfigurationStream();
@@ -840,7 +1066,8 @@ namespace mfem_mgis::internals {
         ctx, fespace, c.str(),
         AmgXSolverOptions{
             .precision = *oprecision,
-            .scale_right_hand_side = *oprecision == AmgXPrecision::SINGLE});
+            .scale_right_hand_side = *oprecision == AmgXPrecision::SINGLE,
+            .block_size = *oblock_size});
   }  // end of makeAmgXPreconditioner
 
   template <bool parallel>
@@ -853,6 +1080,7 @@ namespace mfem_mgis::internals {
     allowed_parameters.push_back(AmgXParameters);
     allowed_parameters.push_back(Precision);
     allowed_parameters.push_back(Multigrid);
+    allowed_parameters.push_back(NodalBlocks);
     if (!checkParameters(ctx, params, allowed_parameters)) {
       return {};
     }
@@ -869,6 +1097,11 @@ namespace mfem_mgis::internals {
     const auto omultigrid = getMultigrid(ctx, params);
     if (isInvalid(overbosity) || isInvalid(ortol) || isInvalid(oatol) ||
         isInvalid(on) || isInvalid(oprecision) || isInvalid(omultigrid)) {
+      return {};
+    }
+    const auto oblock_size = getBlockSize<parallel>(
+        ctx, fespace, params, *omultigrid == AmgXMultigrid::CLASSICAL);
+    if (isInvalid(oblock_size)) {
       return {};
     }
     if ((*ortol < 0) || (*oatol < 0) || ((*ortol <= 0) && (*oatol <= 0))) {
@@ -915,8 +1148,11 @@ namespace mfem_mgis::internals {
     // conjugate gradient preconditioned by the default multigrid, completed
     // by the parameters given
     auto c = makeConfigurationStream();
+    // the norm of the residual is the euclidean norm of the whole vector,
+    // also with blocks (AmgX computes one norm per component of the blocks
+    // by default, each one being checked)
     c << "config_version=2, solver(main)=PCG, main:max_iters=" << *on
-      << ", main:monitor_residual=1, main:norm=L2, ";
+      << ", main:monitor_residual=1, main:norm=L2, main:use_scalar_norm=1, ";
     if (*oatol > 0) {
       // converged if the norm of the residual is lower than `tolerance` or
       // than `alt_rel_tolerance` times the norm of the initial residual
@@ -944,7 +1180,8 @@ namespace mfem_mgis::internals {
         ctx, fespace, c.str(),
         AmgXSolverOptions{.precision = *oprecision,
                           .iterative = true,
-                          .scale_right_hand_side = !(*oatol > 0)});
+                          .scale_right_hand_side = !(*oatol > 0),
+                          .block_size = *oblock_size});
   }  // end of makeAmgXConjugateGradientSolver
 
   template std::unique_ptr<AmgXSolver> makeAmgXPreconditioner<false>(
@@ -961,7 +1198,8 @@ namespace mfem_mgis::internals {
   //! \return the options of the AmgX preconditioner
   [[nodiscard]] static std::vector<std::string> getAmgXPreconditionerOptions() {
     return {"Configuration", "ConfigurationFile", "VerbosityLevel",
-            AmgXParameters, Precision, Multigrid};
+            AmgXParameters,  Precision,           Multigrid,
+            NodalBlocks};
   }  // end of getAmgXPreconditionerOptions
 
   template <bool parallel>
@@ -990,6 +1228,7 @@ namespace mfem_mgis::internals {
     pcg_options.push_back(AmgXParameters);
     pcg_options.push_back(Precision);
     pcg_options.push_back(Multigrid);
+    pcg_options.push_back(NodalBlocks);
     declare(f, "AmgXPCG",
             LinearSolverDescription{
                 .library = "AmgX",

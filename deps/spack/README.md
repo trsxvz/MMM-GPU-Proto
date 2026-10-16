@@ -114,7 +114,9 @@ Content:
   `install-mmm-solvers.sh`: the dependencies of MFEM and Trilinos first,
   then MFEM alone with two jobs (the file `fem/lor/lor_batched.cpp` needs
   about 22 GB for ptxas with sm_120, which leaves no room for other
-  compilations on a machine of 32 GB);
+  compilations on a machine of 32 GB). On the machine of the prototype,
+  shared with other work, this file was compiled in the stage of MFEM to
+  PTX code only, before the rest of MFEM (see below);
 - `make-nvhpc-cuda-prefix.sh`: CUDA prefix with the layout of the
   standalone toolkit, built from the SDK (whose mathematical libraries are
   in a separate directory);
@@ -163,6 +165,25 @@ resumes afterwards. `ptxas` takes about 22 GB for the kernels of
 phase is restarted up to three times in case of failure (lack of memory),
 MFEM with a single job; an interrupted build resumes where it stopped
 (`--dont-restage` and `mfem` recipe of `mmm_gpu`).
+
+When 22 GB can't be spared, `fem/lor/lor_batched.cpp` alone can be
+compiled to PTX code only, which needs no ptxas (cicc takes about 6 GB
+and 18 minutes): its kernels (batched assembly of low order refined
+operators, not used by mfem-mgis) are then compiled by the driver at their
+first use. This was done for the MFEM of `mmm-trilinos` (16/10/2026):
+
+```bash
+E=deps/spack/mmm-trilinos
+spack -e $E install --only package -u configure /hb6luie  # stage and configure
+cd $(spack -e $E location -s /hb6luie)/spack-src
+# the command printed by `make -n fem/lor/lor_batched.o`, with
+# -arch=compute_120 instead of -arch=sm_120
+spack -e $E build-env /hb6luie -- bash -c "<command>"
+# spack configures MFEM again: the object is dated in the future so that it
+# is not compiled again
+touch -d tomorrow fem/lor/lor_batched.o
+spack -e $E install --dont-restage --only package -j 2 /hb6luie
+```
 
 ## CUDA prefix
 

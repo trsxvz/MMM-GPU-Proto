@@ -50,9 +50,15 @@ configurations), [second pass](../results/solvers-2026-10-15-byvdim/README.md)
 - The conjugate gradient with the Jacobi preconditioner is as fast on a
   homogeneous material, but its iterations grow quickly with the contrast
   (1797 against 109 with the inclusions).
-- The multigrids of AmgX (classical and aggregation) ignore the components
-  of the unknowns: ten times slower than BoomerAMG on the elasticity, and
-  the aggregation does not converge. They suit scalar problems.
+- The classical multigrid of AmgX ignores the components of the unknowns:
+  ten times slower than BoomerAMG on the elasticity (505 iterations at
+  421,443 unknowns). Its aggregation multigrid converges on the elasticity
+  only with a symmetric cycle and a Jacobi smoother damped by 0.6, the
+  default of mfem-mgis since 16/10/2026 (141 iterations at 56,355
+  unknowns, against 54 for BoomerAMG); the configuration
+  `PCG_AGGREGATION_JACOBI` of AmgX diverges. Giving the matrix to AmgX by
+  nodal blocks (`NodalBlocks`) does not reduce the iterations. AmgX suits
+  scalar problems.
 
 ### Scalar problems (heat transfer)
 
