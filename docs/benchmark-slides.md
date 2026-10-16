@@ -88,9 +88,56 @@ checks the scripts):
 | bubble | default | 467,109 | 1 solve |
 | cermet | default | 33,015 | 10 |
 
-Screening first (one or two steps per pair, the pairs which fail or are
-more than twice slower than the best one being dropped), then full runs of
-the best two or three pairs of each side.
+All the cases have an option of the order of the elements (`-o`). A
+higher order gives more work per element and more integration points,
+which fills the GPU better. The order is the same on both sides, an order
+2 case is reported as a case of its own, and its refinement is lowered by
+one level to keep a comparable number of unknowns (and to fit in the 16 GB
+of the GPU with a direct solver).
+
+## Parameter space and cost
+
+The full grid, per case and per order:
+
+| Precision | CPU: linear solvers x nonlinear solvers x processes | GPU: linear solvers x nonlinear solvers, and mixed | Per case and order |
+|---|---|---|---|
+| double | 5 x 3 x 4 = 60 | 5 x 3 + 3 = 18 | 78 |
+| float | 5 x 3 x 4 = 60 | 3 x 3 + 3 = 12 | 72 |
+
+With 11 cases, 2 orders and 3 repetitions, that is about 9,900 runs.
+Assuming, at the sizes above, 1.5 min on 8 processes (about 1.7 times
+longer each time the number of processes is halved), 1 min on the GPU and
+about 20 % of failures, one case, order, precision and repetition takes
+about 4 h 20, and the full grid about 570 h of exclusive use of the
+machine: three to five weeks with the failures and the order 2. Most of
+this cost comes from the CPU runs on 1 and 2 processes, and most of the
+combinations are dominated by others.
+
+The staged plan answers the question of the slides (best CPU time against
+best GPU time) in two or three nights:
+
+| Stage | Runs | Duration |
+|---|---|---|
+| Calibration: one run per case at the measurement size, CPU on 8 processes and GPU, default solvers | about 22 | about 1 h |
+| Screening in double, order 1, one or two steps per pair, pairs known to fail excluded | about 350 | 4 to 5 h |
+| Full runs of the best two pairs of each side, best of 3 for the best one | about 130 | 6 to 8 h |
+| Variants of the winners: float, order 2, CPU scaling on 1 to 8 processes | about 200 | 8 to 10 h |
+
+The calibration turns these estimates into a budget: only the small size
+has been run so far, where the setup dominates.
+
+## Single precision
+
+The float runs need an installation of mfem-mgis and builds of the
+examples and of mm-opera-hpc in float (behaviours generated in float). The
+float environment of spack of the prototype (`mmm-float-gpu`) only has
+hypre and MUMPS: PETSc, Trilinos and Ginkgo in float require a new
+environment. cuDSS and SuiteSparse are not available with MFEM in float,
+and mfem-mgis refuses AmgX in float (AmgX can still compute in single
+precision within a double build, option `Precision: Single`). The tolerances
+of the cases are adapted to float (relative tolerances of the solvers
+bounded by mfem-mgis), and each float result is compared with the double
+one.
 
 ## Trials at the small size (16/10/2026)
 
@@ -140,7 +187,12 @@ README with the configurations retained and the checks.
 
 ## Open questions
 
-- The sizes above.
+- The sizes above, and the cases run at order 2.
+- The float environment: a new one with PETSc, Trilinos and Ginkgo in
+  float, or the float solvers already available (hypre, MUMPS).
+- Overrides per problem: a single linear solver override replaces the
+  solvers of all the problems of a program (ex8: thermal and mechanical
+  problems, the thermal operator being indefinite).
 - Exclusive use of the machine for the CPU runs, and GPU slots for the GPU
   runs.
 - Whole program time or time of the resolution only (both are recorded).
