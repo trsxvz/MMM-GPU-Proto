@@ -1,0 +1,111 @@
+From 44158ee740706a2e0701458ed3799d4ec821b536 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 10:06:25 +0200
+Subject: [PATCH] Solvers of Trilinos: sixth review
+
+- MueLu: a GPU shared by several processes of a node is detected by the
+  PCI addresses of the GPUs used by the processes (the number of GPUs
+  visible to a process does not tell, for instance with
+  CUDA_VISIBLE_DEVICES or when all the processes use the device 0);
+- conversion of the matrices: on the GPU, each row is sorted by a team of
+  threads (Kokkos Kernels otherwise sorts all the entries at once for
+  long rows, with temporary arrays of about 32 bytes per entry);
+- docs reflowed.
+---
+ docs/source/user_guide/linear_solvers.rst | 14 +++++-----
+ src/TrilinosTpetraBackend.hxx             | 32 +++++++++++++++++++----
+ 2 files changed, 33 insertions(+), 13 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 3eda855505..8fcb8d6b7b 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -795,16 +795,14 @@ kernel params`, :code:`cuda: algorithm` (:code:`SPGEMM_KK`: the products
+ of sparse matrices of Kokkos Kernels, those of cuSPARSE, the default of
+ Tpetra on CUDA, running out of memory on a GPU of 16 GB from a few hundred
+ thousand unknowns). Kokkos Kernels reserves up to half the free memory of
+-the GPU for each product: several processes sharing a GPU (more processes
+-on the node than GPUs seen by :code:`Kokkos`) ran out of memory, and keep
+-the algorithm of cuSPARSE. On a GPU, the
+-default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a beam of
+-421,443 unknowns, a resolution took 3.8 seconds, against 0.071 seconds
++the GPU for each product: several processes using the same GPU (compared
++by their PCI addresses) ran out of memory, and keep the algorithm of cuSPARSE.
++On a GPU, the default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a
++beam of 421,443 unknowns, a resolution took 3.8 seconds, against 0.071 seconds
+ with two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
+ :code:`RELAXATION`, :code:`smoother: params` to :code:`{relaxation: type =
+-Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for
+-22 to 23 iterations instead of 20; the setup of MueLu (0.84 seconds) then
+-dominates.
++Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for 22 to
++23 iterations instead of 20; the setup of MueLu (0.84 seconds) then dominates.
+ 
+ The hierarchy of MueLu is built again for each operator, unless its
+ parameter :code:`reuse: type` is given (:code:`RP`: the prolongators and
+diff --git a/src/TrilinosTpetraBackend.hxx b/src/TrilinosTpetraBackend.hxx
+index 56d6a93449..c4513f192c 100644
+--- a/src/TrilinosTpetraBackend.hxx
++++ b/src/TrilinosTpetraBackend.hxx
+@@ -430,8 +430,16 @@ namespace mfem_mgis::trilinos {
+                 }
+               }
+             });
++        // on the GPU, each row is sorted by a team of threads, without the
++        // temporary arrays of the sort of all the entries, which Kokkos
++        // Kernels selects for long rows (about 32 bytes per entry)
++        auto algorithm = KokkosSparse::SortAlgorithm::DEFAULT;
++        if constexpr (gpu) {
++          algorithm = KokkosSparse::SortAlgorithm::PARALLEL_THREAD_LEVEL;
++        }
+         KokkosSparse::sort_crs_matrix(ExecutionSpace{}, offsets, entries,
+-                                      values, static_cast<LO>(n + no));
++                                      values, static_cast<LO>(n + no),
++                                      algorithm);
+         this->matrix = Teuchos::rcp(
+             new CrsMatrix(this->row_map, column_map, offsets, entries, values));
+         this->matrix->fillComplete(this->row_map, this->row_map);
+@@ -958,9 +966,12 @@ namespace mfem_mgis::trilinos {
+                (!((p.isType<std::string>(syntax)) &&
+                   (p.get<std::string>(syntax) == "ml")));
+       }  // end of isSimplifiedSyntax
++#ifdef KOKKOS_ENABLE_CUDA
+       /*!
+-       * \return true if a GPU is shared by several processes of a node, on
+-       * all the processes
++       * \return true if a GPU is used by several processes of a node, on
++       * all the processes: the PCI addresses of the GPUs used by the
++       * processes of each node are compared (the GPUs visible to a process
++       * may be restricted, for instance by `CUDA_VISIBLE_DEVICES`)
+        * \param[in] comm: communicator
+        */
+       static bool isGPUShared(const MPI_Comm comm) {
+@@ -969,12 +980,23 @@ namespace mfem_mgis::trilinos {
+                             &node);
+         auto processes = 0;
+         MPI_Comm_size(node, &processes);
++        const auto cuda = Kokkos::Cuda{};
++        const auto& properties = cuda.cuda_device_prop();
++        const auto local =
++            std::array<int, 3>{properties.pciDomainID, properties.pciBusID,
++                               properties.pciDeviceID};
++        auto addresses = std::vector<std::array<int, 3>>(
++            static_cast<std::size_t>(processes));
++        MPI_Allgather(local.data(), 3, MPI_INT, addresses.data(), 3, MPI_INT,
++                      node);
+         MPI_Comm_free(&node);
+-        auto shared =
+-            static_cast<int>(processes > std::max(Kokkos::num_devices(), 1));
++        std::ranges::sort(addresses);
++        auto shared = static_cast<int>(std::ranges::adjacent_find(addresses) !=
++                                       addresses.end());
+         MPI_Allreduce(MPI_IN_PLACE, &shared, 1, MPI_INT, MPI_LOR, comm);
+         return shared != 0;
+       }  // end of isGPUShared
++#endif /* KOKKOS_ENABLE_CUDA */
+       /*!
+        * \brief set the default parameters of mfem-mgis, unless given, in the
+        * simplified syntax (the other syntaxes ignore them)
+-- 
+2.43.0
+

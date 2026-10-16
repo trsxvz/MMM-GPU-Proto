@@ -787,24 +787,32 @@ coordinates of the nodes are also given to MueLu (user data
 :code:`Coordinates`), for its options based on them, unless another number
 of equations is given. Unless they are given, mfem-mgis sets, in the
 simplified syntax of MueLu, the parameters :code:`number of equations`
-(see above), :code:`aggregation: deterministic` (reproducible aggregates,
-MueLu aggregating the nodes in a random order by default),
-:code:`verbosity` (:code:`none`, a silent setup) and, on CUDA, when each
-GPU of the node serves one process, in the sublist :code:`matrixmatrix:
-kernel params`, :code:`cuda: algorithm` (:code:`SPGEMM_KK`: the products
-of sparse matrices of Kokkos Kernels, those of cuSPARSE, the default of
-Tpetra on CUDA, running out of memory on a GPU of 16 GB from a few hundred
-thousand unknowns). Kokkos Kernels reserves up to half the free memory of
-the GPU for each product: several processes sharing a GPU (more processes
-on the node than GPUs seen by :code:`Kokkos`) ran out of memory, and keep
-the algorithm of cuSPARSE. On a GPU, the
-default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a beam of
-421,443 unknowns, a resolution took 3.8 seconds, against 0.071 seconds
-with two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
+(see above), :code:`use kokkos refactor` (:code:`false`: the factories of
+MueLu which are not written with :code:`Kokkos`, MueLu using its factories
+written with :code:`Kokkos` on a GPU by default; on the linear elasticity
+with the rigid body modes, the latter needed twice the iterations, 22
+against 12 on a beam of 421,443 unknowns on the GPU, and a longer setup,
+0.81 against 0.51 seconds), :code:`aggregation: deterministic`
+(reproducible aggregates, MueLu aggregating the nodes in a random order by
+default), :code:`verbosity` (:code:`none`, a silent setup) and, on CUDA,
+when each GPU of the node serves one process, in the sublist
+:code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
+(:code:`SPGEMM_KK`: the products of sparse matrices of Kokkos Kernels,
+those of cuSPARSE, the default of Tpetra on CUDA, running out of memory on
+a GPU of 16 GB from a few hundred thousand unknowns). Kokkos Kernels
+reserves up to half the free memory of the GPU for each product: several
+processes using the same GPU (compared by their PCI addresses) ran out of
+memory, and keep the algorithm of cuSPARSE. On a GPU, the default smoother
+of MueLu (symmetric Gauss-Seidel) is slow: on the beam of 421,443
+unknowns, a resolution took 1.9 seconds, against 0.040 seconds with two
+sweeps of a Jacobi relaxation (:code:`smoother: type` set to
 :code:`RELAXATION`, :code:`smoother: params` to :code:`{relaxation: type =
-Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for
-22 to 23 iterations instead of 20; the setup of MueLu (0.84 seconds) then
-dominates.
+Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for 12
+iterations instead of 10; the setup of MueLu (0.51 seconds) then
+dominates. The Chebyshev smoother of degree 2 stopped the conjugate
+gradient on this beam (preconditioner not positive definite) unless the
+largest eigenvalue is estimated with more iterations (:code:`chebyshev:
+eigenvalue max iterations` 30 and :code:`chebyshev: boost factor` 1.2).
 
 The hierarchy of MueLu is built again for each operator, unless its
 parameter :code:`reuse: type` is given (:code:`RP`: the prolongators and
@@ -817,7 +825,7 @@ are kept and set up again for the new operator, except the estimate of
 the largest eigenvalue of the Chebyshev smoother, kept from the first
 operator: with a stiffening operator, the Jacobi smoother is safer. On
 the beam of 421,443 unknowns, on the GPU, with the Jacobi smoother above,
-:code:`RP` sets up a second operator in 0.17 seconds instead of 0.82.
+:code:`RP` sets up a second operator in 0.14 seconds instead of 0.54.
 Keeping the whole hierarchy (:code:`full`) keeps the coarse operators of
 the first operator, which suits only operators that do not change.
 

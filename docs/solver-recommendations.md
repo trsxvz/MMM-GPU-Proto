@@ -76,13 +76,16 @@ computes, with the serial node of Tpetra on the host, except FROSch (see
   `PCG_AGGREGATION_JACOBI` of AmgX does not converge. Giving the matrix to
   AmgX by nodal blocks (`NodalBlocks`) does not reduce the iterations.
 - MueLu of Trilinos with the rigid body modes, a Jacobi smoother (two
-  sweeps damped by 0.6) and its hierarchy reused between operators
-  (`reuse: type` set to `RP`): 0.20 to 0.24 seconds per operator at
-  421,443 unknowns, the fastest measured on the GPU (0.33 to 0.36 for
-  BoomerAMG), 0.32 with the inclusions (0.51 to 0.57)
-  ([measurements](../results/solvers-2026-10-15-large/gpu-conversion/README.md),
-  since the conversion of the matrices on the GPU). Without the reuse, its
-  setup takes 0.82 seconds (0.90 per operator). Its default smoother
+  sweeps damped by 0.6), its factories not written with Kokkos (the default
+  of mfem-mgis since d08224ba8f) and its hierarchy reused between operators
+  (`reuse: type` set to `RP`): 0.18 seconds per operator at 421,443
+  unknowns, the fastest measured on the GPU (0.33 to 0.36 for BoomerAMG),
+  0.22 with the inclusions (0.51 to 0.57)
+  ([measurements](../results/solvers-2026-10-15-large/muelu-classic/README.md)).
+  Without the reuse, its setup takes 0.51 seconds (0.58 per operator). On
+  the nonlinear beam of the prototype (Newton, tolerance 1e-4), MueLu is
+  as fast as BoomerAMG on the GPU and twice as fast on 8 cores
+  ([measurements](../results/beam-muelu-2026-10-16/README.md)). Its default smoother
   (symmetric Gauss-Seidel) is slow on the GPU (a resolution in 3.8 seconds
   instead of 0.071), and its Chebyshev smoother stopped the conjugate
   gradient on the homogeneous beam (preconditioner not positive

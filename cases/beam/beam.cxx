@@ -94,7 +94,15 @@ int main(int argc, char** argv) {
                  "assembly), cg-amgx (conjugate gradient of MFEM and one "
                  "cycle of AmgX built on the assembled tangent operator) or "
                  "amgx-pcg (conjugate gradient of AmgX, not usable with an "
-                 "adaptive tolerance, -alst). AmgX computes on the GPU.");
+                 "adaptive tolerance, -alst). AmgX computes on the GPU. "
+                 "cg-muelu (conjugate gradient of MFEM and the multigrid of "
+                 "MueLu, built on the assembled tangent operator every -pu "
+                 "Newton iterations, with two sweeps of a Jacobi smoother, "
+                 "its prolongators and restrictions being kept from one "
+                 "tangent operator to the next) and cg-muelu-sgs (the same, "
+                 "with the default smoother of MueLu, symmetric Gauss-Seidel) "
+                 "require mfem-mgis built with Trilinos, and compute where "
+                 "MFEM computes.");
   args.AddOption(&chebyshev_order, "-cho", "--chebyshev-order",
                  "Order of the Chebyshev smoother (linear solver "
                  "cg-chebyshev).");
@@ -500,6 +508,38 @@ int main(int argc, char** argv) {
             Parameters{
                 {"Name", "OperatorChebyshevSmoother"},
                 {"Options", Parameters{{"Order", chebyshev_order}}}}}}) |
+          or_die;
+    } else if ((ls == "cg-muelu") || (ls == "cg-muelu-sgs")) {
+      // conjugate gradient of MFEM and the multigrid of MueLu, its
+      // prolongators and restrictions being kept from one tangent operator
+      // to the next (`reuse: type`)
+      auto muelu = Parameters{{"reuse: type", "RP"}};
+      if (ls == "cg-muelu") {
+        muelu.insert(ctx, "smoother: type", "RELAXATION") | or_die;
+        muelu.insert(ctx, "smoother: params",
+                     Parameters{{"relaxation: type", "Jacobi"},
+                                {"relaxation: sweeps", 2},
+                                {"relaxation: damping factor", 0.6}}) |
+            or_die;
+      }
+      // built on the assembled tangent operator every `update_period`
+      // Newton iterations, as cg-amg
+      problem.setLinearSolver(
+          ctx, "CGSolver",
+          {{"VerbosityLevel", 0},
+           {"RelativeTolerance", linear_tolerance},
+           {"AbsoluteTolerance", 0.},
+           {"MaximumNumberOfIterations", 2000},
+           {"Preconditioner",
+            Parameters{
+                {"Name", "AssembledOperator"},
+                {"Options",
+                 Parameters{{"UpdatePeriod", update_period},
+                            {"Preconditioner",
+                             Parameters{{"Name", "MueLu"},
+                                        {"Options",
+                                         Parameters{{"Parameters",
+                                                     muelu}}}}}}}}}}) |
           or_die;
     } else {
       std::cerr << "invalid linear solver '" << ls << "'\n";

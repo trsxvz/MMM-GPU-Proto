@@ -1,0 +1,17 @@
+r4 gpu pcg-amg: status 0 dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32 time 2.986 s 
+r4 gpu cg-amg: status 0 dofs 111843 | nls newton | ls cg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32 time 3.078 s 
+r4 gpu cg-muelu: status 0 dofs 111843 | nls newton | ls cg-muelu | ||u|| 48.8370459 | iterations per step: 2 2 2 3 3 4 4 4 4 4 | total 32 time 5.905 s 
+r4 cpu pcg-amg: status 0 dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 1 1 1 3 4 3 4 4 4 4 | total 29 time 12.092 s 
+r4 cpu cg-muelu-sgs: status 0 dofs 111843 | nls newton | ls cg-muelu-sgs | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28 time 6.123 s 
+r4 cpu cg-muelu: status 0 dofs 111843 | nls newton | ls cg-muelu | ||u|| 48.83704585 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31 time 6.531 s 
+r5 gpu pcg-amg: status 0 dofs 839619 | nls newton | ls pcg-amg | ||u|| 133.695848 | iterations per step: 2 2 2 3 3 4 4 4 4 4 | total 32 time 15.809 s 
+r5 gpu cg-amg: status 0 dofs 839619 | nls newton | ls cg-amg | ||u|| 133.695848 | iterations per step: 2 2 2 3 3 4 4 4 4 4 | total 32 time 16.568 s 
+r5 gpu cg-muelu: status 0 dofs 839619 | nls newton | ls cg-muelu | ||u|| 133.6958477 | iterations per step: 2 2 3 4 4 4 4 4 4 4 | total 35 time 41.274 s 
+r4 gpu cg-amg-pu4: status 0 dofs 111843 | nls newton | ls cg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 2 4 4 4 4 4 4 | total 32 time 3.124 s 
+r4 gpu cg-muelu-pu4: status 0 dofs 111843 | nls newton | ls cg-muelu | ||u|| 48.83704593 | iterations per step: 2 2 2 3 3 4 4 4 4 4 | total 32 time 5.795 s 
+r5 gpu cg-amg-pu4: status 0 dofs 839619 | nls newton | ls cg-amg | ||u|| 133.695848 | iterations per step: 2 2 2 3 3 4 4 4 4 4 | total 32 time 16.532 s 
+r5 gpu cg-muelu-pu4: status 0 dofs 839619 | nls newton | ls cg-muelu | ||u|| 133.695848 | iterations per step: 2 2 3 4 4 4 4 4 4 4 | total 35 time 41.060 s 
+r4 gpu cg-muelu-classic: status 0 dofs 111843 | nls newton | ls cg-muelu | ||u|| 48.83704579 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31 time 3.209 s 
+r4 cpu cg-muelu-sgs-classic: status 0 dofs 111843 | nls newton | ls cg-muelu-sgs | ||u|| 48.83704586 | iterations per step: 1 1 1 2 4 3 4 4 4 4 | total 28 time 6.063 s 
+r4 cpu cg-muelu-classic: status 0 dofs 111843 | nls newton | ls cg-muelu | ||u|| 48.83704585 | iterations per step: 2 2 2 2 4 3 4 4 4 4 | total 31 time 6.763 s 
+r5 gpu cg-muelu-classic: status 0 dofs 839619 | nls newton | ls cg-muelu | ||u|| 133.6958477 | iterations per step: 2 2 2 3 3 4 4 4 4 4 | total 32 time 15.606 s 

@@ -430,8 +430,16 @@ namespace mfem_mgis::trilinos {
                 }
               }
             });
+        // on the GPU, each row is sorted by a team of threads, without the
+        // temporary arrays of the sort of all the entries, which Kokkos
+        // Kernels selects for long rows (about 32 bytes per entry)
+        auto algorithm = KokkosSparse::SortAlgorithm::DEFAULT;
+        if constexpr (gpu) {
+          algorithm = KokkosSparse::SortAlgorithm::PARALLEL_THREAD_LEVEL;
+        }
         KokkosSparse::sort_crs_matrix(ExecutionSpace{}, offsets, entries,
-                                      values, static_cast<LO>(n + no));
+                                      values, static_cast<LO>(n + no),
+                                      algorithm);
         this->matrix = Teuchos::rcp(
             new CrsMatrix(this->row_map, column_map, offsets, entries, values));
         this->matrix->fillComplete(this->row_map, this->row_map);
@@ -878,8 +886,12 @@ namespace mfem_mgis::trilinos {
         // solver. The parameters of a level are given in a sublist `level N`.
         // The other syntaxes are checked by MueLu only.
         if (this->simplified) {
+          // `use kokkos refactor` (the factories of MueLu written with Kokkos,
+          // the default on a GPU) is read by MueLu but absent from its master
+          // list
           checkParameterNames("MueLu", *(this->parameters),
-                              *(MueLu::MasterList::List()), {"level "});
+                              *(MueLu::MasterList::List()),
+                              {"level ", "use kokkos refactor"});
         }
       }
       void setMatrix(const DistributedMatrixView& m) override {
@@ -958,9 +970,12 @@ namespace mfem_mgis::trilinos {
                (!((p.isType<std::string>(syntax)) &&
                   (p.get<std::string>(syntax) == "ml")));
       }  // end of isSimplifiedSyntax
+#ifdef KOKKOS_ENABLE_CUDA
       /*!
-       * \return true if a GPU is shared by several processes of a node, on
-       * all the processes
+       * \return true if a GPU is used by several processes of a node, on
+       * all the processes: the PCI addresses of the GPUs used by the
+       * processes of each node are compared (the GPUs visible to a process
+       * may be restricted, for instance by `CUDA_VISIBLE_DEVICES`)
        * \param[in] comm: communicator
        */
       static bool isGPUShared(const MPI_Comm comm) {
@@ -969,12 +984,23 @@ namespace mfem_mgis::trilinos {
                             &node);
         auto processes = 0;
         MPI_Comm_size(node, &processes);
+        const auto cuda = Kokkos::Cuda{};
+        const auto& properties = cuda.cuda_device_prop();
+        const auto local =
+            std::array<int, 3>{properties.pciDomainID, properties.pciBusID,
+                               properties.pciDeviceID};
+        auto addresses = std::vector<std::array<int, 3>>(
+            static_cast<std::size_t>(processes));
+        MPI_Allgather(local.data(), 3, MPI_INT, addresses.data(), 3, MPI_INT,
+                      node);
         MPI_Comm_free(&node);
-        auto shared =
-            static_cast<int>(processes > std::max(Kokkos::num_devices(), 1));
+        std::ranges::sort(addresses);
+        auto shared = static_cast<int>(std::ranges::adjacent_find(addresses) !=
+                                       addresses.end());
         MPI_Allreduce(MPI_IN_PLACE, &shared, 1, MPI_INT, MPI_LOR, comm);
         return shared != 0;
       }  // end of isGPUShared
+#endif /* KOKKOS_ENABLE_CUDA */
       /*!
        * \brief set the default parameters of mfem-mgis, unless given, in the
        * simplified syntax (the other syntaxes ignore them)
@@ -1001,6 +1027,14 @@ namespace mfem_mgis::trilinos {
 #else  /* KOKKOS_ENABLE_CUDA */
         static_cast<void>(comm);
 #endif /* KOKKOS_ENABLE_CUDA */
+        // the factories of MueLu which are not written with Kokkos, MueLu
+        // using its factories written with Kokkos on a GPU by default: on the
+        // linear elasticity with the rigid body modes, the latter needed
+        // twice the iterations (22 against 12 at 421,443 unknowns on the
+        // GPU), and a longer setup (0.81 against 0.51 seconds)
+        if (!p.isParameter("use kokkos refactor")) {
+          p.set("use kokkos refactor", false);
+        }
         // reproducible aggregates (MueLu aggregates the nodes in a random
         // order by default), and silent setup
         if (!p.isParameter("aggregation: deterministic")) {

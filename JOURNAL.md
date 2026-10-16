@@ -5332,3 +5332,19 @@ formula as MTest). All the others give the Newton solution to within
   Kokkos Kernels reserves up to half the free memory for each product of
   sparse matrices: `SPGEMM_KK` is now only selected when each GPU serves
   one process (4 runs out of 4 passed after this change).
+- Sixth review (nothing rated 3 or more): a GPU shared by several
+  processes is detected by the PCI addresses of the GPUs used, and the
+  rows of the converted matrices are sorted by teams on the GPU (mfem-mgis
+  44158ee740).
+- Nonlinear beam with MueLu (`cases/measure-beam-muelu.sh`, option
+  `-ls cg-muelu` of `cases/beam`, `results/beam-muelu-2026-10-16`): on 8
+  cores, MueLu halves the time of the computation (6.1 seconds against
+  12.1 with BoomerAMG). On the GPU, MueLu first needed 78 iterations per
+  resolution against 11 on the CPU: the factories of MueLu written with
+  Kokkos, its default on a GPU, give a worse coarse space with the rigid
+  body modes (twice the iterations on the linear elasticity too). mfem-mgis
+  now uses the other factories by default (`use kokkos refactor` set to
+  false, d08224ba8f): MueLu is then as fast as BoomerAMG on the nonlinear
+  beam on the GPU, and takes 0.18 seconds per operator on the linear
+  elasticity of 421,443 unknowns with its hierarchy reused, against 0.33
+  for BoomerAMG (`results/solvers-2026-10-15-large/muelu-classic`).
