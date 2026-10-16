@@ -695,14 +695,21 @@ the solver of Trilinos (a :code:`Teuchos::ParameterList`): booleans,
 integers, reals and strings, a list of parameters being a sublist. For
 Amesos2, it is the content of the list :code:`Amesos2` of Amesos2 (the
 parameters common to the solvers, and a sublist per solver, such as
-:code:`KLU2`), which Amesos2 validates when the matrix is set. The
-parameters of Belos (and those of the outer solver of the hybrid GMRES)
-are checked when the solver is created, which Belos only does when they
+:code:`KLU2`), which Amesos2 validates when the matrix is set. The names
+of the first level of the parameters of Belos (and those of the outer
+solver of the hybrid GMRES) are checked when the solver is created, which
+Belos only does when they
 are given again (a change of the tolerance): a misspelt parameter is
-refused. The parameters of Ifpack2 are given, when the solver is created,
-to a preconditioner of the chosen type built without matrix: the
-preconditioners which check their parameters (the relaxations) refuse a
-misspelt one, the other ones ignore the unknown parameters. The names of
+refused, except by LSQR and the native solvers of Tpetra
+(:cxx:`TPETRA GMRES`...), which ignore the unknown parameters. The
+parameters of Ifpack2 are given, when the solver is created, to a
+preconditioner of the chosen type built without matrix: the relaxation
+(:cxx:`RELAXATION`) refuses a misspelt parameter, the other preconditioners
+ignore the unknown parameters at this stage. The block relaxations check
+their parameters at the setup, and the additive Schwarz method the
+parameters of its inner preconditioner; :cxx:`AMESOS2` reads its
+parameters in a sublist :code:`Amesos2`, and :cxx:`HIPTMAIR`, which needs
+the matrices of an auxiliary space, can't be used. The names of
 the first level of the parameters of MueLu are checked when the solver is
 created in its simplified syntax, the default one; the other syntaxes
 (factories given in a sublist :code:`Hierarchy`, facade :code:`MueLu
@@ -727,23 +734,37 @@ Kokkos does not support). FROSch does not check its parameters:
 
 The options of mfem-mgis set the tolerance (:code:`Convergence
 Tolerance`), the maximum number of iterations (:code:`Maximum Iterations`)
-and the verbosity (:code:`Verbosity`) of Belos, the parameters of Belos
-overriding them. The solvers of Belos only have a relative tolerance: by
-default, the norm of the residual is compared to the one of the initial
-residual. The relative tolerance can be changed after the creation of the
-solver (it is then given to the adaptive tolerance of the Newton solver).
+and the verbosity (:code:`Verbosity`, and :code:`Output Frequency` for the
+details of each iteration) of Belos, when the solver accepts these
+parameters, the parameters of Belos overriding them; a relative tolerance
+given to a solver without :code:`Convergence Tolerance` (LSQR, which has
+its own tolerances) is refused. The solvers of Belos only have a relative
+tolerance: by default, the norm of the residual is compared to the one of
+the initial residual. The relative tolerance can be changed after the
+creation of the solver (it is then given to the adaptive tolerance of the
+Newton solver).
 The GMRES solvers keep 50 Krylov vectors (:code:`Num Blocks`, 300 by
-default in Belos), and are restarted as many times as the maximum number
-of iterations allows (:code:`Maximum Restarts`), unless these parameters
-are given. The hybrid GMRES of Belos (:cxx:`HYBRID BLOCK GMRES`, a GMRES
-polynomial used as preconditioner) iterates with an outer solver
-(:code:`Outer Solver`, :code:`Block GMRES` by default), whose parameters
-(the sublist :code:`Outer Solver Params`) receive the tolerance, the
-maximum number of iterations, the verbosity and the parameters of the
-restarted GMRES; the polynomial is built again when the matrix changes. A
-failure of a solver of Belos (for instance the loss of the positive
-definiteness detected by the conjugate gradient) is reported as a
-resolution which did not converge, its message being printed.
+default in most GMRES solvers of Belos), and are restarted as many times
+as the maximum number of iterations allows (:code:`Maximum Restarts`),
+unless these parameters are given. The hybrid GMRES of Belos
+(:cxx:`HYBRID BLOCK GMRES`, or its aliases :cxx:`GMRESPOLY` and
+:cxx:`SEED GMRES`, a GMRES polynomial used as preconditioner) iterates
+with an outer solver (:code:`Outer Solver`,
+:code:`Block GMRES` by default, among the solvers of the generic factory
+of Belos), whose parameters (the sublist :code:`Outer Solver Params`)
+receive the tolerance, the maximum number of iterations, the verbosity
+and the parameters of the restarted GMRES. With an empty name of outer
+solver, the polynomial is applied alone, without tolerance nor maximum
+number of iterations; with a null degree (:code:`Maximum Degree`), the
+outer solver is applied alone, and is built by the factory of Belos for
+Tpetra. The solvers of Belos are built again when the matrix changes
+(the hybrid GMRES then builds its polynomial again, and PCPG, which keeps
+a seed space only valid for the same matrix, forgets it), except GCRODR,
+which keeps its recycled subspace for the matrices of the same rows. A
+failure of a solver of
+Belos (for instance the loss of the positive definiteness detected by the
+conjugate gradient) is reported as a resolution which did not converge,
+its message being printed.
 
 The matrices of hypre are converted to the sparse matrices of Tpetra each
 time they are set (the preconditioners and the factorizations being then
@@ -757,14 +778,18 @@ components, unless it is given) and, when the number of components is the
 space dimension (2 or 3), its near null space is made of the rigid body
 modes of the finite element space, computed from the coordinates of its
 nodes; the rigid body modes are not used when another number of equations
-is given.
+is given. The parameter :code:`number of equations` is only set in the
+simplified syntax of MueLu; the rigid body modes and the coordinates of
+the nodes (user data :code:`Nullspace` and :code:`Coordinates`) are given
+in all the syntaxes.
 
 MueLu solves directly, without multigrid, the systems smaller than its
 parameter :code:`coarse: max size` (2000 unknowns by default). The
 coordinates of the nodes are also given to MueLu (user data
 :code:`Coordinates`), for its options based on them, unless another number
-of equations is given. Unless they are given, mfem-mgis sets the
-parameters :code:`aggregation: deterministic` (reproducible aggregates,
+of equations is given. Unless they are given, mfem-mgis sets, in the
+simplified syntax of MueLu, the parameters :code:`number of equations`
+(see above), :code:`aggregation: deterministic` (reproducible aggregates,
 MueLu aggregating the nodes in a random order by default),
 :code:`verbosity` (:code:`none`, a silent setup) and, on CUDA, in the
 sublist :code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
@@ -772,12 +797,27 @@ sublist :code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
 those of cuSPARSE, the default of Tpetra on CUDA, running out of memory on
 a GPU of 16 GB from a few hundred thousand unknowns). On a GPU, the
 default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a beam of
-421,443 unknowns, a resolution took 4.2 seconds, against 0.071 seconds
+421,443 unknowns, a resolution took 3.8 seconds, against 0.071 seconds
 with two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
 :code:`RELAXATION`, :code:`smoother: params` to :code:`{relaxation: type =
 Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for
-22 iterations instead of 20; the setup of MueLu (1.3 seconds) then
+22 to 23 iterations instead of 20; the setup of MueLu (0.84 seconds) then
 dominates.
+
+The hierarchy of MueLu is built again for each operator, unless its
+parameter :code:`reuse: type` is given (:code:`RP`: the prolongators and
+the restrictions of the first operator are kept, the coarse operators
+being computed again; :code:`tP`: the tentative prolongators are
+kept...): the hierarchy is then updated by
+:code:`MueLu::ReuseTpetraPreconditioner` when the distribution of the rows
+of the new operator is the same, and built again otherwise. The smoothers
+are kept and set up again for the new operator, except the estimate of
+the largest eigenvalue of the Chebyshev smoother, kept from the first
+operator: with a stiffening operator, the Jacobi smoother is safer. On
+the beam of 421,443 unknowns, on the GPU, with the Jacobi smoother above,
+:code:`RP` sets up a second operator in 0.17 seconds instead of 0.82.
+Keeping the whole hierarchy (:code:`full`) keeps the coarse operators of
+the first operator, which suits only operators that do not change.
 
 FROSch is given the number of components as number of degrees of freedom
 per node, and the space dimension (2 or 3). Its coarse space is built from
@@ -806,22 +846,35 @@ A preconditioner of Trilinos given to :cxx:`BelosSolver` shares the matrix
 of the solver and is applied to the vectors of Tpetra; the preconditioners
 of the other libraries are applied to vectors of :code:`MFEM`, the vectors
 of Tpetra being copied, on the GPU when :code:`MFEM` and Tpetra compute
-there. The
-preconditioners of Trilinos may also be used by the Krylov solvers of
-:code:`MFEM`.
+there. The preconditioners of Trilinos may also be used by the Krylov
+solvers of :code:`MFEM`.
 
-Tpetra computes where the default node of Tpetra computes: on the GPU
-when Trilinos is built with CUDA or HIP, on the host otherwise. The
-matrices are converted on the host. The vectors of :code:`MFEM` are
-copied on the GPU when :code:`MFEM` computes on the GPU too, and from and
-to the host otherwise. Trilinos requires an initialized :code:`Kokkos`,
+The solvers of Trilinos compute where :code:`MFEM` computes. When
+:code:`MFEM` computes on the GPU and Trilinos is built for it, Tpetra
+computes with its default node, on the GPU. Otherwise, Tpetra computes on
+the host with its serial node (each process of :code:`MPI` computing on
+one core); when Tpetra is not instantiated for its serial node, the
+solvers compute on
+the GPU even when :code:`MFEM` computes on the host. FROSch and the
+factorization of Tacho always compute with the default node of Tpetra, on
+the GPU when Trilinos is built for one (FROSch 17.2.1 runs some loops in
+the default execution space of :code:`Kokkos`, as Tacho, whatever the
+node). :cxx:`BelosSolver` computes at the same place as its
+preconditioner of Trilinos. Some options of MueLu may not be available on
+the host in this case (the distance Laplacian with weights of MueLu 17.2.1
+allocates its weights in the default memory space). The matrices are
+converted where Tpetra computes, by kernels of :code:`Kokkos`, from the
+arrays of hypre on the GPU when hypre computes there. The vectors of
+:code:`MFEM` are copied on the GPU when :code:`MFEM` and Tpetra compute
+on the GPU, and from and to the host otherwise. Trilinos requires an
+initialized :code:`Kokkos`,
 which is initialized, if needed, when the first entry of Trilinos is
 built, on the GPU of the device of :code:`MFEM`, and finalized by
 :cxx:`finalize` before :code:`MPI` (see
 :doc:`../installation_guide/installation_guide`): the solvers of Trilinos,
 whose data are allocated by :code:`Kokkos`, shall be destroyed before.
-When Trilinos (and its :code:`Kokkos`) is built with OpenMP, the
-computations of the host use the number of threads given by
+When Trilinos is built without GPU and its default node is the OpenMP
+node, the computations use the number of threads given by
 :code:`OMP_NUM_THREADS`, which, with several processes per node, shall be
 set accordingly (one thread per process if the processes occupy all the
 cores).

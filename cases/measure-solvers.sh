@@ -80,10 +80,21 @@ configurations=(
   "belos-cg-chebyshev|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=Ifpack2,Options={Type=CHEBYSHEV,Parameters={\"chebyshev: degree\"=3}}}}"
   "belos-cg-muelu|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=MueLu}}"
   "belos-cg-frosch|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=FROSch}}"
+  # FROSch with Tacho for the subdomains, the extensions and the coarse
+  # problem (KLU2 by default)
+  "belos-cg-frosch-tacho|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=FROSch,Options={Parameters={AlgebraicOverlappingOperator={Solver={SolverType=Amesos2,Solver=Tacho}},IPOUHarmonicCoarseOperator={ExtensionSolver={SolverType=Amesos2,Solver=Tacho},CoarseSolver={SolverType=Amesos2,Solver=Tacho}}}}}}"
   "cg-muelu|any|CGSolver|{$it,Preconditioner={Name=MueLu}}"
   # MueLu smoothed by two sweeps of a damped Jacobi relaxation (its default
   # smoother, symmetric Gauss-Seidel, is slow on the GPU)
   "cg-muelu-jacobi|any|CGSolver|{$it,Preconditioner={Name=MueLu,Options={Parameters={\"smoother: type\"=RELAXATION,\"smoother: params\"={\"relaxation: type\"=Jacobi,\"relaxation: sweeps\"=2,\"relaxation: damping factor\"=0.6}}}}}"
+  # MueLu smoothed by a Chebyshev polynomial of degree 2
+  "cg-muelu-chebyshev|any|CGSolver|{$it,Preconditioner={Name=MueLu,Options={Parameters={\"smoother: type\"=CHEBYSHEV,\"smoother: params\"={\"chebyshev: degree\"=2}}}}}"
+  # MueLu with the tentative prolongators (unsmoothed aggregation: cheaper
+  # setup, more iterations) and the Jacobi smoother
+  "cg-muelu-jacobi-unsmoothed|any|CGSolver|{$it,Preconditioner={Name=MueLu,Options={Parameters={\"multigrid algorithm\"=unsmoothed,\"smoother: type\"=RELAXATION,\"smoother: params\"={\"relaxation: type\"=Jacobi,\"relaxation: sweeps\"=2,\"relaxation: damping factor\"=0.6}}}}}"
+  # the same, the prolongators and the restrictions of the first operator
+  # being kept for the second one (`reuse: type` of MueLu)
+  "cg-muelu-jacobi-reuse|any|CGSolver|{$it,Preconditioner={Name=MueLu,Options={Parameters={\"reuse: type\"=RP,\"smoother: type\"=RELAXATION,\"smoother: params\"={\"relaxation: type\"=Jacobi,\"relaxation: sweeps\"=2,\"relaxation: damping factor\"=0.6}}}}}"
   # direct solvers
   "mumps|cpu|MUMPSSolver|{Symmetric=true,PositiveDefinite=true}"
   "superlu|cpu|SuperLUSolver|{}"
@@ -112,7 +123,9 @@ problem_arguments() {
   echo "date: $(date)"
   echo "build: ${B#"$P"/}"
   echo "size: $size"
-  echo "mfem-mgis: $(git -C "$P/scratch/ginkgo/mfem-mgis" describe --always --dirty 2>/dev/null)"
+  # sources of the build
+  src=$(/usr/bin/grep -m1 '^CMAKE_HOME_DIRECTORY:' "$B/CMakeCache.txt" | sed 's/.*=//')
+  echo "mfem-mgis: $(git -C "$src" describe --always --dirty 2>/dev/null)"
   nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null
   LC_ALL=C lscpu | /usr/bin/grep "Model name"
 } > "$out/context.txt"

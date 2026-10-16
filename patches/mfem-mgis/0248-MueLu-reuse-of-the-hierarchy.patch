@@ -1,0 +1,143 @@
+From fb4e6ca9771b13847f60fa207e44426ef6d6fe56 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 06:37:00 +0200
+Subject: [PATCH] MueLu: reuse of the hierarchy
+
+The parameter `reuse: type` of MueLu is honoured: when the operator
+changes and the distribution of its rows is the same, the hierarchy is
+updated by MueLu::ReuseTpetraPreconditioner instead of being built again
+(`RP`: the prolongators and the restrictions are kept). On the beam of
+421,443 unknowns on the GPU, with a Jacobi smoother, a second operator is
+set up in 0.60 seconds instead of 1.28. Tests on the Laplace equation and
+on the linear elasticity with the rigid body modes.
+---
+ docs/source/user_guide/linear_solvers.rst | 14 +++++++++++
+ src/TrilinosTpetraBackend.hxx             | 22 +++++++++++++++--
+ tests/TrilinosSolversTest.cxx             | 30 +++++++++++++++++++++++
+ 3 files changed, 64 insertions(+), 2 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 802ea9552e..7199afeb85 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -793,6 +793,20 @@ Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for
+ 22 to 23 iterations instead of 20; the setup of MueLu (1.25 seconds) then
+ dominates.
+ 
++The hierarchy of MueLu is built again for each operator, unless its
++parameter :code:`reuse: type` is given (:code:`RP`: the prolongators and
++the restrictions of the first operator are kept, the coarse operators and
++the smoothers being computed again; :code:`tP`: the tentative
++prolongators are kept...): the hierarchy is then updated by
++:code:`MueLu::ReuseTpetraPreconditioner` when the distribution of the rows
++of the new operator is the same, and built again otherwise. On the beam of
++421,443 unknowns, on the GPU, with the Jacobi smoother above,
++:code:`RP` sets up a second operator in 0.60 seconds instead of 1.28.
++Keeping the whole hierarchy (:code:`full`) still takes 0.49 seconds, an
++upper bound of the conversion of the matrix on the host, but keeps the
++coarse operators of the first operator, which suits only operators that
++do not change.
++
+ FROSch is given the number of components as number of degrees of freedom
+ per node, and the space dimension (2 or 3). Its coarse space is built from
+ the null space of the linear elasticity (computed by FROSch from the
+diff --git a/src/TrilinosTpetraBackend.hxx b/src/TrilinosTpetraBackend.hxx
+index 4fccc39405..e4bea45a94 100644
+--- a/src/TrilinosTpetraBackend.hxx
++++ b/src/TrilinosTpetraBackend.hxx
+@@ -794,7 +794,10 @@ namespace mfem_mgis::trilinos {
+       MueLuPreconditioner(const Options& o, NodesCoordinates c)
+           : parameters(makeParameterList(o)),
+             simplified(isSimplifiedSyntax(*(this->parameters))),
+-            coordinates(std::move(c)) {
++            coordinates(std::move(c)),
++            reuse(this->parameters->isType<std::string>("reuse: type")
++                      ? this->parameters->get<std::string>("reuse: type")
++                      : std::string{"none"}) {
+         // the names of the simplified syntax of MueLu (the default one), which
+         // MueLu checks at the setup, are checked at the creation of the
+         // solver. The parameters of a level are given in a sublist `level N`.
+@@ -805,7 +808,20 @@ namespace mfem_mgis::trilinos {
+         }
+       }
+       void setMatrix(const DistributedMatrixView& m) override {
++        // the hierarchy of the previous operator is updated when the
++        // parameter `reuse: type` of MueLu asks for it (`RP`: the
++        // prolongators and the restrictions are kept, the coarse operators
++        // computed again; `tP`: the tentative prolongators are kept...) and
++        // when the distribution of the rows is unchanged
++        const auto previous_rows = this->A.row_map;
+         this->A.set(m);
++        if ((!this->preconditioner.is_null()) && (this->reuse != "none") &&
++            (!previous_rows.is_null()) &&
++            (previous_rows->isSameAs(*(this->A.row_map)))) {
++          MueLu::ReuseTpetraPreconditioner(this->A.matrix,
++                                           *(this->preconditioner));
++          return;
++        }
+         auto p = *(this->parameters);
+         const auto vdim = m.number_of_components;
+         const auto* const equations = "number of equations";
+@@ -889,8 +905,10 @@ namespace mfem_mgis::trilinos {
+       const bool simplified;
+       //! \brief coordinates of the nodes
+       const NodesCoordinates coordinates;
++      //! \brief kind of reuse of the hierarchy (parameter `reuse: type`)
++      const std::string reuse;
+       //! \brief preconditioner
+-      Teuchos::RCP<OP> preconditioner;
++      Teuchos::RCP<MueLu::TpetraOperator<Scalar, LO, GO, Node>> preconditioner;
+     };  // end of struct MueLuPreconditioner
+ 
+     //! \brief two level overlapping Schwarz preconditioner of FROSch
+diff --git a/tests/TrilinosSolversTest.cxx b/tests/TrilinosSolversTest.cxx
+index b68bcdd9a5..8790904d96 100644
+--- a/tests/TrilinosSolversTest.cxx
++++ b/tests/TrilinosSolversTest.cxx
+@@ -313,6 +313,22 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
+         "Belos CG, MueLu: resolution with a second operator");
+   check(isSolved(solve(s, *(muelu.linear_solver), "Belos CG, MueLu, A")),
+         "Belos CG, MueLu: resolution with the first operator");
++  // the prolongators and the restrictions of the first operator kept for
++  // the following ones: the coarse operators of 2 A are those of A times
++  // two, hence the same iterations (up to the rounding errors of the GPU)
++  auto reuse = generate(
++      s, "BelosSolver",
++      getBelosParameters(
++          "CG", "MueLu",
++          Parameters{{"Parameters", Parameters{{"reuse: type", "RP"}}}}));
++  const auto rr = solve(s, *(reuse.linear_solver), "Belos CG, MueLu, RP, A");
++  const auto rr2 =
++      solve(s, a2, *(reuse.linear_solver), "Belos CG, MueLu, RP, 2 A");
++  const auto rr3 = solve(s, *(reuse.linear_solver), "Belos CG, MueLu, RP, A");
++  check(isSolved(rr) && isSolved(rr2) && isSolved(rr3) &&
++            (std::abs(rr2.iterations - rr.iterations) <= 1) &&
++            (std::abs(rr3.iterations - rr.iterations) <= 1) && isFaster(rr, rj),
++        "Belos CG, MueLu: resolutions with the hierarchy reused");
+ }  // end of checkKrylovSolvers
+ 
+ /*!
+@@ -351,6 +367,20 @@ static void checkElasticity(ElasticitySystem<true>& e1,
+   check(isFaster(r1, r3) && isFaster(r2, r3),
+         "Belos CG, MueLu: the rigid body modes do not reduce the number of "
+         "iterations");
++  // the hierarchy, built with the rigid body modes, reused for a second
++  // operator
++  auto m4 = generate(
++      e1, "BelosSolver",
++      getBelosParameters("CG", "MueLu",
++                         getMueLuOptions(Parameters{{"reuse: type", "RP"}})));
++  const auto r4 = solve(e1, *(m4.linear_solver), "Belos CG, MueLu, RP, A");
++  auto a2 = mfem::HypreParMatrix(e1.A);
++  a2 *= 2.;
++  const auto r5 =
++      solve(e1, a2, *(m4.linear_solver), "Belos CG, MueLu, RP, 2 A");
++  check(isSolved(r4) && isSolved(r5) && isFaster(r4, r3) &&
++            (std::abs(r5.iterations - r4.iterations) <= 1),
++        "Belos CG, MueLu: hierarchy with the rigid body modes reused");
+   auto jacobi =
+       generate(e1, "BelosSolver", getBelosParameters("GMRES", "Ifpack2"));
+   const auto rj = solve(e1, *(jacobi.linear_solver),
+-- 
+2.43.0
+

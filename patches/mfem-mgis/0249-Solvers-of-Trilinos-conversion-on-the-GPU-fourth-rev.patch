@@ -1,0 +1,807 @@
+From 3a3909cec88773851085ed9073c7ceec30427064 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 07:21:38 +0200
+Subject: [PATCH] Solvers of Trilinos: conversion on the GPU, fourth review
+
+The matrices of hypre are converted to Tpetra by kernels of Kokkos, where
+Tpetra computes, from the arrays of hypre on the GPU when hypre computes
+there (the rows are permuted, merged and sorted by insertion in parallel).
+On the beam of 421,443 unknowns on the GPU, the conversion takes 0.064
+seconds instead of 0.49 (0.029 instead of 0.45 on the Laplace equation of
+2,146,689 unknowns).
+
+Fourth review:
+- the node of the host is the serial node, used only when the default
+  node computes on a GPU: with Kokkos built for a GPU, some products of
+  sparse matrices of Tpetra run in the default execution space on the
+  data of the OpenMP node;
+- the solvers of Belos are built again when the matrix changes (PCPG kept
+  a seed space only valid for the same matrix), except GCRODR, which keeps
+  its recycled subspace for the matrices of the same rows;
+- placement: FROSch on the GPU when Trilinos is built for one, the GPU
+  for all the entries when Tpetra has no node of the host; Tacho uses the
+  default node (it computes in the default execution space of Kokkos);
+- MueLu: the rigid body modes and the coordinates are given in all the
+  syntaxes; a failed reuse of the hierarchy builds it again;
+- CMake: the configuration files of Kokkos are also compared by their
+  contents (copies in views of Spack);
+- tests: the reuse of the whole hierarchy changes the iterations (the
+  hierarchy is indeed reused), LSQR and the native GMRES of Tpetra accept
+  parameters absent from their lists;
+- docs: kept smoothers and Chebyshev eigenvalue under reuse, rigid body
+  modes per syntax, FROSch and Tacho on the GPU, restarts of GMRES.
+---
+ CMakeLists.txt                            |  19 +-
+ docs/source/user_guide/linear_solvers.rst |  91 ++++----
+ src/TrilinosBackend.cxx                   |  13 +-
+ src/TrilinosBackend.hxx                   |  15 +-
+ src/TrilinosLinearSolvers.cxx             |  35 ++-
+ src/TrilinosTpetraBackend.hxx             | 247 +++++++++++++++-------
+ tests/TrilinosSolversTest.cxx             |  29 +++
+ 7 files changed, 328 insertions(+), 121 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a950c98b4e..49f21dc5ee 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -122,8 +122,10 @@ if(enable-trilinos)
+   # Trilinos must be built with the Kokkos found above: its packages only
+   # load their own Kokkos when no target of Kokkos is defined, which would
+   # silently compile the sources including Trilinos with another Kokkos. The
+-  # configuration files are compared, their directories may differ in a
+-  # view of Spack (whose files are links to the installations).
++  # configuration files are compared, after resolution of the links, then by
++  # their contents (they contain the prefix of their installation): their
++  # paths may differ in a view of Spack, whose files are links to the
++  # installations or copies of them.
+   set(_trilinos_kokkos_config_file "")
+   set(_trilinos_kokkos_config
+       "${Trilinos_DIR}/../TeuchosKokkosCompat/TeuchosKokkosCompatConfig.cmake")
+@@ -146,7 +148,18 @@ if(enable-trilinos)
+   if(_trilinos_kokkos_config_file)
+     get_filename_component(_kokkos_config_file
+                            "${Kokkos_DIR}/KokkosConfig.cmake" REALPATH)
+-    if(NOT _trilinos_kokkos_config_file STREQUAL _kokkos_config_file)
++    set(_same_kokkos OFF)
++    if(_trilinos_kokkos_config_file STREQUAL _kokkos_config_file)
++      set(_same_kokkos ON)
++    elseif(EXISTS "${_trilinos_kokkos_config_file}" AND
++           EXISTS "${_kokkos_config_file}")
++      file(SHA256 "${_trilinos_kokkos_config_file}" _trilinos_kokkos_hash)
++      file(SHA256 "${_kokkos_config_file}" _kokkos_hash)
++      if(_trilinos_kokkos_hash STREQUAL _kokkos_hash)
++        set(_same_kokkos ON)
++      endif()
++    endif()
++    if(NOT _same_kokkos)
+       message(FATAL_ERROR "mfem-mgis: Trilinos is built with the Kokkos "
+               "of ${_trilinos_kokkos_config_file}, mfem-mgis found the "
+               "Kokkos of ${_kokkos_config_file} (option Kokkos_DIR)")
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 7199afeb85..7eae540f0b 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -695,9 +695,10 @@ the solver of Trilinos (a :code:`Teuchos::ParameterList`): booleans,
+ integers, reals and strings, a list of parameters being a sublist. For
+ Amesos2, it is the content of the list :code:`Amesos2` of Amesos2 (the
+ parameters common to the solvers, and a sublist per solver, such as
+-:code:`KLU2`), which Amesos2 validates when the matrix is set. The
+-parameters of Belos (and those of the outer solver of the hybrid GMRES)
+-are checked when the solver is created, which Belos only does when they
++:code:`KLU2`), which Amesos2 validates when the matrix is set. The names
++of the first level of the parameters of Belos (and those of the outer
++solver of the hybrid GMRES) are checked when the solver is created, which
++Belos only does when they
+ are given again (a change of the tolerance): a misspelt parameter is
+ refused, except by LSQR and the native solvers of Tpetra
+ (:cxx:`TPETRA GMRES`...), which ignore the unknown parameters. The
+@@ -743,17 +744,24 @@ the initial residual. The relative tolerance can be changed after the
+ creation of the solver (it is then given to the adaptive tolerance of the
+ Newton solver).
+ The GMRES solvers keep 50 Krylov vectors (:code:`Num Blocks`, 300 by
+-default in Belos), and are restarted as many times as the maximum number
+-of iterations allows (:code:`Maximum Restarts`), unless these parameters
+-are given. The hybrid GMRES of Belos (:cxx:`HYBRID BLOCK GMRES`, or its
+-aliases :cxx:`GMRESPOLY` and :cxx:`SEED GMRES`, a GMRES polynomial used as
+-preconditioner) iterates with an outer solver (:code:`Outer Solver`,
++default in most GMRES solvers of Belos), and are restarted as many times
++as the maximum number of iterations allows (:code:`Maximum Restarts`),
++unless these parameters are given. The hybrid GMRES of Belos
++(:cxx:`HYBRID BLOCK GMRES`, or its aliases :cxx:`GMRESPOLY` and
++:cxx:`SEED GMRES`, a GMRES polynomial used as preconditioner) iterates
++with an outer solver (:code:`Outer Solver`,
+ :code:`Block GMRES` by default, among the solvers of the generic factory
+ of Belos), whose parameters (the sublist :code:`Outer Solver Params`)
+ receive the tolerance, the maximum number of iterations, the verbosity
+-and the parameters of the restarted GMRES; the polynomial is built again
+-when the matrix changes. With an empty name of outer solver, the
+-polynomial is applied alone, without tolerance. A failure of a solver of
++and the parameters of the restarted GMRES. With an empty name of outer
++solver, the polynomial is applied alone, without tolerance nor maximum
++number of iterations; with a null degree (:code:`Maximum Degree`), the
++outer solver is applied alone, and is built by the factory of Belos for
++Tpetra. The solvers of Belos are built again when the matrix changes
++(the hybrid GMRES then builds its polynomial again, and PCPG, which keeps
++a seed space only valid for the same matrix, forgets it), except GCRODR,
++which keeps its recycled subspace for the matrices of the same rows. A
++failure of a solver of
+ Belos (for instance the loss of the positive definiteness detected by the
+ conjugate gradient) is reported as a resolution which did not converge,
+ its message being printed.
+@@ -770,7 +778,10 @@ components, unless it is given) and, when the number of components is the
+ space dimension (2 or 3), its near null space is made of the rigid body
+ modes of the finite element space, computed from the coordinates of its
+ nodes; the rigid body modes are not used when another number of equations
+-is given.
++is given. The parameter :code:`number of equations` is only set in the
++simplified syntax of MueLu; the rigid body modes and the coordinates of
++the nodes (user data :code:`Nullspace` and :code:`Coordinates`) are given
++in all the syntaxes.
+ 
+ MueLu solves directly, without multigrid, the systems smaller than its
+ parameter :code:`coarse: max size` (2000 unknowns by default). The
+@@ -790,22 +801,23 @@ default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a beam of
+ with two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
+ :code:`RELAXATION`, :code:`smoother: params` to :code:`{relaxation: type =
+ Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for
+-22 to 23 iterations instead of 20; the setup of MueLu (1.25 seconds) then
++22 to 23 iterations instead of 20; the setup of MueLu (0.84 seconds) then
+ dominates.
+ 
+ The hierarchy of MueLu is built again for each operator, unless its
+ parameter :code:`reuse: type` is given (:code:`RP`: the prolongators and
+-the restrictions of the first operator are kept, the coarse operators and
+-the smoothers being computed again; :code:`tP`: the tentative
+-prolongators are kept...): the hierarchy is then updated by
++the restrictions of the first operator are kept, the coarse operators
++being computed again; :code:`tP`: the tentative prolongators are
++kept...): the hierarchy is then updated by
+ :code:`MueLu::ReuseTpetraPreconditioner` when the distribution of the rows
+-of the new operator is the same, and built again otherwise. On the beam of
+-421,443 unknowns, on the GPU, with the Jacobi smoother above,
+-:code:`RP` sets up a second operator in 0.60 seconds instead of 1.28.
+-Keeping the whole hierarchy (:code:`full`) still takes 0.49 seconds, an
+-upper bound of the conversion of the matrix on the host, but keeps the
+-coarse operators of the first operator, which suits only operators that
+-do not change.
++of the new operator is the same, and built again otherwise. The smoothers
++are kept and set up again for the new operator, except the estimate of
++the largest eigenvalue of the Chebyshev smoother, kept from the first
++operator: with a stiffening operator, the Jacobi smoother is safer. On
++the beam of 421,443 unknowns, on the GPU, with the Jacobi smoother above,
++:code:`RP` sets up a second operator in 0.17 seconds instead of 0.82.
++Keeping the whole hierarchy (:code:`full`) keeps the coarse operators of
++the first operator, which suits only operators that do not change.
+ 
+ FROSch is given the number of components as number of degrees of freedom
+ per node, and the space dimension (2 or 3). Its coarse space is built from
+@@ -834,21 +846,25 @@ A preconditioner of Trilinos given to :cxx:`BelosSolver` shares the matrix
+ of the solver and is applied to the vectors of Tpetra; the preconditioners
+ of the other libraries are applied to vectors of :code:`MFEM`, the vectors
+ of Tpetra being copied, on the GPU when :code:`MFEM` and Tpetra compute
+-there. The
+-preconditioners of Trilinos may also be used by the Krylov solvers of
+-:code:`MFEM`.
++there. The preconditioners of Trilinos may also be used by the Krylov
++solvers of :code:`MFEM`.
+ 
+ The solvers of Trilinos compute where :code:`MFEM` computes. When
+ :code:`MFEM` computes on the GPU and Trilinos is built for it, Tpetra
+ computes with its default node, on the GPU. Otherwise, Tpetra computes on
+ the host with its serial node (each process of :code:`MPI` computing on
+-one core), or its OpenMP node if Tpetra is not instantiated for the serial
+-one; when Tpetra is instantiated for the GPU only, its solvers compute on
+-the GPU even when :code:`MFEM` computes on the host. FROSch always
+-computes with the default node of Tpetra, on the GPU when Trilinos is
+-built for one (FROSch 17.2.1 runs some loops in the default execution
+-space of :code:`Kokkos`, whatever the node). :cxx:`BelosSolver` computes
+-at the same place as its preconditioner of Trilinos. The matrices are converted on the host. The vectors of
++one core); when Tpetra is not instantiated for its serial node, the
++solvers compute on
++the GPU even when :code:`MFEM` computes on the host. FROSch and the
++factorization of Tacho always compute with the default node of Tpetra, on
++the GPU when Trilinos is built for one (FROSch 17.2.1 runs some loops in
++the default execution space of :code:`Kokkos`, as Tacho, whatever the
++node). :cxx:`BelosSolver` computes at the same place as its
++preconditioner of Trilinos. Some options of MueLu may not be available on
++the host in this case (the distance Laplacian with weights of MueLu 17.2.1
++allocates its weights in the default memory space). The matrices are
++converted where Tpetra computes, by kernels of :code:`Kokkos`, from the
++arrays of hypre on the GPU when hypre computes there. The vectors of
+ :code:`MFEM` are copied on the GPU when :code:`MFEM` and Tpetra compute
+ on the GPU, and from and to the host otherwise. Trilinos requires an
+ initialized :code:`Kokkos`,
+@@ -857,10 +873,11 @@ built, on the GPU of the device of :code:`MFEM`, and finalized by
+ :cxx:`finalize` before :code:`MPI` (see
+ :doc:`../installation_guide/installation_guide`): the solvers of Trilinos,
+ whose data are allocated by :code:`Kokkos`, shall be destroyed before.
+-When Tpetra computes with its OpenMP node, the computations of the host
+-use the number of threads given by :code:`OMP_NUM_THREADS`, which, with
+-several processes per node, shall be set accordingly (one thread per
+-process if the processes occupy all the cores).
++When Trilinos is built without GPU and its default node is the OpenMP
++node, the computations use the number of threads given by
++:code:`OMP_NUM_THREADS`, which, with several processes per node, shall be
++set accordingly (one thread per process if the processes occupy all the
++cores).
+ 
+ .. _strumpack_linear_solvers:
+ 
+diff --git a/src/TrilinosBackend.cxx b/src/TrilinosBackend.cxx
+index 2faf2217c7..5aeae2ca21 100644
+--- a/src/TrilinosBackend.cxx
++++ b/src/TrilinosBackend.cxx
+@@ -7,6 +7,8 @@
+  * \date   15/10/2026
+  */
+ 
++#include <cctype>
++#include <algorithm>
+ #include "TrilinosTpetraBackend.hxx"
+ 
+ namespace mfem_mgis::trilinos {
+@@ -19,6 +21,8 @@ namespace mfem_mgis::trilinos {
+ 
+   bool hasGPUNode() noexcept { return TpetraBackend<DefaultNode>::gpu; }
+ 
++  bool hasHostNode() noexcept { return !TpetraBackend<HostNode>::gpu; }
++
+   std::unique_ptr<Operator> makeIfpack2Preconditioner(const std::string& type,
+                                                       const Options& options,
+                                                       const bool gpu) {
+@@ -53,7 +57,14 @@ namespace mfem_mgis::trilinos {
+   std::unique_ptr<Operator> makeAmesos2Solver(const std::string& solver,
+                                               const Options& options,
+                                               const bool gpu) {
+-    if (gpu) {
++    // Tacho computes in the default execution space of Kokkos, whatever the
++    // node (Amesos2_Tacho_decl.hpp)
++    auto name = solver;
++    std::ranges::transform(name, name.begin(),
++                           [](const unsigned char c) noexcept {
++                             return static_cast<char>(std::tolower(c));
++                           });
++    if ((gpu) || (name == "tacho")) {
+       return TpetraBackend<DefaultNode>::makeAmesos2Solver(solver, options);
+     }
+     return TpetraBackend<HostNode>::makeAmesos2Solver(solver, options);
+diff --git a/src/TrilinosBackend.hxx b/src/TrilinosBackend.hxx
+index 8038c9f19b..e138e68041 100644
+--- a/src/TrilinosBackend.hxx
++++ b/src/TrilinosBackend.hxx
+@@ -78,6 +78,12 @@ namespace mfem_mgis::trilinos {
+     int number_of_components = 1;
+     //! \brief if true, the unknowns are ordered by nodes
+     bool ordered_by_nodes = true;
++    /*!
++     * \brief if true, the arrays of the blocks are in the memory of the GPU
++     * which the operator computes on (the global indices of the columns of
++     * the off-diagonal block being in the memory of the host)
++     */
++    bool device = false;
+   };
+ 
+   /*!
+@@ -226,7 +232,9 @@ namespace mfem_mgis::trilinos {
+    * `SuperLU_DIST`...)
+    * \param[in] options: parameters of the solver
+    * \param[in] gpu: if true, computes on the GPU if Trilinos is built for
+-   * one, on the host otherwise
++   * one, on the host otherwise, except Tacho, which computes in the
++   * default execution space of Kokkos whatever the node: it uses the
++   * default node of Tpetra
+    */
+   [[nodiscard]] std::unique_ptr<Operator> makeAmesos2Solver(
+       const std::string& solver, const Options& options, const bool gpu);
+@@ -284,6 +292,11 @@ namespace mfem_mgis::trilinos {
+    * (serial or OpenMP).
+    */
+   [[nodiscard]] bool hasGPUNode() noexcept;
++  /*!
++   * \return true if Tpetra computes on the host when asked: Trilinos is
++   * built without GPU, or Tpetra is also instantiated for its serial node
++   */
++  [[nodiscard]] bool hasHostNode() noexcept;
+ 
+ }  // end of namespace mfem_mgis::trilinos
+ 
+diff --git a/src/TrilinosLinearSolvers.cxx b/src/TrilinosLinearSolvers.cxx
+index 6e11523cca..23d74227ff 100644
+--- a/src/TrilinosLinearSolvers.cxx
++++ b/src/TrilinosLinearSolvers.cxx
+@@ -93,10 +93,13 @@ namespace mfem_mgis::internals {
+      * \param[in] a: matrix of hypre
+      * \param[in] vdim: number of components of the unknowns
+      * \param[in] by_nodes: if true, the unknowns are ordered by nodes
++     * \param[in] gpu: if true, the solver of Trilinos computes on the GPU:
++     * the arrays of hypre are read there when hypre computes on the GPU
+      */
+     HypreMatrixView(const mfem::HypreParMatrix& a,
+                     const int vdim,
+-                    const bool by_nodes) {
++                    const bool by_nodes,
++                    const bool gpu) {
+       // the column of index `j` of the diagonal block is the row of index
+       // `first_row + j`: the matrix must be square, its columns being
+       // distributed as its rows (checked by all the processes, which fail
+@@ -113,8 +116,15 @@ namespace mfem_mgis::internals {
+             "distributed as its rows, the number of rows of each process "
+             "being a multiple of the number of components");
+       }
+-      // the arrays of hypre are read on the host
+-      a.HostRead();
++      // the arrays of hypre are read where Trilinos computes, if hypre
++      // computes there, and on the host otherwise (the indices of the
++      // columns of the off-diagonal block are on the host)
++      const auto device = gpu && isHypreUsingGPU();
++      if (device) {
++        a.HypreRead();
++      } else {
++        a.HostRead();
++      }
+       auto* const h = static_cast<hypre_ParCSRMatrix*>(
+           const_cast<mfem::HypreParMatrix&>(a));
+       auto* const diag = hypre_ParCSRMatrixDiag(h);
+@@ -138,6 +148,7 @@ namespace mfem_mgis::internals {
+       this->view.offd_global_columns = this->offd_columns.data();
+       this->view.number_of_components = vdim;
+       this->view.ordered_by_nodes = by_nodes;
++      this->view.device = device;
+     }
+     //! \brief view
+     trilinos::DistributedMatrixView view;
+@@ -202,7 +213,8 @@ namespace mfem_mgis::internals {
+       };
+       const auto guard = HypreLocationGuard{*a};
+       const auto v = HypreMatrixView(*a, this->number_of_components,
+-                                     this->ordered_by_nodes);
++                                     this->ordered_by_nodes,
++                                     this->backend->computesOnTheGPU());
+       this->backend->setMatrix(v.view);
+     }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+@@ -377,11 +389,15 @@ namespace mfem_mgis::internals {
+ 
+   /*!
+    * \return the placement of the computations of Trilinos: where MFEM
+-   * computes when Trilinos is built for a GPU, on the host otherwise
++   * computes when Trilinos is built for a GPU and for a node of the host,
++   * on the GPU when it is built for the GPU only, on the host otherwise
+    */
+   [[nodiscard]] static LinearSolverPlacement getTrilinosPlacement() {
+-    return trilinos::hasGPUNode() ? LinearSolverPlacement::MFEM
+-                                  : LinearSolverPlacement::HOST;
++    if (!trilinos::hasGPUNode()) {
++      return LinearSolverPlacement::HOST;
++    }
++    return trilinos::hasHostNode() ? LinearSolverPlacement::MFEM
++                                   : LinearSolverPlacement::DEVICE;
+   }  // end of getTrilinosPlacement
+ 
+   //! \return the options of the Krylov solvers of Belos
+@@ -616,11 +632,14 @@ namespace mfem_mgis::internals {
+               return std::make_unique<TrilinosSolver>(std::move(*o), fespace,
+                                                       false);
+             });
++    // FROSch computes with the default node of Tpetra
+     declare(f, "FROSch",
+             LinearSolverDescription{
+                 .library = "Trilinos",
+                 .kind = LinearSolverKind::PRECONDITIONER,
+-                .placement = placement,
++                .placement = trilinos::hasGPUNode()
++                                 ? LinearSolverPlacement::DEVICE
++                                 : LinearSolverPlacement::HOST,
+                 .preconditioners = AcceptedPreconditioners::NONE,
+                 .options = {"Parameters"},
+                 .description =
+diff --git a/src/TrilinosTpetraBackend.hxx b/src/TrilinosTpetraBackend.hxx
+index e4bea45a94..cf13ba1e38 100644
+--- a/src/TrilinosTpetraBackend.hxx
++++ b/src/TrilinosTpetraBackend.hxx
+@@ -33,6 +33,7 @@
+ #include "BelosSolverFactory.hpp"
+ #include "BelosSolverFactory_Generic.hpp"
+ #include "BelosLSQRSolMgr.hpp"
++#include "BelosGCRODRSolMgr.hpp"
+ #include "Belos_Tpetra_SolverManagerBase.hpp"
+ #include "BelosTpetraAdapter.hpp"
+ #include "Ifpack2_Factory.hpp"
+@@ -45,13 +46,18 @@
+ #include "FROSch_TwoLevelPreconditioner_def.hpp"
+ #include "MueLu_MasterList.hpp"
+ #include "FROSch_TpetraPreconditioner_def.hpp"
++#include "Tpetra_Details_DefaultTypes.hpp"
+ #include "TrilinosBackend.hxx"
+ 
+-// Tpetra built for a GPU and for a node of the host: the solvers compute on
+-// the host when MFEM does
+-#if (defined(HAVE_TPETRA_INST_CUDA) || defined(HAVE_TPETRA_INST_HIP) || \
+-     defined(HAVE_TPETRA_INST_SYCL)) &&                                 \
+-    (defined(HAVE_TPETRA_INST_SERIAL) || defined(HAVE_TPETRA_INST_OPENMP))
++// Tpetra computing on a GPU by default, and instantiated for the serial
++// node: the solvers compute on the host when MFEM does. The OpenMP node is
++// not used: with Kokkos built for a GPU, some products of sparse matrices of
++// Tpetra 17.2.1 run in the default execution space of Kokkos on the data of
++// this node (TpetraExt_MatrixMatrix_def.hpp)
++#if (defined(HAVE_TPETRA_DEFAULTNODE_CUDAWRAPPERNODE) ||  \
++     defined(HAVE_TPETRA_DEFAULTNODE_HIPWRAPPERNODE) ||   \
++     defined(HAVE_TPETRA_DEFAULTNODE_SYCLWRAPPERNODE)) && \
++    defined(HAVE_TPETRA_INST_SERIAL)
+ #define MFEM_MGIS_TRILINOS_HOST_NODE
+ #endif
+ 
+@@ -66,18 +72,17 @@ namespace mfem_mgis::trilinos {
+   //! \brief default node of Tpetra, on the GPU when Trilinos is built for one
+   using DefaultNode = Tpetra::Map<>::node_type;
+ #ifdef MFEM_MGIS_TRILINOS_HOST_NODE
+-#ifdef HAVE_TPETRA_INST_SERIAL
+   /*!
+    * \brief node of Tpetra on the host: serial, each process of MPI
+    * computing on one core
+    */
+   using HostNode = Tpetra::KokkosCompat::KokkosSerialWrapperNode;
+-#else  /* HAVE_TPETRA_INST_SERIAL */
+-  //! \brief node of Tpetra on the host
+-  using HostNode = Tpetra::KokkosCompat::KokkosOpenMPWrapperNode;
+-#endif /* HAVE_TPETRA_INST_SERIAL */
+ #else  /* MFEM_MGIS_TRILINOS_HOST_NODE */
+-  //! \brief node of Tpetra on the host: the default one, only instantiated
++  /*!
++   * \brief node of Tpetra on the host: the default one, the only one used
++   * (on the host, or on the GPU when Tpetra is not instantiated for the
++   * serial node)
++   */
+   using HostNode = DefaultNode;
+ #endif /* MFEM_MGIS_TRILINOS_HOST_NODE */
+ 
+@@ -219,6 +224,40 @@ namespace mfem_mgis::trilinos {
+         !Kokkos::SpaceAccessibility<ExecutionSpace,
+                                     Kokkos::HostSpace>::accessible;
+ 
++    /*!
++     * \return an array of the memory space of Tpetra: the given one, if it is
++     * already there, or a copy
++     * \param[in] v: array
++     * \param[in] s: size
++     * \param[in] device: if true, the array is in the memory of the GPU
++     * which Tpetra computes on, and in the memory of the host otherwise
++     */
++    template <typename T>
++    static DeviceArray<const T> toMemorySpace(const T* const v,
++                                              const std::size_t s,
++                                              const bool device) {
++      if ((device) || (!gpu)) {
++        return UnmanagedDeviceArray<const T>(v, s);
++      }
++      auto c = DeviceArray<T>(
++          Kokkos::view_alloc(Kokkos::WithoutInitializing, "copy"), s);
++      Kokkos::deep_copy(
++          c, Kokkos::View<const T*, Kokkos::HostSpace,
++                          Kokkos::MemoryTraits<Kokkos::Unmanaged>>(v, s));
++      return c;
++    }  // end of toMemorySpace
++    /*!
++     * \return the last value of an array of offsets, zero if it is empty
++     * \param[in] o: offsets
++     */
++    static std::size_t getLastValue(const DeviceArray<const int>& o) {
++      if (o.extent(0) == 0) {
++        return 0;
++      }
++      auto v = int{};
++      Kokkos::deep_copy(v, Kokkos::subview(o, o.extent(0) - 1));
++      return static_cast<std::size_t>(v);
++    }  // end of getLastValue
+     /*!
+      * \brief sparse matrix of Tpetra built from a matrix of hypre: the row map
+      * is the contiguous map of the rows of the processes, the column map the
+@@ -307,61 +346,103 @@ namespace mfem_mgis::trilinos {
+                     Teuchos::ArrayView<const GO>(
+                         columns.data(), static_cast<int>(columns.size())),
+                     GO{0}, comm));
+-        // local matrix, the columns of each row being sorted
+-        using LocalMatrix = CrsMatrix::local_matrix_device_type;
+-        using Offsets = CrsMatrix::local_graph_device_type::row_map_type;
+-        using Entries = CrsMatrix::local_graph_device_type::entries_type;
+-        using Values = LocalMatrix::values_type;
++        // local matrix, built in the memory space of Tpetra, the columns of
++        // each row being sorted
++        using LocalMatrix = typename CrsMatrix::local_matrix_device_type;
++        using Offsets =
++            typename CrsMatrix::local_graph_device_type::row_map_type;
++        using Entries =
++            typename CrsMatrix::local_graph_device_type::entries_type;
++        using Values = typename LocalMatrix::values_type;
++        const auto un = static_cast<std::size_t>(n);
+         const auto has_offd = (no != 0) && (m.offd_offsets != nullptr);
+-        const auto nnz =
+-            n == 0 ? std::size_t{0}
+-                   : static_cast<std::size_t>(m.diag_offsets[n]) +
+-                         (has_offd ? static_cast<std::size_t>(m.offd_offsets[n])
+-                                   : std::size_t{0});
++        // the offsets of a process without rows may not be allocated
++        const auto no_offsets = std::size_t{n == 0 ? 0u : un + 1};
++        const auto diag_offsets =
++            toMemorySpace(m.diag_offsets, no_offsets, m.device);
++        const auto diag_nnz = getLastValue(diag_offsets);
++        const auto diag_columns =
++            toMemorySpace(m.diag_columns, diag_nnz, m.device);
++        const auto diag_values =
++            toMemorySpace(m.diag_values, diag_nnz, m.device);
++        auto offd_offsets = DeviceArray<const int>{};
++        auto offd_columns = DeviceArray<const int>{};
++        auto offd_values = DeviceArray<const double>{};
++        auto offd_nnz = std::size_t{};
++        if (has_offd) {
++          offd_offsets = toMemorySpace(m.offd_offsets, no_offsets, m.device);
++          offd_nnz = getLastValue(offd_offsets);
++          offd_columns = toMemorySpace(m.offd_columns, offd_nnz, m.device);
++          offd_values = toMemorySpace(m.offd_values, offd_nnz, m.device);
++        }
++        const auto nnz = diag_nnz + offd_nnz;
+         auto offsets = typename Offsets::non_const_type(
+-            Kokkos::view_alloc(Kokkos::WithoutInitializing, "offsets"),
+-            static_cast<std::size_t>(n) + 1);
++            Kokkos::view_alloc(Kokkos::WithoutInitializing, "offsets"), un + 1);
+         auto entries = typename Entries::non_const_type(
+             Kokkos::view_alloc(Kokkos::WithoutInitializing, "entries"), nnz);
+         auto values = typename Values::non_const_type(
+             Kokkos::view_alloc(Kokkos::WithoutInitializing, "values"), nnz);
+-        auto h_offsets = Kokkos::create_mirror_view(offsets);
+-        auto h_entries = Kokkos::create_mirror_view(entries);
+-        auto h_values = Kokkos::create_mirror_view(values);
+         // rows of the process in the order of Tpetra
+-        auto source = std::vector<int>(static_cast<std::size_t>(n));
+-        for (int i = 0; i != n; ++i) {
+-          source[static_cast<std::size_t>(this->getIndex(i))] = i;
+-        }
+-        auto row = std::vector<std::pair<LO, Scalar>>{};
+-        auto k = std::size_t{0};
+-        for (int r = 0; r != n; ++r) {
+-          const auto i = source[static_cast<std::size_t>(r)];
+-          h_offsets(static_cast<std::size_t>(r)) = k;
+-          row.clear();
+-          for (auto j = m.diag_offsets[i]; j != m.diag_offsets[i + 1]; ++j) {
+-            row.emplace_back(this->getIndex(m.diag_columns[j]),
+-                             static_cast<Scalar>(m.diag_values[j]));
+-          }
+-          if (has_offd) {
+-            for (auto j = m.offd_offsets[i]; j != m.offd_offsets[i + 1]; ++j) {
+-              row.emplace_back(static_cast<LO>(n + m.offd_columns[j]),
+-                               static_cast<Scalar>(m.offd_values[j]));
+-            }
+-          }
+-          std::sort(row.begin(), row.end(), [](const auto& a, const auto& b) {
+-            return a.first < b.first;
+-          });
+-          for (const auto& [c, v] : row) {
+-            h_entries(k) = c;
+-            h_values(k) = v;
+-            ++k;
+-          }
+-        }
+-        h_offsets(static_cast<std::size_t>(n)) = k;
+-        Kokkos::deep_copy(offsets, h_offsets);
+-        Kokkos::deep_copy(entries, h_entries);
+-        Kokkos::deep_copy(values, h_values);
++        const auto p = this->device_permutation;
++        auto source = DeviceArray<int>(
++            Kokkos::view_alloc(Kokkos::WithoutInitializing, "source"), un);
++        Kokkos::parallel_for(
++            "mfem_mgis::trilinos::TpetraMatrix::source",
++            Kokkos::RangePolicy<ExecutionSpace>(0, n),
++            KOKKOS_LAMBDA(const int i) { source(permuted ? p(i) : i) = i; });
++        // offsets of the rows
++        Kokkos::parallel_scan(
++            "mfem_mgis::trilinos::TpetraMatrix::offsets",
++            Kokkos::RangePolicy<ExecutionSpace>(0, n + 1),
++            KOKKOS_LAMBDA(const int r, std::size_t& o, const bool last) {
++              if (last) {
++                offsets(r) = o;
++              }
++              if (r != n) {
++                const auto i = source(r);
++                o += static_cast<std::size_t>(diag_offsets(i + 1) -
++                                              diag_offsets(i));
++                if (has_offd) {
++                  o += static_cast<std::size_t>(offd_offsets(i + 1) -
++                                                offd_offsets(i));
++                }
++              }
++            });
++        // entries of the rows, sorted by insertion (the rows of the finite
++        // element matrices are short)
++        Kokkos::parallel_for(
++            "mfem_mgis::trilinos::TpetraMatrix::entries",
++            Kokkos::RangePolicy<ExecutionSpace>(0, n),
++            KOKKOS_LAMBDA(const int r) {
++              const auto i = source(r);
++              const auto b = offsets(r);
++              auto k = b;
++              for (auto j = diag_offsets(i); j != diag_offsets(i + 1); ++j) {
++                const auto c = diag_columns(j);
++                entries(k) = static_cast<LO>(permuted ? p(c) : c);
++                values(k) = static_cast<Scalar>(diag_values(j));
++                ++k;
++              }
++              if (has_offd) {
++                for (auto j = offd_offsets(i); j != offd_offsets(i + 1); ++j) {
++                  entries(k) = static_cast<LO>(n + offd_columns(j));
++                  values(k) = static_cast<Scalar>(offd_values(j));
++                  ++k;
++                }
++              }
++              for (auto l = b + 1; l < k; ++l) {
++                const auto c = entries(l);
++                const auto v = values(l);
++                auto q = l;
++                while ((q > b) && (entries(q - 1) > c)) {
++                  entries(q) = entries(q - 1);
++                  values(q) = values(q - 1);
++                  --q;
++                }
++                entries(q) = c;
++                values(q) = v;
++              }
++            });
+         this->matrix = Teuchos::rcp(
+             new CrsMatrix(this->row_map, column_map, offsets, entries, values));
+         this->matrix->fillComplete(this->row_map, this->row_map);
+@@ -818,19 +899,31 @@ namespace mfem_mgis::trilinos {
+         if ((!this->preconditioner.is_null()) && (this->reuse != "none") &&
+             (!previous_rows.is_null()) &&
+             (previous_rows->isSameAs(*(this->A.row_map)))) {
+-          MueLu::ReuseTpetraPreconditioner(this->A.matrix,
+-                                           *(this->preconditioner));
++          try {
++            MueLu::ReuseTpetraPreconditioner(this->A.matrix,
++                                             *(this->preconditioner));
++          } catch (...) {
++            // the hierarchy, partially updated, is built again for the next
++            // operator
++            this->preconditioner = Teuchos::null;
++            throw;
++          }
+           return;
+         }
+         auto p = *(this->parameters);
+         const auto vdim = m.number_of_components;
++        // number of equations per node, given in the simplified syntax, the
++        // number of components otherwise (the other syntaxes ignore this
++        // parameter, but the user data, given in all the syntaxes)
+         const auto* const equations = "number of equations";
+         if ((this->simplified) && (vdim > 1) && (!p.isParameter(equations))) {
+           p.set(equations, vdim);
+         }
++        const auto neq =
++            p.isType<int>(equations) ? p.get<int>(equations) : vdim;
+         // the rigid body modes, unless the parameters give another number of
+         // equations per node
+-        if (p.get<int>(equations, 1) == vdim) {
++        if (neq == vdim) {
+           const auto modes = makeRigidBodyModes(m.communicator, this->A.row_map,
+                                                 vdim, this->coordinates);
+           if (!modes.is_null()) {
+@@ -843,7 +936,7 @@ namespace mfem_mgis::trilinos {
+         // coordinates of the nodes, used by some options of MueLu (dropping
+         // based on the distances, repartitioning), when the nodes of MueLu are
+         // the nodes of the mesh
+-        if (p.get<int>(equations, 1) == vdim) {
++        if (neq == vdim) {
+           const auto coordinates =
+               makeNodesCoordinates(this->A, vdim, this->coordinates);
+           if (!coordinates.is_null()) {
+@@ -1156,7 +1249,8 @@ namespace mfem_mgis::trilinos {
+                   const BelosSettings& settings,
+                   const TpetraOperatorBase* const p,
+                   ExternalPreconditioner e)
+-          : parameters(makeParameterList(o)),
++          : name(s),
++            parameters(makeParameterList(o)),
+             trilinos_preconditioner(p),
+             external_preconditioner(std::move(e)) {
+         auto factory = Belos::SolverFactory<Scalar, MV, OP>{};
+@@ -1203,6 +1297,7 @@ namespace mfem_mgis::trilinos {
+         }
+       }
+       void setMatrix(const DistributedMatrixView& m) override {
++        const auto previous_rows = this->A.row_map;
+         // the matrix of a preconditioner of Trilinos, set before, is shared
+         if (this->trilinos_preconditioner != nullptr) {
+           this->A = this->trilinos_preconditioner->getMatrix();
+@@ -1222,13 +1317,21 @@ namespace mfem_mgis::trilinos {
+               new PreconditionerOperator(this->A, this->trilinos_preconditioner,
+                                          this->external_preconditioner)));
+         }
+-        // the hybrid GMRES keeps its polynomial, built for the previous
+-        // matrix, unless reset (the only solver of Belos keeping data built
+-        // from the matrix; GCRODR and the native solvers of Tpetra throw on
+-        // a reset before the vectors are given)
+-        if (this->hybrid) {
+-          this->solver->setProblem(this->problem);
+-          this->solver->reset(Belos::Problem);
++        // the solvers of Belos keep data of the previous resolutions: the
++        // recycled subspace of GCRODR is kept for a matrix of the same rows
++        // (the purpose of GCRODR), the other solvers are built again (the
++        // seed space of PCPG is only valid for the same matrix, and the
++        // polynomial of the hybrid GMRES is built for the matrix; GCRODR and
++        // the native solvers of Tpetra throw on a reset before the vectors
++        // are given)
++        using GCRODR = Belos::GCRODRSolMgr<Scalar, MV, OP>;
++        const auto recycling =
++            (dynamic_cast<const GCRODR*>(this->solver.get()) != nullptr) &&
++            (!previous_rows.is_null()) &&
++            (previous_rows->isSameAs(*(this->A.row_map)));
++        if (!recycling) {
++          auto factory = Belos::SolverFactory<Scalar, MV, OP>{};
++          this->solver = factory.create(this->name, this->parameters);
+         }
+       }
+       [[nodiscard]] Teuchos::RCP<OP> getTpetraOperator() const override {
+@@ -1400,6 +1503,8 @@ namespace mfem_mgis::trilinos {
+         addSettings(p, *(this->outer_valid_parameters), settings);
+         p.validateParameters(*(this->outer_valid_parameters), 0);
+       }  // end of setOuterSolver
++      //! \brief name of the solver
++      const std::string name;
+       //! \brief if true, the solver is the hybrid GMRES of Belos
+       bool hybrid = false;
+       //! \brief parameters accepted by the outer solver of the hybrid GMRES
+diff --git a/tests/TrilinosSolversTest.cxx b/tests/TrilinosSolversTest.cxx
+index 8790904d96..9cc884c36e 100644
+--- a/tests/TrilinosSolversTest.cxx
++++ b/tests/TrilinosSolversTest.cxx
+@@ -33,6 +33,7 @@
+  */
+ 
+ #include <cmath>
++#include <tuple>
+ #include <algorithm>
+ #include <string>
+ #include <vector>
+@@ -329,6 +330,21 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
+             (std::abs(rr2.iterations - rr.iterations) <= 1) &&
+             (std::abs(rr3.iterations - rr.iterations) <= 1) && isFaster(rr, rj),
+         "Belos CG, MueLu: resolutions with the hierarchy reused");
++  // the whole hierarchy of A kept for 2 A (its smoothers and its coarse
++  // operators): the preconditioner is no longer the multigrid of 2 A, which
++  // changes the iterations, showing that the hierarchy is reused
++  auto full = generate(
++      s, "BelosSolver",
++      getBelosParameters(
++          "CG", "MueLu",
++          Parameters{{"Parameters", Parameters{{"reuse: type", "full"}}}}));
++  const auto rfull =
++      solve(s, *(full.linear_solver), "Belos CG, MueLu, full, A");
++  const auto rfull2 =
++      solve(s, a2, *(full.linear_solver), "Belos CG, MueLu, full, 2 A");
++  check(isSolved(rfull) && (rfull.iterations == rr.iterations) &&
++            (rfull2.iterations != rfull.iterations),
++        "Belos CG, MueLu: hierarchy not reused");
+ }  // end of checkKrylovSolvers
+ 
+ /*!
+@@ -667,6 +683,19 @@ static void checkRefusals(LaplaceSystem<true>& s) {
+   refused("BelosSolver",
+           Parameters{{"Solver", "LSQR"}, {"RelativeTolerance", 1e-8}},
+           "no relative tolerance");
++  // LSQR and the native solvers of Tpetra read parameters absent from the
++  // list of their valid parameters
++  using UncheckedParameter = std::tuple<std::string, std::string, Parameter>;
++  const auto unchecked = std::vector<UncheckedParameter>{
++      {"LSQR", "lambda", 0.}, {"TPETRA GMRES", "Orthogonalization", "ICGS"}};
++  for (const auto& [solver, parameter, value] : unchecked) {
++    const auto error = getGenerationError(
++        s, "BelosSolver",
++        Parameters{{"Solver", solver},
++                   {"Parameters", Parameters{{parameter, value}}}});
++    check(error.empty(), "Belos " + solver + ": parameter '" + parameter +
++                             "' refused ('" + error + "')");
++  }
+   refused("BelosSolver",
+           getBelosParameters(
+               "CG", "FROSch",
+-- 
+2.43.0
+

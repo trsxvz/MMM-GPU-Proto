@@ -1,0 +1,9 @@
+Warning: program compiled against libxml 213 using older 209
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+label=laplace/cg-muelu-jacobi-unsmoothed/gpu problem=laplace unknowns=2146689 processes=1 solver=CGSolver setup=0.17814 first=0.196745 solve=0.193451 resetup=0.158738 refirst=0.193708 iterations=40 residual=4.468e-08 residual2=4.468e-08 converged=1

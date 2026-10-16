@@ -20,7 +20,6 @@
 #include <utility>
 #include <optional>
 #include <algorithm>
-#include <cctype>
 #include <exception>
 #include <variant>
 #include <type_traits>
@@ -94,10 +93,13 @@ namespace mfem_mgis::internals {
      * \param[in] a: matrix of hypre
      * \param[in] vdim: number of components of the unknowns
      * \param[in] by_nodes: if true, the unknowns are ordered by nodes
+     * \param[in] gpu: if true, the solver of Trilinos computes on the GPU:
+     * the arrays of hypre are read there when hypre computes on the GPU
      */
     HypreMatrixView(const mfem::HypreParMatrix& a,
                     const int vdim,
-                    const bool by_nodes) {
+                    const bool by_nodes,
+                    const bool gpu) {
       // the column of index `j` of the diagonal block is the row of index
       // `first_row + j`: the matrix must be square, its columns being
       // distributed as its rows (checked by all the processes, which fail
@@ -114,8 +116,15 @@ namespace mfem_mgis::internals {
             "distributed as its rows, the number of rows of each process "
             "being a multiple of the number of components");
       }
-      // the arrays of hypre are read on the host
-      a.HostRead();
+      // the arrays of hypre are read where Trilinos computes, if hypre
+      // computes there, and on the host otherwise (the indices of the
+      // columns of the off-diagonal block are on the host)
+      const auto device = gpu && isHypreUsingGPU();
+      if (device) {
+        a.HypreRead();
+      } else {
+        a.HostRead();
+      }
       auto* const h = static_cast<hypre_ParCSRMatrix*>(
           const_cast<mfem::HypreParMatrix&>(a));
       auto* const diag = hypre_ParCSRMatrixDiag(h);
@@ -139,6 +148,7 @@ namespace mfem_mgis::internals {
       this->view.offd_global_columns = this->offd_columns.data();
       this->view.number_of_components = vdim;
       this->view.ordered_by_nodes = by_nodes;
+      this->view.device = device;
     }
     //! \brief view
     trilinos::DistributedMatrixView view;
@@ -203,13 +213,14 @@ namespace mfem_mgis::internals {
       };
       const auto guard = HypreLocationGuard{*a};
       const auto v = HypreMatrixView(*a, this->number_of_components,
-                                     this->ordered_by_nodes);
+                                     this->ordered_by_nodes,
+                                     this->backend->computesOnTheGPU());
       this->backend->setMatrix(v.view);
     }
     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
       // the vectors are given on the GPU when MFEM and Tpetra compute there
-      const auto on_device = trilinos::computesOnTheGPU() && b.UseDevice() &&
-                             x.UseDevice() &&
+      const auto on_device = this->backend->computesOnTheGPU() &&
+                             b.UseDevice() && x.UseDevice() &&
                              mfem::Device::Allows(mfem::Backend::CUDA_MASK |
                                                   mfem::Backend::HIP_MASK);
       if (!this->iterative_mode) {
@@ -274,14 +285,27 @@ namespace mfem_mgis::internals {
   };  // end of struct TrilinosSolver
 
   /*!
+   * \return true if the solvers of Trilinos compute on the GPU: Trilinos is
+   * built for a GPU and MFEM computes on the GPU. Otherwise, they compute
+   * on the host, when Tpetra is built for a node of the host (see
+   * `trilinos::hasGPUNode`).
+   */
+  [[nodiscard]] static bool computeTrilinosOnTheGPU() {
+    return trilinos::hasGPUNode() &&
+           mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                                mfem::Backend::HIP_MASK);
+  }  // end of computeTrilinosOnTheGPU
+
+  /*!
    * \return the preconditioner of mfem-mgis given to Belos: its vectors are
    * the ones of MFEM, given to Trilinos on the GPU when MFEM and Tpetra
    * compute there, and on the host otherwise
    * \param[in] p: preconditioner of mfem-mgis
+   * \param[in] gpu: if true, the solver of Belos computes on the GPU
    */
   [[nodiscard]] static trilinos::ExternalPreconditioner
-  makeExternalPreconditioner(mfem::Solver& p) {
-    const auto device = trilinos::computesOnTheGPU() &&
+  makeExternalPreconditioner(mfem::Solver& p, const bool gpu) {
+    const auto device = gpu && trilinos::hasGPUNode() &&
                         mfem::Device::Allows(mfem::Backend::CUDA_MASK |
                                              mfem::Backend::HIP_MASK);
     // right hand side and result
@@ -363,10 +387,17 @@ namespace mfem_mgis::internals {
     return {};
   }  // end of callTrilinos
 
-  //! \return the placement of the computations of Trilinos
+  /*!
+   * \return the placement of the computations of Trilinos: where MFEM
+   * computes when Trilinos is built for a GPU and for a node of the host,
+   * on the GPU when it is built for the GPU only, on the host otherwise
+   */
   [[nodiscard]] static LinearSolverPlacement getTrilinosPlacement() {
-    return trilinos::computesOnTheGPU() ? LinearSolverPlacement::DEVICE
-                                        : LinearSolverPlacement::HOST;
+    if (!trilinos::hasGPUNode()) {
+      return LinearSolverPlacement::HOST;
+    }
+    return trilinos::hasHostNode() ? LinearSolverPlacement::MFEM
+                                   : LinearSolverPlacement::DEVICE;
   }  // end of getTrilinosPlacement
 
   //! \return the options of the Krylov solvers of Belos
@@ -390,72 +421,20 @@ namespace mfem_mgis::internals {
       }
       const auto osolver =
           get_if<std::string>(ctx, params, "Solver", std::string{"GMRES"});
-      auto ooptions = getTrilinosOptions(ctx, params);
+      const auto ooptions = getTrilinosOptions(ctx, params);
       if (isInvalid(osolver) || isInvalid(ooptions)) {
         return {};
       }
-      // the options of mfem-mgis, overridden by the parameters of Belos
-      const auto add_to = [](trilinos::Options& options, const std::string& n,
-                             trilinos::Option o) {
-        const auto found = std::ranges::any_of(
-            options, [&n](const auto& p) noexcept { return p.first == n; });
-        if (!found) {
-          options.emplace_back(n, std::move(o));
-        }
-      };
-      // the hybrid GMRES of Belos (polynomial preconditioning) iterates with
-      // an outer solver, GMRES by default, which receives the convergence
-      // parameters
-      const auto lower = [](std::string n) {
-        std::ranges::transform(n, n.begin(),
-                               [](const unsigned char c) noexcept {
-                                 return static_cast<char>(std::tolower(c));
-                               });
-        return n;
-      };
-      const auto hybrid = lower(*osolver).find("hybrid") != std::string::npos;
-      if (hybrid) {
-        add_to(*ooptions, "Outer Solver",
-               trilinos::Option{std::string{"Block GMRES"}});
-      }
-      // index of the parameters of the outer solver (an index, the options
-      // being extended below)
-      auto outer = std::size_t{};
-      if (hybrid) {
-        const auto p = std::ranges::find_if(*ooptions, [](const auto& o) {
-          return o.first == "Outer Solver Params";
-        });
-        outer = static_cast<std::size_t>(p - ooptions->begin());
-        if (p == ooptions->end()) {
-          ooptions->emplace_back("Outer Solver Params",
-                                 trilinos::Option{trilinos::Options{}});
-        } else if (!std::holds_alternative<trilinos::Options>(
-                       p->second.value)) {
-          std::ignore = ctx.registerErrorMessage(
-              "BelosSolver: the parameter 'Outer Solver Params' must be a "
-              "list of parameters");
-          return {};
-        }
-      }
-      const auto convergence = [&ooptions, hybrid,
-                                outer]() -> trilinos::Options& {
-        if (hybrid) {
-          return std::get<trilinos::Options>((*ooptions)[outer].second.value);
-        }
-        return *ooptions;
-      };
-      const auto add = [&add_to, &convergence](const std::string& n,
-                                               trilinos::Option o) {
-        add_to(convergence(), n, std::move(o));
-      };
+      // the settings of mfem-mgis, overridden by the parameters of Belos
+      auto settings = trilinos::BelosSettings{};
       if (contains(params, Problem::SolverRelativeTolerance)) {
         const auto ov =
             get<double>(ctx, params, Problem::SolverRelativeTolerance);
         if (isInvalid(ov)) {
           return {};
         }
-        add("Convergence Tolerance",
-            trilinos::Option{static_cast<double>(boundRelativeTolerance(*ov))});
+        settings.relative_tolerance =
+            static_cast<double>(boundRelativeTolerance(*ov));
       }
       if (contains(params, Problem::SolverAbsoluteTolerance)) {
         const auto ov =
@@ -476,51 +455,14 @@ namespace mfem_mgis::internals {
         if (isInvalid(ov)) {
           return {};
         }
-        add("Maximum Iterations", trilinos::Option{*ov});
-      }
-      // restarted GMRES: 50 Krylov vectors (300 by default in Belos), and
-      // the number of restarts allowing the maximum number of iterations
-      auto name = lower(*osolver);
-      if (hybrid) {
-        for (const auto& [k, o] : *ooptions) {
-          const auto* const pv = std::get_if<std::string>(&o.value);
-          if ((k == "Outer Solver") && (pv != nullptr)) {
-            name = lower(*pv);
-          }
-        }
-      }
-      if ((name.find("gmres") != std::string::npos) &&
-          (name.find("hybrid") == std::string::npos)) {
-        add("Num Blocks", trilinos::Option{50});
-        const auto get_int = [&convergence](const std::string& n, const int v) {
-          for (const auto& [k, o] : convergence()) {
-            if (k == n) {
-              const auto* const pv = std::get_if<int>(&o.value);
-              return pv != nullptr ? *pv : v;
-            }
-          }
-          return v;
-        };
-        const auto nb = std::max(get_int("Num Blocks", 50), 1);
-        const auto maxit = get_int("Maximum Iterations", 1000);
-        add("Maximum Restarts", trilinos::Option{(maxit + nb - 1) / nb});
+        settings.maximum_number_of_iterations = *ov;
       }
       if (contains(params, Problem::SolverVerbosityLevel)) {
         const auto ov = get<int>(ctx, params, Problem::SolverVerbosityLevel);
         if (isInvalid(ov)) {
           return {};
         }
-        // Belos::Warnings and Belos::FinalSummary, then
-        // Belos::IterationDetails and Belos::StatusTestDetails at each
-        // iteration
-        const auto verbosity = *ov > 1 ? 1 + 2 + 8 + 32 : (*ov > 0 ? 1 + 8 : 0);
-        if (hybrid) {
-          add_to(*ooptions, "Verbosity", trilinos::Option{verbosity});
-        }
-        add("Verbosity", trilinos::Option{verbosity});
-        if (*ov > 1) {
-          add("Output Frequency", trilinos::Option{1});
-        }
+        settings.verbosity_level = *ov;
       }
       auto oprec =
           makePreconditioner<true>(ctx, fespace, "BelosSolver", d, params);
@@ -529,6 +471,7 @@ namespace mfem_mgis::internals {
       }
       // a preconditioner of Trilinos is applied to the vectors of Tpetra,
       // the other ones to vectors of MFEM
+      const auto gpu = computeTrilinosOnTheGPU();
       const auto* tp = static_cast<const trilinos::Operator*>(nullptr);
       auto external = trilinos::ExternalPreconditioner{};
       if (*oprec != nullptr) {
@@ -536,12 +479,12 @@ namespace mfem_mgis::internals {
         if (t != nullptr) {
           tp = &(t->getBackend());
         } else {
-          external = makeExternalPreconditioner(**oprec);
+          external = makeExternalPreconditioner(**oprec, gpu);
         }
       }
       auto obackend = callTrilinos(ctx, "BelosSolver", [&] {
-        return trilinos::makeBelosSolver(*osolver, *ooptions, tp,
-                                         std::move(external));
+        return trilinos::makeBelosSolver(*osolver, *ooptions, settings, tp,
+                                         std::move(external), gpu);
       });
       if (isInvalid(obackend)) {
         return {};
@@ -576,7 +519,8 @@ namespace mfem_mgis::internals {
       if (!trilinos::isAmesos2SolverAvailable(*osolver)) {
         mgis::raise("the solver '" + *osolver + "' is not available");
       }
-      return trilinos::makeAmesos2Solver(*osolver, *ooptions);
+      return trilinos::makeAmesos2Solver(*osolver, *ooptions,
+                                         computeTrilinosOnTheGPU());
     });
   }  // end of makeAmesos2
 
@@ -643,7 +587,8 @@ namespace mfem_mgis::internals {
                 return {};
               }
               auto o = callTrilinos(ctx, "Ifpack2", [&] {
-                return trilinos::makeIfpack2Preconditioner(*otype, *ooptions);
+                return trilinos::makeIfpack2Preconditioner(
+                    *otype, *ooptions, computeTrilinosOnTheGPU());
               });
               if (isInvalid(o)) {
                 return {};
@@ -678,8 +623,8 @@ namespace mfem_mgis::internals {
               // which may fail on one process only
               auto c = getTrilinosNodesCoordinates(fespace);
               auto o = callTrilinos(ctx, "MueLu", [&] {
-                return trilinos::makeMueLuPreconditioner(*ooptions,
-                                                         std::move(c));
+                return trilinos::makeMueLuPreconditioner(
+                    *ooptions, std::move(c), computeTrilinosOnTheGPU());
               });
               if (isInvalid(o)) {
                 return {};
@@ -687,11 +632,14 @@ namespace mfem_mgis::internals {
               return std::make_unique<TrilinosSolver>(std::move(*o), fespace,
                                                       false);
             });
+    // FROSch computes with the default node of Tpetra
     declare(f, "FROSch",
             LinearSolverDescription{
                 .library = "Trilinos",
                 .kind = LinearSolverKind::PRECONDITIONER,
-                .placement = placement,
+                .placement = trilinos::hasGPUNode()
+                                 ? LinearSolverPlacement::DEVICE
+                                 : LinearSolverPlacement::HOST,
                 .preconditioners = AcceptedPreconditioners::NONE,
                 .options = {"Parameters"},
                 .description =
@@ -714,8 +662,8 @@ namespace mfem_mgis::internals {
               // which may fail on one process only
               auto c = getTrilinosNodesCoordinates(fespace);
               auto o = callTrilinos(ctx, "FROSch", [&] {
-                return trilinos::makeFROSchPreconditioner(*ooptions,
-                                                          std::move(c));
+                return trilinos::makeFROSchPreconditioner(
+                    *ooptions, std::move(c), computeTrilinosOnTheGPU());
               });
               if (isInvalid(o)) {
                 return {};

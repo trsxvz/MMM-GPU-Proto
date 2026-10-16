@@ -5277,3 +5277,34 @@ formula as MTest). All the others give the Newton solution to within
   multigrid on the CPU for the elasticity, not the fastest configuration
   (the conjugate gradient with the Jacobi preconditioner is faster on the
   homogeneous beam of 56,355 unknowns); seven claims made more precise.
+- Third review of the module (one point rated 5: the reset of the Belos
+  solvers when the matrix changes threw for GCRODR and the native solvers
+  of Tpetra; one rated 3: the check of the parameters of the block
+  relaxations of Ifpack2 without matrix crashed). Fixed with the settings
+  of mfem-mgis handled in the backend, where the parameters accepted by
+  each solver of Belos are known.
+- The solvers of Trilinos now compute where MFEM computes (mfem-mgis
+  89463ba63b): the backend is a class template over the node of Tpetra,
+  instantiated for the GPU and for the serial node of the host, which the
+  Trilinos of `mmm-trilinos` already provides: no Trilinos without CUDA is
+  needed. FROSch keeps the default node: FROSch 17.2.1 runs some loops in
+  the default execution space of Kokkos (a CUDA kernel reading memory of
+  the host, found by the tests; noted in the upstream notes).
+- Reuse of the hierarchy of MueLu (`reuse: type`, fb4e6ca977): with `RP`,
+  a second operator of the elasticity is set up in 0.60 seconds instead of
+  1.28 on the GPU (`results/solvers-2026-10-15-large/muelu-reuse`). At
+  most 0.49 seconds of it is the conversion of the matrix on the host.
+- Fourth review (nothing rated 4 or more; rated 3: the OpenMP node of the
+  host runs some products of sparse matrices of Tpetra in the default
+  execution space, PCPG kept a seed space from one matrix to the next).
+  Fixed in mfem-mgis 3a3909cec8: serial node only, solvers of Belos built
+  again for each matrix except GCRODR (recycling), placements, rigid body
+  modes of MueLu in all the syntaxes. HMM is enabled on this machine: a
+  CUDA kernel reading memory of the host does not crash, so a profile
+  with nsys checked that no kernel of the serial node runs on the GPU.
+- Conversion of the matrices of hypre to Tpetra by kernels of Kokkos, on
+  the GPU when hypre computes there (3a3909cec8): 0.064 seconds instead
+  of 0.49 at 421,443 unknowns. With the reuse of its hierarchy, MueLu
+  becomes the fastest preconditioner measured on the GPU per operator
+  (0.24 seconds against 0.33 for BoomerAMG on the elasticity,
+  `results/solvers-2026-10-15-large/gpu-conversion`).

@@ -1,0 +1,6 @@
+date: ven. 16 oct. 2026 06:32:10 CEST
+build: build/ginkgo/mfem-mgis-trilinos-host
+size: 32
+mfem-mgis: fb4e6ca977 (branch trilinos-host, not committed yet at the time of the runs: same code)
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor

@@ -29,8 +29,11 @@ configurations), [second pass](../results/solvers-2026-10-15-byvdim/README.md)
 [size of the first passes](../results/solvers-2026-10-16-trilinos/README.md)
 and at the [large sizes](../results/solvers-2026-10-15-large/muelu/README.md),
 MueLu with a [Jacobi smoother](../results/solvers-2026-10-15-large/muelu-jacobi/README.md).
-Trilinos built with CUDA computes on the GPU in all the runs (its runs
-labelled `cpu` are 8 processes sharing the GPU).
+Trilinos built with CUDA computed on the GPU in all these runs (its runs
+labelled `cpu` are 8 processes sharing the GPU). Since the commit
+89463ba63b of mfem-mgis, the solvers of Trilinos compute where MFEM
+computes, with the serial node of Tpetra on the host, except FROSch (see
+`../mfem-mgis/docs/source/user_guide/linear_solvers.rst`).
 
 ## Recommendations by case
 
@@ -66,14 +69,19 @@ labelled `cpu` are 8 processes sharing the GPU).
   unknowns, against 54 for BoomerAMG); the configuration
   `PCG_AGGREGATION_JACOBI` of AmgX does not converge. Giving the matrix to
   AmgX by nodal blocks (`NodalBlocks`) does not reduce the iterations.
-- MueLu of Trilinos with the rigid body modes needs fewer iterations than
-  BoomerAMG (20 to 23 against 37 to 59 at 421,443 unknowns). With a
-  Jacobi smoother, its resolution is the fastest on the GPU (0.071
-  seconds, against 3.8 with its default symmetric Gauss-Seidel and 0.16 to
-  0.19 for BoomerAMG), but its setup takes 1.25 seconds (1.32 seconds per
-  operator, four times BoomerAMG): worth it when the hierarchy is reused
-  for many resolutions (modified Newton methods), not when it is built
-  again at each iteration. The Chebyshev polynomial of Ifpack2 (degree 3) is
+- MueLu of Trilinos with the rigid body modes, a Jacobi smoother (two
+  sweeps damped by 0.6) and its hierarchy reused between operators
+  (`reuse: type` set to `RP`): 0.24 seconds per operator at 421,443
+  unknowns, the fastest measured on the GPU (0.33 to 0.36 for BoomerAMG),
+  0.32 with the inclusions (0.51 to 0.57)
+  ([measurements](../results/solvers-2026-10-15-large/gpu-conversion/README.md),
+  since the conversion of the matrices on the GPU). Without the reuse, its
+  setup takes 0.82 seconds (0.90 per operator). Its default smoother
+  (symmetric Gauss-Seidel) is slow on the GPU (a resolution in 3.8 seconds
+  instead of 0.071), and its Chebyshev smoother stopped the conjugate
+  gradient on the homogeneous beam (preconditioner not positive
+  definite).
+  The Chebyshev polynomial of Ifpack2 (degree 3) is
   close to BoomerAMG on small systems and 2.5 times slower at 421,443
   unknowns.
 
@@ -89,8 +97,8 @@ labelled `cpu` are 8 processes sharing the GPU).
   AmgX (0.55 seconds by aggregation, 0.99 classical): the setup of a
   multigrid costs more than the iterations it saves on this problem. On 8
   cores, BoomerAMG (1.93 seconds) is 10 times slower than the best on the
-  GPU. MueLu with a Jacobi smoother solves in 0.054 seconds (10
-  iterations) once set up (0.53 seconds).
+  GPU. MueLu with a Jacobi smoother and its hierarchy reused is faster
+  still: 0.13 seconds per operator (10 iterations).
 
 ### Direct solvers and repeated resolutions
 
@@ -125,7 +133,9 @@ labelled `cpu` are 8 processes sharing the GPU).
 
 ## To be completed
 
-- The solvers of Trilinos on the CPU (a Trilinos built without CUDA).
+- The solvers of Trilinos on the CPU (serial node of Tpetra, available
+  since 89463ba63b, not measured yet).
 - FROSch with a subdomain solver suited to 3D problems (Tacho).
-- The setup of MueLu on the GPU (1.25 seconds at 421,443 unknowns), which
-  dominates its cost with a Jacobi smoother.
+- The setup of MueLu on the GPU (0.82 seconds at 421,443 unknowns), which
+  dominates its cost with a Jacobi smoother when its hierarchy is not
+  reused.

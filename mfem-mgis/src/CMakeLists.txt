@@ -282,7 +282,9 @@ endif()
 # MFEMMGISKokkos), whose interface only uses standard types (see
 # TrilinosBackend.hxx)
 if(MFEM_MGIS_HAVE_TRILINOS)
-  add_library(MFEMMGISTrilinos SHARED TrilinosBackend.cxx)
+  add_library(MFEMMGISTrilinos SHARED TrilinosBackend.cxx
+              TrilinosTpetraBackendDefaultNode.cxx
+              TrilinosTpetraBackendHostNode.cxx)
   target_link_libraries(MFEMMGISTrilinos PRIVATE
                         Trilinos::all_selected_libs MPI::MPI_CXX)
   kokkos_compilation(TARGET MFEMMGISTrilinos)

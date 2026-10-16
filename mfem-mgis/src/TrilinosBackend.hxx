@@ -15,6 +15,7 @@
 #include <mpi.h>
 #include <memory>
 #include <string>
+#include <optional>
 #include <vector>
 #include <utility>
 #include <variant>
@@ -77,6 +78,12 @@ namespace mfem_mgis::trilinos {
     int number_of_components = 1;
     //! \brief if true, the unknowns are ordered by nodes
     bool ordered_by_nodes = true;
+    /*!
+     * \brief if true, the arrays of the blocks are in the memory of the GPU
+     * which the operator computes on (the global indices of the columns of
+     * the off-diagonal block being in the memory of the host)
+     */
+    bool device = false;
   };
 
   /*!
@@ -131,7 +138,7 @@ namespace mfem_mgis::trilinos {
     virtual void apply(const double* b, double* x) const = 0;
     /*!
      * \brief solve the system or apply the preconditioner, the vectors
-     * being in the memory of the GPU which Tpetra computes on (see
+     * being in the memory of the GPU which the operator computes on (see
      * `computesOnTheGPU`): they are copied on the GPU, the GPU being
      * synchronized before returning
      * \param[in] b: right hand side (local part)
@@ -139,6 +146,8 @@ namespace mfem_mgis::trilinos {
      * iterative solvers which use one
      */
     virtual void applyOnDevice(const double* b, double* x) const = 0;
+    //! \return true if the operator computes on the GPU
+    [[nodiscard]] virtual bool computesOnTheGPU() const noexcept = 0;
     //! \return the report of the last resolution
     [[nodiscard]] virtual Report getReport() const = 0;
     /*!
@@ -184,9 +193,11 @@ namespace mfem_mgis::trilinos {
    * \param[in] type: type of the preconditioner of Ifpack2 (`RELAXATION`,
    * `CHEBYSHEV`, `RILUK`, `ILUT`, `SCHWARZ`...)
    * \param[in] options: parameters of the preconditioner
+   * \param[in] gpu: if true, computes on the GPU if Trilinos is built for
+   * one (see `hasGPUNode`), on the host otherwise
    */
   [[nodiscard]] std::unique_ptr<Operator> makeIfpack2Preconditioner(
-      const std::string& type, const Options& options);
+      const std::string& type, const Options& options, const bool gpu);
   /*!
    * \return the smoothed aggregation multigrid of MueLu (one V-cycle), the
    * number of equations per node being the number of components of the
@@ -195,9 +206,11 @@ namespace mfem_mgis::trilinos {
    * \param[in] c: coordinates of the nodes: the rigid body modes are given
    * as the near null space when the number of components of the unknowns
    * is the space dimension, 2 or 3, and the number of equations per node
+   * \param[in] gpu: if true, computes on the GPU if Trilinos is built for
+   * one, on the host otherwise
    */
   [[nodiscard]] std::unique_ptr<Operator> makeMueLuPreconditioner(
-      const Options& options, NodesCoordinates c);
+      const Options& options, NodesCoordinates c, const bool gpu);
   /*!
    * \return the two level overlapping Schwarz preconditioner of FROSch
    * (`FROSch::TwoLevelPreconditioner`), the number of degrees of freedom
@@ -207,43 +220,83 @@ namespace mfem_mgis::trilinos {
    * parameter `Null Space Type` is given
    * \param[in] options: parameters of FROSch
    * \param[in] c: coordinates of the nodes
+   * \param[in] gpu: ignored: FROSch computes with the default node of
+   * Tpetra, on the GPU if Trilinos is built for one (FROSch 17.2.1 runs some
+   * loops in the default execution space of Kokkos, whatever the node)
    */
   [[nodiscard]] std::unique_ptr<Operator> makeFROSchPreconditioner(
-      const Options& options, NodesCoordinates c);
+      const Options& options, NodesCoordinates c, const bool gpu);
   /*!
    * \return a direct solver of Amesos2
    * \param[in] solver: name of the solver (`KLU2`, `Basker`, `Tacho`,
    * `SuperLU_DIST`...)
    * \param[in] options: parameters of the solver
+   * \param[in] gpu: if true, computes on the GPU if Trilinos is built for
+   * one, on the host otherwise, except Tacho, which computes in the
+   * default execution space of Kokkos whatever the node: it uses the
+   * default node of Tpetra
    */
   [[nodiscard]] std::unique_ptr<Operator> makeAmesos2Solver(
-      const std::string& solver, const Options& options);
+      const std::string& solver, const Options& options, const bool gpu);
   /*!
    * \return if a direct solver of Amesos2 is available
    * \param[in] solver: name of the solver
    */
   [[nodiscard]] bool isAmesos2SolverAvailable(const std::string& solver);
   /*!
+   * \brief settings of mfem-mgis given to a Krylov solver of Belos: they
+   * are added to its parameters when the solver accepts them and when the
+   * parameters do not give them. The convergence settings of the hybrid
+   * GMRES are given to its outer solver.
+   */
+  struct BelosSettings {
+    //! \brief relative tolerance (`Convergence Tolerance`), if given
+    std::optional<double> relative_tolerance;
+    //! \brief maximum number of iterations (`Maximum Iterations`), if given
+    std::optional<int> maximum_number_of_iterations;
+    /*!
+     * \brief verbosity level of mfem-mgis, if given: 0 (silent), 1
+     * (warnings and final summary) or more (details of each iteration)
+     */
+    std::optional<int> verbosity_level;
+  };
+
+  /*!
    * \return a Krylov solver of Belos
    * \param[in] solver: name of the solver (`CG`, `GMRES`, `BICGSTAB`,
    * `GCRODR`, `MINRES`, `TFQMR`...)
    * \param[in] options: parameters of the solver
+   * \param[in] settings: settings of mfem-mgis. The GMRES solvers keep 50
+   * Krylov vectors and are restarted as many times as the maximum number of
+   * iterations allows, unless their parameters give them.
    * \param[in] p: preconditioner of Trilinos, if any, applied to the
    * vectors of Tpetra without copy. It is not owned by the solver: its
    * matrix is set by the caller before the one of the solver, which then
    * shares it.
    * \param[in] e: preconditioner of mfem-mgis, if any, used if `p` is null
+   * \param[in] gpu: if true, computes on the GPU if Trilinos is built for
+   * one, on the host otherwise, unless a preconditioner of Trilinos is
+   * given: the solver then computes at the same place as the preconditioner
    */
   [[nodiscard]] std::unique_ptr<Operator> makeBelosSolver(
       const std::string& solver,
       const Options& options,
+      const BelosSettings& settings,
       const Operator* p,
-      ExternalPreconditioner e);
+      ExternalPreconditioner e,
+      const bool gpu);
   /*!
-   * \return true if Tpetra computes on a GPU (default node of Tpetra
-   * whose execution space can't access the memory of the host)
+   * \return true if Trilinos is built for a GPU (default node of Tpetra
+   * whose execution space can't access the memory of the host). Tpetra is
+   * then also used on the host when it is built for a node of the host
+   * (serial or OpenMP).
    */
-  [[nodiscard]] bool computesOnTheGPU() noexcept;
+  [[nodiscard]] bool hasGPUNode() noexcept;
+  /*!
+   * \return true if Tpetra computes on the host when asked: Trilinos is
+   * built without GPU, or Tpetra is also instantiated for its serial node
+   */
+  [[nodiscard]] bool hasHostNode() noexcept;
 
 }  // end of namespace mfem_mgis::trilinos
 

@@ -33,6 +33,7 @@
  */
 
 #include <cmath>
+#include <tuple>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -313,6 +314,37 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
         "Belos CG, MueLu: resolution with a second operator");
   check(isSolved(solve(s, *(muelu.linear_solver), "Belos CG, MueLu, A")),
         "Belos CG, MueLu: resolution with the first operator");
+  // the prolongators and the restrictions of the first operator kept for
+  // the following ones: the coarse operators of 2 A are those of A times
+  // two, hence the same iterations (up to the rounding errors of the GPU)
+  auto reuse = generate(
+      s, "BelosSolver",
+      getBelosParameters(
+          "CG", "MueLu",
+          Parameters{{"Parameters", Parameters{{"reuse: type", "RP"}}}}));
+  const auto rr = solve(s, *(reuse.linear_solver), "Belos CG, MueLu, RP, A");
+  const auto rr2 =
+      solve(s, a2, *(reuse.linear_solver), "Belos CG, MueLu, RP, 2 A");
+  const auto rr3 = solve(s, *(reuse.linear_solver), "Belos CG, MueLu, RP, A");
+  check(isSolved(rr) && isSolved(rr2) && isSolved(rr3) &&
+            (std::abs(rr2.iterations - rr.iterations) <= 1) &&
+            (std::abs(rr3.iterations - rr.iterations) <= 1) && isFaster(rr, rj),
+        "Belos CG, MueLu: resolutions with the hierarchy reused");
+  // the whole hierarchy of A kept for 2 A (its smoothers and its coarse
+  // operators): the preconditioner is no longer the multigrid of 2 A, which
+  // changes the iterations, showing that the hierarchy is reused
+  auto full = generate(
+      s, "BelosSolver",
+      getBelosParameters(
+          "CG", "MueLu",
+          Parameters{{"Parameters", Parameters{{"reuse: type", "full"}}}}));
+  const auto rfull =
+      solve(s, *(full.linear_solver), "Belos CG, MueLu, full, A");
+  const auto rfull2 =
+      solve(s, a2, *(full.linear_solver), "Belos CG, MueLu, full, 2 A");
+  check(isSolved(rfull) && (rfull.iterations == rr.iterations) &&
+            (rfull2.iterations != rfull.iterations),
+        "Belos CG, MueLu: hierarchy not reused");
 }  // end of checkKrylovSolvers
 
 /*!
@@ -351,6 +383,20 @@ static void checkElasticity(ElasticitySystem<true>& e1,
   check(isFaster(r1, r3) && isFaster(r2, r3),
         "Belos CG, MueLu: the rigid body modes do not reduce the number of "
         "iterations");
+  // the hierarchy, built with the rigid body modes, reused for a second
+  // operator
+  auto m4 = generate(
+      e1, "BelosSolver",
+      getBelosParameters("CG", "MueLu",
+                         getMueLuOptions(Parameters{{"reuse: type", "RP"}})));
+  const auto r4 = solve(e1, *(m4.linear_solver), "Belos CG, MueLu, RP, A");
+  auto a2 = mfem::HypreParMatrix(e1.A);
+  a2 *= 2.;
+  const auto r5 =
+      solve(e1, a2, *(m4.linear_solver), "Belos CG, MueLu, RP, 2 A");
+  check(isSolved(r4) && isSolved(r5) && isFaster(r4, r3) &&
+            (std::abs(r5.iterations - r4.iterations) <= 1),
+        "Belos CG, MueLu: hierarchy with the rigid body modes reused");
   auto jacobi =
       generate(e1, "BelosSolver", getBelosParameters("GMRES", "Ifpack2"));
   const auto rj = solve(e1, *(jacobi.linear_solver),
@@ -373,8 +419,10 @@ static void checkElasticity(ElasticitySystem<true>& e1,
 /*!
  * \brief checks the options of mfem-mgis and of Belos
  * \param[in] s: system
+ * \param[in] elasticity: linear elasticity, a system of another size
  */
-static void checkOptions(LaplaceSystem<true>& s) {
+static void checkOptions(LaplaceSystem<true>& s,
+                         ElasticitySystem<true>& elasticity) {
   using namespace mfem_mgis;
   const auto jacobi = Parameters{{"Name", "Ifpack2"}};
   auto ls = generate(s, "BelosSolver",
@@ -428,12 +476,40 @@ static void checkOptions(LaplaceSystem<true>& s) {
         "Belos hybrid GMRES, tolerance 1e-6: resolution");
   check(setRelativeTolerance(*(hybrid.linear_solver), 1e-10),
         "Belos hybrid GMRES: change of the relative tolerance");
-  // a second operator: the polynomial is built again
+  // a second operator of another size (the linear elasticity, the unknowns
+  // being seen as scalar unknowns): the polynomial is built again
+  check(isSolved(solve(elasticity, elasticity.A, *(hybrid.linear_solver),
+                       "Belos hybrid GMRES, 1e-10, elasticity")),
+        "Belos hybrid GMRES, tolerance 1e-10: resolution of a second "
+        "system");
   auto a2 = mfem::HypreParMatrix(s.A);
   a2 *= 2.;
-  check(isSolved(solve(s, a2, *(hybrid.linear_solver),
-                       "Belos hybrid GMRES, 1e-10, 2 A")),
-        "Belos hybrid GMRES, tolerance 1e-10: resolution");
+  // the aliases of the hybrid GMRES, and its default tolerance (the one of
+  // its outer solver)
+  auto poly = generate(
+      s, "BelosSolver",
+      Parameters{{"Solver", "GMRESPOLY"}, {"MaximumNumberOfIterations", 2000}});
+  check(getRelativeTolerance(*(poly.linear_solver)).has_value(),
+        "Belos hybrid GMRES: default relative tolerance");
+  check(isSolved(solve(s, *(poly.linear_solver), "Belos GMRESPOLY"), 1e-6),
+        "Belos GMRESPOLY: resolution");
+  // GCRODR (recycling GMRES) and a native GMRES of Tpetra, with a second
+  // operator; the native solvers of Tpetra ignore the unknown parameters
+  // (the output frequency set by mfem-mgis is not given to them)
+  for (const auto* const solver : {"GCRODR", "TPETRA GMRES"}) {
+    const auto p = Parameters{{"Solver", solver},
+                              {"RelativeTolerance", 1e-10},
+                              {"MaximumNumberOfIterations", 2000}};
+    auto verbose = p;
+    verbose.insert(may_throw, "VerbosityLevel", 2);
+    const auto error = getGenerationError(s, "BelosSolver", verbose);
+    check(error.empty(), "Belos " + std::string{solver} +
+                             ": verbosity refused ('" + error + "')");
+    auto krylov = generate(s, "BelosSolver", p);
+    check(isSolved(solve(s, *(krylov.linear_solver), solver)) &&
+              isSolved(solve(s, a2, *(krylov.linear_solver), solver)),
+          "Belos " + std::string{solver} + ": resolutions");
+  }
   // parameters of Ifpack2 absent from `Ifpack2::getValidParameters`
   const auto accepted = [&s](const std::string& type, const Parameters& p) {
     const auto options = Parameters{{"Type", type}, {"Parameters", p}};
@@ -447,6 +523,18 @@ static void checkOptions(LaplaceSystem<true>& s) {
                       {"relaxation: inner sweeps", 2}});
   accepted("CHEBYSHEV", Parameters{{"chebyshev: boost factor", 1.1}});
   accepted("RILUK", Parameters{{"fact: iluk overalloc", 2.}});
+  // blocks of three rows (the block relaxations read the matrix when their
+  // parameters are set)
+  auto blocks = generate(
+      s, "BelosSolver",
+      getBelosParameters(
+          "GMRES", "Ifpack2",
+          Parameters{
+              {"Type", "BLOCK RELAXATION"},
+              {"Parameters", Parameters{{"partitioner: local parts", -3}}}}));
+  check(isSolved(solve(s, *(blocks.linear_solver),
+                       "Belos GMRES, Ifpack2 block relaxation")),
+        "Belos GMRES, Ifpack2 block relaxation: resolution");
   auto schwarz = generate(
       s, "BelosSolver",
       getBelosParameters(
@@ -585,6 +673,29 @@ static void checkRefusals(LaplaceSystem<true>& s) {
                  {"Parameters", Parameters{{"Outer Solver Params",
                                             Parameters{{"Num Blocs", 10}}}}}},
       "Num Blocs");
+  // the outer solver of the hybrid GMRES is built by the generic factory
+  // of Belos, without the native solvers of Tpetra
+  refused(
+      "BelosSolver",
+      Parameters{{"Solver", "HYBRID BLOCK GMRES"},
+                 {"Parameters", Parameters{{"Outer Solver", "TPETRA GMRES"}}}},
+      "unknown outer solver");
+  refused("BelosSolver",
+          Parameters{{"Solver", "LSQR"}, {"RelativeTolerance", 1e-8}},
+          "no relative tolerance");
+  // LSQR and the native solvers of Tpetra read parameters absent from the
+  // list of their valid parameters
+  using UncheckedParameter = std::tuple<std::string, std::string, Parameter>;
+  const auto unchecked = std::vector<UncheckedParameter>{
+      {"LSQR", "lambda", 0.}, {"TPETRA GMRES", "Orthogonalization", "ICGS"}};
+  for (const auto& [solver, parameter, value] : unchecked) {
+    const auto error = getGenerationError(
+        s, "BelosSolver",
+        Parameters{{"Solver", solver},
+                   {"Parameters", Parameters{{parameter, value}}}});
+    check(error.empty(), "Belos " + solver + ": parameter '" + parameter +
+                             "' refused ('" + error + "')");
+  }
   refused("BelosSolver",
           getBelosParameters(
               "CG", "FROSch",
@@ -623,7 +734,7 @@ int main(int argc, char** argv) {
     checkDirectSolvers(s, e1, e2);
     checkKrylovSolvers(s);
     checkElasticity(e1, e2);
-    checkOptions(s);
+    checkOptions(s, e1);
     checkRefusals(s);
     // a smaller mesh, whose elements are on the first process (two
     // processes), or split between the first and the last processes (more
