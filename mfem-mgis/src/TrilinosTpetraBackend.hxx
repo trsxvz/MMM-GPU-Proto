@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cmath>
+#include <cctype>
 #include <memory>
 #include <string>
 #include <vector>
@@ -24,6 +25,7 @@
 #include "Kokkos_Core.hpp"
 #include "Teuchos_RCP.hpp"
 #include "Teuchos_ParameterList.hpp"
+#include "Teuchos_ScalarTraits.hpp"
 #include "Teuchos_DefaultMpiComm.hpp"
 #include "Tpetra_Map.hpp"
 #include "Tpetra_CrsMatrix.hpp"
@@ -64,8 +66,8 @@
 
 namespace mfem_mgis::trilinos {
 
-  //! \brief scalar type
-  using Scalar = double;
+  //! \brief scalar type, the numerical type of mfem-mgis
+  using Scalar = real;
   //! \brief local ordinal (default one of Tpetra)
   using LO = Tpetra::Map<>::local_ordinal_type;
   //! \brief global ordinal (default one of Tpetra)
@@ -116,6 +118,39 @@ namespace mfem_mgis::trilinos {
           o.value);
     }
   }  // end of fill
+
+  /*!
+   * \brief convert the reals given in double precision (the options of
+   * mfem-mgis keep the reals in double precision) to the type of the reals
+   * accepted by a parameter list of Trilinos when it differs (the magnitude
+   * of the scalar, `float` in single precision): Teuchos requires the exact
+   * type of the parameters
+   * \param[in, out] p: parameters
+   * \param[in] valid: parameters accepted
+   */
+  inline void convertReals(Teuchos::ParameterList& p,
+                           const Teuchos::ParameterList& valid) {
+    using Magnitude = typename Teuchos::ScalarTraits<Scalar>::magnitudeType;
+    if constexpr (std::is_same_v<Magnitude, double>) {
+      static_cast<void>(p);
+      static_cast<void>(valid);
+    } else {
+      auto names = std::vector<std::string>{};
+      for (auto i = p.begin(); i != p.end(); ++i) {
+        names.push_back(p.name(i));
+      }
+      for (const auto& n : names) {
+        if (!valid.isParameter(n)) {
+          continue;
+        }
+        if (p.isSublist(n) && valid.isSublist(n)) {
+          convertReals(p.sublist(n), valid.sublist(n));
+        } else if (p.isType<double>(n) && valid.isType<Magnitude>(n)) {
+          p.set(n, static_cast<Magnitude>(p.get<double>(n)));
+        }
+      }
+    }
+  }  // end of convertReals
 
   /*!
    * \return a parameter list of Teuchos
@@ -368,7 +403,7 @@ namespace mfem_mgis::trilinos {
             toMemorySpace(m.diag_values, diag_nnz, m.device);
         auto offd_offsets = DeviceArray<const int>{};
         auto offd_columns = DeviceArray<const int>{};
-        auto offd_values = DeviceArray<const double>{};
+        auto offd_values = DeviceArray<const Scalar>{};
         auto offd_nnz = std::size_t{};
         if (has_offd) {
           offd_offsets = toMemorySpace(m.offd_offsets, no_offsets, m.device);
@@ -491,7 +526,7 @@ namespace mfem_mgis::trilinos {
      */
     static void copy(MV& d,
                      const std::size_t j,
-                     const double* s,
+                     const Scalar* s,
                      const TpetraMatrix& m) {
       checkConstantStride(d);
       const auto fill = [j, s, &m](const auto& v) {
@@ -516,7 +551,7 @@ namespace mfem_mgis::trilinos {
      * \param[in] j: column
      * \param[in] m: matrix, giving the permutation of the unknowns
      */
-    static void copy(double* d,
+    static void copy(Scalar* d,
                      const MV& s,
                      const std::size_t j,
                      const TpetraMatrix& m) {
@@ -539,10 +574,10 @@ namespace mfem_mgis::trilinos {
     template <typename View>
     static void copyToColumnOnDevice(const View& v,
                                      const std::size_t j,
-                                     const double* s,
+                                     const Scalar* s,
                                      const TpetraMatrix& m) {
       const auto n = v.extent(0);
-      const auto src = UnmanagedDeviceArray<const double>(s, n);
+      const auto src = UnmanagedDeviceArray<const Scalar>(s, n);
       if (m.permutation.empty()) {
         Kokkos::deep_copy(Kokkos::subview(v, Kokkos::ALL, j), src);
         return;
@@ -566,7 +601,7 @@ namespace mfem_mgis::trilinos {
      */
     static void copyOnDevice(MV& d,
                              const std::size_t j,
-                             const double* s,
+                             const Scalar* s,
                              const TpetraMatrix& m) {
       checkConstantStride(d);
       // the values of a multivector of one column are all overwritten
@@ -587,14 +622,14 @@ namespace mfem_mgis::trilinos {
      * \param[in] j: column
      * \param[in] m: matrix, giving the permutation of the unknowns
      */
-    static void copyOnDevice(double* d,
+    static void copyOnDevice(Scalar* d,
                              const MV& s,
                              const std::size_t j,
                              const TpetraMatrix& m) {
       checkConstantStride(s);
       const auto v = s.getLocalViewDevice(Tpetra::Access::ReadOnly);
       const auto n = v.extent(0);
-      const auto dst = UnmanagedDeviceArray<double>(d, n);
+      const auto dst = UnmanagedDeviceArray<Scalar>(d, n);
       if (m.permutation.empty()) {
         Kokkos::deep_copy(dst, Kokkos::subview(v, Kokkos::ALL, j));
         return;
@@ -617,14 +652,14 @@ namespace mfem_mgis::trilinos {
       [[nodiscard]] bool computesOnTheGPU() const noexcept override {
         return gpu;
       }
-      void apply(const double* b, double* x) const override {
+      void apply(const Scalar* b, Scalar* x) const override {
         this->allocateVectors();
         copy(*(this->b), 0, b, this->A);
         copy(*(this->x), 0, x, this->A);
         this->applyTpetraOperator(*(this->b), *(this->x));
         copy(x, *(this->x), 0, this->A);
       }
-      void applyOnDevice(const double* b, double* x) const override {
+      void applyOnDevice(const Scalar* b, Scalar* x) const override {
         if (!gpu) {
           this->apply(b, x);
           return;
@@ -799,7 +834,7 @@ namespace mfem_mgis::trilinos {
       auto v = x->getLocalViewHost(Tpetra::Access::OverwriteAll);
       for (std::size_t k = 0; k != static_cast<std::size_t>(d); ++k) {
         for (std::size_t node = 0; node != nn; ++node) {
-          v(node, k) = c.values[k * nn + node];
+          v(node, k) = static_cast<Scalar>(c.values[k * nn + node]);
         }
       }
       return x;
@@ -858,11 +893,11 @@ namespace mfem_mgis::trilinos {
           }
           v(i, k) = 1;
           if (d == 2) {
-            v(i, 2) = rz[k];
+            v(i, 2) = static_cast<Scalar>(rz[k]);
           } else {
-            v(i, 3) = rz[k];
-            v(i, 4) = rx[k];
-            v(i, 5) = ry[k];
+            v(i, 3) = static_cast<Scalar>(rz[k]);
+            v(i, 4) = static_cast<Scalar>(rx[k]);
+            v(i, 5) = static_cast<Scalar>(ry[k]);
           }
         }
       }
@@ -1227,12 +1262,22 @@ namespace mfem_mgis::trilinos {
                              const TpetraOperatorBase* const p,
                              ExternalPreconditioner e)
           : matrix(m), trilinos(p), external(std::move(e)) {}
+      //! \return the map of the domain, the rows of the matrix
       Teuchos::RCP<const Map> getDomainMap() const override {
         return this->matrix.row_map;
       }
+      //! \return the map of the range, the rows of the matrix
       Teuchos::RCP<const Map> getRangeMap() const override {
         return this->matrix.row_map;
       }
+      /*!
+       * \brief apply the preconditioner M: Y = alpha M X + beta Y
+       * \param[in] X: vectors to which the preconditioner is applied
+       * \param[in, out] Y: result
+       * \param[in] mode: only `Teuchos::NO_TRANS` is supported
+       * \param[in] alpha: factor of M X
+       * \param[in] beta: factor of Y
+       */
       void apply(
           const MV& X,
           MV& Y,
@@ -1337,6 +1382,7 @@ namespace mfem_mgis::trilinos {
           } else {
             addSettings(*(this->parameters), *valid, settings);
           }
+          convertReals(*(this->parameters), *valid);
           // the solvers of Belos only check the parameters from the second
           // call to `setParameters` (a change of the tolerance): they are
           // checked at the creation, except for the solvers which ignore
@@ -1561,6 +1607,7 @@ namespace mfem_mgis::trilinos {
                 ->getValidParameters();
         auto& p = this->parameters->sublist("Outer Solver Params");
         addSettings(p, *(this->outer_valid_parameters), settings);
+        convertReals(p, *(this->outer_valid_parameters));
         p.validateParameters(*(this->outer_valid_parameters), 0);
       }  // end of setOuterSolver
       //! \brief name of the solver
@@ -1606,6 +1653,11 @@ namespace mfem_mgis::trilinos {
   template <typename Node>
   std::unique_ptr<Operator> TpetraBackend<Node>::makeIfpack2Preconditioner(
       const std::string& type, const Options& options) {
+    auto upper = type;
+    std::ranges::transform(upper, upper.begin(), [](const unsigned char c) {
+      return static_cast<char>(std::toupper(c));
+    });
+    const auto fast = upper.starts_with("FAST_");
     if (!Ifpack2::Factory::isSupported<RowMatrix>(type)) {
       // some names contain spaces
       auto msg = "invalid preconditioner '" + type + "' (supported: ";
@@ -1614,7 +1666,30 @@ namespace mfem_mgis::trilinos {
         msg += (first ? "'" : ", '") + n + "'";
         first = false;
       }
+      if (fast && (!Ifpack2::Factory::isSupported<RowMatrix>("FAST_ILU"))) {
+        msg +=
+            "; FAST_ILU, FAST_ILU_B, FAST_IC and FAST_ILDL require Trilinos "
+            "built with ShyLU_NodeFastILU";
+      }
       throw std::runtime_error(msg + ")");
+    }
+    if (fast) {
+      // the fast incomplete factorizations of ShyLU (FastILU) index all the
+      // columns of the local rows as local rows, the columns of the other
+      // processes included, which overflows the arrays of the factors in
+      // parallel (Ifpack2 17.2.1 uses them as subdomain solvers): they are
+      // applied to the diagonal block of each process by the additive
+      // Schwarz method of Ifpack2 without overlap (block Jacobi method by
+      // process). The parameters are checked, as for the other
+      // preconditioners, by the preconditioner of the chosen type (the
+      // additive Schwarz method only checks those of its inner
+      // preconditioner at the setup)
+      static_cast<void>(Ifpack2Preconditioner(type, options));
+      const auto schwarz =
+          Options{{"schwarz: inner preconditioner name", Option{type}},
+                  {"schwarz: inner preconditioner parameters", Option{options}},
+                  {"schwarz: overlap level", Option{0}}};
+      return std::make_unique<Ifpack2Preconditioner>("SCHWARZ", schwarz);
     }
     return std::make_unique<Ifpack2Preconditioner>(type, options);
   }  // end of makeIfpack2Preconditioner

@@ -18,7 +18,7 @@ the problem to be solved.
 .. note:: 
 
   The list of default parameters is adapted according to compilation
-  flags. For example, if ``MFEM_USE_MUMPS`` is not active, ``MUMPS`` will
+  flags. For example, if ``MFEM_MGIS_HAVE_MUMPS`` is not active, ``MUMPS`` will
   not appear in the list. So if one of the options listed below doesn't
   appear, ``MFEM-MGIS`` may not have been compiled with all the options.
 
@@ -53,7 +53,7 @@ MUMPS Solver
   matrix shall be declared ``Symmetric`` and ``PositiveDefinite``)
 - Dependencies:
  
-  - ``MFEM_USE_MUMPS``
+  - ``MFEM_MGIS_HAVE_MUMPS``
   - parallel
 
 - Parameters:
@@ -109,7 +109,7 @@ MFEM.
 - Solver name: ``CuDSSSolver``
 - Dependencies:
 
-  - ``MFEM_USE_CUDSS``
+  - ``MFEM_MGIS_HAVE_CUDSS``
   - parallel
   - a device on a CUDA GPU (option ``--execution gpu``, or
     ``--device cuda``, of ``mfem_mgis::initialize``): the solver is refused
@@ -170,7 +170,7 @@ UMFPack Solver
 - Solver name: ``UMFPackSolver``
 - Dependencies: 
 
-  - ``MFEM_USE_SUITESPARSE``
+  - ``MFEM_MGIS_HAVE_SUITESPARSE``
   - not parallel
 
 - Parameters: None
@@ -187,7 +187,7 @@ KLU Solver
 - Solver name: ``KLUSolver``
 - Dependencies:
 
-  - ``MFEM_USE_SUITESPARSE``
+  - ``MFEM_MGIS_HAVE_SUITESPARSE``
   - not parallel
 
 - Parameters: None

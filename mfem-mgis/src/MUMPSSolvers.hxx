@@ -11,7 +11,7 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)
 
 #include <mpi.h>
 #include "mfem/linalg/mumps.hpp"
@@ -55,6 +55,6 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS) */
 
 #endif /* LIB_MFEM_MGIS_SRC_MUMPSSOLVERS_HXX */

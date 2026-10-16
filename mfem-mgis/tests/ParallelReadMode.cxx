@@ -123,11 +123,11 @@ void (*getSolution(const std::size_t i))(mfem::Vector&, const mfem::Vector&) {
                               {"AbsoluteTolerance", 1e-12},
                               {"RelativeTolerance", 1e-12},
                               {"MaximumNumberOfIterations", 500}});
-#ifdef MFEM_USE_SUITESPARSE
+#ifdef MFEM_MGIS_HAVE_SUITESPARSE
   } else if (i == 2) {
     return p.setLinearSolver(ctx, "UMFPackSolver", {});
 #endif
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
   } else if (i == 3) {
     return p.setLinearSolver(ctx, "MUMPSSolver",
                              {{"Symmetric", true}, {"PositiveDefinite", true}});

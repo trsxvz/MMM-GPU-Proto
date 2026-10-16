@@ -10,7 +10,7 @@
 
 #include "mfem/config/config.hpp"
 
-#ifdef MFEM_USE_GINKGO
+#ifdef MFEM_MGIS_HAVE_GINKGO
 
 #include <array>
 #include <memory>
@@ -1375,4 +1375,4 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* MFEM_USE_GINKGO */
+#endif /* MFEM_MGIS_HAVE_GINKGO */

@@ -561,6 +561,71 @@ static void checkRigidBodyModes(ElasticitySystem<true>& e1,
 }  // end of checkRigidBodyModes
 
 /*!
+ * \brief checks the fields of the field split preconditioner of PETSc, one
+ * per component of the unknowns (option `Fields` set to `Components`), for
+ * both orderings of the unknowns: an additive field split (block Jacobi by
+ * component) with GAMG on each component solves the linear elasticity, with
+ * close numbers of iterations for both orderings, and with three fields
+ * \param[in] e1: system, unknowns ordered by vector dimension
+ * \param[in] e2: system, unknowns ordered by nodes
+ */
+static void checkFieldSplit(ElasticitySystem<true>& e1,
+                            ElasticitySystem<true>& e2) {
+  using namespace mfem_mgis;
+  // the conjugate gradients stop on the norm of the preconditioned
+  // residual
+  const auto solved = [](const Resolution& r) {
+    return r.converged && (r.residual < 1e-5);
+  };
+  const auto options = Parameters{{"pc_type", "fieldsplit"},
+                                  {"pc_fieldsplit_type", "additive"},
+                                  {"fieldsplit_0_pc_type", "gamg"},
+                                  {"fieldsplit_1_pc_type", "gamg"},
+                                  {"fieldsplit_2_pc_type", "gamg"}};
+  auto ksp_options = options;
+  ksp_options.insert(may_throw, Parameters{{"ksp_type", "cg"}});
+  const auto parameters = Parameters{{"Options", ksp_options},
+                                     {"RelativeTolerance", 1e-8},
+                                     {"MaximumNumberOfIterations", 1000},
+                                     {"Fields", "Components"}};
+  const auto number_of_fields = [](const LinearSolverHandler& ls) {
+    auto pc = PC{};
+    auto n = PetscInt{};
+    auto* sub = static_cast<KSP*>(nullptr);
+    if ((KSPGetPC(getKSP(ls), &pc) != 0) ||
+        (PCFieldSplitGetSubKSP(pc, &n, &sub) != 0)) {
+      return PetscInt{-1};
+    }
+    PetscFree(sub);
+    return n;
+  };
+  auto s1 = generate(e1, "PETScLinearSolver", parameters);
+  const auto r1 = solve(e1, *(s1.linear_solver));
+  check(solved(r1) && (number_of_fields(s1) == 3),
+        "CG, field split by component: resolution (byVDIM)");
+  auto s2 = generate(e2, "PETScLinearSolver", parameters);
+  const auto r2 = solve(e2, *(s2.linear_solver));
+  check(solved(r2) && (number_of_fields(s2) == 3),
+        "CG, field split by component: resolution (byNODES)");
+  check(
+      std::abs(r1.iterations - r2.iterations) <= std::max(3, r1.iterations / 5),
+      "CG, field split by component: the ordering of the unknowns changes "
+      "the number of iterations");
+  // the preconditioner of PETSc with the Krylov solver of MFEM
+  auto cg = generate(
+      e2, "CGSolver",
+      Parameters{
+          {"RelativeTolerance", 1e-8},
+          {"MaximumNumberOfIterations", 1000},
+          {"Preconditioner",
+           Parameters{{"Name", "PETScPreconditioner"},
+                      {"Options", Parameters{{"Options", options},
+                                             {"Fields", "Components"}}}}}});
+  const auto r3 = solve(e2, *(cg.linear_solver));
+  check(solved(r3), "CGSolver, PETScPreconditioner (field split): resolution");
+}  // end of checkFieldSplit
+
+/*!
  * \brief checks that invalid options are refused
  * \param[in] s: system
  */
@@ -581,6 +646,9 @@ static void checkInvalidOptions(LaplaceSystem<true>& s) {
                             Parameters{{"Name", "HypreBoomerAMG"}}}},
                 "can't be given to a solver with a preconditioner"),
         "option of the preconditioner of PETSc not refused");
+  check(refused(Parameters{{"Fields", "Rows"}},
+                "invalid value 'Rows' of the option 'Fields'"),
+        "invalid value of the option 'Fields' not refused");
 }  // end of checkInvalidOptions
 
 int main(int argc, char** argv) {
@@ -609,6 +677,7 @@ int main(int argc, char** argv) {
     auto e1 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byVDIM);
     auto e2 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byNODES);
     checkRigidBodyModes(e1, e2);
+    checkFieldSplit(e1, e2);
     checkMatrixCopy(s, "Laplace equation");
     checkMatrixCopy(e1, "linear elasticity");
     // the solvers of PETSc compute on the host: when MFEM does too, they

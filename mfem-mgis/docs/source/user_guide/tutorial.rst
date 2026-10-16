@@ -263,7 +263,7 @@ default initialized as follows:
      bool use_fbar = false;
      const char* reference_file = "";
      const char* standard_reference_file = "";
-   #if defined(MFEM_USE_MUMPS) && defined(MFEM_USE_MPI)
+   #if defined(MFEM_MGIS_HAVE_MUMPS) && defined(MFEM_USE_MPI)
      bool parallel = true;
    #else
      bool parallel = false;

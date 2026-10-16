@@ -10,7 +10,7 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
 
 #include <limits>
 #include "MFEMMGIS/Config.hxx"
@@ -140,6 +140,6 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
 
 #endif /* LIB_MFEM_MGIS_PETSCSNESSOLVER_HXX */

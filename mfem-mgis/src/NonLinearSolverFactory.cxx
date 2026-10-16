@@ -5,6 +5,8 @@
  * \date   20/09/2026
  */
 
+#include <string>
+#include <string_view>
 #include "MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx"
 #include "MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx"
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
@@ -21,6 +23,29 @@ namespace mfem_mgis {
     return f;
   }
 
+  /*!
+   * \return why an optional nonlinear solver is not declared (its library
+   * is not available), or an empty string
+   * \param[in] n: name of the nonlinear solver
+   */
+  static std::string getUnavailableNonLinearSolverHint(
+      const std::string_view n) {
+#ifndef MFEM_MGIS_HAVE_SUNDIALS
+    if (n == "KINSOL") {
+      return " (mfem-mgis does not use SUNDIALS: option enable-sundials, MFEM "
+             "compiled with SUNDIALS)";
+    }
+#endif /* MFEM_MGIS_HAVE_SUNDIALS */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC))
+    if (n == "SNES") {
+      return " (mfem-mgis does not use PETSc: option enable-petsc, MFEM "
+             "compiled with PETSc and MPI)";
+    }
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)) */
+    static_cast<void>(n);
+    return {};
+  }  // end of getUnavailableNonLinearSolverHint
+
   NonLinearSolverFactory::NonLinearSolverFactory() noexcept {
     auto ctx = Context{};
     auto or_die = ctx.getFatalFailureHandler();
@@ -31,20 +56,20 @@ namespace mfem_mgis {
         make_unique<StandardNonLinearSolverGenerator<FixedPointSolver>>(ctx) |
         or_die;
     this->add(ctx, "FixedPoint", std::move(g2)) | or_die;
-#ifdef MFEM_USE_SUNDIALS
+#ifdef MFEM_MGIS_HAVE_SUNDIALS
     auto g3 =
         make_unique<StandardNonLinearSolverGenerator<internals::KINSOLSolver>>(
             ctx) |
         or_die;
     this->add(ctx, "KINSOL", std::move(g3)) | or_die;
-#endif /* MFEM_USE_SUNDIALS */
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+#endif /* MFEM_MGIS_HAVE_SUNDIALS */
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
     auto g4 = make_unique<
                   StandardNonLinearSolverGenerator<internals::PETScSNESSolver>>(
                   ctx) |
               or_die;
     this->add(ctx, "SNES", std::move(g4)) | or_die;
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
   }  // end of NonLinearSolverFactory
 
   bool NonLinearSolverFactory::add(
@@ -73,7 +98,8 @@ namespace mfem_mgis {
     const auto pg = this->generators.find(n);
     if (pg == this->generators.end()) {
       return ctx.registerErrorMessage("no nonlinear solver named '" +
-                                      std::string{n} + "' declared");
+                                      std::string{n} + "' declared" +
+                                      getUnavailableNonLinearSolverHint(n));
     }
     auto ptr = pg->second->operator()(ctx, p, parameters);
     if (isInvalid(ptr)) {
@@ -93,7 +119,8 @@ namespace mfem_mgis {
     const auto pg = this->generators.find(n);
     if (pg == this->generators.end()) {
       return ctx.registerErrorMessage("no nonlinear solver named '" +
-                                      std::string{n} + "' declared");
+                                      std::string{n} + "' declared" +
+                                      getUnavailableNonLinearSolverHint(n));
     }
     auto ptr = pg->second->operator()(ctx, p, parameters);
     if (isInvalid(ptr)) {

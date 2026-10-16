@@ -136,11 +136,11 @@ namespace mfem_mgis::unit_tests {
         mfem_mgis::Parameters{{"Name", "HypreParaSails"}, {"Options", options}};
 
     bool is_default_test_case = parameters.linearsolver == 0;
-#ifndef MFEM_USE_SUITESPARSE
+#ifndef MFEM_MGIS_HAVE_SUITESPARSE
     is_default_test_case |=
         (parameters.parallel == 0 && parameters.linearsolver == 2);
 #endif
-#ifndef MFEM_USE_MUMPS
+#ifndef MFEM_MGIS_HAVE_MUMPS
     is_default_test_case |=
         (parameters.parallel == 0 && parameters.linearsolver == 3);
 #endif
@@ -159,11 +159,11 @@ namespace mfem_mgis::unit_tests {
                          {"AbsoluteTolerance", 1e-12},
                          {"RelativeTolerance", 1e-12},
                          {"MaximumNumberOfIterations", 100000}});
-#ifdef MFEM_USE_SUITESPARSE
+#ifdef MFEM_MGIS_HAVE_SUITESPARSE
     } else if (!parallel && parameters.linearsolver == 2) {
       return f.generate(ctx, "UMFPackSolver", fespace, {});
 #endif
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
     } else if (parallel && parameters.linearsolver == 3) {
       return f.generate(ctx, "MUMPSSolver", fespace, {{"Symmetric", true}});
 #endif

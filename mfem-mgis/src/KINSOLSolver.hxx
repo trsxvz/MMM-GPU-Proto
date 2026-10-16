@@ -10,7 +10,7 @@
 
 #include "mfem/config/config.hpp"
 
-#ifdef MFEM_USE_SUNDIALS
+#ifdef MFEM_MGIS_HAVE_SUNDIALS
 
 #include <limits>
 #include <memory>
@@ -133,6 +133,6 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* MFEM_USE_SUNDIALS */
+#endif /* MFEM_MGIS_HAVE_SUNDIALS */
 
 #endif /* LIB_MFEM_MGIS_KINSOLSOLVER_HXX */

@@ -11,7 +11,7 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS)
 
 #include <memory>
 #include <optional>
@@ -145,6 +145,6 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS) */
 
 #endif /* LIB_MFEM_MGIS_SRC_CUDSSSOLVERS_HXX */

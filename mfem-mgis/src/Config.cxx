@@ -29,9 +29,9 @@
 #include "mfem/general/backends.hpp"
 #include "mfem/general/optparser.hpp"
 #include "mfem/general/communication.hpp"
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
 #include "mfem/linalg/petsc.hpp"
-#endif /*MFEM_USE_PETSC */
+#endif /*MFEM_MGIS_HAVE_PETSC */
 #include "MGIS/Raise.hxx"
 #ifdef MFEM_MGIS_HAVE_KOKKOS
 #include "KokkosRuntime.hxx"
@@ -126,13 +126,13 @@ namespace mfem_mgis {
    private:
     //! \brief boolean stating if PETSc shall be used
     bool use_petsc = false;
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
     /*!
      * \brief boolean stating if PETSc has been initialized for its solvers
      * and its preconditioners (see `initializePETScOnDemand`)
      */
     bool petsc_initialized_on_demand = false;
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
     /*!
      * \brief MFEM device, created by `initialize` (option `--device`,
      * environment variable `MFEM_MGIS_DEVICE`, or device `gpu` by default in
@@ -410,7 +410,7 @@ namespace mfem_mgis {
 
   Finalizer::Finalizer() = default;
 
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
   void Finalizer::setPETSc(const char* petscrc_file) {
     this->use_petsc = true;
     mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
@@ -423,7 +423,7 @@ namespace mfem_mgis {
     mfem::MFEMInitializePetsc();
     this->petsc_initialized_on_demand = true;
   }  // end of initializePETScOnDemand
-#else  /* MFEM_USE_PETSC */
+#else  /* MFEM_MGIS_HAVE_PETSC */
   void Finalizer::setPETSc(const char*) {
     mgis::raise("Finalizer::setPETSc: PETSc is not supported");
   }
@@ -431,7 +431,7 @@ namespace mfem_mgis {
   void Finalizer::initializePETScOnDemand() {
     mgis::raise("Finalizer::initializePETScOnDemand: PETSc is not supported");
   }
-#endif /*MFEM_USE_PETSC*/
+#endif /*MFEM_MGIS_HAVE_PETSC*/
 
   void Finalizer::initializeKokkosOnDemand() {
 #ifdef MFEM_MGIS_HAVE_KOKKOS
@@ -456,9 +456,9 @@ namespace mfem_mgis {
   }  // end of initializeKokkosOnDemand
 
   void Finalizer::initialize(int& argc, MainFunctionArguments& argv) {
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
     const char* petscrc_file = nullptr;
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
     const char* device_configuration = nullptr;
     const char* hypre_device_pool_size = nullptr;
     auto hypre_device_pool_size_from_environment = false;
@@ -503,7 +503,7 @@ namespace mfem_mgis {
         device_configuration = *a;
         continue;
       }
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
       // long and short names, as declared by `declareDefaultOptions`
       if ((std::strcmp(*a, "--use-petsc") == 0) ||
           (std::strcmp(*a, "-up") == 0)) {
@@ -525,7 +525,7 @@ namespace mfem_mgis {
         }
         petscrc_file = *a;
       }
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
     }
     // size of the pool of memory of hypre on the GPU, given by the option or
     // by the environment
@@ -569,7 +569,7 @@ namespace mfem_mgis {
         device_configuration = e;
       }
     }
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
     // PETSc solves the non linear problems on the host
     if ((this->use_petsc) && (execution.mode != ExecutionMode::UNSPECIFIED) &&
         (execution.linear_solver == ExecutionLocation::GPU)) {
@@ -578,7 +578,7 @@ namespace mfem_mgis {
           "settings place the linear solvers on the GPU (use '--execution "
           "cpu' or '--execution mixed --linear-solver-device cpu')");
     }
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
     // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
     // (CUDA or HIP, as MFEM is built) by default in the gpu and mixed modes
     if (execution.mode == ExecutionMode::CPU) {
@@ -683,14 +683,14 @@ namespace mfem_mgis {
     // reported here rather than at the first post-processing (the variable
     // is read again at each computation)
     static_cast<void>(internals::usePostProcessingsKernels(may_throw));
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
     if (this->use_petsc) {
       if (petscrc_file == nullptr) {
         mgis::raise("initialize: no PETSc configuration file given");
       }
       mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
     }
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
   }    // end of initialize
 
   Finalizer& Finalizer::get() {
@@ -712,11 +712,11 @@ namespace mfem_mgis {
 #endif /* MFEM_MGIS_HAVE_KOKKOS */
     if (!this->pendingExit) {
 #ifdef MFEM_USE_MPI
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
       if ((this->use_petsc) || (this->petsc_initialized_on_demand)) {
         mfem::MFEMFinalizePetsc();
       }
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
       mfem::Hypre::Finalize();
       MPI_Finalize();
       this->pendingExit = true;
@@ -917,18 +917,18 @@ namespace mfem_mgis {
         "the generic-parallel interface (requires mfem-mgis "
         "built with Kokkos). Given by the variable "
         "MFEM_MGIS_KOKKOS if not given.");
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
     static bool use_petsc = false;
     static const char* petscrc_file = "";
-#endif /* MFEM_USE_PETSC */
-#ifdef MFEM_USE_PETSC
+#endif /* MFEM_MGIS_HAVE_PETSC */
+#ifdef MFEM_MGIS_HAVE_PETSC
     parser.AddOption(&use_petsc, "-up", "--use-petsc", "-no-up",
                      "--donot-use-petsc",
                      "Use or not PETSc to solve the nonlinear system.");
     parser.AddOption(&petscrc_file, "petscrc_file",
                      Finalizer::petsc_configuration_file_option,
                      "Path to the PETSc configuration file.");
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
   }
 
   bool usePETSc() { return Finalizer::get().usePETSc(); }  // end of usePETSc

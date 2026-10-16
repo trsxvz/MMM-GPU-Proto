@@ -620,10 +620,10 @@ int main(int argc, char** argv) {
     } else if (has_gpu_library) {
       checkBehaviourLibraryRefusal(mesh, gpu_library.c_str(), "gpu");
     }
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
     checkLinearSolver(mesh, "MUMPSSolver",
                       s.linear_solver == ExecutionLocation::GPU);
-#endif /* MFEM_USE_MUMPS */
+#endif /* MFEM_MGIS_HAVE_MUMPS */
     // the solvers of MFEM compute where the device of MFEM computes
     checkLinearSolver(mesh, "CGSolver",
                       (s.mode == ExecutionMode::MIXED) &&

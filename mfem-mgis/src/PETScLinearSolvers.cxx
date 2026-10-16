@@ -20,7 +20,7 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
 
 #include <memory>
 #include <algorithm>
@@ -127,8 +127,31 @@ namespace mfem_mgis::internals {
     void setRigidBodyModes(const PETScRigidBodyModes& m) {
       this->rigid_body_modes = m;
     }
+    /*!
+     * \brief compute the fields given to a field split preconditioner of
+     * PETSc (see `PETScComponentFields`)
+     * \param[in] fespace: finite element space
+     */
+    void initializeComponentFields(FiniteElementSpace<true>& fespace) {
+      this->component_fields.initialize(fespace);
+    }
+    /*!
+     * \brief set the fields given to a field split preconditioner of PETSc
+     * \param[in] f: fields
+     */
+    void setComponentFields(const PETScComponentFields& f) {
+      this->component_fields = f;
+    }
     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
       this->markAsUsed();
+      // the options of PETSc are applied before the fields are given to
+      // a field split preconditioner, which must precede its setup
+      this->Customize();
+      auto pc = PC{};
+      if (KSPGetPC(static_cast<KSP>(*this), &pc) != 0) {
+        mgis::raise("PETScKrylovSolver::Mult: KSPGetPC failed");
+      }
+      this->component_fields.attach(pc);
       if (!mfem::Device::IsEnabled()) {
         mfem::PetscLinearSolver::Mult(b, x);
         return;
@@ -148,7 +171,6 @@ namespace mfem_mgis::internals {
       if (guess == PETSC_TRUE) {
         copyToPETScVector(vx.v, x);
       }
-      this->Customize();
       if (KSPSolve(ksp, vb.v, vx.v) != 0) {
         mgis::raise("PETScKrylovSolver::Mult: KSPSolve failed");
       }
@@ -217,6 +239,8 @@ namespace mfem_mgis::internals {
     mutable mfem::Vector shell_solution;
     //! \brief rigid body modes given to the preconditioners of PETSc
     PETScRigidBodyModes rigid_body_modes;
+    //! \brief fields given to a field split preconditioner of PETSc
+    PETScComponentFields component_fields;
   };  // end of struct PETScKrylovSolver
 
   //! \brief preconditioner of PETSc (`PC`) configured by the options database
@@ -253,20 +277,39 @@ namespace mfem_mgis::internals {
         const noexcept {
       return this->rigid_body_modes;
     }
+    /*!
+     * \brief compute the fields given to the preconditioner of PETSc, if
+     * it is a field split preconditioner (see `PETScComponentFields`)
+     * \param[in] fespace: finite element space
+     */
+    void initializeComponentFields(FiniteElementSpace<true>& fespace) {
+      this->component_fields.initialize(fespace);
+    }
+    /*!
+     * \return the fields given to the preconditioner, used by a Krylov
+     * solver of PETSc which it preconditions
+     */
+    [[nodiscard]] const PETScComponentFields& getComponentFields()
+        const noexcept {
+      return this->component_fields;
+    }
     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
       this->markAsUsed();
+      auto* const pc = static_cast<PC>(*this);
+      // the options of PETSc are applied before the fields are given to
+      // a field split preconditioner, which must precede its setup
+      this->Customize();
+      this->component_fields.attach(pc);
       if (!mfem::Device::IsEnabled()) {
         mfem::PetscPreconditioner::Mult(b, x);
         return;
       }
       // see the description of this file
-      auto* const pc = static_cast<PC>(*this);
       auto vx = PETScVector{};
       auto vb = PETScVector{};
       createHostVector(vb, this->GetComm(), b.Size());
       createHostVector(vx, this->GetComm(), x.Size());
       copyToPETScVector(vb.v, b);
-      this->Customize();
       if ((PCSetUp(pc) != 0) || (PCApply(pc, vb.v, vx.v) != 0)) {
         mgis::raise("PETScPreconditioner::Mult: PCApply failed");
       }
@@ -276,15 +319,42 @@ namespace mfem_mgis::internals {
    private:
     //! \brief rigid body modes given to the preconditioner
     PETScRigidBodyModes rigid_body_modes;
+    //! \brief fields given to a field split preconditioner
+    PETScComponentFields component_fields;
   };  // end of struct PETScPreconditioner
 
   //! \return the options of the Krylov solver of PETSc
   [[nodiscard]] static std::vector<std::string> getPETScKrylovSolverOptions() {
     auto options = getIterativeSolverParametersList();
     options.insert(options.end(),
-                   {"Options", "Preconditioner", "RigidBodyModes"});
+                   {"Options", "Preconditioner", "RigidBodyModes", "Fields"});
     return options;
   }  // end of getPETScKrylovSolverOptions
+
+  /*!
+   * \return if the fields of the components of the unknowns are given to a
+   * field split preconditioner of PETSc (option `Fields`: `Components`, or
+   * `None`, the default), see `PETScComponentFields`
+   * \param[in, out] ctx: execution context
+   * \param[in] params: parameters
+   */
+  [[nodiscard]] static std::optional<bool> getComponentFieldsOption(
+      Context& ctx, const Parameters& params) {
+    const auto of =
+        get_if<std::string>(ctx, params, "Fields", std::string{"None"});
+    if (isInvalid(of)) {
+      return {};
+    }
+    if (*of == "Components") {
+      return true;
+    }
+    if (*of == "None") {
+      return false;
+    }
+    return ctx.registerErrorMessage("invalid value '" + *of +
+                                    "' of the option 'Fields' (expected "
+                                    "'Components' or 'None')");
+  }  // end of getComponentFieldsOption
 
   /*!
    * \return the generator of the Krylov solver of PETSc
@@ -301,7 +371,8 @@ namespace mfem_mgis::internals {
       const auto oopts =
           get_if<Parameters>(ctx, params, "Options", Parameters{});
       const auto orbm = get_if<bool>(ctx, params, "RigidBodyModes", true);
-      if (isInvalid(oopts) || isInvalid(orbm)) {
+      const auto ofields = getComponentFieldsOption(ctx, params);
+      if (isInvalid(oopts) || isInvalid(orbm) || isInvalid(ofields)) {
         return {};
       }
       initializePETSc();
@@ -365,15 +436,21 @@ namespace mfem_mgis::internals {
         }
         s->SetPreconditioner(**oprec);
       }
-      // rigid body modes: a preconditioner of PETSc shares its object of
-      // PETSc with the solver, which sets its operators: its own option
-      // applies
+      // rigid body modes and fields: a preconditioner of PETSc shares its
+      // object of PETSc with the solver, which sets its operators: its own
+      // options apply
       const auto* const pp =
           dynamic_cast<const PETScPreconditioner*>(oprec->get());
       if (pp != nullptr) {
         s->setRigidBodyModes(pp->getRigidBodyModes());
-      } else if (*orbm) {
-        s->initializeRigidBodyModes(fespace);
+        s->setComponentFields(pp->getComponentFields());
+      } else {
+        if (*orbm) {
+          s->initializeRigidBodyModes(fespace);
+        }
+        if (*ofields) {
+          s->initializeComponentFields(fespace);
+        }
       }
       return LinearSolverHandler{std::move(s), std::move(*oprec)};
     };
@@ -384,19 +461,22 @@ namespace mfem_mgis::internals {
    * \param[in, out] ctx: execution context
    * \param[in] fespace: finite element space
    * \param[in] opts: options (`Options`, the options of PETSc;
-   * `RigidBodyModes`, true by default, see `PETScRigidBodyModes`)
+   * `RigidBodyModes`, true by default, see `PETScRigidBodyModes`; `Fields`,
+   * see `getComponentFieldsOption`)
    */
   [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
   makePETScPreconditioner(Context& ctx,
                           FiniteElementSpace<true>& fespace,
                           const Parameters& opts) {
     if (!checkParameters(
-            ctx, opts, std::vector<std::string>{"Options", "RigidBodyModes"})) {
+            ctx, opts,
+            std::vector<std::string>{"Options", "RigidBodyModes", "Fields"})) {
       return {};
     }
     const auto oopts = get_if<Parameters>(ctx, opts, "Options", Parameters{});
     const auto orbm = get_if<bool>(ctx, opts, "RigidBodyModes", true);
-    if (isInvalid(oopts) || isInvalid(orbm)) {
+    const auto ofields = getComponentFieldsOption(ctx, opts);
+    if (isInvalid(oopts) || isInvalid(orbm) || isInvalid(ofields)) {
       return {};
     }
     initializePETSc();
@@ -406,6 +486,9 @@ namespace mfem_mgis::internals {
     }
     if (*orbm) {
       p->initializeRigidBodyModes(fespace);
+    }
+    if (*ofields) {
+      p->initializeComponentFields(fespace);
     }
     return p;
   }  // end of makePETScPreconditioner
@@ -430,7 +513,7 @@ namespace mfem_mgis::internals {
                 .kind = LinearSolverKind::PRECONDITIONER,
                 .placement = LinearSolverPlacement::HOST,
                 .preconditioners = AcceptedPreconditioners::NONE,
-                .options = {"Options", "RigidBodyModes"},
+                .options = {"Options", "RigidBodyModes", "Fields"},
                 .description = "preconditioner of PETSc (PC), configured by "
                                "the options of PETSc given by the 'Options' "
                                "parameter"},
@@ -439,4 +522,4 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */

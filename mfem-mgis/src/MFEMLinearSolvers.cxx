@@ -299,13 +299,13 @@ namespace mfem_mgis {
         // the factorization of KLU does not report its failures (a singular
         // matrix): all the processes fail together
         auto failed = 0;
-#ifdef MFEM_USE_SUITESPARSE
+#ifdef MFEM_MGIS_HAVE_SUITESPARSE
         if (const auto* const klu =
                 dynamic_cast<const mfem::KLUSolver*>(this->solver.get());
             klu != nullptr) {
           failed = klu->Common.status != KLU_OK ? 1 : 0;
         }
-#endif /* MFEM_USE_SUITESPARSE */
+#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
 #ifdef MFEM_USE_MPI
         if (a != nullptr) {
           MPI_Allreduce(MPI_IN_PLACE, &failed, 1, MPI_INT, MPI_MAX,
@@ -816,7 +816,7 @@ namespace mfem_mgis::internals {
     add.template operator()<mfem::SLISolver>(
         "SLISolver", krylov(options, "stationary linear iterations of MFEM"));
     if constexpr (!parallel) {
-#ifdef MFEM_USE_SUITESPARSE
+#ifdef MFEM_MGIS_HAVE_SUITESPARSE
       declare(f, "UMFPackSolver",
               LinearSolverDescription{
                   .library = "SuiteSparse",
@@ -853,7 +853,7 @@ namespace mfem_mgis::internals {
                         std::make_unique<mfem::KLUSolver>(), "KLUSolver"),
                     std::unique_ptr<LinearSolverPreconditioner>{}};
               });
-#endif /* MFEM_USE_SUITESPARSE */
+#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
     }
   }  // end of declareMFEMLinearSolvers
 
@@ -914,7 +914,7 @@ namespace mfem_mgis::internals {
                    "block incomplete LU factorization of MFEM, applied to the "
                    "diagonal block of each process in parallel"),
             makeBlockILU<parallel>);
-#ifdef MFEM_USE_SUITESPARSE
+#ifdef MFEM_MGIS_HAVE_SUITESPARSE
     const auto direct = [](const char* const n) {
       return [n](Context& ctx, FiniteElementSpace<parallel>&,
                  const Parameters& opts)
@@ -941,7 +941,7 @@ namespace mfem_mgis::internals {
                    "KLU direct solver of SuiteSparse, applied to the diagonal "
                    "block of each process in parallel"),
             direct("KLU"));
-#endif /* MFEM_USE_SUITESPARSE */
+#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
     // the orthogonalization computes on the host (the location of the
     // wrapped preconditioner is checked at its generation)
     declare(f, "OrthoSolver",

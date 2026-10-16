@@ -43,7 +43,7 @@ namespace mfem_mgis {
   MFEM_MGIS_EXPORT [[nodiscard]] bool setSolverParameters(
       Context& ctx, IterativeSolver& s, const Parameters& params) noexcept;
 
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
   /*!
    * \brief set the parameters of a PETSc solver
    *
@@ -56,7 +56,7 @@ namespace mfem_mgis {
       Context& ctx,
       mfem::PetscNonlinearSolver& s,
       const Parameters& params) noexcept;
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 
   /*!
    * \brief set the parameters of an iterative solver
@@ -71,7 +71,7 @@ namespace mfem_mgis {
       IterativeSolver& s,
       const Parameters& params);
 
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
   /*!
    * \brief set the parameters of a PETSc solver
    *
@@ -84,7 +84,7 @@ namespace mfem_mgis {
       attributes::Throwing throwing,
       mfem::PetscNonlinearSolver& s,
       const Parameters& params);
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 
   /*!
    * \brief clear the errors raised by hypre during the last linear solve

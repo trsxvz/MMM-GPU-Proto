@@ -23,13 +23,13 @@
 #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
 
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
 #include "mfem/linalg/petsc.hpp"
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_MUMPS
 #include "mfem/linalg/mumps.hpp"
-#endif /* MFEM_USE_MUMPS */
+#endif /* MFEM_MGIS_HAVE_MUMPS */
 
 #include <MFEMMGIS/Profiler.hxx>
 #include <functional>

@@ -49,9 +49,9 @@ namespace mfem {
   class SparseMatrix;
   class HypreParMatrix;
   //
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
   class PetscNonlinearSolver;
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 
 }  // end of namespace mfem
 

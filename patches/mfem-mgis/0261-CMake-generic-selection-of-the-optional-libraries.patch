@@ -1,0 +1,107 @@
+From d6828a398539e150c1527d36f491a4e79e1724ca Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 17:09:28 +0200
+Subject: [PATCH] CMake: generic selection of the optional libraries
+
+The function mfem_mgis_select_optional_library gives the choice AUTO, ON
+or OFF of an option enable-<name> for any optional library, from a
+condition telling if the library can be used and the reason given when it
+can not; the optional libraries of MFEM use it. The boolean constants of
+CMake (TRUE, YES, 1, FALSE, NO, 0...) are accepted for ON and OFF.
+---
+ cmake/modules/MFEMMGISOptionalLibraries.cmake | 50 ++++++++++++-------
+ 1 file changed, 32 insertions(+), 18 deletions(-)
+
+diff --git a/cmake/modules/MFEMMGISOptionalLibraries.cmake b/cmake/modules/MFEMMGISOptionalLibraries.cmake
+index 880137a565..4b9b30644c 100644
+--- a/cmake/modules/MFEMMGISOptionalLibraries.cmake
++++ b/cmake/modules/MFEMMGISOptionalLibraries.cmake
+@@ -7,6 +7,12 @@
+ #   with it;
+ # - `OFF`: the library is not used, even if MFEM is built with it.
+ #
++# The other boolean constants of CMake (`TRUE`, `YES`, `1`, `FALSE`, `NO`,
++# `0`...) are accepted for `ON` and `OFF`.
++#
++# The function `mfem_mgis_select_optional_library` gives the same choice for
++# the other optional libraries (packages of Trilinos, see `CMakeLists.txt`).
++#
+ # The variable `MFEM_MGIS_HAVE_<NAME>` (`ON` or `OFF`) gives the result, and
+ # the target `MFEMMGIS` defines the macro of the same name (see
+ # `src/CMakeLists.txt`), which the sources use instead of the macros
+@@ -28,28 +34,34 @@ set(MFEM_MGIS_OPTIONAL_MFEM_LIBRARIES
+   "cudss:CUDSS:direct solver cuDSS"
+   "magma:MAGMA:sparse solvers of MAGMA")
+ 
+-#! \brief selects the use of an optional library of MFEM
+-#! \param name: name of the option (`enable-<name>`)
+-#! \param variable: suffix of the variables of MFEM (`MFEM_USE_<variable>`)
+-#! and of mfem-mgis (`MFEM_MGIS_HAVE_<variable>`)
++#! \brief selects the use of an optional library (option `enable-<name>`)
++#! \param name: name of the option
++#! \param available: true if the library can be used
++#! \param reason: why the library can not be used (error message of `ON`)
+ #! \param description: description of the option
+-function(mfem_mgis_select_optional_mfem_library name variable description)
++#! \param result: variable set to `ON` or `OFF` in the scope of the caller
++function(mfem_mgis_select_optional_library name available reason description
++         result)
+   set(enable-${name} "AUTO" CACHE STRING
+-      "${description}: AUTO (if MFEM is built with it), ON or OFF")
++      "${description}: AUTO (if available), ON or OFF")
+   set_property(CACHE enable-${name} PROPERTY STRINGS AUTO ON OFF)
++  # the boolean constants of CMake are accepted for ON and OFF
+   string(TOUPPER "${enable-${name}}" _choice)
+-  # the variables of MFEM are YES or NO (config.mk), or ON or OFF
+-  if(MFEM_USE_${variable})
+-    set(_mfem ON)
++  if(_choice MATCHES "^(ON|TRUE|YES|Y|1)$")
++    set(_choice "ON")
++  elseif(_choice MATCHES "^(OFF|FALSE|NO|N|0)$")
++    set(_choice "OFF")
++  endif()
++  if(available)
++    set(_available ON)
+   else()
+-    set(_mfem OFF)
++    set(_available OFF)
+   endif()
+   if(_choice STREQUAL "AUTO")
+-    set(_have ${_mfem})
++    set(_have ${_available})
+   elseif(_choice STREQUAL "ON")
+-    if(NOT _mfem)
+-      message(FATAL_ERROR "mfem-mgis: enable-${name} is ON, but MFEM is "
+-              "not built with it (MFEM_USE_${variable})")
++    if(NOT _available)
++      message(FATAL_ERROR "mfem-mgis: enable-${name} is ON, but ${reason}")
+     endif()
+     set(_have ON)
+   elseif(_choice STREQUAL "OFF")
+@@ -58,8 +70,8 @@ function(mfem_mgis_select_optional_mfem_library name variable description)
+     message(FATAL_ERROR "mfem-mgis: invalid value '${enable-${name}}' of "
+             "enable-${name} (expected AUTO, ON or OFF)")
+   endif()
+-  set(MFEM_MGIS_HAVE_${variable} ${_have} PARENT_SCOPE)
+-endfunction(mfem_mgis_select_optional_mfem_library)
++  set(${result} ${_have} PARENT_SCOPE)
++endfunction(mfem_mgis_select_optional_library)
+ 
+ set(_mfem_mgis_optional_libraries_summary)
+ foreach(_library ${MFEM_MGIS_OPTIONAL_MFEM_LIBRARIES})
+@@ -67,8 +79,10 @@ foreach(_library ${MFEM_MGIS_OPTIONAL_MFEM_LIBRARIES})
+   list(GET _fields 0 _name)
+   list(GET _fields 1 _variable)
+   list(GET _fields 2 _description)
+-  mfem_mgis_select_optional_mfem_library(${_name} ${_variable}
+-                                         "${_description}")
++  # the variables of MFEM are YES or NO (config.mk), or ON or OFF
++  mfem_mgis_select_optional_library(${_name} "${MFEM_USE_${_variable}}"
++    "MFEM is not built with it (MFEM_USE_${_variable})" "${_description}"
++    MFEM_MGIS_HAVE_${_variable})
+   list(APPEND _mfem_mgis_optional_libraries_summary
+        "${_name}=${MFEM_MGIS_HAVE_${_variable}}")
+ endforeach(_library)
+-- 
+2.43.0
+

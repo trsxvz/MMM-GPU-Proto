@@ -13,9 +13,9 @@
 #ifdef MFEM_USE_MPI
 #include "mfem/linalg/hypre.hpp"
 #endif /* MFEM_USE_MPI */
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
 #include "mfem/linalg/petsc.hpp"
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
@@ -79,7 +79,7 @@ namespace mfem_mgis {
     return true;
   }  // end of setSolverParameters
 
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
   bool setSolverParameters(Context& ctx,
                            mfem::PetscNonlinearSolver& s,
                            const Parameters& params) noexcept {
@@ -90,7 +90,7 @@ namespace mfem_mgis {
     }
     return true;
   }    // end of setSolverParameters
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 
   void setSolverParameters(attributes::Throwing,
                            IterativeSolver& s,
@@ -98,13 +98,13 @@ namespace mfem_mgis {
     setSolverParametersImplementation(throwing, s, params);
   }  // end of setSolverParameters
 
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
   void setSolverParameters(attributes::Throwing,
                            mfem::PetscNonlinearSolver& s,
                            const Parameters& params) {
     setSolverParametersImplementation(throwing, s, params);
   }    // end of setSolverParameters
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 
   template <typename SolverType>
   inline constexpr auto hasGetMaxIter = requires(const SolverType& l) {
@@ -205,29 +205,29 @@ namespace mfem_mgis {
 
   std::optional<size_type> getNumberOfAnalyses(
       [[maybe_unused]] const LinearSolver& ls) noexcept {
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)
     if (const auto* const s =
             dynamic_cast<const internals::MUMPSSolverReusingAnalysis*>(&ls);
         s != nullptr) {
       return s->getNumberOfAnalyses();
     }
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS) */
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS)
     if (const auto* const s =
             dynamic_cast<const internals::CuDSSDirectSolver*>(&ls);
         (s != nullptr) && (s->reusesAnalysis())) {
       return s->getNumberOfAnalyses();
     }
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
-#if defined(MFEM_USE_MKL_PARDISO) || \
-    (defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS) */
+#if defined(MFEM_MGIS_HAVE_MKL_PARDISO) || \
+    (defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO))
     if (const auto* const s =
             dynamic_cast<const internals::MKLSparseDirectSolverBase*>(&ls);
         s != nullptr) {
       return s->getNumberOfAnalyses();
     }
-#endif /* defined(MFEM_USE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
-          defined(MFEM_USE_MKL_CPARDISO)) */
+#endif /* defined(MFEM_MGIS_HAVE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
+          defined(MFEM_MGIS_HAVE_MKL_CPARDISO)) */
     return {};
   }  // end of getNumberOfAnalyses
 

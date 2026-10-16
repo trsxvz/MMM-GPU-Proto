@@ -15,9 +15,9 @@
 #include "mfem/general/array.hpp"
 #include "mfem/linalg/vector.hpp"
 #include "mfem/linalg/sparsemat.hpp"
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
 #include "mfem/linalg/petsc.hpp"
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
@@ -399,10 +399,10 @@ namespace mfem_mgis {
     mfem::Vector u1;
     //! \brief nonlinear solver
     std::unique_ptr<AbstractNonLinearSolver> solver;
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
     //! \brief newton solver
     std::unique_ptr<mfem::PetscNonlinearSolver> petsc_solver;
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
     //! \brief linear solver
     std::unique_ptr<LinearSolver> linear_solver;
     //! \brief linear solver preconditioner

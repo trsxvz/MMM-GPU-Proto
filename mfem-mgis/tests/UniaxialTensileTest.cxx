@@ -201,11 +201,11 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
                               {"AbsoluteTolerance", 1e-12},
                               {"RelativeTolerance", 1e-12},
                               {"MaximumNumberOfIterations", 5000}});
-#ifdef MFEM_USE_SUITESPARSE
+#ifdef MFEM_MGIS_HAVE_SUITESPARSE
   } else if (s == "UMFPackSolver") {
     return p.setLinearSolver(ctx, "UMFPackSolver", {});
 #endif
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
   } else if (s == "MUMPSSolver") {
     return p.setLinearSolver(ctx, "MUMPSSolver", {{"Symmetric", true}});
 #endif

@@ -77,7 +77,7 @@ namespace mfem_mgis::internals {
    */
   void declareHyprePreconditioners(PreconditionerFactory<true>& f);
 #endif /* MFEM_USE_MPI */
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)
   /*!
    * \brief register the solver of MUMPS
    * \param[in, out] f: factory
@@ -88,28 +88,28 @@ namespace mfem_mgis::internals {
    * \param[in, out] f: factory
    */
   void declareMUMPSPreconditioners(PreconditionerFactory<true>& f);
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS) */
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS)
   /*!
    * \brief register the solver of cuDSS
    * \param[in, out] f: factory
    */
   void declareCuDSSLinearSolvers(LinearSolverFactory<true>& f);
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
-#ifdef MFEM_USE_MKL_PARDISO
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS) */
+#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
   /*!
    * \brief register the PARDISO direct solver of oneMKL (sequential)
    * \param[in, out] f: factory
    */
   void declareMKLPardisoLinearSolvers(LinearSolverFactory<false>& f);
-#endif /* MFEM_USE_MKL_PARDISO */
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
+#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
   /*!
    * \brief register the Cluster Sparse Solver of oneMKL (parallel)
    * \param[in, out] f: factory
    */
   void declareMKLClusterSparseLinearSolvers(LinearSolverFactory<true>& f);
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO) */
 #ifdef MFEM_MGIS_HAVE_MAGMA_SPARSE
   /*!
    * \brief register the Krylov solvers of MAGMA (sequential, one GPU)
@@ -132,14 +132,14 @@ namespace mfem_mgis::internals {
   template <bool parallel>
   void declareNodalBlockJacobiPreconditioner(
       PreconditionerFactory<parallel>& f);
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU)
   /*!
    * \brief register the direct solver of SuperLU_DIST
    * \param[in, out] f: factory
    */
   void declareSuperLULinearSolvers(LinearSolverFactory<true>& f);
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU) */
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK)
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU) */
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK)
   /*!
    * \brief register the direct solvers of STRUMPACK
    * \param[in, out] f: factory
@@ -150,8 +150,8 @@ namespace mfem_mgis::internals {
    * \param[in, out] f: factory
    */
   void declareSTRUMPACKPreconditioners(PreconditionerFactory<true>& f);
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK) */
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK) */
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
   /*!
    * \brief register the Krylov solver of PETSc
    * \param[in, out] f: factory
@@ -162,8 +162,8 @@ namespace mfem_mgis::internals {
    * \param[in, out] f: factory
    */
   void declarePETScPreconditioners(PreconditionerFactory<true>& f);
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
-#ifdef MFEM_USE_GINKGO
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+#ifdef MFEM_MGIS_HAVE_GINKGO
   /*!
    * \brief register the solvers of Ginkgo (the distributed ones in parallel,
    * if Ginkgo is built with MPI)
@@ -177,7 +177,7 @@ namespace mfem_mgis::internals {
    */
   template <bool parallel>
   void declareGinkgoPreconditioners(PreconditionerFactory<parallel>& f);
-#endif /* MFEM_USE_GINKGO */
+#endif /* MFEM_MGIS_HAVE_GINKGO */
 #ifdef MFEM_MGIS_HAVE_AMGX
   /*!
    * \brief register the solvers of AmgX
@@ -201,7 +201,7 @@ namespace mfem_mgis::internals {
   void declareTrilinosLinearSolvers(LinearSolverFactory<true>& f);
   /*!
    * \brief register the preconditioners of Trilinos (Ifpack2, MueLu,
-   * FROSch, Amesos2)
+   * FROSch, Amesos2, and Teko if available)
    * \param[in, out] f: factory
    */
   void declareTrilinosPreconditioners(PreconditionerFactory<true>& f);

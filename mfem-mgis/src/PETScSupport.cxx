@@ -7,7 +7,7 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
 
 #include <array>
 #include <vector>
@@ -23,6 +23,8 @@
 #include "petscsys.h"
 #include "petscvec.h"
 #include "petscmat.h"
+#include "petscpc.h"
+#include "petscis.h"
 #include "mfem/fem/pfespace.hpp"
 #include "mfem/linalg/hypre.hpp"
 #include "MGIS/Raise.hxx"
@@ -397,6 +399,99 @@ namespace mfem_mgis::internals {
     }
   }  // end of attach
 
+  void PETScComponentFields::initialize(FiniteElementSpace<true>& fespace) {
+    this->rows.clear();
+    this->size = static_cast<PetscInt>(fespace.GetTrueVSize());
+    const auto vdim = fespace.GetVDim();
+    if (vdim < 2) {
+      return;
+    }
+    const auto ndofs = fespace.GetNDofs();
+    const auto by_nodes = fespace.GetOrdering() == mfem::Ordering::byNODES;
+    const auto offset = static_cast<PetscInt>(fespace.GetMyTDofOffset());
+    // component of each true degree of freedom of the process, given by its
+    // local degree of freedom (the true degrees of freedom are a subset of
+    // the local ones)
+    auto components =
+        std::vector<int>(static_cast<std::size_t>(this->size), -1);
+    for (int ldof = 0; ldof != fespace.GetVSize(); ++ldof) {
+      const auto tdof = fespace.GetLocalTDofNumber(ldof);
+      if (tdof < 0) {
+        continue;
+      }
+      components[static_cast<std::size_t>(tdof)] =
+          by_nodes ? ldof / ndofs : ldof % vdim;
+    }
+    this->rows.resize(static_cast<std::size_t>(vdim));
+    for (std::size_t tdof = 0; tdof != components.size(); ++tdof) {
+      const auto c = components[tdof];
+      if ((c < 0) || (c >= vdim)) {
+        mgis::raise(
+            "PETScComponentFields::initialize: a true degree of freedom has "
+            "no component");
+      }
+      this->rows[static_cast<std::size_t>(c)].push_back(
+          offset + static_cast<PetscInt>(tdof));
+    }
+  }  // end of initialize
+
+  void PETScComponentFields::attach(PC pc) const {
+    if ((this->rows.empty()) || (pc == nullptr)) {
+      return;
+    }
+    auto fieldsplit = PetscBool{};
+    if (PetscObjectTypeCompare(reinterpret_cast<PetscObject>(pc), PCFIELDSPLIT,
+                               &fieldsplit) != 0) {
+      mgis::raise(
+          "PETScComponentFields::attach: PetscObjectTypeCompare failed");
+    }
+    if (fieldsplit == PETSC_FALSE) {
+      return;
+    }
+    // fields already given (by a previous call)
+    auto first = IS{};
+    if (PCFieldSplitGetIS(pc, "0", &first) != 0) {
+      mgis::raise("PETScComponentFields::attach: PCFieldSplitGetIS failed");
+    }
+    if (first != nullptr) {
+      return;
+    }
+    auto a = Mat{};
+    auto p = Mat{};
+    auto comm = MPI_Comm{};
+    auto nrows = PetscInt{};
+    auto ncolumns = PetscInt{};
+    if ((PCGetOperators(pc, &a, &p) != 0) ||
+        (PetscObjectGetComm(reinterpret_cast<PetscObject>(pc), &comm) != 0) ||
+        (MatGetLocalSize(p, &nrows, &ncolumns) != 0)) {
+      mgis::raise(
+          "PETScComponentFields::attach: the operator of the preconditioner "
+          "can't be described");
+    }
+    // the fields are only given to the operators of the finite element
+    // space, the decision being taken on all the processes
+    auto mismatch = static_cast<int>(nrows != this->size);
+    MPI_Allreduce(MPI_IN_PLACE, &mismatch, 1, MPI_INT, MPI_LOR, comm);
+    if (mismatch != 0) {
+      return;
+    }
+    for (std::size_t c = 0; c != this->rows.size(); ++c) {
+      const auto& r = this->rows[c];
+      auto is = IS{};
+      if (ISCreateGeneral(comm, static_cast<PetscInt>(r.size()), r.data(),
+                          PETSC_COPY_VALUES, &is) != 0) {
+        mgis::raise("PETScComponentFields::attach: ISCreateGeneral failed");
+      }
+      // the preconditioner keeps its own reference to the set
+      const auto name = std::to_string(c);
+      const auto status = PCFieldSplitSetIS(pc, name.c_str(), is);
+      ISDestroy(&is);
+      if (status != 0) {
+        mgis::raise("PETScComponentFields::attach: PCFieldSplitSetIS failed");
+      }
+    }
+  }  // end of attach
+
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */

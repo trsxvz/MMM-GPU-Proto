@@ -202,7 +202,7 @@ static void checkFirstChoice() {
 //! \brief a direct solver is refused
 static void checkDirectSolver() {
   using namespace mfem_mgis;
-#ifdef MFEM_USE_SUITESPARSE
+#ifdef MFEM_MGIS_HAVE_SUITESPARSE
   auto s = mfem::UMFPackSolver{};
   check(!getRelativeTolerance(s).has_value(),
         "direct solver: relative tolerance");
@@ -215,7 +215,7 @@ static void checkDirectSolver() {
     refused = true;
   }
   check(refused, "direct solver: accepted");
-#endif /* MFEM_USE_SUITESPARSE */
+#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
 }  // end of checkDirectSolver
 
 //! \brief invalid options are refused

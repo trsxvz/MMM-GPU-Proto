@@ -250,7 +250,7 @@ static void run(LaplaceSystem<is_parallel>& s,
                      std::string{"GMRESSolver, BlockILU "} + r),
           std::string{"BlockILU "} + r);
   }
-#ifdef MFEM_USE_SUITESPARSE
+#ifdef MFEM_MGIS_HAVE_SUITESPARSE
   // the direct solvers of SuiteSparse
   for (const auto& n : {"UMFPack", "KLU"}) {
     auto direct = generate(s, "GMRESSolver", getGMRESParameters(n));
@@ -286,7 +286,7 @@ static void run(LaplaceSystem<is_parallel>& s,
                   .find("Verbosity") != std::string::npos,
           "KLUSolver: unknown option not refused");
   }
-#endif /* MFEM_USE_SUITESPARSE */
+#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
   // the orthogonalizing wrapper, for an operator whose kernel is the
   // constant vector
   auto ortho = generate(

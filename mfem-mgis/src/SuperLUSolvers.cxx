@@ -7,7 +7,7 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU)
 
 #include <array>
 #include <memory>
@@ -302,4 +302,4 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU) */

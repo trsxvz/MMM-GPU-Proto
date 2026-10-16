@@ -9,7 +9,7 @@
 #define LIB_MFEM_MGIS_SRC_PETSCSUPPORT_HXX
 
 #include "mfem/config/config.hpp"
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,11 +17,12 @@
 #include <mpi.h>
 #include "petscvec.h"
 #include "petscmat.h"
+#include "petscpc.h"
 #include "mfem/linalg/vector.hpp"
 #include "mfem/linalg/petsc.hpp"
 #include "MFEMMGIS/MFEMForward.hxx"
 #include "MFEMMGIS/Parameters.hxx"
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
 #include "MFEMMGIS/Config.hxx"
 
 namespace mfem_mgis::internals {
@@ -35,7 +36,7 @@ namespace mfem_mgis::internals {
    */
   void initializePETScOnDemand();
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
 
   /*!
    * \brief initialize PETSc, unless it is already initialized (by
@@ -187,7 +188,44 @@ namespace mfem_mgis::internals {
     std::vector<PetscScalar> coordinates;
   };  // end of struct PETScRigidBodyModes
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+  /*!
+   * \brief fields of the field split preconditioner of PETSc
+   * (`PCFIELDSPLIT`), one per component of the unknowns of a finite element
+   * space, named after the index of the component (`0`, `1`, ...): each
+   * field is the set of the rows of the true degrees of freedom of a
+   * component, whatever the ordering of the unknowns (`byNODES` or
+   * `byVDIM`). The options of PETSc then configure each field by the prefix
+   * `fieldsplit_<index>_` of the preconditioner (for instance
+   * `fieldsplit_0_pc_type`).
+   */
+  struct PETScComponentFields {
+    /*!
+     * \brief compute the rows of each component owned by the process
+     * \param[in] fespace: finite element space
+     */
+    void initialize(FiniteElementSpace<true>& fespace);
+    /*!
+     * \brief give the fields to a preconditioner of PETSc, if they are
+     * defined (see `initialize`), if the preconditioner is a field split
+     * preconditioner without fields, and if its operator has the size and
+     * the distribution of the finite element space (checked on all the
+     * processes). This method shall be called after the options of PETSc
+     * are applied and before the setup of the preconditioner.
+     * \param[in] pc: preconditioner
+     */
+    void attach(PC pc) const;
+
+   private:
+    /*!
+     * \brief global rows of the true degrees of freedom of the process, by
+     * component (empty if the fields are not defined)
+     */
+    std::vector<std::vector<PetscInt>> rows;
+    //! \brief number of true degrees of freedom of the process
+    PetscInt size = 0;
+  };  // end of struct PETScComponentFields
+
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
 
 }  // end of namespace mfem_mgis::internals
 

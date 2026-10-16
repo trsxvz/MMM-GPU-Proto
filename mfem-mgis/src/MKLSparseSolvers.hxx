@@ -10,8 +10,8 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MKL_PARDISO) || \
-    (defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
+#if defined(MFEM_MGIS_HAVE_MKL_PARDISO) || \
+    (defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO))
 
 #include "MFEMMGIS/Config.hxx"
 
@@ -27,7 +27,7 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
-          defined(MFEM_USE_MKL_CPARDISO)) */
+#endif /* defined(MFEM_MGIS_HAVE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
+          defined(MFEM_MGIS_HAVE_MKL_CPARDISO)) */
 
 #endif /* LIB_MFEM_MGIS_MKLSPARSESOLVERS_HXX */

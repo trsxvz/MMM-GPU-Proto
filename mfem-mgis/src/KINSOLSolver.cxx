@@ -6,7 +6,7 @@
 
 #include "mfem/config/config.hpp"
 
-#ifdef MFEM_USE_SUNDIALS
+#ifdef MFEM_MGIS_HAVE_SUNDIALS
 
 #include <cmath>
 #include <tuple>
@@ -740,4 +740,4 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* MFEM_USE_SUNDIALS */
+#endif /* MFEM_MGIS_HAVE_SUNDIALS */

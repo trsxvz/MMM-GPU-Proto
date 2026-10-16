@@ -135,6 +135,22 @@ message. The available linear solvers and preconditioners are listed in
 :ref:`linear_solvers`; the solvers of each library are registered by a
 module (see :ref:`linear_solver_modules`).
 
+One option per optional library of MFEM
+---------------------------------------
+
+Each library of |MFEM| which mfem-mgis uses for its solvers and
+preconditioners (PETSc, Ginkgo, MUMPS, SuperLU_DIST, STRUMPACK,
+SuiteSparse, SUNDIALS, the sparse direct solvers of oneMKL, cuDSS and
+MAGMA) has its own CMake option, :code:`enable-<library>`: :code:`AUTO` by
+default (the library is used if |MFEM| is built with it), :code:`ON` (the
+library is required, the configuration fails if |MFEM| is not built with
+it) or :code:`OFF` (the library is not used, even if |MFEM| is built with
+it). The result is given by the macros :code:`MFEM_MGIS_HAVE_<LIBRARY>`
+and by the variables :code:`MFEMMGIS_HAVE_<LIBRARY>` of the installed
+CMake configuration. A package manager can map each library to one switch,
+for instance a variant of a Spack package. See
+:ref:`mfem_mgis_optional_libraries`.
+
 Linear solvers and preconditioners of PETSc
 -------------------------------------------
 
@@ -148,8 +164,11 @@ mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
 :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
 For the linear elasticity, with the unknowns ordered by vector dimension,
 the rigid body modes are given to the preconditioners of PETSc (GAMG).
-They compute on the host, the matrices of hypre being copied without
-initializing the GPU. See :ref:`petsc_linear_solvers`.
+The solvers of PETSc compute on the host, the matrices of hypre being
+copied without initializing the GPU. The :cxx:`Fields` option set to
+:cxx:`Components` gives the field split preconditioner of PETSc one field
+per component of the unknowns, whatever their ordering. See
+:ref:`petsc_linear_solvers`.
 
 Linear solvers and preconditioners of Trilinos
 ----------------------------------------------
@@ -160,8 +179,15 @@ preconditioners of Ifpack2 (:cxx:`Ifpack2`), the smoothed aggregation
 algebraic multigrid of MueLu (:cxx:`MueLu`, with the rigid body modes as
 near null space in mechanics) and the two level Schwarz preconditioner of
 FROSch (:cxx:`FROSch`) are available in parallel when mfem-mgis is
-built with Trilinos (CMake option :code:`enable-trilinos`). They compute
-on the GPU when Trilinos is built with CUDA or HIP. See
+built with Trilinos (CMake option :code:`enable-trilinos`), in the
+numerical type of mfem-mgis (:code:`float` requiring Tpetra instantiated
+for it, a combination which is not tested). They compute on the GPU when
+Trilinos is built with CUDA (tested) or HIP (not tested). When Trilinos
+is built with them, the fast incomplete factorizations of ShyLU
+(:cxx:`FAST_ILU`, :cxx:`FAST_ILU_B`, :cxx:`FAST_IC`, :cxx:`FAST_ILDL`
+types of :cxx:`Ifpack2`) and the block preconditioners of Teko
+(:cxx:`Teko`, one block per component of the unknowns by default, CMake
+option :code:`enable-teko`) are also available. See
 :ref:`trilinos_linear_solvers`.
 
 Linear solvers and preconditioners of Ginkgo

@@ -179,6 +179,8 @@ CMake options
 - ``enable-kokkos`` (``OFF``): initialization of ``Kokkos`` (see below);
 - ``enable-trilinos`` (``OFF``): solvers and preconditioners of
   ``Trilinos`` (requires ``enable-kokkos``, see below);
+- ``enable-teko`` (``AUTO``): block preconditioners of ``Teko``, part of
+  ``Trilinos`` (see below);
 - ``enable-portable-build`` (``OFF``): binaries shared between machines
   of the same architecture;
 - ``BENCHMARKS`` (``OFF``): compiles the benchmarks;
@@ -188,8 +190,70 @@ CMake options
   ``TFEL`` (found with the hint ``TFEL_DIR``), already enabled when the
   ``TFEL`` used by ``MGIS`` provides this framework.
 
-The direct solver ``CuDSSSolver`` is available when ``MFEM`` is built
-with ``cuDSS`` (see :doc:`../user_guide/glossary`).
+.. _mfem_mgis_optional_libraries:
+
+Optional libraries of MFEM
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The solvers and preconditioners of the libraries which ``MFEM`` may be
+built with are selected, library by library, by the following options,
+whose value is ``AUTO`` (default: the library is used if ``MFEM`` is
+built with it), ``ON`` (the library is required: the configuration fails
+if ``MFEM`` is not built with it) or ``OFF`` (the library is not used,
+even if ``MFEM`` is built with it):
+
+.. list-table::
+   :header-rows: 1
+
+   * - Option
+     - Library (variable of ``MFEM``)
+     - Solvers and preconditioners of ``mfem-mgis``
+   * - ``enable-petsc``
+     - ``PETSc`` (``MFEM_USE_PETSC``)
+     - ``PETScLinearSolver``, ``PETScPreconditioner``, ``SNES``
+   * - ``enable-ginkgo``
+     - ``Ginkgo`` (``MFEM_USE_GINKGO``)
+     - solvers and preconditioners of ``Ginkgo``
+   * - ``enable-mumps``
+     - ``MUMPS`` (``MFEM_USE_MUMPS``)
+     - ``MUMPSSolver``, ``MUMPSPreconditioner``
+   * - ``enable-superlu``
+     - ``SuperLU_DIST`` (``MFEM_USE_SUPERLU``)
+     - ``SuperLUSolver``
+   * - ``enable-strumpack``
+     - ``STRUMPACK`` (``MFEM_USE_STRUMPACK``)
+     - ``STRUMPACKSolver``, ``STRUMPACKMixedPrecisionSolver``,
+       ``STRUMPACKPreconditioner``
+   * - ``enable-suitesparse``
+     - ``SuiteSparse`` (``MFEM_USE_SUITESPARSE``)
+     - ``UMFPackSolver``, ``KLUSolver`` and the preconditioners using them
+   * - ``enable-sundials``
+     - ``SUNDIALS`` (``MFEM_USE_SUNDIALS``)
+     - nonlinear solver ``KINSOL``
+   * - ``enable-mkl-pardiso``
+     - ``PARDISO`` of oneMKL (``MFEM_USE_MKL_PARDISO``)
+     - ``MKLPardisoSolver``
+   * - ``enable-mkl-cpardiso``
+     - Cluster Sparse Solver of oneMKL (``MFEM_USE_MKL_CPARDISO``)
+     - ``MKLClusterSparseSolver``
+   * - ``enable-cudss``
+     - ``cuDSS`` (``MFEM_USE_CUDSS``)
+     - ``CuDSSSolver``
+   * - ``enable-magma``
+     - ``MAGMA`` (``MFEM_USE_MAGMA``)
+     - sparse solvers of ``MAGMA`` (the batched dense algebra of ``MFEM``,
+       used by ``NodalBlockJacobi``, uses ``MAGMA`` whenever ``MFEM`` is
+       built with it)
+
+The result is given by the variables ``MFEMMGIS_HAVE_<LIBRARY>`` of the
+installed CMake configuration (for instance ``MFEMMGIS_HAVE_PETSC``) and
+by the macros ``MFEM_MGIS_HAVE_<LIBRARY>``, defined for the programs
+linked to ``mfem-mgis``. The libraries which ``MFEM`` does not provide,
+``AmgX`` and ``Trilinos``, have their own options (``enable-amgx``,
+``enable-trilinos``, ``OFF`` by default). A package manager maps each
+library to one switch: for instance, a variant ``+petsc`` of a Spack
+package of ``mfem-mgis`` requires ``mfem+petsc`` and gives
+``-Denable-petsc=ON``, and ``~petsc`` gives ``-Denable-petsc=OFF``.
 
 MFEM compiled with CUDA or HIP
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -278,8 +342,9 @@ of ``FROSch`` are available in parallel (see
 ``find_package(Trilinos)`` with the components ``Tpetra``, ``Belos``,
 ``Ifpack2``, ``MueLu``, ``Amesos2`` and ``ShyLU_DDFROSch`` (for instance
 through
-``CMAKE_PREFIX_PATH``). It requires ``MFEM`` compiled with ``MPI``, the
-``double`` type and the option ``enable-kokkos``, the ``Kokkos`` of
+``CMAKE_PREFIX_PATH``). It requires ``MFEM`` compiled with ``MPI``,
+``Tpetra`` instantiated for the numerical type of ``MFEM`` (see below) and
+the option ``enable-kokkos``, the ``Kokkos`` of
 ``Trilinos`` being the one which ``mfem-mgis`` initializes (the ``Kokkos``
 found by ``mfem-mgis`` must be the one ``Trilinos`` is built with): ``Kokkos`` is
 initialized when the first solver of ``Trilinos`` is built, if needed,
@@ -295,11 +360,33 @@ and finalized by ``mfem_mgis::finalize``.
 - With Spack, ``trilinos@17.2`` requires ``kokkos@5.2.1`` and
   ``kokkos-kernels@5.2.1``, for instance ``trilinos@17.2.1 +mpi +wrapper
   +kokkos +openmp +tpetra +belos +ifpack2 +muelu +amesos2 +shylu
-  cxxstd=20`` (``+shylu`` for ``FROSch``; the sparse direct solver
-  ``Tacho`` of ``Amesos2`` requires the CMake options
-  ``Trilinos_ENABLE_ShyLU_NodeTacho`` and ``Amesos2_ENABLE_ShyLU_NodeTacho``,
-  which the package of Spack does not set),
-  completed by ``+cuda cuda_arch=...`` for a GPU of NVIDIA.
+  cxxstd=20`` (``+shylu`` for ``FROSch``), completed by ``+cuda
+  cuda_arch=...`` for a GPU of NVIDIA. The package of Spack sets neither
+  the CMake options of the sparse direct solver ``Tacho`` of ``Amesos2``
+  (``Trilinos_ENABLE_ShyLU_NodeTacho`` and
+  ``Amesos2_ENABLE_ShyLU_NodeTacho``) nor those of ``ShyLU_NodeFastILU``
+  (see below), and its variant ``teko`` requires the packages of
+  ``Epetra``, removed from ``Trilinos`` 17: ``Teko`` on ``Tpetra``
+  requires the CMake options ``Trilinos_ENABLE_Teko``,
+  ``Trilinos_ENABLE_Thyra``, ``Trilinos_ENABLE_ThyraTpetraAdapters`` and
+  ``Trilinos_ENABLE_Stratimikos``, and ``Anasazi`` (variant ``anasazi``,
+  enabled by default).
+
+Two parts of ``Trilinos`` are optional:
+
+- the fast incomplete factorizations of ``Ifpack2`` (types ``FAST_ILU``,
+  ``FAST_ILU_B``, ``FAST_IC`` and ``FAST_ILDL``, computed by fixed point
+  sweeps, suited to the GPU) are available when ``Trilinos`` is built with
+  ``ShyLU_NodeFastILU`` (CMake options ``Trilinos_ENABLE_ShyLU_NodeFastILU``
+  and ``Ifpack2_ENABLE_ShyLU_NodeFastILU``), and refused otherwise; they
+  need no option of ``mfem-mgis``;
+- the block preconditioners of ``Teko`` (entry ``Teko``) are selected by
+  the option ``enable-teko``: ``AUTO`` (default: used if ``Trilinos`` is
+  built with ``Teko``, the optional component ``Teko`` of
+  ``find_package(Trilinos)``, and ``mfem-mgis`` uses ``double``, the only
+  type ``Teko`` 17.2.1 is instantiated for), ``ON`` (required: the
+  configuration fails otherwise) or ``OFF``. The installed CMake
+  configuration gives the variable ``MFEMMGIS_HAVE_TEKO``.
 
 Numerical type
 ^^^^^^^^^^^^^^
@@ -318,9 +405,12 @@ a ``hypre``. Then:
 
 - ``MGIS`` must be configured with the same type
   (``-DMGIS_REAL_TYPE=float``), which the configuration checks;
-- ``AmgX`` (``enable-amgx``) and ``Trilinos`` (``enable-trilinos``) are
-  refused, and ``SuiteSparse``, which
+- ``AmgX`` (``enable-amgx``) is refused, and ``SuiteSparse``, which
   ``MFEM`` does not support in single precision, is not required;
+- ``Trilinos`` (``enable-trilinos``) requires ``Tpetra``, and the packages
+  using it, instantiated for ``float`` (variant ``+float`` of the Spack
+  package of ``Trilinos``), which the configuration checks (this
+  combination is not tested);
 - the type is exported by the installed CMake configuration
   (``MFEMMGIS_REAL_TYPE`` variable and ``MFEM_MGIS_REAL_TYPE`` global
   property), and ``mfem_mgis_add_behaviours_library`` generates the

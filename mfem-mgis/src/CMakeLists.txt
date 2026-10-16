@@ -230,6 +230,16 @@ endif()
 if(MFEM_USE_HIP STREQUAL "YES")
   target_link_libraries(MFEMMGIS PUBLIC hip::host)
 endif()
+# optional libraries of MFEM (see cmake/modules/MFEMMGISOptionalLibraries.cmake):
+# public macros, also read by the headers and by the programs using
+# mfem-mgis
+foreach(_library ${MFEM_MGIS_OPTIONAL_MFEM_LIBRARIES})
+  string(REPLACE ":" ";" _fields "${_library}")
+  list(GET _fields 1 _variable)
+  if(MFEM_MGIS_HAVE_${_variable})
+    target_compile_definitions(MFEMMGIS PUBLIC MFEM_MGIS_HAVE_${_variable})
+  endif()
+endforeach(_library)
 # AmgX precedes MFEM in the link line: a MFEM compiled with AmgX contains
 # its own copy of AmgX (static library), which the library of AmgX given to
 # mfem-mgis replaces
@@ -284,6 +294,10 @@ if(MFEM_MGIS_HAVE_TRILINOS)
   add_library(MFEMMGISTrilinos SHARED TrilinosBackend.cxx
               TrilinosTpetraBackendDefaultNode.cxx
               TrilinosTpetraBackendHostNode.cxx)
+  if(MFEM_MGIS_HAVE_TEKO)
+    # block preconditioners of Teko (option enable-teko)
+    target_sources(MFEMMGISTrilinos PRIVATE TrilinosTekoBackend.cxx)
+  endif()
   target_link_libraries(MFEMMGISTrilinos PRIVATE
                         Trilinos::all_selected_libs MPI::MPI_CXX)
   kokkos_compilation(TARGET MFEMMGISTrilinos)
@@ -306,6 +320,15 @@ if(MFEM_MGIS_HAVE_TRILINOS)
           ARCHIVE DESTINATION lib${LIB_SUFFIX})
   target_link_libraries(MFEMMGIS PRIVATE MFEMMGISTrilinos)
   target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_TRILINOS)
+  # numerical type of the interface between mfem-mgis and the library
+  # MFEMMGISTrilinos (see TrilinosBackend.hxx)
+  foreach(_target MFEMMGIS MFEMMGISTrilinos)
+    target_compile_definitions(${_target} PRIVATE
+      MFEM_MGIS_TRILINOS_REAL_TYPE=${MFEM_MGIS_REAL_TYPE})
+    if(MFEM_MGIS_HAVE_TEKO)
+      target_compile_definitions(${_target} PRIVATE MFEM_MGIS_HAVE_TEKO)
+    endif()
+  endforeach()
 endif()
 if(MFEM_USE_GSLIB AND MGIS_HAVE_TFEL)
  target_compile_definitions(MFEMMGIS PUBLIC 

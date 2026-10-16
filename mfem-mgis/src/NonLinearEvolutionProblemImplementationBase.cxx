@@ -515,14 +515,14 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementationBase::setSolverParameters(
       Context& ctx, const Parameters& params) noexcept {
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
     if (usePETSc()) {
       return mfem_mgis::setSolverParameters(ctx, *(this->petsc_solver), params);
     }
     return this->solver->setSolverParameters(ctx, params);
-#else  /* MFEM_USE_PETSC */
+#else  /* MFEM_MGIS_HAVE_PETSC */
     return this->solver->setSolverParameters(ctx, params);
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
   }    // end of setSolverParameters
 
   std::vector<size_type>
@@ -788,15 +788,15 @@ namespace mfem_mgis {
       output.final_residual_norm = s.GetFinalNorm();
     };
     if (usePETSc()) {
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
       mfem::Vector zero;
       // PETSc solver somehow "requires" zero as a first argument of Mult.
       // If it is not the case, one should take care of memory management.
       this->petsc_solver->Mult(zero, this->u1);
       fill_output(*(this->petsc_solver));
-#else  /* MFEM_USE_PETSC */
+#else  /* MFEM_MGIS_HAVE_PETSC */
       raise("Support for PETSc is deactivated");
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
     } else {
       this->solver->setContext(ctx);
       // the computations of the residual and of the tangent operator report

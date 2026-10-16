@@ -211,7 +211,7 @@ The solvers marked as parallel are only available in parallel.
      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
        :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
-       :cxx:`Preconditioner`, :cxx:`RigidBodyModes`
+       :cxx:`Preconditioner`, :cxx:`RigidBodyModes`, :cxx:`Fields`
    * - :cxx:`BelosSolver` (parallel)
      - Trilinos
      - iterative
@@ -381,12 +381,13 @@ Preconditioners
      - PETSc
      - host
      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
-       :cxx:`RigidBodyModes`
+       :cxx:`RigidBodyModes`, :cxx:`Fields`
    * - :cxx:`Ifpack2`, :cxx:`MueLu`, :cxx:`FROSch`,
-       :cxx:`Amesos2Preconditioner` (parallel)
+       :cxx:`Amesos2Preconditioner`, :cxx:`Teko` (parallel)
      - Trilinos
      - host, or GPU (Trilinos built with CUDA or HIP)
      - :cxx:`Type` (:cxx:`Ifpack2`), :cxx:`Solver` (:cxx:`Amesos2Preconditioner`),
+       :cxx:`Inverse` and :cxx:`Blocks` (:cxx:`Teko`),
        :cxx:`Parameters` (see :ref:`trilinos_linear_solvers`)
    * - :cxx:`STRUMPACKPreconditioner` (parallel)
      - STRUMPACK
@@ -406,9 +407,11 @@ on the GPU, and, when they are placed on the CPU in the :cxx:`mixed` mode,
 the Krylov solvers of MFEM, which compute where MFEM computes, are refused:
 they are then given to the Krylov solvers of PETSc.
 
-The libraries which are not available (MFEM built without them, or
-mfem-mgis built without AmgX, Trilinos or the sparse part of MAGMA)
-register nothing.
+The libraries which are not available (MFEM built without them, the
+options :code:`enable-<library>` of mfem-mgis set to :code:`OFF`, see
+:ref:`mfem_mgis_optional_libraries`, or mfem-mgis built without AmgX,
+Trilinos, Teko or the sparse part of MAGMA) register nothing: their names
+are refused with an explanation.
 
 .. _nodal_block_jacobi:
 
@@ -622,6 +625,36 @@ splits by default by components). The nonlinear solver :cxx:`SNES` gives
 them likewise to the tangent operator converted for the linear solvers of
 PETSc (option :cxx:`RigidBodyModes` of :cxx:`SNES`).
 
+The option :cxx:`Fields` of :cxx:`PETScLinearSolver` and
+:cxx:`PETScPreconditioner` (:cxx:`None` by default) set to
+:cxx:`Components` gives the field split preconditioner of PETSc
+(:code:`pc_type fieldsplit`) one field per component of the unknowns,
+named after the index of the component: the rows of the true degrees of
+freedom of each component, whatever the ordering of the unknowns (by nodes
+or by vector dimension). Each field is configured by the options of PETSc
+with the prefix :code:`fieldsplit_<index>_`, for instance a block Jacobi
+method by component with an algebraic multigrid on each of them:
+
+.. code-block:: cpp
+
+   {"PETScPreconditioner",
+    Parameters{{"Options", Parameters{{"pc_type", "fieldsplit"},
+                                      {"pc_fieldsplit_type", "additive"},
+                                      {"fieldsplit_0_pc_type", "gamg"},
+                                      {"fieldsplit_1_pc_type", "gamg"},
+                                      {"fieldsplit_2_pc_type", "gamg"}}},
+               {"Fields", "Components"}}}
+
+The fields are only given to a field split preconditioner whose operator
+has the size of the finite element space (with another type of
+preconditioner, the option is ignored), and when the preconditioner of
+PETSc preconditions :cxx:`PETScLinearSolver`, the option of the
+preconditioner applies. The fields replace the splits which the options of
+PETSc would define (:code:`pc_fieldsplit_block_size`,
+:code:`pc_fieldsplit_<index>_fields`): with this option, the components
+can not be grouped in a field (for instance the first two components in
+one field of a Schur complement).
+
 A preconditioner of mfem-mgis may be given by the :cxx:`Preconditioner`
 parameter of :cxx:`PETScLinearSolver`:
 
@@ -671,7 +704,10 @@ Linear solvers and preconditioners of Trilinos
 
 When mfem-mgis is built with Trilinos (CMake option
 :code:`enable-trilinos`, see :doc:`../installation_guide/installation_guide`),
-the following entries are available in parallel, in double precision:
+the following entries are available in parallel, in the numerical type
+of mfem-mgis (:code:`float` requires Tpetra instantiated for
+:code:`float`, a combination which is not tested), on the host or on a GPU
+of NVIDIA (CUDA, tested) or of AMD (HIP, not tested) as Trilinos is built:
 
 - :cxx:`BelosSolver`: a Krylov solver of Belos, selected by the
   :cxx:`Solver` option (:cxx:`GMRES` by default, :cxx:`CG`,
@@ -682,7 +718,12 @@ the following entries are available in parallel, in double precision:
   which Trilinos is built with, such as :cxx:`Basker` or :cxx:`Tacho`);
 - :cxx:`Ifpack2`: a preconditioner of Ifpack2, selected by the :cxx:`Type`
   option (:cxx:`RELAXATION` by default, a Jacobi relaxation, :cxx:`CHEBYSHEV`,
-  :cxx:`RILUK`, :cxx:`ILUT`, :cxx:`SCHWARZ`...);
+  :cxx:`RILUK`, :cxx:`ILUT`, :cxx:`SCHWARZ`..., and the fast incomplete
+  factorizations of ShyLU, :cxx:`FAST_ILU`, :cxx:`FAST_ILU_B`,
+  :cxx:`FAST_IC` and :cxx:`FAST_ILDL`, when Trilinos is built with them);
+  an unknown type is
+  refused when the preconditioner is created, with the list of the types
+  available;
 - :cxx:`MueLu`: one V-cycle of the smoothed aggregation algebraic multigrid
   of MueLu, available as a preconditioner and as an approximate linear
   solver (for instance the linear solver of the elastic operator of the
@@ -698,7 +739,10 @@ the following entries are available in parallel, in double precision:
   :code:`AlgebraicOverlappingOperator`), hence symmetric, unlike the
   restricted Schwarz method used by FROSch by default;
 - :cxx:`Amesos2Preconditioner`: the factorization of a direct solver of
-  Amesos2, applied once.
+  Amesos2, applied once;
+- :cxx:`Teko`: a block preconditioner of Teko, when mfem-mgis uses Teko
+  (option :code:`enable-teko`), the unknowns of each node being split in
+  blocks of consecutive components (see below).
 
 The :cxx:`Parameters` option of each entry is the list of parameters of
 the solver of Trilinos (a :code:`Teuchos::ParameterList`): booleans,
@@ -882,6 +926,105 @@ given in its sublists. FROSch does not support empty subdomains (it
 crashed when a process owned no unknown): the setup fails, on all the
 processes, when a process owns no unknown.
 
+The fast incomplete factorizations of Ifpack2 (:cxx:`FAST_ILU`,
+:cxx:`FAST_ILU_B`, :cxx:`FAST_IC`, :cxx:`FAST_ILDL`) approximate the
+incomplete factorization of the diagonal block of each process (level of
+fill :code:`level`, 0 by default) by fixed point sweeps (:code:`sweeps`, 5
+by default), and apply it by Jacobi sweeps on the triangular factors
+(:code:`triangular solve iterations`, 5 by default, unless
+:code:`triangular solve type` is :code:`Standard`, the triangular solves of
+Kokkos Kernels), operations which run in parallel on a GPU. Ifpack2 17.2.1
+uses them as solvers of subdomains: given a distributed matrix, they read
+the columns of the other processes as local rows, which crashed. They are
+therefore applied by the additive Schwarz method of Ifpack2 without
+overlap (:cxx:`SCHWARZ` with the inner preconditioner of the chosen type,
+whose parameters are the :cxx:`Parameters` option), a block Jacobi method
+by process, as :cxx:`RILUK`; the parameters are checked when the
+preconditioner is created, by a factorization of the chosen type.
+:cxx:`FAST_IC` and :cxx:`FAST_ILDL` are symmetric, for the conjugate
+gradient.
+
+:cxx:`Teko` splits the unknowns of each node in blocks of consecutive
+components, the components of a node being contiguous for Trilinos (see
+above): one block per component by default, or the blocks given by the
+:cxx:`Blocks` option, a list of numbers of components whose sum is the
+number of components of the unknowns (:code:`{2, 1}`: the first two
+components, then the third one). The preconditioner is a block
+preconditioner of the library of inverses of Teko
+(:code:`Teko::InverseLibrary`). The :cxx:`Parameters` option defines the
+inverses of the library, one sublist per inverse, whose parameter
+:code:`Type` is a block preconditioner of Teko (:code:`Block Jacobi`,
+:code:`Block Gauss-Seidel`, :code:`Block LU2x2`, :code:`Block Add`,
+:code:`Block Multiply`...) or a preconditioner or a solver of Stratimikos
+(:code:`MueLu`, :code:`Ifpack2`, :code:`Amesos2`, :code:`Belos`), the other
+parameters being the parameters of this preconditioner or solver. The
+inverses of the diagonal blocks (:code:`Inverse Type` of the block Jacobi
+and Gauss-Seidel preconditioners, or :code:`Inverse Type <i>` for the block
+:code:`i`, numbered from 1) are names of other inverses of the library.
+The preconditioners and the solvers of Stratimikos are also in the library
+under their own names, with their default parameters; their parameters
+follow Stratimikos: :code:`Prec Type` and the sublist :code:`Ifpack2
+Settings` for :code:`Ifpack2`, :code:`Solver Type` (:code:`KLU2` by
+default) and :code:`Use Preconditioner` (the name of a preconditioner of
+the library) for :code:`Amesos2` and :code:`Belos`, the parameters of
+MueLu for :code:`MueLu`. The inverses of type :code:`MueLu`, the one of
+Stratimikos included, are silent (:code:`verbosity` set to :code:`none`),
+have reproducible aggregates (:code:`aggregation: deterministic`) and,
+with several equations per node (:code:`number of equations`), use the
+factories of MueLu which are not written with Kokkos (:code:`use kokkos
+refactor` set to :code:`false`), unless these parameters are given, as
+for the :cxx:`MueLu` entry. A definition named after a solver or a
+preconditioner of Stratimikos must have this type, Teko using the one of
+Stratimikos otherwise. The :cxx:`Inverse` option selects the inverse used
+as preconditioner, which must be a block preconditioner (the solvers and
+the preconditioners of Stratimikos are applied to the whole matrix by the
+entries :cxx:`Ifpack2`, :cxx:`MueLu` and :cxx:`Amesos2Preconditioner`); the
+types of Teko which apply another inverse to the whole operator
+(:code:`Iterative Preconditioner`, :code:`Diagnostic Inverse`...) must
+apply a block preconditioner.
+When :cxx:`Inverse` is not given, the inverse is the only block
+preconditioner defined by :cxx:`Parameters`. Without :cxx:`Parameters`,
+the library defines the inverse :code:`Block Jacobi`, a block Jacobi
+preconditioner whose diagonal blocks are approximated by one V-cycle of
+MueLu: on the linear elasticity, this separate displacement component
+preconditioner is symmetric, for the conjugate gradient, but ignores the
+coupling of the components that the rigid body modes of :cxx:`MueLu` take
+into account. When the preconditioner is created, the types of the
+inverses, the names given by the parameters :code:`Inverse Type`,
+:code:`Preconditioner Type` (:code:`None` for no preconditioner), with or
+without the index of a block, of the block preconditioners, the
+preconditioners given by :code:`Use Preconditioner` and the inverse used
+as preconditioner are checked (Teko 17.2.1 reports these errors by
+exceptions without explanation, or crashes):
+
+.. code-block:: cpp
+
+   problem.setLinearSolver(
+       ctx, "BelosSolver",
+       {{"Solver", "GMRES"},
+        {"Preconditioner",
+         Parameters{
+             {"Name", "Teko"},
+             {"Options",
+              Parameters{
+                  {"Parameters",
+                   Parameters{{"Gauss-Seidel",
+                               Parameters{{"Type", "Block Gauss-Seidel"},
+                                          {"Inverse Type", "AMG"}}},
+                              {"AMG", Parameters{{"Type", "MueLu"}}}}}}}}}}) |
+       or_die;
+
+Teko extracts the blocks of the matrix each time the matrix is set, and
+builds the inverses again. With Teko 17.2.1, this extraction and the
+splitting of the vectors in blocks, at each application, are done on the
+host (the vectors of Tpetra being copied from and to the GPU when Tpetra
+computes there), each process allocating, at each application, an array
+of the global size of each block: the inverses of the blocks compute on
+the GPU, but the cost of the splitting grows with the global size of the
+problem, which limits :cxx:`Teko` to moderate sizes. The strided blocks of
+Teko 17.2.1 do not support a process owning no unknown: the setup fails,
+on all the processes, when a process owns no unknown.
+
 A preconditioner of Trilinos given to :cxx:`BelosSolver` shares the matrix
 of the solver and is applied to the vectors of Tpetra; the preconditioners
 of the other libraries are applied to vectors of :code:`MFEM`, the vectors
@@ -895,10 +1038,11 @@ computes with its default node, on the GPU. Otherwise, Tpetra computes on
 the host with its serial node (each process of :code:`MPI` computing on
 one core); when Tpetra is not instantiated for its serial node, the
 solvers compute on the GPU even when :code:`MFEM` computes on the host.
-FROSch and the factorization of Tacho always compute with the default
-node of Tpetra, on the GPU when Trilinos is built for one (FROSch 17.2.1
-runs some loops in the default execution space of :code:`Kokkos`, as
-Tacho, whatever the node). :cxx:`BelosSolver` computes at the same place
+FROSch, Teko and the factorization of Tacho always compute with the
+default node of Tpetra, on the GPU when Trilinos is built for one (FROSch
+17.2.1 runs some loops in the default execution space of :code:`Kokkos`,
+as Tacho, whatever the node, and Teko 17.2.1 is only instantiated for the
+default node). :cxx:`BelosSolver` computes at the same place
 as its preconditioner of Trilinos. Some options of MueLu crash on the
 host in this case (the distance Laplacian with weights of MueLu 17.2.1
 allocates its weights in the default memory space, on the GPU). The
@@ -983,7 +1127,9 @@ Sparse direct solvers of oneMKL
 ===============================
 
 When :code:`MFEM` is built with them (:code:`MFEM_USE_MKL_PARDISO`,
-:code:`MFEM_USE_MKL_CPARDISO`), the PARDISO solver of oneMKL
+:code:`MFEM_USE_MKL_CPARDISO`) and mfem-mgis uses them (options
+:code:`enable-mkl-pardiso` and :code:`enable-mkl-cpardiso`, see
+:ref:`mfem_mgis_optional_libraries`), the PARDISO solver of oneMKL
 (:cxx:`MKLPardisoSolver`, sequential) and its Cluster Sparse Solver
 (:cxx:`MKLClusterSparseSolver`, parallel, the rows of the matrix being
 distributed as the ones of the matrix of hypre) are available. They are

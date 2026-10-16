@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
   auto fec = mfem::H1_FECollection(1, 3);
   try {
     if (parallel) {
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
       auto s = LaplaceSystem<true>(mesh, fec);
       auto s2 = LaplaceSystem<true>(mesh2, fec);
       run<true>(s, s2);
@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
       throw std::runtime_error("the Cluster Sparse Solver is not available");
 #endif
     } else {
-#ifdef MFEM_USE_MKL_PARDISO
+#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
       auto s = LaplaceSystem<false>(mesh, fec);
       auto s2 = LaplaceSystem<false>(mesh2, fec);
       run<false>(s, s2);

@@ -8,7 +8,7 @@
 
 #include "MUMPSSolvers.hxx"
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)
 
 #include <array>
 #include <utility>
@@ -208,4 +208,4 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS) */

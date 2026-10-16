@@ -8,8 +8,8 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MKL_PARDISO) || \
-    (defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
+#if defined(MFEM_MGIS_HAVE_MKL_PARDISO) || \
+    (defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO))
 
 #include <array>
 #include <limits>
@@ -21,9 +21,9 @@
 #include <algorithm>
 #include <type_traits>
 #include "mkl_pardiso.h"
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
 #include "mkl_cluster_sparse_solver.h"
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO) */
 #include "mfem/linalg/sparsemat.hpp"
 #include "mfem/fem/fespace.hpp"
 #ifdef MFEM_USE_MPI
@@ -364,21 +364,21 @@ namespace mfem_mgis::internals {
       const auto* const values =
           this->matrix.values.empty() ? &dummy : this->matrix.values.data();
       if constexpr (parallel) {
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
         const auto comm = static_cast<int>(MPI_Comm_c2f(this->communicator));
         cluster_sparse_solver(
             this->pt.data(), &maxfct, &mnum, &(this->settings.matrix_type),
             &phase, &(this->size), values, this->matrix.rows.data(),
             this->matrix.columns.data(), &perm, &nrhs, this->iparm.data(),
             &(this->settings.message_level), pb, px, &comm, &error);
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO) */
       } else {
-#ifdef MFEM_USE_MKL_PARDISO
+#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
         pardiso(this->pt.data(), &maxfct, &mnum, &(this->settings.matrix_type),
                 &phase, &(this->size), values, this->matrix.rows.data(),
                 this->matrix.columns.data(), &perm, &nrhs, this->iparm.data(),
                 &(this->settings.message_level), pb, px, &error);
-#endif /* MFEM_USE_MKL_PARDISO */
+#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
       }
       return error;
     }
@@ -514,7 +514,7 @@ namespace mfem_mgis::internals {
     };
   }  // end of buildMKLSparseSolverGenerator
 
-#ifdef MFEM_USE_MKL_PARDISO
+#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
 
   void declareMKLPardisoLinearSolvers(LinearSolverFactory<false>& f) {
     declare(f, "MKLPardisoSolver",
@@ -528,9 +528,9 @@ namespace mfem_mgis::internals {
             buildMKLSparseSolverGenerator<false>());
   }  // end of declareMKLPardisoLinearSolvers
 
-#endif /* MFEM_USE_MKL_PARDISO */
+#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
 
   void declareMKLClusterSparseLinearSolvers(LinearSolverFactory<true>& f) {
     declare(f, "MKLClusterSparseSolver",
@@ -545,9 +545,9 @@ namespace mfem_mgis::internals {
             buildMKLSparseSolverGenerator<true>());
   }  // end of declareMKLClusterSparseLinearSolvers
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO) */
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
-          defined(MFEM_USE_MKL_CPARDISO)) */
+#endif /* defined(MFEM_MGIS_HAVE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
+          defined(MFEM_MGIS_HAVE_MKL_CPARDISO)) */

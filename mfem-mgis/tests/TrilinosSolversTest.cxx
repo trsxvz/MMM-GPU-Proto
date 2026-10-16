@@ -23,6 +23,16 @@
  *   both orderings of the unknowns, and fewer iterations with the rigid
  *   body modes than with an aggregation of the unknowns one by one, and
  *   FROSch converges for both orderings;
+ * - the fast incomplete factorizations of Ifpack2 (FAST_ILU, FAST_IC),
+ *   applied to the diagonal block of each process, need close numbers of
+ *   iterations to the incomplete factorization RILUK, if Trilinos is built
+ *   with ShyLU FastILU;
+ * - the block preconditioners of Teko precondition the linear elasticity,
+ *   if mfem-mgis uses Teko: the block Jacobi preconditioner with MueLu for
+ *   both orderings of the unknowns, and the block Gauss-Seidel
+ *   preconditioner with Amesos2 on blocks of two and one components;
+ *   invalid definitions of the inverses are refused with an explanation,
+ *   and a process owning no unknown is refused;
  * - the preconditioners of Trilinos precondition the Krylov solvers of
  *   MFEM, and the preconditioners of mfem-mgis the Krylov solvers of Belos;
  * - the options of mfem-mgis set the tolerance and the maximum number of
@@ -31,7 +41,8 @@
  *   `setRelativeTolerance`); a resolution stopped by the maximum number of
  *   iterations is reported as not converged;
  * - a second operator, the first one times two, is solved by the same
- *   solver, and a system with a process owning no unknown is solved;
+ *   solver, and a system with a process owning no unknown is solved
+ *   (refused by FROSch and Teko);
  * - invalid parameters are refused.
  * \date   15/10/2026
  */
@@ -478,6 +489,195 @@ static void checkElasticity(ElasticitySystem<true>& e1,
 }  // end of checkElasticity
 
 /*!
+ * \brief checks the fast incomplete factorizations of Ifpack2 (ShyLU
+ * FastILU), if Trilinos is built with them, refused otherwise
+ * \param[in] s: system
+ */
+static void checkFastILU(LaplaceSystem<true>& s) {
+  using namespace mfem_mgis;
+  const auto filu =
+      getBelosParameters("GMRES", "Ifpack2", Parameters{{"Type", "FAST_ILU"}});
+  const auto e = getGenerationError(s, "BelosSolver", filu);
+  if (!e.empty()) {
+    check(e.find("ShyLU_NodeFastILU") != std::string::npos,
+          "Ifpack2: FAST_ILU refused without explanation (" + e + ")");
+    if (rank == 0) {
+      std::cout << "Ifpack2, FAST_ILU: skipped (not available)\n";
+    }
+    return;
+  }
+  // the incomplete factorization without fill-in of Ifpack2, applied to
+  // the diagonal block of each process, as the fast factorizations
+  auto riluk = generate(
+      s, "BelosSolver",
+      getBelosParameters("GMRES", "Ifpack2", Parameters{{"Type", "RILUK"}}));
+  const auto rr =
+      solve(s, *(riluk.linear_solver), "Belos GMRES, Ifpack2 RILUK");
+  // the fast factorizations approximate it: close numbers of iterations
+  const auto close = [&rr](const Resolution& r) {
+    return isSolved(r) && (std::abs(r.iterations - rr.iterations) <=
+                           std::max(3, rr.iterations / 5));
+  };
+  auto ilu = generate(s, "BelosSolver", filu);
+  const auto r1 =
+      solve(s, *(ilu.linear_solver), "Belos GMRES, Ifpack2 FAST_ILU");
+  check(isSolved(rr) && close(r1), "Belos GMRES, Ifpack2 FAST_ILU: resolution");
+  // parameters given to the factorization: one sweep and one iteration of
+  // the triangular solves, a coarser approximation, and an invalid number
+  // of sweeps, refused when the preconditioner is created
+  auto ilu1 = generate(
+      s, "BelosSolver",
+      getBelosParameters(
+          "GMRES", "Ifpack2",
+          Parameters{
+              {"Type", "FAST_ILU"},
+              {"Parameters", Parameters{{"sweeps", 1},
+                                        {"triangular solve iterations", 1}}}}));
+  const auto r3 = solve(s, *(ilu1.linear_solver),
+                        "Belos GMRES, Ifpack2 FAST_ILU, one sweep");
+  check(isSolved(r3) && (r3.iterations != r1.iterations),
+        "Belos GMRES, Ifpack2 FAST_ILU: parameters of the factorization");
+  const auto e2 = getGenerationError(
+      s, "BelosSolver",
+      getBelosParameters(
+          "GMRES", "Ifpack2",
+          Parameters{{"Type", "FAST_ILU"},
+                     {"Parameters", Parameters{{"sweeps", 0}}}}));
+  check(e2.find("sweeps") != std::string::npos,
+        "Ifpack2: invalid parameter of FAST_ILU not refused (" + e2 + ")");
+  // symmetric factorization, for the conjugate gradient
+  auto ic = generate(
+      s, "BelosSolver",
+      getBelosParameters("CG", "Ifpack2", Parameters{{"Type", "FAST_IC"}}));
+  const auto r2 = solve(s, *(ic.linear_solver), "Belos CG, Ifpack2 FAST_IC");
+  check(close(r2), "Belos CG, Ifpack2 FAST_IC: resolution");
+}  // end of checkFastILU
+
+/*!
+ * \brief checks the block preconditioners of Teko, if mfem-mgis uses Teko,
+ * refused otherwise
+ * \param[in] s: Laplace equation
+ * \param[in] e1: linear elasticity, unknowns ordered by nodes
+ * \param[in] e2: linear elasticity, unknowns ordered by vector dimension
+ */
+static void checkTeko(LaplaceSystem<true>& s,
+                      ElasticitySystem<true>& e1,
+                      ElasticitySystem<true>& e2) {
+  using namespace mfem_mgis;
+#ifdef MFEM_MGIS_HAVE_TEKO
+  // block Jacobi, one block per component of the displacement, each block
+  // approximated by a multigrid of MueLu with several levels
+  const auto amg = Parameters{
+      {"Type", "MueLu"}, {"verbosity", "none"}, {"coarse: max size", 20}};
+  const auto jacobi = Parameters{
+      {"Parameters", Parameters{{"Jacobi", Parameters{{"Type", "Block Jacobi"},
+                                                      {"Inverse Type", "AMG"}}},
+                                {"AMG", amg}}},
+      {"Inverse", "Jacobi"}};
+  auto j1 =
+      generate(e1, "BelosSolver", getBelosParameters("CG", "Teko", jacobi));
+  const auto r1 =
+      solve(e1, *(j1.linear_solver), "Belos CG, Teko block Jacobi, byNODES");
+  // the only block preconditioner of the definitions, without 'Inverse'
+  const auto jacobi2 = remove(jacobi, std::vector<std::string>{"Inverse"});
+  auto j2 =
+      generate(e2, "BelosSolver", getBelosParameters("CG", "Teko", jacobi2));
+  const auto r2 =
+      solve(e2, *(j2.linear_solver), "Belos CG, Teko block Jacobi, byVDIM");
+  check(isSolved(r1) && isSolved(r2) && (r1.iterations > 1),
+        "Belos CG, Teko block Jacobi: resolution of the linear elasticity");
+  check(
+      std::abs(r1.iterations - r2.iterations) <= std::max(3, r2.iterations / 5),
+      "Belos CG, Teko block Jacobi: the ordering of the unknowns changes the "
+      "number of iterations");
+  // default parameters, on the linear elasticity and on the Laplace
+  // equation (one block)
+  auto d1 = generate(e1, "BelosSolver", getBelosParameters("CG", "Teko"));
+  check(isSolved(solve(e1, *(d1.linear_solver), "Belos CG, Teko, default")),
+        "Belos CG, Teko: resolution with the default parameters");
+  auto d2 = generate(s, "BelosSolver", getBelosParameters("CG", "Teko"));
+  check(isSolved(solve(s, *(d2.linear_solver), "Belos CG, Teko, Laplace")),
+        "Belos CG, Teko: resolution of the Laplace equation");
+  // block Gauss-Seidel, a block of two components and a block of one
+  // component, factorized by Amesos2 (not symmetric: GMRES)
+  const auto gs = Parameters{
+      {"Parameters",
+       Parameters{{"Gauss-Seidel", Parameters{{"Type", "Block Gauss-Seidel"},
+                                              {"Inverse Type", "Amesos2"}}}}},
+      {"Blocks", list{2, 1}}};
+  auto g = generate(e1, "BelosSolver", getBelosParameters("GMRES", "Teko", gs));
+  const auto rg =
+      solve(e1, *(g.linear_solver), "Belos GMRES, Teko block Gauss-Seidel");
+  check(isSolved(rg),
+        "Belos GMRES, Teko block Gauss-Seidel: resolution of the linear "
+        "elasticity");
+  // invalid parameters
+  const auto refused = [&e1](const Parameters& options,
+                             const std::string& msg) {
+    const auto e = getGenerationError(
+        e1, "BelosSolver", getBelosParameters("CG", "Teko", options));
+    check(e.find(msg) != std::string::npos,
+          "Teko: invalid parameters not refused (expected '" + msg +
+              "', got '" + e + "')");
+  };
+  refused(Parameters{{"Inverse", "Unknown"}}, "unknown inverse 'Unknown'");
+  refused(Parameters{{"Blocks", list{1, 1}}},
+          "is not the number of components of the unknowns");
+  refused(Parameters{{"Blocks", list{3, 0}}},
+          "the blocks must have at least one component");
+  refused(Parameters{{"Parameters", Parameters{{"Jacobi", 1}}}},
+          "is not the definition of an inverse");
+  refused(Parameters{{"Parameters",
+                      Parameters{{"Jacobi",
+                                  Parameters{{"Inverse Type", "Amesos2"}}}}}},
+          "has no type");
+  refused(Parameters{{"Parameters",
+                      Parameters{{"Jacobi", Parameters{{"Type", "Unknown"}}}}}},
+          "unknown type 'Unknown' of the inverse 'Jacobi'");
+  refused(Parameters{{"Parameters",
+                      Parameters{{"Jacobi",
+                                  Parameters{{"Type", "Block Jacobi"},
+                                             {"Inverse Type", "Unknown"}}}}}},
+          "unknown inverse 'Unknown' given by the parameter 'Inverse Type'");
+  refused(Parameters{{"Parameters", Parameters{{"AMG", amg}}}},
+          "defines no block preconditioner of Teko");
+  refused(Parameters{{"Parameters",
+                      Parameters{{"A", Parameters{{"Type", "Block Jacobi"}}},
+                                 {"B", Parameters{{"Type", "Block Jacobi"}}}}}},
+          "the parameter 'Inverse' is required");
+  refused(Parameters{{"Inverse", "Amesos2"}},
+          "is not a block preconditioner of Teko");
+  refused(Parameters{{"Parameters",
+                      Parameters{{"Jacobi",
+                                  Parameters{{"Type", "Block Jacobi"},
+                                             {"Inverse Type 0", "Amesos2"}}}}}},
+          "invalid parameter 'Inverse Type 0'");
+  refused(Parameters{{"Parameters",
+                      Parameters{
+                          {"Ifpack2", Parameters{{"Type", "Block Jacobi"}}}}}},
+          "has the name of a solver or a preconditioner of Stratimikos");
+  refused(
+      Parameters{
+          {"Parameters",
+           Parameters{{"Jacobi", Parameters{{"Type", "Block Jacobi"},
+                                            {"Inverse Type", "CG"}}},
+                      {"CG", Parameters{{"Type", "Belos"},
+                                        {"Use Preconditioner", "Amesos2"}}}}}},
+      "is not a preconditioner");
+#else  /* MFEM_MGIS_HAVE_TEKO */
+  const auto e =
+      getGenerationError(e1, "BelosSolver", getBelosParameters("CG", "Teko"));
+  check(e.find("enable-teko") != std::string::npos,
+        "Teko: refused without explanation (" + e + ")");
+  static_cast<void>(s);
+  static_cast<void>(e2);
+  if (rank == 0) {
+    std::cout << "Teko: skipped (not available)\n";
+  }
+#endif /* MFEM_MGIS_HAVE_TEKO */
+}  // end of checkTeko
+
+/*!
  * \brief checks the options of mfem-mgis and of Belos
  * \param[in] s: system
  * \param[in] elasticity: linear elasticity, a system of another size
@@ -668,10 +868,27 @@ static void checkEmptyProcess(ElasticitySystem<true>& s) {
   check(isSolved(solve(s, *(ifpack2.linear_solver),
                        "Belos CG, Ifpack2, process without unknowns")),
         "Belos CG, Ifpack2: resolution with a process owning no unknown");
-  // FROSch does not support empty subdomains: refused by all the processes
-  // (in sequential, the only process owns all the unknowns)
+  // FROSch and Teko do not support empty subdomains: refused by all the
+  // processes (in sequential, the only process owns all the unknowns)
   auto size = 0;
   MPI_Comm_size(MPI_COMM_WORLD, &size);
+#ifdef MFEM_MGIS_HAVE_TEKO
+  auto teko = generate(s, "BelosSolver", getBelosParameters("CG", "Teko"));
+  if (size == 1) {
+    check(isSolved(solve(s, *(teko.linear_solver), "Belos CG, Teko")),
+          "Belos CG, Teko: resolution of the small system");
+  } else {
+    auto refused = false;
+    try {
+      static_cast<void>(solve(s, *(teko.linear_solver),
+                              "Belos CG, Teko, process without unknowns"));
+    } catch (std::exception& e) {
+      refused = std::string{e.what()}.find("each process must own unknowns") !=
+                std::string::npos;
+    }
+    check(refused, "Belos CG, Teko: process owning no unknown not refused");
+  }
+#endif /* MFEM_MGIS_HAVE_TEKO */
   auto frosch = generate(s, "BelosSolver", getBelosParameters("CG", "FROSch"));
   if (size == 1) {
     check(isSolved(solve(s, *(frosch.linear_solver), "Belos CG, FROSch")),
@@ -795,6 +1012,8 @@ int main(int argc, char** argv) {
     checkDirectSolvers(s, e1, e2);
     checkKrylovSolvers(s);
     checkElasticity(e1, e2);
+    checkFastILU(s);
+    checkTeko(s, e1, e2);
     checkOptions(s, e1);
     checkRefusals(s);
     // a smaller mesh, whose elements are on the first process (two

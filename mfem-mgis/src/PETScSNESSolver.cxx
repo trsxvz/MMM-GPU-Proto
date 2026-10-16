@@ -6,7 +6,7 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
 
 #include <cmath>
 #include <tuple>
@@ -856,4 +856,4 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */

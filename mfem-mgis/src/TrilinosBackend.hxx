@@ -21,7 +21,19 @@
 #include <variant>
 #include <functional>
 
+#ifndef MFEM_MGIS_TRILINOS_REAL_TYPE
+#error \
+    "MFEM_MGIS_TRILINOS_REAL_TYPE (numerical type of mfem-mgis) is not defined"
+#endif /* MFEM_MGIS_TRILINOS_REAL_TYPE */
+
 namespace mfem_mgis::trilinos {
+
+  /*!
+   * \brief numerical type of mfem-mgis (`mfem::real_t`) and of the solvers of
+   * Trilinos, given by the compilation (Tpetra and the packages using it
+   * must be instantiated for this type)
+   */
+  using real = MFEM_MGIS_TRILINOS_REAL_TYPE;
 
   // forward declaration
   struct Option;
@@ -56,14 +68,14 @@ namespace mfem_mgis::trilinos {
     //! \brief columns of the diagonal block (local indices)
     const int* diag_columns = nullptr;
     //! \brief values of the diagonal block
-    const double* diag_values = nullptr;
+    const real* diag_values = nullptr;
     //! \brief offsets of the rows of the off-diagonal block
     const int* offd_offsets = nullptr;
     //! \brief columns of the off-diagonal block (indices in
     //! `offd_global_columns`)
     const int* offd_columns = nullptr;
     //! \brief values of the off-diagonal block
-    const double* offd_values = nullptr;
+    const real* offd_values = nullptr;
     //! \brief number of columns of the off-diagonal block
     int number_of_offd_columns = 0;
     //! \brief global indices of the columns of the off-diagonal block
@@ -136,7 +148,7 @@ namespace mfem_mgis::trilinos {
      * \param[in, out] x: solution (local part), initial guess of the
      * iterative solvers which use one
      */
-    virtual void apply(const double* b, double* x) const = 0;
+    virtual void apply(const real* b, real* x) const = 0;
     /*!
      * \brief solve the system or apply the preconditioner, the vectors
      * being in the memory of the GPU which the operator computes on (see
@@ -146,7 +158,7 @@ namespace mfem_mgis::trilinos {
      * \param[in, out] x: solution (local part), initial guess of the
      * iterative solvers which use one
      */
-    virtual void applyOnDevice(const double* b, double* x) const = 0;
+    virtual void applyOnDevice(const real* b, real* x) const = 0;
     //! \return true if the operator computes on the GPU
     [[nodiscard]] virtual bool computesOnTheGPU() const noexcept = 0;
     //! \return the report of the last resolution
@@ -178,9 +190,9 @@ namespace mfem_mgis::trilinos {
      * \brief function returning the right hand side (local part), to be
      * written before calling `apply`
      */
-    std::function<double*()> getRightHandSide;
+    std::function<real*()> getRightHandSide;
     //! \brief function applying the preconditioner, returning the result
-    std::function<const double*()> apply;
+    std::function<const real*()> apply;
     //! \brief if true, the vectors are in the memory of the GPU
     bool device = false;
     //! \return true if the preconditioner is given
@@ -227,6 +239,31 @@ namespace mfem_mgis::trilinos {
    */
   [[nodiscard]] std::unique_ptr<Operator> makeFROSchPreconditioner(
       const Options& options, NodesCoordinates c, const bool gpu);
+#ifdef MFEM_MGIS_HAVE_TEKO
+  /*!
+   * \return a block preconditioner of Teko: the unknowns of each node are
+   * split in blocks of consecutive components, and the preconditioner is an
+   * inverse of the library of inverses of Teko built from the options, whose
+   * sublists define the inverses (with the preconditioners and the solvers
+   * of Stratimikos: `Amesos2`, `Belos`, `Ifpack2`, `MueLu`)
+   * \param[in] options: library of inverses. If empty, the library contains
+   * the inverse `Block Jacobi`, a block Jacobi preconditioner whose
+   * diagonal blocks are approximated by one V-cycle of MueLu
+   * \param[in] inverse: name of the inverse used as preconditioner, a block
+   * preconditioner of Teko. If empty, the only block preconditioner defined
+   * by the options, or `Block Jacobi` if the options are empty
+   * \param[in] blocks: number of components of each block, one block per
+   * component if empty
+   * \param[in] gpu: ignored: Teko computes with the default node of Tpetra,
+   * on the GPU if Trilinos is built for one (Teko 17.2.1 is only
+   * instantiated for this node)
+   */
+  [[nodiscard]] std::unique_ptr<Operator> makeTekoPreconditioner(
+      const Options& options,
+      const std::string& inverse,
+      const std::vector<int>& blocks,
+      const bool gpu);
+#endif /* MFEM_MGIS_HAVE_TEKO */
   /*!
    * \return a direct solver of Amesos2
    * \param[in] solver: name of the solver (`KLU2`, `Basker`, `Tacho`,

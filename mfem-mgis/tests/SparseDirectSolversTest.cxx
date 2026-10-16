@@ -63,13 +63,13 @@ static constexpr double direct_tolerance =
 static constexpr double cg_tolerance =
     std::is_same_v<mfem::real_t, double> ? 1e-12 : 1e-5;
 
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
 /*!
  * \brief number of elements along each edge of the cube on which the block
  * low-rank factorization of MUMPS compresses fronts
  */
 static constexpr int blr_mesh_size = 24;
-#endif /* MFEM_USE_MUMPS */
+#endif /* MFEM_MGIS_HAVE_MUMPS */
 
 static void check(const bool b, const std::string& msg) {
   if (!b) {
@@ -151,7 +151,7 @@ static double solve(LaplaceSystem<true>& s,
   return solve(s, s.A, ls, name);
 }  // end of solve
 
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
 /*!
  * \brief checks the factorization of MUMPS as a preconditioner of the
  * conjugate gradient of MFEM: the exact factorization, with which the
@@ -190,7 +190,7 @@ static void checkMUMPSPreconditioner(LaplaceSystem<true>& s) {
           name + ": resolution");
   }
 }  // end of checkMUMPSPreconditioner
-#endif /* MFEM_USE_MUMPS */
+#endif /* MFEM_MGIS_HAVE_MUMPS */
 
 static void run(LaplaceSystem<true>& s,
                 [[maybe_unused]] LaplaceSystem<true>& s2) {
@@ -199,7 +199,7 @@ static void run(LaplaceSystem<true>& s,
   // solver: the matrix of the system times two
   auto a2 = mfem::HypreParMatrix(s.A);
   a2 *= 2.;
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
   // MUMPS and its reordering strategies (the ones which are not available
   // are replaced by MUMPS with a warning)
   for (const auto& r : {"Automatic", "AMD", "PORD", "METIS"}) {
@@ -227,8 +227,8 @@ static void run(LaplaceSystem<true>& s,
   check(getGenerationError(s, "MUMPSSolver", Parameters{{"BLRTolerance", -1.}})
                 .find("invalid tolerance") != std::string::npos,
         "MUMPSSolver: negative tolerance not refused");
-#endif /* MFEM_USE_MUMPS */
-#ifdef MFEM_USE_SUPERLU
+#endif /* MFEM_MGIS_HAVE_MUMPS */
+#ifdef MFEM_MGIS_HAVE_SUPERLU
   // SuperLU_DIST, its options, the reuse of its analysis
   auto superlu = generate(s, "SuperLUSolver",
                           Parameters{{"ColumnPermutation", "METIS_AT_PLUS_A"},
@@ -305,8 +305,8 @@ static void run(LaplaceSystem<true>& s,
                            Parameters{{"ColumnPermutation", "AMD"}})
                 .find("invalid value") != std::string::npos,
         "SuperLUSolver: invalid column permutation not refused");
-#endif /* MFEM_USE_SUPERLU */
-#ifdef MFEM_USE_STRUMPACK
+#endif /* MFEM_MGIS_HAVE_SUPERLU */
+#ifdef MFEM_MGIS_HAVE_STRUMPACK
   // STRUMPACK, in double and mixed precisions
   for (const auto& n : {"STRUMPACKSolver", "STRUMPACKMixedPrecisionSolver"}) {
     auto strumpack = generate(
@@ -381,7 +381,7 @@ static void run(LaplaceSystem<true>& s,
             Parameters{{"Options", Parameters{{"--sp_compression", "blr"}}}})
                 .find("leading dashes") != std::string::npos,
         "STRUMPACKSolver: option with leading dashes not refused");
-#endif /* MFEM_USE_STRUMPACK */
+#endif /* MFEM_MGIS_HAVE_STRUMPACK */
 }  // end of run
 
 int main(int argc, char** argv) {
@@ -403,12 +403,12 @@ int main(int argc, char** argv) {
     auto s = LaplaceSystem<true>(mesh, fec);
     auto s2 = LaplaceSystem<true>(mesh2, fec);
     run(s, s2);
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
     auto mesh3 = mfem::Mesh::MakeCartesian3D(
         blr_mesh_size, blr_mesh_size, blr_mesh_size, mfem::Element::HEXAHEDRON);
     auto s3 = LaplaceSystem<true>(mesh3, fec);
     checkMUMPSPreconditioner(s3);
-#endif /* MFEM_USE_MUMPS */
+#endif /* MFEM_MGIS_HAVE_MUMPS */
   } catch (std::exception& e) {
     std::cerr << "error: " << e.what() << '\n';
     return EXIT_FAILURE;

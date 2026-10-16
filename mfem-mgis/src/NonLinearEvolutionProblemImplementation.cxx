@@ -12,9 +12,9 @@
 #include <string>
 #include "mfem/fem/datacollection.hpp"
 
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
 #include "mfem/linalg/petsc.hpp"
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 #include "mfem/linalg/sparsemat.hpp"
 #include "mfem/fem/linearform.hpp"
 #include "mfem/fem/bilinearform.hpp"
@@ -956,7 +956,7 @@ namespace mfem_mgis {
         this->solver = std::make_unique<NewtonSolver>(*this);
       }
     };
-#ifdef MFEM_USE_PETSC
+#ifdef MFEM_MGIS_HAVE_PETSC
     if (usePETSc()) {
       this->petsc_solver = std::make_unique<mfem::PetscNonlinearSolver>(
           this->getFiniteElementSpace().GetComm(), *this);
@@ -964,9 +964,9 @@ namespace mfem_mgis {
     } else {
       set_solver();
     }
-#else  /* MFEM_USE_PETSC */
+#else  /* MFEM_MGIS_HAVE_PETSC */
     set_solver();
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
     if (this->mgis_integrator != nullptr) {
       this->AddDomainIntegrator(this->mgis_integrator);
     }

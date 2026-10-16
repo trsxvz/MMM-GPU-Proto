@@ -41,8 +41,11 @@
 
 namespace mfem_mgis::internals {
 
-  static_assert(std::is_same_v<real, double>,
-                "the module of Trilinos requires the double precision");
+  static_assert(std::is_same_v<real, trilinos::real>,
+                "the numerical type of the module of Trilinos is not the one "
+                "of mfem-mgis");
+  static_assert(std::is_same_v<HYPRE_Real, trilinos::real>,
+                "the numerical type of hypre is not the one of mfem-mgis");
   static_assert(std::is_same_v<HYPRE_Int, int>,
                 "the module of Trilinos does not support hypre built with "
                 "64 bits integers (--enable-bigint)");
@@ -417,6 +420,52 @@ namespace mfem_mgis::internals {
     return {};
   }  // end of callTrilinos
 
+#ifdef MFEM_MGIS_HAVE_TEKO
+  /*!
+   * \return the number of components of the blocks of the preconditioner
+   * of Teko (parameter `Blocks`, a list of positive integers whose sum is
+   * the number of components of the unknowns), empty for one block per
+   * component, or an empty value on error
+   * \param[in, out] ctx: execution context
+   * \param[in] fespace: finite element space
+   * \param[in] params: parameters
+   */
+  [[nodiscard]] static std::optional<std::vector<int>> getTekoBlocks(
+      Context& ctx,
+      const FiniteElementSpace<true>& fespace,
+      const Parameters& params) {
+    if (!contains(params, "Blocks")) {
+      return std::vector<int>{};
+    }
+    const auto ovalues = get<std::vector<Parameter>>(ctx, params, "Blocks");
+    if (isInvalid(ovalues)) {
+      return {};
+    }
+    auto blocks = std::vector<int>{};
+    auto n = 0;
+    for (const auto& v : *ovalues) {
+      const auto ob = get<int>(ctx, v);
+      if (isInvalid(ob)) {
+        return {};
+      }
+      if (*ob <= 0) {
+        return ctx.registerErrorMessage(
+            "Teko: the blocks must have at least one component (parameter "
+            "'Blocks')");
+      }
+      blocks.push_back(*ob);
+      n += *ob;
+    }
+    if (n != fespace.GetVDim()) {
+      return ctx.registerErrorMessage(
+          "Teko: the number of components of the blocks (parameter 'Blocks') "
+          "is not the number of components of the unknowns (" +
+          std::to_string(fespace.GetVDim()) + ")");
+    }
+    return blocks;
+  }  // end of getTekoBlocks
+#endif /* MFEM_MGIS_HAVE_TEKO */
+
   /*!
    * \return the placement of the computations of Trilinos: where MFEM
    * computes when Trilinos is built for a GPU and for a node of the host,
@@ -731,6 +780,51 @@ namespace mfem_mgis::internals {
               return std::make_unique<TrilinosSolver>(std::move(*o), fespace,
                                                       false);
             });
+#ifdef MFEM_MGIS_HAVE_TEKO
+    // Teko computes with the default node of Tpetra
+    declare(
+        f, "Teko",
+        LinearSolverDescription{
+            .library = "Trilinos",
+            .kind = LinearSolverKind::PRECONDITIONER,
+            .placement = trilinos::hasGPUNode() ? LinearSolverPlacement::DEVICE
+                                                : LinearSolverPlacement::HOST,
+            .preconditioners = AcceptedPreconditioners::NONE,
+            .options = {"Parameters", "Inverse", "Blocks"},
+            .description =
+                "block preconditioner of Teko (Trilinos), the unknowns "
+                "being split in blocks of components ('Blocks', one "
+                "block per component by default): the inverse "
+                "'Inverse' of the library of inverses defined by "
+                "'Parameters', by default a block Jacobi preconditioner "
+                "whose blocks are approximated by MueLu"},
+        [](Context& ctx, FiniteElementSpace<true>& fespace,
+           const Parameters& params)
+            -> std::unique_ptr<LinearSolverPreconditioner> {
+          if (!checkParameters(ctx, params,
+                               std::vector<std::string>{"Parameters", "Inverse",
+                                                        "Blocks"})) {
+            return {};
+          }
+          const auto ooptions = getTrilinosOptions(ctx, params);
+          const auto oinverse =
+              get_if<std::string>(ctx, params, "Inverse", std::string{});
+          const auto oblocks = getTekoBlocks(ctx, fespace, params);
+          if (isInvalid(ooptions) || isInvalid(oinverse) ||
+              isInvalid(oblocks)) {
+            return {};
+          }
+          auto o = callTrilinos(ctx, "Teko", [&] {
+            return trilinos::makeTekoPreconditioner(
+                *ooptions, *oinverse, *oblocks, computeTrilinosOnTheGPU());
+          });
+          if (isInvalid(o)) {
+            return {};
+          }
+          return std::make_unique<TrilinosSolver>(std::move(*o), fespace,
+                                                  false);
+        });
+#endif /* MFEM_MGIS_HAVE_TEKO */
     declare(f, "Amesos2Preconditioner",
             LinearSolverDescription{
                 .library = "Trilinos",

@@ -36,11 +36,11 @@
                                     {"AbsoluteTolerance", 1e-16},
                                     {"RelativeTolerance", 1e-16},
                                     {"MaximumNumberOfIterations", 100000}});
-#ifdef MFEM_USE_SUITESPARSE
+#ifdef MFEM_MGIS_HAVE_SUITESPARSE
   } else if (parameters.linearsolver == 2) {
     return problem.setLinearSolver(ctx, "UMFPackSolver", {});
 #endif
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
   } else if (parameters.linearsolver == 3) {
     return problem.setLinearSolver(ctx, "MUMPSSolver", {{"Symmetric", true}});
 #endif

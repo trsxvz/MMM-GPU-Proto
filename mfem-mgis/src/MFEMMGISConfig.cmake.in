@@ -70,6 +70,18 @@ if(("@MFEM_USE_HIP@" STREQUAL "YES") AND (NOT TARGET hip::host))
   endif()
 endif()
 
+# optional libraries of MFEM used by mfem-mgis (options enable-<name>)
+set(MFEMMGIS_HAVE_PETSC @MFEM_MGIS_HAVE_PETSC@)
+set(MFEMMGIS_HAVE_GINKGO @MFEM_MGIS_HAVE_GINKGO@)
+set(MFEMMGIS_HAVE_MUMPS @MFEM_MGIS_HAVE_MUMPS@)
+set(MFEMMGIS_HAVE_SUPERLU @MFEM_MGIS_HAVE_SUPERLU@)
+set(MFEMMGIS_HAVE_STRUMPACK @MFEM_MGIS_HAVE_STRUMPACK@)
+set(MFEMMGIS_HAVE_SUITESPARSE @MFEM_MGIS_HAVE_SUITESPARSE@)
+set(MFEMMGIS_HAVE_SUNDIALS @MFEM_MGIS_HAVE_SUNDIALS@)
+set(MFEMMGIS_HAVE_MKL_PARDISO @MFEM_MGIS_HAVE_MKL_PARDISO@)
+set(MFEMMGIS_HAVE_MKL_CPARDISO @MFEM_MGIS_HAVE_MKL_CPARDISO@)
+set(MFEMMGIS_HAVE_CUDSS @MFEM_MGIS_HAVE_CUDSS@)
+set(MFEMMGIS_HAVE_MAGMA @MFEM_MGIS_HAVE_MAGMA@)
 # sparse solvers of MAGMA, if mfem-mgis uses them (linked privately to the
 # library of mfem-mgis)
 set(MFEMMGIS_HAVE_MAGMA_SPARSE @MFEM_MGIS_HAVE_MAGMA_SPARSE@)
@@ -103,6 +115,9 @@ set(MFEMMGIS_HAVE_KOKKOS @MFEM_MGIS_HAVE_KOKKOS@)
 # Trilinos is used through the shared library MFEMMGISTrilinos, which finds
 # it
 set(MFEMMGIS_HAVE_TRILINOS @MFEM_MGIS_HAVE_TRILINOS@)
+# true if mfem-mgis has the block preconditioners of Teko (option
+# enable-teko)
+set(MFEMMGIS_HAVE_TEKO @MFEM_MGIS_HAVE_TEKO@)
 
 # Compilation of the sources containing kernels of MFEM: if MFEM was found
 # before mfem-mgis without the module FindMFEM.cmake of mfem-mgis (target

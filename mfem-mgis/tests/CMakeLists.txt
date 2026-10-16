@@ -112,9 +112,9 @@ if(MFEM_MGIS_HAVE_TFEL)
   # Generate all TwoLayerCube cases. The hypre solvers and MUMPS are only
   # tested in parallel.
   set(TwoLayerCubeSolvers CGSolver GMRESSolver HypreFGMRES HyprePCG HypreGMRES)
-  if(MFEM_USE_MUMPS)
+  if(MFEM_MGIS_HAVE_MUMPS)
     list(APPEND TwoLayerCubeSolvers MUMPSSolver)
-  endif(MFEM_USE_MUMPS)
+  endif(MFEM_MGIS_HAVE_MUMPS)
   foreach(ncase RANGE 0 5)
     foreach(solver IN LISTS TwoLayerCubeSolvers)
       add_two_layer_cube_test(${ncase} ${solver})
@@ -578,7 +578,7 @@ if(MFEM_MGIS_HAVE_TFEL)
 
   # StationaryNonLinearHeatTransferTest cases
   add_stationary_non_linear_heat_transfer_test(1)
-  if(MFEM_USE_SUITESPARSE)
+  if(MFEM_MGIS_HAVE_SUITESPARSE)
     add_stationary_non_linear_heat_transfer_test(2)
   endif()
 
@@ -1052,7 +1052,7 @@ if(MFEM_MGIS_HAVE_TFEL)
   endif()
   # computations on two processes (the comparisons only), with MUMPS, one
   # thread per process
-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
     add_test(NAME BatchIntegrationTestP
              COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
                      ${batch_integration_test_arguments}
@@ -1119,7 +1119,7 @@ if(MFEM_MGIS_HAVE_TFEL)
     set_tests_properties(HeatTransferKernelsTest-cuda
                          PROPERTIES RESOURCE_LOCK gpu)
   endif()
-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
     add_test(NAME HeatTransferKernelsTestP
              COMMAND mpirun -n 2 ./HeatTransferKernelsTest --parallel
                      ${heat_transfer_kernels_test_arguments})
@@ -1156,7 +1156,7 @@ if(MFEM_MGIS_HAVE_TFEL)
     set_tests_properties(MicromorphicKernelsTest-cuda
                          PROPERTIES RESOURCE_LOCK gpu)
   endif()
-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
     add_test(NAME MicromorphicKernelsTestP
              COMMAND mpirun -n 2 ./MicromorphicKernelsTest --parallel
                      ${micromorphic_kernels_test_arguments})
@@ -1166,13 +1166,13 @@ if(MFEM_MGIS_HAVE_TFEL)
 
   # KINSOLSolverTest executable: non linear solver based on KINSOL
   # (SUNDIALS), compared to the Newton solver
-  if(MFEM_USE_SUNDIALS STREQUAL "YES")
+  if(MFEM_MGIS_HAVE_SUNDIALS)
     add_test_executable(KINSOLSolverTest)
     add_test(NAME KINSOLSolverTest
              COMMAND KINSOLSolverTest
                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
                      --library $<TARGET_FILE:BehaviourTest>)
-    if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+    if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
       add_test(NAME KINSOLSolverTestP
                COMMAND mpirun -n 2 ./KINSOLSolverTest --parallel
                        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
@@ -1199,7 +1199,7 @@ if(MFEM_MGIS_HAVE_TFEL)
 
   # SNESSolverTest executable: non linear solver based on the SNES of
   # PETSc, compared to the Newton solver, in parallel
-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS AND (MFEM_USE_PETSC STREQUAL "YES"))
+  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS AND MFEM_MGIS_HAVE_PETSC)
     add_test_executable(SNESSolverTest)
     add_test(NAME SNESSolverTestP
              COMMAND mpirun -n 2 ./SNESSolverTest
@@ -1233,7 +1233,7 @@ if(MFEM_MGIS_HAVE_TFEL)
            COMMAND FixedPointSolverTest
                    --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
                    --library $<TARGET_FILE:BehaviourTest>)
-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
     add_test(NAME FixedPointSolverTestP
              COMMAND mpirun -n 2 ./FixedPointSolverTest --parallel
                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
@@ -1584,10 +1584,10 @@ endif()
 # (MUMPS, cuDSS) reused for a new operator only if its pattern is the same
 # on all processes. A wrong reuse may block the solver: the tests have a
 # time limit
-if(MFEM_USE_MPI AND (MFEM_USE_MUMPS OR MFEM_USE_CUDSS))
+if(MFEM_USE_MPI AND (MFEM_MGIS_HAVE_MUMPS OR MFEM_MGIS_HAVE_CUDSS))
   add_test_executable(DirectSolverReuseAnalysisTest)
 endif()
-if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
   add_test(NAME DirectSolverReuseAnalysisTest
            COMMAND DirectSolverReuseAnalysisTest)
   add_test(NAME DirectSolverReuseAnalysisTestP
@@ -1609,7 +1609,7 @@ if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
                                     ENVIRONMENT OMP_NUM_THREADS=1)
   endif()
 endif()
-if(MFEM_USE_MPI AND MFEM_USE_CUDSS)
+if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_CUDSS)
   # cuDSS refused without a device on a CUDA GPU, even when the test suite
   # is run on a GPU (variable MFEM_MGIS_DEVICE)
   add_test(NAME DirectSolverReuseAnalysisTest-cudss-refused
@@ -1707,7 +1707,7 @@ endif()
 
 # GinkgoSolversTest executable: solvers and preconditioners of Ginkgo, on
 # the device of MFEM
-if(MFEM_USE_GINKGO STREQUAL "YES")
+if(MFEM_MGIS_HAVE_GINKGO)
   add_test_executable(GinkgoSolversTest)
   add_test(NAME GinkgoSolversTest COMMAND GinkgoSolversTest)
   set(ginkgo_tests GinkgoSolversTest)
@@ -1768,14 +1768,14 @@ endif()
 
 # MKLSolversTest executable: sparse direct solvers of oneMKL, PARDISO in
 # sequential and the Cluster Sparse Solver in parallel
-if(MFEM_USE_MKL_PARDISO STREQUAL "YES")
+if(MFEM_MGIS_HAVE_MKL_PARDISO)
   add_test_executable(MKLSolversTest)
   add_test(NAME MKLSolversTest COMMAND MKLSolversTest)
   set_tests_properties(MKLSolversTest PROPERTIES
     FAIL_REGULAR_EXPRESSION "check failed")
 endif()
-if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
-  if(NOT (MFEM_USE_MKL_PARDISO STREQUAL "YES"))
+if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MKL_CPARDISO)
+  if(NOT MFEM_MGIS_HAVE_MKL_PARDISO)
     add_test_executable(MKLSolversTest)
   endif()
   add_test(NAME MKLSolversTestP COMMAND mpirun -n 2 ./MKLSolversTest -p)
@@ -1783,8 +1783,8 @@ if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
     FAIL_REGULAR_EXPRESSION "check failed")
 endif()
 # on a GPU, the matrices and the vectors are copied on the host
-if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
-    (MFEM_USE_MKL_CPARDISO STREQUAL "YES")) AND
+if((MFEM_MGIS_HAVE_MKL_PARDISO OR
+    MFEM_MGIS_HAVE_MKL_CPARDISO) AND
    ((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
    enable-gpu-tests)
   if(MFEM_USE_CUDA STREQUAL "YES")
@@ -1793,12 +1793,12 @@ if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
     set(mkl_solvers_test_device hip)
   endif()
   set(mkl_solvers_gpu_tests)
-  if(MFEM_USE_MKL_PARDISO STREQUAL "YES")
+  if(MFEM_MGIS_HAVE_MKL_PARDISO)
     add_test(NAME MKLSolversTest-gpu
              COMMAND MKLSolversTest --device ${mkl_solvers_test_device})
     list(APPEND mkl_solvers_gpu_tests MKLSolversTest-gpu)
   endif()
-  if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
+  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MKL_CPARDISO)
     add_test(NAME MKLSolversTestP-gpu
              COMMAND mpirun -n 2 ./MKLSolversTest -p
                      --device ${mkl_solvers_test_device})
@@ -1904,9 +1904,9 @@ endif(MFEM_USE_MPI)
 
 # SparseDirectSolversTest executable: direct solvers of MUMPS, SuperLU_DIST
 # and STRUMPACK, preconditioners of MUMPS and STRUMPACK
-if(MFEM_USE_MPI AND ((MFEM_USE_MUMPS STREQUAL "YES") OR
-                     (MFEM_USE_SUPERLU STREQUAL "YES") OR
-                     (MFEM_USE_STRUMPACK STREQUAL "YES")))
+if(MFEM_USE_MPI AND (MFEM_MGIS_HAVE_MUMPS OR
+                     MFEM_MGIS_HAVE_SUPERLU OR
+                     MFEM_MGIS_HAVE_STRUMPACK))
   add_test_executable(SparseDirectSolversTest)
   add_test(NAME SparseDirectSolversTest COMMAND SparseDirectSolversTest)
   add_test(NAME SparseDirectSolversTestP
@@ -1917,7 +1917,7 @@ endif()
 
 # PETScSolversTest executable: Krylov solver and preconditioner of PETSc
 # configured by the options of PETSc
-if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
+if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_PETSC)
   add_test_executable(PETScSolversTest)
   add_test(NAME PETScSolversTest COMMAND PETScSolversTest)
   add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
@@ -1949,6 +1949,9 @@ endif()
 # unknown
 if(MFEM_MGIS_HAVE_TRILINOS)
   add_test_executable(TrilinosSolversTest)
+  if(MFEM_MGIS_HAVE_TEKO)
+    target_compile_definitions(TrilinosSolversTest PRIVATE MFEM_MGIS_HAVE_TEKO)
+  endif()
   add_test(NAME TrilinosSolversTest COMMAND TrilinosSolversTest)
   add_test(NAME TrilinosSolversTestP COMMAND mpirun -n 2 ./TrilinosSolversTest)
   add_test(NAME TrilinosSolversTestP3

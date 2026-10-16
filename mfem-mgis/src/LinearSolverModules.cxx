@@ -63,59 +63,75 @@ namespace mfem_mgis::internals {
              "enable-trilinos, in parallel)";
     }
 #endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_TRILINOS)) */
-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS))
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_TEKO))
+    if (n == "Teko") {
+      return "mfem-mgis does not use Teko (option enable-teko, which requires "
+             "enable-trilinos, Trilinos built with Teko, and double "
+             "precision)";
+    }
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_TEKO)) */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS))
     if ((n == "MUMPSSolver") || (n == "MUMPSPreconditioner")) {
-      return "MFEM is not compiled with MUMPS";
+      return "mfem-mgis does not use MUMPS (option enable-mumps, MFEM "
+             "compiled with MUMPS and MPI)";
     }
-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)) */
-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS))
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)) */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS))
     if (n == "CuDSSSolver") {
-      return "MFEM is not compiled with cuDSS";
+      return "mfem-mgis does not use cuDSS (option enable-cudss, MFEM "
+             "compiled with cuDSS and MPI)";
     }
-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)) */
-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU))
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS)) */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU))
     if (n == "SuperLUSolver") {
-      return "MFEM is not compiled with SuperLU_DIST";
+      return "mfem-mgis does not use SuperLU_DIST (option enable-superlu, "
+             "MFEM compiled with SuperLU_DIST and MPI)";
     }
-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)) */
-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK))
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU)) */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK))
     if (n.starts_with("STRUMPACK")) {
-      return "MFEM is not compiled with STRUMPACK";
+      return "mfem-mgis does not use STRUMPACK (option enable-strumpack, "
+             "MFEM compiled with STRUMPACK and MPI)";
     }
-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK)) */
-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC))
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK)) */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC))
     if ((n == "PETScLinearSolver") || (n == "PETScPreconditioner")) {
-      return "MFEM is not compiled with PETSc";
+      return "mfem-mgis does not use PETSc (option enable-petsc, MFEM "
+             "compiled with PETSc and MPI)";
     }
-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)) */
-#ifndef MFEM_USE_GINKGO
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)) */
+#ifndef MFEM_MGIS_HAVE_GINKGO
     if (n.starts_with("Ginkgo")) {
-      return "MFEM is not compiled with Ginkgo";
+      return "mfem-mgis does not use Ginkgo (option enable-ginkgo, MFEM "
+             "compiled with Ginkgo)";
     }
-#endif /* MFEM_USE_GINKGO */
-#ifndef MFEM_USE_MKL_PARDISO
+#endif /* MFEM_MGIS_HAVE_GINKGO */
+#ifndef MFEM_MGIS_HAVE_MKL_PARDISO
     if (n == "MKLPardisoSolver") {
-      return "MFEM is not compiled with the PARDISO solver of oneMKL";
+      return "mfem-mgis does not use the PARDISO solver of oneMKL (option "
+             "enable-mkl-pardiso, MFEM compiled with it)";
     }
-#endif /* MFEM_USE_MKL_PARDISO */
-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
+#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO))
     if (n == "MKLClusterSparseSolver") {
-      return "MFEM is not compiled with the Cluster Sparse Solver of oneMKL";
+      return "mfem-mgis does not use the Cluster Sparse Solver of oneMKL "
+             "(option enable-mkl-cpardiso, MFEM compiled with it and MPI)";
     }
-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)) */
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)) */
 #ifndef MFEM_MGIS_HAVE_MAGMA_SPARSE
     if (n.starts_with("MAGMA")) {
-      return "mfem-mgis is not compiled with the sparse part of MAGMA (MFEM "
-             "compiled with MAGMA in double precision, and the library "
-             "magma_sparse)";
+      return "mfem-mgis does not use the sparse part of MAGMA (option "
+             "enable-magma, MFEM compiled with MAGMA in double precision, "
+             "and the library magma_sparse)";
     }
 #endif /* MFEM_MGIS_HAVE_MAGMA_SPARSE */
-#ifndef MFEM_USE_SUITESPARSE
+#ifndef MFEM_MGIS_HAVE_SUITESPARSE
     if ((n == "UMFPackSolver") || (n == "KLUSolver") || (n == "UMFPack") ||
         (n == "KLU")) {
-      return "MFEM is not compiled with SuiteSparse";
+      return "mfem-mgis does not use SuiteSparse (option enable-suitesparse, "
+             "MFEM compiled with SuiteSparse)";
     }
-#endif /* MFEM_USE_SUITESPARSE */
+#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
     static_cast<void>(n);
     return {};
   }  // end of getUnavailableLibraryHint
@@ -201,43 +217,43 @@ namespace mfem_mgis::internals {
   template <bool parallel>
   void declareLinearSolvers(LinearSolverFactory<parallel>& f) {
     declareMFEMLinearSolvers(f);
-#ifdef MFEM_USE_GINKGO
+#ifdef MFEM_MGIS_HAVE_GINKGO
     declareGinkgoLinearSolvers(f);
-#endif /* MFEM_USE_GINKGO */
+#endif /* MFEM_MGIS_HAVE_GINKGO */
 #ifdef MFEM_MGIS_HAVE_AMGX
     declareAmgXLinearSolvers(f);
 #endif /* MFEM_MGIS_HAVE_AMGX */
 #ifdef MFEM_USE_MPI
     if constexpr (parallel) {
       declareHypreLinearSolvers(f);
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
       declareMUMPSLinearSolvers(f);
-#endif /* MFEM_USE_MUMPS */
-#ifdef MFEM_USE_CUDSS
+#endif /* MFEM_MGIS_HAVE_MUMPS */
+#ifdef MFEM_MGIS_HAVE_CUDSS
       declareCuDSSLinearSolvers(f);
-#endif /* MFEM_USE_CUDSS */
-#ifdef MFEM_USE_SUPERLU
+#endif /* MFEM_MGIS_HAVE_CUDSS */
+#ifdef MFEM_MGIS_HAVE_SUPERLU
       declareSuperLULinearSolvers(f);
-#endif /* MFEM_USE_SUPERLU */
-#ifdef MFEM_USE_STRUMPACK
+#endif /* MFEM_MGIS_HAVE_SUPERLU */
+#ifdef MFEM_MGIS_HAVE_STRUMPACK
       declareSTRUMPACKLinearSolvers(f);
-#endif /* MFEM_USE_STRUMPACK */
-#ifdef MFEM_USE_PETSC
+#endif /* MFEM_MGIS_HAVE_STRUMPACK */
+#ifdef MFEM_MGIS_HAVE_PETSC
       declarePETScLinearSolvers(f);
-#endif /* MFEM_USE_PETSC */
-#ifdef MFEM_USE_MKL_CPARDISO
+#endif /* MFEM_MGIS_HAVE_PETSC */
+#ifdef MFEM_MGIS_HAVE_MKL_CPARDISO
       declareMKLClusterSparseLinearSolvers(f);
-#endif /* MFEM_USE_MKL_CPARDISO */
+#endif /* MFEM_MGIS_HAVE_MKL_CPARDISO */
 #ifdef MFEM_MGIS_HAVE_TRILINOS
       declareTrilinosLinearSolvers(f);
 #endif /* MFEM_MGIS_HAVE_TRILINOS */
     }
 #endif /* MFEM_USE_MPI */
-#ifdef MFEM_USE_MKL_PARDISO
+#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
     if constexpr (!parallel) {
       declareMKLPardisoLinearSolvers(f);
     }
-#endif /* MFEM_USE_MKL_PARDISO */
+#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
 #ifdef MFEM_MGIS_HAVE_MAGMA_SPARSE
     if constexpr (!parallel) {
       declareMAGMALinearSolvers(f);
@@ -249,9 +265,9 @@ namespace mfem_mgis::internals {
   void declarePreconditioners(PreconditionerFactory<parallel>& f) {
     declareMFEMPreconditioners(f);
     declareNodalBlockJacobiPreconditioner(f);
-#ifdef MFEM_USE_GINKGO
+#ifdef MFEM_MGIS_HAVE_GINKGO
     declareGinkgoPreconditioners(f);
-#endif /* MFEM_USE_GINKGO */
+#endif /* MFEM_MGIS_HAVE_GINKGO */
 #ifdef MFEM_MGIS_HAVE_AMGX
     declareAmgXPreconditioners(f);
 #endif /* MFEM_MGIS_HAVE_AMGX */
@@ -261,15 +277,15 @@ namespace mfem_mgis::internals {
 #ifdef MFEM_USE_MPI
     if constexpr (parallel) {
       declareHyprePreconditioners(f);
-#ifdef MFEM_USE_MUMPS
+#ifdef MFEM_MGIS_HAVE_MUMPS
       declareMUMPSPreconditioners(f);
-#endif /* MFEM_USE_MUMPS */
-#ifdef MFEM_USE_STRUMPACK
+#endif /* MFEM_MGIS_HAVE_MUMPS */
+#ifdef MFEM_MGIS_HAVE_STRUMPACK
       declareSTRUMPACKPreconditioners(f);
-#endif /* MFEM_USE_STRUMPACK */
-#ifdef MFEM_USE_PETSC
+#endif /* MFEM_MGIS_HAVE_STRUMPACK */
+#ifdef MFEM_MGIS_HAVE_PETSC
       declarePETScPreconditioners(f);
-#endif /* MFEM_USE_PETSC */
+#endif /* MFEM_MGIS_HAVE_PETSC */
 #ifdef MFEM_MGIS_HAVE_TRILINOS
       declareTrilinosPreconditioners(f);
 #endif /* MFEM_MGIS_HAVE_TRILINOS */

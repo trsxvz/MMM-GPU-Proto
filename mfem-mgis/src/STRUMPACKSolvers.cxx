@@ -10,7 +10,7 @@
 
 #include "mfem/config/config.hpp"
 
-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK)
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK)
 
 #include <memory>
 #include <functional>
@@ -408,4 +408,4 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK) */
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK) */
