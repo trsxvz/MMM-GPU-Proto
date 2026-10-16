@@ -182,3 +182,33 @@ GPU.
   GPU in ROCm (issue).
 - The continuous integration also compiles the whole chain with CUDA and
   with HIP at each run (simulated locally, not yet run on GitHub).
+
+## 15/10/2026: solver libraries
+
+- The linear solvers and preconditioners of the major libraries are
+  registered in mfem-mgis by one module per library (PETSc, Ginkgo,
+  hypre, SuperLU_DIST, STRUMPACK, MUMPS, oneMKL, MAGMA), with a generic
+  test, and measured on the CPU and on the GPU
+  (`docs/solver-recommendations.md`).
+- GAMG of PETSc receives the rigid body modes: 15 iterations instead of
+  177 on the linear elasticity.
+
+## 16/10/2026: Trilinos, MueLu, rebase onto mfem-mgis master
+
+- Module of Trilinos (Belos, Amesos2, Ifpack2, MueLu, FROSch), computing
+  where MFEM computes. MueLu with a Jacobi smoother and its hierarchy
+  reused is the fastest preconditioner measured on the GPU (0.18 seconds
+  per operator at 421,443 unknowns, against 0.33 for BoomerAMG); on the
+  nonlinear beam of 839,619 unknowns, the Newton-K0 method with one
+  V-cycle of MueLu takes 6.5 seconds on the GPU, against 15.6 for Newton
+  with the assembled tangent operator.
+- Defect found in Trilinos 17.2.1: the local QR of the tentative
+  prolongator written with Kokkos is wrong for a nullspace of several
+  vectors (already replaced on the development branch of Trilinos);
+  mfem-mgis uses the other factories of MueLu by default.
+- ex8 of mfem-mgis-examples with MueLu: MUMPS stays the fastest on its
+  original mesh; on the mesh refined once, MINRES with MueLu on the GPU
+  runs 5 steps in 205 seconds.
+- The prototype of mfem-mgis is rebased onto the master branch of
+  mfem-mgis (value semantics of the partial quadrature spaces), tested on
+  the CPU, with Trilinos and on the GPU.

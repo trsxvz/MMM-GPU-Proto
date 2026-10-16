@@ -313,6 +313,25 @@ an environment variable.
     AmgX directly: `AmgX` preconditioner and solver, `AmgXPCG`;
   - optional Kokkos initialised by mfem-mgis (`enable-kokkos`), for
     behaviours compiled with the Kokkos backend.
+- **Solver libraries** (15 and 16/10/2026, `docs/plan-solver-libraries.md`
+  and `docs/solver-recommendations.md`): the linear solvers and
+  preconditioners are registered by one module per library, with a
+  description (where they compute, kind, accepted preconditioners,
+  options) and a generic test:
+  - PETSc (Krylov solvers and preconditioners by the options of PETSc,
+    GAMG with the rigid body modes, SNES), Ginkgo (solvers and
+    preconditioners described by configurations of Ginkgo), the solvers
+    of hypre not wrapped by MFEM (BiCGSTAB, COGMRES, LGMRES, hybrid
+    solver, FSAI, MGR, smoothers), SuperLU_DIST, STRUMPACK, KLU, the
+    preconditioners of the sparse matrices of MFEM, the options of MUMPS,
+    KINSOL, oneMKL PARDISO and Cluster Sparse Solver, the sparse solvers
+    of MAGMA;
+  - Trilinos (optional, `enable-trilinos`): Krylov solvers of Belos,
+    direct solvers of Amesos2 (Tacho on the GPU), Ifpack2, MueLu with the
+    rigid body modes, also as an approximate solver (one V-cycle), with
+    the reuse of its hierarchy between operators, FROSch. They compute
+    where MFEM computes; on the GPU, the matrices of hypre are converted
+    by kernels of Kokkos.
 - **GPU build and configuration**: CUDA enabled when MFEM is compiled
   with CUDA, and the sources containing kernels compiled as CUDA, or as
   HIP when MFEM uses HIP; `--device` option of `initialize`; hypre
