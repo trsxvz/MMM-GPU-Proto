@@ -107,8 +107,10 @@ apply to all the cases: `--device`, `--hypre-device-pool-size` (`-hdps`),
 mode, the placement options `--finite-elements-execution`,
 `--behaviours-execution`, `--linear-solvers-execution` and
 `--post-processings-execution` (see
-[docs/plan-execution.md](../docs/plan-execution.md)), and the variables
-`MFEM_MGIS_*` of the computations by batches and by kernels. With
+[docs/plan-execution.md](../docs/plan-execution.md)), the solver overrides
+`--linear-solver-override`, `--preconditioner-override` and
+`--non-linear-solver-override`, and the variables `MFEM_MGIS_*` of the
+computations by batches and by kernels. With
 `--execution`, the placement variables `MFEM_MGIS_*` are ignored, with a
 warning.
 
@@ -137,7 +139,11 @@ solvers of the factories, phase 5 of
 configuration of its list solves assembled systems, linear elasticity of a
 beam, with stiff inclusions, and Laplace equation, with the benchmark
 `LinearSolversBenchmark` of mfem-mgis, on 8 processes and on the GPU;
-table by `summary-solvers.py`). Tools: `summary-profiling.py` (time per
+table by `summary-solvers.py`), `benchmark_slides.py` (benchmark of the
+examples and of mm-opera-hpc, best time on the CPU against best time with
+the GPU, the solvers being given by the overrides of mfem-mgis, see
+[docs/benchmark-slides.md](../docs/benchmark-slides.md)). Tools:
+`summary-profiling.py` (time per
 phase of the `--profiling` outputs), `summary-precision.py` (synthesis of
 the float against double measurements: times, iterations, gap between the
 norms), `compare-outputs.py` (comparison of numerical outputs, `--csv` for
