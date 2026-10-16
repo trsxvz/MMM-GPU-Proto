@@ -157,6 +157,36 @@ int main(int argc, char* argv[]) {
     mfem_mgis::Profiler::Utils::Message(
         "warning: the option -mra is ignored (no direct solver)");
   }
+  // the smoother of MueLu is refused if invalid, even if MueLu is not used
+  const auto muelu_smoother = std::string_view{p.muelu_smoother};
+  if ((muelu_smoother != "default") && (muelu_smoother != "jacobi") &&
+      (muelu_smoother != "chebyshev")) {
+    ctx.log() << "invalid value '" << muelu_smoother
+              << "' of the option -mls (--muelu-smoother): expected "
+                 "default, jacobi or chebyshev\n";
+    mfem_mgis::finalize();
+    return EXIT_FAILURE;
+  }
+  // options of MueLu without effect
+  const auto uses_muelu = [](const char* const solver,
+                             const char* const preconditioner) {
+    return contains(iterative_solvers, solver) &&
+           (std::string_view{preconditioner} == "MueLu");
+  };
+  const auto default_damping = TestParameters{}.muelu_damping;
+  if ((!uses_muelu(p.solver_thermo, p.precond_thermo)) &&
+      (!uses_muelu(p.solver_meca, p.precond_meca))) {
+    if ((muelu_smoother != "default") || (p.muelu_damping != default_damping)) {
+      mfem_mgis::Profiler::Utils::Message(
+          "warning: the options -mls and -mld are ignored (no MueLu "
+          "preconditioner)");
+    }
+  } else if ((muelu_smoother != "jacobi") &&
+             (p.muelu_damping != default_damping)) {
+    mfem_mgis::Profiler::Utils::Message(
+        "warning: the option -mld is ignored (the smoother of MueLu is not "
+        "jacobi)");
+  }
 
   if (p.t_ramp < 0) {
     ctx.log() << "the duration of the power ramp must not be negative\n";

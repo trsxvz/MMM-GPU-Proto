@@ -5385,4 +5385,10 @@ formula as MTest). All the others give the Newton solution to within
   for the mechanics), MueLu on the GPU runs the 5 steps in 264 seconds
   (first step 39.7 seconds, against 734.7 on 2 CPU processes), but the
   conjugate gradient meets directions of negative curvature of the tangent
-  operator: GMRES or MINRES to be measured.
+  operator, as on the coarse mesh of the example. MINRES with MueLu runs
+  these 5 steps in 205 seconds without any failure; the restarted GMRES of
+  MFEM does not converge. An independent review led to MINRES in the test
+  `rjh_plate-muelu` of ex8, to warnings for the options of MueLu without
+  effect, and to mfem-mgis c7e9cb246a: the message of a failed time step
+  described the sub-step replacing it (`src/Simulation.cxx`, also on the
+  master branch of mfem-mgis; test `SubSteppingMessageTest`).

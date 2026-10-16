@@ -1,0 +1,22 @@
+check-coarse-cg-muelu-l1: 
+check-coarse-cg-muelu: --> IterativeCouplingScheme::computeNextState 3.757302 --> Thermal 0.175590 --> Mechanics 3.580981 
+check-coarse-chebyshev: --> IterativeCouplingScheme::computeNextState 4.047308 --> Thermal 0.172701 --> Mechanics 3.873933 
+check-coarse-jacobi-0.3: --> IterativeCouplingScheme::computeNextState 92.613903 --> Thermal 4.603986 --> Mechanics 87.990776 
+cpu-np2-cg-muelu-chebyshev: --> IterativeCouplingScheme::computeNextState 65.078477 --> Thermal 2.829947 --> Mechanics 62.234792 
+cpu-np2-cg-muelu-jacobi: 
+cpu-np2-cg-muelu-l1jacobi: 
+cpu-np2-cg-muelu: --> IterativeCouplingScheme::computeNextState 57.154192 --> Thermal 2.818853 --> Mechanics 54.321679 
+cpu-np2-cg-muelu-v1: --> IterativeCouplingScheme::computeNextState 57.287431 --> Thermal 2.833232 --> Mechanics 54.441357 
+cpu-np2-mumps: --> IterativeCouplingScheme::computeNextState 22.820591 --> Thermal 2.709091 --> Mechanics 20.099088 
+cpu-np2-r1-step1-cg-muelu: --> IterativeCouplingScheme::computeNextState 734.729351 --> Thermal 4.281041 --> Mechanics 730.434235 
+gpu-np1-cg-muelu-chebyshev: --> IterativeCouplingScheme::computeNextState 16.806613 --> Thermal 3.702336 --> Mechanics 13.076971 
+gpu-np1-cg-muelu-jacobi-0.3: 
+gpu-np1-cg-muelu-jacobi: 
+gpu-np1-cg-muelu-l1jacobi: 
+gpu-np1-cg-muelu: --> IterativeCouplingScheme::computeNextState 94.457571 --> Thermal 3.722084 --> Mechanics 90.707300 
+gpu-np1-mumps-spd: --> IterativeCouplingScheme::computeNextState 11.180559 --> Thermal 2.495065 --> Mechanics 8.657068 
+gpu-np1-r1-cg-muelu-chebyshev: --> IterativeCouplingScheme::computeNextState 263.949534 --> Thermal 15.930971 --> Mechanics 247.778918 
+gpu-np1-r1-gmres-muelu-chebyshev: 
+gpu-np1-r1-minres-muelu-chebyshev: --> IterativeCouplingScheme::computeNextState 205.149218 --> Thermal 12.499517 --> Mechanics 192.454413 
+gpu-np1-r1-step1-cg-muelu-chebyshev: --> IterativeCouplingScheme::computeNextState 39.661338 --> Thermal 2.260836 --> Mechanics 37.367958 
+check-coarse-minres-chebyshev: --> IterativeCouplingScheme::computeNextState 3.885634 --> Thermal 0.174342 --> Mechanics 3.710490 

@@ -1,0 +1,5 @@
+date: 2026-10-16 11:52 to 12:37
+example: build/examples-trilinos-ex8 (mfem-mgis-examples, ex8 options of 33e1bb8 and of intermediate versions)
+mfem-mgis: install/mfem-mgis-trilinos (mfem-mgis 2ff875d552)
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor

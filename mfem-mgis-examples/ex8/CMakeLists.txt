@@ -77,19 +77,22 @@ if(MFEM_MGIS_EXAMPLES_FULL_TESTS)
 else()
   set(rjh_plate_mesh assemblage_hexa_coarse)
 endif()
-# the mechanical problem solved by the conjugate gradient of MFEM
-# preconditioned by MueLu (rigid body modes, Chebyshev smoother), if
-# mfem-mgis has the solvers of Trilinos
+# the mechanical problem solved by MINRES preconditioned by MueLu (rigid
+# body modes, Chebyshev smoother), if mfem-mgis has the solvers of Trilinos:
+# MINRES, not the conjugate gradient, as the tangent operator is not
+# positive definite on the coarse mesh. MueLu may compute on the GPU even
+# when MFEM computes on the CPU (Trilinos without a node of the host).
 if(MFEMMGIS_HAVE_TRILINOS)
   add_test(NAME rjh_plate-muelu
       COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
           $<TARGET_FILE:rjh_plate>
           -m ${rjh_plate_mesh}.msh
-          -lsMc CGSolver -pcMc MueLu -mls chebyshev
+          -lsMc MINRESSolver -pcMc MueLu -mls chebyshev
           -rf ${rjh_plate_mesh}-statistics.ref
       WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   set_tests_properties(rjh_plate-muelu PROPERTIES
       PROCESSORS 2
+      RESOURCE_LOCK gpu
       ENVIRONMENT OMP_NUM_THREADS=1)
 endif()
 # the mechanical problem is solved by MUMPS

@@ -50,8 +50,14 @@ run() {
 }
 common=(-m assemblage_hexa.msh -no-pp -ns 5)
 muelu=(-lsMc CGSolver -pcMc MueLu)
-run check-coarse-chebyshev 2 -m assemblage_hexa_coarse.msh -no-pp \
-  -rf assemblage_hexa_coarse-statistics.ref "${muelu[@]}" -mls chebyshev
+# coarse mesh compared to the reference statistics of the example
+coarse=(-m assemblage_hexa_coarse.msh -no-pp
+  -rf assemblage_hexa_coarse-statistics.ref)
+run check-coarse-cg-muelu 2 "${coarse[@]}" "${muelu[@]}"
+run check-coarse-chebyshev 2 "${coarse[@]}" "${muelu[@]}" -mls chebyshev
+run check-coarse-minres-chebyshev 2 "${coarse[@]}" -lsMc MINRESSolver \
+  -pcMc MueLu -mls chebyshev
+run check-coarse-jacobi-0.3 2 "${coarse[@]}" "${muelu[@]}" -mls jacobi -mld 0.3
 run cpu-np2-mumps 2 "${common[@]}" -lsMc MUMPSSolver
 run cpu-np2-cg-muelu 2 "${common[@]}" "${muelu[@]}"
 run cpu-np2-cg-muelu-chebyshev 2 "${common[@]}" "${muelu[@]}" -mls chebyshev
@@ -60,8 +66,17 @@ run gpu-np1-mumps-spd 1 "${common[@]}" -lsMc MUMPSSolver \
 run gpu-np1-cg-muelu 1 "${common[@]}" "${muelu[@]}" --execution gpu
 run gpu-np1-cg-muelu-chebyshev 1 "${common[@]}" "${muelu[@]}" \
   -mls chebyshev --execution gpu
-run gpu-np1-r1-cg-muelu-chebyshev 1 -m assemblage_hexa.msh -r 1 -no-pp -ns 5 \
-  "${muelu[@]}" -mls chebyshev --execution gpu
+# the Jacobi smoother damped by 0.6 (default) and 0.3: not positive definite
+run cpu-np2-cg-muelu-jacobi 2 "${common[@]}" "${muelu[@]}" -mls jacobi
+run gpu-np1-cg-muelu-jacobi 1 "${common[@]}" "${muelu[@]}" -mls jacobi \
+  --execution gpu
+run gpu-np1-cg-muelu-jacobi-0.3 1 "${common[@]}" "${muelu[@]}" -mls jacobi \
+  -mld 0.3 --execution gpu
+r1=(-m assemblage_hexa.msh -r 1 -no-pp -ns 5 -pcMc MueLu -mls chebyshev
+  --execution gpu)
+run gpu-np1-r1-cg-muelu-chebyshev 1 "${r1[@]}" -lsMc CGSolver
+run gpu-np1-r1-minres-muelu-chebyshev 1 "${r1[@]}" -lsMc MINRESSolver
+run gpu-np1-r1-gmres-muelu-chebyshev 1 "${r1[@]}" -lsMc GMRESSolver
 # first step of the refined mesh (same step as the first of the 5 steps)
 step1=(-m assemblage_hexa.msh -r 1 -no-pp -et 2e4 -tr 1e5 -ns 1)
 run gpu-np1-r1-step1-cg-muelu-chebyshev 1 "${step1[@]}" "${muelu[@]}" \
