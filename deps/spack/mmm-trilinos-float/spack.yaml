@@ -1,0 +1,96 @@
+# Single precision twin of the environment mmm-trilinos-teko, for the
+# benchmark of the examples in float: the same libraries, where MFEM 4.10
+# accepts them in single precision. Built in single precision: hypre (with
+# its internal BLAS and LAPACK: with an external LAPACK, hypre 3.2.0 has no
+# single precision names for the LAPACK routines it uses), PETSc, SUNDIALS,
+# MFEM, and Trilinos with the instantiations of Tpetra for float. Left out:
+# SuperLU_DIST, STRUMPACK and SuiteSparse (the wrappers of MFEM are written
+# for double), GSLIB, libCEED, the wrapper of AmgX of MFEM (mode dDDI; AmgX
+# itself is kept, mfem-mgis uses it directly), PaStiX and HPDDM (not used
+# by the benchmark), and Teko (only used in double by mfem-mgis). The other
+# packages (Kokkos, Ginkgo, AmgX, cuDSS, MUMPS with its single precision
+# library, MAGMA, oneMKL) are the ones of mmm-trilinos-teko, reused.
+spack:
+  specs:
+  - nvhpc@25.11
+  - cuda@13.0.2
+  - openmpi@5 +cuda +internal-hwloc +internal-pmix
+  - kokkos@5.2.1 +cuda +openmp +serial +shared +wrapper ~cuda_relocatable_device_code
+    +cuda_constexpr cxxstd=20 cuda_arch=120
+  - kokkos-kernels@5.2.1 +cuda +openmp +shared +cublas +cusparse +cusolver
+    +execspace_cuda +execspace_openmp +execspace_serial +memspace_cudaspace
+    cuda_arch=120
+  - ginkgo@1.11.0 +cuda +openmp +mpi cuda_arch=120
+  - hypre@3.2.0 +mpi +cuda +umpire ~int64 ~lapack precision=single
+    cuda_arch=120
+  - petsc@3.26.0 ~double +mpi +cuda +kokkos +openmp +hypre +metis ~fortran
+    ~hdf5 cuda_arch=120 +hwloc
+  - sundials +mpi +cuda cuda_arch=120 precision=single
+  - amgx@2.5.0.20260701 +cuda +mpi cuda_arch=120
+  - cudss@0.7.1-13 +mpi
+  - mfem@4.10.0 +mpi +shared ~static +cuda cuda_arch=120 cxxstd=20 +openmp
+    +threadsafe ~libceed +ginkgo +petsc +sundials ~superlu-dist ~strumpack
+    ~amgx +cudss +umpire ~suite-sparse +mumps ~gslib +mkl-pardiso
+    +mkl-cpardiso +magma precision=single
+  - intel-oneapi-mkl-solvers@2025.3.1
+  - magma +cuda cuda_arch=120
+  - trilinos@17.2.1 +mpi +cuda +wrapper +kokkos +openmp +tpetra +belos
+    +ifpack2 +muelu +amesos2 +shylu +tacho +zoltan2 +basker ~fortran
+    +fastilu +float
+    cxxstd=20 cuda_arch=120
+  - cmake
+  view: true
+  config:
+    # cache of this instance of spack: the cache of the user (~/.spack/cache)
+    # is shared with the other instances of spack of the machine, whose
+    # repository `builtin` may be at another commit (index of the patches)
+    misc_cache: $spack/var/spack/misc-cache
+  concretizer:
+    unify: true
+    reuse: false
+  repos:
+    mmm_trilinos: $env/../repos/spack_repo/mmm_trilinos
+    mmm_solvers: $env/../repos/spack_repo/mmm_solvers
+    mmm_gpu: $env/../repos/spack_repo/mmm_gpu
+    builtin: /home/t/Bureau/spack-packages-mmm/repos/spack_repo/builtin
+  packages:
+    all:
+      require: [target=x86_64_v3]
+    mpi:
+      require: [openmpi@5]
+    # shared library of gslib: libmfem.so links it, and its static library
+    # is not relocatable
+    gslib:
+      require: [+shared]
+    # OpenBLAS rather than the BLAS and LAPACK of the HPC SDK
+    blas:
+      require: [openblas]
+    lapack:
+      require: [openblas]
+    c:
+      require: [gcc@14.2.0]
+    cxx:
+      require: [gcc@14.2.0]
+    fortran:
+      require: [gcc@14.2.0]
+    gcc:
+      buildable: false
+      externals:
+      - spec: gcc@14.2.0 languages:='c,c++,fortran'
+        prefix: /usr
+        extra_attributes:
+          compilers:
+            c: /usr/bin/gcc-14
+            cxx: /usr/bin/g++-14
+            fortran: /usr/bin/gfortran-14
+    nvhpc:
+      buildable: false
+      externals:
+      # BLAS and LAPACK of OpenBLAS (see above)
+      - spec: nvhpc@25.11 ~blas ~lapack ~mpi
+        prefix: /opt/nvidia/hpc_sdk
+    cuda:
+      buildable: false
+      externals:
+      - spec: cuda@13.0.2
+        prefix: /home/t/Bureau/spack-mmm-externals/cuda-13.0.2
