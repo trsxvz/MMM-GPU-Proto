@@ -12,7 +12,10 @@
 # cpu" by default), FILTER (regular expression selecting the linear
 # solvers), OPTIONS (other options of the beam, for instance `-pu 4`: the
 # preconditioner of cg-amg and cg-muelu built every 4 Newton iterations)
-# and LABEL (suffix of the names of the runs).
+# LABEL (suffix of the names of the runs) and TANGENT (computation of the
+# tangent operator: Kernels by default, MatrixFree to apply it without
+# assembly, the assembled operator being then only built when the
+# preconditioner is set up again).
 set -u
 P=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 C=$(cd "${1:-$P/build/cases-trilinos}" && pwd)
@@ -41,7 +44,7 @@ unset OMP_PROC_BIND OMP_PLACES
 export MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 export MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
 export MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
-export MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=Kernels
+export MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=${TANGENT:-Kernels}
 # context and summary appended, the script being run for several
 # refinements in the same directory
 {

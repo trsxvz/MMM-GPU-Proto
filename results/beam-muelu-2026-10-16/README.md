@@ -42,5 +42,49 @@ displacement (to 1e-8) and the same Newton iterations (28 to 35).
   2.99 seconds at refinement 4, 15.61 against 15.81 at refinement 5).
 - The runs `-pu4` (preconditioner built every 4 Newton iterations, option
   `-pu 4`) gave the same times as the runs without it, for BoomerAMG and
-  for MueLu (not investigated).
+  for MueLu: the preconditioner `AssembledOperator` of mfem-mgis is set up
+  again whenever the operator has been assembled again, which happens at
+  each Newton iteration with the tangent operator assembled by kernels
+  (`MFEMLinearSolvers.cxx`); the period only applies to the tangent
+  operator applied without assembly.
 - The first runs (before d08224ba8f) used mfem-mgis 44158ee740.
+
+## Tangent operator applied without assembly (16/10/2026, 10 h 53)
+
+GPU only, refinements 4 and 5, mfem-mgis 7ab30d43f4 (MueLu declared as an
+approximate linear solver), tangent operator applied without assembly
+(`TANGENT=MatrixFree`), two repetitions (the runs `-rep2`), GPU reserved:
+
+- `-mf-k0-amg` and `-mf-k0-muelu`: Newton-K0 method of the fixed point
+  solver (`-nls fixed-point -fpm newton-k0 -k0 -pk0 -alst
+  EisenstatWalker1 -alsti 0.1`): conjugate gradient on the tangent
+  operator, preconditioned by one cycle of a multigrid built once on the
+  elastic operator, BoomerAMG (`-els amg`) or MueLu with two sweeps of a
+  Jacobi smoother (`-els muelu`). The linear solver of the problem
+  (`cg-amg` in the names of the runs) is not used.
+- `-mf-pu4`: Newton, the preconditioner (`cg-amg` or `cg-muelu`, built on
+  the operator assembled for it) set up again every 4 Newton iterations
+  (`-pu 4`).
+
+| refinement | method | multigrid | time (s) | Newton iterations |
+|---|---|---|---|---|
+| 4 | Newton-K0 | BoomerAMG | 1.87 to 2.06 | 33 |
+| 4 | Newton-K0 | MueLu | 0.85 to 0.87 | 35 |
+| 4 | Newton, `-pu 4` | BoomerAMG | 2.91 to 2.98 | 31 to 32 |
+| 4 | Newton, `-pu 4` | MueLu | 1.46 to 1.48 | 31 |
+| 5 | Newton-K0 | BoomerAMG | 11.24 to 11.58 | 38 to 39 |
+| 5 | Newton-K0 | MueLu | 6.53 to 6.60 | 34 |
+| 5 | Newton, `-pu 4` | BoomerAMG | 18.63 to 18.77 | 32 |
+| 5 | Newton, `-pu 4` | MueLu | 10.80 to 10.84 | 32 |
+
+- Newton-K0 with MueLu is the fastest configuration measured on this beam:
+  6.5 seconds at refinement 5, against 11.2 with BoomerAMG and 15.6 to
+  15.8 for Newton with the tangent operator assembled (first table), 2.4
+  times faster. At refinement 4, 0.85 seconds against 1.87 and 3.0.
+- With the tangent operator applied without assembly and the
+  preconditioner set up every 4 Newton iterations, MueLu is 1.7 times
+  faster than BoomerAMG (10.8 against 18.7 seconds at refinement 5).
+- The norm of the displacement of Newton-K0 differs from that of Newton by
+  1.4e-6 in relative value at refinement 5 with MueLu (133.69566 against
+  133.69585), by less than 1e-8 with BoomerAMG: the linear resolutions of
+  Newton-K0 are inexact (Eisenstat-Walker tolerances).

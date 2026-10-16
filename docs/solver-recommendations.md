@@ -85,7 +85,13 @@ computes, with the serial node of Tpetra on the host, except FROSch (see
   Without the reuse, its setup takes 0.51 seconds (0.58 per operator). On
   the nonlinear beam of the prototype (Newton, tolerance 1e-4), MueLu is
   as fast as BoomerAMG on the GPU and twice as fast on 8 cores
-  ([measurements](../results/beam-muelu-2026-10-16/README.md)). Its default smoother
+  ([measurements](../results/beam-muelu-2026-10-16/README.md)). With the
+  Newton-K0 method (tangent operator applied without assembly, conjugate
+  gradient preconditioned by one V-cycle of MueLu built once on the
+  elastic operator, MueLu being declared as an approximate solver), the
+  beam of 839,619 unknowns takes 6.5 seconds on the GPU, against 11.2 with
+  one cycle of BoomerAMG and 15.6 to 15.8 for Newton with the assembled
+  tangent operator. Its default smoother
   (symmetric Gauss-Seidel) is slow on the GPU (a resolution in 3.8 seconds
   instead of 0.071), and its Chebyshev smoother stopped the conjugate
   gradient on the homogeneous beam (preconditioner not positive

@@ -227,6 +227,12 @@ The solvers marked as parallel are only available in parallel.
      - host, or GPU (Trilinos built with CUDA or HIP)
      - none
      - :cxx:`Solver`, :cxx:`Parameters` (see :ref:`trilinos_linear_solvers`)
+   * - :cxx:`MueLu` (parallel)
+     - Trilinos
+     - approximate
+     - host, or GPU (Trilinos built with CUDA or HIP)
+     - none
+     - :cxx:`Parameters` (see :ref:`trilinos_linear_solvers`)
 
 Preconditioners
 ===============
@@ -678,7 +684,11 @@ the following entries are available in parallel, in double precision:
   option (:cxx:`RELAXATION` by default, a Jacobi relaxation, :cxx:`CHEBYSHEV`,
   :cxx:`RILUK`, :cxx:`ILUT`, :cxx:`SCHWARZ`...);
 - :cxx:`MueLu`: one V-cycle of the smoothed aggregation algebraic multigrid
-  of MueLu;
+  of MueLu, available as a preconditioner and as an approximate linear
+  solver (for instance the linear solver of the elastic operator of the
+  fixed point solver); as a linear solver in the iterative mode
+  (:code:`iterative_mode` of :code:`MFEM`), it corrects the initial guess
+  from its residual, as :cxx:`HypreBoomerAMG`;
 - :cxx:`FROSch`: the two level overlapping Schwarz preconditioner of FROSch
   (:code:`TwoLevelPreconditioner`: algebraic overlap, one layer by default,
   coarse space of the interface partition of unity, the subdomains and the
@@ -786,33 +796,48 @@ parameter :code:`coarse: max size` (2000 unknowns by default). The
 coordinates of the nodes are also given to MueLu (user data
 :code:`Coordinates`), for its options based on them, unless another number
 of equations is given. Unless they are given, mfem-mgis sets, in the
-simplified syntax of MueLu, the parameters :code:`number of equations`
-(see above), :code:`use kokkos refactor` (:code:`false`: the factories of
-MueLu which are not written with :code:`Kokkos`, MueLu using its factories
-written with :code:`Kokkos` on a GPU by default; on the linear elasticity
-with the rigid body modes, the latter needed twice the iterations, 22
-against 12 on a beam of 421,443 unknowns on the GPU, and a longer setup,
-0.81 against 0.51 seconds), :code:`aggregation: deterministic`
-(reproducible aggregates, MueLu aggregating the nodes in a random order by
-default), :code:`verbosity` (:code:`none`, a silent setup) and, on CUDA,
-when each GPU of the node serves one process, in the sublist
-:code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
-(:code:`SPGEMM_KK`: the products of sparse matrices of Kokkos Kernels,
-those of cuSPARSE, the default of Tpetra on CUDA, running out of memory on
-a GPU of 16 GB from a few hundred thousand unknowns). Kokkos Kernels
-reserves up to half the free memory of the GPU for each product: several
-processes using the same GPU (compared by their PCI addresses) ran out of
-memory, and keep the algorithm of cuSPARSE. On a GPU, the default smoother
-of MueLu (symmetric Gauss-Seidel) is slow: on the beam of 421,443
-unknowns, a resolution took 1.9 seconds, against 0.040 seconds with two
+simplified syntax of MueLu, the parameters :code:`number of equations` (see
+above), :code:`use kokkos refactor` (:code:`false`: the factories of MueLu
+which are not written with :code:`Kokkos`, MueLu using its factories written
+with :code:`Kokkos` on all the nodes but the serial one by default; on the
+linear elasticity with the rigid body modes, the latter needed twice the
+iterations, 22 against 12 on a beam of 421,443 unknowns on the GPU, and a
+longer setup, 0.81 against 0.51 seconds), :code:`aggregation: deterministic`
+(reproducible aggregates with the factories written with :code:`Kokkos`,
+which aggregate the nodes in a random order by default, the other ones
+following :code:`aggregation: ordering`, natural by default),
+:code:`verbosity`
+(:code:`none`, a silent setup) and, on CUDA, when each GPU of the node
+serves one process, in the sublist :code:`matrixmatrix: kernel params`,
+:code:`cuda: algorithm` (:code:`SPGEMM_KK`: the products of sparse matrices
+of Kokkos Kernels, those of cuSPARSE, the default of Tpetra on CUDA, running
+out of memory on a GPU of 16 GB from a few hundred thousand unknowns).
+Kokkos Kernels reserves up to half the free memory of the GPU for each
+product: several processes using the same GPU (compared by the UUIDs of the
+GPUs, the instances of a GPU partitioned by MIG being distinct GPUs) ran out
+of memory, and keep the algorithm of cuSPARSE. The factories which are not
+written with :code:`Kokkos` compute the dropping, the aggregation and the
+tentative prolongators on the host (the matrix of each level being copied
+to the host when they are computed, not when the prolongators are kept,
+:code:`reuse: type` set to :code:`tP`, :code:`RP`, :code:`RAP` or
+:code:`full`), and some options only exist in the factories written with
+:code:`Kokkos`: the drop schemes :code:`point-wise`, :code:`cut-drop`,
+:code:`signed classical distance laplacian` and :code:`signed classical sa
+distance laplacian` are refused, and :code:`aggregation: use blocking`,
+:code:`aggregation: strength-of-connection: matrix`, :code:`aggregation:
+strength-of-connection: measure`, :code:`aggregation: symmetrize graph after
+dropping` and :code:`aggregation: distance laplacian metric` are ignored,
+unless :code:`use kokkos refactor` is set to :code:`true`. On a GPU, the
+default smoother of MueLu (symmetric Gauss-Seidel) is slow: on the beam of
+421,443 unknowns, a resolution took 1.9 seconds, against 0.040 seconds with two
 sweeps of a Jacobi relaxation (:code:`smoother: type` set to
 :code:`RELAXATION`, :code:`smoother: params` to :code:`{relaxation: type =
 Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for 12
-iterations instead of 10; the setup of MueLu (0.51 seconds) then
-dominates. The Chebyshev smoother of degree 2 stopped the conjugate
-gradient on this beam (preconditioner not positive definite) unless the
-largest eigenvalue is estimated with more iterations (:code:`chebyshev:
-eigenvalue max iterations` 30 and :code:`chebyshev: boost factor` 1.2).
+iterations instead of 10; the setup of MueLu (0.51 seconds) then dominates.
+The Chebyshev smoother of degree 2 stopped the conjugate gradient on this
+beam (preconditioner not positive definite) unless the largest eigenvalue is
+estimated with more iterations (:code:`chebyshev: eigenvalue max iterations`
+30 and :code:`chebyshev: boost factor` 1.2 in :code:`smoother: params`).
 
 The hierarchy of MueLu is built again for each operator, unless its
 parameter :code:`reuse: type` is given (:code:`RP`: the prolongators and
@@ -825,7 +850,8 @@ are kept and set up again for the new operator, except the estimate of
 the largest eigenvalue of the Chebyshev smoother, kept from the first
 operator: with a stiffening operator, the Jacobi smoother is safer. On
 the beam of 421,443 unknowns, on the GPU, with the Jacobi smoother above,
-:code:`RP` sets up a second operator in 0.14 seconds instead of 0.54.
+:code:`RP` sets up a second operator in 0.14 seconds instead of 0.54
+without the reuse.
 Keeping the whole hierarchy (:code:`full`) keeps the coarse operators of
 the first operator, which suits only operators that do not change.
 

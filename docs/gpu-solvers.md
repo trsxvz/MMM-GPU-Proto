@@ -72,7 +72,7 @@ rows.
 | Addition: recent hypre (filtering of the couplings between components, flexible cycle, overlapping Schwarz, Chebyshev solver) | both | 4 | hypre 2.32 to 3.2 |
 | Addition: adaptive time step driven by the convergence of Newton | both | 4 | mfem-mgis |
 | Addition: nonlinear solvers of PETSc on GPU vectors (NGMRES, Anderson, quasi-Newton, NASM) | both | 4 | PETSc SNES: the entry `SNES` of the factory of nonlinear solvers is done (15/10/2026), on vectors of the host (see the row of GAMG) |
-| Addition: MueLu of Trilinos (smoothed aggregation with rigid body modes, Kokkos) | both | 3 | Trilinos; no MFEM interface |
+| Addition: MueLu of Trilinos (smoothed aggregation with rigid body modes, Kokkos) | both | 3 | done: module of Trilinos of mfem-mgis (16/10/2026), see [MueLu](#muelu-trilinos) |
 | Addition: recycling of Krylov subspaces between Newton iterations | both | 3 | PETSc (HPDDM, GCRO-DR); GPU to be checked |
 | Addition: behaviours in single precision on consumer GPU | GPU | 3 | requires TFEL and MGIS |
 | Addition: batched dense algebra of MFEM (`BatchedLinAlg`, 3×3 blocks and element matrices) and CUDA graphs (small kernels) | mostly GPU | 4 | MFEM 4.8 and later, CUDA |
@@ -414,9 +414,14 @@ being permuted for MueLu; Trilinos 17.2.1 built with CUDA (environment
 Tpetra on the host), the matrices of hypre being converted on the GPU by
 kernels of Kokkos. With a Jacobi smoother and its hierarchy reused between
 operators (`reuse: type` set to `RP`), MueLu is the fastest preconditioner
-measured on the GPU per operator: 0.20 to 0.24 seconds on the beam of
+measured on the GPU per operator: 0.18 to 0.24 seconds on the beam of
 421,443 unknowns, against 0.33 for BoomerAMG
-([recommendations](solver-recommendations.md)).
+([recommendations](solver-recommendations.md)). MueLu is also an
+approximate linear solver (one V-cycle) of mfem-mgis: on the nonlinear
+beam of 839,619 unknowns on the GPU, the method `NewtonK0` with one
+V-cycle of MueLu built once on the elastic operator takes 6.5 seconds,
+against 11.2 with BoomerAMG and 15.6 for Newton with the assembled tangent
+operator ([measurements](../results/beam-muelu-2026-10-16/README.md)).
 
 ## Mixed precision
 

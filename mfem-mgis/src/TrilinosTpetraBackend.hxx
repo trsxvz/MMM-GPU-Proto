@@ -430,9 +430,10 @@ namespace mfem_mgis::trilinos {
                 }
               }
             });
-        // on the GPU, each row is sorted by a team of threads, without the
-        // temporary arrays of the sort of all the entries, which Kokkos
-        // Kernels selects for long rows (about 32 bytes per entry)
+        // on the GPU, each row is sorted by one thread (and its vector
+        // lanes), without the temporary arrays of the sort of all the
+        // entries, which Kokkos Kernels selects for long or imbalanced rows
+        // (about 32 bytes per entry)
         auto algorithm = KokkosSparse::SortAlgorithm::DEFAULT;
         if constexpr (gpu) {
           algorithm = KokkosSparse::SortAlgorithm::PARALLEL_THREAD_LEVEL;
@@ -886,12 +887,8 @@ namespace mfem_mgis::trilinos {
         // solver. The parameters of a level are given in a sublist `level N`.
         // The other syntaxes are checked by MueLu only.
         if (this->simplified) {
-          // `use kokkos refactor` (the factories of MueLu written with Kokkos,
-          // the default on a GPU) is read by MueLu but absent from its master
-          // list
           checkParameterNames("MueLu", *(this->parameters),
-                              *(MueLu::MasterList::List()),
-                              {"level ", "use kokkos refactor"});
+                              *(MueLu::MasterList::List()), {"level "});
         }
       }
       void setMatrix(const DistributedMatrixView& m) override {
@@ -973,9 +970,12 @@ namespace mfem_mgis::trilinos {
 #ifdef KOKKOS_ENABLE_CUDA
       /*!
        * \return true if a GPU is used by several processes of a node, on
-       * all the processes: the PCI addresses of the GPUs used by the
-       * processes of each node are compared (the GPUs visible to a process
-       * may be restricted, for instance by `CUDA_VISIBLE_DEVICES`)
+       * all the processes: the UUIDs of the GPUs used by the processes of
+       * each node are compared (the GPUs visible to a process may be
+       * restricted, for instance by `CUDA_VISIBLE_DEVICES`; the instances of
+       * a GPU partitioned by MIG have their own memories, and their own
+       * UUIDs with the recent drivers, otherwise they are seen as one shared
+       * GPU, which only keeps the algorithms using less memory)
        * \param[in] comm: communicator
        */
       static bool isGPUShared(const MPI_Comm comm) {
@@ -986,17 +986,17 @@ namespace mfem_mgis::trilinos {
         MPI_Comm_size(node, &processes);
         const auto cuda = Kokkos::Cuda{};
         const auto& properties = cuda.cuda_device_prop();
-        const auto local =
-            std::array<int, 3>{properties.pciDomainID, properties.pciBusID,
-                               properties.pciDeviceID};
-        auto addresses = std::vector<std::array<int, 3>>(
+        constexpr auto n = sizeof(properties.uuid.bytes);
+        auto local = std::array<char, n>{};
+        std::ranges::copy(properties.uuid.bytes, local.begin());
+        auto uuids = std::vector<std::array<char, n>>(
             static_cast<std::size_t>(processes));
-        MPI_Allgather(local.data(), 3, MPI_INT, addresses.data(), 3, MPI_INT,
-                      node);
+        MPI_Allgather(local.data(), static_cast<int>(n), MPI_BYTE, uuids.data(),
+                      static_cast<int>(n), MPI_BYTE, node);
         MPI_Comm_free(&node);
-        std::ranges::sort(addresses);
-        auto shared = static_cast<int>(std::ranges::adjacent_find(addresses) !=
-                                       addresses.end());
+        std::ranges::sort(uuids);
+        auto shared =
+            static_cast<int>(std::ranges::adjacent_find(uuids) != uuids.end());
         MPI_Allreduce(MPI_IN_PLACE, &shared, 1, MPI_INT, MPI_LOR, comm);
         return shared != 0;
       }  // end of isGPUShared
@@ -1027,16 +1027,20 @@ namespace mfem_mgis::trilinos {
 #else  /* KOKKOS_ENABLE_CUDA */
         static_cast<void>(comm);
 #endif /* KOKKOS_ENABLE_CUDA */
-        // the factories of MueLu which are not written with Kokkos, MueLu
-        // using its factories written with Kokkos on a GPU by default: on the
-        // linear elasticity with the rigid body modes, the latter needed
-        // twice the iterations (22 against 12 at 421,443 unknowns on the
-        // GPU), and a longer setup (0.81 against 0.51 seconds)
+        // the factories of MueLu which are not written with Kokkos (dropping,
+        // aggregation and tentative prolongator computed on the host), MueLu
+        // using its factories written with Kokkos on all the nodes but the
+        // serial one by default: on the linear elasticity with the rigid
+        // body modes, the latter needed twice the iterations (22 against 12
+        // at 421,443 unknowns on the GPU), and a longer setup (0.81 against
+        // 0.51 seconds)
         if (!p.isParameter("use kokkos refactor")) {
           p.set("use kokkos refactor", false);
         }
-        // reproducible aggregates (MueLu aggregates the nodes in a random
-        // order by default), and silent setup
+        // reproducible aggregates with the factories written with Kokkos,
+        // which aggregate the nodes in a random order by default (the other
+        // ones follow `aggregation: ordering`, natural by default), and
+        // silent setup
         if (!p.isParameter("aggregation: deterministic")) {
           p.set("aggregation: deterministic", true);
         }

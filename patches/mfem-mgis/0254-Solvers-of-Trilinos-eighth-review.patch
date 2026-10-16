@@ -1,0 +1,382 @@
+From 2ff875d552c092171082a89be18cf1679d16f757 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 11:15:50 +0200
+Subject: [PATCH] Solvers of Trilinos: eighth review
+
+- In the iterative mode, the multigrids, relaxations and direct solvers of
+  Trilinos correct the initial guess from its residual, as BoomerAMG of
+  hypre does: MueLu used as an approximate linear solver overwrote it.
+  The test checks that the stationary iteration with one V-cycle of
+  MueLu converges (relative residual 2e-15 after 30 iterations, against
+  0.07 to 0.17 for one V-cycle).
+- The test checks one V-cycle of MueLu as a linear solver, and that the
+  factories written with Kokkos reduce the iterations.
+- The UUIDs of the GPUs are exchanged as bytes.
+- Comments and documentation: UUIDs instead of PCI addresses, row of
+  MueLu in the table of the linear solvers, glossary, linear solver of
+  the elastic operator, aggregation order of the factories which are not
+  written with Kokkos, options of the factories written with Kokkos named
+  in full.
+---
+ docs/source/user_guide/glossary.rst           | 11 ++--
+ docs/source/user_guide/linear_solvers.rst     | 49 +++++++++-----
+ .../user_guide/nonlinear_algorithms.rst       |  3 +-
+ src/TrilinosLinearSolvers.cxx                 | 66 +++++++++++++------
+ src/TrilinosTpetraBackend.hxx                 | 14 ++--
+ tests/TrilinosSolversTest.cxx                 | 60 +++++++++++++++--
+ 6 files changed, 149 insertions(+), 54 deletions(-)
+
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 9ed05b1c1a..babb102ea6 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -840,11 +840,12 @@ Algebraic multigrid of AmgX (AmgX)
+ Algebraic multigrid of MueLu (MueLu)
+ ------------------------------------
+ 
+-- Preconditioner name: ``MueLu``, one V-cycle of the smoothed aggregation
+-  algebraic multigrid of ``Trilinos``, with the rigid body modes as near
+-  null space when the number of components of the unknowns is the space
+-  dimension. The other entries of ``Trilinos`` are the linear solvers
+-  ``BelosSolver`` and ``Amesos2Solver``, and the preconditioners
++- Preconditioner and linear solver name: ``MueLu``, one V-cycle of the
++  smoothed aggregation algebraic multigrid of ``Trilinos``, with the rigid
++  body modes as near null space when the number of components of the
++  unknowns is the space dimension (an approximate linear solver, like
++  ``HypreBoomerAMG``). The other entries of ``Trilinos`` are the linear
++  solvers ``BelosSolver`` and ``Amesos2Solver``, and the preconditioners
+   ``Ifpack2``, ``FROSch`` and ``Amesos2Preconditioner``.
+ - Dependencies: ``mfem-mgis`` built with the CMake option
+   ``enable-trilinos``, in parallel.
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index f56a586ea9..3da12b290c 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -227,6 +227,12 @@ The solvers marked as parallel are only available in parallel.
+      - host, or GPU (Trilinos built with CUDA or HIP)
+      - none
+      - :cxx:`Solver`, :cxx:`Parameters` (see :ref:`trilinos_linear_solvers`)
++   * - :cxx:`MueLu` (parallel)
++     - Trilinos
++     - approximate
++     - host, or GPU (Trilinos built with CUDA or HIP)
++     - none
++     - :cxx:`Parameters` (see :ref:`trilinos_linear_solvers`)
+ 
+ Preconditioners
+ ===============
+@@ -678,9 +684,11 @@ the following entries are available in parallel, in double precision:
+   option (:cxx:`RELAXATION` by default, a Jacobi relaxation, :cxx:`CHEBYSHEV`,
+   :cxx:`RILUK`, :cxx:`ILUT`, :cxx:`SCHWARZ`...);
+ - :cxx:`MueLu`: one V-cycle of the smoothed aggregation algebraic multigrid
+-  of MueLu, a preconditioner and an approximate linear solver (for
+-  instance the linear solver of the elastic operator of the fixed point
+-  solver);
++  of MueLu, available as a preconditioner and as an approximate linear
++  solver (for instance the linear solver of the elastic operator of the
++  fixed point solver); as a linear solver in the iterative mode
++  (:code:`iterative_mode` of :code:`MFEM`), it corrects the initial guess
++  from its residual, as :cxx:`HypreBoomerAMG`;
+ - :cxx:`FROSch`: the two level overlapping Schwarz preconditioner of FROSch
+   (:code:`TwoLevelPreconditioner`: algebraic overlap, one layer by default,
+   coarse space of the interface partition of unity, the subdomains and the
+@@ -796,27 +804,32 @@ linear elasticity with the rigid body modes, the latter needed twice the
+ iterations, 22 against 12 on a beam of 421,443 unknowns on the GPU, and a
+ longer setup, 0.81 against 0.51 seconds), :code:`aggregation: deterministic`
+ (reproducible aggregates with the factories written with :code:`Kokkos`,
+-which aggregate the nodes in a random order by default), :code:`verbosity`
++which aggregate the nodes in a random order by default, the other ones
++following :code:`aggregation: ordering`, natural by default),
++:code:`verbosity`
+ (:code:`none`, a silent setup) and, on CUDA, when each GPU of the node
+ serves one process, in the sublist :code:`matrixmatrix: kernel params`,
+ :code:`cuda: algorithm` (:code:`SPGEMM_KK`: the products of sparse matrices
+ of Kokkos Kernels, those of cuSPARSE, the default of Tpetra on CUDA, running
+ out of memory on a GPU of 16 GB from a few hundred thousand unknowns).
+ Kokkos Kernels reserves up to half the free memory of the GPU for each
+-product: several processes using the same GPU (compared by their PCI
+-addresses) ran out of memory, and keep the algorithm of cuSPARSE. The
+-factories which are not written with :code:`Kokkos` compute the dropping,
+-the aggregation and the tentative prolongators on the host (the matrix of
+-each level being copied on the host at each full setup, not when the
+-hierarchy is reused), and some options only exist in the factories written
+-with :code:`Kokkos`: the drop schemes :code:`point-wise`, :code:`cut-drop`
+-and the signed distance Laplacians are refused, and :code:`aggregation: use
+-blocking`, :code:`aggregation: strength-of-connection: matrix` and
+-:code:`measure`, :code:`aggregation: symmetrize graph after dropping` and
+-:code:`aggregation: distance laplacian metric` are ignored, unless
+-:code:`use kokkos refactor` is set to :code:`true`. On a GPU, the default
+-smoother of MueLu (symmetric Gauss-Seidel) is slow: on the beam of 421,443
+-unknowns, a resolution took 1.9 seconds, against 0.040 seconds with two
++product: several processes using the same GPU (compared by the UUIDs of the
++GPUs, the instances of a GPU partitioned by MIG being distinct GPUs) ran out
++of memory, and keep the algorithm of cuSPARSE. The factories which are not
++written with :code:`Kokkos` compute the dropping, the aggregation and the
++tentative prolongators on the host (the matrix of each level being copied
++to the host when they are computed, not when the prolongators are kept,
++:code:`reuse: type` set to :code:`tP`, :code:`RP`, :code:`RAP` or
++:code:`full`), and some options only exist in the factories written with
++:code:`Kokkos`: the drop schemes :code:`point-wise`, :code:`cut-drop`,
++:code:`signed classical distance laplacian` and :code:`signed classical sa
++distance laplacian` are refused, and :code:`aggregation: use blocking`,
++:code:`aggregation: strength-of-connection: matrix`, :code:`aggregation:
++strength-of-connection: measure`, :code:`aggregation: symmetrize graph after
++dropping` and :code:`aggregation: distance laplacian metric` are ignored,
++unless :code:`use kokkos refactor` is set to :code:`true`. On a GPU, the
++default smoother of MueLu (symmetric Gauss-Seidel) is slow: on the beam of
++421,443 unknowns, a resolution took 1.9 seconds, against 0.040 seconds with two
+ sweeps of a Jacobi relaxation (:code:`smoother: type` set to
+ :code:`RELAXATION`, :code:`smoother: params` to :code:`{relaxation: type =
+ Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for 12
+diff --git a/docs/source/user_guide/nonlinear_algorithms.rst b/docs/source/user_guide/nonlinear_algorithms.rst
+index 7501df4c0e..a14e7c9787 100644
+--- a/docs/source/user_guide/nonlinear_algorithms.rst
++++ b/docs/source/user_guide/nonlinear_algorithms.rst
+@@ -289,7 +289,8 @@ The option :cxx:`Method` selects :math:`\mathbb{S}`:
+ The linear solver of the elastic operator (option
+ :cxx:`ElasticOperatorLinearSolver`) is one of the linear solvers of the
+ problems (see :doc:`glossary`), for instance :cxx:`HypreBoomerAMG` for one
+-cycle of BoomerAMG per iteration in a parallel computation. With the
++cycle of BoomerAMG per iteration in a parallel computation, or :cxx:`MueLu`
++for one V-cycle of MueLu (Trilinos). With the
+ :cxx:`ElasticOperator` method, if it is not given, the linear solver of the
+ problem is used, and set up with :math:`\mathbb{K}_{0}` at each
+ resolution. The value :cxx:`None` removes the linear solver of the elastic
+diff --git a/src/TrilinosLinearSolvers.cxx b/src/TrilinosLinearSolvers.cxx
+index 7a24ab1caf..26a71a64ac 100644
+--- a/src/TrilinosLinearSolvers.cxx
++++ b/src/TrilinosLinearSolvers.cxx
+@@ -208,6 +208,7 @@ namespace mfem_mgis::internals {
+       }
+       this->height = a->Height();
+       this->width = a->Width();
++      this->matrix = a;
+       // the matrix, which may be read on the host, is given back to hypre,
+       // whose computations may be on the GPU, even on error (its values are
+       // copied by Trilinos)
+@@ -222,29 +223,24 @@ namespace mfem_mgis::internals {
+       this->backend->setMatrix(v.view);
+     }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+-      // the vectors are given on the GPU when MFEM and Tpetra compute there
+-      const auto on_device = this->backend->computesOnTheGPU() &&
+-                             b.UseDevice() && x.UseDevice() &&
+-                             mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+-                                                  mfem::Backend::HIP_MASK);
+       if (!this->iterative_mode) {
+         x = 0.;
++      } else if ((!this->iterative) && (this->matrix != nullptr)) {
++        // the multigrids, the relaxations and the direct solvers of Trilinos
++        // overwrite the initial guess: the correction of the initial guess
++        // is computed from the residual, as BoomerAMG of hypre does
++        auto r = mfem::Vector(b.Size());
++        r.UseDevice(b.UseDevice());
++        r = b;
++        this->matrix->Mult(-1., x, 1., r);
++        auto c = mfem::Vector(x.Size());
++        c.UseDevice(x.UseDevice());
++        c = 0.;
++        this->apply(r, c);
++        x += c;
++        return;
+       }
+-      const auto* const pb = b.Read(on_device);
+-      auto* const px = x.ReadWrite(on_device);
+-      if (on_device) {
+-        // Tpetra may compute on another stream than MFEM
+-        MFEM_DEVICE_SYNC;
+-        this->backend->applyOnDevice(pb, px);
+-      } else {
+-        this->backend->apply(pb, px);
+-      }
+-      // a failure of the solver is a resolution which did not converge
+-      const auto& failure = this->backend->getReport().failure;
+-      if ((!failure.empty()) && (mfem::Mpi::Root())) {
+-        mfem_mgis::getErrorStream()
+-            << "Trilinos: the resolution failed: " << failure << '\n';
+-      }
++      this->apply(b, x);
+     }
+     [[nodiscard]] bool hasConverged() const noexcept override {
+       return this->backend->getReport().converged;
+@@ -276,10 +272,40 @@ namespace mfem_mgis::internals {
+     }
+ 
+    private:
++    /*!
++     * \brief applies the solver or the preconditioner of Trilinos, `x`
++     * being the initial guess of the iterative solvers
++     * \param[in] b: right hand side
++     * \param[in, out] x: result
++     */
++    void apply(const mfem::Vector& b, mfem::Vector& x) const {
++      // the vectors are given on the GPU when MFEM and Tpetra compute there
++      const auto on_device = this->backend->computesOnTheGPU() &&
++                             b.UseDevice() && x.UseDevice() &&
++                             mfem::Device::Allows(mfem::Backend::CUDA_MASK |
++                                                  mfem::Backend::HIP_MASK);
++      const auto* const pb = b.Read(on_device);
++      auto* const px = x.ReadWrite(on_device);
++      if (on_device) {
++        // Tpetra may compute on another stream than MFEM
++        MFEM_DEVICE_SYNC;
++        this->backend->applyOnDevice(pb, px);
++      } else {
++        this->backend->apply(pb, px);
++      }
++      // a failure of the solver is a resolution which did not converge
++      const auto& failure = this->backend->getReport().failure;
++      if ((!failure.empty()) && (mfem::Mpi::Root())) {
++        mfem_mgis::getErrorStream()
++            << "Trilinos: the resolution failed: " << failure << '\n';
++      }
++    }  // end of apply
+     //! \brief solver or preconditioner of Trilinos
+     std::unique_ptr<trilinos::Operator> backend;
+     //! \brief preconditioner of a Krylov solver of Belos (not owned)
+     mfem::Solver* preconditioner = nullptr;
++    //! \brief matrix of the system (not owned)
++    const mfem::HypreParMatrix* matrix = nullptr;
+     //! \brief number of components of the unknowns
+     const int number_of_components;
+     //! \brief if true, the unknowns are ordered by nodes
+diff --git a/src/TrilinosTpetraBackend.hxx b/src/TrilinosTpetraBackend.hxx
+index 4b92471add..87f8badd19 100644
+--- a/src/TrilinosTpetraBackend.hxx
++++ b/src/TrilinosTpetraBackend.hxx
+@@ -973,7 +973,9 @@ namespace mfem_mgis::trilinos {
+        * all the processes: the UUIDs of the GPUs used by the processes of
+        * each node are compared (the GPUs visible to a process may be
+        * restricted, for instance by `CUDA_VISIBLE_DEVICES`; the instances of
+-       * a GPU partitioned by MIG have their own UUIDs and memories)
++       * a GPU partitioned by MIG have their own memories, and their own
++       * UUIDs with the recent drivers, otherwise they are seen as one shared
++       * GPU, which only keeps the algorithms using less memory)
+        * \param[in] comm: communicator
+        */
+       static bool isGPUShared(const MPI_Comm comm) {
+@@ -989,8 +991,8 @@ namespace mfem_mgis::trilinos {
+         std::ranges::copy(properties.uuid.bytes, local.begin());
+         auto uuids = std::vector<std::array<char, n>>(
+             static_cast<std::size_t>(processes));
+-        MPI_Allgather(local.data(), static_cast<int>(n), MPI_CHAR, uuids.data(),
+-                      static_cast<int>(n), MPI_CHAR, node);
++        MPI_Allgather(local.data(), static_cast<int>(n), MPI_BYTE, uuids.data(),
++                      static_cast<int>(n), MPI_BYTE, node);
+         MPI_Comm_free(&node);
+         std::ranges::sort(uuids);
+         auto shared =
+@@ -1035,8 +1037,10 @@ namespace mfem_mgis::trilinos {
+         if (!p.isParameter("use kokkos refactor")) {
+           p.set("use kokkos refactor", false);
+         }
+-        // reproducible aggregates (MueLu aggregates the nodes in a random
+-        // order by default), and silent setup
++        // reproducible aggregates with the factories written with Kokkos,
++        // which aggregate the nodes in a random order by default (the other
++        // ones follow `aggregation: ordering`, natural by default), and
++        // silent setup
+         if (!p.isParameter("aggregation: deterministic")) {
+           p.set("aggregation: deterministic", true);
+         }
+diff --git a/tests/TrilinosSolversTest.cxx b/tests/TrilinosSolversTest.cxx
+index c3ef61711a..2348077465 100644
+--- a/tests/TrilinosSolversTest.cxx
++++ b/tests/TrilinosSolversTest.cxx
+@@ -14,7 +14,11 @@
+  *   Ifpack2 (Jacobi relaxation, Chebyshev polynomial, incomplete
+  *   factorization), and the algebraic multigrid of MueLu and the two level
+  *   Schwarz preconditioner of FROSch reduce the number of iterations
+- *   compared to the Jacobi relaxation;
++ *   compared to the Jacobi relaxation, MueLu also with its factories
++ *   written with Kokkos (`use kokkos refactor`);
++ * - one V-cycle of MueLu, used as an approximate linear solver, reduces
++ *   the residual, and takes the initial guess into account in the
++ *   iterative mode (the stationary iteration converges);
+  * - on the linear elasticity, MueLu needs close numbers of iterations for
+  *   both orderings of the unknowns, and fewer iterations with the rigid
+  *   body modes than with an aggregation of the unknowns one by one, and
+@@ -173,6 +177,40 @@ static Resolution solve(System& s, mfem::Solver& ls, const std::string& name) {
+   return solve(s, s.A, ls, name);
+ }  // end of solve
+ 
++/*!
++ * \return the relative residual after some iterations of a linear solver M
++ * in the iterative mode, x <- x + M (b - A x) if the linear solver takes the
++ * initial guess into account
++ * \param[in] s: system
++ * \param[in] ls: linear solver
++ * \param[in] n: number of iterations
++ * \param[in] name: name of the resolution, printed with its outcome
++ */
++template <typename System>
++static double iterate(System& s,
++                      mfem::Solver& ls,
++                      const int n,
++                      const std::string& name) {
++  auto b = mfem::Vector(s.B.Size());
++  b.UseDevice(true);
++  b = s.B;
++  auto x = mfem::Vector(s.B.Size());
++  x.UseDevice(true);
++  x = 0.;
++  ls.SetOperator(s.A);
++  ls.iterative_mode = true;
++  for (int i = 0; i != n; ++i) {
++    ls.Mult(b, x);
++  }
++  ls.iterative_mode = false;
++  const auto r = s.getRelativeResidual(s.A, x);
++  if (rank == 0) {
++    std::cout << name << ": residual " << r << " after " << n
++              << " iterations\n";
++  }
++  return r;
++}  // end of iterate
++
+ /*!
+  * \return the parameters of a Krylov solver of Belos
+  * \param[in] solver: name of the Krylov solver of Belos
+@@ -276,16 +314,17 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
+   auto muelu = generate(s, "BelosSolver", getBelosParameters("CG", "MueLu"));
+   const auto rm = solve(s, *(muelu.linear_solver), "Belos CG, MueLu");
+   check(isSolved(rm) && isFaster(rm, rj), "Belos CG, MueLu: resolution");
+-  // the factories of MueLu written with Kokkos (the default of MueLu on the
+-  // GPU, not of mfem-mgis)
++  // the factories of MueLu written with Kokkos (the default of MueLu on all
++  // the nodes but the serial one, not of mfem-mgis)
+   auto kokkos =
+       generate(s, "BelosSolver",
+                getBelosParameters(
+                    "CG", "MueLu",
+                    Parameters{{"Parameters",
+                                Parameters{{"use kokkos refactor", true}}}}));
+-  check(isSolved(solve(s, *(kokkos.linear_solver),
+-                       "Belos CG, MueLu, factories written with Kokkos")),
++  const auto rk = solve(s, *(kokkos.linear_solver),
++                        "Belos CG, MueLu, factories written with Kokkos");
++  check(isSolved(rk) && isFaster(rk, rj),
+         "Belos CG, MueLu with the factories written with Kokkos: resolution");
+   auto frosch = generate(s, "BelosSolver", getBelosParameters("CG", "FROSch"));
+   const auto rf = solve(s, *(frosch.linear_solver), "Belos CG, FROSch");
+@@ -306,6 +345,17 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
+                           {"Preconditioner", Parameters{{"Name", "MueLu"}}}});
+   const auto rcg = solve(s, *(cg.linear_solver), "CGSolver, MueLu");
+   check(isSolved(rcg) && isFaster(rcg, rj), "CGSolver, MueLu: resolution");
++  // one V-cycle of MueLu as an approximate linear solver, which reports no
++  // iterations
++  auto vcycle = generate(s, "MueLu", getMueLuOptions());
++  const auto rv = solve(s, *(vcycle.linear_solver), "MueLu, one V-cycle");
++  check(rv.converged && (rv.iterations == 0) && (rv.residual < 0.5),
++        "MueLu: one V-cycle");
++  // the initial guess is taken into account in the iterative mode: without
++  // it, each V-cycle would give the residual of the first one
++  check(iterate(s, *(vcycle.linear_solver), 30, "MueLu, stationary iteration") <
++            1e-6,
++        "MueLu: stationary iteration");
+   // a preconditioner of mfem-mgis with a Krylov solver of Belos
+   auto amg =
+       generate(s, "BelosSolver", getBelosParameters("CG", "HypreBoomerAMG"));
+-- 
+2.43.0
+

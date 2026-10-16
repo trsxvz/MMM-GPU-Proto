@@ -289,7 +289,8 @@ The option :cxx:`Method` selects :math:`\mathbb{S}`:
 The linear solver of the elastic operator (option
 :cxx:`ElasticOperatorLinearSolver`) is one of the linear solvers of the
 problems (see :doc:`glossary`), for instance :cxx:`HypreBoomerAMG` for one
-cycle of BoomerAMG per iteration in a parallel computation. With the
+cycle of BoomerAMG per iteration in a parallel computation, or :cxx:`MueLu`
+for one V-cycle of MueLu (Trilinos). With the
 :cxx:`ElasticOperator` method, if it is not given, the linear solver of the
 problem is used, and set up with :math:`\mathbb{K}_{0}` at each
 resolution. The value :cxx:`None` removes the linear solver of the elastic

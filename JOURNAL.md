@@ -5348,3 +5348,18 @@ formula as MTest). All the others give the Newton solution to within
   beam on the GPU, and takes 0.18 seconds per operator on the linear
   elasticity of 421,443 unknowns with its hierarchy reused, against 0.33
   for BoomerAMG (`results/solvers-2026-10-15-large/muelu-classic`).
+- Seventh review (nothing rated 3 or more; mfem-mgis 7ab30d43f4): the
+  processes sharing a GPU are detected by the UUIDs of the devices (the
+  instances of a GPU partitioned by MIG have their own), `use kokkos
+  refactor` is checked against the master list of MueLu, and the test
+  still resolves once with the factories written with Kokkos. MueLu is
+  also declared as an approximate linear solver (one V-cycle), usable as
+  the solver of the elastic operator of the fixed point solver (option
+  `-els muelu` of `cases/beam`).
+- Nonlinear beam with the tangent operator applied without assembly
+  (`results/beam-muelu-2026-10-16`, second table): the Newton-K0 method
+  preconditioned by one V-cycle of MueLu built once on the elastic
+  operator takes 6.5 seconds at 839,619 unknowns on the GPU, against 11.2
+  with BoomerAMG and 15.6 to 15.8 for Newton with the assembled tangent
+  operator; Newton with the preconditioner set up every 4 iterations
+  takes 10.8 seconds with MueLu, 18.7 with BoomerAMG.

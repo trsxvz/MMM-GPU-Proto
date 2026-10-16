@@ -14,7 +14,11 @@
  *   Ifpack2 (Jacobi relaxation, Chebyshev polynomial, incomplete
  *   factorization), and the algebraic multigrid of MueLu and the two level
  *   Schwarz preconditioner of FROSch reduce the number of iterations
- *   compared to the Jacobi relaxation;
+ *   compared to the Jacobi relaxation, MueLu also with its factories
+ *   written with Kokkos (`use kokkos refactor`);
+ * - one V-cycle of MueLu, used as an approximate linear solver, reduces
+ *   the residual, and takes the initial guess into account in the
+ *   iterative mode (the stationary iteration converges);
  * - on the linear elasticity, MueLu needs close numbers of iterations for
  *   both orderings of the unknowns, and fewer iterations with the rigid
  *   body modes than with an aggregation of the unknowns one by one, and
@@ -174,6 +178,40 @@ static Resolution solve(System& s, mfem::Solver& ls, const std::string& name) {
 }  // end of solve
 
 /*!
+ * \return the relative residual after some iterations of a linear solver M
+ * in the iterative mode, x <- x + M (b - A x) if the linear solver takes the
+ * initial guess into account
+ * \param[in] s: system
+ * \param[in] ls: linear solver
+ * \param[in] n: number of iterations
+ * \param[in] name: name of the resolution, printed with its outcome
+ */
+template <typename System>
+static double iterate(System& s,
+                      mfem::Solver& ls,
+                      const int n,
+                      const std::string& name) {
+  auto b = mfem::Vector(s.B.Size());
+  b.UseDevice(true);
+  b = s.B;
+  auto x = mfem::Vector(s.B.Size());
+  x.UseDevice(true);
+  x = 0.;
+  ls.SetOperator(s.A);
+  ls.iterative_mode = true;
+  for (int i = 0; i != n; ++i) {
+    ls.Mult(b, x);
+  }
+  ls.iterative_mode = false;
+  const auto r = s.getRelativeResidual(s.A, x);
+  if (rank == 0) {
+    std::cout << name << ": residual " << r << " after " << n
+              << " iterations\n";
+  }
+  return r;
+}  // end of iterate
+
+/*!
  * \return the parameters of a Krylov solver of Belos
  * \param[in] solver: name of the Krylov solver of Belos
  * \param[in] preconditioner: name of the preconditioner
@@ -276,6 +314,18 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
   auto muelu = generate(s, "BelosSolver", getBelosParameters("CG", "MueLu"));
   const auto rm = solve(s, *(muelu.linear_solver), "Belos CG, MueLu");
   check(isSolved(rm) && isFaster(rm, rj), "Belos CG, MueLu: resolution");
+  // the factories of MueLu written with Kokkos (the default of MueLu on all
+  // the nodes but the serial one, not of mfem-mgis)
+  auto kokkos =
+      generate(s, "BelosSolver",
+               getBelosParameters(
+                   "CG", "MueLu",
+                   Parameters{{"Parameters",
+                               Parameters{{"use kokkos refactor", true}}}}));
+  const auto rk = solve(s, *(kokkos.linear_solver),
+                        "Belos CG, MueLu, factories written with Kokkos");
+  check(isSolved(rk) && isFaster(rk, rj),
+        "Belos CG, MueLu with the factories written with Kokkos: resolution");
   auto frosch = generate(s, "BelosSolver", getBelosParameters("CG", "FROSch"));
   const auto rf = solve(s, *(frosch.linear_solver), "Belos CG, FROSch");
   // the iterations of the two level Schwarz method grow with the number of
@@ -295,6 +345,17 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
                           {"Preconditioner", Parameters{{"Name", "MueLu"}}}});
   const auto rcg = solve(s, *(cg.linear_solver), "CGSolver, MueLu");
   check(isSolved(rcg) && isFaster(rcg, rj), "CGSolver, MueLu: resolution");
+  // one V-cycle of MueLu as an approximate linear solver, which reports no
+  // iterations
+  auto vcycle = generate(s, "MueLu", getMueLuOptions());
+  const auto rv = solve(s, *(vcycle.linear_solver), "MueLu, one V-cycle");
+  check(rv.converged && (rv.iterations == 0) && (rv.residual < 0.5),
+        "MueLu: one V-cycle");
+  // the initial guess is taken into account in the iterative mode: without
+  // it, each V-cycle would give the residual of the first one
+  check(iterate(s, *(vcycle.linear_solver), 30, "MueLu, stationary iteration") <
+            1e-6,
+        "MueLu: stationary iteration");
   // a preconditioner of mfem-mgis with a Krylov solver of Belos
   auto amg =
       generate(s, "BelosSolver", getBelosParameters("CG", "HypreBoomerAMG"));

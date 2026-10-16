@@ -208,6 +208,7 @@ namespace mfem_mgis::internals {
       }
       this->height = a->Height();
       this->width = a->Width();
+      this->matrix = a;
       // the matrix, which may be read on the host, is given back to hypre,
       // whose computations may be on the GPU, even on error (its values are
       // copied by Trilinos)
@@ -222,29 +223,24 @@ namespace mfem_mgis::internals {
       this->backend->setMatrix(v.view);
     }
     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
-      // the vectors are given on the GPU when MFEM and Tpetra compute there
-      const auto on_device = this->backend->computesOnTheGPU() &&
-                             b.UseDevice() && x.UseDevice() &&
-                             mfem::Device::Allows(mfem::Backend::CUDA_MASK |
-                                                  mfem::Backend::HIP_MASK);
       if (!this->iterative_mode) {
         x = 0.;
+      } else if ((!this->iterative) && (this->matrix != nullptr)) {
+        // the multigrids, the relaxations and the direct solvers of Trilinos
+        // overwrite the initial guess: the correction of the initial guess
+        // is computed from the residual, as BoomerAMG of hypre does
+        auto r = mfem::Vector(b.Size());
+        r.UseDevice(b.UseDevice());
+        r = b;
+        this->matrix->Mult(-1., x, 1., r);
+        auto c = mfem::Vector(x.Size());
+        c.UseDevice(x.UseDevice());
+        c = 0.;
+        this->apply(r, c);
+        x += c;
+        return;
       }
-      const auto* const pb = b.Read(on_device);
-      auto* const px = x.ReadWrite(on_device);
-      if (on_device) {
-        // Tpetra may compute on another stream than MFEM
-        MFEM_DEVICE_SYNC;
-        this->backend->applyOnDevice(pb, px);
-      } else {
-        this->backend->apply(pb, px);
-      }
-      // a failure of the solver is a resolution which did not converge
-      const auto& failure = this->backend->getReport().failure;
-      if ((!failure.empty()) && (mfem::Mpi::Root())) {
-        mfem_mgis::getErrorStream()
-            << "Trilinos: the resolution failed: " << failure << '\n';
-      }
+      this->apply(b, x);
     }
     [[nodiscard]] bool hasConverged() const noexcept override {
       return this->backend->getReport().converged;
@@ -276,10 +272,40 @@ namespace mfem_mgis::internals {
     }
 
    private:
+    /*!
+     * \brief applies the solver or the preconditioner of Trilinos, `x`
+     * being the initial guess of the iterative solvers
+     * \param[in] b: right hand side
+     * \param[in, out] x: result
+     */
+    void apply(const mfem::Vector& b, mfem::Vector& x) const {
+      // the vectors are given on the GPU when MFEM and Tpetra compute there
+      const auto on_device = this->backend->computesOnTheGPU() &&
+                             b.UseDevice() && x.UseDevice() &&
+                             mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                                                  mfem::Backend::HIP_MASK);
+      const auto* const pb = b.Read(on_device);
+      auto* const px = x.ReadWrite(on_device);
+      if (on_device) {
+        // Tpetra may compute on another stream than MFEM
+        MFEM_DEVICE_SYNC;
+        this->backend->applyOnDevice(pb, px);
+      } else {
+        this->backend->apply(pb, px);
+      }
+      // a failure of the solver is a resolution which did not converge
+      const auto& failure = this->backend->getReport().failure;
+      if ((!failure.empty()) && (mfem::Mpi::Root())) {
+        mfem_mgis::getErrorStream()
+            << "Trilinos: the resolution failed: " << failure << '\n';
+      }
+    }  // end of apply
     //! \brief solver or preconditioner of Trilinos
     std::unique_ptr<trilinos::Operator> backend;
     //! \brief preconditioner of a Krylov solver of Belos (not owned)
     mfem::Solver* preconditioner = nullptr;
+    //! \brief matrix of the system (not owned)
+    const mfem::HypreParMatrix* matrix = nullptr;
     //! \brief number of components of the unknowns
     const int number_of_components;
     //! \brief if true, the unknowns are ordered by nodes
@@ -528,6 +554,36 @@ namespace mfem_mgis::internals {
     });
   }  // end of makeAmesos2
 
+  /*!
+   * \return the multigrid of MueLu (one V-cycle), or a null pointer on error
+   * \param[in, out] ctx: execution context
+   * \param[in] fespace: finite element space
+   * \param[in] params: parameters (`Parameters`, the parameters of MueLu)
+   */
+  [[nodiscard]] static std::unique_ptr<TrilinosSolver> makeMueLu(
+      Context& ctx,
+      FiniteElementSpace<true>& fespace,
+      const Parameters& params) {
+    if (!checkParameters(ctx, params, std::vector<std::string>{"Parameters"})) {
+      return {};
+    }
+    const auto ooptions = getTrilinosOptions(ctx, params);
+    if (isInvalid(ooptions)) {
+      return {};
+    }
+    // collective computation, before the calls to Trilinos, which may fail
+    // on one process only
+    auto c = getTrilinosNodesCoordinates(fespace);
+    auto o = callTrilinos(ctx, "MueLu", [&] {
+      return trilinos::makeMueLuPreconditioner(*ooptions, std::move(c),
+                                               computeTrilinosOnTheGPU());
+    });
+    if (isInvalid(o)) {
+      return {};
+    }
+    return std::make_unique<TrilinosSolver>(std::move(*o), fespace, false);
+  }  // end of makeMueLu
+
   void declareTrilinosLinearSolvers(LinearSolverFactory<true>& f) {
     const auto belos = LinearSolverDescription{
         .library = "Trilinos",
@@ -541,6 +597,25 @@ namespace mfem_mgis::internals {
             "TFQMR...), with the parameters of Belos given by the "
             "'Parameters' parameter, preconditioned on the right"};
     declare(f, "BelosSolver", belos, buildBelosSolverGenerator(belos));
+    declare(f, "MueLu",
+            LinearSolverDescription{
+                .library = "Trilinos",
+                .kind = LinearSolverKind::APPROXIMATE,
+                .placement = getTrilinosPlacement(),
+                .preconditioners = AcceptedPreconditioners::NONE,
+                .options = {"Parameters"},
+                .description =
+                    "one V-cycle of the smoothed aggregation algebraic "
+                    "multigrid of MueLu (Trilinos), as the preconditioner "
+                    "MueLu"},
+            [](Context& ctx, FiniteElementSpace<true>& fespace,
+               const Parameters& params) -> LinearSolverHandler {
+              auto s = makeMueLu(ctx, fespace, params);
+              if (s == nullptr) {
+                return {};
+              }
+              return LinearSolverHandler{std::move(s), nullptr};
+            });
     declare(f, "Amesos2Solver",
             LinearSolverDescription{
                 .library = "Trilinos",
@@ -615,26 +690,7 @@ namespace mfem_mgis::internals {
             [](Context& ctx, FiniteElementSpace<true>& fespace,
                const Parameters& params)
                 -> std::unique_ptr<LinearSolverPreconditioner> {
-              if (!checkParameters(ctx, params,
-                                   std::vector<std::string>{"Parameters"})) {
-                return {};
-              }
-              const auto ooptions = getTrilinosOptions(ctx, params);
-              if (isInvalid(ooptions)) {
-                return {};
-              }
-              // collective computation, before the calls to Trilinos,
-              // which may fail on one process only
-              auto c = getTrilinosNodesCoordinates(fespace);
-              auto o = callTrilinos(ctx, "MueLu", [&] {
-                return trilinos::makeMueLuPreconditioner(
-                    *ooptions, std::move(c), computeTrilinosOnTheGPU());
-              });
-              if (isInvalid(o)) {
-                return {};
-              }
-              return std::make_unique<TrilinosSolver>(std::move(*o), fespace,
-                                                      false);
+              return makeMueLu(ctx, fespace, params);
             });
     // FROSch computes with the default node of Tpetra
     declare(f, "FROSch",

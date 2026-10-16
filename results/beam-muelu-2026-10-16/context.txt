@@ -34,3 +34,75 @@ refinement: 5
 mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
 NVIDIA GeForce RTX 5080, 595.99.02
 Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:53:23
+cases: build/cases-trilinos
+refinement: 4
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:53:26
+cases: build/cases-trilinos
+refinement: 4
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:53:28
+cases: build/cases-trilinos
+refinement: 4
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:53:34
+cases: build/cases-trilinos
+refinement: 5
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:53:48
+cases: build/cases-trilinos
+refinement: 5
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:53:58
+cases: build/cases-trilinos
+refinement: 5
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:54:59
+cases: build/cases-trilinos
+refinement: 4
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:55:02
+cases: build/cases-trilinos
+refinement: 4
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:55:04
+cases: build/cases-trilinos
+refinement: 4
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:55:10
+cases: build/cases-trilinos
+refinement: 5
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:55:24
+cases: build/cases-trilinos
+refinement: 5
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor
+date: 2026-10-16 10:55:33
+cases: build/cases-trilinos
+refinement: 5
+mfem-mgis: install/mfem-mgis-trilinos/share/mfem-mgis/cmake
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor

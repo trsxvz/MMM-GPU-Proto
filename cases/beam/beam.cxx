@@ -136,7 +136,9 @@ int main(int argc, char** argv) {
                  "at each step), amg (one cycle of BoomerAMG), pcg-amg, "
                  "mumps (symmetric indefinite), cudss (direct solver on a "
                  "CUDA GPU, symmetric positive definite), amgx (one cycle of "
-                 "AmgX) or amgx-pcg (conjugate gradient of AmgX).");
+                 "AmgX), amgx-pcg (conjugate gradient of AmgX) or muelu (one "
+                 "V-cycle of MueLu with a Jacobi smoother, mfem-mgis built "
+                 "with Trilinos).");
   args.AddOption(&elastic_operator_once, "-k0", "--elastic-operator-once",
                  "-no-k0", "--no-elastic-operator-once",
                  "Elastic operator of the fixed point solver assembled once.");
@@ -348,6 +350,23 @@ int main(int argc, char** argv) {
             ctx, "ElasticOperatorLinearSolver",
             Parameters{{"AmgXPCG",
                         amgxPCGOptions(amgx, linear_tolerance, 2000)}}) |
+            or_die;
+      } else if (els == "muelu") {
+        // one V-cycle of MueLu, built once on the elastic operator, with
+        // two sweeps of a Jacobi smoother
+        options.insert(
+            ctx, "ElasticOperatorLinearSolver",
+            Parameters{
+                {"MueLu",
+                 Parameters{
+                     {"Parameters",
+                      Parameters{{"smoother: type", "RELAXATION"},
+                                 {"smoother: params",
+                                  Parameters{
+                                      {"relaxation: type", "Jacobi"},
+                                      {"relaxation: sweeps", 2},
+                                      {"relaxation: damping factor",
+                                       0.6}}}}}}}}) |
             or_die;
       } else if (els == "mumps") {
         options.insert(ctx, "ElasticOperatorLinearSolver",

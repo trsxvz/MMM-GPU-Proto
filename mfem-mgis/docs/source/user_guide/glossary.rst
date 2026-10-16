@@ -840,11 +840,12 @@ Algebraic multigrid of AmgX (AmgX)
 Algebraic multigrid of MueLu (MueLu)
 ------------------------------------
 
-- Preconditioner name: ``MueLu``, one V-cycle of the smoothed aggregation
-  algebraic multigrid of ``Trilinos``, with the rigid body modes as near
-  null space when the number of components of the unknowns is the space
-  dimension. The other entries of ``Trilinos`` are the linear solvers
-  ``BelosSolver`` and ``Amesos2Solver``, and the preconditioners
+- Preconditioner and linear solver name: ``MueLu``, one V-cycle of the
+  smoothed aggregation algebraic multigrid of ``Trilinos``, with the rigid
+  body modes as near null space when the number of components of the
+  unknowns is the space dimension (an approximate linear solver, like
+  ``HypreBoomerAMG``). The other entries of ``Trilinos`` are the linear
+  solvers ``BelosSolver`` and ``Amesos2Solver``, and the preconditioners
   ``Ifpack2``, ``FROSch`` and ``Amesos2Preconditioner``.
 - Dependencies: ``mfem-mgis`` built with the CMake option
   ``enable-trilinos``, in parallel.
