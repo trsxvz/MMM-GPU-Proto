@@ -70,10 +70,13 @@ class Case:
 # size checking the scripts ("small"); steps shortened identically on the
 # CPU and on the GPU
 CASES = {
+    # the time step of ex1 is 1 / nbsteps (100 steps by default): with 20
+    # steps or less, the Newton solver does not converge at the onset of
+    # plasticity
     "ex1": Case(EXAMPLES / "ex1", "./uniaxial_tensile_test",
                 ["--no-post-processing"],
-                {"small": ["-r", "2", "-ns", "5"],
-                 "bench": ["-r", "6", "-ns", "10"]},
+                {"small": ["-r", "2", "-ns", "25"],
+                 "bench": ["-r", "6", "-ns", "25"]},
                 1e-12, True, parallel_option="--parallel"),
     "ex2": Case(EXAMPLES / "ex2", "./ssna303", [],
                 {"small": ["--nbsteps", "5"],

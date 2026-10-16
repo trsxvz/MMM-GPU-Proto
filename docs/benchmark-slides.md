@@ -76,7 +76,7 @@ checks the scripts):
 
 | Case | Size | Unknowns | Steps |
 |---|---|---|---|
-| ex1 | -r 6 | about 824k (estimate) | 10 |
+| ex1 | -r 6 | about 824k (estimate) | 25 (100 by default) |
 | ex2 | -r 2 | about 60k (estimate) | 50 |
 | ex3 | -r 4 | about 786k (estimate) | 1 solve |
 | ex4 | -r 1 | 196,047 | 10 |
@@ -117,8 +117,11 @@ The failures:
 
 - ex2, ex5 and ex8 use MUMPS by default, which is refused on the GPU with
   a message giving the options to use;
-- ex1 with Newton: the Newton solver of ex1 is fragile at the onset of
-  plasticity, on the CPU as well;
+- ex1 with Newton: the time step of ex1 is the inverse of the number of
+  steps, and the driver gave 5 steps instead of 100. With 20 steps or
+  less, the Newton solver does not converge at the onset of plasticity.
+  The driver now gives 25 steps, and ex1 passes on the CPU with all the
+  solvers tried (to be checked again on the GPU);
 - ex4 with GMRES of Belos and MueLu: the linear solver does not converge;
 - ex8 with AmgX and with MueLu: the linear solver override replaces the
   solvers of both problems, and the thermal operator is indefinite. A
