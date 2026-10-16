@@ -17,129 +17,164 @@ machine, for the same case and the same tolerances:
 ## Machine and rules
 
 - 8 cores with SMT (cores N and N+8 are twins), 30 GB, one RTX 5080
-  (16 GB). CPU runs on 1, 2, 4 and 8 processes, one per physical core
-  (cores 0 to 7), `OMP_NUM_THREADS=1`. They need the whole machine: no
-  build or other measurement at the same time.
+  (16 GB). CPU runs on 8 processes (one per physical core) and on 16
+  (all the logical cores, `--use-hwthread-cpus`), `OMP_NUM_THREADS=1`.
+  They need the whole machine: they are made in exclusive windows, the
+  builds of the other users being suspended.
 - GPU runs on one process: several processes on one GPU were much slower
   (polycrystal: 91.57 s on 2 processes, 13.18 s on 1,
   `results/L6-polycrystal-2026-10-09`). Sides: `--execution gpu`, and
-  `--execution mixed --linear-solvers-execution cpu` when a direct solver
-  of the CPU is the best choice.
-- One build for both sides (-O3, double): mfem-mgis installed with all the
-  solver libraries (hypre, PETSc, MUMPS, cuDSS, AmgX, Ginkgo, Trilinos with
-  MueLu, FROSch, Teko and FastILU), and the examples and mm-opera-hpc built
-  against it.
+  `--execution mixed --linear-solvers-execution cpu` (behaviours and finite
+  elements on the GPU, linear solver on the CPU). The screening of the GPU
+  configurations may be made outside the exclusive windows, the GPU being
+  shared by a lock taken around each run (option `--gpu-lock`); the final
+  runs are made in exclusive windows.
+- Two builds of the same sources: double and float (behaviours generated
+  in the precision of MFEM), each with all the solver libraries which
+  MFEM accepts in this precision (spack environments `mmm-trilinos-teko`
+  and `mmm-trilinos-float`), against which the examples and mm-opera-hpc
+  are built (`build/bench` and `build/bench-float`).
 - CPU baseline with `--execution cpu`: behaviours integrated by batches and
   finite element kernels on the host. Without `--execution`, the behaviours
   are integrated point by point, a slower baseline which would flatter the
   GPU.
-- Wall time of the whole program, and the phases of the profiler of
-  mfem-mgis. Best of 3 runs for the retained configurations.
-- Each retained run is checked: reference files of the examples when they
-  exist (ex2, ex4, ex7, ex8), otherwise comparison with the CPU run
-  (`cases/compare-outputs.py`).
+- Wall time of the whole program. The reference is the CPU with the
+  solvers of each example as shipped; the best CPU configuration is always
+  shown next to it. The CPU and the GPU runs of a case have the same mesh,
+  order, time steps and tolerances.
 
 ## Driver
 
-`cases/benchmark_slides.py` runs one case on one side with one linear
-solver and, optionally, one nonlinear solver, and appends one line to
-`runs.csv` in the results directory (output in `logs/`):
+`cases/benchmark_slides.py` runs the cases and appends one line per run
+to `runs.csv` in the results directory (output in `logs/`); its docstring
+gives the usage of its subcommands:
 
-```
-cases/benchmark_slides.py list
-cases/benchmark_slides.py run RESULTS CASE SIDE SOLVER [--non-linear NAME]
-                          [--np N] [--size SIZE] [--repeat R] [--dry-run]
-cases/benchmark_slides.py best RESULTS
-```
+- `list [CASE]`: the sizes and the configurations of the cases;
+- `run RESULTS CASE CONFIGURATION`: one configuration;
+- `calibrate RESULTS`: each case at the measurement size with the solvers
+  of the program, on 8 processes and with the GPU;
+- `screen RESULTS CASE`: the configurations of a case (sides, tiers) at the
+  screening size (the mesh of the measurements, one or two steps of the
+  same time step, or all the steps when the program has no option of the
+  end time); the runs already made are skipped, so that an interrupted
+  screening resumes;
+- `finals RESULTS CASE`: at the measurement size, the configurations
+  selected by the screening (the solvers of the program on the CPU with
+  their best number of processes, the best other CPU configuration, the
+  two best configurations with the GPU), the first ones being repeated
+  (three runs) unless their first run took more than five minutes;
+- `best RESULTS`: the best times and the speedups.
 
-The solvers are given by the overrides of mfem-mgis, the same for all the
-programs, without changing them: `--linear-solver-override` (linear solver
-with its preconditioner, table `SOLVERS`: hypre with BoomerAMG, MUMPS,
-cuDSS, Belos with MueLu, AmgX, PETSc with GAMG) and
-`--non-linear-solver-override` (table `NON_LINEAR_SOLVERS`: Newton,
-modified Newton, NewtonK0 whose elastic operator is solved by the linear
-solver of the run). The program keeps its convergence criteria. `best`
-prints, for each case and size, the best time of each side and the
-speedup.
+Common options: `--precision double|float`, `--size small|screen|bench`,
+`--timeout S` (a run is stopped with all its processes, `mpirun` and its
+ranks, after S seconds; its status is then `timeout`, and its time a lower
+bound), `--gpu-lock FILE`, `--dry-run`.
+
+`cases/benchmark_plots.py OUTPUT RESULTS...` draws, for each case, size and
+precision, the best time with the solvers of the program on the CPU, the
+best CPU configuration and the best configurations with the GPU, with
+their speedups, and two overviews of the speedups (against the solvers of
+the examples and against the best CPU configuration), with an index
+`README.md`. The graphs of the measurements are in `slides/`.
 
 The runs need the libraries of the installation in `LD_LIBRARY_PATH` (TFEL
 built with CUDA, MGIS, CUDA). The solvers of Trilinos initialize the GPU
 through Kokkos: they only run with the GPU visible.
 
+## Configurations
+
+The solvers are given by the overrides of mfem-mgis, the same for all the
+programs, without changing them (`--linear-solver-override`,
+`--non-linear-solver-override`), by the tangent operator applied without
+assembly (`MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree`, kept with
+`--execution`), and for ex8 by its own options (one linear solver per
+problem: a global override would give the same one to the thermal and to
+the mechanical problems). The programs keep their convergence criteria;
+the relative tolerance of the linear solvers is the one of the program,
+at least 1e-6 in float.
+
+- CPU: the solvers of the program on 8 and 16 processes; on 8 processes,
+  the Krylov solver of hypre with BoomerAMG, Belos with MueLu (Gauss-Seidel
+  smoother, hierarchy reused), PETSc with GAMG, MUMPS, and for the non
+  linear computations the inexact Newton method and NewtonK0 (elastic
+  operator by one cycle of BoomerAMG or of MueLu).
+- GPU, tier 1 (screened first): the solvers of the program when they
+  compute on the GPU, hypre with BoomerAMG, Belos with MueLu (Jacobi
+  smoother), AmgX, cuDSS, MUMPS on the CPU with the elements and the
+  behaviours on the GPU, the solvers of the program in this mixed
+  placement, the inexact Newton method, NewtonK0 with its elastic operator
+  by BoomerAMG or MueLu, with or without the tangent operator applied
+  without assembly, NewtonK0 with the elastic operator factorized by cuDSS,
+  and the conjugate gradient with a Jacobi preconditioner on the tangent
+  operator applied without assembly.
+- GPU, tier 2 (variants dominated in the measurements of the solvers,
+  `docs/solver-recommendations.md`): aggressive coarsening of BoomerAMG,
+  Krylov solvers of MFEM with BoomerAMG, MueLu with a Chebyshev smoother,
+  AmgX in single precision within the double build, the Jacobi
+  preconditioner on the assembled operator, Ginkgo, Tacho, NewtonK0 with
+  AmgX, the modified Newton method with cuDSS.
+
+Not used: the sparse solvers of MAGMA (sequential only, the programs are
+parallel), AmgX in a float build (refused by mfem-mgis), SuperLU_DIST,
+STRUMPACK and SuiteSparse in float (refused by MFEM).
+
 ## Sizes
 
-The default meshes of ex1, ex3, ex6 (about 200 unknowns), ex2 (3,726),
-ex5 (7,442) and ex7 (2,634) are too small for a GPU to matter. All the
-examples can be refined (`-r`), and ex5 runs in parallel. Proposed sizes
-of the measurements (option `--size bench` of the driver; `--size small`
-checks the scripts):
+The measurement sizes fill the 8 cores and the GPU. The numbers of
+unknowns are printed by the programs, or given by
+`cases/tools/count_unknowns` (vector H1 space on the refined mesh).
 
-| Case | Size | Unknowns | Steps |
-|---|---|---|---|
-| ex1 | -r 6 | about 824k (estimate) | 25 (100 by default) |
-| ex2 | -r 2 | about 60k (estimate) | 50 |
-| ex3 | -r 4 | about 786k (estimate) | 1 solve |
-| ex4 | -r 1 | 196,047 | 10 |
-| ex5 | -r 2, parallel | about 119k (estimate) | 1 solve |
-| ex6 | -r 3 | to measure | 1 solve |
-| ex7 | -r 1 | to measure | 40 |
-| ex8 | -r 1 | 214,812 (mechanics) | 5 |
-| polycrystal | -r 1 | 168,885 | 10 |
-| bubble | default | 467,109 | 1 solve |
-| cermet | default | 33,015 | 10 |
+| Case | Measurement size | Order | Unknowns | Steps |
+|---|---|---|---|---|
+| ex1 | -r 5 | 1 | 107,811 | 25 |
+| ex2 | -r 4 | 1 | 908,226 | 50 |
+| ex3 | -r 4 | 1 | 786,432 | 1 solve |
+| ex4 | -r 1 | 1 | 196,047 | 10 |
+| ex5 | -r 4, parallel | 2 | 1,847,042 | 1 solve |
+| ex6 | -r 4 | 1 | 786,432 | 1 solve |
+| ex7 | -r 1 | 2 | printed by the program | 40 |
+| ex8 | -r 1 | 1 | 214,812 (mechanics) | 5 |
+| polycrystal | -r 1 | 1 | 168,885 | 4 steps of 0.2 s |
+| bubble | default mesh | 2 | 467,109 | 1 solve |
+| cermet | -r 1 | 1 | 269,253 | 2 steps of 0.2 s |
 
-All the cases have an option of the order of the elements (`-o`). A
-higher order gives more work per element and more integration points,
-which fills the GPU better. The order is the same on both sides, an order
-2 case is reported as a case of its own, and its refinement is lowered by
-one level to keep a comparable number of unknowns (and to fit in the 16 GB
-of the GPU with a direct solver).
+- ex1: with 6 refinements (823,875 unknowns), the Newton solver of the
+  example does not converge from the first step, even with 100 steps, on
+  the CPU and on the GPU, by kernels and element by element: to be
+  investigated.
+- The polycrystal and the cermet run for short durations (the same in
+  double and in float): their grain law of UO2 fails in float beyond about
+  0.8 s (rounding of its elastic strain when the deformation gradient is
+  close to the identity).
 
-## Parameter space and cost
+## Plan
 
-The full grid, per case and per order:
-
-| Precision | CPU: linear solvers x nonlinear solvers x processes | GPU: linear solvers x nonlinear solvers, and mixed | Per case and order |
-|---|---|---|---|
-| double | 5 x 3 x 4 = 60 | 5 x 3 + 3 = 18 | 78 |
-| float | 5 x 3 x 4 = 60 | 3 x 3 + 3 = 12 | 72 |
-
-With 11 cases, 2 orders and 3 repetitions, that is about 9,900 runs.
-Assuming, at the sizes above, 1.5 min on 8 processes (about 1.7 times
-longer each time the number of processes is halved), 1 min on the GPU and
-about 20 % of failures, one case, order, precision and repetition takes
-about 4 h 20, and the full grid about 570 h of exclusive use of the
-machine: three to five weeks with the failures and the order 2. Most of
-this cost comes from the CPU runs on 1 and 2 processes, and most of the
-combinations are dominated by others.
-
-The staged plan answers the question of the slides (best CPU time against
-best GPU time) in two or three nights:
-
-| Stage | Runs | Duration |
+| Stage | Where | Content |
 |---|---|---|
-| Calibration: one run per case at the measurement size, CPU on 8 processes and GPU, default solvers | about 22 | about 1 h |
-| Screening in double, order 1, one or two steps per pair, pairs known to fail excluded | about 350 | 4 to 5 h |
-| Full runs of the best two pairs of each side, best of 3 for the best one | about 130 | 6 to 8 h |
-| Variants of the winners: float, order 2, CPU scaling on 1 to 8 processes | about 200 | 8 to 10 h |
+| Calibration | GPU shared, CPU exclusive | each case at the measurement size, solvers of the program |
+| Screening, GPU | GPU shared | tier 1 of each case at the screening size |
+| Screening, CPU | exclusive | the CPU configurations at the screening size |
+| Final runs | exclusive | `finals` of each case, graphs after each case |
+| Float | same stages | once the float build is installed |
+| Refinement | as available | tier 2, variants of the winners |
 
-The calibration turns these estimates into a budget: only the small size
-has been run so far, where the setup dominates.
+The full grid (all the solvers, processes, orders and precisions, three
+repetitions) would take about 9,900 runs, three to five weeks of the
+machine; the stages above select the configurations which may win on each
+side.
 
 ## Single precision
 
-The float runs need an installation of mfem-mgis and builds of the
-examples and of mm-opera-hpc in float (behaviours generated in float). The
-float environment of spack of the prototype (`mmm-float-gpu`) only has
-hypre and MUMPS: PETSc, Trilinos and Ginkgo in float require a new
-environment. cuDSS and SuiteSparse are not available with MFEM in float,
-and mfem-mgis refuses AmgX in float (AmgX can still compute in single
-precision within a double build, option `Precision: Single`). The tolerances
-of the cases are adapted to float (relative tolerances of the solvers
-bounded by mfem-mgis), and each float result is compared with the double
-one.
+The float build (`deps/spack/mmm-trilinos-float`) has hypre, PETSc,
+SUNDIALS and MFEM built in single precision, Trilinos with the float
+instantiations of Tpetra, MUMPS (its single precision library), cuDSS,
+Ginkgo and oneMKL. Not available in float: SuperLU_DIST, STRUMPACK and
+SuiteSparse (the wrappers of MFEM are written for double), GSLIB, AmgX
+(refused by mfem-mgis in a float build; it is measured in double, also
+computing in single precision within the double build), Teko (double
+only). The relative tolerances of the linear solvers are at least 1e-6.
 
-## Trials at the small size (16/10/2026)
+## Trials at the small size (16/10/2026, previous driver)
 
 On the CPU (two processes), the driver and the overrides work on all the
 cases. On the GPU (one process), seconds, X for a failure with its exit
@@ -187,12 +222,9 @@ README with the configurations retained and the checks.
 
 ## Open questions
 
-- The sizes above, and the cases run at order 2.
-- The float environment: a new one with PETSc, Trilinos and Ginkgo in
-  float, or the float solvers already available (hypre, MUMPS).
 - Overrides per problem: a single linear solver override replaces the
-  solvers of all the problems of a program (ex8: thermal and mechanical
-  problems, the thermal operator being indefinite).
-- Exclusive use of the machine for the CPU runs, and GPU slots for the GPU
-  runs.
-- Whole program time or time of the resolution only (both are recorded).
+  solvers of all the problems of a program (ex8 uses its own options
+  instead).
+- ex1 with 6 refinements (see Sizes).
+- Whole program time or time of the resolution only (the whole program is
+  measured).
