@@ -35,15 +35,19 @@ tolerance applies to the true residual (one repetition). Table:
   the elasticity, and 25 instead of 284 with the stiff inclusions.
 - With the same relative tolerance, the default conjugate gradient of
   PETSc stops on the preconditioned residual: its true residual is 5e-6.
-  Stopped on the true residual (21 iterations), GAMG remains the fastest
-  configuration measured on the CPU for the elasticity: 0.12 second per
+  Stopped on the true residual (21 iterations), GAMG is the fastest
+  multigrid measured on the CPU for the elasticity: 0.12 seconds per
   operator against 0.20 for BoomerAMG, for a residual 40 times smaller.
-  Its cycles are cheaper (about 1 ms per iteration against 4 ms).
+  Its cycles are cheaper (about 1 ms per iteration against 4 ms). At this
+  size, the conjugate gradient with the Jacobi preconditioner is still
+  faster on the homogeneous beam (0.089 seconds per operator, 319
+  iterations, `../solvers-cpu-2026-10-15`); with the stiff inclusions,
+  GAMG is the fastest configuration (0.134 seconds against 0.25).
 - The elasticity options of BoomerAMG do not reduce the iterations on
   this beam (31 against 30) and cost three times more. On the GPU, hypre
   does not support them: mfem-mgis falls back to the systems options,
-  with a warning (same iterations).
-- Laplace: BoomerAMG stays faster than GAMG (0.13 against 0.29 second per
+  with a warning (53 iterations against 54).
+- Laplace: BoomerAMG stays faster than GAMG (0.13 against 0.29 seconds per
   operator), whose setup dominates.
 
 ## Defects found by this pass (fixed in mfem-mgis)
@@ -56,8 +60,8 @@ tolerance applies to the true residual (one repetition). Table:
   are built for it. mfem-mgis now copies the matrices itself (patches
   0235, 0236 and 0238): first setup 0.011 second instead of 0.41,
   following ones 0.010 instead of 0.015.
-- The elasticity options of BoomerAMG asked for a problem with scalar
-  unknowns made MFEM abort: they are refused (patches 0234, 0236, 0238).
+- Requesting the elasticity options of BoomerAMG for a problem with
+  scalar unknowns made MFEM abort: they are refused (patches 0234, 0236, 0238).
 - The generic test of the linear solvers failed for AmgX in parallel on
   the GPU: `mfem::ParNormlp` of MFEM 4.10 recomputes the norm from the
   values of the host without synchronizing them (patch 0237).

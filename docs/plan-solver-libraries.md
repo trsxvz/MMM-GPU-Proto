@@ -53,15 +53,17 @@ behaviour integrators would have to assemble on coarser spaces. Phase 4
 done on 16/10/2026: environment `mmm-trilinos` (Trilinos 17.2.1 with Tacho
 and FROSch, Kokkos 5.2.1), module of Trilinos built and tested on the host
 and on the GPU (Belos, Amesos2 with KLU2 and Tacho, Ifpack2, MueLu with the
-rigid body modes, FROSch). Phase 5
-started: benchmark `LinearSolversBenchmark` (patch `0231`) and
-`cases/measure-solvers.sh`; first pass without Trilinos
-(`results/solvers-cpu-2026-10-15`, `results/solvers-gpu-2026-10-15`). It
+rigid body modes, FROSch). Phase 5: benchmark `LinearSolversBenchmark`
+(patch `0231`) and `cases/measure-solvers.sh`, passes on the host and on
+the GPU up to 421,443 unknowns of elasticity and 2,146,689 of Laplace,
+summarized in [solver-recommendations.md](solver-recommendations.md);
+first pass without Trilinos (`results/solvers-cpu-2026-10-15`,
+`results/solvers-gpu-2026-10-15`). It
 showed that GAMG of PETSc did not receive the rigid body modes: they are
 now given when the unknowns are ordered by vector dimension (patches
 `0232` and `0233`), and a second pass measured it
 (`results/solvers-2026-10-15-byvdim`): 15 iterations instead of 177, the
-fastest configuration measured on the CPU for the elasticity. It
+fastest multigrid measured on the CPU for the elasticity. It
 complements [gpu-solvers.md](gpu-solvers.md), organised
 by technique, with a view by library: what each major library offers,
 what MFEM already wraps, what mfem-mgis exposes today, and how to plug

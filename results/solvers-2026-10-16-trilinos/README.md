@@ -34,15 +34,18 @@ factorization of a 3D problem).
 | laplace | Tacho | direct | 5.42 |
 
 - The Chebyshev polynomial of Ifpack2 (degree 3) is close to BoomerAMG of
-  hypre on the GPU on these sizes (0.070 second per operator on the
+  hypre on the GPU on these sizes (0.070 seconds per operator on the
   elasticity, 54 iterations), and needs 2.8 times fewer iterations than
   the Jacobi relaxation with the inclusions.
 - MueLu with its default options (smoothed aggregation with the rigid
   body modes, symmetric Gauss-Seidel smoother, coarse problem solved on
-  the host) reduces the iterations as much as BoomerAMG, but each cycle
-  is about 15 times more expensive on the GPU: its options for the GPU are
-  still to be studied.
-- Tacho factorizes the elasticity in 0.72 second on the GPU (second
+  the host) reduces the iterations more than BoomerAMG (22 to 25 against
+  54 on the elasticity, 38 to 43 against 94 with the inclusions, 7 to 8
+  against 14 on the Laplace equation), but each iteration is 15 to 25
+  times more expensive on the GPU with the conjugate gradient of MFEM (20
+  to 33 times with that of Belos): its smoother is slow on the GPU
+  (`../solvers-2026-10-15-large/muelu`).
+- Tacho factorizes the elasticity in 0.72 seconds on the GPU (second
   operator), close to MUMPS on 8 cores (0.59) and 2.4 times slower than
   cuDSS (0.30); on the Laplace equation, 5.4 seconds against 3.2 with
   cuDSS.

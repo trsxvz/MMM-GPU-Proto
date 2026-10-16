@@ -395,12 +395,58 @@ namespace mfem_mgis::internals {
         return {};
       }
       // the options of mfem-mgis, overridden by the parameters of Belos
-      const auto add = [&ooptions](const std::string& n, trilinos::Option o) {
+      const auto add_to = [](trilinos::Options& options, const std::string& n,
+                             trilinos::Option o) {
         const auto found = std::ranges::any_of(
-            *ooptions, [&n](const auto& p) noexcept { return p.first == n; });
+            options, [&n](const auto& p) noexcept { return p.first == n; });
         if (!found) {
-          ooptions->emplace_back(n, std::move(o));
+          options.emplace_back(n, std::move(o));
         }
+      };
+      // the hybrid GMRES of Belos (polynomial preconditioning) iterates with
+      // an outer solver, GMRES by default, which receives the convergence
+      // parameters
+      const auto lower = [](std::string n) {
+        std::ranges::transform(n, n.begin(),
+                               [](const unsigned char c) noexcept {
+                                 return static_cast<char>(std::tolower(c));
+                               });
+        return n;
+      };
+      const auto hybrid = lower(*osolver).find("hybrid") != std::string::npos;
+      if (hybrid) {
+        add_to(*ooptions, "Outer Solver",
+               trilinos::Option{std::string{"Block GMRES"}});
+      }
+      // index of the parameters of the outer solver (an index, the options
+      // being extended below)
+      auto outer = std::size_t{};
+      if (hybrid) {
+        const auto p = std::ranges::find_if(*ooptions, [](const auto& o) {
+          return o.first == "Outer Solver Params";
+        });
+        outer = static_cast<std::size_t>(p - ooptions->begin());
+        if (p == ooptions->end()) {
+          ooptions->emplace_back("Outer Solver Params",
+                                 trilinos::Option{trilinos::Options{}});
+        } else if (!std::holds_alternative<trilinos::Options>(
+                       p->second.value)) {
+          std::ignore = ctx.registerErrorMessage(
+              "BelosSolver: the parameter 'Outer Solver Params' must be a "
+              "list of parameters");
+          return {};
+        }
+      }
+      const auto convergence = [&ooptions, hybrid,
+                                outer]() -> trilinos::Options& {
+        if (hybrid) {
+          return std::get<trilinos::Options>((*ooptions)[outer].second.value);
+        }
+        return *ooptions;
+      };
+      const auto add = [&add_to, &convergence](const std::string& n,
+                                               trilinos::Option o) {
+        add_to(convergence(), n, std::move(o));
       };
       if (contains(params, Problem::SolverRelativeTolerance)) {
         const auto ov =
@@ -434,18 +480,20 @@ namespace mfem_mgis::internals {
       }
       // restarted GMRES: 50 Krylov vectors (300 by default in Belos), and
       // the number of restarts allowing the maximum number of iterations
-      // (the hybrid GMRES of Belos, polynomial preconditioning, has none of
-      // these parameters)
-      auto name = *osolver;
-      std::ranges::transform(name, name.begin(),
-                             [](const unsigned char c) noexcept {
-                               return static_cast<char>(std::tolower(c));
-                             });
+      auto name = lower(*osolver);
+      if (hybrid) {
+        for (const auto& [k, o] : *ooptions) {
+          const auto* const pv = std::get_if<std::string>(&o.value);
+          if ((k == "Outer Solver") && (pv != nullptr)) {
+            name = lower(*pv);
+          }
+        }
+      }
       if ((name.find("gmres") != std::string::npos) &&
           (name.find("hybrid") == std::string::npos)) {
         add("Num Blocks", trilinos::Option{50});
-        const auto get_int = [&ooptions](const std::string& n, const int v) {
-          for (const auto& [k, o] : *ooptions) {
+        const auto get_int = [&convergence](const std::string& n, const int v) {
+          for (const auto& [k, o] : convergence()) {
             if (k == n) {
               const auto* const pv = std::get_if<int>(&o.value);
               return pv != nullptr ? *pv : v;
@@ -465,11 +513,13 @@ namespace mfem_mgis::internals {
         // Belos::Warnings and Belos::FinalSummary, then
         // Belos::IterationDetails and Belos::StatusTestDetails at each
         // iteration
+        const auto verbosity = *ov > 1 ? 1 + 2 + 8 + 32 : (*ov > 0 ? 1 + 8 : 0);
+        if (hybrid) {
+          add_to(*ooptions, "Verbosity", trilinos::Option{verbosity});
+        }
+        add("Verbosity", trilinos::Option{verbosity});
         if (*ov > 1) {
-          add("Verbosity", trilinos::Option{1 + 2 + 8 + 32});
           add("Output Frequency", trilinos::Option{1});
-        } else {
-          add("Verbosity", trilinos::Option{*ov > 0 ? 1 + 8 : 0});
         }
       }
       auto oprec =

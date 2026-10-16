@@ -81,6 +81,9 @@ configurations=(
   "belos-cg-muelu|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=MueLu}}"
   "belos-cg-frosch|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=FROSch}}"
   "cg-muelu|any|CGSolver|{$it,Preconditioner={Name=MueLu}}"
+  # MueLu smoothed by two sweeps of a damped Jacobi relaxation (its default
+  # smoother, symmetric Gauss-Seidel, is slow on the GPU)
+  "cg-muelu-jacobi|any|CGSolver|{$it,Preconditioner={Name=MueLu,Options={Parameters={\"smoother: type\"=RELAXATION,\"smoother: params\"={\"relaxation: type\"=Jacobi,\"relaxation: sweeps\"=2,\"relaxation: damping factor\"=0.6}}}}}"
   # direct solvers
   "mumps|cpu|MUMPSSolver|{Symmetric=true,PositiveDefinite=true}"
   "superlu|cpu|SuperLUSolver|{}"

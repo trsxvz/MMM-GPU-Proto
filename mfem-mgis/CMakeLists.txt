@@ -122,20 +122,33 @@ if(enable-trilinos)
   # Trilinos must be built with the Kokkos found above: its packages only
   # load their own Kokkos when no target of Kokkos is defined, which would
   # silently compile the sources including Trilinos with another Kokkos
+  set(_trilinos_kokkos_dir "")
   set(_trilinos_kokkos_config
       "${Trilinos_DIR}/../TeuchosKokkosCompat/TeuchosKokkosCompatConfig.cmake")
   if(EXISTS "${_trilinos_kokkos_config}")
+    # an external Kokkos
     file(STRINGS "${_trilinos_kokkos_config}" _trilinos_kokkos
          REGEX "set\\(Kokkos_CONFIG ")
     if(_trilinos_kokkos MATCHES "\"(.*)/KokkosConfig.cmake\"")
       get_filename_component(_trilinos_kokkos_dir "${CMAKE_MATCH_1}" REALPATH)
-      get_filename_component(_kokkos_dir "${Kokkos_DIR}" REALPATH)
-      if(NOT _trilinos_kokkos_dir STREQUAL _kokkos_dir)
-        message(FATAL_ERROR "mfem-mgis: Trilinos is built with the Kokkos "
-                "of ${_trilinos_kokkos_dir}, mfem-mgis found the Kokkos of "
-                "${_kokkos_dir} (option Kokkos_DIR)")
-      endif()
     endif()
+  endif()
+  if((NOT _trilinos_kokkos_dir) AND
+     (EXISTS "${Trilinos_DIR}/../Kokkos/KokkosConfig.cmake"))
+    # the Kokkos built with Trilinos, installed with its packages
+    get_filename_component(_trilinos_kokkos_dir "${Trilinos_DIR}/../Kokkos"
+                           REALPATH)
+  endif()
+  if(_trilinos_kokkos_dir)
+    get_filename_component(_kokkos_dir "${Kokkos_DIR}" REALPATH)
+    if(NOT _trilinos_kokkos_dir STREQUAL _kokkos_dir)
+      message(FATAL_ERROR "mfem-mgis: Trilinos is built with the Kokkos "
+              "of ${_trilinos_kokkos_dir}, mfem-mgis found the Kokkos of "
+              "${_kokkos_dir} (option Kokkos_DIR)")
+    endif()
+  else()
+    message(WARNING "mfem-mgis: the Kokkos of Trilinos is not found in its "
+            "configuration files, it must be the Kokkos of ${Kokkos_DIR}")
   endif()
   set(MFEM_MGIS_HAVE_TRILINOS ON)
 endif(enable-trilinos)

@@ -34,7 +34,6 @@
 #include "Xpetra_TpetraCrsMatrix.hpp"
 #include "Xpetra_TpetraMultiVector.hpp"
 #include "FROSch_TwoLevelPreconditioner_def.hpp"
-#include "Ifpack2_Parameters.hpp"
 #include "MueLu_MasterList.hpp"
 #include "FROSch_TpetraPreconditioner_def.hpp"
 #include "TrilinosBackend.hxx"
@@ -550,9 +549,27 @@ namespace mfem_mgis::trilinos {
      */
     Ifpack2Preconditioner(const std::string& t, const Options& o)
         : type(t), parameters(makeParameterList(o)) {
-      auto valid = Teuchos::ParameterList{};
-      Ifpack2::getValidParameters(valid);
-      checkParameterNames("Ifpack2", *(this->parameters), valid, {});
+      // the parameters are given to a preconditioner of this type built
+      // without matrix, so that the ones checked by Ifpack2 (the names of
+      // the relaxations, for instance) are refused at the creation of the
+      // solver. `Ifpack2::getValidParameters` does not list all the
+      // parameters of the preconditioners.
+      auto p = Teuchos::RCP<Ifpack2::Preconditioner<Scalar, LO, GO, Node>>{};
+      try {
+        p = Ifpack2::Factory::create<RowMatrix>(
+            this->type, Teuchos::RCP<const RowMatrix>{});
+      } catch (std::exception&) {
+        // a preconditioner which needs its matrix: the parameters are
+        // checked at the setup
+      }
+      if (!p.is_null()) {
+        auto copy = *(this->parameters);
+        try {
+          p->setParameters(copy);
+        } catch (std::exception& e) {
+          throw std::runtime_error("Ifpack2: " + std::string{e.what()});
+        }
+      }
     }
     void setMatrix(const DistributedMatrixView& m) override {
       this->A.set(m);
@@ -704,9 +721,22 @@ namespace mfem_mgis::trilinos {
      */
     MueLuPreconditioner(const Options& o, NodesCoordinates c)
         : parameters(makeParameterList(o)), coordinates(std::move(c)) {
-      // the parameters of a level are given in a sublist `level N`
-      checkParameterNames("MueLu", *(this->parameters),
-                          *(MueLu::MasterList::List()), {"level "});
+      // the names of the simplified syntax of MueLu (the default one), which
+      // MueLu checks at the setup, are checked at the creation of the
+      // solver. The parameters of a level are given in a sublist `level N`.
+      // The other syntaxes (factories in a sublist `Hierarchy`, facade
+      // `MueLu preconditioner`, parameters of ML) are checked by MueLu
+      // only.
+      const auto& p = *(this->parameters);
+      const auto* const syntax = "parameterlist: syntax";
+      const auto simplified = (!p.isSublist("Hierarchy")) &&
+                              (!p.isParameter("MueLu preconditioner")) &&
+                              (!((p.isType<std::string>(syntax)) &&
+                                 (p.get<std::string>(syntax) == "ml")));
+      if (simplified) {
+        checkParameterNames("MueLu", p, *(MueLu::MasterList::List()),
+                            {"level "});
+      }
     }
     void setMatrix(const DistributedMatrixView& m) override {
       this->A.set(m);
@@ -725,13 +755,19 @@ namespace mfem_mgis::trilinos {
           p.sublist("user data").set("Nullspace", modes);
         }
       }
+#ifdef KOKKOS_ENABLE_CUDA
       // products of sparse matrices by the algorithm of Kokkos Kernels on
       // CUDA: the default one (cuSPARSE) ran out of memory on a GPU of 16 GB
-      // from 421,443 unknowns of linear elasticity
-      auto& products = p.sublist("matrixmatrix: kernel params");
-      if (!products.isParameter("cuda: algorithm")) {
-        products.set("cuda: algorithm", "SPGEMM_KK");
+      // from 421,443 unknowns of linear elasticity. Tpetra also reads this
+      // parameter on the host.
+      if constexpr (std::is_same_v<typename Node::execution_space,
+                                   Kokkos::Cuda>) {
+        auto& products = p.sublist("matrixmatrix: kernel params");
+        if (!products.isParameter("cuda: algorithm")) {
+          products.set("cuda: algorithm", "SPGEMM_KK");
+        }
       }
+#endif /* KOKKOS_ENABLE_CUDA */
       // reproducible aggregates (MueLu aggregates the nodes in a random
       // order by default), and silent setup
       if (!p.isParameter("aggregation: deterministic")) {
@@ -767,10 +803,10 @@ namespace mfem_mgis::trilinos {
   };  // end of struct MueLuPreconditioner
 
   /*!
-   * \brief makes the setup of FROSch silent (it prints tables at each setup
-   * by default), unless a verbosity is given: the verbosity is read in the
-   * parameters of the overlapping operator and of the first block of the
-   * coarse operator
+   * \brief makes the setup of FROSch less verbose (it prints tables at each
+   * setup by default), unless a verbosity is given: the verbosity is read in
+   * the parameters of the overlapping operator and of the first block of the
+   * coarse operator. FROSch still prints some tables on the first process.
    * \param[in, out] p: parameters of FROSch
    */
   static void setDefaultFROSchVerbosity(Teuchos::ParameterList& p) {
@@ -1033,6 +1069,28 @@ namespace mfem_mgis::trilinos {
         throw std::runtime_error("Belos: unknown solver '" + s + "'");
       }
       this->solver = factory.create(s, this->parameters);
+      // Belos only checks the parameters from the second call to
+      // `setParameters` (a change of the tolerance): they are checked at the
+      // creation, as well as the parameters of the outer solver of the
+      // hybrid GMRES, built at each resolution
+      try {
+        this->parameters->validateParameters(
+            *(this->solver->getValidParameters()), 0);
+        const auto* const outer = "Outer Solver";
+        if ((this->parameters->isType<std::string>(outer)) &&
+            (!this->parameters->get<std::string>(outer).empty())) {
+          const auto o = this->parameters->get<std::string>(outer);
+          if (!factory.isSupported(o)) {
+            throw std::runtime_error("unknown outer solver '" + o + "'");
+          }
+          const auto valid =
+              factory.create(o, Teuchos::parameterList())->getValidParameters();
+          this->parameters->sublist("Outer Solver Params")
+              .validateParameters(*valid, 0);
+        }
+      } catch (std::exception& e) {
+        throw std::runtime_error("Belos: " + std::string{e.what()});
+      }
     }
     void setMatrix(const DistributedMatrixView& m) override {
       // the matrix of a preconditioner of Trilinos, set before, is shared
@@ -1053,6 +1111,10 @@ namespace mfem_mgis::trilinos {
             new PreconditionerOperator(this->A, this->trilinos_preconditioner,
                                        this->external_preconditioner)));
       }
+      // the solvers keeping data built from the matrix (the polynomial of
+      // the hybrid GMRES) rebuild them
+      this->solver->setProblem(this->problem);
+      this->solver->reset(Belos::Problem);
     }
     [[nodiscard]] Teuchos::RCP<OP> getTpetraOperator() const override {
       return this->A.matrix;
@@ -1091,9 +1153,14 @@ namespace mfem_mgis::trilinos {
     }
     [[nodiscard]] Report getReport() const override { return this->report; }
     [[nodiscard]] double getRelativeTolerance() const override {
+      const auto* const n = "Convergence Tolerance";
+      if (this->isHybrid()) {
+        // the given tolerance of the outer solver, or none
+        const auto& p = this->parameters->sublist("Outer Solver Params");
+        return p.isType<Scalar>(n) ? static_cast<double>(p.get<Scalar>(n)) : -1;
+      }
       // the parameters of the solver, which may only contain the given
       // ones, then the default values
-      const auto* const n = "Convergence Tolerance";
       for (const auto& p : {this->solver->getCurrentParameters(),
                             this->solver->getValidParameters()}) {
         if ((!p.is_null()) && (p->isType<Scalar>(n))) {
@@ -1103,12 +1170,30 @@ namespace mfem_mgis::trilinos {
       return -1;
     }
     [[nodiscard]] bool setRelativeTolerance(const double tol) override {
-      this->parameters->set("Convergence Tolerance", static_cast<Scalar>(tol));
+      const auto* const n = "Convergence Tolerance";
+      const auto hybrid = this->isHybrid();
+      if ((!hybrid) && (!this->solver->getValidParameters()->isParameter(n))) {
+        // LSQR has its own tolerances
+        return false;
+      }
+      // the tolerance of the outer solver of the hybrid GMRES
+      auto& p = hybrid ? this->parameters->sublist("Outer Solver Params")
+                       : *(this->parameters);
+      p.set(n, static_cast<Scalar>(tol));
       this->solver->setParameters(this->parameters);
       return true;
     }
 
    private:
+    /*!
+     * \return if the solver is the hybrid GMRES of Belos, whose convergence
+     * parameters are the ones of its outer solver
+     */
+    [[nodiscard]] bool isHybrid() const {
+      const auto valid = this->solver->getValidParameters();
+      return (!valid->isParameter("Convergence Tolerance")) &&
+             (valid->isParameter("Outer Solver Params"));
+    }
     //! \brief parameters
     const Teuchos::RCP<Teuchos::ParameterList> parameters;
     //! \brief preconditioner of Trilinos
@@ -1126,9 +1211,12 @@ namespace mfem_mgis::trilinos {
   std::unique_ptr<Operator> makeIfpack2Preconditioner(const std::string& type,
                                                       const Options& options) {
     if (!Ifpack2::Factory::isSupported<RowMatrix>(type)) {
-      auto msg = "invalid preconditioner '" + type + "' (supported:";
+      // some names contain spaces
+      auto msg = "invalid preconditioner '" + type + "' (supported: ";
+      auto first = true;
       for (const auto& n : Ifpack2::Factory::getSupportedNames<RowMatrix>()) {
-        msg += " " + n;
+        msg += (first ? "'" : ", '") + n + "'";
+        first = false;
       }
       throw std::runtime_error(msg + ")");
     }

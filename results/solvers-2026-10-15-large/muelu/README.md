@@ -30,11 +30,11 @@ labelled `cpu` are 8 processes sharing the GPU.
 
 - MueLu needs few iterations (20 on the elasticity, 8 on the Laplace
   equation) but its cycles are slow on the GPU with its default options:
-  0.18 second per iteration on the elasticity, against 0.003 for
-  BoomerAMG of hypre (0.33 second per operator, 59 iterations, in
+  0.18 seconds per iteration on the elasticity, against 0.003 for
+  BoomerAMG of hypre (0.33 seconds per operator, 59 iterations, in
   `../elasticity`). Its setup takes 1.2 seconds.
 - The Chebyshev polynomial of degree 3 needs 227 iterations on the
-  elasticity, 0.84 second per operator: 2.5 times slower than BoomerAMG on
+  elasticity, 0.84 seconds per operator: 2.5 times slower than BoomerAMG on
   the GPU, and its iterations grow with the contrast of the inclusions.
 - The products of sparse matrices of cuSPARSE (default of Tpetra on CUDA)
   need too much memory for the multigrid of MueLu at these sizes: those of

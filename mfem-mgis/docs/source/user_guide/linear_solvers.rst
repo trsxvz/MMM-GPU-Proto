@@ -695,10 +695,21 @@ the solver of Trilinos (a :code:`Teuchos::ParameterList`): booleans,
 integers, reals and strings, a list of parameters being a sublist. For
 Amesos2, it is the content of the list :code:`Amesos2` of Amesos2 (the
 parameters common to the solvers, and a sublist per solver, such as
-:code:`KLU2`), which Amesos2 validates when the matrix is set. The names
-of the first level of the parameters of Belos, Ifpack2 and MueLu are
-checked when the solver is created (a misspelt parameter is refused);
-FROSch does not check its parameters:
+:code:`KLU2`), which Amesos2 validates when the matrix is set. The
+parameters of Belos (and those of the outer solver of the hybrid GMRES)
+are checked when the solver is created, which Belos only does when they
+are given again (a change of the tolerance): a misspelt parameter is
+refused. The parameters of Ifpack2 are given, when the solver is created,
+to a preconditioner of the chosen type built without matrix: the
+preconditioners which check their parameters (the relaxations) refuse a
+misspelt one, the other ones ignore the unknown parameters. The names of
+the first level of the parameters of MueLu are checked when the solver is
+created in its simplified syntax, the default one; the other syntaxes
+(factories given in a sublist :code:`Hierarchy`, facade :code:`MueLu
+preconditioner`, parameters of ML with :code:`parameterlist: syntax` set
+to :code:`ml`) are checked by MueLu only (MueLu 17.2.1 translates the
+parameters of ML to an option of the aggregation that its version on
+Kokkos does not support). FROSch does not check its parameters:
 
 .. code-block:: cpp
 
@@ -724,8 +735,14 @@ solver (it is then given to the adaptive tolerance of the Newton solver).
 The GMRES solvers keep 50 Krylov vectors (:code:`Num Blocks`, 300 by
 default in Belos), and are restarted as many times as the maximum number
 of iterations allows (:code:`Maximum Restarts`), unless these parameters
-are given (except the hybrid GMRES, which has none of them). A failure of a solver of Belos (for instance the loss of the
-positive definiteness detected by the conjugate gradient) is reported as a
+are given. The hybrid GMRES of Belos (:cxx:`HYBRID BLOCK GMRES`, a GMRES
+polynomial used as preconditioner) iterates with an outer solver
+(:code:`Outer Solver`, :code:`Block GMRES` by default), whose parameters
+(the sublist :code:`Outer Solver Params`) receive the tolerance, the
+maximum number of iterations, the verbosity and the parameters of the
+restarted GMRES; the polynomial is built again when the matrix changes. A
+failure of a solver of Belos (for instance the loss of the positive
+definiteness detected by the conjugate gradient) is reported as a
 resolution which did not converge, its message being printed.
 
 The matrices of hypre are converted to the sparse matrices of Tpetra each
@@ -749,17 +766,17 @@ coordinates of the nodes are also given to MueLu (user data
 of equations is given. Unless they are given, mfem-mgis sets the
 parameters :code:`aggregation: deterministic` (reproducible aggregates,
 MueLu aggregating the nodes in a random order by default),
-:code:`verbosity` (:code:`none`, a silent setup) and, in the sublist
-:code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
+:code:`verbosity` (:code:`none`, a silent setup) and, on CUDA, in the
+sublist :code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
 (:code:`SPGEMM_KK`: the products of sparse matrices of Kokkos Kernels,
 those of cuSPARSE, the default of Tpetra on CUDA, running out of memory on
 a GPU of 16 GB from a few hundred thousand unknowns). On a GPU, the
 default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a beam of
-421,443 unknowns, a resolution took 3.5 seconds, against 0.07 second with
-two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
+421,443 unknowns, a resolution took 4.2 seconds, against 0.071 seconds
+with two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
 :code:`RELAXATION`, :code:`smoother: params` to :code:`{relaxation: type =
 Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for
-the same number of iterations; the setup of MueLu (1.2 seconds) then
+22 iterations instead of 20; the setup of MueLu (1.3 seconds) then
 dominates.
 
 FROSch is given the number of components as number of degrees of freedom
@@ -776,8 +793,9 @@ whose entries are null except the diagonal one (built by
 on several processes with three unknowns per node, and did not change the
 number of iterations on the Laplace equation; its parameter
 :code:`DirichletBoundary Numerical Tolerance` is refused. The setup of
-FROSch is silent (:code:`Verbosity` set to :code:`None` in the sublists of
-the overlapping operator and of the coarse operator, unless given). With
+FROSch is less verbose (:code:`Verbosity` set to :code:`None` in the
+sublists of the overlapping operator and of the coarse operator, unless
+given), FROSch still printing some tables on the first process. With
 large subdomains, its default solver (KLU2) may be very slow: a solver of
 Amesos2 suited to the finite element matrices (Tacho, for instance) can be
 given in its sublists. FROSch does not support empty subdomains (it

@@ -1,0 +1,658 @@
+From f904a70d3601ae7c61072a8f641b2cd881ac3604 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 05:55:50 +0200
+Subject: [PATCH] Solvers of Trilinos: second review
+
+- Ifpack2: the parameters are given to a preconditioner of the chosen type
+  built without matrix (the relaxations refuse a misspelt name), instead of
+  being checked against Ifpack2::getValidParameters, which does not list
+  all the parameters and refused valid ones. The supported types are
+  quoted in the error message (some names contain spaces).
+- Belos: the parameters, and those of the outer solver of the hybrid
+  GMRES, are checked at the creation (Belos only checks them from the
+  second call to setParameters, which made the change of the tolerance
+  fail).
+- Hybrid GMRES: the tolerance, the maximum number of iterations, the
+  verbosity and the restart parameters go to its outer solver (Block GMRES
+  by default); the relative tolerance is read and changed there; the
+  polynomial is built again when the matrix changes.
+- MueLu: the names are only checked in the simplified syntax (not with a
+  sublist Hierarchy, the facade or the parameters of ML); SPGEMM_KK is
+  only set on CUDA.
+- CMake: the Kokkos built with Trilinos is also checked, and a warning is
+  printed when the Kokkos of Trilinos is not found.
+- FROSch: documented as less verbose, not silent.
+- Tests: valid parameters of Ifpack2 accepted, all the types of Ifpack2
+  created, Schwarz with RILUK, hybrid GMRES, parameters of ML accepted,
+  misspelt parameters of Belos refused, FROSch compared to the Jacobi
+  relaxation on the elasticity and exact with one process.
+---
+ CMakeLists.txt                            |  25 +++--
+ docs/source/user_guide/linear_solvers.rst |  44 +++++---
+ src/TrilinosBackend.cxx                   | 126 ++++++++++++++++++----
+ src/TrilinosLinearSolvers.cxx             |  80 +++++++++++---
+ tests/TrilinosSolversTest.cxx             | 123 +++++++++++++++++++--
+ 5 files changed, 334 insertions(+), 64 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 539f55253c..d734183855 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -122,21 +122,34 @@ if(enable-trilinos)
+   # Trilinos must be built with the Kokkos found above: its packages only
+   # load their own Kokkos when no target of Kokkos is defined, which would
+   # silently compile the sources including Trilinos with another Kokkos
++  set(_trilinos_kokkos_dir "")
+   set(_trilinos_kokkos_config
+       "${Trilinos_DIR}/../TeuchosKokkosCompat/TeuchosKokkosCompatConfig.cmake")
+   if(EXISTS "${_trilinos_kokkos_config}")
++    # an external Kokkos
+     file(STRINGS "${_trilinos_kokkos_config}" _trilinos_kokkos
+          REGEX "set\\(Kokkos_CONFIG ")
+     if(_trilinos_kokkos MATCHES "\"(.*)/KokkosConfig.cmake\"")
+       get_filename_component(_trilinos_kokkos_dir "${CMAKE_MATCH_1}" REALPATH)
+-      get_filename_component(_kokkos_dir "${Kokkos_DIR}" REALPATH)
+-      if(NOT _trilinos_kokkos_dir STREQUAL _kokkos_dir)
+-        message(FATAL_ERROR "mfem-mgis: Trilinos is built with the Kokkos "
+-                "of ${_trilinos_kokkos_dir}, mfem-mgis found the Kokkos of "
+-                "${_kokkos_dir} (option Kokkos_DIR)")
+-      endif()
+     endif()
+   endif()
++  if((NOT _trilinos_kokkos_dir) AND
++     (EXISTS "${Trilinos_DIR}/../Kokkos/KokkosConfig.cmake"))
++    # the Kokkos built with Trilinos, installed with its packages
++    get_filename_component(_trilinos_kokkos_dir "${Trilinos_DIR}/../Kokkos"
++                           REALPATH)
++  endif()
++  if(_trilinos_kokkos_dir)
++    get_filename_component(_kokkos_dir "${Kokkos_DIR}" REALPATH)
++    if(NOT _trilinos_kokkos_dir STREQUAL _kokkos_dir)
++      message(FATAL_ERROR "mfem-mgis: Trilinos is built with the Kokkos "
++              "of ${_trilinos_kokkos_dir}, mfem-mgis found the Kokkos of "
++              "${_kokkos_dir} (option Kokkos_DIR)")
++    endif()
++  else()
++    message(WARNING "mfem-mgis: the Kokkos of Trilinos is not found in its "
++            "configuration files, it must be the Kokkos of ${Kokkos_DIR}")
++  endif()
+   set(MFEM_MGIS_HAVE_TRILINOS ON)
+ endif(enable-trilinos)
+ 
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index c91bf3c920..b3fabbcd39 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -695,10 +695,21 @@ the solver of Trilinos (a :code:`Teuchos::ParameterList`): booleans,
+ integers, reals and strings, a list of parameters being a sublist. For
+ Amesos2, it is the content of the list :code:`Amesos2` of Amesos2 (the
+ parameters common to the solvers, and a sublist per solver, such as
+-:code:`KLU2`), which Amesos2 validates when the matrix is set. The names
+-of the first level of the parameters of Belos, Ifpack2 and MueLu are
+-checked when the solver is created (a misspelt parameter is refused);
+-FROSch does not check its parameters:
++:code:`KLU2`), which Amesos2 validates when the matrix is set. The
++parameters of Belos (and those of the outer solver of the hybrid GMRES)
++are checked when the solver is created, which Belos only does when they
++are given again (a change of the tolerance): a misspelt parameter is
++refused. The parameters of Ifpack2 are given, when the solver is created,
++to a preconditioner of the chosen type built without matrix: the
++preconditioners which check their parameters (the relaxations) refuse a
++misspelt one, the other ones ignore the unknown parameters. The names of
++the first level of the parameters of MueLu are checked when the solver is
++created in its simplified syntax, the default one; the other syntaxes
++(factories given in a sublist :code:`Hierarchy`, facade :code:`MueLu
++preconditioner`, parameters of ML with :code:`parameterlist: syntax` set
++to :code:`ml`) are checked by MueLu only (MueLu 17.2.1 translates the
++parameters of ML to an option of the aggregation that its version on
++Kokkos does not support). FROSch does not check its parameters:
+ 
+ .. code-block:: cpp
+ 
+@@ -724,8 +735,14 @@ solver (it is then given to the adaptive tolerance of the Newton solver).
+ The GMRES solvers keep 50 Krylov vectors (:code:`Num Blocks`, 300 by
+ default in Belos), and are restarted as many times as the maximum number
+ of iterations allows (:code:`Maximum Restarts`), unless these parameters
+-are given (except the hybrid GMRES, which has none of them). A failure of a solver of Belos (for instance the loss of the
+-positive definiteness detected by the conjugate gradient) is reported as a
++are given. The hybrid GMRES of Belos (:cxx:`HYBRID BLOCK GMRES`, a GMRES
++polynomial used as preconditioner) iterates with an outer solver
++(:code:`Outer Solver`, :code:`Block GMRES` by default), whose parameters
++(the sublist :code:`Outer Solver Params`) receive the tolerance, the
++maximum number of iterations, the verbosity and the parameters of the
++restarted GMRES; the polynomial is built again when the matrix changes. A
++failure of a solver of Belos (for instance the loss of the positive
++definiteness detected by the conjugate gradient) is reported as a
+ resolution which did not converge, its message being printed.
+ 
+ The matrices of hypre are converted to the sparse matrices of Tpetra each
+@@ -749,17 +766,17 @@ coordinates of the nodes are also given to MueLu (user data
+ of equations is given. Unless they are given, mfem-mgis sets the
+ parameters :code:`aggregation: deterministic` (reproducible aggregates,
+ MueLu aggregating the nodes in a random order by default),
+-:code:`verbosity` (:code:`none`, a silent setup) and, in the sublist
+-:code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
++:code:`verbosity` (:code:`none`, a silent setup) and, on CUDA, in the
++sublist :code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
+ (:code:`SPGEMM_KK`: the products of sparse matrices of Kokkos Kernels,
+ those of cuSPARSE, the default of Tpetra on CUDA, running out of memory on
+ a GPU of 16 GB from a few hundred thousand unknowns). On a GPU, the
+ default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a beam of
+-421,443 unknowns, a resolution took 3.5 seconds, against 0.07 second with
+-two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
++421,443 unknowns, a resolution took 4.2 seconds, against 0.071 seconds
++with two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
+ :code:`RELAXATION`, :code:`smoother: params` to :code:`{relaxation: type =
+ Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for
+-the same number of iterations; the setup of MueLu (1.2 seconds) then
++22 iterations instead of 20; the setup of MueLu (1.3 seconds) then
+ dominates.
+ 
+ FROSch is given the number of components as number of degrees of freedom
+@@ -776,8 +793,9 @@ whose entries are null except the diagonal one (built by
+ on several processes with three unknowns per node, and did not change the
+ number of iterations on the Laplace equation; its parameter
+ :code:`DirichletBoundary Numerical Tolerance` is refused. The setup of
+-FROSch is silent (:code:`Verbosity` set to :code:`None` in the sublists of
+-the overlapping operator and of the coarse operator, unless given). With
++FROSch is less verbose (:code:`Verbosity` set to :code:`None` in the
++sublists of the overlapping operator and of the coarse operator, unless
++given), FROSch still printing some tables on the first process. With
+ large subdomains, its default solver (KLU2) may be very slow: a solver of
+ Amesos2 suited to the finite element matrices (Tacho, for instance) can be
+ given in its sublists. FROSch does not support empty subdomains (it
+diff --git a/src/TrilinosBackend.cxx b/src/TrilinosBackend.cxx
+index 1e9204df15..3e8f6402cb 100644
+--- a/src/TrilinosBackend.cxx
++++ b/src/TrilinosBackend.cxx
+@@ -34,7 +34,6 @@
+ #include "Xpetra_TpetraCrsMatrix.hpp"
+ #include "Xpetra_TpetraMultiVector.hpp"
+ #include "FROSch_TwoLevelPreconditioner_def.hpp"
+-#include "Ifpack2_Parameters.hpp"
+ #include "MueLu_MasterList.hpp"
+ #include "FROSch_TpetraPreconditioner_def.hpp"
+ #include "TrilinosBackend.hxx"
+@@ -550,9 +549,27 @@ namespace mfem_mgis::trilinos {
+      */
+     Ifpack2Preconditioner(const std::string& t, const Options& o)
+         : type(t), parameters(makeParameterList(o)) {
+-      auto valid = Teuchos::ParameterList{};
+-      Ifpack2::getValidParameters(valid);
+-      checkParameterNames("Ifpack2", *(this->parameters), valid, {});
++      // the parameters are given to a preconditioner of this type built
++      // without matrix, so that the ones checked by Ifpack2 (the names of
++      // the relaxations, for instance) are refused at the creation of the
++      // solver. `Ifpack2::getValidParameters` does not list all the
++      // parameters of the preconditioners.
++      auto p = Teuchos::RCP<Ifpack2::Preconditioner<Scalar, LO, GO, Node>>{};
++      try {
++        p = Ifpack2::Factory::create<RowMatrix>(
++            this->type, Teuchos::RCP<const RowMatrix>{});
++      } catch (std::exception&) {
++        // a preconditioner which needs its matrix: the parameters are
++        // checked at the setup
++      }
++      if (!p.is_null()) {
++        auto copy = *(this->parameters);
++        try {
++          p->setParameters(copy);
++        } catch (std::exception& e) {
++          throw std::runtime_error("Ifpack2: " + std::string{e.what()});
++        }
++      }
+     }
+     void setMatrix(const DistributedMatrixView& m) override {
+       this->A.set(m);
+@@ -704,9 +721,22 @@ namespace mfem_mgis::trilinos {
+      */
+     MueLuPreconditioner(const Options& o, NodesCoordinates c)
+         : parameters(makeParameterList(o)), coordinates(std::move(c)) {
+-      // the parameters of a level are given in a sublist `level N`
+-      checkParameterNames("MueLu", *(this->parameters),
+-                          *(MueLu::MasterList::List()), {"level "});
++      // the names of the simplified syntax of MueLu (the default one), which
++      // MueLu checks at the setup, are checked at the creation of the
++      // solver. The parameters of a level are given in a sublist `level N`.
++      // The other syntaxes (factories in a sublist `Hierarchy`, facade
++      // `MueLu preconditioner`, parameters of ML) are checked by MueLu
++      // only.
++      const auto& p = *(this->parameters);
++      const auto* const syntax = "parameterlist: syntax";
++      const auto simplified = (!p.isSublist("Hierarchy")) &&
++                              (!p.isParameter("MueLu preconditioner")) &&
++                              (!((p.isType<std::string>(syntax)) &&
++                                 (p.get<std::string>(syntax) == "ml")));
++      if (simplified) {
++        checkParameterNames("MueLu", p, *(MueLu::MasterList::List()),
++                            {"level "});
++      }
+     }
+     void setMatrix(const DistributedMatrixView& m) override {
+       this->A.set(m);
+@@ -725,13 +755,19 @@ namespace mfem_mgis::trilinos {
+           p.sublist("user data").set("Nullspace", modes);
+         }
+       }
++#ifdef KOKKOS_ENABLE_CUDA
+       // products of sparse matrices by the algorithm of Kokkos Kernels on
+       // CUDA: the default one (cuSPARSE) ran out of memory on a GPU of 16 GB
+-      // from 421,443 unknowns of linear elasticity
+-      auto& products = p.sublist("matrixmatrix: kernel params");
+-      if (!products.isParameter("cuda: algorithm")) {
+-        products.set("cuda: algorithm", "SPGEMM_KK");
++      // from 421,443 unknowns of linear elasticity. Tpetra also reads this
++      // parameter on the host.
++      if constexpr (std::is_same_v<typename Node::execution_space,
++                                   Kokkos::Cuda>) {
++        auto& products = p.sublist("matrixmatrix: kernel params");
++        if (!products.isParameter("cuda: algorithm")) {
++          products.set("cuda: algorithm", "SPGEMM_KK");
++        }
+       }
++#endif /* KOKKOS_ENABLE_CUDA */
+       // reproducible aggregates (MueLu aggregates the nodes in a random
+       // order by default), and silent setup
+       if (!p.isParameter("aggregation: deterministic")) {
+@@ -767,10 +803,10 @@ namespace mfem_mgis::trilinos {
+   };  // end of struct MueLuPreconditioner
+ 
+   /*!
+-   * \brief makes the setup of FROSch silent (it prints tables at each setup
+-   * by default), unless a verbosity is given: the verbosity is read in the
+-   * parameters of the overlapping operator and of the first block of the
+-   * coarse operator
++   * \brief makes the setup of FROSch less verbose (it prints tables at each
++   * setup by default), unless a verbosity is given: the verbosity is read in
++   * the parameters of the overlapping operator and of the first block of the
++   * coarse operator. FROSch still prints some tables on the first process.
+    * \param[in, out] p: parameters of FROSch
+    */
+   static void setDefaultFROSchVerbosity(Teuchos::ParameterList& p) {
+@@ -1033,6 +1069,28 @@ namespace mfem_mgis::trilinos {
+         throw std::runtime_error("Belos: unknown solver '" + s + "'");
+       }
+       this->solver = factory.create(s, this->parameters);
++      // Belos only checks the parameters from the second call to
++      // `setParameters` (a change of the tolerance): they are checked at the
++      // creation, as well as the parameters of the outer solver of the
++      // hybrid GMRES, built at each resolution
++      try {
++        this->parameters->validateParameters(
++            *(this->solver->getValidParameters()), 0);
++        const auto* const outer = "Outer Solver";
++        if ((this->parameters->isType<std::string>(outer)) &&
++            (!this->parameters->get<std::string>(outer).empty())) {
++          const auto o = this->parameters->get<std::string>(outer);
++          if (!factory.isSupported(o)) {
++            throw std::runtime_error("unknown outer solver '" + o + "'");
++          }
++          const auto valid =
++              factory.create(o, Teuchos::parameterList())->getValidParameters();
++          this->parameters->sublist("Outer Solver Params")
++              .validateParameters(*valid, 0);
++        }
++      } catch (std::exception& e) {
++        throw std::runtime_error("Belos: " + std::string{e.what()});
++      }
+     }
+     void setMatrix(const DistributedMatrixView& m) override {
+       // the matrix of a preconditioner of Trilinos, set before, is shared
+@@ -1053,6 +1111,10 @@ namespace mfem_mgis::trilinos {
+             new PreconditionerOperator(this->A, this->trilinos_preconditioner,
+                                        this->external_preconditioner)));
+       }
++      // the solvers keeping data built from the matrix (the polynomial of
++      // the hybrid GMRES) rebuild them
++      this->solver->setProblem(this->problem);
++      this->solver->reset(Belos::Problem);
+     }
+     [[nodiscard]] Teuchos::RCP<OP> getTpetraOperator() const override {
+       return this->A.matrix;
+@@ -1091,9 +1153,14 @@ namespace mfem_mgis::trilinos {
+     }
+     [[nodiscard]] Report getReport() const override { return this->report; }
+     [[nodiscard]] double getRelativeTolerance() const override {
++      const auto* const n = "Convergence Tolerance";
++      if (this->isHybrid()) {
++        // the given tolerance of the outer solver, or none
++        const auto& p = this->parameters->sublist("Outer Solver Params");
++        return p.isType<Scalar>(n) ? static_cast<double>(p.get<Scalar>(n)) : -1;
++      }
+       // the parameters of the solver, which may only contain the given
+       // ones, then the default values
+-      const auto* const n = "Convergence Tolerance";
+       for (const auto& p : {this->solver->getCurrentParameters(),
+                             this->solver->getValidParameters()}) {
+         if ((!p.is_null()) && (p->isType<Scalar>(n))) {
+@@ -1103,12 +1170,30 @@ namespace mfem_mgis::trilinos {
+       return -1;
+     }
+     [[nodiscard]] bool setRelativeTolerance(const double tol) override {
+-      this->parameters->set("Convergence Tolerance", static_cast<Scalar>(tol));
++      const auto* const n = "Convergence Tolerance";
++      const auto hybrid = this->isHybrid();
++      if ((!hybrid) && (!this->solver->getValidParameters()->isParameter(n))) {
++        // LSQR has its own tolerances
++        return false;
++      }
++      // the tolerance of the outer solver of the hybrid GMRES
++      auto& p = hybrid ? this->parameters->sublist("Outer Solver Params")
++                       : *(this->parameters);
++      p.set(n, static_cast<Scalar>(tol));
+       this->solver->setParameters(this->parameters);
+       return true;
+     }
+ 
+    private:
++    /*!
++     * \return if the solver is the hybrid GMRES of Belos, whose convergence
++     * parameters are the ones of its outer solver
++     */
++    [[nodiscard]] bool isHybrid() const {
++      const auto valid = this->solver->getValidParameters();
++      return (!valid->isParameter("Convergence Tolerance")) &&
++             (valid->isParameter("Outer Solver Params"));
++    }
+     //! \brief parameters
+     const Teuchos::RCP<Teuchos::ParameterList> parameters;
+     //! \brief preconditioner of Trilinos
+@@ -1126,9 +1211,12 @@ namespace mfem_mgis::trilinos {
+   std::unique_ptr<Operator> makeIfpack2Preconditioner(const std::string& type,
+                                                       const Options& options) {
+     if (!Ifpack2::Factory::isSupported<RowMatrix>(type)) {
+-      auto msg = "invalid preconditioner '" + type + "' (supported:";
++      // some names contain spaces
++      auto msg = "invalid preconditioner '" + type + "' (supported: ";
++      auto first = true;
+       for (const auto& n : Ifpack2::Factory::getSupportedNames<RowMatrix>()) {
+-        msg += " " + n;
++        msg += (first ? "'" : ", '") + n + "'";
++        first = false;
+       }
+       throw std::runtime_error(msg + ")");
+     }
+diff --git a/src/TrilinosLinearSolvers.cxx b/src/TrilinosLinearSolvers.cxx
+index 664a81ac4d..e137d5fb13 100644
+--- a/src/TrilinosLinearSolvers.cxx
++++ b/src/TrilinosLinearSolvers.cxx
+@@ -395,13 +395,59 @@ namespace mfem_mgis::internals {
+         return {};
+       }
+       // the options of mfem-mgis, overridden by the parameters of Belos
+-      const auto add = [&ooptions](const std::string& n, trilinos::Option o) {
++      const auto add_to = [](trilinos::Options& options, const std::string& n,
++                             trilinos::Option o) {
+         const auto found = std::ranges::any_of(
+-            *ooptions, [&n](const auto& p) noexcept { return p.first == n; });
++            options, [&n](const auto& p) noexcept { return p.first == n; });
+         if (!found) {
+-          ooptions->emplace_back(n, std::move(o));
++          options.emplace_back(n, std::move(o));
+         }
+       };
++      // the hybrid GMRES of Belos (polynomial preconditioning) iterates with
++      // an outer solver, GMRES by default, which receives the convergence
++      // parameters
++      const auto lower = [](std::string n) {
++        std::ranges::transform(n, n.begin(),
++                               [](const unsigned char c) noexcept {
++                                 return static_cast<char>(std::tolower(c));
++                               });
++        return n;
++      };
++      const auto hybrid = lower(*osolver).find("hybrid") != std::string::npos;
++      if (hybrid) {
++        add_to(*ooptions, "Outer Solver",
++               trilinos::Option{std::string{"Block GMRES"}});
++      }
++      // index of the parameters of the outer solver (an index, the options
++      // being extended below)
++      auto outer = std::size_t{};
++      if (hybrid) {
++        const auto p = std::ranges::find_if(*ooptions, [](const auto& o) {
++          return o.first == "Outer Solver Params";
++        });
++        outer = static_cast<std::size_t>(p - ooptions->begin());
++        if (p == ooptions->end()) {
++          ooptions->emplace_back("Outer Solver Params",
++                                 trilinos::Option{trilinos::Options{}});
++        } else if (!std::holds_alternative<trilinos::Options>(
++                       p->second.value)) {
++          std::ignore = ctx.registerErrorMessage(
++              "BelosSolver: the parameter 'Outer Solver Params' must be a "
++              "list of parameters");
++          return {};
++        }
++      }
++      const auto convergence = [&ooptions, hybrid,
++                                outer]() -> trilinos::Options& {
++        if (hybrid) {
++          return std::get<trilinos::Options>((*ooptions)[outer].second.value);
++        }
++        return *ooptions;
++      };
++      const auto add = [&add_to, &convergence](const std::string& n,
++                                               trilinos::Option o) {
++        add_to(convergence(), n, std::move(o));
++      };
+       if (contains(params, Problem::SolverRelativeTolerance)) {
+         const auto ov =
+             get<double>(ctx, params, Problem::SolverRelativeTolerance);
+@@ -434,18 +480,20 @@ namespace mfem_mgis::internals {
+       }
+       // restarted GMRES: 50 Krylov vectors (300 by default in Belos), and
+       // the number of restarts allowing the maximum number of iterations
+-      // (the hybrid GMRES of Belos, polynomial preconditioning, has none of
+-      // these parameters)
+-      auto name = *osolver;
+-      std::ranges::transform(name, name.begin(),
+-                             [](const unsigned char c) noexcept {
+-                               return static_cast<char>(std::tolower(c));
+-                             });
++      auto name = lower(*osolver);
++      if (hybrid) {
++        for (const auto& [k, o] : *ooptions) {
++          const auto* const pv = std::get_if<std::string>(&o.value);
++          if ((k == "Outer Solver") && (pv != nullptr)) {
++            name = lower(*pv);
++          }
++        }
++      }
+       if ((name.find("gmres") != std::string::npos) &&
+           (name.find("hybrid") == std::string::npos)) {
+         add("Num Blocks", trilinos::Option{50});
+-        const auto get_int = [&ooptions](const std::string& n, const int v) {
+-          for (const auto& [k, o] : *ooptions) {
++        const auto get_int = [&convergence](const std::string& n, const int v) {
++          for (const auto& [k, o] : convergence()) {
+             if (k == n) {
+               const auto* const pv = std::get_if<int>(&o.value);
+               return pv != nullptr ? *pv : v;
+@@ -465,11 +513,13 @@ namespace mfem_mgis::internals {
+         // Belos::Warnings and Belos::FinalSummary, then
+         // Belos::IterationDetails and Belos::StatusTestDetails at each
+         // iteration
++        const auto verbosity = *ov > 1 ? 1 + 2 + 8 + 32 : (*ov > 0 ? 1 + 8 : 0);
++        if (hybrid) {
++          add_to(*ooptions, "Verbosity", trilinos::Option{verbosity});
++        }
++        add("Verbosity", trilinos::Option{verbosity});
+         if (*ov > 1) {
+-          add("Verbosity", trilinos::Option{1 + 2 + 8 + 32});
+           add("Output Frequency", trilinos::Option{1});
+-        } else {
+-          add("Verbosity", trilinos::Option{*ov > 0 ? 1 + 8 : 0});
+         }
+       }
+       auto oprec =
+diff --git a/tests/TrilinosSolversTest.cxx b/tests/TrilinosSolversTest.cxx
+index 452e080daa..de5044dd4a 100644
+--- a/tests/TrilinosSolversTest.cxx
++++ b/tests/TrilinosSolversTest.cxx
+@@ -37,6 +37,7 @@
+ #include <string>
+ #include <vector>
+ #include <cstdlib>
++#include <sstream>
+ #include <iostream>
+ #include <stdexcept>
+ #include "mfem.hpp"
+@@ -278,8 +279,12 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
+   const auto rf = solve(s, *(frosch.linear_solver), "Belos CG, FROSch");
+   // the iterations of the two level Schwarz method grow with the number of
+   // subdomains on this small system (20 against 25 for the Jacobi
+-  // relaxation on three processes)
+-  check(isSolved(rf) && (rf.iterations < rj.iterations),
++  // relaxation on three processes). With one process, the only subdomain
++  // is factorized.
++  auto size = 0;
++  MPI_Comm_size(MPI_COMM_WORLD, &size);
++  check(isSolved(rf) && (rf.iterations < rj.iterations) &&
++            ((size != 1) || (rf.iterations <= 2)),
+         "Belos CG, FROSch: resolution");
+   // a preconditioner of Trilinos with a Krylov solver of MFEM
+   auto cg =
+@@ -346,19 +351,23 @@ static void checkElasticity(ElasticitySystem<true>& e1,
+   check(isFaster(r1, r3) && isFaster(r2, r3),
+         "Belos CG, MueLu: the rigid body modes do not reduce the number of "
+         "iterations");
++  auto jacobi =
++      generate(e1, "BelosSolver", getBelosParameters("GMRES", "Ifpack2"));
++  const auto rj = solve(e1, *(jacobi.linear_solver),
++                        "Belos GMRES, Ifpack2 Jacobi, byNODES");
++  check(isSolved(rj),
++        "Belos GMRES, Ifpack2 Jacobi: resolution of the linear elasticity");
+   // two level Schwarz preconditioner, with the null space of the linear
+-  // elasticity
++  // elasticity (9 iterations against 103 for the Jacobi relaxation on two
++  // processes)
+   auto f1 = generate(e1, "BelosSolver", getBelosParameters("CG", "FROSch"));
+-  check(isSolved(solve(e1, *(f1.linear_solver), "Belos CG, FROSch, byNODES")),
++  const auto rf1 = solve(e1, *(f1.linear_solver), "Belos CG, FROSch, byNODES");
++  check(isSolved(rf1) && isFaster(rf1, rj),
+         "Belos CG, FROSch: resolution of the linear elasticity (byNODES)");
+   auto f2 = generate(e2, "BelosSolver", getBelosParameters("CG", "FROSch"));
+-  check(isSolved(solve(e2, *(f2.linear_solver), "Belos CG, FROSch, byVDIM")),
++  const auto rf2 = solve(e2, *(f2.linear_solver), "Belos CG, FROSch, byVDIM");
++  check(isSolved(rf2) && isFaster(rf2, rj),
+         "Belos CG, FROSch: resolution of the linear elasticity (byVDIM)");
+-  auto jacobi =
+-      generate(e1, "BelosSolver", getBelosParameters("GMRES", "Ifpack2"));
+-  check(isSolved(solve(e1, *(jacobi.linear_solver),
+-                       "Belos GMRES, Ifpack2 Jacobi, byNODES")),
+-        "Belos GMRES, Ifpack2 Jacobi: resolution of the linear elasticity");
+ }  // end of checkElasticity
+ 
+ /*!
+@@ -405,6 +414,87 @@ static void checkOptions(LaplaceSystem<true>& s) {
+   const auto r3 = solve(s, *(ls3.linear_solver), "Belos CG, 3 iterations");
+   check((!r3.converged) && (r3.iterations == 3),
+         "Belos CG: resolution stopped by the maximum number of iterations");
++  // the hybrid GMRES (polynomial preconditioning) gives the convergence
++  // parameters to its outer solver
++  auto hybrid = generate(s, "BelosSolver",
++                         Parameters{{"Solver", "HYBRID BLOCK GMRES"},
++                                    {"RelativeTolerance", 1e-6},
++                                    {"MaximumNumberOfIterations", 2000}});
++  check(std::abs(getRelativeTolerance(*(hybrid.linear_solver)).value_or(0) -
++                 1e-6) < 1e-12,
++        "Belos hybrid GMRES: relative tolerance");
++  const auto rh = solve(s, *(hybrid.linear_solver), "Belos hybrid GMRES, 1e-6");
++  check(rh.converged && (rh.residual < 1e-5) && (rh.residual > 1e-10),
++        "Belos hybrid GMRES, tolerance 1e-6: resolution");
++  check(setRelativeTolerance(*(hybrid.linear_solver), 1e-10),
++        "Belos hybrid GMRES: change of the relative tolerance");
++  // a second operator: the polynomial is built again
++  auto a2 = mfem::HypreParMatrix(s.A);
++  a2 *= 2.;
++  check(isSolved(solve(s, a2, *(hybrid.linear_solver),
++                       "Belos hybrid GMRES, 1e-10, 2 A")),
++        "Belos hybrid GMRES, tolerance 1e-10: resolution");
++  // parameters of Ifpack2 absent from `Ifpack2::getValidParameters`
++  const auto accepted = [&s](const std::string& type, const Parameters& p) {
++    const auto options = Parameters{{"Type", type}, {"Parameters", p}};
++    const auto error = getGenerationError(
++        s, "BelosSolver", getBelosParameters("CG", "Ifpack2", options));
++    check(error.empty(),
++          "Ifpack2, " + type + ": valid parameters refused ('" + error + "')");
++  };
++  accepted("RELAXATION",
++           Parameters{{"relaxation: fix tiny diagonal entries", true},
++                      {"relaxation: inner sweeps", 2}});
++  accepted("CHEBYSHEV", Parameters{{"chebyshev: boost factor", 1.1}});
++  accepted("RILUK", Parameters{{"fact: iluk overalloc", 2.}});
++  auto schwarz = generate(
++      s, "BelosSolver",
++      getBelosParameters(
++          "GMRES", "Ifpack2",
++          Parameters{
++              {"Type", "SCHWARZ"},
++              {"Parameters",
++               Parameters{{"schwarz: inner preconditioner name", "RILUK"}}}}));
++  check(isSolved(solve(s, *(schwarz.linear_solver),
++                       "Belos GMRES, Ifpack2 Schwarz, RILUK")),
++        "Belos GMRES, Ifpack2 Schwarz: resolution");
++  // all the preconditioners of Ifpack2 are created, their parameters being
++  // checked by a preconditioner built without matrix
++  const auto error = getGenerationError(
++      s, "BelosSolver",
++      getBelosParameters("CG", "Ifpack2", Parameters{{"Type", "NoSuchType"}}));
++  auto count = 0;
++  const auto b = error.find("(supported: ");
++  const auto e = error.find(')', b);
++  if ((b != std::string::npos) && (e != std::string::npos)) {
++    // names in quotes, separated by commas
++    auto names = std::istringstream{error.substr(b + 12, e - b - 12)};
++    for (auto n = std::string{}; std::getline(names, n, '\'');) {
++      if (!std::getline(names, n, '\'')) {
++        break;
++      }
++      ++count;
++      if (n == "HIPTMAIR") {
++        // needs the matrices of its auxiliary space, which mfem-mgis does
++        // not give
++        continue;
++      }
++      // the factorization of Amesos2 reads the sublist `Amesos2` only
++      accepted(n, n == "AMESOS2" ? Parameters{{"Amesos2", Parameters{}}}
++                                 : Parameters{});
++    }
++  }
++  check(count > 10, "Ifpack2: list of the preconditioners");
++  // the parameters of ML, translated by MueLu, are not checked at the
++  // creation (MueLu 17.2.1 translates them to an option of the aggregation
++  // which its version on Kokkos does not support: no resolution)
++  const auto ml = getGenerationError(
++      s, "BelosSolver",
++      getBelosParameters(
++          "CG", "MueLu",
++          Parameters{{"Parameters", Parameters{{"parameterlist: syntax", "ml"},
++                                               {"ML output", 0}}}}));
++  check(ml.empty(), "MueLu: parameters of ML refused ('" + ml + "')");
+ }  // end of checkOptions
+ 
+ /*!
+@@ -483,7 +573,18 @@ static void checkRefusals(LaplaceSystem<true>& s) {
+           getBelosParameters(
+               "CG", "Ifpack2",
+               Parameters{{"Parameters", Parameters{{"relaxation: sweep", 2}}}}),
+-          "unknown parameter 'relaxation: sweep'");
++          "relaxation: sweep");
++  refused(
++      "BelosSolver",
++      Parameters{{"Solver", "CG"},
++                 {"Parameters", Parameters{{"Convergence Tolerence", 1e-4}}}},
++      "Convergence Tolerence");
++  refused(
++      "BelosSolver",
++      Parameters{{"Solver", "HYBRID BLOCK GMRES"},
++                 {"Parameters", Parameters{{"Outer Solver Params",
++                                            Parameters{{"Num Blocs", 10}}}}}},
++      "Num Blocs");
+   refused("BelosSolver",
+           getBelosParameters(
+               "CG", "FROSch",
+-- 
+2.43.0
+

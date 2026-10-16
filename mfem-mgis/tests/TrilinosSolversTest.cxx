@@ -37,6 +37,7 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
+#include <sstream>
 #include <iostream>
 #include <stdexcept>
 #include "mfem.hpp"
@@ -278,8 +279,12 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
   const auto rf = solve(s, *(frosch.linear_solver), "Belos CG, FROSch");
   // the iterations of the two level Schwarz method grow with the number of
   // subdomains on this small system (20 against 25 for the Jacobi
-  // relaxation on three processes)
-  check(isSolved(rf) && (rf.iterations < rj.iterations),
+  // relaxation on three processes). With one process, the only subdomain
+  // is factorized.
+  auto size = 0;
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  check(isSolved(rf) && (rf.iterations < rj.iterations) &&
+            ((size != 1) || (rf.iterations <= 2)),
         "Belos CG, FROSch: resolution");
   // a preconditioner of Trilinos with a Krylov solver of MFEM
   auto cg =
@@ -346,19 +351,23 @@ static void checkElasticity(ElasticitySystem<true>& e1,
   check(isFaster(r1, r3) && isFaster(r2, r3),
         "Belos CG, MueLu: the rigid body modes do not reduce the number of "
         "iterations");
-  // two level Schwarz preconditioner, with the null space of the linear
-  // elasticity
-  auto f1 = generate(e1, "BelosSolver", getBelosParameters("CG", "FROSch"));
-  check(isSolved(solve(e1, *(f1.linear_solver), "Belos CG, FROSch, byNODES")),
-        "Belos CG, FROSch: resolution of the linear elasticity (byNODES)");
-  auto f2 = generate(e2, "BelosSolver", getBelosParameters("CG", "FROSch"));
-  check(isSolved(solve(e2, *(f2.linear_solver), "Belos CG, FROSch, byVDIM")),
-        "Belos CG, FROSch: resolution of the linear elasticity (byVDIM)");
   auto jacobi =
       generate(e1, "BelosSolver", getBelosParameters("GMRES", "Ifpack2"));
-  check(isSolved(solve(e1, *(jacobi.linear_solver),
-                       "Belos GMRES, Ifpack2 Jacobi, byNODES")),
+  const auto rj = solve(e1, *(jacobi.linear_solver),
+                        "Belos GMRES, Ifpack2 Jacobi, byNODES");
+  check(isSolved(rj),
         "Belos GMRES, Ifpack2 Jacobi: resolution of the linear elasticity");
+  // two level Schwarz preconditioner, with the null space of the linear
+  // elasticity (9 iterations against 103 for the Jacobi relaxation on two
+  // processes)
+  auto f1 = generate(e1, "BelosSolver", getBelosParameters("CG", "FROSch"));
+  const auto rf1 = solve(e1, *(f1.linear_solver), "Belos CG, FROSch, byNODES");
+  check(isSolved(rf1) && isFaster(rf1, rj),
+        "Belos CG, FROSch: resolution of the linear elasticity (byNODES)");
+  auto f2 = generate(e2, "BelosSolver", getBelosParameters("CG", "FROSch"));
+  const auto rf2 = solve(e2, *(f2.linear_solver), "Belos CG, FROSch, byVDIM");
+  check(isSolved(rf2) && isFaster(rf2, rj),
+        "Belos CG, FROSch: resolution of the linear elasticity (byVDIM)");
 }  // end of checkElasticity
 
 /*!
@@ -405,6 +414,87 @@ static void checkOptions(LaplaceSystem<true>& s) {
   const auto r3 = solve(s, *(ls3.linear_solver), "Belos CG, 3 iterations");
   check((!r3.converged) && (r3.iterations == 3),
         "Belos CG: resolution stopped by the maximum number of iterations");
+  // the hybrid GMRES (polynomial preconditioning) gives the convergence
+  // parameters to its outer solver
+  auto hybrid = generate(s, "BelosSolver",
+                         Parameters{{"Solver", "HYBRID BLOCK GMRES"},
+                                    {"RelativeTolerance", 1e-6},
+                                    {"MaximumNumberOfIterations", 2000}});
+  check(std::abs(getRelativeTolerance(*(hybrid.linear_solver)).value_or(0) -
+                 1e-6) < 1e-12,
+        "Belos hybrid GMRES: relative tolerance");
+  const auto rh = solve(s, *(hybrid.linear_solver), "Belos hybrid GMRES, 1e-6");
+  check(rh.converged && (rh.residual < 1e-5) && (rh.residual > 1e-10),
+        "Belos hybrid GMRES, tolerance 1e-6: resolution");
+  check(setRelativeTolerance(*(hybrid.linear_solver), 1e-10),
+        "Belos hybrid GMRES: change of the relative tolerance");
+  // a second operator: the polynomial is built again
+  auto a2 = mfem::HypreParMatrix(s.A);
+  a2 *= 2.;
+  check(isSolved(solve(s, a2, *(hybrid.linear_solver),
+                       "Belos hybrid GMRES, 1e-10, 2 A")),
+        "Belos hybrid GMRES, tolerance 1e-10: resolution");
+  // parameters of Ifpack2 absent from `Ifpack2::getValidParameters`
+  const auto accepted = [&s](const std::string& type, const Parameters& p) {
+    const auto options = Parameters{{"Type", type}, {"Parameters", p}};
+    const auto error = getGenerationError(
+        s, "BelosSolver", getBelosParameters("CG", "Ifpack2", options));
+    check(error.empty(),
+          "Ifpack2, " + type + ": valid parameters refused ('" + error + "')");
+  };
+  accepted("RELAXATION",
+           Parameters{{"relaxation: fix tiny diagonal entries", true},
+                      {"relaxation: inner sweeps", 2}});
+  accepted("CHEBYSHEV", Parameters{{"chebyshev: boost factor", 1.1}});
+  accepted("RILUK", Parameters{{"fact: iluk overalloc", 2.}});
+  auto schwarz = generate(
+      s, "BelosSolver",
+      getBelosParameters(
+          "GMRES", "Ifpack2",
+          Parameters{
+              {"Type", "SCHWARZ"},
+              {"Parameters",
+               Parameters{{"schwarz: inner preconditioner name", "RILUK"}}}}));
+  check(isSolved(solve(s, *(schwarz.linear_solver),
+                       "Belos GMRES, Ifpack2 Schwarz, RILUK")),
+        "Belos GMRES, Ifpack2 Schwarz: resolution");
+  // all the preconditioners of Ifpack2 are created, their parameters being
+  // checked by a preconditioner built without matrix
+  const auto error = getGenerationError(
+      s, "BelosSolver",
+      getBelosParameters("CG", "Ifpack2", Parameters{{"Type", "NoSuchType"}}));
+  auto count = 0;
+  const auto b = error.find("(supported: ");
+  const auto e = error.find(')', b);
+  if ((b != std::string::npos) && (e != std::string::npos)) {
+    // names in quotes, separated by commas
+    auto names = std::istringstream{error.substr(b + 12, e - b - 12)};
+    for (auto n = std::string{}; std::getline(names, n, '\'');) {
+      if (!std::getline(names, n, '\'')) {
+        break;
+      }
+      ++count;
+      if (n == "HIPTMAIR") {
+        // needs the matrices of its auxiliary space, which mfem-mgis does
+        // not give
+        continue;
+      }
+      // the factorization of Amesos2 reads the sublist `Amesos2` only
+      accepted(n, n == "AMESOS2" ? Parameters{{"Amesos2", Parameters{}}}
+                                 : Parameters{});
+    }
+  }
+  check(count > 10, "Ifpack2: list of the preconditioners");
+  // the parameters of ML, translated by MueLu, are not checked at the
+  // creation (MueLu 17.2.1 translates them to an option of the aggregation
+  // which its version on Kokkos does not support: no resolution)
+  const auto ml = getGenerationError(
+      s, "BelosSolver",
+      getBelosParameters(
+          "CG", "MueLu",
+          Parameters{{"Parameters", Parameters{{"parameterlist: syntax", "ml"},
+                                               {"ML output", 0}}}}));
+  check(ml.empty(), "MueLu: parameters of ML refused ('" + ml + "')");
 }  // end of checkOptions
 
 /*!
@@ -483,7 +573,18 @@ static void checkRefusals(LaplaceSystem<true>& s) {
           getBelosParameters(
               "CG", "Ifpack2",
               Parameters{{"Parameters", Parameters{{"relaxation: sweep", 2}}}}),
-          "unknown parameter 'relaxation: sweep'");
+          "relaxation: sweep");
+  refused(
+      "BelosSolver",
+      Parameters{{"Solver", "CG"},
+                 {"Parameters", Parameters{{"Convergence Tolerence", 1e-4}}}},
+      "Convergence Tolerence");
+  refused(
+      "BelosSolver",
+      Parameters{{"Solver", "HYBRID BLOCK GMRES"},
+                 {"Parameters", Parameters{{"Outer Solver Params",
+                                            Parameters{{"Num Blocs", 10}}}}}},
+      "Num Blocs");
   refused("BelosSolver",
           getBelosParameters(
               "CG", "FROSch",

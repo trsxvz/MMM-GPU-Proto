@@ -5137,9 +5137,11 @@ formula as MTest). All the others give the Newton solution to within
   repetitions): with the rigid body modes, GAMG of PETSc needs 15
   iterations instead of 177 on the elasticity, 25 instead of 284 with the
   stiff inclusions. Stopped on the true residual (`ksp_norm_type
-  unpreconditioned`), it is the fastest configuration measured on the CPU
-  for the elasticity: 0.12 second per operator against 0.20 for BoomerAMG
-  with its systems options. The elasticity options of BoomerAMG do not
+  unpreconditioned`), it is the fastest multigrid measured on the CPU for
+  the elasticity: 0.12 seconds per operator against 0.20 for BoomerAMG
+  with its systems options (the conjugate gradient with the Jacobi
+  preconditioner, 0.089 seconds, remains faster on the homogeneous beam
+  of this size: correction of 16/10/2026). The elasticity options of BoomerAMG do not
   reduce the iterations on the beam (31 against 30) and cost three times
   more.
 - Found and fixed in mfem-mgis (patches 0234 to 0238): the elasticity
@@ -5238,10 +5240,12 @@ formula as MTest). All the others give the Newton solution to within
   at 421,443 unknowns with the products of sparse matrices of cuSPARSE:
   those of Kokkos Kernels are the default of mfem-mgis. Its default
   smoother (symmetric Gauss-Seidel) is slow on the GPU: with two sweeps
-  of a Jacobi relaxation, a resolution takes 0.07 second instead of 3.5,
-  the setup (1.2 seconds) then dominating. Tacho factorizes 2.4 times
-  slower than cuDSS. FROSch with KLU2 for its subdomains takes minutes on
-  3D problems.
+  of a Jacobi relaxation, a resolution takes 0.071 seconds instead of 3.8
+  (3.5 in a first run), the setup (1.25 seconds) then dominating
+  (`results/solvers-2026-10-15-large/muelu-jacobi`). Tacho factorizes 2.4 times
+  slower than cuDSS. FROSch with KLU2 for its subdomains takes 5.3 seconds
+  per setup on the beam with 8 subdomains, 49 seconds with one, and more
+  than 4 minutes on the Laplace cube (run stopped).
 - Large Laplace systems (`results/solvers-2026-10-15-large/laplace`,
   2,146,689 unknowns): on the GPU, the conjugate gradient with the Jacobi
   preconditioner is the fastest (0.18 second per operator), 10 times
@@ -5249,3 +5253,27 @@ formula as MTest). All the others give the Newton solution to within
 - [docs/solver-recommendations.md](docs/solver-recommendations.md)
   completed with Trilinos and the large Laplace systems.
 
+- Second review of the module (patch 0246, one point rated 3): the check
+  of the names of the parameters of Ifpack2 against
+  `Ifpack2::getValidParameters` refused valid parameters (that list is
+  incomplete): the parameters are now given to a preconditioner of the
+  chosen type built without matrix. Belos only checks its parameters from
+  the second call to `setParameters`, so that a misspelt parameter made
+  the change of the tolerance fail later: they are checked at the
+  creation. The hybrid GMRES gives its convergence parameters to its outer
+  solver (Block GMRES by default), and its polynomial is built again when
+  the matrix changes. The names of MueLu are only checked in its
+  simplified syntax (MueLu 17.2.1 translates the parameters of ML to an
+  option that its aggregation on Kokkos refuses). The test creates all the
+  preconditioners of Ifpack2: AMESOS2 reads only a sublist `Amesos2`,
+  HIPTMAIR needs auxiliary matrices that mfem-mgis does not give.
+- MueLu with two sweeps of a damped Jacobi smoother
+  (`results/solvers-2026-10-15-large/muelu-jacobi`, GPU reserved, two
+  repetitions): resolution 54 times faster than with its default smoother
+  on the elasticity (0.071 against 3.84 seconds), setup 1.25 seconds. A
+  first run, during which another computation used the GPU, was
+  discarded.
+- Fact check of the documents of the campaign: GAMG is the fastest
+  multigrid on the CPU for the elasticity, not the fastest configuration
+  (the conjugate gradient with the Jacobi preconditioner is faster on the
+  homogeneous beam of 56,355 unknowns); seven claims made more precise.

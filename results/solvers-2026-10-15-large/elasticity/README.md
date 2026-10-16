@@ -3,8 +3,10 @@
 Pass of `cases/measure-solvers.sh` at a larger size (`SIZE=32`): the
 cantilever beam of 128 x 32 x 32 elements (421,443 unknowns), homogeneous
 (`elasticity`) and with stiff cubic inclusions of contrast 1000
-(`heterogeneous`). Selection of configurations: the iterative ones which
-converged in the first passes, and the three fastest direct solvers. 8
+(`heterogeneous`). Selection of configurations: most of the iterative ones which
+converged in the first passes (not MGR, nor the elasticity options of
+BoomerAMG, three times slower), and three of the fastest direct solvers
+(MUMPS, MKL Cluster Sparse Solver, cuDSS). 8
 processes on the CPU (Ryzen 7 9800X3D), one process on the GPU (RTX 5080).
 Build `solvers` of mfem-mgis c11ccc241a (patches up to 0238; the commit
 fbd1a6619d of `context.txt` only changes the documentation), quiet
@@ -39,10 +41,10 @@ what each Newton iteration pays, in seconds:
   same preconditioner needs 1797).
 - The direct solvers factorize in about 20 seconds on the CPU (MUMPS,
   MKL Cluster Sparse Solver) and 5.9 seconds with cuDSS; they solve in
-  0.05 to 0.6 second. They pay off when the factorization is reused for
+  0.05 to 0.6 seconds. They pay off when the factorization is reused for
   many resolutions (modified Newton methods, several right hand sides).
 - From 56,355 to 421,443 unknowns (7.5 times more), the time per operator
-  of BoomerAMG on the CPU grows 19 times and the one of GAMG 15 times,
-  probably because the matrix of the small system (about 70 MB) almost
-  fits in the 96 MB of cache of the processor (not checked). On the GPU,
+  of BoomerAMG on the CPU grows 19 times and that of GAMG 15 times,
+  probably because the matrix of the small system (50 to 70 MB) fits in
+  the 96 MB of cache of the processor (not checked). On the GPU,
   the time of BoomerAMG grows 5 times.
