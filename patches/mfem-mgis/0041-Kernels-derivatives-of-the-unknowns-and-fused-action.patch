@@ -1,4 +1,4 @@
-From 91109bba1a43fcc60ef09be7ceb33e889e391e96 Mon Sep 17 00:00:00 2001
+From c9f4fca96de2c29af5e396a237649538219b31df Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 01:47:22 +0200
 Subject: [PATCH] Kernels: derivatives of the unknowns and fused action of the
@@ -42,10 +42,10 @@ Subject: [PATCH] Kernels: derivatives of the unknowns and fused action of the
  17 files changed, 329 insertions(+), 279 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 7300080603..09b727824b 100644
+index bd4ebef6eb..44e718c887 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -213,21 +213,21 @@ namespace mfem_mgis {
+@@ -216,21 +216,21 @@ namespace mfem_mgis {
      /*!
       * \brief add the action of the stiffness matrices of all the elements,
       * computed by kernels from the tangent operator blocks without
@@ -188,10 +188,10 @@ index f3517fceae..237670575f 100644
  
    /*!
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index f9171ebfb5..3a9160d48e 100644
+index 8292b37789..0961cc96b1 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -346,17 +346,6 @@ namespace mfem_mgis {
+@@ -348,17 +348,6 @@ namespace mfem_mgis {
         * `integrateBatch` (integration on the device)
         */
        std::vector<mfem::Vector> device_inputs;

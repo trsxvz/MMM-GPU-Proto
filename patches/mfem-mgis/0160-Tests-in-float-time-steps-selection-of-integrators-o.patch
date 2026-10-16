@@ -1,4 +1,4 @@
-From c42fb979ff0d10c35ddf2a6b21a1eec6a8e14120 Mon Sep 17 00:00:00 2001
+From 7f0b3ef650171d2b4a453e190fdbd7f29f36f280 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:17:45 +0200
 Subject: [PATCH] Tests in float: time steps, selection of integrators,

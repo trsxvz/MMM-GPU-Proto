@@ -1,4 +1,4 @@
-From e481f64f1ff7da36e4a0bded1852b5fb4e984532 Mon Sep 17 00:00:00 2001
+From 8553019879ec5fa56c3dad8f6ed39a7337ae1fa5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:05:56 +0200
 Subject: [PATCH] Post-processings computed by kernels
@@ -64,7 +64,7 @@ the GPU.
  create mode 100644 tests/PostProcessingsKernelsTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 223eb59347..a823b62e82 100644
+index 2a0d1b07d2..1911e05de2 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -2,6 +2,7 @@ mfem_mgis_header(MFEMMGIS MGISForward.hxx)
@@ -75,7 +75,7 @@ index 223eb59347..a823b62e82 100644
  mfem_mgis_header(MFEMMGIS ExitStatus.hxx)
  mfem_mgis_header(MFEMMGIS ExitStatus.ixx)
  mfem_mgis_header(MFEMMGIS MPI.hxx)
-@@ -42,6 +43,7 @@ endif()
+@@ -41,6 +42,7 @@ endif()
  mfem_mgis_header(MFEMMGIS/Batch ElementsGeometry.hxx)
  mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
  mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
@@ -897,10 +897,10 @@ index 0000000000..36ef12e374
 +
 +#endif /* LIB_MFEM_MGIS_SRC_BATCH_INTEGRATIONPOINTSFUNCTIONSKERNELS_HXX */
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index cc4acd3165..c00bdf856c 100644
+index effa8e4d37..5592cf6a2a 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -26,6 +26,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -25,6 +25,7 @@ list(APPEND MFEMMGIS_SOURCES
    MaterialArrays.cxx
    MaterialQuantityProviderSearch.cxx
    AbstractBehaviourIntegrator.cxx
@@ -908,7 +908,7 @@ index cc4acd3165..c00bdf856c 100644
    BehaviourIntegratorBase.cxx
    BehaviourIntegratorFactory.cxx
    MatrixFreeTangentOperator.cxx
-@@ -159,6 +160,7 @@ set(MFEMMGIS_DEVICE_SOURCES
+@@ -158,6 +159,7 @@ set(MFEMMGIS_DEVICE_SOURCES
    Batch/MFEMFieldOperations.cxx
    Batch/GradientsKernels.cxx
    Batch/InnerForcesKernels.cxx
@@ -916,7 +916,7 @@ index cc4acd3165..c00bdf856c 100644
    Batch/StiffnessMatricesKernels.cxx
    Batch/FBarKernels.cxx
    Batch/FaltusKernels.cxx
-@@ -179,6 +181,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -178,6 +180,7 @@ list(APPEND MFEMMGIS_SOURCES
    Batch/ElementsGeometry.cxx
    Batch/Gradients.cxx
    Batch/InnerForces.cxx

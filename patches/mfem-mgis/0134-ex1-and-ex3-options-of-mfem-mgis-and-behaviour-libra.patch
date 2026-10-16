@@ -1,4 +1,4 @@
-From 49667a88fd47be2183c5cb4a47e7a6b6f966c4a5 Mon Sep 17 00:00:00 2001
+From a81588918ad5e753f34df04baa2d51eaa240a402 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 14:02:27 +0200
 Subject: [PATCH] ex1 and ex3: options of mfem-mgis and behaviour libraries

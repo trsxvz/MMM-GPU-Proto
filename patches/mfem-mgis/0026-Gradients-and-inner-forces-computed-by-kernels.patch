@@ -1,4 +1,4 @@
-From bde140ba415bd363e6a22aababe5d6a7b4d84aed Mon Sep 17 00:00:00 2001
+From a18f59b56de11df7020ce326e3bcffa478f646cb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 19:53:07 +0200
 Subject: [PATCH] Gradients and inner forces computed by kernels
@@ -59,7 +59,7 @@ expected refusals fail (heat transfer, micromorphic damage).
  .../MultiMaterialNonLinearIntegrator.hxx      |  59 ++++
  ...onLinearEvolutionProblemImplementation.hxx |   6 +
  ...nearEvolutionProblemImplementationBase.hxx |  33 ++
- include/MFEMMGIS/PartialQuadratureSpace.hxx   |   9 +
+ include/MFEMMGIS/PartialQuadratureSpace.hxx   |  16 +
  .../StandardBehaviourIntegratorCRTPBase.hxx   |   7 +
  .../StandardBehaviourIntegratorCRTPBase.ixx   | 105 ++++++
  src/AbstractBehaviourIntegrator.cxx           |  19 +
@@ -74,11 +74,11 @@ expected refusals fail (heat transfer, micromorphic damage).
  src/MultiMaterialNonLinearIntegrator.cxx      | 113 ++++++
  ...onLinearEvolutionProblemImplementation.cxx |  81 ++++-
  ...nearEvolutionProblemImplementationBase.cxx |  77 +++-
- src/PartialQuadratureSpace.cxx                | 170 +++++----
+ src/PartialQuadratureSpace.cxx                | 176 ++++++----
  tests/BatchIntegrationTest.cxx                |  75 +++-
  tests/CMakeLists.txt                          |  22 ++
  tests/GradientsKernelsTest.cxx                | 329 ++++++++++++++++++
- 27 files changed, 2117 insertions(+), 87 deletions(-)
+ 27 files changed, 2130 insertions(+), 87 deletions(-)
  create mode 100644 include/MFEMMGIS/Batch/Gradients.hxx
  create mode 100644 include/MFEMMGIS/Batch/InnerForces.hxx
  create mode 100644 src/Batch/Gradients.cxx
@@ -90,10 +90,10 @@ expected refusals fail (heat transfer, micromorphic damage).
  create mode 100644 tests/GradientsKernelsTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index c26653ca12..2fa23abb7c 100644
+index fb2a325d9e..774fb3b732 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -37,6 +37,10 @@ mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)
+@@ -36,6 +36,10 @@ mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)
  if(NOT MFEM_USE_HIP STREQUAL "YES")
    mfem_mgis_header(MFEMMGIS/Batch MFEMFieldOperations.hxx)
  endif()
@@ -105,7 +105,7 @@ index c26653ca12..2fa23abb7c 100644
  mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
  mfem_mgis_header(MFEMMGIS AbstractBehaviourIntegrator.hxx)
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 3a0b4d355c..751ca04e07 100644
+index 831a7063a7..415ffaba96 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 @@ -13,6 +13,8 @@
@@ -117,7 +117,7 @@ index 3a0b4d355c..751ca04e07 100644
  
  namespace mfem_mgis {
  
-@@ -131,6 +133,43 @@ namespace mfem_mgis {
+@@ -134,6 +136,43 @@ namespace mfem_mgis {
       * \note the default implementation returns false
       */
      [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
@@ -608,10 +608,10 @@ index e1377c8490..1a8bd2cf40 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-index 2ae370d0a9..9ba199b45b 100644
+index f2649520ef..ae5782256e 100644
 --- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
 +++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-@@ -214,6 +214,13 @@ namespace mfem_mgis {
+@@ -227,6 +227,13 @@ namespace mfem_mgis::internals {
       * number of integration points. Readable on the device (`Read`).
       */
      [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
@@ -625,7 +625,7 @@ index 2ae370d0a9..9ba199b45b 100644
      //! \return the material or boundary identifier
      [[nodiscard]] LocationIdentifier getLocation() const noexcept;
      //! \brief destructor
-@@ -284,6 +291,8 @@ namespace mfem_mgis {
+@@ -297,6 +304,8 @@ namespace mfem_mgis::internals {
      mfem::Array<int> elements;
      //! \brief offsets of the points of the elements (size: elements + 1)
      mfem::Array<int> element_offsets;
@@ -634,6 +634,20 @@ index 2ae370d0a9..9ba199b45b 100644
      //! \brief location in the main mesh
      LocationIdentifier location;
      //! \brief number of integration points
+@@ -483,6 +492,13 @@ namespace mfem_mgis {
+      * number of integration points. Readable on the device (`Read`).
+      */
+     [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
++    /*!
++     * \return the integration rule used by all the elements of the space, or
++     * a null pointer if the elements use different integration rules or if
++     * the space has no element
++     */
++    [[nodiscard]] const mfem::IntegrationRule* getUniformIntegrationRule()
++        const noexcept;
+     //! \return the material or boundary identifier
+     [[nodiscard]] LocationIdentifier getLocation() const noexcept;
+     //! \return the internal implementation
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 index e5b82c59b8..6ef4b64fda 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
@@ -1615,10 +1629,10 @@ index 0000000000..95cf185d90
 +
 +#endif /* LIB_MFEM_MGIS_SRC_BATCH_INNERFORCESKERNELS_HXX */
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index fa37539161..13d1ab2015 100644
+index a371cbaca4..3f068d25a5 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -148,17 +148,23 @@ endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
+@@ -147,17 +147,23 @@ endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
  # code when MFEM is compiled with CUDA). The compilation of kernels of MFEM
  # compiled with HIP is not supported yet: those sources are then left out.
  set(MFEMMGIS_DEVICE_SOURCES
@@ -2055,12 +2069,12 @@ index 5c7b3fd7ab..cb628c799f 100644
          std::ignore = ctx.registerErrorMessage(
              "the integration of the behaviours by batches is not supported "
 diff --git a/src/PartialQuadratureSpace.cxx b/src/PartialQuadratureSpace.cxx
-index 326ee98f86..7ca3d62d39 100644
+index 57687b023e..d50a4ef93b 100644
 --- a/src/PartialQuadratureSpace.cxx
 +++ b/src/PartialQuadratureSpace.cxx
 @@ -22,61 +22,83 @@
  
- namespace mfem_mgis {
+ namespace mfem_mgis::internals {
  
 -  /*!
 -   * \brief add the integration points of an element to the offsets of a
@@ -2197,7 +2211,7 @@ index 326ee98f86..7ca3d62d39 100644
  
    template <bool parallel>
    static size_type buildPartialQuadratureSpaceOffsetsOnElements(
-@@ -84,25 +106,23 @@ namespace mfem_mgis {
+@@ -84,25 +106,23 @@ namespace mfem_mgis::internals {
        std::unordered_map<size_type, size_type>& number_of_quadrature_points,
        mfem::Array<int>& elements,
        mfem::Array<int>& element_offsets,
@@ -2228,7 +2242,7 @@ index 326ee98f86..7ca3d62d39 100644
    }  // end of buildPartialQuadratureSpaceOffsetsOnElements
  
    template <bool parallel>
-@@ -111,25 +131,23 @@ namespace mfem_mgis {
+@@ -111,25 +131,23 @@ namespace mfem_mgis::internals {
        std::unordered_map<size_type, size_type>& number_of_quadrature_points,
        mfem::Array<int>& elements,
        mfem::Array<int>& element_offsets,
@@ -2258,8 +2272,8 @@ index 326ee98f86..7ca3d62d39 100644
 +    return builder.finish(elements, element_offsets, uniform_integration_rule);
    }  // end of buildPartialQuadratureSpaceOffsetsOnBoundaryElements
  
-   void PartialQuadratureSpace::treatInvalidElementIndex(
-@@ -266,7 +284,8 @@ namespace mfem_mgis {
+   void PartialQuadratureSpaceImplementation::treatInvalidElementIndex(
+@@ -266,7 +284,8 @@ namespace mfem_mgis::internals {
        }
        this->ng = buildPartialQuadratureSpaceOffsetsOnElements<parallel>(
            this->offsets, this->number_of_quadrature_points, this->elements,
@@ -2269,7 +2283,7 @@ index 326ee98f86..7ca3d62d39 100644
        return;
      }
      if (isInvalid(this->location.boundary_identifier)) {
-@@ -280,7 +299,8 @@ namespace mfem_mgis {
+@@ -280,7 +299,8 @@ namespace mfem_mgis::internals {
        }
        this->ng = buildPartialQuadratureSpaceOffsetsOnElements<parallel>(
            this->offsets, this->number_of_quadrature_points, this->elements,
@@ -2279,7 +2293,7 @@ index 326ee98f86..7ca3d62d39 100644
      } else {
        const auto& attributes = mesh.bdr_attributes;
        if (attributes.Find(bid) == -1) {
-@@ -288,7 +308,8 @@ namespace mfem_mgis {
+@@ -288,7 +308,8 @@ namespace mfem_mgis::internals {
        }
        this->ng = buildPartialQuadratureSpaceOffsetsOnBoundaryElements<parallel>(
            this->offsets, this->number_of_quadrature_points, this->elements,
@@ -2289,18 +2303,31 @@ index 326ee98f86..7ca3d62d39 100644
      }
    }  // end of initialize
  
-@@ -387,6 +408,11 @@ namespace mfem_mgis {
+@@ -395,6 +416,12 @@ namespace mfem_mgis::internals {
      return this->element_offsets;
    }  // end of getElementOffsets
  
 +  const mfem::IntegrationRule*
-+  PartialQuadratureSpace::getUniformIntegrationRule() const noexcept {
++  PartialQuadratureSpaceImplementation::getUniformIntegrationRule()
++      const noexcept {
 +    return this->uniform_integration_rule;
 +  }  // end of getUniformIntegrationRule
 +
-   PartialQuadratureSpace::~PartialQuadratureSpace() = default;
+   bool PartialQuadratureSpaceImplementation::shallUseBoundaryElementsAPI()
+       const noexcept {
+     if (isValid(this->location.material_identifier)) {
+@@ -527,6 +554,11 @@ namespace mfem_mgis {
+     return this->pimpl->getElementOffsets();
+   }  // end of getElementOffsets
  
-   bool PartialQuadratureSpace::shallUseBoundaryElementsAPI() const noexcept {
++  const mfem::IntegrationRule*
++  PartialQuadratureSpace::getUniformIntegrationRule() const noexcept {
++    return this->pimpl->getUniformIntegrationRule();
++  }  // end of getUniformIntegrationRule
++
+   LocationIdentifier PartialQuadratureSpace::getLocation() const noexcept {
+     return this->pimpl->getLocation();
+   }  // end of getLocation
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
 index f4c8f85315..ca03448c35 100644
 --- a/tests/BatchIntegrationTest.cxx

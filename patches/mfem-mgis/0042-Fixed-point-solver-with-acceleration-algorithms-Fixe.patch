@@ -1,4 +1,4 @@
-From 459b45d2bb87732dd4ce1604c1d804c724067063 Mon Sep 17 00:00:00 2001
+From 89c9680e9a8f21c3fc4420ce096a430ef0028457 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:04:36 +0200
 Subject: [PATCH] Fixed point solver with acceleration algorithms (FixedPoint)
@@ -56,10 +56,10 @@ acceleration is bounded by 3 mu / (3 mu + H); invalid options are refused.
  create mode 100644 tests/FixedPointSolverTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index f39d69f8bb..6adb153c07 100644
+index 9aca38c69f..8a28d9db2c 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -128,6 +128,8 @@ mfem_mgis_header(MFEMMGIS/NonLinearSolvers AbstractNonLinearSolver.hxx)
+@@ -127,6 +127,8 @@ mfem_mgis_header(MFEMMGIS/NonLinearSolvers AbstractNonLinearSolver.hxx)
  mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverBase.hxx)
  mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverFactory.hxx)
  mfem_mgis_header(MFEMMGIS/NonLinearSolvers NewtonSolver.hxx)
@@ -646,10 +646,10 @@ index 0000000000..4060ac3533
 +
 +}  // end of namespace mfem_mgis::internals
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 2ea84d8f3a..ccbcc533d1 100644
+index 431ddff84a..25d58b4b81 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -55,6 +55,10 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -54,6 +54,10 @@ list(APPEND MFEMMGIS_SOURCES
    NonLinearSolverBase.cxx
    NonLinearSolverFactory.cxx
    NewtonSolver.cxx

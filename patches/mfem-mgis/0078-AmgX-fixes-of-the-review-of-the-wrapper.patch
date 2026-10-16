@@ -1,4 +1,4 @@
-From e881b2e70b2fbd25d0a3034a5c3ea9017b516ea3 Mon Sep 17 00:00:00 2001
+From fa562b184f5176950713676a5e6fd411dad0d906 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 00:31:23 +0200
 Subject: [PATCH] AmgX: fixes of the review of the wrapper

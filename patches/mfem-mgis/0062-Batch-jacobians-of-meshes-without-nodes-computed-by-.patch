@@ -1,4 +1,4 @@
-From b34710e899de0f7f80c4a095a3c9fe1d2c2a469a Mon Sep 17 00:00:00 2001
+From 6da7638434d63dd6ae996391d4af8d3b5ac45ac8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 06:15:50 +0200
 Subject: [PATCH] Batch: jacobians of meshes without nodes computed by a kernel
@@ -476,10 +476,10 @@ index 5173494554..94c5caa41f 100644
      error = false;
      return true;
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index cdf303465d..c3387c2834 100644
+index 4358faba84..a092f6790e 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -158,7 +158,8 @@ set(MFEMMGIS_DEVICE_SOURCES
+@@ -157,7 +157,8 @@ set(MFEMMGIS_DEVICE_SOURCES
    Batch/MFEMFieldOperations.cxx
    Batch/GradientsKernels.cxx
    Batch/InnerForcesKernels.cxx

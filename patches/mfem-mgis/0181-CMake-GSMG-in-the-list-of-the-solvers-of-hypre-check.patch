@@ -1,4 +1,4 @@
-From 60be97b9d201ad77e17fdd503ca3d7354f1a2c9b Mon Sep 17 00:00:00 2001
+From 23c0addb70bd5e727a5412c4b1cf4fd8648cf71c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 17:41:50 +0200
 Subject: [PATCH] CMake: GSMG in the list of the solvers of hypre checked in

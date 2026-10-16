@@ -1,4 +1,4 @@
-From 818673ef868c3e90ddcd8b94dd6dadc2e6a09718 Mon Sep 17 00:00:00 2001
+From 28fe9484e73bb0e0bae3f954789a1c0da885bf72 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 07:27:07 +0200
 Subject: [PATCH] Batch: regularization of Faltus et al. by kernels
@@ -55,10 +55,10 @@ the deformation gradient is not given by the unknowns.
  create mode 100644 src/Batch/FaltusKernels.hxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 985ec82e68..9cd859c5fe 100644
+index f5d43d022a..b3d6382cd3 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -44,6 +44,7 @@ mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
+@@ -43,6 +43,7 @@ mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
  mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
  mfem_mgis_header(MFEMMGIS/Batch StiffnessMatrices.hxx)
  mfem_mgis_header(MFEMMGIS/Batch FBar.hxx)
@@ -1994,10 +1994,10 @@ index a28816329d..658778a26b 100644
     * \return the value of the shape function of a node at a point if the
     * operator `B` of the given kind of gradients depends on it (transient
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index a62571bfe0..b9943eb436 100644
+index ea8917e06a..05eb8fc721 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -161,6 +161,7 @@ set(MFEMMGIS_DEVICE_SOURCES
+@@ -160,6 +160,7 @@ set(MFEMMGIS_DEVICE_SOURCES
    Batch/InnerForcesKernels.cxx
    Batch/StiffnessMatricesKernels.cxx
    Batch/FBarKernels.cxx
@@ -2005,7 +2005,7 @@ index a62571bfe0..b9943eb436 100644
    Batch/ElementsGeometryKernels.cxx)
  # conversions of the vectors exchanged with AmgX in single precision
  if(MFEM_MGIS_HAVE_AMGX)
-@@ -179,7 +180,8 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -178,7 +179,8 @@ list(APPEND MFEMMGIS_SOURCES
    Batch/Gradients.cxx
    Batch/InnerForces.cxx
    Batch/StiffnessMatrices.cxx

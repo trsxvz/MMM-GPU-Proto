@@ -1,4 +1,4 @@
-From a635188c83abe5835ec54885b89d6f408e6ad185 Mon Sep 17 00:00:00 2001
+From 918c463ebd58c9b302492ae5474b1baf6603304d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 22:16:24 +0200
 Subject: [PATCH] Behaviours integrated on the device
@@ -44,10 +44,10 @@ without kernels.
  12 files changed, 447 insertions(+), 52 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index f17f4f3c0b..573aeea968 100644
+index 8668f35c59..77c9aa0da9 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -134,6 +134,13 @@ namespace mfem_mgis {
+@@ -137,6 +137,13 @@ namespace mfem_mgis {
       * \note the default implementation returns false
       */
      [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
@@ -62,10 +62,10 @@ index f17f4f3c0b..573aeea968 100644
       * \return true if the gradients, the inner forces and the stiffness
       * matrices of the behaviour integrator can be computed by kernels (see
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 2ff3c756dd..4699325781 100644
+index 8299412e69..f13491baac 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -88,9 +88,28 @@ namespace mfem_mgis {
+@@ -90,9 +90,28 @@ namespace mfem_mgis {
       * \param[in] it: integration type
       * \note this method shall be called after having set the gradients, the
       * arrays of the material being synchronized on the host (see
@@ -95,7 +95,7 @@ index 2ff3c756dd..4699325781 100644
      //! \brief destructor
      ~BehaviourIntegratorBase() override;
  
-@@ -301,6 +320,12 @@ namespace mfem_mgis {
+@@ -303,6 +322,12 @@ namespace mfem_mgis {
        std::map<std::string, QPEvaluatorResult> pqfcts_esvs_ets;
        //! \brief rotation matrices used by `integrateBatch`
        mfem::Vector rotation_matrices;
@@ -108,7 +108,7 @@ index 2ff3c756dd..4699325781 100644
        //! \brief see `getRotatedThermodynamicForces`
        mfem::Vector rotated_thermodynamic_forces;
        /*!
-@@ -311,6 +336,14 @@ namespace mfem_mgis {
+@@ -313,6 +338,14 @@ namespace mfem_mgis {
      } wks;  //!< workspace
      //! \brief time increment for the given time step
      real time_increment;
@@ -224,7 +224,7 @@ index 553932d527..0785d48130 100644
      return false;
    }  // end of supportsKernels
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 5ec1a9007a..bf344f8414 100644
+index 23d058c0c7..4fab180a35 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -5,13 +5,16 @@
@@ -244,7 +244,7 @@ index 5ec1a9007a..bf344f8414 100644
  #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/IntegrationType.hxx"
  #include "MFEMMGIS/MeshDiscretization.hxx"
-@@ -820,10 +823,187 @@ namespace mfem_mgis {
+@@ -873,10 +876,187 @@ namespace mfem_mgis {
  
    }  // end of namespace
  
@@ -432,7 +432,7 @@ index 5ec1a9007a..bf344f8414 100644
      const auto orthotropic =
          this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
      const auto prediction =
-@@ -899,10 +1079,11 @@ namespace mfem_mgis {
+@@ -952,10 +1132,11 @@ namespace mfem_mgis {
        return {};
      }
      if (!this->wks.has_rotated_thermodynamic_forces) {

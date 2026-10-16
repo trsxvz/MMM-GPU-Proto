@@ -1,4 +1,4 @@
-From cf449db5bb9a948aec89e9eff2be9e6fdd9a3d32 Mon Sep 17 00:00:00 2001
+From 2681ca09cdcad798f89a636ce0e2dd673e1cb99f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 11:07:32 +0200
 Subject: [PATCH] GPU fixes: review (ILUT, test margins, documentation)

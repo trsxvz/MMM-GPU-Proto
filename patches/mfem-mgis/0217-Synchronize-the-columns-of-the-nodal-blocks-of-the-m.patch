@@ -1,4 +1,4 @@
-From 7e3913a8ac0ac249d83395fda11c7f39603e6180 Mon Sep 17 00:00:00 2001
+From e4e1801a10d184aaff25c83555ede02360763a37 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:58:34 +0200
 Subject: [PATCH] Synchronize the columns of the nodal blocks of the matrix

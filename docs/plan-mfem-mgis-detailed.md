@@ -1117,7 +1117,10 @@ Comparisons:
    like the point by point path.
 7. **Working base**: `a011d97d6f`, or the rework of
    `PartialQuadratureSpace` in progress upstream once merged. Done on
-   13/10/2026: branch rebased onto master `8fac67336e`.
+   13/10/2026: branch rebased onto master `8fac67336e`; on 16/10/2026,
+   onto master `20dcdf0a9b` (PR #487: `PartialQuadratureSpace` with value
+   semantics, the arrays of the prototype being held by its
+   implementation).
 8. **Upstream proposals**: when and in which order.
 
 ## Risks

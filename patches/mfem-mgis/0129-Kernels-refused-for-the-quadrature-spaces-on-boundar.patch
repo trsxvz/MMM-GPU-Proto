@@ -1,4 +1,4 @@
-From f10b61b4fe30c913315dd72d2fdb2d21a9374e1a Mon Sep 17 00:00:00 2001
+From 60c3ae655b40e5a853e681a0b79a6e7655141397 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 11:47:19 +0200
 Subject: [PATCH] Kernels refused for the quadrature spaces on boundary
@@ -23,10 +23,10 @@ integrators defined on boundaries.
  5 files changed, 20 insertions(+), 9 deletions(-)
 
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index a83b97467b..6393c526ec 100644
+index 1f244a00f3..f1ec2da2ff 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -142,6 +142,13 @@ namespace mfem_mgis {
+@@ -144,6 +144,13 @@ namespace mfem_mgis {
        //! \brief geometric data of this rule
        const batch::ElementsGeometry* geometry = nullptr;
      };
@@ -86,10 +86,10 @@ index 066e254725..1fe0eb46c2 100644
  
    template <typename Child>
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index fad276194c..e0601602c4 100644
+index d77b29fb35..42e566d768 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -1117,6 +1117,16 @@ namespace mfem_mgis {
+@@ -1170,6 +1170,16 @@ namespace mfem_mgis {
      }
    }  // end of copyStatesOnDevice
  

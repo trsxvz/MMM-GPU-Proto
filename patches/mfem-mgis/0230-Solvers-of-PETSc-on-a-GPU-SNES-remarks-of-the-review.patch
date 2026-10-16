@@ -1,4 +1,4 @@
-From 58b6663a7b0d277f97014d690436c65dbb252cf5 Mon Sep 17 00:00:00 2001
+From 4a300b308100344275f7a6db1809d494c45b5d9f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:59:13 +0200
 Subject: [PATCH] Solvers of PETSc on a GPU, SNES: remarks of the review

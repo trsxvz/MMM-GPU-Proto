@@ -1,4 +1,4 @@
-From ba8a0fe0545bb954765e9c4da2e2db00330d24ff Mon Sep 17 00:00:00 2001
+From 7647aa99eef7ecae5472dafa49101bdf1c63d401 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 06:11:39 +0200
 Subject: [PATCH] Test and document the preconditioners of MFEM, KLU,

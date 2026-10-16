@@ -1,4 +1,4 @@
-From 9888bbf7e04818cc7637ef91e227b15e65fb45ec Mon Sep 17 00:00:00 2001
+From 81db79e5876e85f65d1f53a003d37c0747ac7e9b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:19:38 +0200
 Subject: [PATCH] CMake: second review of the compilation of the kernels of

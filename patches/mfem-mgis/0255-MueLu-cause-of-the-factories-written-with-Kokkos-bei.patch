@@ -1,4 +1,4 @@
-From 288a2564142437d706d761191b406dd111c5963c Mon Sep 17 00:00:00 2001
+From a715edf112bcb5c66209916e69b6157e3b1811ac Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 11:36:06 +0200
 Subject: [PATCH] MueLu: cause of the factories written with Kokkos being

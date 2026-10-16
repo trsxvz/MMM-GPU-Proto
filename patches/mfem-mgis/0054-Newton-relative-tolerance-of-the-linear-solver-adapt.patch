@@ -1,4 +1,4 @@
-From e771d656bc4639a782520eac5f049e3c192e1a6c Mon Sep 17 00:00:00 2001
+From 8b207f9d5b7e0a33b0c49983fb650b595edea59f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:10:47 +0200
 Subject: [PATCH] Newton: relative tolerance of the linear solver adapted to
@@ -51,10 +51,10 @@ norm of the linear residual of the first choice is not covered.
  create mode 100644 tests/AdaptiveLinearSolverToleranceTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 6adb153c07..fd1785f308 100644
+index 8a28d9db2c..ffa6c8aa59 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -129,6 +129,7 @@ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverBase.hxx)
+@@ -128,6 +128,7 @@ mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverBase.hxx)
  mfem_mgis_header(MFEMMGIS/NonLinearSolvers NonLinearSolverFactory.hxx)
  mfem_mgis_header(MFEMMGIS/NonLinearSolvers NewtonSolver.hxx)
  mfem_mgis_header(MFEMMGIS/NonLinearSolvers AccelerationAlgorithm.hxx)
@@ -486,10 +486,10 @@ index 0000000000..b347cdccdb
 +
 +}  // end of namespace mfem_mgis
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index ee47e970dc..cdf303465d 100644
+index 10df01ba41..4358faba84 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -60,6 +60,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -59,6 +59,7 @@ list(APPEND MFEMMGIS_SOURCES
    Cast3MAccelerationAlgorithm.cxx
    SecantAccelerationAlgorithms.cxx
    FixedPointSolver.cxx

@@ -1,4 +1,4 @@
-From b719718ed669a33fd525c50255827eb133e80fe0 Mon Sep 17 00:00:00 2001
+From 53ff14159ab8052a908a4a773bc2afbb7e0a506f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:15:04 +0200
 Subject: [PATCH] NodalBlockJacobiTest: compare the iterations up to a quarter

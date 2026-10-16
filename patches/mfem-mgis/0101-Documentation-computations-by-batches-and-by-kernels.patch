@@ -1,4 +1,4 @@
-From 19fcc9f1124438f84d9df74ede765dd816c5d6e7 Mon Sep 17 00:00:00 2001
+From 7130c9f5219210915fa5119537c7c4f13e680804 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 12:09:10 +0200
 Subject: [PATCH] Documentation: computations by batches and by kernels, fixed

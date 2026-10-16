@@ -1,4 +1,4 @@
-From 700dd6927d0b02da720ca5ff9153ffc6e5a15e85 Mon Sep 17 00:00:00 2001
+From 532430c96b9f2412e12fc702b0acaaff7700ed74 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:18:35 +0200
 Subject: [PATCH] Mass matrices of simplices by kernels, profiling of the L2

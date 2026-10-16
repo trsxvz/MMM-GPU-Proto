@@ -1,4 +1,4 @@
-From 75bfd92a5451f52c1977a8432beb73de9008c944 Mon Sep 17 00:00:00 2001
+From b56b6de81c7aad0f608fb1d230199f267a4760d0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 12:52:25 +0200
 Subject: [PATCH] Execution settings: --execution cpu|gpu|mixed and the
@@ -145,7 +145,7 @@ index a223c0c35d..229b9de1cf 100644
  -----------------------
  
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index a823b62e82..bde439ecf2 100644
+index 1911e05de2..e37e84cadb 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
 @@ -3,6 +3,7 @@ mfem_mgis_header(MFEMMGIS MFEMForward.hxx)
@@ -273,10 +273,10 @@ index 8f901dd3a5..25401ba19b 100644
    MFEM_MGIS_EXPORT [[nodiscard]] size_type
    getNumberOfPostProcessingsComputationsByKernels() noexcept;
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index ff2eb09323..c7c099f03d 100644
+index d9e0614f3b..5819824535 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -27,6 +27,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -26,6 +26,7 @@ list(APPEND MFEMMGIS_SOURCES
    MaterialQuantityProviderSearch.cxx
    AbstractBehaviourIntegrator.cxx
    PostProcessingsComputation.cxx

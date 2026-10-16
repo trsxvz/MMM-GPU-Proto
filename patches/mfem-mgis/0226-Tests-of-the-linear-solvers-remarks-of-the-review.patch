@@ -1,4 +1,4 @@
-From d4a9d957e94734e8d1bb31a1f0ddbdb5e4e5a82d Mon Sep 17 00:00:00 2001
+From 34a11e86a145f2488b3d71bebc1bc8528880386c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:27:05 +0200
 Subject: [PATCH] Tests of the linear solvers: remarks of the review

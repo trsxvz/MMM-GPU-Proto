@@ -1,4 +1,4 @@
-From 08dcc7b182f019c94533658e71fbdea35e784873 Mon Sep 17 00:00:00 2001
+From 97038fef48657e9e4baf1bf2b21b3480a4f7c144 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 05:41:09 +0200
 Subject: [PATCH] MUMPSSolver: fixes of an independent review of ReuseAnalysis
@@ -87,10 +87,10 @@ index 54c3dfa484..c5965a727c 100644
     * \return the relative tolerance of an iterative linear solver (iterative
     * solvers of MFEM, Krylov solvers of hypre), empty if the solver is not
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index c00bdf856c..1a4ae2b2c4 100644
+index 5592cf6a2a..da2d735245 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -53,6 +53,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -52,6 +52,7 @@ list(APPEND MFEMMGIS_SOURCES
    LinearSolverHandler.cxx
    LinearSolverFactory.cxx
    AmgXSolvers.cxx

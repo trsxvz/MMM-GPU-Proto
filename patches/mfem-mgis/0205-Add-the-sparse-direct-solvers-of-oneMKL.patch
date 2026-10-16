@@ -1,4 +1,4 @@
-From a9eb1d5548f4ab92754620de50037b92cc43c912 Mon Sep 17 00:00:00 2001
+From c80200014227968194610d6710c344aaa463f372 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 10:10:43 +0200
 Subject: [PATCH] Add the sparse direct solvers of oneMKL
@@ -33,10 +33,10 @@ only if its residual is lower than 1e-3 times the right hand side.
  create mode 100644 src/MKLSparseSolvers.hxx
 
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index c236fe05dc..47520bf2c2 100644
+index 4af9fa683a..5cb5d2b815 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -61,6 +61,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -60,6 +60,7 @@ list(APPEND MFEMMGIS_SOURCES
    PETScLinearSolvers.cxx
    SuperLUSolvers.cxx
    STRUMPACKSolvers.cxx

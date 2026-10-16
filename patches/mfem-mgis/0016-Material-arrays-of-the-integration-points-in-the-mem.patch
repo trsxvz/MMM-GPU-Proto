@@ -1,4 +1,4 @@
-From abc8c97dab44609e9d4e06aeab50f0099d0fb8b0 Mon Sep 17 00:00:00 2001
+From ba2166a510d647d1ca1df87e7157f536b518e3b4 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:47:05 +0200
 Subject: [PATCH] Material: arrays of the integration points in the memory of
@@ -38,10 +38,10 @@ nothing).
  create mode 100644 tests/MaterialArraysTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 7960322c20..ad3bce91ea 100644
+index 8a1fa53155..804b2ce5b4 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -32,6 +32,7 @@ mfem_mgis_header(MFEMMGIS RotationMatrix.hxx)
+@@ -31,6 +31,7 @@ mfem_mgis_header(MFEMMGIS RotationMatrix.hxx)
  mfem_mgis_header(MFEMMGIS Behaviour.hxx)
  mfem_mgis_header(MFEMMGIS Material.hxx)
  mfem_mgis_header(MFEMMGIS Material.ixx)
@@ -193,10 +193,10 @@ index 0000000000..6775ef0480
 +
 +#endif /* LIB_MFEM_MGIS_MATERIALARRAYS_HXX */
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index d14184935c..174686cffe 100644
+index b694a9e3e5..f5ff6818de 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -23,6 +23,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -22,6 +22,7 @@ list(APPEND MFEMMGIS_SOURCES
    QPEvaluatorsFactory.cxx
    Behaviour.cxx
    Material.cxx

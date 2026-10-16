@@ -1,4 +1,4 @@
-From cd54e9874309ae5fb241fe78c40db04558e10216 Mon Sep 17 00:00:00 2001
+From 7238107db34656158727083fe47cf77d9e8749e7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 17:07:14 +0200
 Subject: [PATCH] Material arrays: second review of lot L1
@@ -108,10 +108,10 @@ index 104f2c82f1..c9bb4fa9da 100644
  if(MGIS_HAVE_TFEL)
    if(TARGET tfel::TFELTests)
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 40f0dfec08..c26653ca12 100644
+index 43b081f172..fb2a325d9e 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -33,7 +33,10 @@ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
+@@ -32,7 +32,10 @@ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
  mfem_mgis_header(MFEMMGIS Material.hxx)
  mfem_mgis_header(MFEMMGIS Material.ixx)
  mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)

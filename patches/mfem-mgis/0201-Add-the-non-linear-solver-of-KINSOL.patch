@@ -1,4 +1,4 @@
-From a23c79df7b3b8fb21b53838f58c09ba67c6a327f Mon Sep 17 00:00:00 2001
+From 54bdf6220bef321f772a8619fcd837edeba237ac Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 07:11:15 +0200
 Subject: [PATCH] Add the non linear solver of KINSOL
@@ -42,10 +42,10 @@ setup calls: the period of the updates is handled by the setup function.
  create mode 100644 src/KINSOLSolver.hxx
 
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 581e4cd0b7..c236fe05dc 100644
+index 925af17e01..4af9fa683a 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -75,6 +75,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -74,6 +74,7 @@ list(APPEND MFEMMGIS_SOURCES
    Cast3MAccelerationAlgorithm.cxx
    SecantAccelerationAlgorithms.cxx
    FixedPointSolver.cxx

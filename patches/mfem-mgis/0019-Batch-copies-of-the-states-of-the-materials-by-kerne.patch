@@ -1,4 +1,4 @@
-From 92a648e92270187ef5051ee1d1fc128ef13cfe0f Mon Sep 17 00:00:00 2001
+From c1e3d7fc7746baf66a1b91c2e1a87576b95e4dfb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 15:28:12 +0200
 Subject: [PATCH] Batch: copies of the states of the materials by kernels of
@@ -38,10 +38,10 @@ devices.
  create mode 100644 tests/MFEMFieldOperationsTest.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index ad3bce91ea..40f0dfec08 100644
+index 804b2ce5b4..43b081f172 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -33,6 +33,7 @@ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
+@@ -32,6 +32,7 @@ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
  mfem_mgis_header(MFEMMGIS Material.hxx)
  mfem_mgis_header(MFEMMGIS Material.ixx)
  mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)
@@ -245,10 +245,10 @@ index 0000000000..1add5a43da
 +
 +}  // end of namespace mfem_mgis::batch
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 81aea0c617..69f5f68971 100644
+index 55ac5d4a32..8bc7d1b1e5 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -775,11 +775,11 @@ namespace mfem_mgis {
+@@ -828,11 +828,11 @@ namespace mfem_mgis {
    }  // end of cleanup
  
    void BehaviourIntegratorBase::revert() {
@@ -263,10 +263,10 @@ index 81aea0c617..69f5f68971 100644
  
    void BehaviourIntegratorBase::setMacroscopicGradients(
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 174686cffe..9f2f857ef6 100644
+index f5ff6818de..e4bba49cba 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -144,7 +144,13 @@ if(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
+@@ -143,7 +143,13 @@ if(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
         PartialQuadratureFunctionsSet.cxx)
  endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
  

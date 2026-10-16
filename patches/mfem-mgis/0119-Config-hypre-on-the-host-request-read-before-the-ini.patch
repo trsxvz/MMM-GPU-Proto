@@ -1,4 +1,4 @@
-From 7128e69b13283e409a735b365d42d37ffc01a161 Mon Sep 17 00:00:00 2001
+From 9726cf7ae4f46845ec8bd5f8a579fef89af37967 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 04:19:05 +0200
 Subject: [PATCH] Config: hypre on the host, request read before the

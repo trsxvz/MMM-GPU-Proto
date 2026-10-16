@@ -1,4 +1,4 @@
-From 0afaed79bb4bd5f95586cd702172468fde272195 Mon Sep 17 00:00:00 2001
+From 68780efa677016bc5cac00c24ab8d73fd7f37a48 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 04:37:56 +0200
 Subject: [PATCH] Ginkgo: linear solvers and preconditioners in the factories
@@ -274,10 +274,10 @@ index d42b91b413..8a4828d39b 100644
  --------------------------
  
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 6b97798398..832fe3cf16 100644
+index fd848b883f..1927203ca0 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -58,6 +58,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -57,6 +57,7 @@ list(APPEND MFEMMGIS_SOURCES
    MFEMLinearSolvers.cxx
    HypreLinearSolvers.cxx
    PETScLinearSolvers.cxx

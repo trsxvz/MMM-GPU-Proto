@@ -1,4 +1,4 @@
-From b1ec485ea679b1f075feabf92211b1420c0f968b Mon Sep 17 00:00:00 2001
+From b3cd39119e578b9cd6a0dd145b512e8e63af24af Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:12:03 +0200
 Subject: [PATCH] Test and document the nodal blocks of the operator applied

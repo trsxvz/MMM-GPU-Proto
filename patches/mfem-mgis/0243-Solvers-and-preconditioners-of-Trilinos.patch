@@ -1,4 +1,4 @@
-From fc9ba3b494d34ffff7fe06317b0c77cfdb3be7a5 Mon Sep 17 00:00:00 2001
+From 62954b75818a5fe5ce5ca6d62df3fdb030b89805 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 04:07:21 +0200
 Subject: [PATCH] Solvers and preconditioners of Trilinos
@@ -413,10 +413,10 @@ index c18fe10d07..b09908ec5b 100644
  --------------------------------------------
  
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 626920943d..c0980fbaba 100644
+index 3b4417add5..8a269bf11b 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -68,6 +68,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -67,6 +67,7 @@ list(APPEND MFEMMGIS_SOURCES
    NodalBlockJacobiPreconditioner.cxx
    GinkgoLinearSolvers.cxx
    AmgXSolvers.cxx
@@ -424,7 +424,7 @@ index 626920943d..c0980fbaba 100644
    HypreMatrixPattern.cxx
    MUMPSSolvers.cxx
    CuDSSSolvers.cxx
-@@ -276,6 +277,35 @@ if(MFEM_MGIS_HAVE_KOKKOS)
+@@ -275,6 +276,35 @@ if(MFEM_MGIS_HAVE_KOKKOS)
    target_link_libraries(MFEMMGIS PRIVATE MFEMMGISKokkos)
    target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_KOKKOS)
  endif()

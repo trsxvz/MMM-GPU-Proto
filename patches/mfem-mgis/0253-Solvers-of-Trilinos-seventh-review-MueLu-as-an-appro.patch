@@ -1,4 +1,4 @@
-From 7ab30d43f400ae0c550f926d3c5fbd87d2288fe3 Mon Sep 17 00:00:00 2001
+From 5f11497b6839ee17867a19b20cdd64ae8bf54320 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 10:56:23 +0200
 Subject: [PATCH] Solvers of Trilinos: seventh review, MueLu as an approximate

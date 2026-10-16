@@ -1,4 +1,4 @@
-From 5678e8bdd95763642f69b43348f88ee5e72a6e5f Mon Sep 17 00:00:00 2001
+From 5391e914e37c215d400ef8e77929108c490f28ed Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 18:45:06 +0200
 Subject: [PATCH] Rigid body modes given to the preconditioners of PETSc
@@ -87,10 +87,10 @@ index 12bd9978d5..f5271d5378 100644
  Linear solvers and preconditioners of Ginkgo
  --------------------------------------------
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index ba26612cda..626920943d 100644
+index 1aa8566b44..3b4417add5 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -58,6 +58,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -57,6 +57,7 @@ list(APPEND MFEMMGIS_SOURCES
    MFEMLinearSolvers.cxx
    HypreLinearSolvers.cxx
    HypreSolvers.cxx

@@ -1,4 +1,4 @@
-From f3ee24c9bb359588c2c14af44f93e83084ffb9f6 Mon Sep 17 00:00:00 2001
+From a8715a642c7da80b043fbcaf628b2b306e3481c8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 14:02:27 +0200
 Subject: [PATCH] Execution settings: review fixes, copies of the material
@@ -520,10 +520,10 @@ index f412f99039..772547b866 100644
            m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
        a.number_of_points = qs.getNumberOfIntegrationPoints();
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index e0601602c4..51d5bf8bec 100644
+index 42e566d768..4b973042b1 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -1062,8 +1062,8 @@ namespace mfem_mgis {
+@@ -1115,8 +1115,8 @@ namespace mfem_mgis {
              std::pair{&(st->dissipated_energies),
                        StateArrayKind::DISSIPATED_ENERGIES}}) {
          const auto& array = arrays.getArray(a, stage);
@@ -534,7 +534,7 @@ index e0601602c4..51d5bf8bec 100644
          *view = relocate(*view, p, array.Size());
        }
        std::fill(st->material_properties.begin(), st->material_properties.end(),
-@@ -1165,7 +1165,8 @@ namespace mfem_mgis {
+@@ -1218,7 +1218,8 @@ namespace mfem_mgis {
    BehaviourIntegratorBase::readTangentOperatorBlocks(const bool d) const {
      const auto& v = this->getArrays().getTangentOperatorBlocks();
      const auto s =
@@ -544,7 +544,7 @@ index e0601602c4..51d5bf8bec 100644
      return mgis::makeFieldView(s, this->getArrays().array_layout,
                                 static_cast<size_type>(this->n), this->K_stride);
    }  // end of readTangentOperatorBlocks
-@@ -1198,10 +1199,12 @@ namespace mfem_mgis {
+@@ -1251,10 +1252,12 @@ namespace mfem_mgis {
              mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
              data.kind);
        }

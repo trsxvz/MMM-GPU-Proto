@@ -1,4 +1,4 @@
-From bc126509f90c577c1ea015a812407edf36008b71 Mon Sep 17 00:00:00 2001
+From af20057601ed5a16cbbf0ffa8f83d5b021245910 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:56:04 +0200
 Subject: [PATCH] Linear solvers: AmgX preconditioner and solvers (work in
@@ -368,10 +368,10 @@ index 0000000000..9c1eec954f
 +
 +#endif /* LIB_MFEM_MGIS_SRC_AMGXSOLVERS_HXX */
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index c3387c2834..75288096d1 100644
+index a092f6790e..bf3389c539 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -51,6 +51,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -50,6 +50,7 @@ list(APPEND MFEMMGIS_SOURCES
    SolverUtilities.cxx
    LinearSolverHandler.cxx
    LinearSolverFactory.cxx

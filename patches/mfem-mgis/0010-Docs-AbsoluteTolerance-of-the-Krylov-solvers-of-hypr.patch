@@ -1,4 +1,4 @@
-From 5eea3f9ca077cc5e080e6b1abaffd793878adf42 Mon Sep 17 00:00:00 2001
+From c958683c71f2ae3a4ca2a49778439ddc9e651bdb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:58:04 +0200
 Subject: [PATCH] Docs: AbsoluteTolerance of the Krylov solvers of hypre

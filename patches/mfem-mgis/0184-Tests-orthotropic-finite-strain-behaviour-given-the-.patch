@@ -1,4 +1,4 @@
-From 72b0eb556fac1783d9111365be43e0069e94c6da Mon Sep 17 00:00:00 2001
+From 4c39b7c951de7a0360d8172774f6783eb7b18e2d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 22:51:13 +0200
 Subject: [PATCH] Tests: orthotropic finite strain behaviour given the

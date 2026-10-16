@@ -1,4 +1,4 @@
-From 6fa1d7579789eb710623715c200cd8e66b045c89 Mon Sep 17 00:00:00 2001
+From 92e29c01be3f4933155f41563b383b22a569a032 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 22:23:37 +0200
 Subject: [PATCH] Sequential kernel tests run without SuiteSparse

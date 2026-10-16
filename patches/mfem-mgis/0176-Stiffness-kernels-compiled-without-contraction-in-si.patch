@@ -1,4 +1,4 @@
-From efb06c12673b3576856ef9f6ed0fee5aa3e26136 Mon Sep 17 00:00:00 2001
+From e338c5b302e045694b87adff040188ada43bf17c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 07:58:36 +0200
 Subject: [PATCH] Stiffness kernels compiled without contraction in single
@@ -153,10 +153,10 @@ index b47b4be686..1fd3342358 100644
   */
  
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 2d73c97c36..2ed72d3c54 100644
+index d32a9c458c..076621cc96 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -189,6 +189,21 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -188,6 +188,21 @@ list(APPEND MFEMMGIS_SOURCES
  
  mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
  mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})

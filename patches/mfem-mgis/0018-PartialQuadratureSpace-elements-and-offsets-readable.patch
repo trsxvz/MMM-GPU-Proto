@@ -1,4 +1,4 @@
-From 3e20fc9d4509c31c7604bf002651b31a31e05de0 Mon Sep 17 00:00:00 2001
+From 18cfa340af7b94c2b42df32e9c588895c9a12853 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 15:19:08 +0200
 Subject: [PATCH] PartialQuadratureSpace: elements and offsets readable on the
@@ -15,14 +15,14 @@ device.
 MaterialArraysTest: the arrays agree with the hash tables on a mesh with
 two materials, and the offsets are read on the device.
 ---
- include/MFEMMGIS/PartialQuadratureSpace.hxx | 20 ++++++
- src/PartialQuadratureSpace.cxx              | 65 ++++++++++++++++--
+ include/MFEMMGIS/PartialQuadratureSpace.hxx | 35 ++++++++++
+ src/PartialQuadratureSpace.cxx              | 75 +++++++++++++++++++--
  tests/CMakeLists.txt                        |  6 ++
- tests/MaterialArraysTest.cxx                | 73 +++++++++++++++++++++
- 4 files changed, 158 insertions(+), 6 deletions(-)
+ tests/MaterialArraysTest.cxx                | 73 ++++++++++++++++++++
+ 4 files changed, 183 insertions(+), 6 deletions(-)
 
 diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-index f75e97e843..fb2714f89a 100644
+index 9935fdc543..26865dd7eb 100644
 --- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
 +++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
 @@ -14,6 +14,7 @@
@@ -33,7 +33,7 @@ index f75e97e843..fb2714f89a 100644
  
  #ifdef MGIS_FUNCTION_SUPPORT
  #include "MGIS/Function/SpaceConcept.hxx"
-@@ -196,6 +197,21 @@ namespace mfem_mgis {
+@@ -209,6 +210,21 @@ namespace mfem_mgis::internals {
       * \return the offset
       */
      [[nodiscard]] size_type getOffset(const size_type i) const;
@@ -55,7 +55,7 @@ index f75e97e843..fb2714f89a 100644
      //! \return the material or boundary identifier
      [[nodiscard]] LocationIdentifier getLocation() const noexcept;
      //! \brief destructor
-@@ -256,6 +272,10 @@ namespace mfem_mgis {
+@@ -269,6 +285,10 @@ namespace mfem_mgis::internals {
      std::unordered_map<size_type,  // element number, see `getOffsets`
                         size_type>  // number of quadrature points
          number_of_quadrature_points;
@@ -66,8 +66,30 @@ index f75e97e843..fb2714f89a 100644
      //! \brief location in the main mesh
      LocationIdentifier location;
      //! \brief number of integration points
+@@ -440,6 +460,21 @@ namespace mfem_mgis {
+      * \return the offset
+      */
+     [[nodiscard]] size_type getOffset(const size_type i) const;
++    /*!
++     * \return the numbers of the elements of the space (local numbering of
++     * the finite element space; boundary elements if
++     * `shallUseBoundaryElementsAPI` returns true), in increasing order, which
++     * is the order of their integration points. Readable on the device
++     * (`Read`), unlike the hash tables of `getOffsets`.
++     */
++    [[nodiscard]] const mfem::Array<int> &getElements() const noexcept;
++    /*!
++     * \return the offsets of the integration points of the elements: the
++     * points of the `i`-th element of `getElements` are the points
++     * `[o[i], o[i + 1])`, where `o` are the offsets. The last offset is the
++     * number of integration points. Readable on the device (`Read`).
++     */
++    [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
+     //! \return the material or boundary identifier
+     [[nodiscard]] LocationIdentifier getLocation() const noexcept;
+     //! \return the internal implementation
 diff --git a/src/PartialQuadratureSpace.cxx b/src/PartialQuadratureSpace.cxx
-index f7bb30e4f9..c09361733b 100644
+index 5d447abefd..261380b1a9 100644
 --- a/src/PartialQuadratureSpace.cxx
 +++ b/src/PartialQuadratureSpace.cxx
 @@ -6,6 +6,8 @@
@@ -81,7 +103,7 @@ index f7bb30e4f9..c09361733b 100644
  #include "mfem/fem/fespace.hpp"
 @@ -19,16 +21,47 @@
  
- namespace mfem_mgis {
+ namespace mfem_mgis::internals {
  
 +  /*!
 +   * \brief copy the elements of a partial quadrature space and the offsets
@@ -127,7 +149,7 @@ index f7bb30e4f9..c09361733b 100644
      for (size_type i = 0; i != fespace.GetNE(); ++i) {
        if (fespace.GetAttribute(i) != mid) {
          continue;
-@@ -36,11 +69,14 @@ namespace mfem_mgis {
+@@ -36,11 +69,14 @@ namespace mfem_mgis::internals {
        const auto& fe = *(fespace.GetFE(i));
        const auto& tr = *(fespace.GetElementTransformation(i));
        offsets[i] = ng;
@@ -142,7 +164,7 @@ index f7bb30e4f9..c09361733b 100644
      return ng;
    }  // end of buildPartialQuadratureSpaceOffsetsOnElements
  
-@@ -48,12 +84,16 @@ namespace mfem_mgis {
+@@ -48,12 +84,16 @@ namespace mfem_mgis::internals {
    static size_type buildPartialQuadratureSpaceOffsetsOnBoundaryElements(
        std::unordered_map<size_type, size_type>& offsets,
        std::unordered_map<size_type, size_type>& number_of_quadrature_points,
@@ -159,7 +181,7 @@ index f7bb30e4f9..c09361733b 100644
      for (size_type i = 0; i != fespace.GetNBE(); ++i) {
        if (fespace.GetBdrAttribute(i) != bid) {
          continue;
-@@ -61,11 +101,14 @@ namespace mfem_mgis {
+@@ -61,11 +101,14 @@ namespace mfem_mgis::internals {
        const auto& fe = *(fespace.GetBE(i));
        const auto& tr = *(fespace.GetBdrElementTransformation(i));
        offsets[i] = ng;
@@ -174,7 +196,7 @@ index f7bb30e4f9..c09361733b 100644
      return ng;
    }  // end of buildPartialQuadratureSpaceOffsetsOnBoundaryElements
  
-@@ -202,8 +245,8 @@ namespace mfem_mgis {
+@@ -202,8 +245,8 @@ namespace mfem_mgis::internals {
          raise("invalid material identifier (" + std::to_string(mid) + ")");
        }
        this->ng = buildPartialQuadratureSpaceOffsetsOnElements<parallel>(
@@ -185,7 +207,7 @@ index f7bb30e4f9..c09361733b 100644
        return;
      }
      if (isInvalid(this->location.boundary_identifier)) {
-@@ -216,16 +259,16 @@ namespace mfem_mgis {
+@@ -216,16 +259,16 @@ namespace mfem_mgis::internals {
          raise("invalid boundary identifier (" + std::to_string(bid) + ")");
        }
        this->ng = buildPartialQuadratureSpaceOffsetsOnElements<parallel>(
@@ -206,23 +228,40 @@ index f7bb30e4f9..c09361733b 100644
      }
    }  // end of initialize
  
-@@ -314,6 +357,16 @@ namespace mfem_mgis {
+@@ -322,6 +365,16 @@ namespace mfem_mgis::internals {
      return p->second;
    }  // end of getNumberOfQuadraturePoints
  
-+  const mfem::Array<int>& PartialQuadratureSpace::getElements()
++  const mfem::Array<int>& PartialQuadratureSpaceImplementation::getElements()
 +      const noexcept {
 +    return this->elements;
 +  }  // end of getElements
 +
-+  const mfem::Array<int>& PartialQuadratureSpace::getElementOffsets()
-+      const noexcept {
++  const mfem::Array<int>&
++  PartialQuadratureSpaceImplementation::getElementOffsets() const noexcept {
 +    return this->element_offsets;
 +  }  // end of getElementOffsets
 +
-   PartialQuadratureSpace::~PartialQuadratureSpace() = default;
+   bool PartialQuadratureSpaceImplementation::shallUseBoundaryElementsAPI()
+       const noexcept {
+     if (isValid(this->location.material_identifier)) {
+@@ -444,6 +497,16 @@ namespace mfem_mgis {
+     return this->pimpl->getOffset(i);
+   }  // end of getOffset
  
-   bool PartialQuadratureSpace::shallUseBoundaryElementsAPI() const noexcept {
++  const mfem::Array<int>& PartialQuadratureSpace::getElements()
++      const noexcept {
++    return this->pimpl->getElements();
++  }  // end of getElements
++
++  const mfem::Array<int>& PartialQuadratureSpace::getElementOffsets()
++      const noexcept {
++    return this->pimpl->getElementOffsets();
++  }  // end of getElementOffsets
++
+   LocationIdentifier PartialQuadratureSpace::getLocation() const noexcept {
+     return this->pimpl->getLocation();
+   }  // end of getLocation
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
 index e3fee48613..0f82ac8309 100644
 --- a/tests/CMakeLists.txt

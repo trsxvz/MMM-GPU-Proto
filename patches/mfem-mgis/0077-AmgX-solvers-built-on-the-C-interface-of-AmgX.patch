@@ -1,4 +1,4 @@
-From 756cea0c17ddd1a1b932684ae6b35bf3f9728bda Mon Sep 17 00:00:00 2001
+From 5b94d7d7f874195f4de7867b886d3af0ecd6b968 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 22:57:20 +0200
 Subject: [PATCH] AmgX: solvers built on the C interface of AmgX
@@ -1206,10 +1206,10 @@ index a87c8e8963..dbf58ab332 100644
  
  #endif /* LIB_MFEM_MGIS_SRC_AMGXSOLVERS_HXX */
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 75288096d1..ba15609d70 100644
+index bf3389c539..2a891e1aa8 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -161,6 +161,10 @@ set(MFEMMGIS_DEVICE_SOURCES
+@@ -160,6 +160,10 @@ set(MFEMMGIS_DEVICE_SOURCES
    Batch/InnerForcesKernels.cxx
    Batch/StiffnessMatricesKernels.cxx
    Batch/ElementsGeometryKernels.cxx)
@@ -1220,7 +1220,7 @@ index 75288096d1..ba15609d70 100644
  if(MFEM_USE_HIP STREQUAL "YES")
    message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
            "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")
-@@ -186,6 +190,17 @@ endif()
+@@ -185,6 +189,17 @@ endif()
  if(MFEM_USE_CUDA STREQUAL "YES")
    target_link_libraries(MFEMMGIS PUBLIC CUDA::cudart)
  endif()

@@ -1,4 +1,4 @@
-From 7cc438ff532f89b3104203f29514f4537e6dc024 Mon Sep 17 00:00:00 2001
+From 169970347f06719e1f6d2633df5eccc3a4625b60 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 18:38:27 +0200
 Subject: [PATCH] Kokkos: launcher on its target only, GPU of a device
@@ -141,10 +141,10 @@ index b45e9c255c..8215426701 100644
    MFEM_MGIS_EXPORT void finalize();
    /*!
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 9090069ccf..cc4acd3165 100644
+index d2a4337c56..effa8e4d37 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -207,17 +207,22 @@ if(MFEM_MGIS_HAVE_AMGX)
+@@ -206,17 +206,22 @@ if(MFEM_MGIS_HAVE_AMGX)
    endforeach(_property)
  endif()
  # Kokkos: the only source including Kokkos is compiled by the compiler of

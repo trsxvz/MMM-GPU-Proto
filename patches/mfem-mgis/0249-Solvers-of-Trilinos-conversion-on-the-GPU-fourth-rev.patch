@@ -1,4 +1,4 @@
-From 3a3909cec88773851085ed9073c7ceec30427064 Mon Sep 17 00:00:00 2001
+From 52e3f4d85df19ffc5ee6ada1cf34ee7179cd4f13 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 07:21:38 +0200
 Subject: [PATCH] Solvers of Trilinos: conversion on the GPU, fourth review

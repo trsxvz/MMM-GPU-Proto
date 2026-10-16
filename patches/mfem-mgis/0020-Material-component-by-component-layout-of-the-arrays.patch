@@ -1,4 +1,4 @@
-From ac9938dec7e1abe09515bab591b4c680b283f9cf Mon Sep 17 00:00:00 2001
+From 21e4e50364c421ef001519e1b21623f77fc3b34b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 15:37:28 +0200
 Subject: [PATCH] Material: component by component layout of the arrays

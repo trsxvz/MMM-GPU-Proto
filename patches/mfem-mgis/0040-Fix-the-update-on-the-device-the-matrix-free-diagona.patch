@@ -1,4 +1,4 @@
-From 9b7ecf435a3cafdc84b47ab9f6cc379f54700f1b Mon Sep 17 00:00:00 2001
+From fccc2e16afa3632044564d70881633347b640752 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 01:21:34 +0200
 Subject: [PATCH] Fix the update on the device, the matrix-free diagonal and
@@ -54,10 +54,10 @@ Subject: [PATCH] Fix the update on the device, the matrix-free diagonal and
  create mode 100644 tests/IsotropicLinearHardeningThermoPlasticity.mfront
 
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 136b0965e3..f9171ebfb5 100644
+index a1d4ceabd3..8292b37789 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -35,12 +35,16 @@ namespace mfem_mgis {
+@@ -37,12 +37,16 @@ namespace mfem_mgis {
      [[nodiscard]] bool cleanup(Context& ctx) noexcept override;
      /*!
       * \brief revert the state of the material; for a behaviour integrated on
@@ -76,7 +76,7 @@ index 136b0965e3..f9171ebfb5 100644
       */
      void update() override;
      [[nodiscard]] bool hasMaterial() const noexcept override;
-@@ -375,7 +379,15 @@ namespace mfem_mgis {
+@@ -377,7 +381,15 @@ namespace mfem_mgis {
       * \brief copies, on the device, the state at the end of the time step
       * in the state at the beginning of the time step (update), or
       * conversely (revert), and sets the tangent operator blocks to zero,
@@ -94,10 +94,10 @@ index 136b0965e3..f9171ebfb5 100644
       */
      void copyStatesOnDevice(const bool);
 diff --git a/include/MFEMMGIS/FiniteElementDiscretization.hxx b/include/MFEMMGIS/FiniteElementDiscretization.hxx
-index 596cdaea0e..d42f00127e 100644
+index 5c957e5155..6dedf742c1 100644
 --- a/include/MFEMMGIS/FiniteElementDiscretization.hxx
 +++ b/include/MFEMMGIS/FiniteElementDiscretization.hxx
-@@ -215,6 +215,14 @@ namespace mfem_mgis {
+@@ -229,6 +229,14 @@ namespace mfem_mgis {
    MFEM_MGIS_EXPORT [[nodiscard]] size_type getTrueVSize(
        const FiniteElementDiscretization& fed) noexcept;
  
@@ -415,7 +415,7 @@ index 7dda821727..f3912126cb 100644
        }
        auto missing = mfem::Array<int>(1);
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index be3bc083c7..d3ff2d3f38 100644
+index d91823f05c..333527371b 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -16,6 +16,7 @@
@@ -426,7 +426,7 @@ index be3bc083c7..d3ff2d3f38 100644
  #include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
  #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/IntegrationType.hxx"
-@@ -1179,6 +1180,23 @@ namespace mfem_mgis {
+@@ -1232,6 +1233,23 @@ namespace mfem_mgis {
      } else {
        mgis::behaviour::revert(v, ops);
      }
@@ -451,10 +451,10 @@ index be3bc083c7..d3ff2d3f38 100644
  
    void BehaviourIntegratorBase::revert() {
 diff --git a/src/FiniteElementDiscretization.cxx b/src/FiniteElementDiscretization.cxx
-index c5964ec49d..e7721bb5e6 100644
+index 223aaf6db5..cdf58dede3 100644
 --- a/src/FiniteElementDiscretization.cxx
 +++ b/src/FiniteElementDiscretization.cxx
-@@ -227,6 +227,18 @@ namespace mfem_mgis {
+@@ -234,6 +234,18 @@ namespace mfem_mgis {
      return fed.getFiniteElementSpace<false>().GetTrueVSize();
    }  // end of getTrueVSize
  

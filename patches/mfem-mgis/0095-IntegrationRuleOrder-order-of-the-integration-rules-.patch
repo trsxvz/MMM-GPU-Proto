@@ -1,4 +1,4 @@
-From 5f7f54ec97afd7e1eb1590a37b5ebefb18d65ef5 Mon Sep 17 00:00:00 2001
+From 37b60c659ae78bda9e4475db81b49d8ed9680f75 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 07:57:45 +0200
 Subject: [PATCH] IntegrationRuleOrder: order of the integration rules chosen
@@ -256,7 +256,7 @@ index 2ba9a10cdd..d3fe167953 100644
       * \param[in] t: element transformation
       * \return the integration rule
 diff --git a/include/MFEMMGIS/FiniteElementDiscretization.hxx b/include/MFEMMGIS/FiniteElementDiscretization.hxx
-index d42f00127e..0c0e7f411a 100644
+index 6dedf742c1..6edac99324 100644
 --- a/include/MFEMMGIS/FiniteElementDiscretization.hxx
 +++ b/include/MFEMMGIS/FiniteElementDiscretization.hxx
 @@ -12,6 +12,7 @@
@@ -267,7 +267,7 @@ index d42f00127e..0c0e7f411a 100644
  #include "MFEMMGIS/Info.hxx"
  #include "MFEMMGIS/Config.hxx"
  #include "MFEMMGIS/MeshDiscretization.hxx"
-@@ -31,6 +32,15 @@ namespace mfem_mgis {
+@@ -32,6 +33,15 @@ namespace mfem_mgis {
    struct MFEM_MGIS_EXPORT FiniteElementDiscretization : MeshDiscretization {
      //! \brief string associated to the `UnknownsSize` parameter
      static const char* const UnknownsSize;
@@ -283,7 +283,7 @@ index d42f00127e..0c0e7f411a 100644
      //! \brief report that no parallel finite element space is defined
      [[noreturn]] static void reportInvalidParallelFiniteElementSpace();
      //! \brief report that no sequential finite element space is defined
-@@ -87,6 +97,8 @@ namespace mfem_mgis {
+@@ -88,6 +98,8 @@ namespace mfem_mgis {
       * - `FiniteElementSpaceOrdering` (string): ordering of the degrees of
       * freedom, `byNODES` (default) or `byVDIM`.
       * - `UnknownsSize` (int): number of components of the unknowns
@@ -292,7 +292,7 @@ index d42f00127e..0c0e7f411a 100644
       */
      FiniteElementDiscretization(Context& ctx,
                                  std::shared_ptr<Mesh<false>> m,
-@@ -159,12 +171,20 @@ namespace mfem_mgis {
+@@ -173,12 +185,20 @@ namespace mfem_mgis {
      using MeshDiscretization::getMaterialsNames;
      using MeshDiscretization::setBoundariesNames;
      using MeshDiscretization::setMaterialsNames;
@@ -313,7 +313,7 @@ index d42f00127e..0c0e7f411a 100644
  #ifdef MFEM_USE_MPI
      //! \brief parallel finite element space
      std::shared_ptr<FiniteElementSpace<true>> parallel_fe_space;
-@@ -187,6 +207,30 @@ namespace mfem_mgis {
+@@ -201,6 +221,30 @@ namespace mfem_mgis {
     */
    MFEM_MGIS_EXPORT [[nodiscard]] const Mesh<false>& getMesh(
        const FiniteElementSpace<false>& s) noexcept;
@@ -844,7 +844,7 @@ index f5a244f0ef..6bd98eff20 100644
  
    FBarOrthotropicTridimensionalBehaviourIntegrator::RotationMatrix
 diff --git a/src/FiniteElementDiscretization.cxx b/src/FiniteElementDiscretization.cxx
-index e7721bb5e6..496f52949b 100644
+index cdf58dede3..bd6f28bbcf 100644
 --- a/src/FiniteElementDiscretization.cxx
 +++ b/src/FiniteElementDiscretization.cxx
 @@ -6,6 +6,7 @@

@@ -4,7 +4,8 @@ Status: choices made on 08/10/2026, first step (views API of MGIS) done
 on 09/10/2026, detailed plan on 09/10/2026
 ([plan-mfem-mgis-detailed.md](plan-mfem-mgis-detailed.md)).
 Work packages L0 to L10 are done (base master `a011d97d6f`, branch
-rebased on 13/10/2026 onto master `8fac67336e`, repository `mfem-mgis/`;
+rebased on 13/10/2026 onto master `8fac67336e`, then on 16/10/2026 onto
+master `20dcdf0a9b` (merge of PR #487), repository `mfem-mgis/`;
 status in [overview.md](overview.md#progress)). This plan relies on
 TFEL and MGIS as described in [tfel.md](tfel.md) and
 [mgis.md](mgis.md).

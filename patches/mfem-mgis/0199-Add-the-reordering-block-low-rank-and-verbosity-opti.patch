@@ -1,4 +1,4 @@
-From be9a98725b56bb5e3fca6816630dc3a60504f46a Mon Sep 17 00:00:00 2001
+From 95ef7aaa212a7da997f5cb128fe672c8e284dca3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 06:11:39 +0200
 Subject: [PATCH] Add the reordering, block low-rank and verbosity options of

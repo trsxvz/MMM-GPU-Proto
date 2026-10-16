@@ -1,4 +1,4 @@
-From 2943ee8bc4d427d4d3f4911fc9f95e3acaa14284 Mon Sep 17 00:00:00 2001
+From 3c8da03bf9c5b9cb25c1d86e000cc34962428ccd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 18:28:05 +0200
 Subject: [PATCH] Orthotropic behaviours integrated by batches: rotations of
@@ -61,10 +61,10 @@ the host and a new rotation, in both layouts. 139/139.
  create mode 100644 tests/OrthotropicSaintVenantKirchhoffElasticity.mfront
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 403479edd6..a1d0116ece 100644
+index 58226d26ad..56453b32d5 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -102,7 +102,7 @@ namespace mfem_mgis {
+@@ -105,7 +105,7 @@ namespace mfem_mgis {
       * first step of the integration by batches: the operations of
       * `integrate` which precede the integration of the behaviour at each
       * point (including the update of the external state variables computed
@@ -73,7 +73,7 @@ index 403479edd6..a1d0116ece 100644
       *
       * \param[in] e: finite element
       * \param[in, out] tr: finite element transformation
-@@ -116,9 +116,10 @@ namespace mfem_mgis {
+@@ -119,9 +119,10 @@ namespace mfem_mgis {
      /*!
       * \brief integrate the behaviour at all the integration points, as a
       * batch, after the computation of the gradients on all the elements
@@ -88,10 +88,10 @@ index 403479edd6..a1d0116ece 100644
       * Contrary to `integrate`, all the points are integrated, even if the
       * integration fails at some of them.
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 1048924d76..8764887162 100644
+index 23eca6005d..e68e5e42c5 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -54,6 +54,31 @@ namespace mfem_mgis {
+@@ -56,6 +56,31 @@ namespace mfem_mgis {
          std::string_view name,
          std::shared_ptr<const AbstractQPEvaluator> e,
          const TimeStepStage ts) noexcept override;
@@ -123,7 +123,7 @@ index 1048924d76..8764887162 100644
      //! \brief destructor
      ~BehaviourIntegratorBase() override;
  
-@@ -159,23 +184,6 @@ namespace mfem_mgis {
+@@ -161,23 +186,6 @@ namespace mfem_mgis {
       */
      virtual bool performsLocalBehaviourIntegration(const size_type ip,
                                                     const IntegrationType it);
@@ -147,7 +147,7 @@ index 1048924d76..8764887162 100644
      /*!
       * \brief evaluators of the material properties at the beginning of the
       * time step.
-@@ -258,6 +266,8 @@ namespace mfem_mgis {
+@@ -260,6 +268,8 @@ namespace mfem_mgis {
         * the time step
         */
        std::map<std::string, QPEvaluatorResult> pqfcts_esvs_ets;
@@ -1009,7 +1009,7 @@ index 29d08a01d6..0a9bbbbc7c 100644
        }
      }
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 82d00f2cf4..1936e43a72 100644
+index 8eebdf3d5b..e182ae4675 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -7,9 +7,11 @@
@@ -1024,7 +1024,7 @@ index 82d00f2cf4..1936e43a72 100644
  #include "MFEMMGIS/MeshDiscretization.hxx"
  #include "MFEMMGIS/FiniteElementDiscretization.hxx"
  #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
-@@ -740,8 +742,15 @@ namespace mfem_mgis {
+@@ -793,8 +795,15 @@ namespace mfem_mgis {
      return (r == 0) || (r == 1);
    }  // end of BehaviourIntegratorBase::performsLocalBehaviourIntegration
  
@@ -1042,7 +1042,7 @@ index 82d00f2cf4..1936e43a72 100644
      // the material properties at the beginning of the time step are the
      // ones at the end of the time step, as in
      // `performsLocalBehaviourIntegration`: they are restored after the call
-@@ -755,7 +764,21 @@ namespace mfem_mgis {
+@@ -808,7 +817,21 @@ namespace mfem_mgis {
          .compute_speed_of_sound = false};
      auto r = mgis::behaviour::BehaviourIntegrationResult{};
      try {
@@ -1064,7 +1064,7 @@ index 82d00f2cf4..1936e43a72 100644
      } catch (std::exception& e) {
        this->s0.material_properties = std::move(mps0);
        std::cerr << "behaviour integration failed: " << e.what() << std::endl;
-@@ -769,7 +792,7 @@ namespace mfem_mgis {
+@@ -822,7 +845,7 @@ namespace mfem_mgis {
        return false;
      }
      return true;

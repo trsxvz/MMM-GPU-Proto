@@ -1,4 +1,4 @@
-From 096ef70b9662881065bf22dd7b466114b6160e73 Mon Sep 17 00:00:00 2001
+From a349ee4144411c8488db5edb8cf799bba211043e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 16:36:24 +0200
 Subject: [PATCH] GlobalStiffnessMatrixTest: spaces refused when hypre computes

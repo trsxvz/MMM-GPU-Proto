@@ -1,4 +1,4 @@
-From 3dcd1f68ab18de35177ff03c981c97706191196f Mon Sep 17 00:00:00 2001
+From 68bf2b684baf31188cc12691bf2e13dd26031060 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 05:34:07 +0200
 Subject: [PATCH] Add the solvers and preconditioners of hypre not wrapped by
@@ -43,10 +43,10 @@ In src/HypreLinearSolvers.cxx:
  create mode 100644 src/HypreSolvers.hxx
 
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 832fe3cf16..0d6aaa07b4 100644
+index 1927203ca0..f8fbe79639 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -57,6 +57,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -56,6 +56,7 @@ list(APPEND MFEMMGIS_SOURCES
    LinearSolverModules.cxx
    MFEMLinearSolvers.cxx
    HypreLinearSolvers.cxx

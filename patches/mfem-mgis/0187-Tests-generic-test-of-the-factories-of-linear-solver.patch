@@ -1,4 +1,4 @@
-From 417b6ba5d7a488e3cd292fa5509fe5bb54ac5bd7 Mon Sep 17 00:00:00 2001
+From 8337ac788f6ccaf8328a7196d3da2e0e02a028c6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:15:26 +0200
 Subject: [PATCH] Tests: generic test of the factories of linear solvers

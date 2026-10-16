@@ -1,4 +1,4 @@
-From 6b007d525070f9ec71900bc3cd30d281598e6563 Mon Sep 17 00:00:00 2001
+From b15882cd3962e3363e4f2fa2682d99b46648625d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 23:44:17 +0200
 Subject: [PATCH] Update and revert on the device
@@ -21,10 +21,10 @@ Beam (111843 unknowns, 10 steps, 1 process, GPU): 3.3 s instead of
  3 files changed, 82 insertions(+), 8 deletions(-)
 
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 5a7169e6ff..d836003584 100644
+index 62ddaaa942..f421f4abac 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -33,7 +33,15 @@ namespace mfem_mgis {
+@@ -35,7 +35,15 @@ namespace mfem_mgis {
                               const real t,
                               const real dt) noexcept override;
      [[nodiscard]] bool cleanup(Context& ctx) noexcept override;
@@ -40,7 +40,7 @@ index 5a7169e6ff..d836003584 100644
      void update() override;
      [[nodiscard]] bool hasMaterial() const noexcept override;
      OptionalReference<Material> getMaterial(Context& ctx) noexcept override;
-@@ -352,6 +360,14 @@ namespace mfem_mgis {
+@@ -354,6 +362,14 @@ namespace mfem_mgis {
       * \param[in] it: integration type
       */
      [[nodiscard]] bool integrateBatchOnDevice(const IntegrationType);
@@ -56,7 +56,7 @@ index 5a7169e6ff..d836003584 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index f0352266c0..be3bc083c7 100644
+index cf365f5f68..d91823f05c 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -6,6 +6,7 @@
@@ -75,7 +75,7 @@ index f0352266c0..be3bc083c7 100644
  #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/IntegrationType.hxx"
  #include "MFEMMGIS/MeshDiscretization.hxx"
-@@ -1133,13 +1135,67 @@ namespace mfem_mgis {
+@@ -1186,13 +1188,67 @@ namespace mfem_mgis {
      return true;
    }  // end of cleanup
  

@@ -1,4 +1,4 @@
-From f07e8a2b135f59b32492c312ef35f56831dfe8a1 Mon Sep 17 00:00:00 2001
+From bc99167ddfc103c7732f78c9a48940b538e70281 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 05:13:06 +0200
 Subject: [PATCH] MUMPSSolver: ReuseAnalysis parameter

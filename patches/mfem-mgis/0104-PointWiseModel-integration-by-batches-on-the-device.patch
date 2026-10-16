@@ -1,4 +1,4 @@
-From be15a5f161ddd8196740317e55b5cb125536fdbd Mon Sep 17 00:00:00 2001
+From 32aebca51866af362de42bc3bb928151549eb566 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 15:07:28 +0200
 Subject: [PATCH] PointWiseModel: integration by batches on the device
@@ -186,10 +186,10 @@ index bcf6bc7298..cf92648a4a 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index d389838e4c..fad276194c 100644
+index ae96c08d4f..d77b29fb35 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -829,49 +829,11 @@ namespace mfem_mgis {
+@@ -882,49 +882,11 @@ namespace mfem_mgis {
    }  // end of namespace
  
    bool BehaviourIntegratorBase::integratesBatchesOnDevice() const noexcept {
@@ -240,7 +240,7 @@ index d389838e4c..fad276194c 100644
      const auto orthotropic =
          this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
      const auto prediction =
-@@ -887,76 +849,15 @@ namespace mfem_mgis {
+@@ -940,76 +902,15 @@ namespace mfem_mgis {
          .compute_speed_of_sound = false};
      auto r = mgis::behaviour::BehaviourIntegrationResult{};
      try {

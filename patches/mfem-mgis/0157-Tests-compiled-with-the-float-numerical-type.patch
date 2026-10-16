@@ -1,4 +1,4 @@
-From 3f43a035433903c9575a2327db85ead58cae2775 Mon Sep 17 00:00:00 2001
+From c8b178d71af211b94aa6af8d500c951f0e3968a3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 20:54:09 +0200
 Subject: [PATCH] Tests compiled with the float numerical type

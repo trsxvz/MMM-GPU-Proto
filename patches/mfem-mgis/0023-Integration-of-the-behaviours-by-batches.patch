@@ -1,4 +1,4 @@
-From 5e4f4b9bd52624823e5ac793602ba1206269003f Mon Sep 17 00:00:00 2001
+From a36cd9b61a67ce9b04e496a120a1e8935f8d3ebc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 17:48:54 +0200
 Subject: [PATCH] Integration of the behaviours by batches
@@ -64,10 +64,10 @@ suite passes by batches except the refused cases.
  create mode 100644 tests/FailingIsotropicLinearElasticity.mfront
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 9a6ff55703..403479edd6 100644
+index 72f015690a..58226d26ad 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -91,6 +91,43 @@ namespace mfem_mgis {
+@@ -94,6 +94,43 @@ namespace mfem_mgis {
                                           mfem::ElementTransformation &tr,
                                           const mfem::Vector &u,
                                           const IntegrationType it) = 0;
@@ -112,10 +112,10 @@ index 9a6ff55703..403479edd6 100644
       * \brief compute the contribution of the given element to the inner forces
       * \param[out] Fe: inner forces
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 95865b75a1..1048924d76 100644
+index 5deb68ae51..23eca6005d 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -159,6 +159,23 @@ namespace mfem_mgis {
+@@ -161,6 +161,23 @@ namespace mfem_mgis {
       */
      virtual bool performsLocalBehaviourIntegration(const size_type ip,
                                                     const IntegrationType it);
@@ -846,10 +846,10 @@ index 64f7729c49..2dc62fa0a9 100644
    static void performLoopOverIntegrationPoints(
        Functor& f, const AbstractBehaviourIntegrator& bi) {
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 69f5f68971..82d00f2cf4 100644
+index 8bc7d1b1e5..8eebdf3d5b 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -740,6 +740,37 @@ namespace mfem_mgis {
+@@ -793,6 +793,37 @@ namespace mfem_mgis {
      return (r == 0) || (r == 1);
    }  // end of BehaviourIntegratorBase::performsLocalBehaviourIntegration
  

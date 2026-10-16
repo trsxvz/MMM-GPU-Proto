@@ -1,4 +1,4 @@
-From c700687e2ce3208143cd601fd7fe9979de3bfc07 Mon Sep 17 00:00:00 2001
+From d8251e1945608ba73df94c04e8655f2332884e16 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 07:18:19 +0200
 Subject: [PATCH] Documentation: direct solver on the GPU in the guide of the

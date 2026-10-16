@@ -1,4 +1,4 @@
-From 630cc74103c3521e36e0883b27c8bb7f09de76be Mon Sep 17 00:00:00 2001
+From 45e2175c81d82c69dc3b04d808ff54c3f71d62a7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:19:38 +0200
 Subject: [PATCH] CMake: one line of env.sh per library directory of TFEL

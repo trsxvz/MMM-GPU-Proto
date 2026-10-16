@@ -1,4 +1,4 @@
-From a106e532d1741d4072dca03167e462a7aea9303f Mon Sep 17 00:00:00 2001
+From 2cfcc3386c587bbbef1745cdc19f5a1109941932 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 04:00:05 +0200
 Subject: [PATCH] Batch: FBar formulation by kernels
@@ -68,10 +68,10 @@ detected. GradientsKernelsTest no longer expects the refusal of FBar.
  create mode 100644 src/Batch/FBarKernels.hxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index fd1785f308..985ec82e68 100644
+index ffa6c8aa59..f5d43d022a 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -43,6 +43,7 @@ mfem_mgis_header(MFEMMGIS/Batch ElementsGeometry.hxx)
+@@ -42,6 +42,7 @@ mfem_mgis_header(MFEMMGIS/Batch ElementsGeometry.hxx)
  mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
  mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
  mfem_mgis_header(MFEMMGIS/Batch StiffnessMatrices.hxx)
@@ -80,7 +80,7 @@ index fd1785f308..985ec82e68 100644
  mfem_mgis_header(MFEMMGIS MatrixFreeTangentOperator.hxx)
  mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 4e52b6397e..1afd00fd9b 100644
+index cfc54de852..d1cd8d3622 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 @@ -11,6 +11,7 @@
@@ -91,7 +91,7 @@ index 4e52b6397e..1afd00fd9b 100644
  #include "MFEMMGIS/Config.hxx"
  #include "MFEMMGIS/TimeStepStage.hxx"
  #include "MFEMMGIS/Batch/Gradients.hxx"
-@@ -160,6 +161,17 @@ namespace mfem_mgis {
+@@ -163,6 +164,17 @@ namespace mfem_mgis {
       */
      [[nodiscard]] virtual bool requiresUnknownsValuesForKernels()
          const noexcept;
@@ -362,10 +362,10 @@ index 0000000000..b8558244ed
 +
 +#endif /* LIB_MFEM_MGIS_BATCH_FBAR_HXX */
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 2cfcd7520f..a83b97467b 100644
+index 8bd7e6f1c4..1f244a00f3 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -133,6 +133,52 @@ namespace mfem_mgis {
+@@ -135,6 +135,52 @@ namespace mfem_mgis {
       */
      BehaviourIntegratorBase(std::shared_ptr<const PartialQuadratureSpace> s,
                              std::unique_ptr<const Behaviour> b_ptr);
@@ -2227,7 +2227,7 @@ index 15ae871206..4e577423b1 100644
    struct SparseMatrixAssembly {
      //! \brief assembled matrix
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index c5cd010a5b..d389838e4c 100644
+index 1a6fc0c79f..ae96c08d4f 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -23,6 +23,7 @@
@@ -2238,7 +2238,7 @@ index c5cd010a5b..d389838e4c 100644
  #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
  #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
  
-@@ -1215,6 +1216,94 @@ namespace mfem_mgis {
+@@ -1268,6 +1269,94 @@ namespace mfem_mgis {
      }
    }  // end of copyStatesOnDevice
  
@@ -2334,10 +2334,10 @@ index c5cd010a5b..d389838e4c 100644
      this->wks.has_rotated_thermodynamic_forces = false;
      if (this->integratesBatchesOnDevice()) {
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index ba15609d70..a62571bfe0 100644
+index 2a891e1aa8..ea8917e06a 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -160,6 +160,7 @@ set(MFEMMGIS_DEVICE_SOURCES
+@@ -159,6 +159,7 @@ set(MFEMMGIS_DEVICE_SOURCES
    Batch/GradientsKernels.cxx
    Batch/InnerForcesKernels.cxx
    Batch/StiffnessMatricesKernels.cxx
@@ -2345,7 +2345,7 @@ index ba15609d70..a62571bfe0 100644
    Batch/ElementsGeometryKernels.cxx)
  # conversions of the vectors exchanged with AmgX in single precision
  if(MFEM_MGIS_HAVE_AMGX)
-@@ -177,7 +178,8 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -176,7 +177,8 @@ list(APPEND MFEMMGIS_SOURCES
    Batch/ElementsGeometry.cxx
    Batch/Gradients.cxx
    Batch/InnerForces.cxx

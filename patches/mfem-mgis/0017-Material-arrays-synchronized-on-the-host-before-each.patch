@@ -1,4 +1,4 @@
-From dfd29174de406fa84626926969b009409fbac4e7 Mon Sep 17 00:00:00 2001
+From 75765bef8b15e689ec1dfd826c2365fae630c1dd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:58:37 +0200
 Subject: [PATCH] Material: arrays synchronized on the host before each access

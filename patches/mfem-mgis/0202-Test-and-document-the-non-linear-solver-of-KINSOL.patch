@@ -1,4 +1,4 @@
-From e036bf5d804e59cbb161def702b5d6fd63e74281 Mon Sep 17 00:00:00 2001
+From fd4c4267a20496883dca329d824911e1f9d412c1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 07:11:15 +0200
 Subject: [PATCH] Test and document the non linear solver of KINSOL

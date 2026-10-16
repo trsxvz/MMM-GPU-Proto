@@ -1,4 +1,4 @@
-From 2ae94b09e56a1c223941746574f8b8d2f97af302 Mon Sep 17 00:00:00 2001
+From b88866f2f929cc6753bf3f20be571f15c5018908 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 06:32:24 +0200
 Subject: [PATCH] Tests in float on the GPU

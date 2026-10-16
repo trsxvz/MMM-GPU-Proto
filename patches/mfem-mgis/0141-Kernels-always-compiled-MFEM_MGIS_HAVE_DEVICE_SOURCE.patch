@@ -1,4 +1,4 @@
-From b5e7d12fc461afe644cc57e81776c642fdffc4a8 Mon Sep 17 00:00:00 2001
+From 6efaf38e0c2157247a17954cea133a83a834edb8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 15:49:58 +0200
 Subject: [PATCH] Kernels always compiled: MFEM_MGIS_HAVE_DEVICE_SOURCES and
@@ -1040,10 +1040,10 @@ index 5ab9d8de61..8dbf6a127c 100644
  
  }  // end of namespace mfem_mgis::batch
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 2145d5c646..30f745e4f1 100644
+index 6ed4464086..552e887ba8 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -173,8 +173,7 @@ if(MFEM_MGIS_HAVE_AMGX)
+@@ -172,8 +172,7 @@ if(MFEM_MGIS_HAVE_AMGX)
    list(APPEND MFEMMGIS_DEVICE_SOURCES AmgXKernels.cxx)
  endif()
  list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
@@ -1053,7 +1053,7 @@ index 2145d5c646..30f745e4f1 100644
  list(APPEND MFEMMGIS_SOURCES
    Batch/ElementsGeometry.cxx
    Batch/Gradients.cxx
-@@ -186,10 +185,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -185,10 +184,7 @@ list(APPEND MFEMMGIS_SOURCES
    Batch/GlobalStiffnessMatrix.cxx)
  
  mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})

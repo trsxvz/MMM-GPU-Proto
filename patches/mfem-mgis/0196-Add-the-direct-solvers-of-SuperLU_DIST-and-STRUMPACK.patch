@@ -1,4 +1,4 @@
-From d151f72d7affabd8861b10335605679cbd7f80b4 Mon Sep 17 00:00:00 2001
+From e362c609869a3b1521f894c3640e7ac4e257547f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 05:34:07 +0200
 Subject: [PATCH] Add the direct solvers of SuperLU_DIST and STRUMPACK
@@ -32,10 +32,10 @@ iterations: such a resolution is reported as not converged.
  create mode 100644 src/SuperLUSolvers.cxx
 
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 0d6aaa07b4..581e4cd0b7 100644
+index f8fbe79639..925af17e01 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -59,6 +59,8 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -58,6 +58,8 @@ list(APPEND MFEMMGIS_SOURCES
    HypreLinearSolvers.cxx
    HypreSolvers.cxx
    PETScLinearSolvers.cxx

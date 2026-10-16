@@ -1,4 +1,4 @@
-From f631c15779f672398e6b2c18d89dbbc336033d4c Mon Sep 17 00:00:00 2001
+From 8535fe39b1bcc793eb46a1c839e02f4914ee89ed Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:12:03 +0200
 Subject: [PATCH] Compute the nodal blocks of the tangent operator applied
@@ -46,10 +46,10 @@ operator applied without assembly, the blocks being gathered by a kernel.
  27 files changed, 784 insertions(+), 37 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index b894e0b575..12a36d8818 100644
+index 0fa318a8fd..94e23a3b3b 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -283,6 +283,24 @@ namespace mfem_mgis {
+@@ -286,6 +286,24 @@ namespace mfem_mgis {
          Context& ctx,
          mfem::Vector& d,
          const batch::ElementsGeometrySet& g) noexcept;

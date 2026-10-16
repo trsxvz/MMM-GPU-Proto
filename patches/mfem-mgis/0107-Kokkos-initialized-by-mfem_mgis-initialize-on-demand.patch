@@ -1,4 +1,4 @@
-From 7ba263d1f419fbd5884bed0b7064b15eed23964c Mon Sep 17 00:00:00 2001
+From 05458c343cb6b101988df9a55aeb3f65e88476dd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 18:16:24 +0200
 Subject: [PATCH] Kokkos initialized by mfem_mgis::initialize on demand
@@ -194,10 +194,10 @@ index 15f08a43cb..b45e9c255c 100644
    //! \return the output stream
    MFEM_MGIS_EXPORT std::ostream& getOutputStream();
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 0d455f7782..9090069ccf 100644
+index cad17d35ce..d2a4337c56 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -206,6 +206,29 @@ if(MFEM_MGIS_HAVE_AMGX)
+@@ -205,6 +205,29 @@ if(MFEM_MGIS_HAVE_AMGX)
                   AMGX::amgxsh ${_libraries})
    endforeach(_property)
  endif()

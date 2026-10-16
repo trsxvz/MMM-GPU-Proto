@@ -1,4 +1,4 @@
-From 9a730fe6fdaff9c75f394931f8bec546ae408798 Mon Sep 17 00:00:00 2001
+From ae191735b59992e2909af9c8853f024cfa3e6c0d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 19:10:28 +0200
 Subject: [PATCH] Integration by batches: review of lot L2
@@ -63,10 +63,10 @@ integrators).
  19 files changed, 616 insertions(+), 330 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index a1d0116ece..3a0b4d355c 100644
+index 56453b32d5..831a7063a7 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -121,8 +121,10 @@ namespace mfem_mgis {
+@@ -124,8 +124,10 @@ namespace mfem_mgis {
       * before the integration, and the tangent operator blocks in the global
       * frame after it, at all the points at once.
       *
@@ -80,10 +80,10 @@ index a1d0116ece..3a0b4d355c 100644
       * \param[in] it: integration type
       * \return true on success
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 8764887162..2ff3c756dd 100644
+index e68e5e42c5..8299412e69 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -66,10 +66,22 @@ namespace mfem_mgis {
+@@ -68,10 +68,22 @@ namespace mfem_mgis {
       * the integration (except for a prediction), and the tangent operator
       * blocks in the global frame after it, by the rotation functions of MGIS
       * processing all the points (see `Material::computeRotationMatrices`).
@@ -107,7 +107,7 @@ index 8764887162..2ff3c756dd 100644
       *
       * \return true on success, i.e. if the integration succeeded at all the
       * points, possibly with unreliable results
-@@ -184,6 +196,27 @@ namespace mfem_mgis {
+@@ -186,6 +198,27 @@ namespace mfem_mgis {
       */
      virtual bool performsLocalBehaviourIntegration(const size_type ip,
                                                     const IntegrationType it);
@@ -135,7 +135,7 @@ index 8764887162..2ff3c756dd 100644
      /*!
       * \brief evaluators of the material properties at the beginning of the
       * time step.
-@@ -268,6 +301,13 @@ namespace mfem_mgis {
+@@ -270,6 +303,13 @@ namespace mfem_mgis {
        std::map<std::string, QPEvaluatorResult> pqfcts_esvs_ets;
        //! \brief rotation matrices used by `integrateBatch`
        mfem::Vector rotation_matrices;
@@ -633,7 +633,7 @@ index 0a9bbbbc7c..90684424fb 100644
      }
    }  // end of implementComputeInnerForces
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 1936e43a72..5ec1a9007a 100644
+index e182ae4675..23d058c0c7 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -5,7 +5,9 @@
@@ -646,7 +646,7 @@ index 1936e43a72..5ec1a9007a 100644
  #include "MGIS/Raise.hxx"
  #include "MGIS/Behaviour/Behaviour.hxx"
  #include "MGIS/Behaviour/Integrate.hxx"
-@@ -671,6 +673,7 @@ namespace mfem_mgis {
+@@ -724,6 +726,7 @@ namespace mfem_mgis {
  
    bool BehaviourIntegratorBase::performsLocalBehaviourIntegration(
        const size_type ip, const IntegrationType it) {
@@ -654,7 +654,7 @@ index 1936e43a72..5ec1a9007a 100644
      char error_msg[512];
      error_msg[0] = '\0';
      const auto g_offset = this->s0.gradients_stride * ip;
-@@ -742,7 +745,85 @@ namespace mfem_mgis {
+@@ -795,7 +798,85 @@ namespace mfem_mgis {
      return (r == 0) || (r == 1);
    }  // end of BehaviourIntegratorBase::performsLocalBehaviourIntegration
  
@@ -740,7 +740,7 @@ index 1936e43a72..5ec1a9007a 100644
      const auto orthotropic =
          this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
      const auto prediction =
-@@ -751,13 +832,7 @@ namespace mfem_mgis {
+@@ -804,13 +885,7 @@ namespace mfem_mgis {
          (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
      const auto rotateTangentOperatorBlocks =
          orthotropic && (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
@@ -755,7 +755,7 @@ index 1936e43a72..5ec1a9007a 100644
      const auto opts = mgis::behaviour::BehaviourIntegrationOptions{
          .integration_type =
              static_cast<mgis::behaviour::IntegrationType>(static_cast<int>(it)),
-@@ -772,28 +847,70 @@ namespace mfem_mgis {
+@@ -825,28 +900,70 @@ namespace mfem_mgis {
          const auto g = mgis::behaviour::getGradientsView(this->s1);
          mgis::behaviour::rotateGradients(g, this->b, matrices);
        }
@@ -837,7 +837,7 @@ index 1936e43a72..5ec1a9007a 100644
    bool BehaviourIntegratorBase::cleanup(Context& ctx) noexcept {
      for (const auto& [name, e] : this->material_properties_evaluators_bts) {
        std::ignore = e;
-@@ -829,6 +946,7 @@ namespace mfem_mgis {
+@@ -882,6 +999,7 @@ namespace mfem_mgis {
    }  // end of cleanup
  
    void BehaviourIntegratorBase::revert() {

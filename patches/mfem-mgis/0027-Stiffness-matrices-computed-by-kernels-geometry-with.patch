@@ -1,4 +1,4 @@
-From db71d31c024f3e5fdfb02ccd0b799ab3c3931dc3 Mon Sep 17 00:00:00 2001
+From cd2f24c6181259213932af681ed9cb20ec934f98 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 20:13:12 +0200
 Subject: [PATCH] Stiffness matrices computed by kernels, geometry without the
@@ -74,10 +74,10 @@ refusals fail (heat transfer, micromorphic damage).
  create mode 100644 src/Batch/StiffnessMatricesKernels.hxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 2fa23abb7c..5547b2c6e1 100644
+index 774fb3b732..fe18e2cdfd 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -39,8 +39,10 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
+@@ -38,8 +38,10 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
  endif()
  # computations by kernels (an error is reported if the kernels are not
  # compiled)
@@ -89,7 +89,7 @@ index 2fa23abb7c..5547b2c6e1 100644
  mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
  mfem_mgis_header(MFEMMGIS AbstractBehaviourIntegrator.hxx)
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 751ca04e07..50d45bcf07 100644
+index 415ffaba96..2346472b9f 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 @@ -15,6 +15,7 @@
@@ -100,7 +100,7 @@ index 751ca04e07..50d45bcf07 100644
  
  namespace mfem_mgis {
  
-@@ -134,9 +135,10 @@ namespace mfem_mgis {
+@@ -137,9 +138,10 @@ namespace mfem_mgis {
       */
      [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
      /*!
@@ -114,7 +114,7 @@ index 751ca04e07..50d45bcf07 100644
       * false.
       */
      [[nodiscard]] virtual bool supportsKernels() const noexcept;
-@@ -152,10 +154,14 @@ namespace mfem_mgis {
+@@ -155,10 +157,14 @@ namespace mfem_mgis {
       * \param[in, out] ctx: execution context
       * \param[in] d: derivatives of the unknowns, which must contain the ones
       * of the integration rule of the elements
@@ -130,7 +130,7 @@ index 751ca04e07..50d45bcf07 100644
      /*!
       * \brief add the inner forces of all the elements, computed by kernels
       * from the thermodynamic forces at the end of the time step, to values
-@@ -170,6 +176,19 @@ namespace mfem_mgis {
+@@ -173,6 +179,19 @@ namespace mfem_mgis {
       */
      [[nodiscard]] virtual bool addInnerForcesByKernels(
          Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
@@ -1544,10 +1544,10 @@ index 0000000000..ecbc31fc81
 +
 +#endif /* LIB_MFEM_MGIS_SRC_BATCH_STIFFNESSMATRICESKERNELS_HXX */
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 13d1ab2015..e9139f3969 100644
+index 3f068d25a5..0deced3fdb 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -150,7 +150,8 @@ endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
+@@ -149,7 +149,8 @@ endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
  set(MFEMMGIS_DEVICE_SOURCES
    Batch/MFEMFieldOperations.cxx
    Batch/GradientsKernels.cxx
@@ -1557,7 +1557,7 @@ index 13d1ab2015..e9139f3969 100644
  if(MFEM_USE_HIP STREQUAL "YES")
    message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
            "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")
-@@ -159,7 +160,11 @@ endif()
+@@ -158,7 +159,11 @@ endif()
  list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
  # host part of the computations by kernels (gradients, inner forces), which
  # reports an error if the kernels are not compiled

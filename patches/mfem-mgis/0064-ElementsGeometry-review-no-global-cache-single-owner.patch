@@ -1,4 +1,4 @@
-From e81672fbbdc10b8a78e87b19b65ee29dd394deed Mon Sep 17 00:00:00 2001
+From 2dc8aef9b2e403d901d905867537adce360fb0a9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 06:52:45 +0200
 Subject: [PATCH] ElementsGeometry: review (no global cache, single ownership,

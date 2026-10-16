@@ -1,4 +1,4 @@
-From e5b7d356cba0bc6ee599923efb39a5dd5df0433b Mon Sep 17 00:00:00 2001
+From 63f6d900ce41ad4501a4fe81202bf1db5163e752 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 01:47:26 +0200
 Subject: [PATCH] AmgX: scaled right hand side, second review of the wrapper

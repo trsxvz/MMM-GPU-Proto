@@ -1,4 +1,4 @@
-From 83605de2063faa878d254586d22c55a0a10c3125 Mon Sep 17 00:00:00 2001
+From 79b97273d539fd6a396c8144733a75c307463fc5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:27:21 +0200
 Subject: [PATCH] PETSc: options of the solvers shared by the modules
@@ -17,10 +17,10 @@ PETScSupport, for the non linear solver of PETSc.
  create mode 100644 src/PETScSupport.cxx
 
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 52d08f9f49..062245e507 100644
+index 56b3f1574d..cd947d6413 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -58,6 +58,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -57,6 +57,7 @@ list(APPEND MFEMMGIS_SOURCES
    MFEMLinearSolvers.cxx
    HypreLinearSolvers.cxx
    HypreSolvers.cxx

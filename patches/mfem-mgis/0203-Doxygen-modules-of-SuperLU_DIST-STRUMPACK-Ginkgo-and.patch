@@ -1,4 +1,4 @@
-From b3e39e12af654a3694fddbc19d1752cbfe4106ba Mon Sep 17 00:00:00 2001
+From 662c37204c9a56f6b7e340230bc3a8cd47db4d07 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 07:11:15 +0200
 Subject: [PATCH] Doxygen: modules of SuperLU_DIST, STRUMPACK, Ginkgo and

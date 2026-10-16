@@ -1,4 +1,4 @@
-From 825d1ed1e0041f88e4f377f8e38c57bdea772b16 Mon Sep 17 00:00:00 2001
+From 217cfcce4b24a586e0903782a961da58357979b2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 00:04:58 +0200
 Subject: [PATCH] Tangent operator applied without assembly (MatrixFree)
@@ -43,10 +43,10 @@ the GPU and on two processes).
  create mode 100644 src/MatrixFreeTangentOperator.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 5547b2c6e1..f39d69f8bb 100644
+index fe18e2cdfd..9aca38c69f 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -44,6 +44,7 @@ mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
+@@ -43,6 +43,7 @@ mfem_mgis_header(MFEMMGIS/Batch Gradients.hxx)
  mfem_mgis_header(MFEMMGIS/Batch InnerForces.hxx)
  mfem_mgis_header(MFEMMGIS/Batch StiffnessMatrices.hxx)
  mfem_mgis_header(MFEMMGIS MaterialQuantityProviderSearch.hxx)
@@ -209,10 +209,10 @@ index 350010e113..c3fb4c78e1 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index e9139f3969..2ea84d8f3a 100644
+index 0deced3fdb..431ddff84a 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -28,6 +28,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -27,6 +27,7 @@ list(APPEND MFEMMGIS_SOURCES
    AbstractBehaviourIntegrator.cxx
    BehaviourIntegratorBase.cxx
    BehaviourIntegratorFactory.cxx

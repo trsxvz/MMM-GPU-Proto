@@ -1,4 +1,4 @@
-From 6e9f450a0ff034ad270a87c972a32063b75b3245 Mon Sep 17 00:00:00 2001
+From 465329417dafe19bf3331c75798d87a12d69c0e5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:44:36 +0200
 Subject: [PATCH] LinearSolverFactory: Chebyshev smoother of MFEM as

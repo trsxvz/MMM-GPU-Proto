@@ -1,4 +1,4 @@
-From beddc856d03da83b5ecd26b24f0b14807ede6801 Mon Sep 17 00:00:00 2001
+From 4833e2179092c277e657c9d7a0518bed59085527 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 20:51:27 +0200
 Subject: [PATCH] Kernels: review of the gradients, inner forces and stiffness

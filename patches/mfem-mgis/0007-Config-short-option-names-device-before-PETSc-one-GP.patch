@@ -1,4 +1,4 @@
-From 5bc114c0aac0ee152cebd1e32ccaaedf575f755e Mon Sep 17 00:00:00 2001
+From a159c56311120ef2f4272375557fc92bd010f545 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:58:04 +0200
 Subject: [PATCH] Config: short option names, device before PETSc, one GPU per

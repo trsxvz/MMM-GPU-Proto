@@ -1,4 +1,4 @@
-From 4f45d6825ba5a25054ff50f61bb5b76e66166bf3 Mon Sep 17 00:00:00 2001
+From 5589d72f7bdfdfdbd30b1b411e77fc9e6c9d8a08 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] BatchIntegrationTest: documentation of testMatrixFreeRefusal

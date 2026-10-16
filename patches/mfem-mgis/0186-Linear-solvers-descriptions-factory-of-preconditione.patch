@@ -1,4 +1,4 @@
-From b3c7fd13b774c46ae312dacc49733c67a9b22396 Mon Sep 17 00:00:00 2001
+From e7997814937c3331a5e52ad309990fcbc40b628c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:15:26 +0200
 Subject: [PATCH] Linear solvers: descriptions, factory of preconditioners,
@@ -65,10 +65,10 @@ accepted preconditioners, options and a short text.
  create mode 100644 src/PreconditionerFactory.cxx
 
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index 7184ad596b..966820a80e 100644
+index ca5fa050df..b004a53114 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -72,6 +72,9 @@ mfem_mgis_header(MFEMMGIS NonLinearEvolutionProblem.hxx)
+@@ -71,6 +71,9 @@ mfem_mgis_header(MFEMMGIS NonLinearEvolutionProblem.hxx)
  mfem_mgis_header(MFEMMGIS PeriodicNonLinearEvolutionProblem.hxx)
  mfem_mgis_header(MFEMMGIS LinearSolverHandler.hxx)
  mfem_mgis_header(MFEMMGIS LinearSolverFactory.hxx)
@@ -623,10 +623,10 @@ index 35f88b906f..8dff031892 100644
      ~AmgXSolver() override;
      // the handles of AmgX are owned by the solver
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 2ed72d3c54..7ab14cc8a1 100644
+index 076621cc96..1e7f7c1cb8 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -53,6 +53,10 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -52,6 +52,10 @@ list(APPEND MFEMMGIS_SOURCES
    SolverUtilities.cxx
    LinearSolverHandler.cxx
    LinearSolverFactory.cxx

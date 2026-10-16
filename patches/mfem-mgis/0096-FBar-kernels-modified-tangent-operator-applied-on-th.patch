@@ -1,4 +1,4 @@
-From 0e3e610ebf10695d00711509df4c8f62630fc7b4 Mon Sep 17 00:00:00 2001
+From e4162cd0f105601092d8266f79ed3b4b6d5cdbbe Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 08:31:50 +0200
 Subject: [PATCH] FBar kernels: modified tangent operator applied on the fly

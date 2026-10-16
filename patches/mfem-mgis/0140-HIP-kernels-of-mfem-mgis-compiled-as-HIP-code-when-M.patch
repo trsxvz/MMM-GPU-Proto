@@ -1,4 +1,4 @@
-From 22c222a855677cf3d503732bb101a7158b50ce28 Mon Sep 17 00:00:00 2001
+From 0b24d9cf6451a9dddb7b00c747a974707541ccd3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 15:49:54 +0200
 Subject: [PATCH] HIP: kernels of mfem-mgis compiled as HIP code when MFEM uses
@@ -527,10 +527,10 @@ index 8627899ee8..b2c79b29b7 100644
    forces and of the tangent operator are not supported with the solvers of
    :code:`PETSc`.
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index c7c099f03d..2145d5c646 100644
+index 5819824535..6ed4464086 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -157,9 +157,8 @@ if(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
+@@ -156,9 +156,8 @@ if(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
         PartialQuadratureFunctionsSet.cxx)
  endif(MGIS_FUNCTION_SUPPORT AND MGIS_HAVE_TFEL)
  
@@ -542,7 +542,7 @@ index c7c099f03d..2145d5c646 100644
  set(MFEMMGIS_DEVICE_SOURCES
    Batch/MFEMFieldOperations.cxx
    Batch/GradientsKernels.cxx
-@@ -173,11 +172,6 @@ set(MFEMMGIS_DEVICE_SOURCES
+@@ -172,11 +171,6 @@ set(MFEMMGIS_DEVICE_SOURCES
  if(MFEM_MGIS_HAVE_AMGX)
    list(APPEND MFEMMGIS_DEVICE_SOURCES AmgXKernels.cxx)
  endif()
@@ -554,7 +554,7 @@ index c7c099f03d..2145d5c646 100644
  list(APPEND MFEMMGIS_SOURCES ${MFEMMGIS_DEVICE_SOURCES})
  # host part of the computations by kernels (gradients, inner forces), which
  # reports an error if the kernels are not compiled
-@@ -196,12 +190,15 @@ if(MFEMMGIS_DEVICE_SOURCES)
+@@ -195,12 +189,15 @@ if(MFEMMGIS_DEVICE_SOURCES)
    mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
    target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_DEVICE_SOURCES)
  endif()

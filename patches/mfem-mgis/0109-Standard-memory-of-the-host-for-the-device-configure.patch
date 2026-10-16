@@ -1,4 +1,4 @@
-From eeca077f44f8cec03be6c1aa4e22f901fab251ae Mon Sep 17 00:00:00 2001
+From a952586cb9d49ad7e4e7701a8e173b053db118b5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 19:09:38 +0200
 Subject: [PATCH] Standard memory of the host for the device configured by

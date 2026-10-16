@@ -1,4 +1,4 @@
-From 868d7ad7c5f27e39ec3d5589c9ba65d30b2662ee Mon Sep 17 00:00:00 2001
+From 87a3549c514d9968cf363531545d4241e3c767fd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 09:00:33 +0200
 Subject: [PATCH] Kernels: positions of the entries of the stiffness matrices

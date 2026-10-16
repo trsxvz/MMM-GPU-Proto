@@ -1,4 +1,4 @@
-From b5c1e80061ebef4a83820e822d677e0fc036e4e2 Mon Sep 17 00:00:00 2001
+From 662546bd9936e4fc251d0eeff7f8bcf668c726d1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 23:28:12 +0200
 Subject: [PATCH] Kernels: second review of the computations on the device
@@ -28,10 +28,10 @@ Subject: [PATCH] Kernels: second review of the computations on the device
  8 files changed, 75 insertions(+), 33 deletions(-)
 
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 4699325781..5a7169e6ff 100644
+index f13491baac..62ddaaa942 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -229,6 +229,14 @@ namespace mfem_mgis {
+@@ -231,6 +231,14 @@ namespace mfem_mgis {
       * material is not detected.
       */
      std::span<const real> getRotatedThermodynamicForces();
@@ -93,10 +93,10 @@ index d0b3eaa0cd..e35ccd74e2 100644
          }
          const auto s = std::span<const real>(
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index bf344f8414..f0352266c0 100644
+index 4fab180a35..cf365f5f68 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -1073,10 +1073,9 @@ namespace mfem_mgis {
+@@ -1126,10 +1126,9 @@ namespace mfem_mgis {
      this->wks.has_rotated_thermodynamic_forces = true;
    }  // end of computeRotatedThermodynamicForces
  
@@ -109,7 +109,7 @@ index bf344f8414..f0352266c0 100644
      }
      if (!this->wks.has_rotated_thermodynamic_forces) {
        // on the host, or on the device if the computations of the behaviour
-@@ -1085,6 +1084,14 @@ namespace mfem_mgis {
+@@ -1138,6 +1137,14 @@ namespace mfem_mgis {
            this->wks.rotated_thermodynamic_forces);
        this->wks.has_rotated_thermodynamic_forces = true;
      }

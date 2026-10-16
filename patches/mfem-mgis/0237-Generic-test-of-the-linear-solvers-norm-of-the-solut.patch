@@ -1,4 +1,4 @@
-From 0399b20670f0a141b1d4d379b816a2948febcf64 Mon Sep 17 00:00:00 2001
+From 45cc2123f6592654f0da93f88225d482181314fa Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 20:49:46 +0200
 Subject: [PATCH] Generic test of the linear solvers: norm of the solution on

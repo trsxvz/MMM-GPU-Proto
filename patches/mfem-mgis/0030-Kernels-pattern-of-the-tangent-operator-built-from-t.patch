@@ -1,4 +1,4 @@
-From 4225303bc65c87852b8f4c282de13728c43f87a9 Mon Sep 17 00:00:00 2001
+From fea6445144412cb94bfee63d9f3c2b6f093b1924 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 21:44:47 +0200
 Subject: [PATCH] Kernels: pattern of the tangent operator built from the

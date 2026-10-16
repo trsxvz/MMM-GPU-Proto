@@ -1,4 +1,4 @@
-From de13f38147b7745b6645a1bc639006a9f046f143 Mon Sep 17 00:00:00 2001
+From 8a338f904d9e77f83ca9a571757f25381b8db32d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:27:34 +0200
 Subject: [PATCH] Add the non linear solver of PETSc (SNES)
@@ -174,10 +174,10 @@ index 14f50bc555..12bd9978d5 100644
  ----------------------------------------------------------------
  
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 062245e507..ba26612cda 100644
+index cd947d6413..1aa8566b44 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -80,6 +80,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -79,6 +79,7 @@ list(APPEND MFEMMGIS_SOURCES
    SecantAccelerationAlgorithms.cxx
    FixedPointSolver.cxx
    KINSOLSolver.cxx

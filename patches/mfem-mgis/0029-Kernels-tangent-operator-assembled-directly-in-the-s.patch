@@ -1,4 +1,4 @@
-From 33ba8d8cc09bf03948be572fb7edbc16b818a1d4 Mon Sep 17 00:00:00 2001
+From e355a8b913256e8a89afc4f092f193d817e823e6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 21:31:47 +0200
 Subject: [PATCH] Kernels: tangent operator assembled directly in the sparse
@@ -52,10 +52,10 @@ MFEM and checks the detection of entries outside of the pattern.
  15 files changed, 818 insertions(+), 105 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 50d45bcf07..f17f4f3c0b 100644
+index 2346472b9f..8668f35c59 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -189,6 +189,20 @@ namespace mfem_mgis {
+@@ -192,6 +192,20 @@ namespace mfem_mgis {
       */
      [[nodiscard]] virtual bool addStiffnessMatricesByKernels(
          Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;

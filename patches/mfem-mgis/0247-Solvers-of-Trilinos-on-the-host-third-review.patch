@@ -1,4 +1,4 @@
-From 89463ba63baf08fe2ec9313db8a94cd9e2ec243d Mon Sep 17 00:00:00 2001
+From af0069e8f025f5d1f7f8ab1717a3ee99c414a638 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 06:36:53 +0200
 Subject: [PATCH] Solvers of Trilinos on the host, third review
@@ -238,10 +238,10 @@ index b3fabbcd39..802ea9552e 100644
  .. _strumpack_linear_solvers:
  
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index c0980fbaba..6397ee03d3 100644
+index 8a269bf11b..d1513b6fe3 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -282,7 +282,9 @@ endif()
+@@ -281,7 +281,9 @@ endif()
  # MFEMMGISKokkos), whose interface only uses standard types (see
  # TrilinosBackend.hxx)
  if(MFEM_MGIS_HAVE_TRILINOS)

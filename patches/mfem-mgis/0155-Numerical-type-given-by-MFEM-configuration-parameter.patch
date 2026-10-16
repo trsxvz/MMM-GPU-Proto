@@ -1,4 +1,4 @@
-From 80625f859daa8cd39220ca9f66a3d4ce2ef39638 Mon Sep 17 00:00:00 2001
+From 3c4e78606f0c231af7885ec3787c050b1f846453 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 20:54:09 +0200
 Subject: [PATCH] Numerical type given by MFEM: configuration, parameters, MPI

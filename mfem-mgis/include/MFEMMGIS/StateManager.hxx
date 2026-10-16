@@ -16,7 +16,7 @@
 #include "MFEMMGIS/TimeStepStage.hxx"
 #include "MFEMMGIS/MeshDiscretization.hxx"
 #include "MFEMMGIS/PartialQuadratureFunction.hxx"
-#include "MFEMMGIS/PartialQuadratureSpaceIdentifiersManager.hxx"
+#include "MFEMMGIS/FiniteElementSpacesManager.hxx"
 
 namespace mfem_mgis {
 
@@ -36,13 +36,12 @@ namespace mfem_mgis {
    * `Material::synchronizeOnHostForReading`; the non linear evolution
    * problems do it before their post-processings).
    */
-  struct MFEM_MGIS_EXPORT StateManager
-      : PartialQuadratureSpaceIdentifiersManager {
+  struct MFEM_MGIS_EXPORT StateManager {
     /*!
-     * \brief constructor from a mesh discretization
-     * \param[in] m: mesh discretization
+     * \brief constructor from a finite element spaces manager
+     * \param[in] m: finite element spaces manager
      */
-    StateManager(const MeshDiscretization& m) noexcept;
+    StateManager(const FiniteElementSpacesManager& m) noexcept;
     /*!
      * \brief register a partial quadrature function
      *
@@ -84,7 +83,7 @@ namespace mfem_mgis {
      */
     [[nodiscard]] std::optional<bool> contains(
         Context& ctx,
-        const std::shared_ptr<const PartialQuadratureSpace>& qspace,
+        const PartialQuadratureSpace& qspace,
         std::string_view n,
         const TimeStepStage ts) const noexcept;
     /*!
@@ -97,7 +96,7 @@ namespace mfem_mgis {
      */
     [[nodiscard]] std::optional<ImmutablePartialQuadratureFunctionView> get(
         Context& ctx,
-        const std::shared_ptr<const PartialQuadratureSpace>& qspace,
+        const PartialQuadratureSpace& qspace,
         std::string_view n,
         const TimeStepStage ts) const noexcept;
 
@@ -164,6 +163,8 @@ namespace mfem_mgis {
         qfunctions;
     //! \brief functions kept alive by the state manager
     std::vector<std::shared_ptr<PartialQuadratureFunction>> qfunctions_pointers;
+    //! \brief finite element spaces manager
+    const FiniteElementSpacesManager fespaces_manager;
   };  // end of StateManager
 
   /*!

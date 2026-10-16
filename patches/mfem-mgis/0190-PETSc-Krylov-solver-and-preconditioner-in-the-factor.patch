@@ -1,4 +1,4 @@
-From ae9d0a3b21d2f85f6f73e00bfb0e8ef29725ac6d Mon Sep 17 00:00:00 2001
+From 63528df253142a565599cc1d5f215915f90153e0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:57:11 +0200
 Subject: [PATCH] PETSc: Krylov solver and preconditioner in the factories
@@ -206,10 +206,10 @@ index 4ffa9a0ff3..d42b91b413 100644
  --------------------------
  
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 7ab14cc8a1..6b97798398 100644
+index 1e7f7c1cb8..fd848b883f 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -57,6 +57,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -56,6 +56,7 @@ list(APPEND MFEMMGIS_SOURCES
    LinearSolverModules.cxx
    MFEMLinearSolvers.cxx
    HypreLinearSolvers.cxx

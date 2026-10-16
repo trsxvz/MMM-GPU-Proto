@@ -1,4 +1,4 @@
-From ef79e271a4fa31756c08b238a8b09652a3477d71 Mon Sep 17 00:00:00 2001
+From 7900aedc0db3f81fd2f3c925014edebd695fb5dc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 07:27:07 +0200
 Subject: [PATCH] Tests of the regularization of Faltus et al. by kernels,

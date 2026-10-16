@@ -1,4 +1,4 @@
-From 7384b533b75d791b4ea5d3ae451601a5d0caf647 Mon Sep 17 00:00:00 2001
+From f85e641481bbb78a33963f853049b28b98461cfa Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:11:29 +0200
 Subject: [PATCH] Add the sparse solvers of MAGMA
@@ -137,10 +137,10 @@ index 4a2bb7ad9c..4dd0dd9231 100644
                           MGIS_HAVE_TFEL
  
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 47520bf2c2..383fdb6b73 100644
+index 5cb5d2b815..4b87704cbd 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -62,6 +62,7 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -61,6 +61,7 @@ list(APPEND MFEMMGIS_SOURCES
    SuperLUSolvers.cxx
    STRUMPACKSolvers.cxx
    MKLSparseSolvers.cxx
@@ -148,7 +148,7 @@ index 47520bf2c2..383fdb6b73 100644
    GinkgoLinearSolvers.cxx
    AmgXSolvers.cxx
    HypreMatrixPattern.cxx
-@@ -235,6 +236,13 @@ if(MFEM_MGIS_HAVE_AMGX)
+@@ -234,6 +235,13 @@ if(MFEM_MGIS_HAVE_AMGX)
                   AMGX::amgxsh ${_libraries})
    endforeach(_property)
  endif()

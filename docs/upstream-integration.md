@@ -110,7 +110,7 @@ integration of MGIS stays on CPU.
 ## mfem-mgis
 
 The branch `gpu-proto` of mfem-mgis starts from the official master
-`8fac67336e` (13/10/2026, merge of PR #485). The order follows the
+`20dcdf0a9b` (16/10/2026, merge of PR #487). The order follows the
 dependencies:
 
 - contributions 1 and 2 need neither the TFEL nor the MGIS of the

@@ -1,4 +1,4 @@
-From 6f8c361207a227eeb0f6e6cb91e0127577ec1986 Mon Sep 17 00:00:00 2001
+From 006cf1477e8f6131f5d4801ce9b6ad25eb0b643c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:26:46 +0200
 Subject: [PATCH] Fix the findings of the review of the update on the device
@@ -46,10 +46,10 @@ Subject: [PATCH] Fix the findings of the review of the update on the device
  17 files changed, 250 insertions(+), 57 deletions(-)
 
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 3a9160d48e..2cfcd7520f 100644
+index 0961cc96b1..8bd7e6f1c4 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -36,14 +36,14 @@ namespace mfem_mgis {
+@@ -38,14 +38,14 @@ namespace mfem_mgis {
      /*!
       * \brief revert the state of the material; for a behaviour integrated on
       * the device (see `integratesBatchesOnDevice`), the arrays are copied
@@ -66,7 +66,7 @@ index 3a9160d48e..2cfcd7520f 100644
       * `copyStatesOnDevice`)
       */
      void update() override;
-@@ -374,9 +374,12 @@ namespace mfem_mgis {
+@@ -376,9 +376,12 @@ namespace mfem_mgis {
       * density, stored on the host, are updated on the host as by
       * `Material::updateMaterialStates` (see
       * `mgis::behaviour::updateInputValues`). The arrays are then
@@ -253,7 +253,7 @@ index ea4d188b1f..2ec1a95f31 100644
      [[nodiscard]] std::ostream &getLogStream() const noexcept;
      /*!
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index d3ff2d3f38..2a63f96b07 100644
+index 333527371b..352637bf9a 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -7,6 +7,7 @@
@@ -264,7 +264,7 @@ index d3ff2d3f38..2a63f96b07 100644
  #include <limits>
  #include <utility>
  #include <variant>
-@@ -1194,9 +1195,24 @@ namespace mfem_mgis {
+@@ -1247,9 +1248,24 @@ namespace mfem_mgis {
                            : "BehaviourIntegratorBase::revert: "} +
              ctx.getErrorMessage());
      }

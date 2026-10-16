@@ -1,4 +1,4 @@
-From ec71fb0fac9038872b6aca98831aa2adf7f4f9d1 Mon Sep 17 00:00:00 2001
+From 0195965c93559e716f8c54777f7c9dbafe6fc672 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 22:00:44 +0200
 Subject: [PATCH] Tests in float: linear solvers, geometry, execution settings

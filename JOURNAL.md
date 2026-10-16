@@ -5392,3 +5392,16 @@ formula as MTest). All the others give the Newton solution to within
   effect, and to mfem-mgis c7e9cb246a: the message of a failed time step
   described the sub-step replacing it (`src/Simulation.cxx`, also on the
   master branch of mfem-mgis; test `SubSteppingMessageTest`).
+- mfem-mgis rebased onto master `20dcdf0a9b` (16/10/2026, merge of PR
+  #487: `PartialQuadratureSpace` with value semantics, delegating to
+  `internals::PartialQuadratureSpaceImplementation`). Two conflicts, in the
+  commits that add the arrays of the elements and of the offsets and the
+  uniform integration rule: these members and their getters belong to the
+  implementation, `PartialQuadratureSpace` forwarding to them. Tests:
+  double 247/247, float 246/246, Trilinos and CUDA 266/266; an independent
+  review found nothing rated 3 or more (two comments of the public class
+  aligned). 257 patches, applied on `20dcdf0a9b` they give the tree of
+  `gpu-proto`. Not run: the tests of the kernels on the GPU, which need a
+  TFEL built with CUDA and with the displacement gradient interface (no
+  such installation yet; the previous branch had the same gap since
+  14/10/2026).

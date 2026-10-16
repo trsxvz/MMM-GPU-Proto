@@ -1,4 +1,4 @@
-From a42e0038da8841ca294746f6fb4d28962b4fdcb9 Mon Sep 17 00:00:00 2001
+From 481866b60f6d3dda52dc63a1fc7efeed1632835c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:39:37 +0200
 Subject: [PATCH] Finite strain behaviours given the displacement gradient
@@ -309,7 +309,7 @@ index 1da8820026..1c2741fd1f 100644
      } catch (...) {
        std::ignore = registerExceptionInErrorBacktrace(ctx);
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 51d5bf8bec..e112b373fb 100644
+index 4b973042b1..fbcee3a819 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -83,8 +83,14 @@ namespace mfem_mgis {

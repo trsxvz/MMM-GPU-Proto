@@ -1,4 +1,4 @@
-From ad14f161eebc71d6e1abc482b77056ad84fa365e Mon Sep 17 00:00:00 2001
+From 117c75368d8c88ba6131838bd1b7ce6cc08a8791 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 06:18:10 +0200
 Subject: [PATCH] CuDSSSolver: direct solver of NVIDIA on the GPU in the
@@ -145,10 +145,10 @@ index c5965a727c..3d011bcb1e 100644
     * \return the relative tolerance of an iterative linear solver (iterative
     * solvers of MFEM, Krylov solvers of hypre), empty if the solver is not
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 1a4ae2b2c4..ff2eb09323 100644
+index da2d735245..d9e0614f3b 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -53,7 +53,9 @@ list(APPEND MFEMMGIS_SOURCES
+@@ -52,7 +52,9 @@ list(APPEND MFEMMGIS_SOURCES
    LinearSolverHandler.cxx
    LinearSolverFactory.cxx
    AmgXSolvers.cxx

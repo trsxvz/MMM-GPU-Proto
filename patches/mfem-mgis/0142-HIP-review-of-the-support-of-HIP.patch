@@ -1,4 +1,4 @@
-From 7db41904c04b78d9179db707303c208b8556c165 Mon Sep 17 00:00:00 2001
+From 7522c7b13c586f5fd2e8bc83731e594bfc27602d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 16:37:15 +0200
 Subject: [PATCH] HIP: review of the support of HIP
@@ -177,10 +177,10 @@ index b2c79b29b7..3b14092910 100644
  option :code:`enable-kokkos` initializes it with the option
  :code:`--kokkos` (see :doc:`../installation_guide/installation_guide`).
 diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
-index bde439ecf2..77936f34db 100644
+index e37e84cadb..21e9006359 100644
 --- a/include/CMakeLists.txt
 +++ b/include/CMakeLists.txt
-@@ -35,12 +35,8 @@ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
+@@ -34,12 +34,8 @@ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
  mfem_mgis_header(MFEMMGIS Material.hxx)
  mfem_mgis_header(MFEMMGIS Material.ixx)
  mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)
