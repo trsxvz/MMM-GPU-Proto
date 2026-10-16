@@ -119,6 +119,7 @@ int main(int argc, char** argv) {
   bool parallel = false;
 #endif
   auto order = 1;
+  auto refinement = 0;
   auto nbsteps = 50;
   auto end_time = mfem_mgis::real{1};
   // options treatment
@@ -126,6 +127,9 @@ int main(int argc, char** argv) {
   mfem_mgis::declareDefaultOptions(args);
   args.AddOption(&order, "-o", "--order",
                  "Finite element order (polynomial degree).");
+  args.AddOption(&refinement, "-r", "--refinement",
+                 "Number of uniform refinements of the mesh (the reference "
+                 "files are the ones of the original mesh).");
   args.AddOption(&nbsteps, "-ns", "--nbsteps", "Number of time steps.");
   args.AddOption(
       &end_time, "-et", "--end-time",
@@ -174,6 +178,7 @@ int main(int argc, char** argv) {
               {"MeshFileName", mesh_file},
               {"FiniteElementFamily", "H1"},
               {"FiniteElementOrder", order},
+              {"NumberOfUniformRefinements", refinement},
               {"UnknownsSize", dim},
               {"Materials", mfem_mgis::Parameters{{"NotchedBeam", 1}}},
               {"Boundaries", mfem_mgis::Parameters{{"LowerBoundary", 3},

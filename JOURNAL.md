@@ -5456,3 +5456,16 @@ formula as MTest). All the others give the Newton solution to within
   without changing them. An independent review found two defects before
   the publication (empty braces refused; programs giving a solver already
   built not replaced), both corrected and tested.
+- Preconditioner override (mfem-mgis eba70a68f4, patch 0265): the option
+  `--preconditioner-override` (or `MFEM_MGIS_PRECONDITIONER_OVERRIDE`)
+  replaces the `Preconditioner` option of the linear solvers of a
+  program (or of the linear solver override), so that the benchmark can
+  vary the linear solver and the preconditioner apart, a program keeping
+  the tolerances of its Krylov solver. `None` removes the preconditioner;
+  unknown names are refused at the initialization. Reviewed
+  independently.
+- mfem-mgis-examples 3cba767 and 7ae7557 (patches 0034 and 0035): ex5
+  (Satoh plate) computes in parallel (MUMPS) or in sequential (UMFPACK),
+  with the options `--refinement`, `--order` and `--no-post-processing`;
+  ex2 and the MUMPS variant of ex4 get `--refinement`. All the examples
+  can now be refined.

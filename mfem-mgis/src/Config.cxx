@@ -763,14 +763,14 @@ namespace mfem_mgis {
     static bool first = true;
     if (first) {
       mgis::setDefaultLogStream(mfem_mgis::getOutputStream());
-      // the execution settings and the linear solver override are read
-      // before the initialization of MPI, which an invalid option leaves
-      // untouched
+      // the execution settings and the linear solver and preconditioner
+      // overrides are read before the initialization of MPI, which an
+      // invalid option leaves untouched
       internals::readExecutionSettings(argc, argv);
-      internals::readLinearSolverOverride(argc, argv);
+      internals::readLinearSolverOverrides(argc, argv);
       MPI_Init(&argc, &argv);
       try {
-        internals::checkLinearSolverOverride(MPI_COMM_WORLD);
+        internals::checkLinearSolverOverrides(MPI_COMM_WORLD);
       } catch (...) {
         MPI_Finalize();
         throw;
@@ -806,7 +806,7 @@ namespace mfem_mgis {
     static bool first = true;
     if (first) {
       internals::readExecutionSettings(argc, argv);
-      internals::readLinearSolverOverride(argc, argv);
+      internals::readLinearSolverOverrides(argc, argv);
       Finalizer::get().initialize(argc, argv);
       first = false;
     }
@@ -895,6 +895,19 @@ namespace mfem_mgis {
         "mfem_mgis::initialize, or else from the environment variable "
         "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE (requires mfem-mgis built with the "
         "utilities of TFEL).");
+    static const char* preconditioner_override = "";
+    parser.AddOption(
+        &preconditioner_override,
+        internals::preconditioner_override_short_option,
+        internals::preconditioner_override_option,
+        "Preconditioner given to the linear solvers set by the program (or "
+        "to the linear solver override), replacing their Preconditioner "
+        "option: a name (None for no preconditioner), or a map with the "
+        "entries Name and Options, in the syntax of the data of TFEL, for "
+        "instance '{Name: \"HypreBoomerAMG\", Options: {VerbosityLevel: "
+        "0}}'. Read by mfem_mgis::initialize, or else from the "
+        "environment variable MFEM_MGIS_PRECONDITIONER_OVERRIDE (requires "
+        "mfem-mgis built with the utilities of TFEL).");
     // the device is created by `initialize`: the option is only declared
     // here, so that the parser accepts it
     static const char* device_configuration = "";

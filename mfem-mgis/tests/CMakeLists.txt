@@ -153,7 +153,58 @@ if(MFEM_MGIS_HAVE_TFEL)
         DEPENDS BehaviourTest
         PASS_REGULAR_EXPRESSION "${_override_regex}"
         FAIL_REGULAR_EXPRESSION "${_override_failures}")
+      # preconditioner override alone: the GMRES solver of the program keeps
+      # its options and receives the preconditioner
+      add_test(NAME TwoLayerCube-1-PreconditionerOverrideP
+               COMMAND mpirun -n 2 ./TwoLayerCube ${_override_test_options}
+                       --parallel --preconditioner-override HypreDiagScale)
+      set_tests_properties(TwoLayerCube-1-PreconditionerOverrideP PROPERTIES
+        DEPENDS BehaviourTest
+        PASS_REGULAR_EXPRESSION
+        "preconditioner override 'HypreDiagScale' is given to the linear solver 'GMRESSolver'.*Error is lower than threshold"
+        FAIL_REGULAR_EXPRESSION "${_override_failures}")
+      # the preconditioner HypreDiagScale of the conjugate gradient of hypre
+      # requested by the program is replaced by BoomerAMG
+      add_test(NAME TwoLayerCube-1-PreconditionerOverrideReplacementP
+               COMMAND mpirun -n 2 ./TwoLayerCube
+                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                       --library $<TARGET_FILE:BehaviourTest> --test-case 1
+                       --linearsolver HyprePCG --parallel
+                       --preconditioner-override
+                       "{Name: \"HypreBoomerAMG\", Options: {VerbosityLevel: 0}}")
+      set_tests_properties(TwoLayerCube-1-PreconditionerOverrideReplacementP
+        PROPERTIES
+        DEPENDS BehaviourTest
+        PASS_REGULAR_EXPRESSION
+        "preconditioner override 'HypreBoomerAMG' is given to the linear solver 'HyprePCG'.*Error is lower than threshold"
+        FAIL_REGULAR_EXPRESSION "${_override_failures}")
+      # None, given to a direct solver which accepts no preconditioner
+      if(MFEM_MGIS_HAVE_MUMPS)
+        add_test(NAME TwoLayerCube-1-PreconditionerOverrideNoneP
+                 COMMAND mpirun -n 2 ./TwoLayerCube
+                         --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                         --library $<TARGET_FILE:BehaviourTest> --test-case 1
+                         --linearsolver MUMPSSolver --parallel
+                         --preconditioner-override None)
+        set_tests_properties(TwoLayerCube-1-PreconditionerOverrideNoneP
+          PROPERTIES
+          DEPENDS BehaviourTest
+          PASS_REGULAR_EXPRESSION
+          "preconditioner override 'None' is given to the linear solver 'MUMPSSolver'.*Error is lower than threshold"
+          FAIL_REGULAR_EXPRESSION "${_override_failures}")
+      endif(MFEM_MGIS_HAVE_MUMPS)
     endif(MFEM_USE_MPI)
+    # both overrides, given by the variables: the preconditioner override is
+    # given to the linear solver override
+    add_test(NAME TwoLayerCube-1-LinearSolverAndPreconditionerOverrides
+             COMMAND ./TwoLayerCube ${_override_test_options} --no-parallel)
+    set_tests_properties(TwoLayerCube-1-LinearSolverAndPreconditionerOverrides
+      PROPERTIES
+      DEPENDS BehaviourTest
+      ENVIRONMENT "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE={Name: \"CGSolver\", Options: {${_override_options}}};MFEM_MGIS_PRECONDITIONER_OVERRIDE=DSmoother"
+      PASS_REGULAR_EXPRESSION
+      "linear solver override 'CGSolver' replaces the linear solver 'GMRESSolver'.*preconditioner override 'DSmoother' is given to the linear solver 'CGSolver'.*Error is lower than threshold"
+      FAIL_REGULAR_EXPRESSION "${_override_failures}")
   endif(MFEM_MGIS_HAVE_TFEL_UTILITIES)
 
   # UniaxialTensileTest executable
@@ -1499,6 +1550,15 @@ if(MFEM_MGIS_HAVE_TFEL)
     add_execution_settings_refusal_test(
       linear-solver-override-twice "--linear-solver-override is given twice"
       --linear-solver-override CGSolver --linear-solver-override CGSolver)
+    add_execution_settings_refusal_test(
+      preconditioner-override "invalid preconditioner override"
+      --preconditioner-override "{Name: \"HypreBoomerAMG\", Unknown: 1}")
+    add_execution_settings_refusal_test(
+      preconditioner-override-unknown "unknown name 'UnknownPreconditioner'"
+      --preconditioner-override UnknownPreconditioner)
+    add_execution_settings_refusal_test(
+      preconditioner-override-none "no options expected for 'None'"
+      --preconditioner-override "{Name: None, Options: {VerbosityLevel: 0}}")
     add_execution_settings_refusal_test(
       mode "invalid value 'xpu' for option '--execution'" --execution xpu)
     add_execution_settings_refusal_test(

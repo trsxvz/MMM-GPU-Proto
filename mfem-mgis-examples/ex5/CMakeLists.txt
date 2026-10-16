@@ -54,9 +54,18 @@ if(MFEM_USE_SUITESPARSE)
 
   # The test is the same in the full and restricted test modes, since it is a
   # single computation on a coarse mesh, whose reference reaction depends on
-  # the mesh.
+  # the mesh (it is only checked with the original mesh and order: options
+  # --refinement and --order).
   set(test "satoh")
   add_test(NAME ${test} COMMAND ${test})
+  # the same computation in parallel, MUMPS replacing UMFPACK
+  if(MFEM_USE_MUMPS AND MFEM_USE_MPI)
+    add_test(NAME ${test}-parallel
+             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+                     $<TARGET_FILE:satoh> --parallel)
+    set_tests_properties(${test}-parallel PROPERTIES
+                         PROCESSORS 2 ENVIRONMENT OMP_NUM_THREADS=1)
+  endif()
   # the same computation on a GPU, UMFPack computing on the CPU (see
   # ../config/TestMode.cmake)
   if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx5_HAVE_GPU_BEHAVIOURS)

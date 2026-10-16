@@ -48,6 +48,7 @@ int main(int argc, char** argv) {
   const char* standard_reference_file = "";
   auto parallel = true;
   auto order = 1;
+  auto refinement = 0;
   // order of the integration rules of the behaviour integrator, the default
   // rule of mfem-mgis if negative
   auto integration_rule_order = -1;
@@ -62,6 +63,9 @@ int main(int argc, char** argv) {
                  "Perform parallel computations.");
   args.AddOption(&order, "-o", "--order",
                  "Finite element order (polynomial degree).");
+  args.AddOption(&refinement, "-r", "--refinement",
+                 "Number of uniform refinements of the mesh (the reference "
+                 "files are the ones of the original mesh).");
   args.AddOption(&integration_rule_order, "-iro", "--integration-rule-order",
                  "Order of the integration rules (for instance 3 for 8 points "
                  "by element instead of 27), default rule if negative.");
@@ -113,6 +117,7 @@ int main(int argc, char** argv) {
       {"Materials", mfem_mgis::Parameters{{"NotchedBeam", 1}}},
       {"FiniteElementFamily", "H1"},
       {"FiniteElementOrder", order},
+      {"NumberOfUniformRefinements", refinement},
       {"UnknownsSize", dim},
       {"Hypothesis", "Tridimensional"},
       {"Parallel", parallel}};

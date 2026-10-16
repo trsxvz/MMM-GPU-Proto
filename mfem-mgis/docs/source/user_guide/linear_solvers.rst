@@ -46,26 +46,31 @@ method lists the registered names):
 
 .. _linear_solver_override:
 
-Linear solver override
-======================
+Linear solver and preconditioner overrides
+==========================================
 
 The linear solver chosen by the program can be replaced, without
 recompiling it, by the option :code:`--linear-solver-override` (or
 :code:`-lso`, declared by :cxx:`declareDefaultOptions`) or else by the
-environment variable :code:`MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, read by
-:cxx:`mfem_mgis::initialize`. The value describes the linear solver as the
-preconditioner of a linear solver is described: its name
-(:code:`CGSolver`), or a map with the entries :code:`Name` and
-:code:`Options` (optional), in the syntax of the data of TFEL (the syntax
-of the options of the domain specific languages of MFront). The values are
-integers, reals, strings, booleans (:code:`true`, :code:`false`), lists of
-values which are not lists nor maps (:code:`{1, 2}`), and maps
-(:code:`{Name: "MueLu", Options: {}}`, the empty braces being an empty
-map). The keys and the strings which are not identifiers (with spaces,
-colons, dashes, dots...) are written between quotes; an identifier
-without quotes is a string. A real given to a library which expects a
-real is written with a decimal point or an exponent (:code:`1.0`, not
-:code:`1`, which is an integer). For instance:
+environment variable :code:`MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, and its
+preconditioner by the option :code:`--preconditioner-override` (or
+:code:`-pco`) or else by the environment variable
+:code:`MFEM_MGIS_PRECONDITIONER_OVERRIDE`, read by
+:cxx:`mfem_mgis::initialize`. The value describes the linear solver or the
+preconditioner as the preconditioner of a linear solver is described: its
+name
+(:code:`CGSolver`), a map with the entries :code:`Name` and
+:code:`Options` (optional), or a map with a single entry associating the
+name with the options (:code:`{CGSolver: {RelativeTolerance: 1e-8}}`), in
+the syntax of the data of TFEL (the syntax of the options of the domain
+specific languages of MFront). The values are integers, reals, strings,
+booleans (:code:`true`, :code:`false`), lists of values which are not lists
+nor maps (:code:`{1, 2}`), and maps (:code:`{Name: "MueLu", Options: {}}`,
+the empty braces being an empty map). The keys and the strings which are
+not identifiers (with spaces, colons, dashes, dots...) are written between
+quotes; an identifier without quotes is a string. A real given to a
+library which expects a real is written with a decimal point or an
+exponent (:code:`1.0`, not :code:`1`, which is an integer). For instance:
 
 .. code-block:: bash
 
@@ -75,22 +80,46 @@ real is written with a decimal point or an exponent (:code:`1.0`, not
        Preconditioner: {Name: "MueLu", Options: {Parameters:
          {"smoother: type": "RELAXATION"}}}}}'
 
-The linear solver override then replaces the linear solvers set by the
+The linear solver override replaces the linear solvers set by the
 :cxx:`setLinearSolver` methods of all the non linear evolution problems
 (the name and the parameters given by the program, or the linear solver
-built by the program, are ignored), the first replacement being reported
-on the output of MFEM. The linear solvers built by the non linear solvers
-from their own parameters (for instance the linear solver of the elastic
-operator of the fixed point solver) are not replaced, nor the linear
-solvers of PETSc used with :code:`--use-petsc`. With several problems (a
-thermomechanical coupling, for instance), they all receive the same
-linear solver. An empty value of the option cancels the environment
-variable. The option given twice, an invalid description, or different
-descriptions on the processes of MPI (the environment variable is not
-always given to the processes of the other nodes) are refused by
-:cxx:`mfem_mgis::initialize`. The linear solver override requires
-mfem-mgis built with the utilities of TFEL (MGIS built with TFEL). It is
-meant for the comparisons of the linear solvers on existing programs.
+built by the program, are ignored): with several problems (a
+thermomechanical coupling, for instance), they all receive the same linear
+solver. The preconditioner override replaces the :cxx:`Preconditioner`
+option of these linear solvers (the ones of the program, whose other
+options are kept, or the linear solver override), the program keeping for
+instance the tolerances of its Krylov solver; without linear solver
+override, each problem keeps its linear solver and receives the
+preconditioner, which some problems may refuse (the :code:`Elasticity`
+strategy of :cxx:`HypreBoomerAMG` given to a thermal problem, for
+instance). :code:`None` removes the :cxx:`Preconditioner` option: the
+preconditioners given otherwise (the :code:`Configuration` of a solver of
+Ginkgo, the options of PETSc) are kept. The whole option is replaced,
+including the preconditioners which wrap another one: a program applying
+its operator without assembly, preconditioned by :cxx:`AssembledOperator`
+wrapping :cxx:`HypreBoomerAMG`, keeps this wrapper with
+:code:`{Name: AssembledOperator, Options: {Preconditioner: {Name:
+HypreBoomerAMG}}}`. The first replacements are reported on the output of
+MFEM. The combinations which the factories refuse (a Krylov solver of
+hypre with a preconditioner of another library, a direct solver with a
+preconditioner...) are refused with their messages, and a preconditioner
+override can't be given to a linear solver built by the program: a linear
+solver override is then required.
+
+The linear solvers built by the non linear solvers from their own
+parameters (for instance the linear solver of the elastic operator of the
+fixed point solver) are not replaced, nor the linear solvers of PETSc used
+with :code:`--use-petsc`. An empty value of an option cancels the
+environment variable. An option given twice, an invalid description, an
+unknown name, :code:`None` with options, or different descriptions on the
+processes of MPI (the environment variables are not always given to the
+processes of the other nodes) are refused by
+:cxx:`mfem_mgis::initialize`. The options are preferable to the
+environment variables, which apply to all the programs started meanwhile
+(the tests of a project, for instance). The overrides require mfem-mgis
+built with the utilities of TFEL (MGIS built with TFEL). They are meant
+for the comparisons of the linear solvers and of the preconditioners on
+existing programs; the non linear solver stays the one of the program.
 
 Linear solvers
 ==============

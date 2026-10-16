@@ -1,0 +1,76 @@
+From 7ae75576946cfddccb33603a0245c37790eb0424 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 20:08:57 +0200
+Subject: [PATCH] ex2, ex4: refinement of the mesh
+
+Option --refinement (uniform refinements of the mesh) of ssna303 (ex2) and
+of ssna303_3d_mumps (ex4), as the other examples; the reference files are
+the ones of the original mesh.
+---
+ ex2/ssna303.cxx       | 5 +++++
+ ex4/ssna303_mumps.cxx | 5 +++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/ex2/ssna303.cxx b/ex2/ssna303.cxx
+index 0f399fb..6074d49 100644
+--- a/ex2/ssna303.cxx
++++ b/ex2/ssna303.cxx
+@@ -119,6 +119,7 @@ int main(int argc, char** argv) {
+   bool parallel = false;
+ #endif
+   auto order = 1;
++  auto refinement = 0;
+   auto nbsteps = 50;
+   auto end_time = mfem_mgis::real{1};
+   // options treatment
+@@ -126,6 +127,9 @@ int main(int argc, char** argv) {
+   mfem_mgis::declareDefaultOptions(args);
+   args.AddOption(&order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
++  args.AddOption(&refinement, "-r", "--refinement",
++                 "Number of uniform refinements of the mesh (the reference "
++                 "files are the ones of the original mesh).");
+   args.AddOption(&nbsteps, "-ns", "--nbsteps", "Number of time steps.");
+   args.AddOption(
+       &end_time, "-et", "--end-time",
+@@ -174,6 +178,7 @@ int main(int argc, char** argv) {
+               {"MeshFileName", mesh_file},
+               {"FiniteElementFamily", "H1"},
+               {"FiniteElementOrder", order},
++              {"NumberOfUniformRefinements", refinement},
+               {"UnknownsSize", dim},
+               {"Materials", mfem_mgis::Parameters{{"NotchedBeam", 1}}},
+               {"Boundaries", mfem_mgis::Parameters{{"LowerBoundary", 3},
+diff --git a/ex4/ssna303_mumps.cxx b/ex4/ssna303_mumps.cxx
+index 2ab06ab..b020361 100644
+--- a/ex4/ssna303_mumps.cxx
++++ b/ex4/ssna303_mumps.cxx
+@@ -48,6 +48,7 @@ int main(int argc, char** argv) {
+   const char* standard_reference_file = "";
+   auto parallel = true;
+   auto order = 1;
++  auto refinement = 0;
+   // order of the integration rules of the behaviour integrator, the default
+   // rule of mfem-mgis if negative
+   auto integration_rule_order = -1;
+@@ -62,6 +63,9 @@ int main(int argc, char** argv) {
+                  "Perform parallel computations.");
+   args.AddOption(&order, "-o", "--order",
+                  "Finite element order (polynomial degree).");
++  args.AddOption(&refinement, "-r", "--refinement",
++                 "Number of uniform refinements of the mesh (the reference "
++                 "files are the ones of the original mesh).");
+   args.AddOption(&integration_rule_order, "-iro", "--integration-rule-order",
+                  "Order of the integration rules (for instance 3 for 8 points "
+                  "by element instead of 27), default rule if negative.");
+@@ -113,6 +117,7 @@ int main(int argc, char** argv) {
+       {"Materials", mfem_mgis::Parameters{{"NotchedBeam", 1}}},
+       {"FiniteElementFamily", "H1"},
+       {"FiniteElementOrder", order},
++      {"NumberOfUniformRefinements", refinement},
+       {"UnknownsSize", dim},
+       {"Hypothesis", "Tridimensional"},
+       {"Parallel", parallel}};
+-- 
+2.43.0
+

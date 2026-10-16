@@ -16,6 +16,7 @@
 #include "mfem/general/optparser.hpp"
 #include "mfem/linalg/vector.hpp"
 #include "mfem/fem/fespace.hpp"
+#include "MFEMMGIS/MPI.hxx"
 #include "MFEMMGIS/Parameters.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/ExecutionSettings.hxx"
@@ -57,6 +58,28 @@ static void forEachIntegrationPoint(
   }
 }  // end of forEachIntegrationPoint
 
+/*!
+ * \brief call a function at each integration point of a partial quadrature
+ * function, owned by the process, for the sequential or the parallel
+ * computations
+ * \param[in] parallel: if true, the computations are parallel
+ * \param[in] f: partial quadrature function
+ * \param[in] c: function called
+ */
+template <typename Callable>
+static void forEachLocalIntegrationPoint(
+    const bool parallel,
+    const mfem_mgis::ImmutablePartialQuadratureFunctionView& f,
+    Callable&& c) {
+#ifdef MFEM_USE_MPI
+  if (parallel) {
+    forEachIntegrationPoint<true>(f, std::forward<Callable>(c));
+    return;
+  }
+#endif /* MFEM_USE_MPI */
+  forEachIntegrationPoint<false>(f, std::forward<Callable>(c));
+}  // end of forEachLocalIntegrationPoint
+
 //! \return the temperature imposed at the end of the time step
 static mfem_mgis::real getTemperature(const mfem_mgis::real x) noexcept {
   constexpr auto Tref = mfem_mgis::real{293.15};
@@ -66,25 +89,29 @@ static mfem_mgis::real getTemperature(const mfem_mgis::real x) noexcept {
 
 /*!
  * \return if the temperature seen by the behaviour at each integration point
- * is the imposed one
+ * is the imposed one, on all the processes
+ * \param[in] fed: finite element discretization
+ * \param[in] parallel: if true, the computations are parallel
  * \param[in] T: temperature at the integration points
  */
-template <bool parallel>
 static bool checkImposedTemperature(
+    const mfem_mgis::FiniteElementDiscretization& fed,
+    const bool parallel,
     const mfem_mgis::ImmutablePartialQuadratureFunctionView& T) {
   auto e = mfem_mgis::real{0};
-  forEachIntegrationPoint<parallel>(
-      T, [&e](const mfem_mgis::real x, const mfem_mgis::real,
-              const mfem_mgis::real v) {
+  forEachLocalIntegrationPoint(
+      parallel, T,
+      [&e](const mfem_mgis::real x, const mfem_mgis::real,
+           const mfem_mgis::real v) {
         e = std::max(e, std::abs(v - getTemperature(x)));
       });
   // the temperatures are expressed in Kelvin
-  if (e > 1e-9) {
+  const auto ok = e <= 1e-9;
+  if (!ok) {
     mfem_mgis::getErrorStream()
         << "invalid imposed temperature (maximal error: " << e << ")\n";
-    return false;
   }
-  return true;
+  return mfem_mgis::isTrueOnAllProcesses(fed, ok);
 }  // end of checkImposedTemperature
 
 /*!
@@ -92,17 +119,31 @@ static bool checkImposedTemperature(
  * opposite and match the reference value
  * \param[in, out] ctx: execution context
  * \param[in] p: non linear evolution problem
+ * \param[in] parallel: if true, the computations are parallel
+ * \param[in] reference: if true, the reaction of the left boundary is
+ * compared to the reference value, valid for the original mesh and order
  */
 static bool checkReactions(mfem_mgis::Context& ctx,
-                           mfem_mgis::NonLinearEvolutionProblem& p) {
+                           mfem_mgis::NonLinearEvolutionProblem& p,
+                           const bool parallel,
+                           const bool reference) {
   auto or_die = ctx.getFatalFailureHandler();
-  // horizontal reaction of a boundary
-  auto reaction = [&ctx, &or_die, &p](const char* const b) {
+  // horizontal reaction of a boundary, the sum of the contributions of the
+  // processes in parallel
+  auto reaction = [&ctx, &or_die, &p, parallel](const char* const b) {
     const auto id = p.getBoundaryIdentifier(ctx, b) | or_die;
     const auto dofs = mfem_mgis::getElementsDegreesOfFreedomOnBoundary(p, id);
     auto F = mfem::Vector{};
     mfem_mgis::computeResultantForceOnBoundary(ctx, F, p, dofs) | or_die;
-    return F[0];
+    auto Fx = static_cast<double>(F[0]);
+#ifdef MFEM_USE_MPI
+    if (parallel) {
+      MPI_Allreduce(MPI_IN_PLACE, &Fx, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    }
+#else
+    static_cast<void>(parallel);
+#endif /* MFEM_USE_MPI */
+    return static_cast<mfem_mgis::real>(Fx);
   };
   const auto Fl = reaction("left");
   const auto Fr = reaction("right");
@@ -117,7 +158,7 @@ static bool checkReactions(mfem_mgis::Context& ctx,
   // plate, with free (2.44e9 N/m) and blocked (4.27e9 N/m) upper and lower
   // boundaries.
   constexpr auto Fref = mfem_mgis::real{2.743179149139e9};
-  if (std::abs(Fl - Fref) > 1e-8 * Fref) {
+  if (reference && (std::abs(Fl - Fref) > 1e-8 * Fref)) {
     mfem_mgis::getErrorStream() << "invalid reaction of the left boundary ("
                                 << Fl << " vs " << Fref << ")\n";
     return false;
@@ -148,15 +189,27 @@ int main(int argc, char** argv) {
   auto ctx = mfem_mgis::Context{};
   auto or_die = ctx.getFatalFailureHandler();
   //
-  static constexpr const auto parallel = false;
   mfem_mgis::initialize(argc, argv);
   // options treatment
   const char* library = "";
+  auto parallel = false;
+  auto refinement = 0;
+  auto order = 2;
+  auto post_processing = true;
   mfem::OptionsParser args(argc, argv);
   args.AddOption(&library, "-l", "--library",
                  "Behaviour library. By default, the library built with the "
                  "example for the CPU or for the GPU, as the option "
                  "--execution places the behaviours.");
+  args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                 "Perform parallel computations (MUMPS), or sequential "
+                 "computations (UMFPACK).");
+  args.AddOption(&refinement, "-r", "--refinement",
+                 "Number of uniform refinements of the mesh.");
+  args.AddOption(&order, "-o", "--order", "Order of the finite elements.");
+  args.AddOption(&post_processing, "-pp", "--post-processing", "-no-pp",
+                 "--no-post-processing",
+                 "Export the results (ParaView, hydrostatic pressure).");
   // options of mfem-mgis, such as the device (--device)
   mfem_mgis::declareDefaultOptions(args);
   args.Parse();
@@ -186,7 +239,8 @@ int main(int argc, char** argv) {
               {"Materials", mfem_mgis::Parameters{{"plate", 1}}},
               {"Boundaries", mfem_mgis::Parameters{{"left", 2}, {"right", 4}}},
               {"FiniteElementFamily", "H1"},
-              {"FiniteElementOrder", 2},
+              {"FiniteElementOrder", order},
+              {"NumberOfUniformRefinements", refinement},
               {"UnknownsSize", 2},
               {"Hypothesis", "PlaneStrain"},
               {"Parallel", parallel}}) |
@@ -225,42 +279,65 @@ int main(int argc, char** argv) {
           or_die;
     }
   }
-  // set the solver parameters
-  problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
+  // set the solver parameters: a direct solver, MUMPS in parallel (the
+  // matrix is symmetric positive definite), UMFPACK in sequential
+  if (parallel) {
+#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
+    problem.setLinearSolver(ctx, "MUMPSSolver",
+                            {{"Symmetric", true}, {"PositiveDefinite", true}}) |
+        or_die;
+#else
+    mfem_mgis::abort("satoh: the parallel computation requires MUMPS");
+#endif
+  } else {
+    problem.setLinearSolver(ctx, "UMFPackSolver", {}) | or_die;
+  }
   problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
                                     {"RelativeTolerance", 1e-12},
                                     {"AbsoluteTolerance", 0.},
                                     {"MaximumNumberOfIterations", 10}}) |
       or_die;
   // vtk export
-  problem.addPostProcessing(ctx, "ParaviewExportResults",
-                            {{"OutputFileName", "SatohTestOutput"}}) |
-      or_die;
-  auto results = std::vector<mfem_mgis::Parameter>{
-      "Stress", "ImposedTemperature", "HydrostaticPressure"};
-  problem.addPostProcessing(
-      ctx, "ParaviewExportIntegrationPointResultsAtNodes",
-      {{"OutputFileName", "SatohTestIntegrationPointOutput"},
-       {"Materials", {"plate"}},
-       {"Results", results}}) |
-      or_die;
+  if (post_processing) {
+    problem.addPostProcessing(ctx, "ParaviewExportResults",
+                              {{"OutputFileName", "SatohTestOutput"}}) |
+        or_die;
+    auto results = std::vector<mfem_mgis::Parameter>{
+        "Stress", "ImposedTemperature", "HydrostaticPressure"};
+    problem.addPostProcessing(
+        ctx, "ParaviewExportIntegrationPointResultsAtNodes",
+        {{"OutputFileName", "SatohTestIntegrationPointOutput"},
+         {"Materials", {"plate"}},
+         {"Results", results}}) |
+        or_die;
+  }
   // solving the problem on 1 time step
   problem.solve(ctx, 0, 1) | or_die;
   problem.executePostProcessings(ctx, 0, 1) | or_die;
-  // hydrostatic pressure at the integration points
+  // hydrostatic pressure at the integration points (one file per process
+  // in parallel)
   const auto& cm1 = static_cast<const mfem_mgis::Material&>(m1);
-  const auto pr =
-      getInternalStateVariable(ctx, cm1, "HydrostaticPressure") | or_die;
-  auto output = std::ofstream("HydrostaticPressure.txt");
-  forEachIntegrationPoint<parallel>(
-      pr, [&output](const mfem_mgis::real x, const mfem_mgis::real y,
-                    const mfem_mgis::real v) {
-        output << x << " " << y << " " << v << '\n';
-      });
-  // checks
+  const auto& fed = problem.getFiniteElementDiscretization();
+  if (post_processing) {
+    const auto pr =
+        getInternalStateVariable(ctx, cm1, "HydrostaticPressure") | or_die;
+    auto output = std::ofstream(
+        parallel ? "HydrostaticPressure-" +
+                       std::to_string(mfem_mgis::getMPIRank(fed)) + ".txt"
+                 : std::string{"HydrostaticPressure.txt"});
+    forEachLocalIntegrationPoint(
+        parallel, pr,
+        [&output](const mfem_mgis::real x, const mfem_mgis::real y,
+                  const mfem_mgis::real v) {
+          output << x << " " << y << " " << v << '\n';
+        });
+  }
+  // checks, the reference reaction being the one of the original mesh and
+  // order
   const auto T =
       getInternalStateVariable(ctx, cm1, "ImposedTemperature") | or_die;
-  const auto temperature = checkImposedTemperature<parallel>(T);
-  const auto reactions = checkReactions(ctx, problem);
+  const auto temperature = checkImposedTemperature(fed, parallel, T);
+  const auto reactions =
+      checkReactions(ctx, problem, parallel, (refinement == 0) && (order == 2));
   return (temperature && reactions) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

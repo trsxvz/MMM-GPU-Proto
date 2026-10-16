@@ -1212,6 +1212,11 @@ namespace mfem_mgis {
           "the linear solver built by the program");
       return this->setLinearSolver(ctx, "", Parameters{});
     }
+    if (internals::getPreconditionerOverride().has_value()) {
+      return ctx.registerErrorMessage(
+          "the preconditioner override can't be given to a linear solver "
+          "built by the program (a linear solver override is required)");
+    }
     if (isInvalid(s)) {
       return ctx.registerErrorMessage("invalid linear solver");
     }
@@ -1221,15 +1226,28 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<true>::setLinearSolver(
       Context& ctx, std::string_view n0, const Parameters& p0) noexcept {
-    // the linear solver override given at the initialization, if any
-    const auto [n, p] = internals::selectLinearSolver(n0, p0);
+    // the linear solver and preconditioner overrides given at the
+    // initialization, if any
+    auto selection = std::pair<std::string, Parameters>{};
+    try {
+      selection = internals::selectLinearSolver(n0, p0);
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
+    const auto& [n, p] = selection;
     const auto& f = LinearSolverFactory<true>::getFactory();
     auto& fespace = this->getFiniteElementSpace();
     auto s = f.generate(ctx, n, fespace, p);
     if (isInvalid(s)) {
       if (internals::getLinearSolverOverride().has_value()) {
-        return ctx.registerErrorMessage("the linear solver override '" +
-                                        std::string{n} + "' can't be built");
+        return ctx.registerErrorMessage("the linear solver override '" + n +
+                                        "' can't be built");
+      }
+      if (internals::getPreconditionerOverride().has_value()) {
+        return ctx.registerErrorMessage(
+            "the linear solver '" + n +
+            "' can't be built with the preconditioner override '" +
+            internals::getPreconditionerOverride()->name + "'");
       }
       return false;
     }
@@ -1701,6 +1719,11 @@ namespace mfem_mgis {
           "the linear solver built by the program");
       return this->setLinearSolver(ctx, "", Parameters{});
     }
+    if (internals::getPreconditionerOverride().has_value()) {
+      return ctx.registerErrorMessage(
+          "the preconditioner override can't be given to a linear solver "
+          "built by the program (a linear solver override is required)");
+    }
     if (isInvalid(s)) {
       return ctx.registerErrorMessage("invalid linear solver");
     }
@@ -1710,15 +1733,28 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<false>::setLinearSolver(
       Context& ctx, std::string_view n0, const Parameters& p0) noexcept {
-    // the linear solver override given at the initialization, if any
-    const auto [n, p] = internals::selectLinearSolver(n0, p0);
+    // the linear solver and preconditioner overrides given at the
+    // initialization, if any
+    auto selection = std::pair<std::string, Parameters>{};
+    try {
+      selection = internals::selectLinearSolver(n0, p0);
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
+    const auto& [n, p] = selection;
     const auto& f = LinearSolverFactory<false>::getFactory();
     auto& fespace = this->getFiniteElementSpace();
     auto s = f.generate(ctx, n, fespace, p);
     if (isInvalid(s)) {
       if (internals::getLinearSolverOverride().has_value()) {
-        return ctx.registerErrorMessage("the linear solver override '" +
-                                        std::string{n} + "' can't be built");
+        return ctx.registerErrorMessage("the linear solver override '" + n +
+                                        "' can't be built");
+      }
+      if (internals::getPreconditionerOverride().has_value()) {
+        return ctx.registerErrorMessage(
+            "the linear solver '" + n +
+            "' can't be built with the preconditioner override '" +
+            internals::getPreconditionerOverride()->name + "'");
       }
       return false;
     }

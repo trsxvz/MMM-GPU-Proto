@@ -211,8 +211,11 @@ namespace mfem_mgis {
    *
    * The option `--linear-solver-override` (or `-lso`), or else the
    * environment variable `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, gives a linear
-   * solver which replaces the linear solvers set by the program (see the
-   * user guide, linear solver override); an invalid description is refused
+   * solver which replaces the linear solvers set by the program, and the
+   * option `--preconditioner-override` (or `-pco`), or else the variable
+   * `MFEM_MGIS_PRECONDITIONER_OVERRIDE`, a preconditioner which replaces
+   * their preconditioners (see the user guide, linear solver and
+   * preconditioner overrides); an invalid description is refused
    * (exception).
    */
   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
@@ -331,7 +334,8 @@ namespace mfem_mgis {
    * the MFEM device (`--device`), the size of the pool of memory of hypre on
    * the GPU (`--hypre-device-pool-size`), the computations of hypre on the
    * host (`--hypre-on-host`), the initialization of Kokkos (`--kokkos`), the
-   * linear solver override (`--linear-solver-override`), and the PETSc
+   * linear solver and preconditioner overrides (`--linear-solver-override`,
+   * `--preconditioner-override`), and the PETSc
    * options (`--use-petsc`, `--petsc-configuration-file`), if PETSc is
    * available.
    * \param[in, out] parser: options parser
