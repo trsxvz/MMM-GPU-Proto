@@ -57,7 +57,7 @@ rows.
 | L-BFGS preconditioned by an AMG or p-MG cycle (`LBFGSSolver` of MFEM), like Ratel | both | 7 | to be written: `LBFGSSolver` of MFEM ignores the preconditioner; `SNESQN` of PETSc has one |
 | Matrix free p-multigrid with AMG on the Q1 (order 2 and higher), or LOR (`LORSolver`) | both | 7 | MFEM |
 | Addition: distributed Ginkgo (MPI matrices, two level Schwarz, distributed PGM multigrid) | both | 7 | Ginkgo 1.8 to 1.11; MFEM 4.10 wrappers |
-| Addition: AmgX in mixed precision (mode `dDFI`) and 3×3 block matrices | NVIDIA GPU | 6 | AmgX; not in the MFEM wrapper |
+| Addition: AmgX in mixed precision (mode `dDFI`) and 3×3 block matrices | NVIDIA GPU | 6 | AmgX; not in the MFEM wrapper. Blocks done on 16/10/2026 (`NodalBlocks`, no gain on the beam); `dDFI` not supported by AmgX 2.5 |
 | Line search for Newton (hook `ComputeScalingFactor`) | both | 6 | to be written in the Newton of mfem-mgis (today it only divides the correction by 2 when the behaviour fails) |
 | Elasticity AMG with rigid body modes on GPU: GAMG of PETSc with near null space (Kokkos), new block path on GPU (Adams, arXiv 2606.24748); requires repairing the PETSc path of mfem-mgis | both | 6 | PETSc 3.26 (`aijkokkos`; the block path of the paper is not there). Since 15/10/2026, the solvers of PETSc compute on the host when MFEM computes on a GPU: with MFEM 4.10, the vectors of MFEM placed in the vectors of PETSc of the GPU were seen as null, and these vectors made `PetscFinalize` abort; GAMG on the GPU needs this interoperability first |
 | KINSOL of SUNDIALS through MFEM (`KINSolver`: fixed point with Anderson, JFNK, line search) | both | 6 | SUNDIALS 7.9, MFEM; requires an operator whose `Mult` integrates the behaviour |
@@ -373,8 +373,17 @@ compute on the host (see [plan-solver-libraries.md](plan-solver-libraries.md)).
     vectors in double) is no longer supported by AmgX 2.5
     ("Mixed precision modes not currently supported for CUDA 10.1 or
     later").
-  - Still to do: 3×3 block matrices (ordering by components),
-    partial reuse (`AMGX_solver_resetup`), setup without
+  - Done on 16/10/2026: matrices and vectors by nodal blocks (option
+    `NodalBlocks`, unknowns ordered by vector dimension, aggregation
+    multigrid only), and a symmetric cycle damped by 0.6 for the
+    aggregation multigrid, whose former configuration
+    (`PCG_AGGREGATION_JACOBI`) did not converge on the linear elasticity.
+    The nodal blocks do not reduce its iterations on the beam (151
+    against 141), and on several processes the smoothers of AmgX used
+    alone give wrong results with blocks. On the elasticity, AmgX stays
+    far behind BoomerAMG on the GPU (141 to 505 iterations against 54 to
+    59).
+  - Still to do: partial reuse (`AMGX_solver_resetup`), setup without
     going through the host.
 - AmgX 2.5.0 announces CUDA 13 (tested up to 13.0). Two complementary
   fixes followed on the main branch in 2026 (C++17 with
