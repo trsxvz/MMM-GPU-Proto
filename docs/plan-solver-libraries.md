@@ -53,7 +53,12 @@ behaviour integrators would have to assemble on coarser spaces. Phase 4
 done on 16/10/2026: environment `mmm-trilinos` (Trilinos 17.2.1 with Tacho
 and FROSch, Kokkos 5.2.1), module of Trilinos built and tested on the host
 and on the GPU (Belos, Amesos2 with KLU2 and Tacho, Ifpack2, MueLu with the
-rigid body modes, FROSch). Phase 5: benchmark `LinearSolversBenchmark`
+rigid body modes, FROSch), then (patches `0247` to `0254`): solvers of
+Trilinos computing where MFEM computes (serial node of Tpetra on the host),
+matrices of hypre converted on the GPU by kernels of Kokkos, reuse of the
+hierarchy of MueLu between operators, factories of MueLu not written with
+Kokkos by default (half the iterations with the rigid body modes), and
+MueLu also as an approximate linear solver (one V-cycle). Phase 5: benchmark `LinearSolversBenchmark`
 (patch `0231`) and `cases/measure-solvers.sh`, passes on the host and on
 the GPU up to 421,443 unknowns of elasticity and 2,146,689 of Laplace,
 summarized in [solver-recommendations.md](solver-recommendations.md);
