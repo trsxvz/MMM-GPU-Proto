@@ -3,8 +3,7 @@
 Status: recommendations drawn on 16/10/2026 from the campaign of phase 5 of
 [plan-solver-libraries.md](plan-solver-libraries.md), on one machine
 (Ryzen 7 9800X3D, 8 cores, RTX 5080). They are a starting point for each
-kind of problem, to be confirmed on the target machine. The solvers of
-Trilinos are not measured yet.
+kind of problem, to be confirmed on the target machine.
 
 ## How the measurements were made
 
@@ -24,7 +23,13 @@ unknowns for the elasticity, 274,625 for the Laplace equation, all the
 configurations), [second pass](../results/solvers-2026-10-15-byvdim/README.md)
 (GAMG with the rigid body modes),
 [large elasticity](../results/solvers-2026-10-15-large/elasticity/README.md)
-(421,443 unknowns).
+(421,443 unknowns),
+[large Laplace](../results/solvers-2026-10-15-large/laplace/README.md)
+(2,146,689 unknowns), solvers of Trilinos at the
+[size of the first passes](../results/solvers-2026-10-16-trilinos/README.md)
+and at the [large sizes](../results/solvers-2026-10-15-large/muelu/README.md).
+Trilinos built with CUDA computes on the GPU in all the runs (its runs
+labelled `cpu` are 8 processes sharing the GPU).
 
 ## Recommendations by case
 
@@ -59,13 +64,27 @@ configurations), [second pass](../results/solvers-2026-10-15-byvdim/README.md)
   `PCG_AGGREGATION_JACOBI` of AmgX diverges. Giving the matrix to AmgX by
   nodal blocks (`NodalBlocks`) does not reduce the iterations. AmgX suits
   scalar problems.
+- MueLu of Trilinos with the rigid body modes needs fewer iterations than
+  BoomerAMG (20 to 23 against 37 to 59 at 421,443 unknowns), and its cycles
+  are the cheapest on the GPU with a Jacobi smoother (a resolution in
+  0.07 second instead of 3.5 with its default symmetric Gauss-Seidel), but
+  its setup takes 1.2 seconds: worth it when the hierarchy is reused for
+  many resolutions (modified Newton methods), not when it is built again
+  at each iteration. The Chebyshev polynomial of Ifpack2 (degree 3) is
+  close to BoomerAMG on small systems and 2.5 times slower at 421,443
+  unknowns.
 
 ### Scalar problems (heat transfer)
 
 - Conjugate gradient with BoomerAMG, on the CPU and on the GPU (13 to 14
   iterations at 274,625 unknowns). On the GPU, AmgX converges in 11 to 13
   iterations but costs 2.5 to 3 times more per operator.
-- Results at a larger size: to be measured.
+- At 2,146,689 unknowns on the GPU, the conjugate gradient with the Jacobi
+  preconditioner is the fastest (0.18 second per operator, 183
+  iterations), before BoomerAMG (0.42 second): the setup of a multigrid
+  costs more than the iterations it saves on this well conditioned
+  problem. On 8 cores, BoomerAMG (1.93 second) is 10 times slower than
+  the best on the GPU.
 
 ### Direct solvers and repeated resolutions
 
@@ -77,6 +96,9 @@ configurations), [second pass](../results/solvers-2026-10-15-byvdim/README.md)
 - On the CPU, MUMPS and MKL Cluster Sparse Solver factorize in similar
   times (20 to 22 seconds at 421,443 unknowns), and MUMPS solves fastest
   (0.2 second against 0.6).
+- Tacho of Trilinos (on the GPU) factorizes the beam of 56,355 unknowns in
+  0.72 second, 2.4 times slower than cuDSS; KLU2 (sequential) is not
+  suited to 3D finite element matrices (38 seconds).
 
 ### To avoid
 
@@ -87,10 +109,13 @@ configurations), [second pass](../results/solvers-2026-10-15-byvdim/README.md)
 - The default stop of the conjugate gradient of PETSc when comparing with
   other solvers: it stops on the preconditioned residual (true residual
   40 to 4000 times larger than the tolerance in these measurements).
+- FROSch with its default subdomain solver (KLU2) on 3D problems: minutes
+  per setup; a solver of Amesos2 suited to finite element matrices must be
+  given to it. FROSch does not support processes owning no unknown.
+- The default smoother of MueLu on a GPU (symmetric Gauss-Seidel).
 
 ## To be completed
 
-- The solvers of Trilinos (MueLu with the rigid body modes, FROSch,
-  Ifpack2, Amesos2 with Tacho), once the MFEM of the environment
-  `mmm-trilinos` is built.
-- The Laplace equation at a larger size.
+- The solvers of Trilinos on the CPU (a Trilinos built without CUDA).
+- FROSch with a subdomain solver suited to 3D problems (Tacho).
+- The setup of MueLu on the GPU, which dominates its cost.

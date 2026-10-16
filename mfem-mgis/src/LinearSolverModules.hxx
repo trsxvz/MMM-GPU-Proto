@@ -192,6 +192,20 @@ namespace mfem_mgis::internals {
   template <bool parallel>
   void declareAmgXPreconditioners(PreconditionerFactory<parallel>& f);
 #endif /* MFEM_MGIS_HAVE_AMGX */
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_TRILINOS)
+  /*!
+   * \brief register the solvers of Trilinos (Krylov solvers of Belos,
+   * direct solvers of Amesos2)
+   * \param[in, out] f: factory
+   */
+  void declareTrilinosLinearSolvers(LinearSolverFactory<true>& f);
+  /*!
+   * \brief register the preconditioners of Trilinos (Ifpack2, MueLu,
+   * FROSch, Amesos2)
+   * \param[in, out] f: factory
+   */
+  void declareTrilinosPreconditioners(PreconditionerFactory<true>& f);
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_TRILINOS) */
 
   /*!
    * \return a message explaining why a linear solver or a preconditioner of

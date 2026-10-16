@@ -14,7 +14,8 @@
 #   results directory: by default results/solvers-<date>.
 # Environment: SIZE (elements across the section, 16 by default), PROBLEMS
 # (default "elasticity heterogeneous laplace"), TARGETS (default "cpu gpu"),
-# FILTER (regular expression selecting the labels of the configurations).
+# FILTER (regular expression selecting the labels of the configurations),
+# RUN_TIMEOUT (maximum duration of a run in seconds, 1800 by default).
 #
 # Outputs: one line per run in <results>/runs.txt (key=value, see the
 # benchmark), the errors in <results>/errors.txt, a table in
@@ -28,6 +29,7 @@ size=${SIZE:-16}
 problems=${PROBLEMS:-elasticity heterogeneous laplace}
 targets=${TARGETS:-cpu gpu}
 filter=${FILTER:-.}
+run_timeout=${RUN_TIMEOUT:-1800}
 if [ ! -x "$exe" ]; then
   echo "no benchmark $exe (configure mfem-mgis with -DBENCHMARKS=ON)" >&2
   exit 1
@@ -73,7 +75,9 @@ configurations=(
   "ginkgo-cg-multigrid|any|GinkgoCG|{$it,Preconditioner={Name=GinkgoMultigrid}}"
   # Trilinos
   "belos-cg-relaxation|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=Ifpack2}}"
-  "belos-cg-chebyshev|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=Ifpack2,Options={Type=CHEBYSHEV}}}"
+  # Chebyshev polynomial of degree 3 (degree 1, the default of Ifpack2, is
+  # a damped Jacobi relaxation)
+  "belos-cg-chebyshev|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=Ifpack2,Options={Type=CHEBYSHEV,Parameters={\"chebyshev: degree\"=3}}}}"
   "belos-cg-muelu|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=MueLu}}"
   "belos-cg-frosch|any|BelosSolver|{Solver=CG,$it,Preconditioner={Name=FROSch}}"
   "cg-muelu|any|CGSolver|{$it,Preconditioner={Name=MueLu}}"
@@ -84,6 +88,9 @@ configurations=(
   "mkl-cpardiso|cpu|MKLClusterSparseSolver|{}"
   "petsc-pastix|cpu|PETScLinearSolver|{Options={ksp_type=preonly,pc_type=lu,pc_factor_mat_solver_type=pastix}}"
   "amesos2-klu2|cpu|Amesos2Solver|{}"
+  # Tacho (Cholesky factorization of Trilinos, on the GPU when Tpetra
+  # computes there)
+  "amesos2-tacho|any|Amesos2Solver|{Solver=Tacho}"
   "cudss|gpu|CuDSSSolver|{Symmetric=true,PositiveDefinite=true}"
 )
 
@@ -100,7 +107,7 @@ problem_arguments() {
 : > "$out/errors.txt"
 {
   echo "date: $(date)"
-  echo "build: $B"
+  echo "build: ${B#"$P"/}"
   echo "size: $size"
   echo "mfem-mgis: $(git -C "$P/scratch/ginkgo/mfem-mgis" describe --always --dirty 2>/dev/null)"
   nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null
@@ -128,7 +135,7 @@ for problem in $problems; do
       fi
       log=$out/$problem-$label-$target.log
       # shellcheck disable=SC2046
-      timeout 1800 "${launcher[@]}" "$exe" $(problem_arguments "$problem") \
+      timeout "$run_timeout" "${launcher[@]}" "$exe" $(problem_arguments "$problem") \
         ${arguments:-} -s "$solver" -sp "$parameters" \
         -lb "$problem/$label/$target" "${device[@]}" > "$log" 2>&1
       status=$?

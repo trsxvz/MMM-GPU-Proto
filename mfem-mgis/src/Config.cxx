@@ -108,6 +108,13 @@ namespace mfem_mgis {
      * solver of PETSc (see `usePETSc`).
      */
     void initializePETScOnDemand();
+    /*!
+     * \brief initialize Kokkos, if not done yet, on the GPU of the device
+     * of MFEM, for the solvers and the preconditioners of Trilinos (see
+     * `TrilinosLinearSolvers.cxx`). Kokkos is then finalized by `finalize`,
+     * before MPI, if it is initialized by this call.
+     */
+    void initializeKokkosOnDemand();
     //! \brief finalize the execution of the mfem-mgis
     void finalize();
     /*!
@@ -425,6 +432,28 @@ namespace mfem_mgis {
     mgis::raise("Finalizer::initializePETScOnDemand: PETSc is not supported");
   }
 #endif /*MFEM_USE_PETSC*/
+
+  void Finalizer::initializeKokkosOnDemand() {
+#ifdef MFEM_MGIS_HAVE_KOKKOS
+    if (internals::isKokkosInitialized()) {
+      return;
+    }
+    // the GPU of the device of MFEM, as in `initialize`
+    auto gpu = -1;
+    if (mfem::Device::IsConfigured() &&
+        mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                             mfem::Backend::HIP_MASK)) {
+      gpu = mfem::Device::GetId();
+    }
+    if (internals::initializeKokkos(gpu)) {
+      this->kokkos = true;
+    }
+#else  /* MFEM_MGIS_HAVE_KOKKOS */
+    mgis::raise(
+        "Finalizer::initializeKokkosOnDemand: mfem-mgis is built without "
+        "Kokkos (option enable-kokkos)");
+#endif /* MFEM_MGIS_HAVE_KOKKOS */
+  }  // end of initializeKokkosOnDemand
 
   void Finalizer::initialize(int& argc, MainFunctionArguments& argv) {
 #ifdef MFEM_USE_PETSC
@@ -911,6 +940,12 @@ namespace mfem_mgis {
   void internals::initializePETScOnDemand() {
     Finalizer::get().initializePETScOnDemand();
   }  // end of initializePETScOnDemand
+
+#ifdef MFEM_MGIS_HAVE_KOKKOS
+  void internals::initializeKokkosOnDemand() {
+    Finalizer::get().initializeKokkosOnDemand();
+  }  // end of initializeKokkosOnDemand
+#endif /* MFEM_MGIS_HAVE_KOKKOS */
 
   bool isMPIMainProcessForDefaultCommunicator() noexcept {
     return getMPIRankForDefaultCommunicator() == 0;

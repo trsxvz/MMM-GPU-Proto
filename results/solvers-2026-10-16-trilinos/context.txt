@@ -1,0 +1,6 @@
+date: ven. 16 oct. 2026 04:23:07 CEST
+build: build/ginkgo/mfem-mgis-trilinos
+size: 16
+mfem-mgis: eb3fecda10
+NVIDIA GeForce RTX 5080, 595.99.02
+Model name:                              AMD Ryzen 7 9800X3D 8-Core Processor

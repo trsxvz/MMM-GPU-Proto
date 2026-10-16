@@ -1,0 +1,9 @@
+Warning: program compiled against libxml 213 using older 209
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+label=heterogeneous/belos-cg-chebyshev/gpu problem=elasticity unknowns=56355 processes=1 solver=BelosSolver setup=0.0587806 first=0.0752206 solve=0.0733944 resetup=0.052081 refirst=0.0740467 iterations=299 residual=9.31983e-09 residual2=9.44433e-09 converged=1

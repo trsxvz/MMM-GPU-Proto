@@ -177,6 +177,8 @@ CMake options
   ``MFEM`` compiled with ``CUDA``, ``AmgX`` being given by ``AMGX_DIR``,
   see :ref:`mfem_mgis_batch_computations_amgx`);
 - ``enable-kokkos`` (``OFF``): initialization of ``Kokkos`` (see below);
+- ``enable-trilinos`` (``OFF``): solvers and preconditioners of
+  ``Trilinos`` (requires ``enable-kokkos``, see below);
 - ``enable-portable-build`` (``OFF``): binaries shared between machines
   of the same architecture;
 - ``BENCHMARKS`` (``OFF``): compiles the benchmarks;
@@ -265,6 +267,40 @@ before ``MPI``. Without this option, ``--kokkos`` is an error and
   ``mfem-mgis`` is then compiled without the extensions of the compilers
   (``-std=c++20`` instead of ``-std=gnu++20``).
 
+Trilinos
+^^^^^^^^
+
+With the option ``-Denable-trilinos=ON``, the Krylov solvers of ``Belos``,
+the direct solvers of ``Amesos2``, the preconditioners of ``Ifpack2``, the
+algebraic multigrid of ``MueLu`` and the two level Schwarz preconditioner
+of ``FROSch`` are available in parallel (see
+:ref:`trilinos_linear_solvers`). ``Trilinos`` is found by
+``find_package(Trilinos)`` with the components ``Tpetra``, ``Belos``,
+``Ifpack2``, ``MueLu``, ``Amesos2`` and ``ShyLU_DDFROSch`` (for instance
+through
+``CMAKE_PREFIX_PATH``). It requires ``MFEM`` compiled with ``MPI``, the
+``double`` type and the option ``enable-kokkos``, the ``Kokkos`` of
+``Trilinos`` being the one which ``mfem-mgis`` initializes (the ``Kokkos``
+found by ``mfem-mgis`` must be the one ``Trilinos`` is built with): ``Kokkos`` is
+initialized when the first solver of ``Trilinos`` is built, if needed,
+and finalized by ``mfem_mgis::finalize``.
+
+- The sources including ``Trilinos`` are compiled by the compiler of
+  ``Kokkos`` in the shared library ``MFEMMGISTrilinos``, installed next to
+  ``MFEMMGIS`` and privately linked to ``Trilinos``, whose interface only
+  uses standard types: the projects using ``mfem-mgis`` neither find
+  ``Trilinos`` nor inherit its flags.
+- ``Tpetra`` computes on the GPU when ``Trilinos`` (and its ``Kokkos``) is
+  built with ``CUDA`` or ``HIP``, on the host otherwise.
+- With Spack, ``trilinos@17.2`` requires ``kokkos@5.2.1`` and
+  ``kokkos-kernels@5.2.1``, for instance ``trilinos@17.2.1 +mpi +wrapper
+  +kokkos +openmp +tpetra +belos +ifpack2 +muelu +amesos2 +shylu
+  cxxstd=20`` (``+shylu`` for ``FROSch``; the sparse direct solver
+  ``Tacho`` of ``Amesos2`` requires the CMake options
+  ``Trilinos_ENABLE_ShyLU_NodeTacho`` and ``Amesos2_ENABLE_ShyLU_NodeTacho``,
+  which the package of Spack does not set),
+  completed by ``+cuda cuda_arch=...`` for a GPU of NVIDIA.
+
 Numerical type
 ^^^^^^^^^^^^^^
 
@@ -282,7 +318,8 @@ a ``hypre``. Then:
 
 - ``MGIS`` must be configured with the same type
   (``-DMGIS_REAL_TYPE=float``), which the configuration checks;
-- ``AmgX`` (``enable-amgx``) is refused, and ``SuiteSparse``, which
+- ``AmgX`` (``enable-amgx``) and ``Trilinos`` (``enable-trilinos``) are
+  refused, and ``SuiteSparse``, which
   ``MFEM`` does not support in single precision, is not required;
 - the type is exported by the installed CMake configuration
   (``MFEMMGIS_REAL_TYPE`` variable and ``MFEM_MGIS_REAL_TYPE`` global

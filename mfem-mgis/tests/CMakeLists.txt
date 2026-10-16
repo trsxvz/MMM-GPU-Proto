@@ -1939,6 +1939,39 @@ if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
   endif()
 endif()
 
+# TrilinosSolversTest executable: solvers and preconditioners of Trilinos.
+# With MFEM on a GPU, Tpetra computes on the GPU if Trilinos is built with
+# CUDA or HIP; Trilinos built with CUDA or HIP uses the GPU in all the tests
+# (lock gpu). With three processes, a process in the middle owns no
+# unknown
+if(MFEM_MGIS_HAVE_TRILINOS)
+  add_test_executable(TrilinosSolversTest)
+  add_test(NAME TrilinosSolversTest COMMAND TrilinosSolversTest)
+  add_test(NAME TrilinosSolversTestP COMMAND mpirun -n 2 ./TrilinosSolversTest)
+  add_test(NAME TrilinosSolversTestP3
+           COMMAND mpirun -n 3 ./TrilinosSolversTest)
+  set_tests_properties(TrilinosSolversTest TrilinosSolversTestP
+                       TrilinosSolversTestP3 PROPERTIES
+    FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 600)
+  if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
+     enable-gpu-tests)
+    if(MFEM_USE_CUDA STREQUAL "YES")
+      set(trilinos_solvers_test_device cuda)
+    else()
+      set(trilinos_solvers_test_device hip)
+    endif()
+    add_test(NAME TrilinosSolversTest-gpu
+             COMMAND TrilinosSolversTest
+                     --device ${trilinos_solvers_test_device})
+    add_test(NAME TrilinosSolversTestP-gpu
+             COMMAND mpirun -n 2 ./TrilinosSolversTest
+                     --device ${trilinos_solvers_test_device})
+    set_tests_properties(TrilinosSolversTest-gpu TrilinosSolversTestP-gpu
+      PROPERTIES FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu
+                 TIMEOUT 600)
+  endif()
+endif()
+
 # AmgXSolverTest executable: solvers of AmgX built by the factory of linear
 # solvers. AmgX computes on the GPU whatever the device of MFEM: the tests
 # require one, and are not run at the same time as the other tests on the

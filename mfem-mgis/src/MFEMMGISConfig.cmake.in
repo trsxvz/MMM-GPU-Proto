@@ -99,6 +99,11 @@ set_property(GLOBAL PROPERTY MFEM_MGIS_REAL_TYPE @MFEM_MGIS_REAL_TYPE@)
 # Kokkos is used through the shared library MFEMMGISKokkos, which finds it
 set(MFEMMGIS_HAVE_KOKKOS @MFEM_MGIS_HAVE_KOKKOS@)
 
+# true if mfem-mgis has the solvers of Trilinos (option enable-trilinos):
+# Trilinos is used through the shared library MFEMMGISTrilinos, which finds
+# it
+set(MFEMMGIS_HAVE_TRILINOS @MFEM_MGIS_HAVE_TRILINOS@)
+
 # Compilation of the sources containing kernels of MFEM: if MFEM was found
 # before mfem-mgis without the module FindMFEM.cmake of mfem-mgis (target
 # MFEM::mfem defined by the project), the description of MFEM is the one

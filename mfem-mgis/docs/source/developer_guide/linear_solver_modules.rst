@@ -17,7 +17,10 @@ The existing modules are the ones of MFEM and mfem-mgis
 (:file:`src/HypreLinearSolvers.cxx`), MUMPS
 (:file:`src/MUMPSSolvers.cxx`), cuDSS (:file:`src/CuDSSSolvers.cxx`),
 AmgX (:file:`src/AmgXSolvers.cxx`), PETSc
-(:file:`src/PETScLinearSolvers.cxx`), Ginkgo
+(:file:`src/PETScLinearSolvers.cxx`), Trilinos
+(:file:`src/TrilinosLinearSolvers.cxx`, whose calls to Trilinos are
+compiled by the compiler of Kokkos in the library :code:`MFEMMGISTrilinos`,
+:file:`src/TrilinosBackend.cxx`), Ginkgo
 (:file:`src/GinkgoLinearSolvers.cxx`), SuperLU_DIST
 (:file:`src/SuperLUSolvers.cxx`), STRUMPACK
 (:file:`src/STRUMPACKSolvers.cxx`), oneMKL

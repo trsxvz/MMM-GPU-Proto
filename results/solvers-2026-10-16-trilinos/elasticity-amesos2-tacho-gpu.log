@@ -1,0 +1,9 @@
+Warning: program compiled against libxml 213 using older 209
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+label=elasticity/amesos2-tacho/gpu problem=elasticity unknowns=56355 processes=1 solver=Amesos2Solver setup=0.743722 first=0.0155161 solve=0.00302233 resetup=0.711324 refirst=0.00366821 iterations=-1 residual=3.42788e-11 residual2=3.42562e-11 converged=1

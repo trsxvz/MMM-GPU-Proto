@@ -212,6 +212,21 @@ The solvers marked as parallel are only available in parallel.
        :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
        :cxx:`Preconditioner`, :cxx:`RigidBodyModes`
+   * - :cxx:`BelosSolver` (parallel)
+     - Trilinos
+     - iterative
+     - host, or GPU (Trilinos built with CUDA or HIP)
+     - any
+     - :cxx:`Solver`, :cxx:`Parameters` (see :ref:`trilinos_linear_solvers`),
+       :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
+       :cxx:`AbsoluteTolerance` (null only), :cxx:`MaximumNumberOfIterations`,
+       :cxx:`Preconditioner`
+   * - :cxx:`Amesos2Solver` (parallel)
+     - Trilinos
+     - direct
+     - host, or GPU (Trilinos built with CUDA or HIP)
+     - none
+     - :cxx:`Solver`, :cxx:`Parameters` (see :ref:`trilinos_linear_solvers`)
 
 Preconditioners
 ===============
@@ -361,6 +376,12 @@ Preconditioners
      - host
      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
        :cxx:`RigidBodyModes`
+   * - :cxx:`Ifpack2`, :cxx:`MueLu`, :cxx:`FROSch`,
+       :cxx:`Amesos2Preconditioner` (parallel)
+     - Trilinos
+     - host, or GPU (Trilinos built with CUDA or HIP)
+     - :cxx:`Type` (:cxx:`Ifpack2`), :cxx:`Solver` (:cxx:`Amesos2Preconditioner`),
+       :cxx:`Parameters` (see :ref:`trilinos_linear_solvers`)
    * - :cxx:`STRUMPACKPreconditioner` (parallel)
      - STRUMPACK
      - host
@@ -380,7 +401,8 @@ the Krylov solvers of MFEM, which compute where MFEM computes, are refused:
 they are then given to the Krylov solvers of PETSc.
 
 The libraries which are not available (MFEM built without them, or
-mfem-mgis built without AmgX or the sparse part of MAGMA) register nothing.
+mfem-mgis built without AmgX, Trilinos or the sparse part of MAGMA)
+register nothing.
 
 .. _nodal_block_jacobi:
 
@@ -635,6 +657,156 @@ by the program itself. The command line is not given to PETSc: the
 options of the solvers are only given by their :cxx:`Options` parameter.
 The non linear solver of PETSc, selected by the :cxx:`--use-petsc`
 command line option, is not related to these solvers.
+
+.. _trilinos_linear_solvers:
+
+Linear solvers and preconditioners of Trilinos
+==============================================
+
+When mfem-mgis is built with Trilinos (CMake option
+:code:`enable-trilinos`, see :doc:`../installation_guide/installation_guide`),
+the following entries are available in parallel, in double precision:
+
+- :cxx:`BelosSolver`: a Krylov solver of Belos, selected by the
+  :cxx:`Solver` option (:cxx:`GMRES` by default, :cxx:`CG`,
+  :cxx:`BICGSTAB`, :cxx:`GCRODR`, :cxx:`MINRES`, :cxx:`TFQMR` and the other
+  names of the factory of solvers of Belos), preconditioned on the right;
+- :cxx:`Amesos2Solver`: a direct solver of Amesos2, selected by the
+  :cxx:`Solver` option (:cxx:`KLU2` by default, and the other solvers
+  which Trilinos is built with, such as :cxx:`Basker` or :cxx:`Tacho`);
+- :cxx:`Ifpack2`: a preconditioner of Ifpack2, selected by the :cxx:`Type`
+  option (:cxx:`RELAXATION` by default, a Jacobi relaxation, :cxx:`CHEBYSHEV`,
+  :cxx:`RILUK`, :cxx:`ILUT`, :cxx:`SCHWARZ`...);
+- :cxx:`MueLu`: one V-cycle of the smoothed aggregation algebraic multigrid
+  of MueLu;
+- :cxx:`FROSch`: the two level overlapping Schwarz preconditioner of FROSch
+  (:code:`TwoLevelPreconditioner`: algebraic overlap, one layer by default,
+  coarse space of the interface partition of unity, the subdomains and the
+  coarse problem being solved by KLU2 by default), additive (the values of
+  the overlaps are added, :code:`Combine Values in Overlap` being
+  :code:`Full`, unless given in the sublist
+  :code:`AlgebraicOverlappingOperator`), hence symmetric, unlike the
+  restricted Schwarz method used by FROSch by default;
+- :cxx:`Amesos2Preconditioner`: the factorization of a direct solver of
+  Amesos2, applied once.
+
+The :cxx:`Parameters` option of each entry is the list of parameters of
+the solver of Trilinos (a :code:`Teuchos::ParameterList`): booleans,
+integers, reals and strings, a list of parameters being a sublist. For
+Amesos2, it is the content of the list :code:`Amesos2` of Amesos2 (the
+parameters common to the solvers, and a sublist per solver, such as
+:code:`KLU2`), which Amesos2 validates when the matrix is set. The names
+of the first level of the parameters of Belos, Ifpack2 and MueLu are
+checked when the solver is created (a misspelt parameter is refused);
+FROSch does not check its parameters:
+
+.. code-block:: cpp
+
+   problem.setLinearSolver(
+       ctx, "BelosSolver",
+       {{"Solver", "CG"},
+        {"RelativeTolerance", 1e-10},
+        {"Preconditioner",
+         Parameters{{"Name", "MueLu"},
+                    {"Options",
+                     Parameters{{"Parameters",
+                                 Parameters{{"smoother: type",
+                                             "CHEBYSHEV"}}}}}}}}) |
+       or_die;
+
+The options of mfem-mgis set the tolerance (:code:`Convergence
+Tolerance`), the maximum number of iterations (:code:`Maximum Iterations`)
+and the verbosity (:code:`Verbosity`) of Belos, the parameters of Belos
+overriding them. The solvers of Belos only have a relative tolerance: by
+default, the norm of the residual is compared to the one of the initial
+residual. The relative tolerance can be changed after the creation of the
+solver (it is then given to the adaptive tolerance of the Newton solver).
+The GMRES solvers keep 50 Krylov vectors (:code:`Num Blocks`, 300 by
+default in Belos), and are restarted as many times as the maximum number
+of iterations allows (:code:`Maximum Restarts`), unless these parameters
+are given (except the hybrid GMRES, which has none of them). A failure of a solver of Belos (for instance the loss of the
+positive definiteness detected by the conjugate gradient) is reported as a
+resolution which did not converge, its message being printed.
+
+The matrices of hypre are converted to the sparse matrices of Tpetra each
+time they are set (the preconditioners and the factorizations being then
+built again): the operators shall be assembled. When the unknowns have
+several components and are ordered by nodes, the unknowns of each process
+are seen by Trilinos ordered by vector dimension, the components of a
+node being contiguous, as MueLu expects: the rows and the columns of each
+process are permuted, and the vectors accordingly. MueLu aggregates the
+nodes (its parameter :code:`number of equations` is the number of
+components, unless it is given) and, when the number of components is the
+space dimension (2 or 3), its near null space is made of the rigid body
+modes of the finite element space, computed from the coordinates of its
+nodes; the rigid body modes are not used when another number of equations
+is given.
+
+MueLu solves directly, without multigrid, the systems smaller than its
+parameter :code:`coarse: max size` (2000 unknowns by default). The
+coordinates of the nodes are also given to MueLu (user data
+:code:`Coordinates`), for its options based on them, unless another number
+of equations is given. Unless they are given, mfem-mgis sets the
+parameters :code:`aggregation: deterministic` (reproducible aggregates,
+MueLu aggregating the nodes in a random order by default),
+:code:`verbosity` (:code:`none`, a silent setup) and, in the sublist
+:code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
+(:code:`SPGEMM_KK`: the products of sparse matrices of Kokkos Kernels,
+those of cuSPARSE, the default of Tpetra on CUDA, running out of memory on
+a GPU of 16 GB from a few hundred thousand unknowns). On a GPU, the
+default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a beam of
+421,443 unknowns, a resolution took 3.5 seconds, against 0.07 second with
+two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
+:code:`RELAXATION`, :code:`smoother: params` to :code:`{relaxation: type =
+Jacobi, relaxation: sweeps = 2, relaxation: damping factor = 0.6}`), for
+the same number of iterations; the setup of MueLu (1.2 seconds) then
+dominates.
+
+FROSch is given the number of components as number of degrees of freedom
+per node, and the space dimension (2 or 3). Its coarse space is built from
+the null space of the linear elasticity (computed by FROSch from the
+coordinates of the nodes) when the number of components is the space
+dimension, from the constants otherwise, unless its parameter
+:code:`Null Space Type` is given. The rows of the Dirichlet boundary
+conditions are not given to FROSch (an empty list is given, FROSch
+building its own list otherwise): with FROSch 17.2.1, the list of the rows
+whose entries are null except the diagonal one (built by
+:code:`FindOneEntryOnlyRowsGlobal` with a tolerance, the matrices of
+:code:`MFEM` keeping the eliminated entries) made its initialization hang
+on several processes with three unknowns per node, and did not change the
+number of iterations on the Laplace equation; its parameter
+:code:`DirichletBoundary Numerical Tolerance` is refused. The setup of
+FROSch is silent (:code:`Verbosity` set to :code:`None` in the sublists of
+the overlapping operator and of the coarse operator, unless given). With
+large subdomains, its default solver (KLU2) may be very slow: a solver of
+Amesos2 suited to the finite element matrices (Tacho, for instance) can be
+given in its sublists. FROSch does not support empty subdomains (it
+crashed when a process owned no unknown): the setup fails, on all the
+processes, when a process owns no unknown.
+
+A preconditioner of Trilinos given to :cxx:`BelosSolver` shares the matrix
+of the solver and is applied to the vectors of Tpetra; the preconditioners
+of the other libraries are applied to vectors of :code:`MFEM`, the vectors
+of Tpetra being copied, on the GPU when :code:`MFEM` and Tpetra compute
+there. The
+preconditioners of Trilinos may also be used by the Krylov solvers of
+:code:`MFEM`.
+
+Tpetra computes where the default node of Tpetra computes: on the GPU
+when Trilinos is built with CUDA or HIP, on the host otherwise. The
+matrices are converted on the host. The vectors of :code:`MFEM` are
+copied on the GPU when :code:`MFEM` computes on the GPU too, and from and
+to the host otherwise. Trilinos requires an initialized :code:`Kokkos`,
+which is initialized, if needed, when the first entry of Trilinos is
+built, on the GPU of the device of :code:`MFEM`, and finalized by
+:cxx:`finalize` before :code:`MPI` (see
+:doc:`../installation_guide/installation_guide`): the solvers of Trilinos,
+whose data are allocated by :code:`Kokkos`, shall be destroyed before.
+When Trilinos (and its :code:`Kokkos`) is built with OpenMP, the
+computations of the host use the number of threads given by
+:code:`OMP_NUM_THREADS`, which, with several processes per node, shall be
+set accordingly (one thread per process if the processes occupy all the
+cores).
 
 .. _strumpack_linear_solvers:
 

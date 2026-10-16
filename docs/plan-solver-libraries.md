@@ -50,9 +50,10 @@ are not applicable as is to the tangent operators of mfem-mgis: AMGF needs
 a filtered subspace (contact problems), LOR a high order bilinear form to
 refine, and the p-multigrid the operators of each level, which the
 behaviour integrators would have to assemble on coarser spaces. Phase 4
-in progress on 15/10/2026: environment `mmm-trilinos` (Trilinos 17.2.1
-with Tacho and FROSch, Kokkos 5.2.1), module of Trilinos written and
-reviewed, waiting for the build of the MFEM of this environment. Phase 5
+done on 16/10/2026: environment `mmm-trilinos` (Trilinos 17.2.1 with Tacho
+and FROSch, Kokkos 5.2.1), module of Trilinos built and tested on the host
+and on the GPU (Belos, Amesos2 with KLU2 and Tacho, Ifpack2, MueLu with the
+rigid body modes, FROSch). Phase 5
 started: benchmark `LinearSolversBenchmark` (patch `0231`) and
 `cases/measure-solvers.sh`; first pass without Trilinos
 (`results/solvers-cpu-2026-10-15`, `results/solvers-gpu-2026-10-15`). It

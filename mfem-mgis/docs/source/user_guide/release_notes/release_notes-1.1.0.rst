@@ -151,6 +151,19 @@ the rigid body modes are given to the preconditioners of PETSc (GAMG).
 They compute on the host, the matrices of hypre being copied without
 initializing the GPU. See :ref:`petsc_linear_solvers`.
 
+Linear solvers and preconditioners of Trilinos
+----------------------------------------------
+
+The Krylov solvers of Belos (:cxx:`BelosSolver`), the direct solvers of
+Amesos2 (:cxx:`Amesos2Solver`, :cxx:`Amesos2Preconditioner`), the
+preconditioners of Ifpack2 (:cxx:`Ifpack2`), the smoothed aggregation
+algebraic multigrid of MueLu (:cxx:`MueLu`, with the rigid body modes as
+near null space in mechanics) and the two level Schwarz preconditioner of
+FROSch (:cxx:`FROSch`) are available in parallel when mfem-mgis is
+built with Trilinos (CMake option :code:`enable-trilinos`). They compute
+on the GPU when Trilinos is built with CUDA or HIP. See
+:ref:`trilinos_linear_solvers`.
+
 Linear solvers and preconditioners of Ginkgo
 --------------------------------------------
 

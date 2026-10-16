@@ -1,0 +1,552 @@
+/*!
+ * \file   TrilinosSolversTest.cxx
+ * \brief  Test of the solvers and of the preconditioners of Trilinos built
+ * by the factories, in parallel (the generic test
+ * `LinearSolverFactoriesTest` solves the Laplace equation and the linear
+ * elasticity with their default options):
+ *
+ * - the direct solver of Amesos2 (KLU2) solves the Laplace equation and the
+ *   linear elasticity, the unknowns being ordered by nodes and by vector
+ *   dimension, up to the round-off errors: the matrices of hypre are
+ *   converted exactly, the unknowns ordered by nodes being permuted; Tacho
+ *   solves the linear elasticity, if Trilinos is built with it;
+ * - the Krylov solvers of Belos (CG, GMRES) converge, preconditioned by
+ *   Ifpack2 (Jacobi relaxation, Chebyshev polynomial, incomplete
+ *   factorization), and the algebraic multigrid of MueLu and the two level
+ *   Schwarz preconditioner of FROSch reduce the number of iterations
+ *   compared to the Jacobi relaxation;
+ * - on the linear elasticity, MueLu needs close numbers of iterations for
+ *   both orderings of the unknowns, and fewer iterations with the rigid
+ *   body modes than with an aggregation of the unknowns one by one, and
+ *   FROSch converges for both orderings;
+ * - the preconditioners of Trilinos precondition the Krylov solvers of
+ *   MFEM, and the preconditioners of mfem-mgis the Krylov solvers of Belos;
+ * - the options of mfem-mgis set the tolerance and the maximum number of
+ *   iterations, the parameters of Belos overriding them, and the relative
+ *   tolerance can be read and changed (see `getRelativeTolerance` and
+ *   `setRelativeTolerance`); a resolution stopped by the maximum number of
+ *   iterations is reported as not converged;
+ * - a second operator, the first one times two, is solved by the same
+ *   solver, and a system with a process owning no unknown is solved;
+ * - invalid parameters are refused.
+ * \date   15/10/2026
+ */
+
+#include <cmath>
+#include <algorithm>
+#include <string>
+#include <vector>
+#include <cstdlib>
+#include <iostream>
+#include <stdexcept>
+#include "mfem.hpp"
+#include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/LinearSolverFactory.hxx"
+#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+#include "LaplaceSystem.hxx"
+#include "ElasticitySystem.hxx"
+
+using mfem_mgis::tests::ElasticitySystem;
+using mfem_mgis::tests::LaplaceSystem;
+
+//! \brief number of failed checks
+static int failures = 0;
+//! \brief rank of the process
+static int rank = 0;
+
+static void check(const bool b, const std::string& msg) {
+  if (!b) {
+    std::cerr << "check failed: " << msg << '\n';
+    ++failures;
+  }
+}  // end of check
+
+//! \brief outcome of a resolution
+struct Resolution {
+  //! \brief if true, the resolution converged
+  bool converged = false;
+  //! \brief number of iterations
+  int iterations = 0;
+  //! \brief norm of the residual relative to the right hand side
+  double residual = 1;
+};
+
+/*!
+ * \return true if a resolution converged with a relative residual lower
+ * than the given bound
+ * \param[in] r: resolution
+ * \param[in] bound: bound of the relative residual
+ */
+static bool isSolved(const Resolution& r, const double bound = 1e-8) {
+  return r.converged && (r.residual < bound);
+}  // end of isSolved
+
+/*!
+ * \return true if a preconditioner reduces the number of iterations to
+ * less than two thirds of the one of another preconditioner
+ * \param[in] r: resolution with the preconditioner
+ * \param[in] r2: resolution with the other preconditioner
+ */
+static bool isFaster(const Resolution& r, const Resolution& r2) {
+  return (r.iterations > 0) && (3 * r.iterations < 2 * r2.iterations);
+}  // end of isFaster
+
+/*!
+ * \return the linear solver of the factory, throws on failure
+ * \param[in] s: system
+ * \param[in] name: name of the linear solver
+ * \param[in] parameters: parameters of the linear solver
+ */
+template <typename System>
+static mfem_mgis::LinearSolverHandler generate(
+    System& s,
+    const std::string& name,
+    const mfem_mgis::Parameters& parameters) {
+  using namespace mfem_mgis;
+  auto ctx = Context{};
+  auto ls = LinearSolverFactory<true>::getFactory().generate(
+      ctx, name, s.fespace, parameters);
+  if (isInvalid(ls)) {
+    throw std::runtime_error(name + ": " + ctx.getErrorMessage());
+  }
+  return ls;
+}  // end of generate
+
+/*!
+ * \return the error message of the generation of a linear solver which
+ * shall fail, or an empty string if the generation succeeds
+ * \param[in] s: system
+ * \param[in] name: name of the linear solver
+ * \param[in] parameters: parameters of the linear solver
+ */
+template <typename System>
+static std::string getGenerationError(System& s,
+                                      const std::string& name,
+                                      const mfem_mgis::Parameters& parameters) {
+  using namespace mfem_mgis;
+  auto ctx = Context{};
+  const auto ls = LinearSolverFactory<true>::getFactory().generate(
+      ctx, name, s.fespace, parameters);
+  return isInvalid(ls) ? ctx.getErrorMessage() : "";
+}  // end of getGenerationError
+
+/*!
+ * \return the resolution of a system by a linear solver
+ * \param[in] s: system
+ * \param[in] m: matrix of the system
+ * \param[in] ls: linear solver
+ * \param[in] name: name of the resolution, printed with its outcome
+ */
+template <typename System>
+static Resolution solve(System& s,
+                        const mfem::HypreParMatrix& m,
+                        mfem::Solver& ls,
+                        const std::string& name) {
+  using namespace mfem_mgis;
+  // vectors on the device, if any (the right hand side of the systems is
+  // not), so that the solvers of Trilinos receive the vectors of the GPU
+  auto b = mfem::Vector(s.B.Size());
+  b.UseDevice(true);
+  b = s.B;
+  auto x = mfem::Vector(s.B.Size());
+  x.UseDevice(true);
+  x = 0.;
+  ls.SetOperator(m);
+  ls.Mult(b, x);
+  auto r = Resolution{};
+  r.converged = hasConverged(ls);
+  r.iterations = getNumberOfIterationsAtConvergence(ls).value_or(0);
+  r.residual = s.getRelativeResidual(m, x);
+  if (rank == 0) {
+    std::cout << name << ": " << r.iterations << " iterations, residual "
+              << r.residual << (r.converged ? "" : " (not converged)") << '\n';
+  }
+  return r;
+}  // end of solve
+
+//! \return the resolution of a system by a linear solver
+template <typename System>
+static Resolution solve(System& s, mfem::Solver& ls, const std::string& name) {
+  return solve(s, s.A, ls, name);
+}  // end of solve
+
+/*!
+ * \return the parameters of a Krylov solver of Belos
+ * \param[in] solver: name of the Krylov solver of Belos
+ * \param[in] preconditioner: name of the preconditioner
+ * \param[in] options: options of the preconditioner
+ */
+static mfem_mgis::Parameters getBelosParameters(
+    const std::string& solver,
+    const std::string& preconditioner,
+    const mfem_mgis::Parameters& options = {}) {
+  using namespace mfem_mgis;
+  return Parameters{{"Solver", solver},
+                    {"RelativeTolerance", 1e-10},
+                    {"MaximumNumberOfIterations", 2000},
+                    {"Preconditioner", Parameters{{"Name", preconditioner},
+                                                  {"Options", options}}}};
+}  // end of getBelosParameters
+
+/*!
+ * \return the options of MueLu on the small systems of this test: MueLu
+ * solves directly the systems smaller than its parameter `coarse: max size`
+ * (2000 by default), which is lowered so that the multigrid has several
+ * levels
+ * \param[in] p: other parameters of MueLu
+ */
+static mfem_mgis::Parameters getMueLuOptions(mfem_mgis::Parameters p = {}) {
+  p.insert(mfem_mgis::may_throw, "coarse: max size", 20);
+  return mfem_mgis::Parameters{{"Parameters", p}};
+}  // end of getMueLuOptions
+
+/*!
+ * \brief checks the direct solvers of Amesos2
+ * \param[in] s: Laplace equation
+ * \param[in] e1: linear elasticity, unknowns ordered by nodes
+ * \param[in] e2: linear elasticity, unknowns ordered by vector dimension
+ */
+static void checkDirectSolvers(LaplaceSystem<true>& s,
+                               ElasticitySystem<true>& e1,
+                               ElasticitySystem<true>& e2) {
+  using namespace mfem_mgis;
+  auto ls = generate(s, "Amesos2Solver", {});
+  check(
+      isSolved(solve(s, *(ls.linear_solver), "Amesos2Solver, Laplace"), 1e-10),
+      "Amesos2Solver: resolution of the Laplace equation");
+  auto ls1 = generate(e1, "Amesos2Solver", {});
+  check(isSolved(solve(e1, *(ls1.linear_solver),
+                       "Amesos2Solver, elasticity, byNODES"),
+                 1e-10),
+        "Amesos2Solver: resolution of the linear elasticity (byNODES)");
+  auto ls2 = generate(e2, "Amesos2Solver", Parameters{{"Solver", "KLU2"}});
+  check(isSolved(solve(e2, *(ls2.linear_solver),
+                       "Amesos2Solver, elasticity, byVDIM"),
+                 1e-10),
+        "Amesos2Solver: resolution of the linear elasticity (byVDIM)");
+  // Tacho (Cholesky factorization, on the GPU when Tpetra computes there),
+  // if Trilinos is built with it
+  const auto tacho = Parameters{{"Solver", "Tacho"}};
+  if (getGenerationError(e1, "Amesos2Solver", tacho).empty()) {
+    auto ls3 = generate(e1, "Amesos2Solver", tacho);
+    check(isSolved(solve(e1, *(ls3.linear_solver),
+                         "Amesos2Solver, Tacho, elasticity, byNODES"),
+                   1e-10),
+          "Amesos2Solver: resolution of the linear elasticity by Tacho");
+  } else if (rank == 0) {
+    std::cout << "Amesos2Solver, Tacho: skipped (not available)\n";
+  }
+  // the factorization as preconditioner of the conjugate gradient of MFEM
+  auto cg = generate(
+      s, "CGSolver",
+      Parameters{
+          {"RelativeTolerance", 1e-10},
+          {"MaximumNumberOfIterations", 10},
+          {"Preconditioner", Parameters{{"Name", "Amesos2Preconditioner"}}}});
+  const auto r =
+      solve(s, *(cg.linear_solver), "CGSolver, Amesos2Preconditioner");
+  check(isSolved(r) && (r.iterations <= 2),
+        "CGSolver, Amesos2Preconditioner: resolution");
+}  // end of checkDirectSolvers
+
+/*!
+ * \brief checks the Krylov solvers of Belos and the preconditioners of
+ * Trilinos on the Laplace equation
+ * \param[in] s: system
+ */
+static void checkKrylovSolvers(LaplaceSystem<true>& s) {
+  using namespace mfem_mgis;
+  auto jacobi = generate(s, "BelosSolver", getBelosParameters("CG", "Ifpack2"));
+  const auto rj = solve(s, *(jacobi.linear_solver), "Belos CG, Ifpack2 Jacobi");
+  check(isSolved(rj), "Belos CG, Ifpack2 Jacobi: resolution");
+  auto chebyshev = generate(
+      s, "BelosSolver",
+      getBelosParameters("CG", "Ifpack2", Parameters{{"Type", "CHEBYSHEV"}}));
+  check(isSolved(solve(s, *(chebyshev.linear_solver),
+                       "Belos CG, Ifpack2 Chebyshev")),
+        "Belos CG, Ifpack2 Chebyshev: resolution");
+  auto ilu = generate(
+      s, "BelosSolver",
+      getBelosParameters("GMRES", "Ifpack2", Parameters{{"Type", "RILUK"}}));
+  check(isSolved(solve(s, *(ilu.linear_solver), "Belos GMRES, Ifpack2 RILUK")),
+        "Belos GMRES, Ifpack2 RILUK: resolution");
+  auto muelu = generate(s, "BelosSolver", getBelosParameters("CG", "MueLu"));
+  const auto rm = solve(s, *(muelu.linear_solver), "Belos CG, MueLu");
+  check(isSolved(rm) && isFaster(rm, rj), "Belos CG, MueLu: resolution");
+  auto frosch = generate(s, "BelosSolver", getBelosParameters("CG", "FROSch"));
+  const auto rf = solve(s, *(frosch.linear_solver), "Belos CG, FROSch");
+  // the iterations of the two level Schwarz method grow with the number of
+  // subdomains on this small system (20 against 25 for the Jacobi
+  // relaxation on three processes)
+  check(isSolved(rf) && (rf.iterations < rj.iterations),
+        "Belos CG, FROSch: resolution");
+  // a preconditioner of Trilinos with a Krylov solver of MFEM
+  auto cg =
+      generate(s, "CGSolver",
+               Parameters{{"RelativeTolerance", 1e-10},
+                          {"MaximumNumberOfIterations", 2000},
+                          {"Preconditioner", Parameters{{"Name", "MueLu"}}}});
+  const auto rcg = solve(s, *(cg.linear_solver), "CGSolver, MueLu");
+  check(isSolved(rcg) && isFaster(rcg, rj), "CGSolver, MueLu: resolution");
+  // a preconditioner of mfem-mgis with a Krylov solver of Belos
+  auto amg =
+      generate(s, "BelosSolver", getBelosParameters("CG", "HypreBoomerAMG"));
+  const auto ramg = solve(s, *(amg.linear_solver), "Belos CG, HypreBoomerAMG");
+  check(isSolved(ramg) && isFaster(ramg, rj),
+        "Belos CG, HypreBoomerAMG: resolution");
+  // default solver (GMRES) without preconditioner
+  auto gmres = generate(s, "BelosSolver",
+                        Parameters{{"RelativeTolerance", 1e-10},
+                                   {"MaximumNumberOfIterations", 2000}});
+  check(isSolved(solve(s, *(gmres.linear_solver), "Belos GMRES")),
+        "Belos GMRES: resolution");
+  // a second operator, the first one times two
+  auto a2 = mfem::HypreParMatrix(s.A);
+  a2 *= 2.;
+  check(isSolved(solve(s, a2, *(muelu.linear_solver), "Belos CG, MueLu, 2 A")),
+        "Belos CG, MueLu: resolution with a second operator");
+  check(isSolved(solve(s, *(muelu.linear_solver), "Belos CG, MueLu, A")),
+        "Belos CG, MueLu: resolution with the first operator");
+}  // end of checkKrylovSolvers
+
+/*!
+ * \brief checks the algebraic multigrid of MueLu on the linear elasticity
+ * \param[in] e1: unknowns ordered by nodes
+ * \param[in] e2: unknowns ordered by vector dimension
+ */
+static void checkElasticity(ElasticitySystem<true>& e1,
+                            ElasticitySystem<true>& e2) {
+  using namespace mfem_mgis;
+  auto m1 = generate(e1, "BelosSolver",
+                     getBelosParameters("CG", "MueLu", getMueLuOptions()));
+  const auto r1 = solve(e1, *(m1.linear_solver), "Belos CG, MueLu, byNODES");
+  auto m2 = generate(e2, "BelosSolver",
+                     getBelosParameters("CG", "MueLu", getMueLuOptions()));
+  const auto r2 = solve(e2, *(m2.linear_solver), "Belos CG, MueLu, byVDIM");
+  // several iterations: the multigrid is not a direct solver on this system
+  check(isSolved(r1) && isSolved(r2) && (r1.iterations > 1),
+        "Belos CG, MueLu: resolution of the linear elasticity");
+  // the matrices assembled by MFEM for both orderings differ by round-off
+  // errors (order of the sums), which may change a few aggregates: the
+  // numbers of iterations are only close
+  check(
+      std::abs(r1.iterations - r2.iterations) <= std::max(3, r2.iterations / 5),
+      "Belos CG, MueLu: the ordering of the unknowns changes the number "
+      "of iterations");
+  // aggregation of the unknowns one by one, without the rigid body modes
+  auto m3 =
+      generate(e2, "BelosSolver",
+               getBelosParameters(
+                   "CG", "MueLu",
+                   getMueLuOptions(Parameters{{"number of equations", 1}})));
+  const auto r3 =
+      solve(e2, *(m3.linear_solver), "Belos CG, MueLu, scalar aggregation");
+  check(isSolved(r3), "Belos CG, MueLu, scalar aggregation: resolution");
+  check(isFaster(r1, r3) && isFaster(r2, r3),
+        "Belos CG, MueLu: the rigid body modes do not reduce the number of "
+        "iterations");
+  // two level Schwarz preconditioner, with the null space of the linear
+  // elasticity
+  auto f1 = generate(e1, "BelosSolver", getBelosParameters("CG", "FROSch"));
+  check(isSolved(solve(e1, *(f1.linear_solver), "Belos CG, FROSch, byNODES")),
+        "Belos CG, FROSch: resolution of the linear elasticity (byNODES)");
+  auto f2 = generate(e2, "BelosSolver", getBelosParameters("CG", "FROSch"));
+  check(isSolved(solve(e2, *(f2.linear_solver), "Belos CG, FROSch, byVDIM")),
+        "Belos CG, FROSch: resolution of the linear elasticity (byVDIM)");
+  auto jacobi =
+      generate(e1, "BelosSolver", getBelosParameters("GMRES", "Ifpack2"));
+  check(isSolved(solve(e1, *(jacobi.linear_solver),
+                       "Belos GMRES, Ifpack2 Jacobi, byNODES")),
+        "Belos GMRES, Ifpack2 Jacobi: resolution of the linear elasticity");
+}  // end of checkElasticity
+
+/*!
+ * \brief checks the options of mfem-mgis and of Belos
+ * \param[in] s: system
+ */
+static void checkOptions(LaplaceSystem<true>& s) {
+  using namespace mfem_mgis;
+  const auto jacobi = Parameters{{"Name", "Ifpack2"}};
+  auto ls = generate(s, "BelosSolver",
+                     Parameters{{"Solver", "CG"},
+                                {"RelativeTolerance", 1e-6},
+                                {"AbsoluteTolerance", 0.},
+                                {"Preconditioner", jacobi}});
+  const auto rtol = getRelativeTolerance(*(ls.linear_solver));
+  check(rtol.has_value() && (std::abs(*rtol - 1e-6) < 1e-12),
+        "BelosSolver: relative tolerance");
+  const auto r = solve(s, *(ls.linear_solver), "Belos CG, tolerance 1e-6");
+  check(r.converged && (r.residual < 1e-5) && (r.residual > 1e-10),
+        "Belos CG, tolerance 1e-6: resolution");
+  check(setRelativeTolerance(*(ls.linear_solver), 1e-10) &&
+            (std::abs(getRelativeTolerance(*(ls.linear_solver)).value_or(0) -
+                      1e-10) < 1e-14),
+        "BelosSolver: change of the relative tolerance");
+  const auto r2 = solve(s, *(ls.linear_solver), "Belos CG, tolerance 1e-10");
+  check(isSolved(r2) && (r2.iterations > r.iterations),
+        "Belos CG, tolerance 1e-10: resolution");
+  // the parameters of Belos override the options of mfem-mgis
+  auto ls2 = generate(
+      s, "BelosSolver",
+      Parameters{{"Solver", "CG"},
+                 {"RelativeTolerance", 1e-10},
+                 {"Parameters", Parameters{{"Convergence Tolerance", 1e-4}}},
+                 {"Preconditioner", jacobi}});
+  check(std::abs(getRelativeTolerance(*(ls2.linear_solver)).value_or(0) -
+                 1e-4) < 1e-12,
+        "BelosSolver: relative tolerance given by the parameters of Belos");
+  // maximum number of iterations
+  auto ls3 = generate(s, "BelosSolver",
+                      Parameters{{"Solver", "CG"},
+                                 {"RelativeTolerance", 1e-10},
+                                 {"MaximumNumberOfIterations", 3},
+                                 {"Preconditioner", jacobi}});
+  const auto r3 = solve(s, *(ls3.linear_solver), "Belos CG, 3 iterations");
+  check((!r3.converged) && (r3.iterations == 3),
+        "Belos CG: resolution stopped by the maximum number of iterations");
+}  // end of checkOptions
+
+/*!
+ * \brief checks the resolution of a system with a process owning no
+ * unknown
+ * \param[in] s: system
+ */
+static void checkEmptyProcess(ElasticitySystem<true>& s) {
+  using namespace mfem_mgis;
+  auto direct = generate(s, "Amesos2Solver", {});
+  check(isSolved(solve(s, *(direct.linear_solver),
+                       "Amesos2Solver, process without unknowns"),
+                 1e-10),
+        "Amesos2Solver: resolution with a process owning no unknown");
+  auto muelu = generate(s, "BelosSolver",
+                        getBelosParameters("CG", "MueLu", getMueLuOptions()));
+  check(isSolved(solve(s, *(muelu.linear_solver),
+                       "Belos CG, MueLu, process without unknowns")),
+        "Belos CG, MueLu: resolution with a process owning no unknown");
+  auto ifpack2 =
+      generate(s, "BelosSolver", getBelosParameters("CG", "Ifpack2"));
+  check(isSolved(solve(s, *(ifpack2.linear_solver),
+                       "Belos CG, Ifpack2, process without unknowns")),
+        "Belos CG, Ifpack2: resolution with a process owning no unknown");
+  // FROSch does not support empty subdomains: refused by all the processes
+  // (in sequential, the only process owns all the unknowns)
+  auto size = 0;
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  auto frosch = generate(s, "BelosSolver", getBelosParameters("CG", "FROSch"));
+  if (size == 1) {
+    check(isSolved(solve(s, *(frosch.linear_solver), "Belos CG, FROSch")),
+          "Belos CG, FROSch: resolution of the small system");
+  } else {
+    auto refused = false;
+    try {
+      static_cast<void>(solve(s, *(frosch.linear_solver),
+                              "Belos CG, FROSch, process without unknowns"));
+    } catch (std::exception& e) {
+      refused = std::string{e.what()}.find("each process must own unknowns") !=
+                std::string::npos;
+    }
+    check(refused, "Belos CG, FROSch: process owning no unknown not refused");
+  }
+}  // end of checkEmptyProcess
+
+/*!
+ * \brief checks that invalid parameters are refused
+ * \param[in] s: system
+ */
+static void checkRefusals(LaplaceSystem<true>& s) {
+  using namespace mfem_mgis;
+  const auto refused = [&s](const std::string& name,
+                            const Parameters& parameters,
+                            const std::string& msg) {
+    const auto error = getGenerationError(s, name, parameters);
+    check(error.find(msg) != std::string::npos,
+          name + ": invalid parameters not refused ('" + error + "')");
+  };
+  refused("BelosSolver", Parameters{{"Solver", "NoSuchSolver"}},
+          "NoSuchSolver");
+  refused("BelosSolver", Parameters{{"AbsoluteTolerance", 1e-3}},
+          "only have a relative tolerance");
+  refused(
+      "BelosSolver",
+      Parameters{{"Parameters", Parameters{{"Orthogonalization",
+                                            std::vector<Parameter>{1, 2}}}}},
+      "invalid value of the parameter 'Orthogonalization'");
+  refused("Amesos2Solver", Parameters{{"Solver", "NoSuchSolver"}},
+          "not available");
+  refused("BelosSolver",
+          getBelosParameters(
+              "CG", "MueLu",
+              Parameters{{"Parameters", Parameters{{"coarse: max sise", 20}}}}),
+          "unknown parameter 'coarse: max sise'");
+  refused("BelosSolver",
+          getBelosParameters(
+              "CG", "Ifpack2",
+              Parameters{{"Parameters", Parameters{{"relaxation: sweep", 2}}}}),
+          "unknown parameter 'relaxation: sweep'");
+  refused("BelosSolver",
+          getBelosParameters(
+              "CG", "FROSch",
+              Parameters{{"Parameters",
+                          Parameters{{"DirichletBoundary Numerical Tolerance",
+                                      1e-12}}}}),
+          "DirichletBoundary Numerical Tolerance");
+  refused(
+      "BelosSolver",
+      Parameters{{"Preconditioner",
+                  Parameters{{"Name", "Ifpack2"},
+                             {"Options", Parameters{{"Type", "NoSuchType"}}}}}},
+      "Ifpack2");
+}  // end of checkRefusals
+
+int main(int argc, char** argv) {
+  using namespace mfem_mgis;
+  initialize(argc, argv);
+  auto args = mfem::OptionsParser(argc, argv);
+  declareDefaultOptions(args);
+  args.Parse();
+  if (!args.Good()) {
+    args.PrintUsage(std::cerr);
+    return EXIT_FAILURE;
+  }
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  auto mesh =
+      mfem::Mesh::MakeCartesian3D(16, 16, 16, mfem::Element::HEXAHEDRON);
+  auto beam = mfem::Mesh::MakeCartesian3D(12, 3, 3, mfem::Element::HEXAHEDRON,
+                                          4., 1., 1.);
+  auto fec = mfem::H1_FECollection(1, 3);
+  try {
+    auto s = LaplaceSystem<true>(mesh, fec);
+    auto e1 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byNODES);
+    auto e2 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byVDIM);
+    checkDirectSolvers(s, e1, e2);
+    checkKrylovSolvers(s);
+    checkElasticity(e1, e2);
+    checkOptions(s);
+    checkRefusals(s);
+    // a smaller mesh, whose elements are on the first process (two
+    // processes), or split between the first and the last processes (more
+    // processes): the other processes own no unknown
+    auto beam2 = mfem::Mesh::MakeCartesian3D(8, 2, 2, mfem::Element::HEXAHEDRON,
+                                             4., 1., 1.);
+    auto size = 0;
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    auto partitioning =
+        std::vector<int>(static_cast<std::size_t>(beam2.GetNE()), 0);
+    if (size > 2) {
+      for (auto i = partitioning.size() / 2; i != partitioning.size(); ++i) {
+        partitioning[i] = size - 1;
+      }
+    }
+    auto e3 = ElasticitySystem<true>(beam2, fec, mfem::Ordering::byNODES,
+                                     partitioning.data());
+    checkEmptyProcess(e3);
+  } catch (std::exception& e) {
+    std::cerr << "error: " << e.what() << '\n';
+    return EXIT_FAILURE;
+  }
+  if (rank == 0) {
+    std::cout << (failures == 0 ? "success" : "failure") << '\n';
+  }
+  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+}  // end of main

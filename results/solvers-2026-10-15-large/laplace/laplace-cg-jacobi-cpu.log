@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=laplace/cg-jacobi/cpu problem=laplace unknowns=2146689 processes=8 solver=CGSolver setup=0.00572468 first=3.47387 solve=3.47721 resetup=0.0060358 refirst=3.48062 iterations=183 residual=8.26807e-09 residual2=8.26807e-09 converged=1

@@ -56,6 +56,13 @@ namespace mfem_mgis::internals {
       return "mfem-mgis is not compiled with AmgX (option enable-amgx)";
     }
 #endif /* MFEM_MGIS_HAVE_AMGX */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_TRILINOS))
+    if ((n == "BelosSolver") || (n == "Amesos2Solver") || (n == "Ifpack2") ||
+        (n == "MueLu") || (n == "FROSch") || (n == "Amesos2Preconditioner")) {
+      return "mfem-mgis is not compiled with Trilinos (option "
+             "enable-trilinos, in parallel)";
+    }
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_TRILINOS)) */
 #if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS))
     if ((n == "MUMPSSolver") || (n == "MUMPSPreconditioner")) {
       return "MFEM is not compiled with MUMPS";
@@ -221,6 +228,9 @@ namespace mfem_mgis::internals {
 #ifdef MFEM_USE_MKL_CPARDISO
       declareMKLClusterSparseLinearSolvers(f);
 #endif /* MFEM_USE_MKL_CPARDISO */
+#ifdef MFEM_MGIS_HAVE_TRILINOS
+      declareTrilinosLinearSolvers(f);
+#endif /* MFEM_MGIS_HAVE_TRILINOS */
     }
 #endif /* MFEM_USE_MPI */
 #ifdef MFEM_USE_MKL_PARDISO
@@ -260,6 +270,9 @@ namespace mfem_mgis::internals {
 #ifdef MFEM_USE_PETSC
       declarePETScPreconditioners(f);
 #endif /* MFEM_USE_PETSC */
+#ifdef MFEM_MGIS_HAVE_TRILINOS
+      declareTrilinosPreconditioners(f);
+#endif /* MFEM_MGIS_HAVE_TRILINOS */
     }
 #endif /* MFEM_USE_MPI */
   }  // end of declarePreconditioners

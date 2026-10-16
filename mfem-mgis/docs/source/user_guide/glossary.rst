@@ -837,6 +837,29 @@ Algebraic multigrid of AmgX (AmgX)
 - Dependencies: ``mfem-mgis`` built with the CMake option ``enable-amgx``.
 - Options: see :ref:`mfem_mgis_batch_computations_amgx`.
 
+Algebraic multigrid of MueLu (MueLu)
+------------------------------------
+
+- Preconditioner name: ``MueLu``, one V-cycle of the smoothed aggregation
+  algebraic multigrid of ``Trilinos``, with the rigid body modes as near
+  null space when the number of components of the unknowns is the space
+  dimension. The other entries of ``Trilinos`` are the linear solvers
+  ``BelosSolver`` and ``Amesos2Solver``, and the preconditioners
+  ``Ifpack2``, ``FROSch`` and ``Amesos2Preconditioner``.
+- Dependencies: ``mfem-mgis`` built with the CMake option
+  ``enable-trilinos``, in parallel.
+- Options: ``Parameters``, the parameters of ``MueLu`` (see
+  :ref:`trilinos_linear_solvers`).
+
+.. code-block:: cpp
+
+    problem.setLinearSolver(
+        ctx, "BelosSolver",
+        {{"Solver", "CG"},
+         {"RelativeTolerance", 1e-10},
+         {"Preconditioner", mfem_mgis::Parameters{{"Name", "MueLu"}}}}) |
+        or_die;
+
 Inexact Newton method (AdaptiveLinearSolverTolerance)
 -----------------------------------------------------
 

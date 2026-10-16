@@ -27,6 +27,13 @@ namespace mfem_mgis::internals {
   void finalizeKokkos();
   //! \return true if Kokkos is initialized and not finalized
   [[nodiscard]] bool isKokkosInitialized() noexcept;
+  /*!
+   * \brief initializes Kokkos if it is not initialized, on the GPU of the
+   * device of MFEM, for the solvers of Trilinos: Kokkos is then finalized
+   * by `mfem_mgis::finalize`, before MPI (implemented in `Config.cxx`)
+   * \throw std::runtime_error if Kokkos is finalized
+   */
+  void initializeKokkosOnDemand();
 
 }  // end of namespace mfem_mgis::internals
 

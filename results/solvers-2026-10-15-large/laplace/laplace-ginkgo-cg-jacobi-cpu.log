@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=laplace/ginkgo-cg-jacobi/cpu problem=laplace unknowns=2146689 processes=8 solver=GinkgoCG setup=0.217011 first=8.70633 solve=8.69178 resetup=0.210859 refirst=8.69374 iterations=280 residual=9.1156e-09 residual2=9.1156e-09 converged=1

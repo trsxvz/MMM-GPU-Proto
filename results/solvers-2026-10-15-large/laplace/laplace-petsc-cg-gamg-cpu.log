@@ -1,0 +1,2 @@
+Warning: program compiled against libxml 213 using older 209
+label=laplace/petsc-cg-gamg/cpu problem=laplace unknowns=2146689 processes=8 solver=PETScLinearSolver setup=0.0752493 first=2.84219 solve=0.867462 resetup=0.0734673 refirst=2.8401 iterations=9 residual=3.56745e-07 residual2=3.56745e-07 converged=1

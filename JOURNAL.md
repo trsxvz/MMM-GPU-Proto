@@ -5206,3 +5206,46 @@ formula as MTest). All the others give the Newton solution to within
   compiled to PTX code only (no ptxas, which needs 22 GB): procedure in
   [deps/spack/README.md](deps/spack/README.md).
 
+### 2026-10-16, Trilinos (phase 4)
+
+- The MFEM of `mmm-trilinos` is installed (Trilinos 17.2.1 with Kokkos
+  5.2.1, CUDA): `fem/lor/lor_batched.cpp` compiled to PTX code only, ptxas
+  needing 22 GB for it.
+- The module of Trilinos of mfem-mgis builds and its tests pass, sequential
+  and on two processes, on the host and on the GPU (Tpetra on CUDA):
+  `BelosSolver` (Krylov solvers of Belos), `Amesos2Solver` and
+  `Amesos2Preconditioner` (KLU2, Tacho), and the preconditioners `Ifpack2`,
+  `MueLu` (with the rigid body modes: 21 iterations against 37 with an
+  aggregation of the unknowns one by one) and `FROSch`.
+- Found while testing: FROSch 17.2.1 hangs at its initialization on several
+  processes with three unknowns per node when it is given the rows of the
+  Dirichlet boundary conditions (list of `FindOneEntryOnlyRowsGlobal`):
+  they are no longer given (no effect on the Laplace equation). The
+  aggregation of MueLu is random by default: deterministic in mfem-mgis
+  (`aggregation: deterministic`), as its setup is silent. The degree 1 of
+  the Chebyshev polynomial of Ifpack2 (its default) is a damped Jacobi
+  relaxation: the campaign uses the degree 3.
+- Independent review of the module (nothing rated 3 or more) and its
+  remarks handled (patch 0245): FROSch receives an empty list of Dirichlet
+  rows and refuses its tolerance, FROSch is refused when a process owns no
+  unknown (it crashed, found by the new test on three processes with an
+  empty process in the middle), names of the parameters of Ifpack2 and
+  MueLu checked at the creation, square matrices checked, Trilinos must
+  use the Kokkos of mfem-mgis (CMake).
+- Measurements (`results/solvers-2026-10-16-trilinos`,
+  `results/solvers-2026-10-15-large/muelu`): Trilinos built with CUDA
+  computes on the GPU in all the runs. MueLu ran out of memory on the GPU
+  at 421,443 unknowns with the products of sparse matrices of cuSPARSE:
+  those of Kokkos Kernels are the default of mfem-mgis. Its default
+  smoother (symmetric Gauss-Seidel) is slow on the GPU: with two sweeps
+  of a Jacobi relaxation, a resolution takes 0.07 second instead of 3.5,
+  the setup (1.2 seconds) then dominating. Tacho factorizes 2.4 times
+  slower than cuDSS. FROSch with KLU2 for its subdomains takes minutes on
+  3D problems.
+- Large Laplace systems (`results/solvers-2026-10-15-large/laplace`,
+  2,146,689 unknowns): on the GPU, the conjugate gradient with the Jacobi
+  preconditioner is the fastest (0.18 second per operator), 10 times
+  faster than the best on 8 cores (BoomerAMG, 1.93 seconds).
+- [docs/solver-recommendations.md](docs/solver-recommendations.md)
+  completed with Trilinos and the large Laplace systems.
+
