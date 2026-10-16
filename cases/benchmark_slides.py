@@ -121,7 +121,8 @@ CASES = {
 # linear solvers, given by the linear solver override of mfem-mgis (name
 # and options, in the syntax of the data of TFEL), {tolerance} being
 # replaced by the relative tolerance of the case, {hypre}, {belos} and
-# {petsc} by the conjugate gradient or GMRES of each library
+# {petsc} by the conjugate gradient or GMRES of each library, and {amgx}
+# by the solver of AmgX
 SOLVERS = {
     # Krylov solvers of hypre preconditioned by BoomerAMG
     "hypre-amg": '{{Name: "{hypre}", Options: {{Tolerance: {tolerance}, '
@@ -139,9 +140,9 @@ SOLVERS = {
                    '"RELAXATION", "smoother: params": {{"relaxation: type": '
                    '"Jacobi", "relaxation: sweeps": 2, "relaxation: damping '
                    'factor": 0.6}}}}}}}}}}}}',
-    # AmgX (aggregation multigrid of NVIDIA, its own Krylov solver)
-    "amgx": '{{Name: "AmgX", Options: {{RelativeTolerance: {tolerance}, '
-            'MaximumNumberOfIterations: 5000}}}}',
+    # AmgX: its conjugate gradient preconditioned by its multigrid, or the
+    # GMRES solver of MFEM preconditioned by one cycle of this multigrid
+    "amgx": '{amgx}',
     # PETSc, preconditioned by its algebraic multigrid
     "petsc-gamg": '{{Name: "PETScLinearSolver", Options: {{Options: '
                   '{{ksp_type: "{petsc}", pc_type: "gamg", ksp_rtol: '
@@ -175,6 +176,17 @@ FIELDS = ["date", "case", "size", "side", "solver", "non_linear",
           "processes", "repeat", "status", "seconds", "command"]
 
 
+def amgx(case):
+    """the solver of AmgX of a case (`AmgX` alone is one cycle of its
+    multigrid, without convergence criteria)"""
+    if case.symmetric:
+        return ('{Name: "AmgXPCG", Options: {RelativeTolerance: '
+                + repr(case.tolerance) + ', MaximumNumberOfIterations: 5000}}')
+    return ('{Name: "GMRESSolver", Options: {RelativeTolerance: '
+            + repr(case.tolerance) + ', MaximumNumberOfIterations: 5000, '
+            'Preconditioner: {Name: "AmgX"}}}')
+
+
 def override(case, solver):
     """the linear solver override of a case"""
     template = SOLVERS[solver]
@@ -182,7 +194,8 @@ def override(case, solver):
         tolerance=repr(case.tolerance),
         hypre="HyprePCG" if case.symmetric else "HypreGMRES",
         belos="CG" if case.symmetric else "GMRES",
-        petsc="cg" if case.symmetric else "gmres")
+        petsc="cg" if case.symmetric else "gmres",
+        amgx=amgx(case))
 
 
 def non_linear_override(case, solver, non_linear):
