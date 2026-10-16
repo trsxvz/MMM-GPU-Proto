@@ -37,9 +37,10 @@ namespace mfem_mgis::trilinos {
 
   /*!
    * \brief view of a distributed square matrix in the format of hypre, on
-   * the host: the diagonal block of the process, whose columns are the local
-   * indices of the rows of the process, and the off-diagonal block, whose
-   * columns are indices in `offd_global_columns`
+   * the host or on the GPU (see `device`): the diagonal block of the
+   * process, whose columns are the local indices of the rows of the
+   * process, and the off-diagonal block, whose columns are indices in
+   * `offd_global_columns`
    */
   struct DistributedMatrixView {
     //! \brief communicator
@@ -288,8 +289,8 @@ namespace mfem_mgis::trilinos {
   /*!
    * \return true if Trilinos is built for a GPU (default node of Tpetra
    * whose execution space can't access the memory of the host). Tpetra is
-   * then also used on the host when it is built for a node of the host
-   * (serial or OpenMP).
+   * then also used on the host when it is instantiated for its serial node
+   * (see `hasHostNode`).
    */
   [[nodiscard]] bool hasGPUNode() noexcept;
   /*!

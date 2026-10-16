@@ -47,6 +47,7 @@
 #include "MueLu_MasterList.hpp"
 #include "FROSch_TpetraPreconditioner_def.hpp"
 #include "Tpetra_Details_DefaultTypes.hpp"
+#include "KokkosSparse_SortCrs.hpp"
 #include "TrilinosBackend.hxx"
 
 // Tpetra computing on a GPU by default, and instantiated for the serial
@@ -408,15 +409,13 @@ namespace mfem_mgis::trilinos {
                 }
               }
             });
-        // entries of the rows, sorted by insertion (the rows of the finite
-        // element matrices are short)
+        // entries of the rows, then sorted by Kokkos Kernels
         Kokkos::parallel_for(
             "mfem_mgis::trilinos::TpetraMatrix::entries",
             Kokkos::RangePolicy<ExecutionSpace>(0, n),
             KOKKOS_LAMBDA(const int r) {
               const auto i = source(r);
-              const auto b = offsets(r);
-              auto k = b;
+              auto k = offsets(r);
               for (auto j = diag_offsets(i); j != diag_offsets(i + 1); ++j) {
                 const auto c = diag_columns(j);
                 entries(k) = static_cast<LO>(permuted ? p(c) : c);
@@ -430,19 +429,9 @@ namespace mfem_mgis::trilinos {
                   ++k;
                 }
               }
-              for (auto l = b + 1; l < k; ++l) {
-                const auto c = entries(l);
-                const auto v = values(l);
-                auto q = l;
-                while ((q > b) && (entries(q - 1) > c)) {
-                  entries(q) = entries(q - 1);
-                  values(q) = values(q - 1);
-                  --q;
-                }
-                entries(q) = c;
-                values(q) = v;
-              }
             });
+        KokkosSparse::sort_crs_matrix(ExecutionSpace{}, offsets, entries,
+                                      values, static_cast<LO>(n + no));
         this->matrix = Teuchos::rcp(
             new CrsMatrix(this->row_map, column_map, offsets, entries, values));
         this->matrix->fillComplete(this->row_map, this->row_map);
@@ -657,7 +646,12 @@ namespace mfem_mgis::trilinos {
        * \param[in, out] x: result
        */
       virtual void applyTpetraOperator(const MV& b, MV& x) const {
-        this->getTpetraOperator()->apply(b, x);
+        const auto op = this->getTpetraOperator();
+        if (op.is_null()) {
+          // for instance, a preconditioner whose setup failed
+          throw std::runtime_error("Trilinos: the operator is not set up");
+        }
+        op->apply(b, x);
       }
 
      protected:
@@ -931,7 +925,7 @@ namespace mfem_mgis::trilinos {
           }
         }
         if (this->simplified) {
-          setDefaultParameters(p);
+          setDefaultParameters(p, m.communicator);
         }
         // coordinates of the nodes, used by some options of MueLu (dropping
         // based on the distances, repartitioning), when the nodes of MueLu are
@@ -965,23 +959,47 @@ namespace mfem_mgis::trilinos {
                   (p.get<std::string>(syntax) == "ml")));
       }  // end of isSimplifiedSyntax
       /*!
+       * \return true if a GPU is shared by several processes of a node, on
+       * all the processes
+       * \param[in] comm: communicator
+       */
+      static bool isGPUShared(const MPI_Comm comm) {
+        auto node = MPI_Comm{};
+        MPI_Comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL,
+                            &node);
+        auto processes = 0;
+        MPI_Comm_size(node, &processes);
+        MPI_Comm_free(&node);
+        auto shared =
+            static_cast<int>(processes > std::max(Kokkos::num_devices(), 1));
+        MPI_Allreduce(MPI_IN_PLACE, &shared, 1, MPI_INT, MPI_LOR, comm);
+        return shared != 0;
+      }  // end of isGPUShared
+      /*!
        * \brief set the default parameters of mfem-mgis, unless given, in the
        * simplified syntax (the other syntaxes ignore them)
        * \param[in, out] p: parameters
        */
-      static void setDefaultParameters(Teuchos::ParameterList& p) {
+      static void setDefaultParameters(Teuchos::ParameterList& p,
+                                       const MPI_Comm comm) {
 #ifdef KOKKOS_ENABLE_CUDA
         // products of sparse matrices by the algorithm of Kokkos Kernels on
         // CUDA: the default one (cuSPARSE) ran out of memory on a GPU of 16 GB
-        // from 421,443 unknowns of linear elasticity. Tpetra also reads this
-        // parameter on the host.
+        // from 421,443 unknowns of linear elasticity. Kokkos Kernels reserves
+        // up to half the free memory of the GPU for each product
+        // (KokkosSparse_spgemm_impl.hpp): several processes sharing a GPU ran
+        // out of memory, and keep the default algorithm. Tpetra also reads
+        // this parameter on the host.
         if constexpr (std::is_same_v<typename Node::execution_space,
                                      Kokkos::Cuda>) {
           auto& products = p.sublist("matrixmatrix: kernel params");
-          if (!products.isParameter("cuda: algorithm")) {
+          if ((!products.isParameter("cuda: algorithm")) &&
+              (!isGPUShared(comm))) {
             products.set("cuda: algorithm", "SPGEMM_KK");
           }
         }
+#else  /* KOKKOS_ENABLE_CUDA */
+        static_cast<void>(comm);
 #endif /* KOKKOS_ENABLE_CUDA */
         // reproducible aggregates (MueLu aggregates the nodes in a random
         // order by default), and silent setup
@@ -1481,10 +1499,11 @@ namespace mfem_mgis::trilinos {
         }
         const auto outer = this->parameters->get<std::string>(n);
         if (outer.empty()) {
-          if (settings.relative_tolerance.has_value()) {
+          if ((settings.relative_tolerance.has_value()) ||
+              (settings.maximum_number_of_iterations.has_value())) {
             throw std::runtime_error(
                 "the hybrid GMRES without outer solver has no relative "
-                "tolerance");
+                "tolerance nor maximum number of iterations");
           }
           return;
         }

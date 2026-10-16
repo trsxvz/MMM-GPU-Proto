@@ -5308,3 +5308,27 @@ formula as MTest). All the others give the Newton solution to within
   becomes the fastest preconditioner measured on the GPU per operator
   (0.24 seconds against 0.33 for BoomerAMG on the elasticity,
   `results/solvers-2026-10-15-large/gpu-conversion`).
+- Trilinos on the CPU (8 processes, serial node of Tpetra): MueLu is the
+  fastest configuration measured on 8 cores at 421,443 unknowns (1.29
+  seconds per operator on the elasticity, against 1.76 for GAMG and 3.82
+  for BoomerAMG; 2.12 with the inclusions; 1.55 on the Laplace equation of
+  2,146,689 unknowns, against 1.93 for BoomerAMG), stopped on the
+  preconditioned residual (`results/solvers-2026-10-15-large/trilinos-cpu`).
+  At 56,355 unknowns, it is as fast as GAMG
+  (`results/solvers-2026-10-16-trilinos-cpu`). FROSch with Tacho: 4.8
+  seconds per operator on the beam, not competitive.
+- Options of MueLu on the GPU (`cases/measure-muelu-options.sh`,
+  `results/solvers-2026-10-15-large/muelu-tuning`): the setup does not
+  change with the usual options; the Chebyshev smoother needs 30
+  iterations of the power method to converge on the homogeneous beam.
+- Fifth review (nothing rated 3 or more; fixed in mfem-mgis 6c64d642c4):
+  the rows of the converted matrices are sorted by Kokkos Kernels (the
+  conversion takes 0.023 seconds instead of 0.064 at 421,443 unknowns),
+  the Kokkos of Trilinos is compared by version and configuration. The
+  test of Trilinos on three processes sharing the GPU ran out of memory
+  randomly: hypre of `mmm-trilinos` is built with Umpire, whose default
+  pool takes 4 GiB of the GPU (and 512 MiB) per process at its
+  initialization (profile of the allocations by Nsight Systems), and
+  Kokkos Kernels reserves up to half the free memory for each product of
+  sparse matrices: `SPGEMM_KK` is now only selected when each GPU serves
+  one process (4 runs out of 4 passed after this change).

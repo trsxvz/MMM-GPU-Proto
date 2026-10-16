@@ -698,10 +698,10 @@ parameters common to the solvers, and a sublist per solver, such as
 :code:`KLU2`), which Amesos2 validates when the matrix is set. The names
 of the first level of the parameters of Belos (and those of the outer
 solver of the hybrid GMRES) are checked when the solver is created, which
-Belos only does when they
-are given again (a change of the tolerance): a misspelt parameter is
-refused, except by LSQR and the native solvers of Tpetra
-(:cxx:`TPETRA GMRES`...), which ignore the unknown parameters. The
+most solvers of Belos only do when they are given again (a change of the
+tolerance; GCRODR and MINRES check them at once): a misspelt parameter is
+refused, except by LSQR and the native solvers of Tpetra (:cxx:`TPETRA
+GMRES`...), which ignore the unknown parameters. The
 parameters of Ifpack2 are given, when the solver is created, to a
 preconditioner of the chosen type built without matrix: the relaxation
 (:cxx:`RELAXATION`) refuses a misspelt parameter, the other preconditioners
@@ -746,25 +746,23 @@ Newton solver).
 The GMRES solvers keep 50 Krylov vectors (:code:`Num Blocks`, 300 by
 default in most GMRES solvers of Belos), and are restarted as many times
 as the maximum number of iterations allows (:code:`Maximum Restarts`),
-unless these parameters are given. The hybrid GMRES of Belos
-(:cxx:`HYBRID BLOCK GMRES`, or its aliases :cxx:`GMRESPOLY` and
-:cxx:`SEED GMRES`, a GMRES polynomial used as preconditioner) iterates
-with an outer solver (:code:`Outer Solver`,
-:code:`Block GMRES` by default, among the solvers of the generic factory
-of Belos), whose parameters (the sublist :code:`Outer Solver Params`)
-receive the tolerance, the maximum number of iterations, the verbosity
-and the parameters of the restarted GMRES. With an empty name of outer
-solver, the polynomial is applied alone, without tolerance nor maximum
-number of iterations; with a null degree (:code:`Maximum Degree`), the
-outer solver is applied alone, and is built by the factory of Belos for
-Tpetra. The solvers of Belos are built again when the matrix changes
-(the hybrid GMRES then builds its polynomial again, and PCPG, which keeps
-a seed space only valid for the same matrix, forgets it), except GCRODR,
-which keeps its recycled subspace for the matrices of the same rows. A
-failure of a solver of
-Belos (for instance the loss of the positive definiteness detected by the
-conjugate gradient) is reported as a resolution which did not converge,
-its message being printed.
+unless these parameters are given. The hybrid GMRES of Belos (:cxx:`HYBRID
+BLOCK GMRES`, or its aliases :cxx:`GMRESPOLY` and :cxx:`SEED GMRES`, a
+GMRES polynomial used as preconditioner) iterates with an outer solver
+(:code:`Outer Solver`, :code:`Block GMRES` by default, among the solvers
+of the generic factory of Belos), whose parameters (the sublist
+:code:`Outer Solver Params`) receive the tolerance, the maximum number of
+iterations, the verbosity and the parameters of the restarted GMRES. With
+an empty name of outer solver, the polynomial is applied alone: a
+tolerance or a maximum number of iterations is then refused. With a null
+degree (:code:`Maximum Degree`), the outer solver is applied alone. The
+solvers of Belos are built again when the matrix changes (the hybrid
+GMRES then builds its polynomial again, and PCPG, which keeps a seed space
+only valid for the same matrix, forgets it), except GCRODR, which keeps
+its recycled subspace for the matrices of the same rows. A failure of a
+solver of Belos (for instance the loss of the positive definiteness
+detected by the conjugate gradient) is reported as a resolution which did
+not converge, its message being printed.
 
 The matrices of hypre are converted to the sparse matrices of Tpetra each
 time they are set (the preconditioners and the factorizations being then
@@ -791,11 +789,15 @@ of equations is given. Unless they are given, mfem-mgis sets, in the
 simplified syntax of MueLu, the parameters :code:`number of equations`
 (see above), :code:`aggregation: deterministic` (reproducible aggregates,
 MueLu aggregating the nodes in a random order by default),
-:code:`verbosity` (:code:`none`, a silent setup) and, on CUDA, in the
-sublist :code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
-(:code:`SPGEMM_KK`: the products of sparse matrices of Kokkos Kernels,
-those of cuSPARSE, the default of Tpetra on CUDA, running out of memory on
-a GPU of 16 GB from a few hundred thousand unknowns). On a GPU, the
+:code:`verbosity` (:code:`none`, a silent setup) and, on CUDA, when each
+GPU of the node serves one process, in the sublist :code:`matrixmatrix:
+kernel params`, :code:`cuda: algorithm` (:code:`SPGEMM_KK`: the products
+of sparse matrices of Kokkos Kernels, those of cuSPARSE, the default of
+Tpetra on CUDA, running out of memory on a GPU of 16 GB from a few hundred
+thousand unknowns). Kokkos Kernels reserves up to half the free memory of
+the GPU for each product: several processes sharing a GPU (more processes
+on the node than GPUs seen by :code:`Kokkos`) ran out of memory, and keep
+the algorithm of cuSPARSE. On a GPU, the
 default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a beam of
 421,443 unknowns, a resolution took 3.8 seconds, against 0.071 seconds
 with two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
@@ -854,25 +856,24 @@ The solvers of Trilinos compute where :code:`MFEM` computes. When
 computes with its default node, on the GPU. Otherwise, Tpetra computes on
 the host with its serial node (each process of :code:`MPI` computing on
 one core); when Tpetra is not instantiated for its serial node, the
-solvers compute on
-the GPU even when :code:`MFEM` computes on the host. FROSch and the
-factorization of Tacho always compute with the default node of Tpetra, on
-the GPU when Trilinos is built for one (FROSch 17.2.1 runs some loops in
-the default execution space of :code:`Kokkos`, as Tacho, whatever the
-node). :cxx:`BelosSolver` computes at the same place as its
-preconditioner of Trilinos. Some options of MueLu may not be available on
-the host in this case (the distance Laplacian with weights of MueLu 17.2.1
-allocates its weights in the default memory space). The matrices are
-converted where Tpetra computes, by kernels of :code:`Kokkos`, from the
-arrays of hypre on the GPU when hypre computes there. The vectors of
-:code:`MFEM` are copied on the GPU when :code:`MFEM` and Tpetra compute
-on the GPU, and from and to the host otherwise. Trilinos requires an
-initialized :code:`Kokkos`,
-which is initialized, if needed, when the first entry of Trilinos is
-built, on the GPU of the device of :code:`MFEM`, and finalized by
-:cxx:`finalize` before :code:`MPI` (see
-:doc:`../installation_guide/installation_guide`): the solvers of Trilinos,
-whose data are allocated by :code:`Kokkos`, shall be destroyed before.
+solvers compute on the GPU even when :code:`MFEM` computes on the host.
+FROSch and the factorization of Tacho always compute with the default
+node of Tpetra, on the GPU when Trilinos is built for one (FROSch 17.2.1
+runs some loops in the default execution space of :code:`Kokkos`, as
+Tacho, whatever the node). :cxx:`BelosSolver` computes at the same place
+as its preconditioner of Trilinos. Some options of MueLu crash on the
+host in this case (the distance Laplacian with weights of MueLu 17.2.1
+allocates its weights in the default memory space, on the GPU). The
+matrices are converted where Tpetra computes, by kernels of
+:code:`Kokkos`, from the arrays of hypre on the GPU when hypre computes
+there. The vectors of :code:`MFEM` are copied on the GPU when
+:code:`MFEM` and Tpetra compute on the GPU, and from and to the host
+otherwise. Trilinos requires an initialized :code:`Kokkos`, which is
+initialized, if needed, when the first entry of Trilinos is built, on the
+GPU of the device of :code:`MFEM`, and finalized by :cxx:`finalize`
+before :code:`MPI` (see :doc:`../installation_guide/installation_guide`):
+the solvers of Trilinos, whose data are allocated by :code:`Kokkos`,
+shall be destroyed before.
 When Trilinos is built without GPU and its default node is the OpenMP
 node, the computations use the number of threads given by
 :code:`OMP_NUM_THREADS`, which, with several processes per node, shall be

@@ -406,12 +406,17 @@ Smoothed aggregation with rigid body modes on GPU through Kokkos. No MFEM
 interface: heavy integration. Interest 3, to keep in mind as a
 comparison point.
 
-State on 15/10/2026: module of Trilinos written in mfem-mgis (MueLu with
-the rigid body modes, FROSch, Ifpack2, Belos, Amesos2 with Tacho), in a
-shared library compiled by the compiler of Kokkos, the unknowns ordered by
-nodes being permuted for MueLu; Trilinos 17.2.1 built with CUDA
-(environment `mmm-trilinos`); not yet built in mfem-mgis (see
-[plan-solver-libraries.md](plan-solver-libraries.md)).
+State on 16/10/2026: module of Trilinos in mfem-mgis (MueLu with the
+rigid body modes, FROSch, Ifpack2, Belos, Amesos2 with Tacho), in a shared
+library compiled by the compiler of Kokkos, the unknowns ordered by nodes
+being permuted for MueLu; Trilinos 17.2.1 built with CUDA (environment
+`mmm-trilinos`). The solvers compute where MFEM computes (serial node of
+Tpetra on the host), the matrices of hypre being converted on the GPU by
+kernels of Kokkos. With a Jacobi smoother and its hierarchy reused between
+operators (`reuse: type` set to `RP`), MueLu is the fastest preconditioner
+measured on the GPU per operator: 0.20 to 0.24 seconds on the beam of
+421,443 unknowns, against 0.33 for BoomerAMG
+([recommendations](solver-recommendations.md)).
 
 ## Mixed precision
 

@@ -39,6 +39,12 @@ computes, with the serial node of Tpetra on the host, except FROSch (see
 
 ### Mechanics on the CPU
 
+- MueLu of Trilinos with the rigid body modes (serial node of Tpetra, since
+  89463ba63b): 1.29 seconds per operator at 421,443 unknowns on 8 cores,
+  2.12 with the inclusions, the fastest measured on the CPU
+  ([measurements](../results/solvers-2026-10-15-large/trilinos-cpu/README.md);
+  stopped on the preconditioned residual, see there). Its default smoother
+  (symmetric Gauss-Seidel) suits the CPU.
 - Conjugate gradient of PETSc with GAMG, the unknowns ordered by vector
   dimension (`FiniteElementSpaceOrdering` set to `byVDIM`), so that GAMG
   receives the rigid body modes, and the option `ksp_norm_type
@@ -71,9 +77,9 @@ computes, with the serial node of Tpetra on the host, except FROSch (see
   AmgX by nodal blocks (`NodalBlocks`) does not reduce the iterations.
 - MueLu of Trilinos with the rigid body modes, a Jacobi smoother (two
   sweeps damped by 0.6) and its hierarchy reused between operators
-  (`reuse: type` set to `RP`): 0.24 seconds per operator at 421,443
-  unknowns, the fastest measured on the GPU (0.33 to 0.36 for BoomerAMG),
-  0.32 with the inclusions (0.51 to 0.57)
+  (`reuse: type` set to `RP`): 0.20 to 0.24 seconds per operator at
+  421,443 unknowns, the fastest measured on the GPU (0.33 to 0.36 for
+  BoomerAMG), 0.32 with the inclusions (0.51 to 0.57)
   ([measurements](../results/solvers-2026-10-15-large/gpu-conversion/README.md),
   since the conversion of the matrices on the GPU). Without the reuse, its
   setup takes 0.82 seconds (0.90 per operator). Its default smoother
@@ -98,7 +104,8 @@ computes, with the serial node of Tpetra on the host, except FROSch (see
   multigrid costs more than the iterations it saves on this problem. On 8
   cores, BoomerAMG (1.93 seconds) is 10 times slower than the best on the
   GPU. MueLu with a Jacobi smoother and its hierarchy reused is faster
-  still: 0.13 seconds per operator (10 iterations).
+  still: 0.13 seconds per operator (10 iterations). On 8 cores, MueLu
+  (1.39 to 1.55 seconds) is faster than BoomerAMG.
 
 ### Direct solvers and repeated resolutions
 
@@ -127,15 +134,15 @@ computes, with the serial node of Tpetra on the host, except FROSch (see
 - FROSch with its default subdomain solver (KLU2) on 3D problems: 5.3
   seconds per setup on the beam of 56,355 unknowns with 8 subdomains, 49
   seconds with one, more than 4 minutes on the Laplace cube of 274,625
-  unknowns; a solver of Amesos2 suited to finite element matrices must be
-  given to it. FROSch does not support processes owning no unknown.
+  unknowns. With Tacho for its subdomains, its extensions and its coarse
+  problem, 4.8 seconds per operator on the beam instead of 6.9 with KLU2,
+  and Tacho ran out of memory on the Laplace cube with 8 processes sharing
+  the GPU (`../results/solvers-2026-10-16-trilinos-cpu`). FROSch does not
+  support processes owning no unknown.
 - The default smoother of MueLu on a GPU (symmetric Gauss-Seidel).
 
 ## To be completed
 
-- The solvers of Trilinos on the CPU (serial node of Tpetra, available
-  since 89463ba63b, not measured yet).
-- FROSch with a subdomain solver suited to 3D problems (Tacho).
 - The setup of MueLu on the GPU (0.82 seconds at 421,443 unknowns), which
   dominates its cost with a Jacobi smoother when its hierarchy is not
   reused.

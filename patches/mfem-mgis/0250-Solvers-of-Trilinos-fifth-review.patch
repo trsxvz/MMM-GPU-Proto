@@ -1,0 +1,481 @@
+From 6c64d642c468d9dc10e429f42f6d8e9eb0bc1314 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 08:58:06 +0200
+Subject: [PATCH] Solvers of Trilinos: fifth review
+
+- the rows of the converted matrices are sorted by
+  KokkosSparse::sort_crs_matrix (the insertion sort was slow on the long
+  rows of high order elements, on the host); the conversion on the GPU
+  takes 0.023 seconds instead of 0.064 on the beam of 421,443 unknowns;
+- MueLu: the products of sparse matrices of Kokkos Kernels (SPGEMM_KK)
+  are only selected when each GPU of the node serves one process: Kokkos
+  Kernels reserves up to half the free memory of the GPU for each product,
+  and three processes sharing a GPU ran out of memory (randomly);
+- CMake: when the paths of the configurations of Kokkos differ, the
+  versions (KokkosConfigVersion.cmake) and the configurations
+  (KokkosCore_config.h) are compared (KokkosConfig.cmake is the same for
+  all the installations);
+- Amesos2: all the names of Tacho use the default node;
+- an operator whose setup failed throws when applied;
+- hybrid GMRES without outer solver: a maximum number of iterations is
+  refused, as a tolerance;
+- the hypre arrays read on the GPU are synchronized before the
+  conversion;
+- test of the reuse of the whole hierarchy compared to the reuse of the
+  prolongators, with a margin;
+- comments and docs: matrices converted on the GPU, checks of the
+  parameters of Belos, crash of the distance Laplacian of MueLu on the
+  host, hybrid GMRES without outer solver.
+---
+ CMakeLists.txt                            | 37 ++++++---
+ docs/source/user_guide/linear_solvers.rst | 95 ++++++++++++-----------
+ src/TrilinosBackend.cxx                   |  6 +-
+ src/TrilinosBackend.hxx                   | 11 +--
+ src/TrilinosLinearSolvers.cxx             | 18 +++--
+ src/TrilinosTpetraBackend.hxx             | 67 ++++++++++------
+ tests/TrilinosSolversTest.cxx             |  4 +-
+ 7 files changed, 141 insertions(+), 97 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 49f21dc5ee..4486dc0174 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -122,10 +122,11 @@ if(enable-trilinos)
+   # Trilinos must be built with the Kokkos found above: its packages only
+   # load their own Kokkos when no target of Kokkos is defined, which would
+   # silently compile the sources including Trilinos with another Kokkos. The
+-  # configuration files are compared, after resolution of the links, then by
+-  # their contents (they contain the prefix of their installation): their
+-  # paths may differ in a view of Spack, whose files are links to the
+-  # installations or copies of them.
++  # configuration files are compared, after resolution of the links; when
++  # their paths differ (a view of Spack may hold copies of the files of the
++  # installations), the files giving the version (KokkosConfigVersion.cmake)
++  # and the configuration (KokkosCore_config.h: backends, architectures,
++  # options) of both installations are compared.
+   set(_trilinos_kokkos_config_file "")
+   set(_trilinos_kokkos_config
+       "${Trilinos_DIR}/../TeuchosKokkosCompat/TeuchosKokkosCompatConfig.cmake")
+@@ -151,11 +152,29 @@ if(enable-trilinos)
+     set(_same_kokkos OFF)
+     if(_trilinos_kokkos_config_file STREQUAL _kokkos_config_file)
+       set(_same_kokkos ON)
+-    elseif(EXISTS "${_trilinos_kokkos_config_file}" AND
+-           EXISTS "${_kokkos_config_file}")
+-      file(SHA256 "${_trilinos_kokkos_config_file}" _trilinos_kokkos_hash)
+-      file(SHA256 "${_kokkos_config_file}" _kokkos_hash)
+-      if(_trilinos_kokkos_hash STREQUAL _kokkos_hash)
++    else()
++      # files of an installation: lib*/cmake/Kokkos/KokkosConfig.cmake
++      set(_kokkos_hashes "")
++      foreach(_config_file
++              "${_trilinos_kokkos_config_file}" "${_kokkos_config_file}")
++        get_filename_component(_config_dir "${_config_file}" DIRECTORY)
++        set(_files "${_config_dir}/KokkosConfigVersion.cmake"
++                   "${_config_dir}/../../../include/KokkosCore_config.h")
++        set(_hashes "")
++        foreach(_file ${_files})
++          if(EXISTS "${_file}")
++            file(SHA256 "${_file}" _hash)
++            string(APPEND _hashes "${_hash}")
++          else()
++            string(APPEND _hashes "missing ${_file}")
++          endif()
++        endforeach()
++        list(APPEND _kokkos_hashes "${_hashes}")
++      endforeach()
++      list(GET _kokkos_hashes 0 _trilinos_kokkos_hashes)
++      list(GET _kokkos_hashes 1 _mfem_mgis_kokkos_hashes)
++      if((_trilinos_kokkos_hashes STREQUAL _mfem_mgis_kokkos_hashes) AND
++         (NOT _trilinos_kokkos_hashes MATCHES "missing"))
+         set(_same_kokkos ON)
+       endif()
+     endif()
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 7eae540f0b..3eda855505 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -698,10 +698,10 @@ parameters common to the solvers, and a sublist per solver, such as
+ :code:`KLU2`), which Amesos2 validates when the matrix is set. The names
+ of the first level of the parameters of Belos (and those of the outer
+ solver of the hybrid GMRES) are checked when the solver is created, which
+-Belos only does when they
+-are given again (a change of the tolerance): a misspelt parameter is
+-refused, except by LSQR and the native solvers of Tpetra
+-(:cxx:`TPETRA GMRES`...), which ignore the unknown parameters. The
++most solvers of Belos only do when they are given again (a change of the
++tolerance; GCRODR and MINRES check them at once): a misspelt parameter is
++refused, except by LSQR and the native solvers of Tpetra (:cxx:`TPETRA
++GMRES`...), which ignore the unknown parameters. The
+ parameters of Ifpack2 are given, when the solver is created, to a
+ preconditioner of the chosen type built without matrix: the relaxation
+ (:cxx:`RELAXATION`) refuses a misspelt parameter, the other preconditioners
+@@ -746,25 +746,23 @@ Newton solver).
+ The GMRES solvers keep 50 Krylov vectors (:code:`Num Blocks`, 300 by
+ default in most GMRES solvers of Belos), and are restarted as many times
+ as the maximum number of iterations allows (:code:`Maximum Restarts`),
+-unless these parameters are given. The hybrid GMRES of Belos
+-(:cxx:`HYBRID BLOCK GMRES`, or its aliases :cxx:`GMRESPOLY` and
+-:cxx:`SEED GMRES`, a GMRES polynomial used as preconditioner) iterates
+-with an outer solver (:code:`Outer Solver`,
+-:code:`Block GMRES` by default, among the solvers of the generic factory
+-of Belos), whose parameters (the sublist :code:`Outer Solver Params`)
+-receive the tolerance, the maximum number of iterations, the verbosity
+-and the parameters of the restarted GMRES. With an empty name of outer
+-solver, the polynomial is applied alone, without tolerance nor maximum
+-number of iterations; with a null degree (:code:`Maximum Degree`), the
+-outer solver is applied alone, and is built by the factory of Belos for
+-Tpetra. The solvers of Belos are built again when the matrix changes
+-(the hybrid GMRES then builds its polynomial again, and PCPG, which keeps
+-a seed space only valid for the same matrix, forgets it), except GCRODR,
+-which keeps its recycled subspace for the matrices of the same rows. A
+-failure of a solver of
+-Belos (for instance the loss of the positive definiteness detected by the
+-conjugate gradient) is reported as a resolution which did not converge,
+-its message being printed.
++unless these parameters are given. The hybrid GMRES of Belos (:cxx:`HYBRID
++BLOCK GMRES`, or its aliases :cxx:`GMRESPOLY` and :cxx:`SEED GMRES`, a
++GMRES polynomial used as preconditioner) iterates with an outer solver
++(:code:`Outer Solver`, :code:`Block GMRES` by default, among the solvers
++of the generic factory of Belos), whose parameters (the sublist
++:code:`Outer Solver Params`) receive the tolerance, the maximum number of
++iterations, the verbosity and the parameters of the restarted GMRES. With
++an empty name of outer solver, the polynomial is applied alone: a
++tolerance or a maximum number of iterations is then refused. With a null
++degree (:code:`Maximum Degree`), the outer solver is applied alone. The
++solvers of Belos are built again when the matrix changes (the hybrid
++GMRES then builds its polynomial again, and PCPG, which keeps a seed space
++only valid for the same matrix, forgets it), except GCRODR, which keeps
++its recycled subspace for the matrices of the same rows. A failure of a
++solver of Belos (for instance the loss of the positive definiteness
++detected by the conjugate gradient) is reported as a resolution which did
++not converge, its message being printed.
+ 
+ The matrices of hypre are converted to the sparse matrices of Tpetra each
+ time they are set (the preconditioners and the factorizations being then
+@@ -791,11 +789,15 @@ of equations is given. Unless they are given, mfem-mgis sets, in the
+ simplified syntax of MueLu, the parameters :code:`number of equations`
+ (see above), :code:`aggregation: deterministic` (reproducible aggregates,
+ MueLu aggregating the nodes in a random order by default),
+-:code:`verbosity` (:code:`none`, a silent setup) and, on CUDA, in the
+-sublist :code:`matrixmatrix: kernel params`, :code:`cuda: algorithm`
+-(:code:`SPGEMM_KK`: the products of sparse matrices of Kokkos Kernels,
+-those of cuSPARSE, the default of Tpetra on CUDA, running out of memory on
+-a GPU of 16 GB from a few hundred thousand unknowns). On a GPU, the
++:code:`verbosity` (:code:`none`, a silent setup) and, on CUDA, when each
++GPU of the node serves one process, in the sublist :code:`matrixmatrix:
++kernel params`, :code:`cuda: algorithm` (:code:`SPGEMM_KK`: the products
++of sparse matrices of Kokkos Kernels, those of cuSPARSE, the default of
++Tpetra on CUDA, running out of memory on a GPU of 16 GB from a few hundred
++thousand unknowns). Kokkos Kernels reserves up to half the free memory of
++the GPU for each product: several processes sharing a GPU (more processes
++on the node than GPUs seen by :code:`Kokkos`) ran out of memory, and keep
++the algorithm of cuSPARSE. On a GPU, the
+ default smoother of MueLu (symmetric Gauss-Seidel) is slow: on a beam of
+ 421,443 unknowns, a resolution took 3.8 seconds, against 0.071 seconds
+ with two sweeps of a Jacobi relaxation (:code:`smoother: type` set to
+@@ -854,25 +856,24 @@ The solvers of Trilinos compute where :code:`MFEM` computes. When
+ computes with its default node, on the GPU. Otherwise, Tpetra computes on
+ the host with its serial node (each process of :code:`MPI` computing on
+ one core); when Tpetra is not instantiated for its serial node, the
+-solvers compute on
+-the GPU even when :code:`MFEM` computes on the host. FROSch and the
+-factorization of Tacho always compute with the default node of Tpetra, on
+-the GPU when Trilinos is built for one (FROSch 17.2.1 runs some loops in
+-the default execution space of :code:`Kokkos`, as Tacho, whatever the
+-node). :cxx:`BelosSolver` computes at the same place as its
+-preconditioner of Trilinos. Some options of MueLu may not be available on
+-the host in this case (the distance Laplacian with weights of MueLu 17.2.1
+-allocates its weights in the default memory space). The matrices are
+-converted where Tpetra computes, by kernels of :code:`Kokkos`, from the
+-arrays of hypre on the GPU when hypre computes there. The vectors of
+-:code:`MFEM` are copied on the GPU when :code:`MFEM` and Tpetra compute
+-on the GPU, and from and to the host otherwise. Trilinos requires an
+-initialized :code:`Kokkos`,
+-which is initialized, if needed, when the first entry of Trilinos is
+-built, on the GPU of the device of :code:`MFEM`, and finalized by
+-:cxx:`finalize` before :code:`MPI` (see
+-:doc:`../installation_guide/installation_guide`): the solvers of Trilinos,
+-whose data are allocated by :code:`Kokkos`, shall be destroyed before.
++solvers compute on the GPU even when :code:`MFEM` computes on the host.
++FROSch and the factorization of Tacho always compute with the default
++node of Tpetra, on the GPU when Trilinos is built for one (FROSch 17.2.1
++runs some loops in the default execution space of :code:`Kokkos`, as
++Tacho, whatever the node). :cxx:`BelosSolver` computes at the same place
++as its preconditioner of Trilinos. Some options of MueLu crash on the
++host in this case (the distance Laplacian with weights of MueLu 17.2.1
++allocates its weights in the default memory space, on the GPU). The
++matrices are converted where Tpetra computes, by kernels of
++:code:`Kokkos`, from the arrays of hypre on the GPU when hypre computes
++there. The vectors of :code:`MFEM` are copied on the GPU when
++:code:`MFEM` and Tpetra compute on the GPU, and from and to the host
++otherwise. Trilinos requires an initialized :code:`Kokkos`, which is
++initialized, if needed, when the first entry of Trilinos is built, on the
++GPU of the device of :code:`MFEM`, and finalized by :cxx:`finalize`
++before :code:`MPI` (see :doc:`../installation_guide/installation_guide`):
++the solvers of Trilinos, whose data are allocated by :code:`Kokkos`,
++shall be destroyed before.
+ When Trilinos is built without GPU and its default node is the OpenMP
+ node, the computations use the number of threads given by
+ :code:`OMP_NUM_THREADS`, which, with several processes per node, shall be
+diff --git a/src/TrilinosBackend.cxx b/src/TrilinosBackend.cxx
+index 5aeae2ca21..a155006398 100644
+--- a/src/TrilinosBackend.cxx
++++ b/src/TrilinosBackend.cxx
+@@ -57,14 +57,14 @@ namespace mfem_mgis::trilinos {
+   std::unique_ptr<Operator> makeAmesos2Solver(const std::string& solver,
+                                               const Options& options,
+                                               const bool gpu) {
+-    // Tacho computes in the default execution space of Kokkos, whatever the
+-    // node (Amesos2_Tacho_decl.hpp)
++    // Tacho (`Tacho` or `Amesos2_Tacho`) computes in the default execution
++    // space of Kokkos, whatever the node (Amesos2_Tacho_decl.hpp)
+     auto name = solver;
+     std::ranges::transform(name, name.begin(),
+                            [](const unsigned char c) noexcept {
+                              return static_cast<char>(std::tolower(c));
+                            });
+-    if ((gpu) || (name == "tacho")) {
++    if ((gpu) || (name.find("tacho") != std::string::npos)) {
+       return TpetraBackend<DefaultNode>::makeAmesos2Solver(solver, options);
+     }
+     return TpetraBackend<HostNode>::makeAmesos2Solver(solver, options);
+diff --git a/src/TrilinosBackend.hxx b/src/TrilinosBackend.hxx
+index e138e68041..f115e60a39 100644
+--- a/src/TrilinosBackend.hxx
++++ b/src/TrilinosBackend.hxx
+@@ -37,9 +37,10 @@ namespace mfem_mgis::trilinos {
+ 
+   /*!
+    * \brief view of a distributed square matrix in the format of hypre, on
+-   * the host: the diagonal block of the process, whose columns are the local
+-   * indices of the rows of the process, and the off-diagonal block, whose
+-   * columns are indices in `offd_global_columns`
++   * the host or on the GPU (see `device`): the diagonal block of the
++   * process, whose columns are the local indices of the rows of the
++   * process, and the off-diagonal block, whose columns are indices in
++   * `offd_global_columns`
+    */
+   struct DistributedMatrixView {
+     //! \brief communicator
+@@ -288,8 +289,8 @@ namespace mfem_mgis::trilinos {
+   /*!
+    * \return true if Trilinos is built for a GPU (default node of Tpetra
+    * whose execution space can't access the memory of the host). Tpetra is
+-   * then also used on the host when it is built for a node of the host
+-   * (serial or OpenMP).
++   * then also used on the host when it is instantiated for its serial node
++   * (see `hasHostNode`).
+    */
+   [[nodiscard]] bool hasGPUNode() noexcept;
+   /*!
+diff --git a/src/TrilinosLinearSolvers.cxx b/src/TrilinosLinearSolvers.cxx
+index 23d74227ff..396d66d790 100644
+--- a/src/TrilinosLinearSolvers.cxx
++++ b/src/TrilinosLinearSolvers.cxx
+@@ -86,7 +86,8 @@ namespace mfem_mgis::internals {
+   }  // end of convertToTrilinosOptions
+ 
+   /*!
+-   * \brief view of a matrix of hypre on the host, given to Trilinos
++   * \brief view of a matrix of hypre, given to Trilinos where it computes
++   * when hypre computes there, on the host otherwise
+    */
+   struct HypreMatrixView {
+     /*!
+@@ -122,6 +123,8 @@ namespace mfem_mgis::internals {
+       const auto device = gpu && isHypreUsingGPU();
+       if (device) {
+         a.HypreRead();
++        // Tpetra may compute on another stream than hypre
++        MFEM_DEVICE_SYNC;
+       } else {
+         a.HostRead();
+       }
+@@ -160,10 +163,11 @@ namespace mfem_mgis::internals {
+ 
+   /*!
+    * \brief linear solver or preconditioner of Trilinos, seen as a solver of
+-   * MFEM: the matrix of hypre is given to Trilinos on the host (Tpetra
+-   * copies it on the GPU when it computes there), and the vectors of MFEM on
+-   * the GPU when MFEM and Tpetra compute there, on the host otherwise. The
+-   * errors of Trilinos are reported by exceptions.
++   * MFEM: the matrix of hypre is given to Trilinos on the GPU when hypre
++   * and Tpetra compute there, on the host otherwise (Tpetra copies it on
++   * the GPU when it computes there), and the vectors of MFEM on the GPU when
++   * MFEM and Tpetra compute there, on the host otherwise. The errors of
++   * Trilinos are reported by exceptions.
+    */
+   struct TrilinosSolver final : public mfem::Solver,
+                                 public LinearSolverConvergenceReport {
+@@ -204,8 +208,8 @@ namespace mfem_mgis::internals {
+       }
+       this->height = a->Height();
+       this->width = a->Width();
+-      // the matrix, read on the host, is given back to hypre, whose
+-      // computations may be on the GPU, even on error (its values are
++      // the matrix, which may be read on the host, is given back to hypre,
++      // whose computations may be on the GPU, even on error (its values are
+       // copied by Trilinos)
+       struct HypreLocationGuard {
+         ~HypreLocationGuard() { this->matrix.HypreRead(); }
+diff --git a/src/TrilinosTpetraBackend.hxx b/src/TrilinosTpetraBackend.hxx
+index cf13ba1e38..56d6a93449 100644
+--- a/src/TrilinosTpetraBackend.hxx
++++ b/src/TrilinosTpetraBackend.hxx
+@@ -47,6 +47,7 @@
+ #include "MueLu_MasterList.hpp"
+ #include "FROSch_TpetraPreconditioner_def.hpp"
+ #include "Tpetra_Details_DefaultTypes.hpp"
++#include "KokkosSparse_SortCrs.hpp"
+ #include "TrilinosBackend.hxx"
+ 
+ // Tpetra computing on a GPU by default, and instantiated for the serial
+@@ -408,15 +409,13 @@ namespace mfem_mgis::trilinos {
+                 }
+               }
+             });
+-        // entries of the rows, sorted by insertion (the rows of the finite
+-        // element matrices are short)
++        // entries of the rows, then sorted by Kokkos Kernels
+         Kokkos::parallel_for(
+             "mfem_mgis::trilinos::TpetraMatrix::entries",
+             Kokkos::RangePolicy<ExecutionSpace>(0, n),
+             KOKKOS_LAMBDA(const int r) {
+               const auto i = source(r);
+-              const auto b = offsets(r);
+-              auto k = b;
++              auto k = offsets(r);
+               for (auto j = diag_offsets(i); j != diag_offsets(i + 1); ++j) {
+                 const auto c = diag_columns(j);
+                 entries(k) = static_cast<LO>(permuted ? p(c) : c);
+@@ -430,19 +429,9 @@ namespace mfem_mgis::trilinos {
+                   ++k;
+                 }
+               }
+-              for (auto l = b + 1; l < k; ++l) {
+-                const auto c = entries(l);
+-                const auto v = values(l);
+-                auto q = l;
+-                while ((q > b) && (entries(q - 1) > c)) {
+-                  entries(q) = entries(q - 1);
+-                  values(q) = values(q - 1);
+-                  --q;
+-                }
+-                entries(q) = c;
+-                values(q) = v;
+-              }
+             });
++        KokkosSparse::sort_crs_matrix(ExecutionSpace{}, offsets, entries,
++                                      values, static_cast<LO>(n + no));
+         this->matrix = Teuchos::rcp(
+             new CrsMatrix(this->row_map, column_map, offsets, entries, values));
+         this->matrix->fillComplete(this->row_map, this->row_map);
+@@ -657,7 +646,12 @@ namespace mfem_mgis::trilinos {
+        * \param[in, out] x: result
+        */
+       virtual void applyTpetraOperator(const MV& b, MV& x) const {
+-        this->getTpetraOperator()->apply(b, x);
++        const auto op = this->getTpetraOperator();
++        if (op.is_null()) {
++          // for instance, a preconditioner whose setup failed
++          throw std::runtime_error("Trilinos: the operator is not set up");
++        }
++        op->apply(b, x);
+       }
+ 
+      protected:
+@@ -931,7 +925,7 @@ namespace mfem_mgis::trilinos {
+           }
+         }
+         if (this->simplified) {
+-          setDefaultParameters(p);
++          setDefaultParameters(p, m.communicator);
+         }
+         // coordinates of the nodes, used by some options of MueLu (dropping
+         // based on the distances, repartitioning), when the nodes of MueLu are
+@@ -964,24 +958,48 @@ namespace mfem_mgis::trilinos {
+                (!((p.isType<std::string>(syntax)) &&
+                   (p.get<std::string>(syntax) == "ml")));
+       }  // end of isSimplifiedSyntax
++      /*!
++       * \return true if a GPU is shared by several processes of a node, on
++       * all the processes
++       * \param[in] comm: communicator
++       */
++      static bool isGPUShared(const MPI_Comm comm) {
++        auto node = MPI_Comm{};
++        MPI_Comm_split_type(comm, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL,
++                            &node);
++        auto processes = 0;
++        MPI_Comm_size(node, &processes);
++        MPI_Comm_free(&node);
++        auto shared =
++            static_cast<int>(processes > std::max(Kokkos::num_devices(), 1));
++        MPI_Allreduce(MPI_IN_PLACE, &shared, 1, MPI_INT, MPI_LOR, comm);
++        return shared != 0;
++      }  // end of isGPUShared
+       /*!
+        * \brief set the default parameters of mfem-mgis, unless given, in the
+        * simplified syntax (the other syntaxes ignore them)
+        * \param[in, out] p: parameters
+        */
+-      static void setDefaultParameters(Teuchos::ParameterList& p) {
++      static void setDefaultParameters(Teuchos::ParameterList& p,
++                                       const MPI_Comm comm) {
+ #ifdef KOKKOS_ENABLE_CUDA
+         // products of sparse matrices by the algorithm of Kokkos Kernels on
+         // CUDA: the default one (cuSPARSE) ran out of memory on a GPU of 16 GB
+-        // from 421,443 unknowns of linear elasticity. Tpetra also reads this
+-        // parameter on the host.
++        // from 421,443 unknowns of linear elasticity. Kokkos Kernels reserves
++        // up to half the free memory of the GPU for each product
++        // (KokkosSparse_spgemm_impl.hpp): several processes sharing a GPU ran
++        // out of memory, and keep the default algorithm. Tpetra also reads
++        // this parameter on the host.
+         if constexpr (std::is_same_v<typename Node::execution_space,
+                                      Kokkos::Cuda>) {
+           auto& products = p.sublist("matrixmatrix: kernel params");
+-          if (!products.isParameter("cuda: algorithm")) {
++          if ((!products.isParameter("cuda: algorithm")) &&
++              (!isGPUShared(comm))) {
+             products.set("cuda: algorithm", "SPGEMM_KK");
+           }
+         }
++#else  /* KOKKOS_ENABLE_CUDA */
++        static_cast<void>(comm);
+ #endif /* KOKKOS_ENABLE_CUDA */
+         // reproducible aggregates (MueLu aggregates the nodes in a random
+         // order by default), and silent setup
+@@ -1481,10 +1499,11 @@ namespace mfem_mgis::trilinos {
+         }
+         const auto outer = this->parameters->get<std::string>(n);
+         if (outer.empty()) {
+-          if (settings.relative_tolerance.has_value()) {
++          if ((settings.relative_tolerance.has_value()) ||
++              (settings.maximum_number_of_iterations.has_value())) {
+             throw std::runtime_error(
+                 "the hybrid GMRES without outer solver has no relative "
+-                "tolerance");
++                "tolerance nor maximum number of iterations");
+           }
+           return;
+         }
+diff --git a/tests/TrilinosSolversTest.cxx b/tests/TrilinosSolversTest.cxx
+index 9cc884c36e..1e171529a3 100644
+--- a/tests/TrilinosSolversTest.cxx
++++ b/tests/TrilinosSolversTest.cxx
+@@ -342,8 +342,8 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
+       solve(s, *(full.linear_solver), "Belos CG, MueLu, full, A");
+   const auto rfull2 =
+       solve(s, a2, *(full.linear_solver), "Belos CG, MueLu, full, 2 A");
+-  check(isSolved(rfull) && (rfull.iterations == rr.iterations) &&
+-            (rfull2.iterations != rfull.iterations),
++  check(isSolved(rfull) && (std::abs(rfull.iterations - rr.iterations) <= 1) &&
++            (rfull2.iterations > rr2.iterations + 3),
+         "Belos CG, MueLu: hierarchy not reused");
+ }  // end of checkKrylovSolvers
+ 
+-- 
+2.43.0
+

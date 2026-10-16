@@ -1,0 +1,212 @@
+Warning: program compiled against libxml 213 using older 209
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+
+     -----------------------------------------------------------------------------------------
+     | AlgebraicOverlappingOperator                                               (Level  1) |
+     =========================================================================================
+     | Adding layers strategy                    |                                  CrsGraph |
+     | Combine mode in overlap                   |                                      Full |
+     | Solver type                               |                                   Amesos2 |
+     | Solver                                    |                                     Tacho |
+     | Reuse symbolic factorization              |                                         1 |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | IPOUHarmonicCoarseOperator                                                 (Level  1) |
+     =========================================================================================
+     | Block                                     |                                         0 |
+     | Spatial dimensions                        |                                         3 |
+     | Number of degrees of freedom per node     |                                         3 |
+     | Interface partition of unity type         |                                      GDSW |
+     | Dimension of the null space               |                                         6 |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | > GDSW Interface Partition Of Unity                                        (Level  1) |
+     =========================================================================================
+     | Vertices                                  |                                      true |
+     | Short edges                               |                                      true |
+     | Straight edges                            |                                      true |
+     | Edges                                     |                                      true |
+     | Faces                                     |                                      true |
+     -----------------------------------------------------------------------------------------
+     [NOTIFICATION] FROSch::CoarseSpace: We re-build a unique map of AssembledBasisMap_.
+     [NOTIFICATION] FROSch::IPOUHarmonicCoarseOperator: Need to build block coarse sizes for use in MueLu nullspace. This is not performed here yet.
+
+     -----------------------------------------------------------------------------------------
+     | > Gathering Steps Statistics                                               (Level  1) |
+     =========================================================================================
+     |         |      ranks |      total |        avg |        min |        max | global sum |
+     -----------------------------------------------------------------------------------------
+     | Map 0   |          8 |        156 |       19.5 |          0 |         42 |        156 |
+     | Map 1   |          1 |        156 |        156 |        156 |        156 |        156 |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | > Local Linear Dependencies of Coarse Basis Functions Statistics           (Level  1) |
+     =========================================================================================
+     |                      |      total |        avg |        min |        max | global sum |
+     -----------------------------------------------------------------------------------------
+     | Basis functions      |        156 |       49.5 |         18 |         78 |        396 |
+     | Dependent            |            |      0.875 |          0 |          2 |          7 |
+     | Independent          |            |     48.625 |         18 |         76 |        389 |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | > Extensions solver                                                        (Level  1) |
+     =========================================================================================
+     | Solver type                               |                                   Amesos2 |
+     | Solver                                    |                                     Tacho |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | > Coarse Problem Statistics (Coarse Communicator)                          (Level  1) |
+     =========================================================================================
+     | Number of ranks on the coarse comm        |                                         1 |
+     | Solver type                               |                                   Amesos2 |
+     | Solver                                    |                                     Tacho |
+     | Reuse symbolic factorization              |                                         1 |
+     | Reuse coarse basis                        |                                         1 |
+     | Reuse coarse matrix                       |                                         0 |
+     -----------------------------------------------------------------------------------------
+     |                      |      total |        avg |        min |        max | global sum |
+     -----------------------------------------------------------------------------------------
+     | Number of rows       |        156 |        156 |        156 |        156 |        156 |
+     | Entries              |      15078 |      15078 |      15078 |      15078 |      15078 |
+     | Avg entries per row  |         96 |         96 |         96 |         96 |         96 |
+     | Max entries per row  |            |        142 |        142 |        142 |            |
+     | Unit diagonals added |          2 |          2 |          2 |          2 |          2 |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | AlgebraicOverlappingOperator                                               (Level  1) |
+     =========================================================================================
+     | Adding layers strategy                    |                                  CrsGraph |
+     | Combine mode in overlap                   |                                      Full |
+     | Solver type                               |                                   Amesos2 |
+     | Solver                                    |                                     Tacho |
+     | Reuse symbolic factorization              |                                         1 |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | IPOUHarmonicCoarseOperator                                                 (Level  1) |
+     =========================================================================================
+     | Block                                     |                                         0 |
+     | Spatial dimensions                        |                                         3 |
+     | Number of degrees of freedom per node     |                                         3 |
+     | Interface partition of unity type         |                                      GDSW |
+     | Dimension of the null space               |                                         6 |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | > GDSW Interface Partition Of Unity                                        (Level  1) |
+     =========================================================================================
+     | Vertices                                  |                                      true |
+     | Short edges                               |                                      true |
+     | Straight edges                            |                                      true |
+     | Edges                                     |                                      true |
+     | Faces                                     |                                      true |
+     -----------------------------------------------------------------------------------------
+     [NOTIFICATION] FROSch::CoarseSpace: We re-build a unique map of AssembledBasisMap_.
+     [NOTIFICATION] FROSch::IPOUHarmonicCoarseOperator: Need to build block coarse sizes for use in MueLu nullspace. This is not performed here yet.
+
+     -----------------------------------------------------------------------------------------
+     | > Gathering Steps Statistics                                               (Level  1) |
+     =========================================================================================
+     |         |      ranks |      total |        avg |        min |        max | global sum |
+     -----------------------------------------------------------------------------------------
+     | Map 0   |          8 |        156 |       19.5 |          0 |         42 |        156 |
+     | Map 1   |          1 |        156 |        156 |        156 |        156 |        156 |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | > Local Linear Dependencies of Coarse Basis Functions Statistics           (Level  1) |
+     =========================================================================================
+     |                      |      total |        avg |        min |        max | global sum |
+     -----------------------------------------------------------------------------------------
+     | Basis functions      |        156 |       49.5 |         18 |         78 |        396 |
+     | Dependent            |            |      0.875 |          0 |          2 |          7 |
+     | Independent          |            |     48.625 |         18 |         76 |        389 |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | > Extensions solver                                                        (Level  1) |
+     =========================================================================================
+     | Solver type                               |                                   Amesos2 |
+     | Solver                                    |                                     Tacho |
+     -----------------------------------------------------------------------------------------
+
+     -----------------------------------------------------------------------------------------
+     | > Coarse Problem Statistics (Coarse Communicator)                          (Level  1) |
+     =========================================================================================
+     | Number of ranks on the coarse comm        |                                         1 |
+     | Solver type                               |                                   Amesos2 |
+     | Solver                                    |                                     Tacho |
+     | Reuse symbolic factorization              |                                         1 |
+     | Reuse coarse basis                        |                                         1 |
+     | Reuse coarse matrix                       |                                         0 |
+     -----------------------------------------------------------------------------------------
+     |                      |      total |        avg |        min |        max | global sum |
+     -----------------------------------------------------------------------------------------
+     | Number of rows       |        156 |        156 |        156 |        156 |        156 |
+     | Entries              |      15078 |      15078 |      15078 |      15078 |      15078 |
+     | Avg entries per row  |         96 |         96 |         96 |         96 |         96 |
+     | Max entries per row  |            |        142 |        142 |        142 |            |
+     | Unit diagonals added |          2 |          2 |          2 |          2 |          2 |
+     -----------------------------------------------------------------------------------------
+label=heterogeneous/belos-cg-frosch-tacho/cpu problem=elasticity unknowns=56355 processes=8 solver=BelosSolver setup=2.7962 first=2.4249 solve=2.4007 resetup=2.5988 refirst=2.348 iterations=54 residual=5.7019e-09 residual2=5.7024e-09 converged=1

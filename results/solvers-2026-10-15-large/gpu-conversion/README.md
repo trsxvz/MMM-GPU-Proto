@@ -42,6 +42,15 @@ reuse of the hierarchy (`reuse: type` set to `RP`, `../muelu-reuse`):
   aggregation saves little setup (0.74 seconds against 0.82) and triples
   the iterations. With the Chebyshev smoother, the conjugate gradient of
   MFEM stops after 6 iterations on the homogeneous elasticity (not
-  converged: the preconditioner is not positive definite, probably
-  because of an underestimated largest eigenvalue, not checked), and
-  converges in 40 iterations with the inclusions.
+  converged: the preconditioner is not positive definite, because of an
+  underestimated largest eigenvalue: with 30 iterations of the power
+  method, it converges, `../muelu-tuning`), and converges in 40 iterations
+  with the inclusions.
+
+`sorted`: the same conversion, the rows being sorted by
+`KokkosSparse::sort_crs_matrix` instead of an insertion sort in each
+thread (mfem-mgis 6c64d642c4): the setup of `belos-cg-relaxation` takes
+0.023 seconds instead of 0.064 on the elasticity (0.024 instead of 0.029
+on the Laplace equation), and MueLu with its hierarchy reused sets up a
+second operator of the elasticity in 0.13 seconds instead of 0.17 (0.20
+seconds per operator instead of 0.24). One repetition.

@@ -122,10 +122,11 @@ if(enable-trilinos)
   # Trilinos must be built with the Kokkos found above: its packages only
   # load their own Kokkos when no target of Kokkos is defined, which would
   # silently compile the sources including Trilinos with another Kokkos. The
-  # configuration files are compared, after resolution of the links, then by
-  # their contents (they contain the prefix of their installation): their
-  # paths may differ in a view of Spack, whose files are links to the
-  # installations or copies of them.
+  # configuration files are compared, after resolution of the links; when
+  # their paths differ (a view of Spack may hold copies of the files of the
+  # installations), the files giving the version (KokkosConfigVersion.cmake)
+  # and the configuration (KokkosCore_config.h: backends, architectures,
+  # options) of both installations are compared.
   set(_trilinos_kokkos_config_file "")
   set(_trilinos_kokkos_config
       "${Trilinos_DIR}/../TeuchosKokkosCompat/TeuchosKokkosCompatConfig.cmake")
@@ -151,11 +152,29 @@ if(enable-trilinos)
     set(_same_kokkos OFF)
     if(_trilinos_kokkos_config_file STREQUAL _kokkos_config_file)
       set(_same_kokkos ON)
-    elseif(EXISTS "${_trilinos_kokkos_config_file}" AND
-           EXISTS "${_kokkos_config_file}")
-      file(SHA256 "${_trilinos_kokkos_config_file}" _trilinos_kokkos_hash)
-      file(SHA256 "${_kokkos_config_file}" _kokkos_hash)
-      if(_trilinos_kokkos_hash STREQUAL _kokkos_hash)
+    else()
+      # files of an installation: lib*/cmake/Kokkos/KokkosConfig.cmake
+      set(_kokkos_hashes "")
+      foreach(_config_file
+              "${_trilinos_kokkos_config_file}" "${_kokkos_config_file}")
+        get_filename_component(_config_dir "${_config_file}" DIRECTORY)
+        set(_files "${_config_dir}/KokkosConfigVersion.cmake"
+                   "${_config_dir}/../../../include/KokkosCore_config.h")
+        set(_hashes "")
+        foreach(_file ${_files})
+          if(EXISTS "${_file}")
+            file(SHA256 "${_file}" _hash)
+            string(APPEND _hashes "${_hash}")
+          else()
+            string(APPEND _hashes "missing ${_file}")
+          endif()
+        endforeach()
+        list(APPEND _kokkos_hashes "${_hashes}")
+      endforeach()
+      list(GET _kokkos_hashes 0 _trilinos_kokkos_hashes)
+      list(GET _kokkos_hashes 1 _mfem_mgis_kokkos_hashes)
+      if((_trilinos_kokkos_hashes STREQUAL _mfem_mgis_kokkos_hashes) AND
+         (NOT _trilinos_kokkos_hashes MATCHES "missing"))
         set(_same_kokkos ON)
       endif()
     endif()

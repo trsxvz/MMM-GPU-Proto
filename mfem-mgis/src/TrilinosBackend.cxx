@@ -57,14 +57,14 @@ namespace mfem_mgis::trilinos {
   std::unique_ptr<Operator> makeAmesos2Solver(const std::string& solver,
                                               const Options& options,
                                               const bool gpu) {
-    // Tacho computes in the default execution space of Kokkos, whatever the
-    // node (Amesos2_Tacho_decl.hpp)
+    // Tacho (`Tacho` or `Amesos2_Tacho`) computes in the default execution
+    // space of Kokkos, whatever the node (Amesos2_Tacho_decl.hpp)
     auto name = solver;
     std::ranges::transform(name, name.begin(),
                            [](const unsigned char c) noexcept {
                              return static_cast<char>(std::tolower(c));
                            });
-    if ((gpu) || (name == "tacho")) {
+    if ((gpu) || (name.find("tacho") != std::string::npos)) {
       return TpetraBackend<DefaultNode>::makeAmesos2Solver(solver, options);
     }
     return TpetraBackend<HostNode>::makeAmesos2Solver(solver, options);

@@ -86,7 +86,8 @@ namespace mfem_mgis::internals {
   }  // end of convertToTrilinosOptions
 
   /*!
-   * \brief view of a matrix of hypre on the host, given to Trilinos
+   * \brief view of a matrix of hypre, given to Trilinos where it computes
+   * when hypre computes there, on the host otherwise
    */
   struct HypreMatrixView {
     /*!
@@ -122,6 +123,8 @@ namespace mfem_mgis::internals {
       const auto device = gpu && isHypreUsingGPU();
       if (device) {
         a.HypreRead();
+        // Tpetra may compute on another stream than hypre
+        MFEM_DEVICE_SYNC;
       } else {
         a.HostRead();
       }
@@ -160,10 +163,11 @@ namespace mfem_mgis::internals {
 
   /*!
    * \brief linear solver or preconditioner of Trilinos, seen as a solver of
-   * MFEM: the matrix of hypre is given to Trilinos on the host (Tpetra
-   * copies it on the GPU when it computes there), and the vectors of MFEM on
-   * the GPU when MFEM and Tpetra compute there, on the host otherwise. The
-   * errors of Trilinos are reported by exceptions.
+   * MFEM: the matrix of hypre is given to Trilinos on the GPU when hypre
+   * and Tpetra compute there, on the host otherwise (Tpetra copies it on
+   * the GPU when it computes there), and the vectors of MFEM on the GPU when
+   * MFEM and Tpetra compute there, on the host otherwise. The errors of
+   * Trilinos are reported by exceptions.
    */
   struct TrilinosSolver final : public mfem::Solver,
                                 public LinearSolverConvergenceReport {
@@ -204,8 +208,8 @@ namespace mfem_mgis::internals {
       }
       this->height = a->Height();
       this->width = a->Width();
-      // the matrix, read on the host, is given back to hypre, whose
-      // computations may be on the GPU, even on error (its values are
+      // the matrix, which may be read on the host, is given back to hypre,
+      // whose computations may be on the GPU, even on error (its values are
       // copied by Trilinos)
       struct HypreLocationGuard {
         ~HypreLocationGuard() { this->matrix.HypreRead(); }

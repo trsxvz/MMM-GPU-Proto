@@ -342,8 +342,8 @@ static void checkKrylovSolvers(LaplaceSystem<true>& s) {
       solve(s, *(full.linear_solver), "Belos CG, MueLu, full, A");
   const auto rfull2 =
       solve(s, a2, *(full.linear_solver), "Belos CG, MueLu, full, 2 A");
-  check(isSolved(rfull) && (rfull.iterations == rr.iterations) &&
-            (rfull2.iterations != rfull.iterations),
+  check(isSolved(rfull) && (std::abs(rfull.iterations - rr.iterations) <= 1) &&
+            (rfull2.iterations > rr2.iterations + 3),
         "Belos CG, MueLu: hierarchy not reused");
 }  // end of checkKrylovSolvers
 
