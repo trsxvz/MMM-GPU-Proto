@@ -1,0 +1,1792 @@
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --mesh assemblage_hexa_coarse.msh
+   --libraryU3SI2 
+   --libraryALFENI 
+   --linearsolver-thermal HypreGMRES
+   --preconditioner-thermal HypreBoomerAMG
+   --linearsolver-mechanics CGSolver
+   --preconditioner-mechanics MueLu
+   --nonlinear-solver-mechanics Newton
+   --ordering-mechanics byNODES
+   --amg-strategy-mechanics 
+   --muelu-smoother jacobi
+   --muelu-damping 0.3
+   --matrix-symmetry-mechanics 
+   --no-reuse-analysis
+   --order 1
+   --refinement 0
+   --no-post-processing
+   --verbosity-level 0
+   --debug
+   --reference-file assemblage_hexa_coarse-statistics.ref
+   --end-time 100000
+   --nbsteps 1
+   --t-ramp 100000
+   --h-conv 50000
+   --water-pressure 1e+06
+   --execution 
+   --finite-elements 
+   --behaviours 
+   --linear-solver-device 
+   --post-processings 
+   --device 
+   --hypre-device-pool-size 
+   --no-hypre-on-host
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+[warning]: ignoring attribute set 'comb' which is already associated by the user to a material
+[warning]: ignoring attribute set 'gaine' which is already associated by the user to a material
+[warning]: ignoring attribute set 'stiffeners' which is already associated by the user to a material
+INFO: print_mesh_information
+INFO: number of elements ->  960
+INFO: Number of finite element unknowns:  1233
+INFO: print_mesh_information
+INFO: number of elements ->  960
+INFO: Number of finite element unknowns:  3699
+After_problem_creation:  memory footprint:  0.87916  GB
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Computing time sequence from 0 to 100000
+Computing next state from time 0 to 100000
+Newton iteration  0 : ||r|| = 29744.3, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 7028.61, ||r||/||r_0|| = 0.236301
+Newton iteration  2 : ||r|| = 123.557, ||r||/||r_0|| = 0.00415398
+Newton iteration  3 : ||r|| = 0.03697, ||r||/||r_0|| = 1.24293e-06
+Newton iteration  4 : ||r|| = 3.4739e-09, ||r||/||r_0|| = 1.16792e-13
+Convergence order 1.99404
+
+Newton iteration  0 : ||r|| = 6.16196e+06, ||r||/||r_0|| = 1
+PCG: The operator is not positive definite. (Ad, d) = -0.00963358
+PCG: The operator is not positive definite. (Ad, d) = -0.000272001
+PCG: The operator is not positive definite. (Ad, d) = -7.39523e-11
+Newton iteration  1 : ||r|| = 211942, ||r||/||r_0|| = 0.0343952
+PCG: The preconditioner is not positive definite. (Br, r) = -8.63275e-05
+PCG: Number of iterations: 7
+PCG: No convergence!
+The coupling scheme did not converge for the time step from 0.000000 to 50000.000000 in time sequence from 0.000000 to 100000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 50000.000000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 0 to 50000
+Newton iteration  0 : ||r|| = 18948.1, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2076.85, ||r||/||r_0|| = 0.109607
+Newton iteration  2 : ||r|| = 13.7272, ||r||/||r_0|| = 0.000724462
+Newton iteration  3 : ||r|| = 0.00057592, ||r||/||r_0|| = 3.03946e-08
+Convergence order 2.00806
+
+Newton iteration  0 : ||r|| = 4.04511e+06, ||r||/||r_0|| = 1
+PCG: The operator is not positive definite. (Ad, d) = -0.0125158
+PCG: The operator is not positive definite. (Ad, d) = -1.36928e-09
+Newton iteration  1 : ||r|| = 46339.3, ||r||/||r_0|| = 0.0114556
+PCG: The preconditioner is not positive definite. (Br, r) = -2.63227e-07
+PCG: Number of iterations: 6
+PCG: No convergence!
+The coupling scheme did not converge for the time step from 0.000000 to 25000.000000 in time sequence from 0.000000 to 100000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 25000.000000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 0 to 25000
+Newton iteration  0 : ||r|| = 15086.6, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 681.852, ||r||/||r_0|| = 0.0451958
+Newton iteration  2 : ||r|| = 1.63555, ||r||/||r_0|| = 0.00010841
+Newton iteration  3 : ||r|| = 9.37745e-06, ||r||/||r_0|| = 6.21574e-10
+Convergence order 2.00058
+
+Newton iteration  0 : ||r|| = 2.96775e+06, ||r||/||r_0|| = 1
+PCG: The operator is not positive definite. (Ad, d) = -0.000471482
+PCG: The operator is not positive definite. (Ad, d) = -1.70587e-14
+Newton iteration  1 : ||r|| = 50116.9, ||r||/||r_0|| = 0.0168872
+PCG: The preconditioner is not positive definite. (Br, r) = -8.63701e-06
+PCG: Number of iterations: 9
+PCG: No convergence!
+The coupling scheme did not converge for the time step from 0.000000 to 12500.000000 in time sequence from 0.000000 to 100000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 12500.000000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 0 to 12500
+Newton iteration  0 : ||r|| = 13955.3, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 252.994, ||r||/||r_0|| = 0.0181289
+Newton iteration  2 : ||r|| = 0.228713, ||r||/||r_0|| = 1.6389e-05
+Newton iteration  3 : ||r|| = 1.97747e-07, ||r||/||r_0|| = 1.417e-11
+Convergence order 1.99196
+
+Newton iteration  0 : ||r|| = 2.42606e+06, ||r||/||r_0|| = 1
+PCG: The operator is not positive definite. (Ad, d) = -0.0171915
+Newton iteration  1 : ||r|| = 60160.9, ||r||/||r_0|| = 0.0247977
+Newton iteration  2 : ||r|| = 12.5538, ||r||/||r_0|| = 5.17455e-06
+Newton iteration  3 : ||r|| = 4.61619e-07, ||r||/||r_0|| = 1.90275e-13
+Convergence order 2.01995
+
+Newton iteration  0 : ||r|| = 4.27787, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.22391e-05, ||r||/||r_0|| = 2.15619e-05
+Newton iteration  2 : ||r|| = 3.24657e-10, ||r||/||r_0|| = 7.58921e-11
+Convergence order 1.16869
+
+Newton iteration  0 : ||r|| = 787.467, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.000351643, ||r||/||r_0|| = 4.46549e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00148789, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.12986e-10, ||r||/||r_0|| = 2.10356e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.282936, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.02183e-08, ||r||/||r_0|| = 3.18864e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.96813e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 9.02186e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 12500.000000 to 25000.000000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 12500 to 25000
+Newton iteration  0 : ||r|| = 3309.38, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 78.4928, ||r||/||r_0|| = 0.0237183
+Newton iteration  2 : ||r|| = 0.024246, ||r||/||r_0|| = 7.32645e-06
+Newton iteration  3 : ||r|| = 2.08339e-09, ||r||/||r_0|| = 6.29543e-13
+Convergence order 2.01296
+
+Newton iteration  0 : ||r|| = 561640, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -2.26293e-05
+PCG: Number of iterations: 17
+PCG: No convergence!
+The coupling scheme did not converge for the time step from 12500.000000 to 18750.000000 in time sequence from 0.000000 to 100000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 12500.000000 to 18750.000000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 12500 to 18750
+Newton iteration  0 : ||r|| = 1654.69, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 19.6232, ||r||/||r_0|| = 0.0118592
+Newton iteration  2 : ||r|| = 0.00157378, ||r||/||r_0|| = 9.51103e-07
+Convergence order 2.12666
+
+Newton iteration  0 : ||r|| = 285474, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 41.0526, ||r||/||r_0|| = 0.000143805
+Newton iteration  2 : ||r|| = 0.000262938, ||r||/||r_0|| = 9.21058e-10
+Convergence order 1.35169
+
+Newton iteration  0 : ||r|| = 0.71352, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.60551e-06, ||r||/||r_0|| = 5.05313e-06
+Newton iteration  2 : ||r|| = 3.09166e-10, ||r||/||r_0|| = 4.33297e-10
+Convergence order 0.767832
+
+Newton iteration  0 : ||r|| = 158.92, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.56836e-05, ||r||/||r_0|| = 9.86884e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00047704, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.11462e-10, ||r||/||r_0|| = 6.52904e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.0856966, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.00286e-07, ||r||/||r_0|| = 1.17024e-06
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.79923e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.00288e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 18750.000000 to 25625.000000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 18750 to 25625
+Newton iteration  0 : ||r|| = 1820.16, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 22.9377, ||r||/||r_0|| = 0.0126021
+Newton iteration  2 : ||r|| = 0.00204876, ||r||/||r_0|| = 1.12559e-06
+Newton iteration  3 : ||r|| = 3.56246e-10, ||r||/||r_0|| = 1.95723e-13
+Convergence order 1.66946
+
+Newton iteration  0 : ||r|| = 305858, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 47.512, ||r||/||r_0|| = 0.00015534
+Newton iteration  2 : ||r|| = 0.000347893, ||r||/||r_0|| = 1.13743e-09
+Convergence order 1.34832
+
+Newton iteration  0 : ||r|| = 1.03407, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.84645e-06, ||r||/||r_0|| = 4.68676e-06
+Newton iteration  2 : ||r|| = 3.04539e-10, ||r||/||r_0|| = 2.94505e-10
+Convergence order 0.788456
+
+Newton iteration  0 : ||r|| = 238.238, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.61961e-05, ||r||/||r_0|| = 1.51933e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00101652, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.31115e-10, ||r||/||r_0|| = 3.25733e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.168759, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.94785e-08, ||r||/||r_0|| = 5.89471e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 7.42983e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 9.94731e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 25625.000000 to 33187.500000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 25625 to 33187.5
+Newton iteration  0 : ||r|| = 2002.17, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 26.7672, ||r||/||r_0|| = 0.0133691
+Newton iteration  2 : ||r|| = 0.00264852, ||r||/||r_0|| = 1.32282e-06
+Newton iteration  3 : ||r|| = 3.00322e-10, ||r||/||r_0|| = 1.49998e-13
+Convergence order 1.73436
+
+Newton iteration  0 : ||r|| = 330790, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -1.78824e-07
+PCG: Number of iterations: 33
+PCG: No convergence!
+The coupling scheme did not converge for the time step from 25625.000000 to 29406.250000 in time sequence from 0.000000 to 100000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 25625.000000 to 29406.250000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 25625 to 29406.2
+Newton iteration  0 : ||r|| = 1001.09, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6.6918, ||r||/||r_0|| = 0.00668454
+Newton iteration  2 : ||r|| = 0.000169139, ||r||/||r_0|| = 1.68955e-07
+Convergence order 2.11377
+
+Newton iteration  0 : ||r|| = 165642, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 14.1622, ||r||/||r_0|| = 8.54987e-05
+Newton iteration  2 : ||r|| = 2.3343e-05, ||r||/||r_0|| = 1.40924e-10
+Convergence order 1.42156
+
+Newton iteration  0 : ||r|| = 0.667448, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.47392e-06, ||r||/||r_0|| = 2.20829e-06
+Newton iteration  2 : ||r|| = 3.29691e-10, ||r||/||r_0|| = 4.93957e-10
+Convergence order 0.645404
+
+Newton iteration  0 : ||r|| = 150.15, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.45796e-05, ||r||/||r_0|| = 9.70999e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000758399, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.44032e-10, ||r||/||r_0|| = 4.5363e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.119084, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.06947e-07, ||r||/||r_0|| = 8.98081e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 6.02982e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.06951e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 29406.250000 to 33565.625000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 29406.2 to 33565.6
+Newton iteration  0 : ||r|| = 1101.19, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 7.94322, ||r||/||r_0|| = 0.00721327
+Newton iteration  2 : ||r|| = 0.000231607, ||r||/||r_0|| = 2.10323e-07
+Convergence order 2.11742
+
+Newton iteration  0 : ||r|| = 180664, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 17.2452, ||r||/||r_0|| = 9.54545e-05
+Newton iteration  2 : ||r|| = 2.80745e-05, ||r||/||r_0|| = 1.55396e-10
+Convergence order 1.43982
+
+Newton iteration  0 : ||r|| = 0.871996, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.97179e-06, ||r||/||r_0|| = 2.26123e-06
+Newton iteration  2 : ||r|| = 3.36237e-10, ||r||/||r_0|| = 3.85595e-10
+Convergence order 0.667454
+
+Newton iteration  0 : ||r|| = 188.292, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.29969e-05, ||r||/||r_0|| = 1.22134e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00110788, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.44771e-10, ||r||/||r_0|| = 3.11198e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.167254, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.09311e-07, ||r||/||r_0|| = 6.53561e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 9.59785e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.09318e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 33565.625000 to 37994.583333 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 33565.6 to 37994.6
+Newton iteration  0 : ||r|| = 1172.57, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.82321, ||r||/||r_0|| = 0.0075247
+Newton iteration  2 : ||r|| = 0.00027727, ||r||/||r_0|| = 2.36464e-07
+Convergence order 2.12041
+
+Newton iteration  0 : ||r|| = 191293, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 19.7856, ||r||/||r_0|| = 0.000103431
+Newton iteration  2 : ||r|| = 2.855e-05, ||r||/||r_0|| = 1.49247e-10
+Convergence order 1.46555
+
+Newton iteration  0 : ||r|| = 1.09072, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.69437e-06, ||r||/||r_0|| = 2.47027e-06
+Newton iteration  2 : ||r|| = 3.35444e-10, ||r||/||r_0|| = 3.07545e-10
+Convergence order 0.69639
+
+Newton iteration  0 : ||r|| = 226.84, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.33861e-05, ||r||/||r_0|| = 1.47179e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00153406, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.43099e-10, ||r||/||r_0|| = 2.23654e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.224947, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.19384e-07, ||r||/||r_0|| = 5.30718e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.45362e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.53603e-10, ||r||/||r_0|| = 0.000243257
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000246082, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.09392e-07, ||r||/||r_0|| = 0.000444535
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.71324e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.09392e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 37994.583333 to 42764.230769 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 37994.6 to 42764.2
+Newton iteration  0 : ||r|| = 1262.76, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 10.0178, ||r||/||r_0|| = 0.00793325
+Newton iteration  2 : ||r|| = 0.000346172, ||r||/||r_0|| = 2.74139e-07
+Convergence order 2.12396
+
+Newton iteration  0 : ||r|| = 205263, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 23.2004, ||r||/||r_0|| = 0.000113028
+Newton iteration  2 : ||r|| = 2.99189e-05, ||r||/||r_0|| = 1.45759e-10
+Convergence order 1.49223
+
+Newton iteration  0 : ||r|| = 1.35893, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.91992e-06, ||r||/||r_0|| = 2.88458e-06
+Newton iteration  2 : ||r|| = 3.16761e-10, ||r||/||r_0|| = 2.33097e-10
+Convergence order 0.738738
+
+Newton iteration  0 : ||r|| = 275, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.89192e-05, ||r||/||r_0|| = 1.77888e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00211512, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.7536e-10, ||r||/||r_0|| = 1.77465e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.304146, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.12556e-07, ||r||/||r_0|| = 3.70074e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.20318e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.30926e-10, ||r||/||r_0|| = 0.000150204
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000376245, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.14872e-07, ||r||/||r_0|| = 0.000305311
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.87676e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.14872e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 42764.230769 to 48010.842949 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 42764.2 to 48010.8
+Newton iteration  0 : ||r|| = 1389.04, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 11.8556, ||r||/||r_0|| = 0.00853513
+Newton iteration  2 : ||r|| = 0.000468354, ||r||/||r_0|| = 3.37178e-07
+Convergence order 2.12847
+
+Newton iteration  0 : ||r|| = 225229, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -1.37732e-07
+PCG: Number of iterations: 33
+PCG: No convergence!
+The coupling scheme did not converge for the time step from 42764.230769 to 45387.536859 in time sequence from 0.000000 to 100000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 42764.230769 to 45387.536859 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 42764.2 to 45387.5
+Newton iteration  0 : ||r|| = 694.52, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.96391, ||r||/||r_0|| = 0.00426757
+Newton iteration  2 : ||r|| = 2.96788e-05, ||r||/||r_0|| = 4.27328e-08
+Convergence order 2.10962
+
+Newton iteration  0 : ||r|| = 112080, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 7.11578, ||r||/||r_0|| = 6.34883e-05
+Newton iteration  2 : ||r|| = 2.05843e-06, ||r||/||r_0|| = 1.83657e-11
+Convergence order 1.55783
+
+Newton iteration  0 : ||r|| = 0.802751, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.34812e-06, ||r||/||r_0|| = 1.67937e-06
+Newton iteration  2 : ||r|| = 3.27051e-10, ||r||/||r_0|| = 4.07413e-10
+Convergence order 0.626009
+
+Newton iteration  0 : ||r|| = 160.625, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.6806e-05, ||r||/||r_0|| = 1.04628e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00132405, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.16177e-10, ||r||/||r_0|| = 2.38795e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.187229, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.20908e-07, ||r||/||r_0|| = 6.45775e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.45241e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.53793e-10, ||r||/||r_0|| = 0.000243591
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000244368, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.16383e-07, ||r||/||r_0|| = 0.000476261
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.01522e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.16383e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 45387.536859 to 48273.173558 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 45387.5 to 48273.2
+Newton iteration  0 : ||r|| = 763.973, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.54387, ||r||/||r_0|| = 0.00463874
+Newton iteration  2 : ||r|| = 4.16316e-05, ||r||/||r_0|| = 5.44936e-08
+Convergence order 2.11264
+
+Newton iteration  0 : ||r|| = 123195, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.65195, ||r||/||r_0|| = 7.02298e-05
+Newton iteration  2 : ||r|| = 2.618e-06, ||r||/||r_0|| = 2.12509e-11
+Convergence order 1.56956
+
+Newton iteration  0 : ||r|| = 0.948405, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.85803e-06, ||r||/||r_0|| = 1.95911e-06
+Newton iteration  2 : ||r|| = 3.60127e-10, ||r||/||r_0|| = 3.79719e-10
+Convergence order 0.650427
+
+Newton iteration  0 : ||r|| = 187.997, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.29501e-05, ||r||/||r_0|| = 1.22077e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00165261, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.43503e-10, ||r||/||r_0|| = 2.07855e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.232416, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.27818e-07, ||r||/||r_0|| = 5.49952e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.9119e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.60474e-10, ||r||/||r_0|| = 0.000188543
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000323404, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.12485e-07, ||r||/||r_0|| = 0.000347815
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.79838e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.12485e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 48273.173558 to 51315.928054 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 48273.2 to 51315.9
+Newton iteration  0 : ||r|| = 805.569, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.8899, ||r||/||r_0|| = 0.00482875
+Newton iteration  2 : ||r|| = 4.9163e-05, ||r||/||r_0|| = 6.10288e-08
+Convergence order 2.11483
+
+Newton iteration  0 : ||r|| = 129775, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 9.66263, ||r||/||r_0|| = 7.44569e-05
+Newton iteration  2 : ||r|| = 2.80988e-06, ||r||/||r_0|| = 2.1652e-11
+Convergence order 1.5834
+
+Newton iteration  0 : ||r|| = 1.07112, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.35649e-06, ||r||/||r_0|| = 2.20001e-06
+Newton iteration  2 : ||r|| = 3.22904e-10, ||r||/||r_0|| = 3.01463e-10
+Convergence order 0.682835
+
+Newton iteration  0 : ||r|| = 210.848, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.88283e-05, ||r||/||r_0|| = 1.36725e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00197502, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.178e-10, ||r||/||r_0|| = 1.6091e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.276473, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.2143e-07, ||r||/||r_0|| = 4.39213e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.41309e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.26355e-10, ||r||/||r_0|| = 0.000135244
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000409635, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.17329e-07, ||r||/||r_0|| = 0.000286422
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 3.75858e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.17329e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 51315.928054 to 54561.532851 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 51315.9 to 54561.5
+Newton iteration  0 : ||r|| = 859.274, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.36727, ||r||/||r_0|| = 0.00508251
+Newton iteration  2 : ||r|| = 6.0673e-05, ||r||/||r_0|| = 7.06096e-08
+Convergence order 2.11743
+
+Newton iteration  0 : ||r|| = 138310, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 11.0345, ||r||/||r_0|| = 7.9781e-05
+Newton iteration  2 : ||r|| = 3.15119e-06, ||r||/||r_0|| = 2.27836e-11
+Convergence order 1.5969
+
+Newton iteration  0 : ||r|| = 1.22244, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.06377e-06, ||r||/||r_0|| = 2.50627e-06
+Newton iteration  2 : ||r|| = 3.70148e-10, ||r||/||r_0|| = 3.02794e-10
+Convergence order 0.6995
+
+Newton iteration  0 : ||r|| = 239.293, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.70621e-05, ||r||/||r_0|| = 1.54881e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00238794, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.67494e-10, ||r||/||r_0|| = 1.53895e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.333032, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.22332e-07, ||r||/||r_0|| = 3.67328e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 3.08461e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.7279e-10, ||r||/||r_0|| = 0.000120855
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000525512, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.17137e-07, ||r||/||r_0|| = 0.000222901
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.11278e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.17137e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 54561.532851 to 58056.799554 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 54561.5 to 58056.8
+Newton iteration  0 : ||r|| = 925.372, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.99491, ||r||/||r_0|| = 0.00539773
+Newton iteration  2 : ||r|| = 7.75969e-05, ||r||/||r_0|| = 8.38548e-08
+Convergence order 2.12043
+
+Newton iteration  0 : ||r|| = 148826, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 12.8426, ||r||/||r_0|| = 8.62928e-05
+Newton iteration  2 : ||r|| = 3.68856e-06, ||r||/||r_0|| = 2.47844e-11
+Convergence order 1.60968
+
+Newton iteration  0 : ||r|| = 1.40894, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.07099e-06, ||r||/||r_0|| = 2.8894e-06
+Newton iteration  2 : ||r|| = 3.67254e-10, ||r||/||r_0|| = 2.60661e-10
+Convergence order 0.730203
+
+Newton iteration  0 : ||r|| = 274.425, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.86049e-05, ||r||/||r_0|| = 1.77116e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00291945, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.30577e-10, ||r||/||r_0|| = 1.13233e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.405785, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.31587e-07, ||r||/||r_0|| = 3.24276e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 3.9916e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.41613e-10, ||r||/||r_0|| = 8.55829e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000682457, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.15978e-07, ||r||/||r_0|| = 0.000169942
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 7.06151e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.15978e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 58056.799554 to 61901.592929 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 58056.8 to 61901.6
+Newton iteration  0 : ||r|| = 1017.91, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 5.95564, ||r||/||r_0|| = 0.00585086
+Newton iteration  2 : ||r|| = 0.000107655, ||r||/||r_0|| = 1.05761e-07
+Convergence order 2.12421
+
+Newton iteration  0 : ||r|| = 163575, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -9.28449e-10
+PCG: Number of iterations: 79
+PCG: No convergence!
+The coupling scheme did not converge for the time step from 58056.799554 to 59979.196242 in time sequence from 0.000000 to 100000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 58056.799554 to 59979.196242 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 58056.8 to 59979.2
+Newton iteration  0 : ||r|| = 508.955, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.48891, ||r||/||r_0|| = 0.00292543
+Newton iteration  2 : ||r|| = 6.79232e-06, ||r||/||r_0|| = 1.33456e-08
+Convergence order 2.10783
+
+Newton iteration  0 : ||r|| = 81365.1, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.96979, ||r||/||r_0|| = 4.87898e-05
+Newton iteration  2 : ||r|| = 3.08047e-07, ||r||/||r_0|| = 3.78598e-12
+Convergence order 1.64905
+
+Newton iteration  0 : ||r|| = 0.803339, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.32886e-06, ||r||/||r_0|| = 1.65417e-06
+Newton iteration  2 : ||r|| = 3.32677e-10, ||r||/||r_0|| = 4.14118e-10
+Convergence order 0.622936
+
+Newton iteration  0 : ||r|| = 156.043, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.58439e-05, ||r||/||r_0|| = 1.01535e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00172484, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.58102e-10, ||r||/||r_0|| = 2.07614e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.237336, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.3228e-07, ||r||/||r_0|| = 5.57353e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.43764e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.36175e-10, ||r||/||r_0|| = 0.00013791
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000409173, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.19743e-07, ||r||/||r_0|| = 0.000292647
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 4.39075e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.19743e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 59979.196242 to 62093.832597 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 59979.2 to 62093.8
+Newton iteration  0 : ||r|| = 559.85, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.78731, ||r||/||r_0|| = 0.00319248
+Newton iteration  2 : ||r|| = 9.65723e-06, ||r||/||r_0|| = 1.72497e-08
+Convergence order 2.11042
+
+Newton iteration  0 : ||r|| = 89504.8, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.80841, ||r||/||r_0|| = 5.37224e-05
+Newton iteration  2 : ||r|| = 3.93644e-07, ||r||/||r_0|| = 4.39802e-12
+Convergence order 1.65976
+
+Newton iteration  0 : ||r|| = 0.918265, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.73546e-06, ||r||/||r_0|| = 1.88994e-06
+Newton iteration  2 : ||r|| = 3.35774e-10, ||r||/||r_0|| = 3.65661e-10
+Convergence order 0.648787
+
+Newton iteration  0 : ||r|| = 177.783, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.05235e-05, ||r||/||r_0|| = 1.15442e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00203534, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.81105e-10, ||r||/||r_0|| = 1.87244e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.279751, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.36265e-07, ||r||/||r_0|| = 4.87094e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.96754e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.19172e-10, ||r||/||r_0|| = 0.000107555
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000500141, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.23075e-07, ||r||/||r_0|| = 0.000246081
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.56586e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.23075e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 62093.832597 to 64323.607150 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 62093.8 to 64323.6
+Newton iteration  0 : ||r|| = 590.333, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.97014, ||r||/||r_0|| = 0.00333733
+Newton iteration  2 : ||r|| = 1.15684e-05, ||r||/||r_0|| = 1.95964e-08
+Convergence order 2.11226
+
+Newton iteration  0 : ||r|| = 94341.6, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 5.36153, ||r||/||r_0|| = 5.6831e-05
+Newton iteration  2 : ||r|| = 4.51136e-07, ||r||/||r_0|| = 4.78194e-12
+Convergence order 1.6665
+
+Newton iteration  0 : ||r|| = 1.00688, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.08655e-06, ||r||/||r_0|| = 2.0723e-06
+Newton iteration  2 : ||r|| = 3.25364e-10, ||r||/||r_0|| = 3.23143e-10
+Convergence order 0.669839
+
+Newton iteration  0 : ||r|| = 194.296, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.44838e-05, ||r||/||r_0|| = 1.26013e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00230633, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.62746e-10, ||r||/||r_0|| = 1.57283e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.316439, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.27988e-07, ||r||/||r_0|| = 4.04461e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 3.47215e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.81935e-10, ||r||/||r_0|| = 0.00011
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000586692, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.18425e-07, ||r||/||r_0|| = 0.000201853
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 6.75318e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.18425e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 64323.607150 to 66702.033340 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 64323.6 to 66702
+Newton iteration  0 : ||r|| = 629.689, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.2215, ||r||/||r_0|| = 0.00352794
+Newton iteration  2 : ||r|| = 1.44892e-05, ||r||/||r_0|| = 2.30101e-08
+Convergence order 2.11443
+
+Newton iteration  0 : ||r|| = 100595, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6.11772, ||r||/||r_0|| = 6.08152e-05
+Newton iteration  2 : ||r|| = 5.2131e-07, ||r||/||r_0|| = 5.18225e-12
+Convergence order 1.67683
+
+Newton iteration  0 : ||r|| = 1.11825, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.57334e-06, ||r||/||r_0|| = 2.30122e-06
+Newton iteration  2 : ||r|| = 3.21413e-10, ||r||/||r_0|| = 2.87425e-10
+Convergence order 0.692338
+
+Newton iteration  0 : ||r|| = 215.033, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.9938e-05, ||r||/||r_0|| = 1.39226e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00264936, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.51068e-10, ||r||/||r_0|| = 1.32511e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.362859, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.37504e-07, ||r||/||r_0|| = 3.78946e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 4.12186e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.2893e-10, ||r||/||r_0|| = 7.98012e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000698507, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.34002e-07, ||r||/||r_0|| = 0.000191841
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 8.36459e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.34002e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 66702.033340 to 69263.415391 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 66702 to 69263.4
+Newton iteration  0 : ||r|| = 678.126, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.55213, ||r||/||r_0|| = 0.00376351
+Newton iteration  2 : ||r|| = 1.88186e-05, ||r||/||r_0|| = 2.77508e-08
+Convergence order 2.11694
+
+Newton iteration  0 : ||r|| = 108293, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 7.11744, ||r||/||r_0|| = 6.57237e-05
+Newton iteration  2 : ||r|| = 6.33647e-07, ||r||/||r_0|| = 5.85121e-12
+Convergence order 1.6858
+
+Newton iteration  0 : ||r|| = 1.25609, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.24543e-06, ||r||/||r_0|| = 2.58376e-06
+Newton iteration  2 : ||r|| = 3.53087e-10, ||r||/||r_0|| = 2.81101e-10
+Convergence order 0.7093
+
+Newton iteration  0 : ||r|| = 240.61, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.7396e-05, ||r||/||r_0|| = 1.55421e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00308167, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.49698e-10, ||r||/||r_0|| = 1.13477e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.421258, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.21988e-07, ||r||/||r_0|| = 2.89579e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 4.96009e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.48082e-10, ||r||/||r_0|| = 7.01766e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000843246, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.38247e-07, ||r||/||r_0|| = 0.000163946
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.04612e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.38247e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 69263.415391 to 72080.935647 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 69263.4 to 72080.9
+Newton iteration  0 : ||r|| = 745.939, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.0572, ||r||/||r_0|| = 0.00409846
+Newton iteration  2 : ||r|| = 2.65368e-05, ||r||/||r_0|| = 3.55751e-08
+Convergence order 2.1201
+
+Newton iteration  0 : ||r|| = 119083, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.64044, ||r||/||r_0|| = 7.25582e-05
+Newton iteration  2 : ||r|| = 8.38277e-07, ||r||/||r_0|| = 7.03944e-12
+Convergence order 1.69428
+
+Newton iteration  0 : ||r|| = 1.44513, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.2915e-06, ||r||/||r_0|| = 2.96963e-06
+Newton iteration  2 : ||r|| = 3.55409e-10, ||r||/||r_0|| = 2.45936e-10
+Convergence order 0.738495
+
+Newton iteration  0 : ||r|| = 275.617, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.89477e-05, ||r||/||r_0|| = 1.77593e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.0036783, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.72767e-10, ||r||/||r_0|| = 1.01342e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.501768, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.34002e-07, ||r||/||r_0|| = 2.67059e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 6.13565e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.59931e-10, ||r||/||r_0|| = 5.86622e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00104705, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.24109e-07, ||r||/||r_0|| = 0.000118532
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.35227e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.24109e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 72080.935647 to 75183.053908 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 72080.9 to 75183.1
+Newton iteration  0 : ||r|| = 821.286, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.66588, ||r||/||r_0|| = 0.00446358
+Newton iteration  2 : ||r|| = 3.74349e-05, ||r||/||r_0|| = 4.55808e-08
+Convergence order 2.1235
+
+Newton iteration  0 : ||r|| = 131048, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -6.23633e-09
+PCG: Number of iterations: 84
+PCG: No convergence!
+The coupling scheme did not converge for the time step from 72080.935647 to 73631.994778 in time sequence from 0.000000 to 100000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 72080.935647 to 73631.994778 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 72080.9 to 73632
+Newton iteration  0 : ||r|| = 410.643, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.916469, ||r||/||r_0|| = 0.00223179
+Newton iteration  2 : ||r|| = 2.35656e-06, ||r||/||r_0|| = 5.73871e-09
+Convergence order 2.1083
+
+Newton iteration  0 : ||r|| = 65201.7, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.70345, ||r||/||r_0|| = 4.14629e-05
+Newton iteration  2 : ||r|| = 1.49317e-07, ||r||/||r_0|| = 2.29008e-12
+Convergence order 1.65615
+
+Newton iteration  0 : ||r|| = 0.815416, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.36848e-06, ||r||/||r_0|| = 1.67826e-06
+Newton iteration  2 : ||r|| = 3.84093e-10, ||r||/||r_0|| = 4.71039e-10
+Convergence order 0.615016
+
+Newton iteration  0 : ||r|| = 155.085, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.56442e-05, ||r||/||r_0|| = 1.00875e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00212471, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.20682e-10, ||r||/||r_0|| = 1.5093e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.287147, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.39769e-07, ||r||/||r_0|| = 4.86751e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 3.62747e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.5099e-10, ||r||/||r_0|| = 9.6759e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000607069, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.24112e-07, ||r||/||r_0|| = 0.000204445
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 8.02554e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.24112e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 73631.994778 to 75279.995104 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 73632 to 75280
+Newton iteration  0 : ||r|| = 436.308, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.0285, ||r||/||r_0|| = 0.00235728
+Newton iteration  2 : ||r|| = 2.93778e-06, ||r||/||r_0|| = 6.73327e-09
+Convergence order 2.10999
+
+Newton iteration  0 : ||r|| = 69269.6, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.05847, ||r||/||r_0|| = 4.41531e-05
+Newton iteration  2 : ||r|| = 1.55472e-07, ||r||/||r_0|| = 2.24444e-12
+Convergence order 1.67481
+
+Newton iteration  0 : ||r|| = 0.888865, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.62322e-06, ||r||/||r_0|| = 1.82617e-06
+Newton iteration  2 : ||r|| = 3.26982e-10, ||r||/||r_0|| = 3.67865e-10
+Convergence order 0.644049
+
+Newton iteration  0 : ||r|| = 168.529, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.84367e-05, ||r||/||r_0|| = 1.09398e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00236183, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.82329e-10, ||r||/||r_0|| = 1.61879e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.318838, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.44201e-07, ||r||/||r_0|| = 4.52272e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 4.11156e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.53726e-10, ||r||/||r_0|| = 8.60321e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000689912, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.48036e-07, ||r||/||r_0|| = 0.000214572
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 9.35175e-09, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.48036e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 75279.995104 to 77045.709740 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 75280 to 77045.7
+Newton iteration  0 : ||r|| = 467.473, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.17334, ||r||/||r_0|| = 0.00250996
+Newton iteration  2 : ||r|| = 3.78218e-06, ||r||/||r_0|| = 8.09069e-09
+Convergence order 2.11192
+
+Newton iteration  0 : ||r|| = 74211.4, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.5182, ||r||/||r_0|| = 4.74078e-05
+Newton iteration  2 : ||r|| = 1.66348e-07, ||r||/||r_0|| = 2.24155e-12
+Convergence order 1.69404
+
+Newton iteration  0 : ||r|| = 0.978268, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.96251e-06, ||r||/||r_0|| = 2.00611e-06
+Newton iteration  2 : ||r|| = 3.37201e-10, ||r||/||r_0|| = 3.44692e-10
+Convergence order 0.660786
+
+Newton iteration  0 : ||r|| = 184.876, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.2142e-05, ||r||/||r_0|| = 1.19766e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.0026532, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.44519e-10, ||r||/||r_0|| = 1.2985e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.357773, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.39738e-07, ||r||/||r_0|| = 3.90576e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 4.71362e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.57104e-10, ||r||/||r_0|| = 7.57599e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000793293, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.40289e-07, ||r||/||r_0|| = 0.000176844
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.09661e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.40289e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 77045.709740 to 78987.995838 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 77045.7 to 78988
+Newton iteration  0 : ||r|| = 514.22, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.41038, ||r||/||r_0|| = 0.00274276
+Newton iteration  2 : ||r|| = 5.40045e-06, ||r||/||r_0|| = 1.05022e-08
+Convergence order 2.11448
+
+Newton iteration  0 : ||r|| = 81636.7, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.26251, ||r||/||r_0|| = 5.22131e-05
+Newton iteration  2 : ||r|| = 1.94135e-07, ||r||/||r_0|| = 2.37804e-12
+Convergence order 1.71443
+
+Newton iteration  0 : ||r|| = 1.10763, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.51042e-06, ||r||/||r_0|| = 2.26648e-06
+Newton iteration  2 : ||r|| = 3.67646e-10, ||r||/||r_0|| = 3.31921e-10
+Convergence order 0.679283
+
+Newton iteration  0 : ||r|| = 208.582, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.81308e-05, ||r||/||r_0|| = 1.34867e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00307059, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.41117e-10, ||r||/||r_0|| = 1.11092e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.413642, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.41764e-07, ||r||/||r_0|| = 3.42723e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.57458e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.49326e-10, ||r||/||r_0|| = 6.2664e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000941823, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.28324e-07, ||r||/||r_0|| = 0.000136251
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.3353e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.28324e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 78987.995838 to 81124.510547 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 78988 to 81124.5
+Newton iteration  0 : ||r|| = 565.642, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.69431, ||r||/||r_0|| = 0.00299538
+Newton iteration  2 : ||r|| = 7.69353e-06, ||r||/||r_0|| = 1.36014e-08
+Convergence order 2.11721
+
+Newton iteration  0 : ||r|| = 89796.5, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 5.16862, ||r||/||r_0|| = 5.75592e-05
+Newton iteration  2 : ||r|| = 2.29756e-07, ||r||/||r_0|| = 2.55863e-12
+Convergence order 1.73403
+
+Newton iteration  0 : ||r|| = 1.25688, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.2243e-06, ||r||/||r_0|| = 2.56532e-06
+Newton iteration  2 : ||r|| = 3.34959e-10, ||r||/||r_0|| = 2.665e-10
+Convergence order 0.712492
+
+Newton iteration  0 : ||r|| = 235.76, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.58418e-05, ||r||/||r_0|| = 1.52027e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00356745, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.33715e-10, ||r||/||r_0|| = 9.35443e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.479942, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.4095e-07, ||r||/||r_0|| = 2.93681e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 6.62868e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.50782e-10, ||r||/||r_0|| = 5.29188e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00112418, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.38548e-07, ||r||/||r_0|| = 0.000123244
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.63907e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.38548e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 81124.510547 to 83483.946729 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 81124.5 to 83483.9
+Newton iteration  0 : ||r|| = 624.661, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.0502, ||r||/||r_0|| = 0.0032821
+Newton iteration  2 : ||r|| = 1.11062e-05, ||r||/||r_0|| = 1.77796e-08
+Convergence order 2.12019
+
+Newton iteration  0 : ||r|| = 99153.2, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6.32217, ||r||/||r_0|| = 6.37616e-05
+Newton iteration  2 : ||r|| = 2.94161e-07, ||r||/||r_0|| = 2.96673e-12
+Convergence order 1.74768
+
+Newton iteration  0 : ||r|| = 1.43547, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.19253e-06, ||r||/||r_0|| = 2.92067e-06
+Newton iteration  2 : ||r|| = 3.51018e-10, ||r||/||r_0|| = 2.44532e-10
+Convergence order 0.736676
+
+Newton iteration  0 : ||r|| = 268.073, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.62238e-05, ||r||/||r_0|| = 1.7243e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00417893, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.47144e-10, ||r||/||r_0|| = 8.307e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.561275, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.40422e-07, ||r||/||r_0|| = 2.50184e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 7.96039e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.62077e-10, ||r||/||r_0|| = 4.54848e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00135522, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.42147e-07, ||r||/||r_0|| = 0.000104888
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.02679e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.42147e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 83483.946729 to 85843.382911 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 83483.9 to 85843.4
+Newton iteration  0 : ||r|| = 624.661, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.03275, ||r||/||r_0|| = 0.00325417
+Newton iteration  2 : ||r|| = 1.07609e-05, ||r||/||r_0|| = 1.72268e-08
+Convergence order 2.12105
+
+Newton iteration  0 : ||r|| = 99067.7, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6.37508, ||r||/||r_0|| = 6.43507e-05
+Newton iteration  2 : ||r|| = 2.80021e-07, ||r||/||r_0|| = 2.82656e-12
+Convergence order 1.75531
+
+Newton iteration  0 : ||r|| = 1.48371, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.46439e-06, ||r||/||r_0|| = 3.00893e-06
+Newton iteration  2 : ||r|| = 3.79419e-10, ||r||/||r_0|| = 2.55722e-10
+Convergence order 0.737223
+
+Newton iteration  0 : ||r|| = 275.804, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.88732e-05, ||r||/||r_0|| = 1.77203e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00442797, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.5925e-10, ||r||/||r_0|| = 8.11318e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.593066, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.46056e-07, ||r||/||r_0|| = 2.46273e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 8.64629e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.49981e-10, ||r||/||r_0|| = 4.04776e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00147287, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.48121e-07, ||r||/||r_0|| = 0.000100566
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.26534e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.48121e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 85843.382911 to 88202.819092 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 85843.4 to 88202.8
+Newton iteration  0 : ||r|| = 624.661, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.01567, ||r||/||r_0|| = 0.00322683
+Newton iteration  2 : ||r|| = 1.04293e-05, ||r||/||r_0|| = 1.6696e-08
+Convergence order 2.12191
+
+Newton iteration  0 : ||r|| = 98982.8, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6.43119, ||r||/||r_0|| = 6.49728e-05
+Newton iteration  2 : ||r|| = 2.58449e-07, ||r||/||r_0|| = 2.61105e-12
+Convergence order 1.76629
+
+Newton iteration  0 : ||r|| = 1.53271, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.74572e-06, ||r||/||r_0|| = 3.09629e-06
+Newton iteration  2 : ||r|| = 3.6758e-10, ||r||/||r_0|| = 2.39824e-10
+Convergence order 0.746203
+
+Newton iteration  0 : ||r|| = 283.543, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 5.16046e-05, ||r||/||r_0|| = 1.81999e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00468491, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.33624e-10, ||r||/||r_0|| = 7.12125e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.6257, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.39337e-07, ||r||/||r_0|| = 2.22691e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 9.36998e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.48573e-10, ||r||/||r_0|| = 3.72011e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00159707, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.41416e-07, ||r||/||r_0|| = 8.85468e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.52442e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.41416e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 88202.819092 to 90562.255274 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 88202.8 to 90562.3
+Newton iteration  0 : ||r|| = 624.661, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.99895, ||r||/||r_0|| = 0.00320005
+Newton iteration  2 : ||r|| = 1.0111e-05, ||r||/||r_0|| = 1.61863e-08
+Convergence order 2.12278
+
+Newton iteration  0 : ||r|| = 98899, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -3.47016e-11
+PCG: Number of iterations: 233
+PCG: No convergence!
+The coupling scheme did not converge for the time step from 88202.819092 to 89382.537183 in time sequence from 0.000000 to 100000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 88202.819092 to 89382.537183 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 88202.8 to 89382.5
+Newton iteration  0 : ||r|| = 312.33, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.499737, ||r||/||r_0|| = 0.00160002
+Newton iteration  2 : ||r|| = 6.35212e-07, ||r||/||r_0|| = 2.03378e-09
+Convergence order 2.10876
+
+Newton iteration  0 : ||r|| = 49233.4, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.69081, ||r||/||r_0|| = 3.43428e-05
+Newton iteration  2 : ||r|| = 1.4638e-07, ||r||/||r_0|| = 2.97319e-12
+Convergence order 1.58207
+
+Newton iteration  0 : ||r|| = 0.779243, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.22572e-06, ||r||/||r_0|| = 1.57296e-06
+Newton iteration  2 : ||r|| = 3.30468e-10, ||r||/||r_0|| = 4.24088e-10
+Convergence order 0.615042
+
+Newton iteration  0 : ||r|| = 143.737, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.34182e-05, ||r||/||r_0|| = 9.33528e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00241811, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.80877e-10, ||r||/||r_0|| = 1.57511e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.319774, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.50324e-07, ||r||/||r_0|| = 4.70094e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 4.92116e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.27589e-10, ||r||/||r_0|| = 6.65674e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000818843, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.3799e-07, ||r||/||r_0|| = 0.000168518
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.31939e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.3799e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 89382.537183 to 90562.255274 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 89382.5 to 90562.3
+Newton iteration  0 : ||r|| = 312.33, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.497678, ||r||/||r_0|| = 0.00159343
+Newton iteration  2 : ||r|| = 6.25469e-07, ||r||/||r_0|| = 2.00259e-09
+Convergence order 2.10917
+
+Newton iteration  0 : ||r|| = 49215.2, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.70037, ||r||/||r_0|| = 3.45496e-05
+Newton iteration  2 : ||r|| = 1.42725e-07, ||r||/||r_0|| = 2.90001e-12
+Convergence order 1.586
+
+Newton iteration  0 : ||r|| = 0.791993, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.26235e-06, ||r||/||r_0|| = 1.59389e-06
+Newton iteration  2 : ||r|| = 3.53976e-10, ||r||/||r_0|| = 4.46944e-10
+Convergence order 0.612709
+
+Newton iteration  0 : ||r|| = 145.672, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.37823e-05, ||r||/||r_0|| = 9.46118e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00248496, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.47985e-10, ||r||/||r_0|| = 1.40036e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.32812, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.45796e-07, ||r||/||r_0|| = 4.44337e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.11534e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.3408e-10, ||r||/||r_0|| = 6.53095e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000851423, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.46479e-07, ||r||/||r_0|| = 0.00017204
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.38898e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.46479e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 90562.255274 to 91741.973364 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 90562.3 to 91742
+Newton iteration  0 : ||r|| = 312.33, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.495641, ||r||/||r_0|| = 0.00158691
+Newton iteration  2 : ||r|| = 6.1594e-07, ||r||/||r_0|| = 1.97208e-09
+Convergence order 2.10957
+
+Newton iteration  0 : ||r|| = 49197.5, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.70988, ||r||/||r_0|| = 3.47553e-05
+Newton iteration  2 : ||r|| = 1.59836e-07, ||r||/||r_0|| = 3.24887e-12
+Convergence order 1.57643
+
+Newton iteration  0 : ||r|| = 0.80475, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.29961e-06, ||r||/||r_0|| = 1.61492e-06
+Newton iteration  2 : ||r|| = 3.48651e-10, ||r||/||r_0|| = 4.33242e-10
+Convergence order 0.616629
+
+Newton iteration  0 : ||r|| = 147.61, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.41393e-05, ||r||/||r_0|| = 9.57882e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00255274, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.71134e-10, ||r||/||r_0|| = 1.45387e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.33658, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.61262e-07, ||r||/||r_0|| = 4.79119e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.31461e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.24439e-10, ||r||/||r_0|| = 6.10467e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000884862, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.4616e-07, ||r||/||r_0|| = 0.000165178
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.46827e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.4616e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 91741.973364 to 92921.691455 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 91742 to 92921.7
+Newton iteration  0 : ||r|| = 312.33, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.493624, ||r||/||r_0|| = 0.00158045
+Newton iteration  2 : ||r|| = 6.06588e-07, ||r||/||r_0|| = 1.94214e-09
+Convergence order 2.10998
+
+Newton iteration  0 : ||r|| = 49180.2, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.71942, ||r||/||r_0|| = 3.49616e-05
+Newton iteration  2 : ||r|| = 1.56644e-07, ||r||/||r_0|| = 3.1851e-12
+Convergence order 1.57985
+
+Newton iteration  0 : ||r|| = 0.817543, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.33743e-06, ||r||/||r_0|| = 1.63591e-06
+Newton iteration  2 : ||r|| = 3.60407e-10, ||r||/||r_0|| = 4.40841e-10
+Convergence order 0.61689
+
+Newton iteration  0 : ||r|| = 149.548, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.45058e-05, ||r||/||r_0|| = 9.69977e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00262145, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.49915e-10, ||r||/||r_0|| = 1.33481e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.34515, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.50037e-07, ||r||/||r_0|| = 4.34702e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.51904e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.40124e-10, ||r||/||r_0|| = 6.16274e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000919169, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.49585e-07, ||r||/||r_0|| = 0.000162739
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.54384e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.49585e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 92921.691455 to 94101.409546 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 92921.7 to 94101.4
+Newton iteration  0 : ||r|| = 312.33, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.491628, ||r||/||r_0|| = 0.00157406
+Newton iteration  2 : ||r|| = 5.97442e-07, ||r||/||r_0|| = 1.91285e-09
+Convergence order 2.11038
+
+Newton iteration  0 : ||r|| = 49163.2, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.72906, ||r||/||r_0|| = 3.51698e-05
+Newton iteration  2 : ||r|| = 1.61458e-07, ||r||/||r_0|| = 3.28413e-12
+Convergence order 1.57836
+
+Newton iteration  0 : ||r|| = 0.830393, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.37587e-06, ||r||/||r_0|| = 1.65689e-06
+Newton iteration  2 : ||r|| = 3.3053e-10, ||r||/||r_0|| = 3.98041e-10
+Convergence order 0.626111
+
+Newton iteration  0 : ||r|| = 151.488, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.48753e-05, ||r||/||r_0|| = 9.81944e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00269113, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.49166e-10, ||r||/||r_0|| = 1.29747e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.353829, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.46447e-07, ||r||/||r_0|| = 4.13893e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.72866e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.33655e-10, ||r||/||r_0|| = 5.82432e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.000954368, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.46244e-07, ||r||/||r_0|| = 0.000153236
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.62221e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.46244e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 94101.409546 to 95281.127637 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 94101.4 to 95281.1
+Newton iteration  0 : ||r|| = 312.33, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.489652, ||r||/||r_0|| = 0.00156774
+Newton iteration  2 : ||r|| = 5.88463e-07, ||r||/||r_0|| = 1.8841e-09
+Convergence order 2.11078
+
+Newton iteration  0 : ||r|| = 49146.4, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.73881, ||r||/||r_0|| = 3.53803e-05
+Newton iteration  2 : ||r|| = 1.60203e-07, ||r||/||r_0|| = 3.25971e-12
+Convergence order 1.58059
+
+Newton iteration  0 : ||r|| = 0.843314, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.41494e-06, ||r||/||r_0|| = 1.67783e-06
+Newton iteration  2 : ||r|| = 3.51772e-10, ||r||/||r_0|| = 4.1713e-10
+Convergence order 0.624125
+
+Newton iteration  0 : ||r|| = 153.429, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.52559e-05, ||r||/||r_0|| = 9.94331e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00276177, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.46214e-10, ||r||/||r_0|| = 1.25359e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.362615, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.43409e-07, ||r||/||r_0|| = 3.95485e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 5.94351e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.9182e-10, ||r||/||r_0|| = 6.5924e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00099044, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.40543e-07, ||r||/||r_0|| = 0.0001419
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.70587e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.40543e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 95281.127637 to 96460.845728 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 95281.1 to 96460.8
+Newton iteration  0 : ||r|| = 312.33, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.487695, ||r||/||r_0|| = 0.00156147
+Newton iteration  2 : ||r|| = 5.79643e-07, ||r||/||r_0|| = 1.85586e-09
+Convergence order 2.11119
+
+Newton iteration  0 : ||r|| = 49129.9, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.74872, ||r||/||r_0|| = 3.55938e-05
+Newton iteration  2 : ||r|| = 1.48595e-07, ||r||/||r_0|| = 3.02453e-12
+Convergence order 1.58942
+
+Newton iteration  0 : ||r|| = 0.856313, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.45459e-06, ||r||/||r_0|| = 1.69867e-06
+Newton iteration  2 : ||r|| = 3.57219e-10, ||r||/||r_0|| = 4.1716e-10
+Convergence order 0.625628
+
+Newton iteration  0 : ||r|| = 155.371, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.56429e-05, ||r||/||r_0|| = 1.00681e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00283339, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.5399e-10, ||r||/||r_0|| = 1.24935e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.371507, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.65436e-07, ||r||/||r_0|| = 4.45312e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 6.1636e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.38689e-10, ||r||/||r_0|| = 5.49498e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00102741, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.45203e-07, ||r||/||r_0|| = 0.000141329
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.78571e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.45203e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 96460.845728 to 97640.563818 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 96460.8 to 97640.6
+Newton iteration  0 : ||r|| = 312.33, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.485759, ||r||/||r_0|| = 0.00155527
+Newton iteration  2 : ||r|| = 5.71016e-07, ||r||/||r_0|| = 1.82824e-09
+Convergence order 2.1116
+
+Newton iteration  0 : ||r|| = 49113.6, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.75878, ||r||/||r_0|| = 3.58105e-05
+Newton iteration  2 : ||r|| = 1.59309e-07, ||r||/||r_0|| = 3.24368e-12
+Convergence order 1.58412
+
+Newton iteration  0 : ||r|| = 0.869397, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.49479e-06, ||r||/||r_0|| = 1.71935e-06
+Newton iteration  2 : ||r|| = 3.2014e-10, ||r||/||r_0|| = 3.68232e-10
+Convergence order 0.636509
+
+Newton iteration  0 : ||r|| = 157.314, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.60183e-05, ||r||/||r_0|| = 1.01824e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.002906, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.74314e-10, ||r||/||r_0|| = 1.28807e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.380504, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.60556e-07, ||r||/||r_0|| = 4.21955e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 6.38904e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.58833e-10, ||r||/||r_0|| = 5.61638e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00106528, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.44101e-07, ||r||/||r_0|| = 0.00013527
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.87388e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.44101e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 97640.563818 to 98938.253718 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 97640.6 to 98938.3
+Newton iteration  0 : ||r|| = 343.564, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.585448, ||r||/||r_0|| = 0.00170405
+Newton iteration  2 : ||r|| = 8.23224e-07, ||r||/||r_0|| = 2.39613e-09
+Convergence order 2.11375
+
+Newton iteration  0 : ||r|| = 54035.6, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.1246, ||r||/||r_0|| = 3.93185e-05
+Newton iteration  2 : ||r|| = 1.60697e-07, ||r||/||r_0|| = 2.97391e-12
+Convergence order 1.61649
+
+Newton iteration  0 : ||r|| = 0.972198, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.86262e-06, ||r||/||r_0|| = 1.91589e-06
+Newton iteration  2 : ||r|| = 3.65776e-10, ||r||/||r_0|| = 3.76237e-10
+Convergence order 0.64833
+
+Newton iteration  0 : ||r|| = 175.394, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.9867e-05, ||r||/||r_0|| = 1.13271e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00328359, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.59551e-10, ||r||/||r_0|| = 1.095e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.429844, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.59055e-07, ||r||/||r_0|| = 3.70029e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 7.29644e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.46232e-10, ||r||/||r_0|| = 4.74521e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00122133, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.54585e-07, ||r||/||r_0|| = 0.000126571
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 2.1756e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.54585e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Computing time step from 98938.253718 to 100000.000000 in time sequence from 0.000000 to 100000.000000
+Computing next state from time 98938.3 to 100000
+Newton iteration  0 : ||r|| = 281.097, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.390221, ||r||/||r_0|| = 0.0013882
+Newton iteration  2 : ||r|| = 3.63267e-07, ||r||/||r_0|| = 1.29232e-09
+Convergence order 2.11058
+
+Newton iteration  0 : ||r|| = 44148.1, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.45479, ||r||/||r_0|| = 3.29526e-05
+Newton iteration  2 : ||r|| = 1.71408e-07, ||r||/||r_0|| = 3.88256e-12
+Convergence order 1.54587
+
+Newton iteration  0 : ||r|| = 0.80629, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.27771e-06, ||r||/||r_0|| = 1.58468e-06
+Newton iteration  2 : ||r|| = 4.17388e-10, ||r||/||r_0|| = 5.17665e-10
+Convergence order 0.60101
+
+Newton iteration  0 : ||r|| = 145.085, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.3644e-05, ||r||/||r_0|| = 9.40415e-08
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00275087, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.24082e-10, ||r||/||r_0|| = 1.17811e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.358688, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.62938e-07, ||r||/||r_0|| = 4.54261e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 6.18129e-06, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 3.90833e-10, ||r||/||r_0|| = 6.32284e-05
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00102704, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.66045e-07, ||r||/||r_0|| = 0.000161673
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.85533e-08, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.66045e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+After Solving:  memory footprint:  1.34701  GB
+# field, minimum, maximum and mean values
+DisplacementNorm 0 0.00131521506835355 0.000658976885712621
+PowerDensity 10000000000 10000000000 10000000000
+Swelling 0.000967431874071578 0.000967431874071578 0.000967431874071579
+Temperature 311.317301271036 488.819400715307 357.362665011901
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ |    name                                                |    number Of Calls |             min(s) |            mean(s) |             max(s) |            part(%) |             imb(%) |
+ |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | > root                                                |                  1 |          92.727883 |          92.729204 |          92.730524 |        100.000000% |          0.001424% |
+ | |--> Mesh::Constructor                                |                  1 |           0.002742 |           0.002756 |           0.002771 |          0.002988% |          0.522999% |
+ |    |--> Mesh::LoadMesh                                |                  1 |           0.001541 |           0.001553 |           0.001564 |          0.001687% |          0.750717% |
+ | |--> FED::Constructor                                 |                  2 |           0.000201 |           0.000201 |           0.000201 |          0.000217% |          0.039858% |
+ | |--> set_mgis_stuff                                   |                  1 |           0.003461 |           0.003553 |           0.003645 |          0.003931% |          2.586059% |
+ | |--> set_linear_solver                                |                  2 |           0.099531 |           0.100204 |           0.100876 |          0.108784% |          0.670986% |
+ |    |--> NLEPIB::updateLinearSolver                    |                  2 |           0.000002 |           0.000002 |           0.000002 |          0.000002% |          1.212121% |
+ | |--> CouplingSchemeBase::performInitializationTaks    |                 45 |           0.000054 |           0.000064 |           0.000073 |          0.000079% |         14.644569% |
+ | |--> IterativeCouplingScheme::computeNextState        |                 45 |          92.613903 |          92.614020 |          92.614137 |         99.874488% |          0.000126% |
+ |    |--> FieldUpdater                                  |                184 |           0.001135 |           0.001744 |           0.002353 |          0.002537% |         34.898189% |
+ |    |--> Thermal                                       |                184 |           4.603986 |           4.604336 |           4.604686 |          4.965664% |          0.007606% |
+ |       |--> NLEP::solve                                |                184 |           4.602635 |           4.602992 |           4.603348 |          4.964221% |          0.007741% |
+ |          |--> NLEPIB::setup                           |                184 |           0.004282 |           0.004506 |           0.004730 |          0.005101% |          4.978744% |
+ |          |--> NLEPIB::solve                           |                184 |           4.597780 |           4.598360 |           4.598941 |          4.959468% |          0.012626% |
+ |             |--> NS::Mult                             |                184 |           4.597593 |           4.598171 |           4.598749 |          4.959261% |          0.012570% |
+ |                |--> NS::processNewUnknownsEstimate    |                184 |           0.196936 |           0.196988 |           0.197041 |          0.212488% |          0.026790% |
+ |                |--> NS::computeResidual               |                184 |           0.097092 |           0.097271 |           0.097450 |          0.105089% |          0.184110% |
+ |                |--> NS::Mult::WhileLoop               |                421 |           4.299869 |           4.300350 |           4.300830 |          4.637988% |          0.011181% |
+ |                   |--> NS::computeNewtonCorrection    |                237 |           3.936096 |           3.936604 |           3.937112 |          4.245757% |          0.012912% |
+ |                      |--> NS::getJacobian             |                237 |           0.456376 |           0.456708 |           0.457039 |          0.492868% |          0.072540% |
+ |                      |--> NS::setLinearSolverOperator |                237 |           0.008839 |           0.008992 |           0.009146 |          0.009862% |          1.705619% |
+ |                      |--> MFEM::Mult(r,c)             |                237 |           3.470042 |           3.470408 |           3.470773 |          3.742859% |          0.010526% |
+ |                   |--> NS::processNewUnknownsEstimate |                237 |           0.238758 |           0.238823 |           0.238888 |          0.257615% |          0.027112% |
+ |                   |--> NS::computeResidual            |                237 |           0.117985 |           0.118229 |           0.118472 |          0.127760% |          0.206000% |
+ |    |--> U3SI2_SolidSwelling_Tridimensional            |                184 |           0.009359 |           0.009948 |           0.010537 |          0.011363% |          5.918983% |
+ |    |--> Mechanics                                     |                184 |          87.990776 |          87.991536 |          87.992296 |         94.890325% |          0.000864% |
+ |       |--> NLEP::solve                                |                184 |          87.989151 |          87.990043 |          87.990935 |         94.888858% |          0.001014% |
+ |          |--> NLEPIB::setup                           |                184 |           0.007330 |           0.007339 |           0.007348 |          0.007924% |          0.122027% |
+ |          |--> NLEPIB::solve                           |                184 |          87.981723 |          87.982610 |          87.983497 |         94.880836% |          0.001008% |
+ |             |--> NS::Mult                             |                184 |          87.981546 |          87.982441 |          87.983335 |         94.880662% |          0.001017% |
+ |                |--> NS::processNewUnknownsEstimate    |                184 |           4.171723 |           4.171730 |           4.171738 |          4.498775% |          0.000176% |
+ |                |--> NS::computeResidual               |                184 |           0.062292 |           0.062501 |           0.062711 |          0.067627% |          0.334559% |
+ |                |--> NS::Mult::WhileLoop               |                363 |          83.744290 |          83.745128 |          83.745967 |         90.311111% |          0.001001% |
+ |                   |--> NS::computeNewtonCorrection    |                188 |          79.585566 |          79.585976 |          79.586385 |         85.825445% |          0.000514% |
+ |                      |--> NS::getJacobian             |                188 |           1.202315 |           1.202586 |           1.202857 |          1.297153% |          0.022536% |
+ |                      |--> NS::setLinearSolverOperator |                188 |           2.881018 |           2.881408 |           2.881798 |          3.107713% |          0.013542% |
+ |                      |--> MFEM::Mult(r,c)             |                188 |          75.500987 |          75.501573 |          75.502159 |         81.421042% |          0.000776% |
+ |                   |--> NS::processNewUnknownsEstimate |                179 |           4.088457 |           4.088578 |           4.088698 |          4.409226% |          0.002954% |
+ |                   |--> NS::computeResidual            |                179 |           0.063001 |           0.063199 |           0.063397 |          0.068367% |          0.313101% |
+ | |--> NLEPIB::revert                                   |                 18 |           0.002128 |           0.002270 |           0.002412 |          0.002601% |          6.261330% |
+ | |--> NLEPIB::update                                   |                 72 |           0.005814 |           0.006112 |           0.006409 |          0.006911% |          4.864777% |
+ | |--> NLEP::executePostProcessings                     |                  2 |           0.000001 |           0.000001 |           0.000001 |          0.000002% |         14.741036% |
+ |    |--> NLEP::PP::synchronizeOnHost                   |                  2 |           0.000001 |           0.000001 |           0.000001 |          0.000001% |          6.024096% |
+ |-- end timetable ---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+invalid statistics of field 'DisplacementNorm' (0 0.00131522 0.000658977 vs 0 0.00131381 0.00065827)
+--------------------------------------------------------------------------
+prterun detected that one or more processes exited with non-zero status,
+thus causing the job to be terminated. The first process to do so was:
+
+   Process name: [prterun-t-MS-7E47-300843@1,1]
+   Exit code:    1
+--------------------------------------------------------------------------

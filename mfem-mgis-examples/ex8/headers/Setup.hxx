@@ -40,6 +40,14 @@ struct TestParameters {
   // strategy of BoomerAMG for the mechanical problem (System, Elasticity or
   // None), the default one of mfem-mgis if empty
   const char* amg_strategy_meca = "";
+  // smoother of the MueLu preconditioner (mfem-mgis built with Trilinos):
+  // default (the one of MueLu, symmetric Gauss-Seidel), jacobi (two sweeps
+  // of a Jacobi relaxation damped by muelu_damping) or chebyshev (Chebyshev
+  // polynomial of degree 2, the largest eigenvalue being estimated by 30
+  // iterations of the power method)
+  const char* muelu_smoother = "default";
+  // damping factor of the Jacobi smoother of MueLu
+  mfem_mgis::real muelu_damping = 0.6;
   // symmetry of the matrices of the mechanical problem given to the direct
   // solvers (tangent operator with Newton, elastic operator with NewtonK0):
   // Unsymmetric, SymmetricIndefinite or SymmetricPositiveDefinite; if empty,

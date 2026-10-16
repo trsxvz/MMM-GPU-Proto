@@ -1,0 +1,202 @@
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --mesh assemblage_hexa.msh
+   --libraryU3SI2 
+   --libraryALFENI 
+   --linearsolver-thermal HypreGMRES
+   --preconditioner-thermal HypreBoomerAMG
+   --linearsolver-mechanics CGSolver
+   --preconditioner-mechanics MueLu
+   --nonlinear-solver-mechanics Newton
+   --ordering-mechanics byNODES
+   --amg-strategy-mechanics 
+   --muelu-jacobi
+   --matrix-symmetry-mechanics 
+   --no-reuse-analysis
+   --order 1
+   --refinement 0
+   --no-post-processing
+   --verbosity-level 0
+   --debug
+   --reference-file 
+   --end-time 100000
+   --nbsteps 5
+   --t-ramp 100000
+   --h-conv 50000
+   --water-pressure 1e+06
+   --execution 
+   --finite-elements 
+   --behaviours 
+   --linear-solver-device 
+   --post-processings 
+   --device 
+   --hypre-device-pool-size 
+   --no-hypre-on-host
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+[warning]: ignoring attribute set 'comb' which is already associated by the user to a material
+[warning]: ignoring attribute set 'gaine' which is already associated by the user to a material
+[warning]: ignoring attribute set 'stiffeners' which is already associated by the user to a material
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  9516
+INFO: print_mesh_information
+INFO: number of elements ->  8424
+INFO: Number of finite element unknowns:  28548
+After_problem_creation:  memory footprint:  0.8924  GB
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Computing time sequence from 0 to 20000
+Computing next state from time 0 to 20000
+Newton iteration  0 : ||r|| = 7054.01, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 236.542, ||r||/||r_0|| = 0.0335329
+Newton iteration  2 : ||r|| = 0.430818, ||r||/||r_0|| = 6.10742e-05
+Newton iteration  3 : ||r|| = 1.63e-06, ||r||/||r_0|| = 2.31075e-10
+Convergence order 1.97915
+
+Newton iteration  0 : ||r|| = 1.3957e+06, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -765.039
+The coupling scheme did not converge for the time step from 0.000000 to 10000.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 10000.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 10000
+Newton iteration  0 : ||r|| = 6829.34, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 91.1287, ||r||/||r_0|| = 0.0133437
+Newton iteration  2 : ||r|| = 0.0640625, ||r||/||r_0|| = 9.38048e-06
+Newton iteration  3 : ||r|| = 3.80206e-08, ||r||/||r_0|| = 5.56724e-12
+Convergence order 1.97478
+
+Newton iteration  0 : ||r|| = 1.17288e+06, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -551.63
+The coupling scheme did not converge for the time step from 0.000000 to 5000.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 5000.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 5000
+Newton iteration  0 : ||r|| = 6772, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 38.9061, ||r||/||r_0|| = 0.00574515
+Newton iteration  2 : ||r|| = 0.0114295, ||r||/||r_0|| = 1.68776e-06
+Newton iteration  3 : ||r|| = 1.3105e-09, ||r||/||r_0|| = 1.93517e-13
+Convergence order 1.96507
+
+Newton iteration  0 : ||r|| = 1.06195e+06, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -458.163
+The coupling scheme did not converge for the time step from 0.000000 to 2500.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 2500.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 2500
+Newton iteration  0 : ||r|| = 6757.59, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 17.8149, ||r||/||r_0|| = 0.00263628
+Newton iteration  2 : ||r|| = 0.00234645, ||r||/||r_0|| = 3.47232e-07
+Convergence order 1.5046
+
+Newton iteration  0 : ||r|| = 1.00673e+06, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -414.794
+The coupling scheme did not converge for the time step from 0.000000 to 1250.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 1250.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 1250
+Newton iteration  0 : ||r|| = 6753.99, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.50232, ||r||/||r_0|| = 0.00125886
+Newton iteration  2 : ||r|| = 0.000526924, ||r||/||r_0|| = 7.80167e-08
+Convergence order 1.45095
+
+Newton iteration  0 : ||r|| = 979200, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -393.957
+The coupling scheme did not converge for the time step from 0.000000 to 625.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 625.000000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 625
+Newton iteration  0 : ||r|| = 6753.08, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 4.15053, ||r||/||r_0|| = 0.000614612
+Newton iteration  2 : ||r|| = 0.00012454, ||r||/||r_0|| = 1.8442e-08
+Convergence order 1.40836
+
+Newton iteration  0 : ||r|| = 965459, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -383.752
+The coupling scheme did not converge for the time step from 0.000000 to 312.500000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 312.500000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 312.5
+Newton iteration  0 : ||r|| = 6752.86, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 2.05019, ||r||/||r_0|| = 0.000303604
+Newton iteration  2 : ||r|| = 3.02534e-05, ||r||/||r_0|| = 4.48009e-09
+Convergence order 1.37335
+
+Newton iteration  0 : ||r|| = 958595, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -378.703
+The coupling scheme did not converge for the time step from 0.000000 to 156.250000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 156.250000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 156.25
+Newton iteration  0 : ||r|| = 6752.8, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.01884, ||r||/||r_0|| = 0.000150877
+Newton iteration  2 : ||r|| = 7.45423e-06, ||r||/||r_0|| = 1.10387e-09
+Convergence order 1.34394
+
+Newton iteration  0 : ||r|| = 955165, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -376.192
+The coupling scheme did not converge for the time step from 0.000000 to 78.125000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 78.125000 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 78.125
+Newton iteration  0 : ||r|| = 6752.79, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.507857, ||r||/||r_0|| = 7.52071e-05
+Newton iteration  2 : ||r|| = 1.85e-06, ||r||/||r_0|| = 2.7396e-10
+Convergence order 1.31884
+
+Newton iteration  0 : ||r|| = 953450, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -374.939
+The coupling scheme did not converge for the time step from 0.000000 to 39.062500 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+Computing time step from 0.000000 to 39.062500 in time sequence from 0.000000 to 20000.000000
+Computing next state from time 0 to 39.0625
+Newton iteration  0 : ||r|| = 6752.78, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.253538, ||r||/||r_0|| = 3.75457e-05
+Newton iteration  2 : ||r|| = 4.60806e-07, ||r||/||r_0|| = 6.82394e-11
+Convergence order 1.29717
+
+Newton iteration  0 : ||r|| = 952593, ||r||/||r_0|| = 1
+PCG: The preconditioner is not positive definite. (Br, r) = -374.314
+simulation failed: maximum number of failures or time step rejections reached at time 0.000000 in time sequence from 0.000000 to 20000.000000
+* finding the next state of the physical system failed
+** computing the next state of model 'Mechanics' failed
+*** solve: the non linear solver did not converge
+After Solving:  memory footprint:  1.92532  GB
+--------------------------------------------------------------------------
+prterun detected that one or more processes exited with non-zero status,
+thus causing the job to be terminated. The first process to do so was:
+
+   Process name: [prterun-t-MS-7E47-300457@1,1]
+   Exit code:    1
+--------------------------------------------------------------------------

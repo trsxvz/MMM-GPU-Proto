@@ -60,6 +60,13 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
   args.AddOption(&p.amg_strategy_meca, "-amgMc", "--amg-strategy-mechanics",
                  "Strategy of the BoomerAMG preconditioner of the mechanical "
                  "problem: System, Elasticity (requires byVDIM) or None.");
+  args.AddOption(&p.muelu_smoother, "-mls", "--muelu-smoother",
+                 "Smoother of the MueLu preconditioner (mfem-mgis built with "
+                 "Trilinos): default (symmetric Gauss-Seidel, slow on a "
+                 "GPU), jacobi (two sweeps of a Jacobi relaxation damped by "
+                 "--muelu-damping) or chebyshev (polynomial of degree 2).");
+  args.AddOption(&p.muelu_damping, "-mld", "--muelu-damping",
+                 "Damping factor of the Jacobi smoother of MueLu.");
   args.AddOption(&p.matrix_symmetry_meca, "-msMc",
                  "--matrix-symmetry-mechanics",
                  "Symmetry of the matrices of the mechanical problem given "

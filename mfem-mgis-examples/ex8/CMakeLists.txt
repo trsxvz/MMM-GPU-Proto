@@ -77,6 +77,21 @@ if(MFEM_MGIS_EXAMPLES_FULL_TESTS)
 else()
   set(rjh_plate_mesh assemblage_hexa_coarse)
 endif()
+# the mechanical problem solved by the conjugate gradient of MFEM
+# preconditioned by MueLu (rigid body modes, Chebyshev smoother), if
+# mfem-mgis has the solvers of Trilinos
+if(MFEMMGIS_HAVE_TRILINOS)
+  add_test(NAME rjh_plate-muelu
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+          $<TARGET_FILE:rjh_plate>
+          -m ${rjh_plate_mesh}.msh
+          -lsMc CGSolver -pcMc MueLu -mls chebyshev
+          -rf ${rjh_plate_mesh}-statistics.ref
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  set_tests_properties(rjh_plate-muelu PROPERTIES
+      PROCESSORS 2
+      ENVIRONMENT OMP_NUM_THREADS=1)
+endif()
 # the mechanical problem is solved by MUMPS
 if(MFEM_USE_MUMPS)
   add_test(NAME rjh_plate

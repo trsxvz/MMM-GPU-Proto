@@ -32,9 +32,11 @@ inline const std::vector<std::string> iterative_solvers = {
     "CGSolver",  "GMRESSolver", "BiCGSTABSolver", "MINRESSolver",
     "SLISolver", "HyprePCG",    "HypreGMRES",     "HypreFGMRES"};
 
+// MueLu requires mfem-mgis built with Trilinos (the rigid body modes are
+// given by mfem-mgis for the mechanics), with a Krylov solver of MFEM
 inline const std::vector<std::string> preconditioners = {
     "HypreBoomerAMG", "HypreDiagScale", "HypreEuclid", "HypreILU",
-    "HypreParaSails"};
+    "HypreParaSails", "MueLu"};
 
 inline long get_memory_checkpoint() {
   rusage obj;
@@ -187,7 +189,40 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
         mfem_mgis::abort("Invalid preconditioner: " + precond);
       }
 
-      auto options = mfem_mgis::Parameters{{"VerbosityLevel", verbosity}};
+      auto options = mfem_mgis::Parameters{};
+      if (precond == "MueLu") {
+        // the parameters of MueLu, without verbosity level
+        const auto smoother = std::string_view{param.muelu_smoother};
+        if (smoother == "jacobi") {
+          const auto jacobi = mfem_mgis::Parameters{
+              {"relaxation: type", "Jacobi"},
+              {"relaxation: sweeps", 2},
+              {"relaxation: damping factor", param.muelu_damping}};
+          options.insert(
+              ctx, "Parameters",
+              mfem_mgis::Parameters{{"smoother: type", "RELAXATION"},
+                                    {"smoother: params", jacobi}}) |
+              or_die;
+        } else if (smoother == "chebyshev") {
+          // the default estimate of the largest eigenvalue (10 iterations)
+          // may be too low, which breaks the positivity of the
+          // preconditioner
+          const auto chebyshev = mfem_mgis::Parameters{
+              {"chebyshev: degree", 2},
+              {"chebyshev: eigenvalue max iterations", 30},
+              {"chebyshev: boost factor", 1.2}};
+          options.insert(
+              ctx, "Parameters",
+              mfem_mgis::Parameters{{"smoother: type", "CHEBYSHEV"},
+                                    {"smoother: params", chebyshev}}) |
+              or_die;
+        } else if (smoother != "default") {
+          mfem_mgis::abort("invalid smoother of MueLu: " +
+                           std::string{smoother});
+        }
+      } else {
+        options.insert(ctx, "VerbosityLevel", verbosity) | or_die;
+      }
       if ((physics_type == "mechanics") && (precond == "HypreBoomerAMG") &&
           (*param.amg_strategy_meca != '\0')) {
         options.insert(ctx, "Strategy", param.amg_strategy_meca) | or_die;

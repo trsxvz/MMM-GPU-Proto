@@ -1,0 +1,166 @@
+Warning: program compiled against libxml 213 using older 209
+Options used:
+   --mesh assemblage_hexa.msh
+   --libraryU3SI2 
+   --libraryALFENI 
+   --linearsolver-thermal HypreGMRES
+   --preconditioner-thermal HypreBoomerAMG
+   --linearsolver-mechanics CGSolver
+   --preconditioner-mechanics MueLu
+   --nonlinear-solver-mechanics Newton
+   --ordering-mechanics byNODES
+   --amg-strategy-mechanics 
+   --muelu-smoother default
+   --muelu-damping 0.6
+   --matrix-symmetry-mechanics 
+   --no-reuse-analysis
+   --order 1
+   --refinement 1
+   --no-post-processing
+   --verbosity-level 0
+   --debug
+   --reference-file 
+   --end-time 20000
+   --nbsteps 1
+   --t-ramp 100000
+   --h-conv 50000
+   --water-pressure 1e+06
+   --execution 
+   --finite-elements 
+   --behaviours 
+   --linear-solver-device 
+   --post-processings 
+   --device 
+   --hypre-device-pool-size 
+   --no-hypre-on-host
+   --no-kokkos
+   --donot-use-petsc
+   --petsc-configuration-file 
+[warning]: ignoring attribute set 'comb' which is already associated by the user to a material
+[warning]: ignoring attribute set 'gaine' which is already associated by the user to a material
+[warning]: ignoring attribute set 'stiffeners' which is already associated by the user to a material
+INFO: print_mesh_information
+INFO: number of elements ->  67392
+INFO: Number of finite element unknowns:  71604
+INFO: print_mesh_information
+INFO: number of elements ->  67392
+INFO: Number of finite element unknowns:  214812
+After_problem_creation:  memory footprint:  0.922728  GB
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+MPI detected: For OpenMP binding to work as intended, MPI ranks must be bound to exclusive CPU sets.
+
+Computing time sequence from 0 to 20000
+Computing next state from time 0 to 20000
+Newton iteration  0 : ||r|| = 3534.2, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 109.446, ||r||/||r_0|| = 0.0309677
+Newton iteration  2 : ||r|| = 0.192365, ||r||/||r_0|| = 5.44296e-05
+Newton iteration  3 : ||r|| = 7.17044e-07, ||r||/||r_0|| = 2.02887e-10
+Convergence order 1.97039
+
+Newton iteration  0 : ||r|| = 719345, ||r||/||r_0|| = 1
+PCG: The operator is not positive definite. (Ad, d) = -0.547456
+PCG: The operator is not positive definite. (Ad, d) = -0.0404339
+PCG: The operator is not positive definite. (Ad, d) = -0.00241664
+PCG: The operator is not positive definite. (Ad, d) = -1.93323e-06
+PCG: The operator is not positive definite. (Ad, d) = -2.14857e-10
+PCG: The operator is not positive definite. (Ad, d) = -3.79594e-09
+PCG: The operator is not positive definite. (Ad, d) = -1.22117e-11
+PCG: The operator is not positive definite. (Ad, d) = -1.36747e-15
+Newton iteration  1 : ||r|| = 34651.2, ||r||/||r_0|| = 0.0481705
+Newton iteration  2 : ||r|| = 13.3712, ||r||/||r_0|| = 1.8588e-05
+Newton iteration  3 : ||r|| = 5.26838e-06, ||r||/||r_0|| = 7.32386e-12
+Convergence order 1.8762
+
+Newton iteration  0 : ||r|| = 1.96389, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 8.05877e-05, ||r||/||r_0|| = 4.10347e-05
+Newton iteration  2 : ||r|| = 6.8077e-10, ||r||/||r_0|| = 3.46643e-10
+Convergence order 1.15647
+
+Newton iteration  0 : ||r|| = 389.182, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 0.000365946, ||r||/||r_0|| = 9.40295e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.00123277, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 6.87343e-10, ||r||/||r_0|| = 5.57558e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 0.218757, ||r||/||r_0|| = 1
+Newton iteration  1 : ||r|| = 1.42137e-07, ||r||/||r_0|| = 6.49746e-07
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 7.34399e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+Newton iteration  0 : ||r|| = 1.42137e-07, ||r||/||r_0|| = 1
+Convergence order undefined
+
+After Solving:  memory footprint:  6.07638  GB
+# field, minimum, maximum and mean values
+DisplacementNorm 0 0.000630196162677363 0.000315521815102764
+PowerDensity 2000000000 2000000000 2000000000
+Swelling 3.86972749628631e-05 3.86972749628631e-05 3.8697274963014e-05
+Temperature 313.515590006711 348.465792640592 324.470270799393
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable -------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ |    name                                                |    number Of Calls |             min(s) |            mean(s) |             max(s) |            part(%) |             imb(%) |
+ |--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+ | > root                                                |                  1 |         735.174745 |         735.179411 |         735.184078 |        100.000000% |          0.000635% |
+ | |--> Mesh::Constructor                                |                  1 |           0.029172 |           0.029234 |           0.029296 |          0.003985% |          0.212166% |
+ |    |--> Mesh::LoadMesh                                |                  1 |           0.010097 |           0.010141 |           0.010184 |          0.001385% |          0.426061% |
+ |    |--> Mesh::Run_ParUniformRefinement                |                  1 |           0.012008 |           0.012139 |           0.012270 |          0.001669% |          1.080174% |
+ | |--> FED::Constructor                                 |                  2 |           0.007780 |           0.007889 |           0.007997 |          0.001088% |          1.376573% |
+ | |--> set_mgis_stuff                                   |                  1 |           0.207122 |           0.209362 |           0.211602 |          0.028782% |          1.069789% |
+ | |--> set_linear_solver                                |                  2 |           0.122905 |           0.124876 |           0.126847 |          0.017254% |          1.578311% |
+ |    |--> NLEPIB::updateLinearSolver                    |                  2 |           0.000002 |           0.000002 |           0.000002 |          0.000000% |          2.202643% |
+ | |--> CouplingSchemeBase::performInitializationTaks    |                  1 |           0.000001 |           0.000001 |           0.000001 |          0.000000% |         19.402985% |
+ | |--> IterativeCouplingScheme::computeNextState        |                  1 |         734.729351 |         734.729362 |         734.729373 |         99.938151% |          0.000001% |
+ |    |--> FieldUpdater                                  |                  4 |           0.000933 |           0.000957 |           0.000981 |          0.000133% |          2.496577% |
+ |    |--> Thermal                                       |                  4 |           4.281041 |           4.281083 |           4.281125 |          0.582320% |          0.000987% |
+ |       |--> NLEP::solve                                |                  4 |           4.280983 |           4.281027 |           4.281070 |          0.582313% |          0.001020% |
+ |          |--> NLEPIB::setup                           |                  4 |           0.000123 |           0.000125 |           0.000127 |          0.000017% |          1.550543% |
+ |          |--> NLEPIB::solve                           |                  4 |           4.280851 |           4.280896 |           4.280941 |          0.582295% |          0.001052% |
+ |             |--> NS::Mult                             |                  4 |           4.280839 |           4.280885 |           4.280930 |          0.582294% |          0.001062% |
+ |                |--> NS::processNewUnknownsEstimate    |                  4 |           0.340819 |           0.340821 |           0.340822 |          0.046359% |          0.000461% |
+ |                |--> NS::computeResidual               |                  4 |           0.073890 |           0.073896 |           0.073902 |          0.010052% |          0.007747% |
+ |                |--> NS::Mult::WhileLoop               |                 10 |           3.865622 |           3.865668 |           3.865714 |          0.525816% |          0.001185% |
+ |                   |--> NS::computeNewtonCorrection    |                  6 |           3.337305 |           3.337358 |           3.337410 |          0.453956% |          0.001575% |
+ |                      |--> NS::getJacobian             |                  6 |           0.738501 |           0.738550 |           0.738600 |          0.100465% |          0.006691% |
+ |                      |--> NS::setLinearSolverOperator |                  6 |           0.000479 |           0.000479 |           0.000479 |          0.000065% |          0.087671% |
+ |                      |--> MFEM::Mult(r,c)             |                  6 |           2.598278 |           2.598283 |           2.598288 |          0.353420% |          0.000197% |
+ |                   |--> NS::processNewUnknownsEstimate |                  6 |           0.425168 |           0.425170 |           0.425172 |          0.057832% |          0.000496% |
+ |                   |--> NS::computeResidual            |                  6 |           0.101517 |           0.101522 |           0.101528 |          0.013810% |          0.005398% |
+ |    |--> U3SI2_SolidSwelling_Tridimensional            |                  4 |           0.012763 |           0.012805 |           0.012846 |          0.001747% |          0.324490% |
+ |    |--> Mechanics                                     |                  4 |         730.434235 |         730.434274 |         730.434312 |         99.353935% |          0.000005% |
+ |       |--> NLEP::solve                                |                  4 |         730.434156 |         730.434197 |         730.434238 |         99.353925% |          0.000006% |
+ |          |--> NLEPIB::setup                           |                  4 |           0.000182 |           0.000184 |           0.000186 |          0.000025% |          1.001873% |
+ |          |--> NLEPIB::solve                           |                  4 |         730.433965 |         730.434008 |         730.434051 |         99.353900% |          0.000006% |
+ |             |--> NS::Mult                             |                  4 |         730.433955 |         730.433998 |         730.434040 |         99.353898% |          0.000006% |
+ |                |--> NS::processNewUnknownsEstimate    |                  4 |           5.411740 |           5.411744 |           5.411748 |          0.736108% |          0.000072% |
+ |                |--> NS::computeResidual               |                  4 |           0.097834 |           0.097847 |           0.097860 |          0.013311% |          0.013250% |
+ |                |--> NS::Mult::WhileLoop               |                  9 |         724.923038 |         724.923078 |         724.923117 |         98.604300% |          0.000005% |
+ |                   |--> NS::computeNewtonCorrection    |                  5 |         717.863995 |         717.864060 |         717.864125 |         97.644134% |          0.000009% |
+ |                      |--> NS::getJacobian             |                  5 |           2.819487 |           2.819543 |           2.819598 |          0.383523% |          0.001969% |
+ |                      |--> NS::setLinearSolverOperator |                  5 |           3.395087 |           3.395221 |           3.395356 |          0.461838% |          0.003963% |
+ |                      |--> MFEM::Mult(r,c)             |                  5 |         711.649118 |         711.649261 |         711.649405 |         96.798805% |          0.000020% |
+ |                   |--> NS::processNewUnknownsEstimate |                  5 |           6.936650 |           6.936671 |           6.936693 |          0.943531% |          0.000313% |
+ |                   |--> NS::computeResidual            |                  5 |           0.118717 |           0.118737 |           0.118757 |          0.016153% |          0.017029% |
+ | |--> NLEP::executePostProcessings                     |                  2 |           0.000003 |           0.000003 |           0.000003 |          0.000000% |          1.472995% |
+ |    |--> NLEP::PP::synchronizeOnHost                   |                  2 |           0.000003 |           0.000003 |           0.000003 |          0.000000% |          1.328273% |
+ | |--> NLEPIB::update                                   |                  2 |           0.078193 |           0.078576 |           0.078958 |          0.010740% |          0.487024% |
+ |-- end timetable ---------------------------------------------------------------------------------------------------------------------------------------------------------------------|

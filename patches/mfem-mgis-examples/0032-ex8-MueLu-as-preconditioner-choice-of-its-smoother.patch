@@ -1,0 +1,172 @@
+From 33e1bb8aceeaf2cc1846f1c19126b35928d36bca Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 12:27:19 +0200
+Subject: [PATCH] ex8: MueLu as preconditioner, choice of its smoother
+
+The preconditioners of the heat transfer and mechanical problems may be
+MueLu (mfem-mgis built with Trilinos, rigid body modes for the
+mechanics), with a Krylov solver of MFEM. Options -mls (smoother of
+MueLu: default, jacobi or chebyshev) and -mld (damping factor of the
+Jacobi smoother). On the mechanics of this example, the Jacobi smoother
+damped by 0.6 or 0.3 does not give a positive definite preconditioner:
+the Chebyshev smoother is the one to use on a GPU. Test rjh_plate-muelu
+when mfem-mgis has the solvers of Trilinos.
+---
+ ex8/CMakeLists.txt       | 15 +++++++++++++++
+ ex8/README.md            |  5 ++++-
+ ex8/Thermomechanical.cxx |  7 +++++++
+ ex8/headers/Setup.hxx    |  8 ++++++++
+ ex8/headers/Utils.hxx    | 39 +++++++++++++++++++++++++++++++++++++--
+ 5 files changed, 71 insertions(+), 3 deletions(-)
+
+diff --git a/ex8/CMakeLists.txt b/ex8/CMakeLists.txt
+index 6cd2361..935483a 100644
+--- a/ex8/CMakeLists.txt
++++ b/ex8/CMakeLists.txt
+@@ -77,6 +77,21 @@ if(MFEM_MGIS_EXAMPLES_FULL_TESTS)
+ else()
+   set(rjh_plate_mesh assemblage_hexa_coarse)
+ endif()
++# the mechanical problem solved by the conjugate gradient of MFEM
++# preconditioned by MueLu (rigid body modes, Chebyshev smoother), if
++# mfem-mgis has the solvers of Trilinos
++if(MFEMMGIS_HAVE_TRILINOS)
++  add_test(NAME rjh_plate-muelu
++      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
++          $<TARGET_FILE:rjh_plate>
++          -m ${rjh_plate_mesh}.msh
++          -lsMc CGSolver -pcMc MueLu -mls chebyshev
++          -rf ${rjh_plate_mesh}-statistics.ref
++      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
++  set_tests_properties(rjh_plate-muelu PROPERTIES
++      PROCESSORS 2
++      ENVIRONMENT OMP_NUM_THREADS=1)
++endif()
+ # the mechanical problem is solved by MUMPS
+ if(MFEM_USE_MUMPS)
+   add_test(NAME rjh_plate
+diff --git a/ex8/README.md b/ex8/README.md
+index a55af94..8ab5bf2 100644
+--- a/ex8/README.md
++++ b/ex8/README.md
+@@ -85,10 +85,12 @@ Here is a summary table of the available options:
+ | `-lsTh` | `--linearsolver-thermal` | Name of the linear solver to use for the heat transfer problem: an iterative solver (default: `HypreGMRES`) or a direct solver, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only, MFEM being built with cuDSS). |
+ | `-pcTh` | `--preconditioner-thermal` | Preconditioner associated with the thermal solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
+ | `-lsMc` | `--linearsolver-mechanics` | Name of the linear solver to use for the mechanics problem: the direct solver `MUMPSSolver` (default), the direct solver `CuDSSSolver` (on a CUDA GPU only, MFEM being built with cuDSS) or an iterative solver (e.g., `HyprePCG`). |
+-| `-pcMc` | `--preconditioner-mechanics` | Preconditioner associated with the mechanics solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
++| `-pcMc` | `--preconditioner-mechanics` | Preconditioner associated with the mechanics solver (default: `HypreBoomerAMG`), ignored for direct solvers. `MueLu` (the algebraic multigrid of Trilinos, with the rigid body modes) requires mfem-mgis built with Trilinos and a Krylov solver of MFEM (`-lsMc CGSolver`), and is also accepted for the heat transfer problem (`-pcTh`). |
+ | `-nlsMc` | `--nonlinear-solver-mechanics` | Non linear solver of the mechanics problem: `Newton` (default) or `NewtonK0` (tangent systems solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each resolution of the mechanics problem, that is at each iteration of the coupling scheme). |
+ | `-oMc` | `--ordering-mechanics` | Ordering of the degrees of freedom of the mechanics problem: `byNODES` (default) or `byVDIM`. |
+ | `-amgMc` | `--amg-strategy-mechanics` | Strategy of the `HypreBoomerAMG` preconditioner of the mechanics problem: `System`, `Elasticity` (requires `byVDIM`) or `None` (default: the one of `mfem-mgis`). A warning is printed if the mechanics solver has no BoomerAMG preconditioner. |
++| `-mls` | `--muelu-smoother` | Smoother of the `MueLu` preconditioner: `default` (the one of MueLu, symmetric Gauss-Seidel, slow on a GPU), `jacobi` (two sweeps of a Jacobi relaxation damped by `-mld`) or `chebyshev` (polynomial of degree 2, its largest eigenvalue being estimated by 30 iterations of the power method and multiplied by 1.2). On the mechanics of this example, the Jacobi relaxation damped by 0.6 or 0.3 does not give a positive definite preconditioner: use `chebyshev` on a GPU. An invalid value is refused. |
++| `-mld` | `--muelu-damping` | Damping factor of the Jacobi smoother of `MueLu` (default: 0.6). |
+ | `-msMc` | `--matrix-symmetry-mechanics` | Symmetry of the matrices of the mechanics problem given to the direct solver, `MUMPSSolver` or `CuDSSSolver` (tangent operator with `Newton`, elastic operator factorized by MUMPS with `NewtonK0`): `Unsymmetric`, `SymmetricIndefinite` or `SymmetricPositiveDefinite` (default: `Unsymmetric` with `Newton`, `SymmetricIndefinite` with `NewtonK0`). The symmetric modes give the lower triangle of the matrices to the solver without checking their symmetry; the tangent operator of this example is symmetric and positive definite, and `SymmetricPositiveDefinite` speeds up the factorizations of MUMPS by about 30 %. An invalid value is refused. Ignored, with a warning, when the mechanics solver is not a direct solver (unless `-nlsMc NewtonK0`). |
+ | `-mra`, `-no-mra` | `--reuse-analysis`, `--no-reuse-analysis` | Reuse the analysis of the direct solvers (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations: heat transfer and mechanics problems solved by `MUMPSSolver` or `CuDSSSolver`, elastic operator of `NewtonK0` (parameter `ReuseAnalysis` of mfem-mgis, which must provide it). Disabled by default; ignored, with a warning, when no direct solver is used. On the original mesh, with `-msMc SymmetricPositiveDefinite`, the factorizations of the mechanics problem by MUMPS take about 20 % less time on one process and 26 % less on two; those of cuDSS are about 5 times faster. |
+ | `-o` | `--order` | Finite element order (polynomial degree, default: `1`). |
+@@ -161,6 +163,7 @@ The following tests are run by `ctest`:
+ 
+ - `rjh_plate` runs the simulation on 2 processes with the default mesh and compares the statistics of the temperature and of the displacement to the reference values of `assemblage_hexa-statistics.ref`. In the restricted test mode, used by default in the debug and coverage builds, it uses the coarser mesh `assemblage_hexa_coarse.msh` and the reference values of `assemblage_hexa_coarse-statistics.ref`;
+ - `rjh_plate-kernels` runs the same simulation with the integration of the behaviours by batches and the gradients, the inner forces and the tangent operator computed by kernels (environment variables of mfem-mgis), compared to the same reference;
++- `rjh_plate-muelu` (mfem-mgis built with Trilinos) solves the mechanical problem by the conjugate gradient of MFEM preconditioned by MueLu with a Chebyshev smoother (`-lsMc CGSolver -pcMc MueLu -mls chebyshev`), compared to the same reference;
+ - `rjh_plate-mumps-spd` runs the simulation by kernels with the tangent operator of the mechanical problem given to MUMPS as a symmetric positive definite matrix (`-msMc SymmetricPositiveDefinite`), compared to the same reference;
+ - `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each resolution of the mechanical problem instead of the tangent operator at each iteration), compared to the same reference;
+ - `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solver-device cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour libraries are built for the GPU (see the main README);
+diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
+index 5c5cf12..eecf74e 100644
+--- a/ex8/Thermomechanical.cxx
++++ b/ex8/Thermomechanical.cxx
+@@ -60,6 +60,13 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
+   args.AddOption(&p.amg_strategy_meca, "-amgMc", "--amg-strategy-mechanics",
+                  "Strategy of the BoomerAMG preconditioner of the mechanical "
+                  "problem: System, Elasticity (requires byVDIM) or None.");
++  args.AddOption(&p.muelu_smoother, "-mls", "--muelu-smoother",
++                 "Smoother of the MueLu preconditioner (mfem-mgis built with "
++                 "Trilinos): default (symmetric Gauss-Seidel, slow on a "
++                 "GPU), jacobi (two sweeps of a Jacobi relaxation damped by "
++                 "--muelu-damping) or chebyshev (polynomial of degree 2).");
++  args.AddOption(&p.muelu_damping, "-mld", "--muelu-damping",
++                 "Damping factor of the Jacobi smoother of MueLu.");
+   args.AddOption(&p.matrix_symmetry_meca, "-msMc",
+                  "--matrix-symmetry-mechanics",
+                  "Symmetry of the matrices of the mechanical problem given "
+diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
+index 2aeac94..5e5d400 100644
+--- a/ex8/headers/Setup.hxx
++++ b/ex8/headers/Setup.hxx
+@@ -40,6 +40,14 @@ struct TestParameters {
+   // strategy of BoomerAMG for the mechanical problem (System, Elasticity or
+   // None), the default one of mfem-mgis if empty
+   const char* amg_strategy_meca = "";
++  // smoother of the MueLu preconditioner (mfem-mgis built with Trilinos):
++  // default (the one of MueLu, symmetric Gauss-Seidel), jacobi (two sweeps
++  // of a Jacobi relaxation damped by muelu_damping) or chebyshev (Chebyshev
++  // polynomial of degree 2, the largest eigenvalue being estimated by 30
++  // iterations of the power method)
++  const char* muelu_smoother = "default";
++  // damping factor of the Jacobi smoother of MueLu
++  mfem_mgis::real muelu_damping = 0.6;
+   // symmetry of the matrices of the mechanical problem given to the direct
+   // solvers (tangent operator with Newton, elastic operator with NewtonK0):
+   // Unsymmetric, SymmetricIndefinite or SymmetricPositiveDefinite; if empty,
+diff --git a/ex8/headers/Utils.hxx b/ex8/headers/Utils.hxx
+index e1a6048..a1d5499 100644
+--- a/ex8/headers/Utils.hxx
++++ b/ex8/headers/Utils.hxx
+@@ -32,9 +32,11 @@ inline const std::vector<std::string> iterative_solvers = {
+     "CGSolver",  "GMRESSolver", "BiCGSTABSolver", "MINRESSolver",
+     "SLISolver", "HyprePCG",    "HypreGMRES",     "HypreFGMRES"};
+ 
++// MueLu requires mfem-mgis built with Trilinos (the rigid body modes are
++// given by mfem-mgis for the mechanics), with a Krylov solver of MFEM
+ inline const std::vector<std::string> preconditioners = {
+     "HypreBoomerAMG", "HypreDiagScale", "HypreEuclid", "HypreILU",
+-    "HypreParaSails"};
++    "HypreParaSails", "MueLu"};
+ 
+ inline long get_memory_checkpoint() {
+   rusage obj;
+@@ -187,7 +189,40 @@ inline static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+         mfem_mgis::abort("Invalid preconditioner: " + precond);
+       }
+ 
+-      auto options = mfem_mgis::Parameters{{"VerbosityLevel", verbosity}};
++      auto options = mfem_mgis::Parameters{};
++      if (precond == "MueLu") {
++        // the parameters of MueLu, without verbosity level
++        const auto smoother = std::string_view{param.muelu_smoother};
++        if (smoother == "jacobi") {
++          const auto jacobi = mfem_mgis::Parameters{
++              {"relaxation: type", "Jacobi"},
++              {"relaxation: sweeps", 2},
++              {"relaxation: damping factor", param.muelu_damping}};
++          options.insert(
++              ctx, "Parameters",
++              mfem_mgis::Parameters{{"smoother: type", "RELAXATION"},
++                                    {"smoother: params", jacobi}}) |
++              or_die;
++        } else if (smoother == "chebyshev") {
++          // the default estimate of the largest eigenvalue (10 iterations)
++          // may be too low, which breaks the positivity of the
++          // preconditioner
++          const auto chebyshev = mfem_mgis::Parameters{
++              {"chebyshev: degree", 2},
++              {"chebyshev: eigenvalue max iterations", 30},
++              {"chebyshev: boost factor", 1.2}};
++          options.insert(
++              ctx, "Parameters",
++              mfem_mgis::Parameters{{"smoother: type", "CHEBYSHEV"},
++                                    {"smoother: params", chebyshev}}) |
++              or_die;
++        } else if (smoother != "default") {
++          mfem_mgis::abort("invalid smoother of MueLu: " +
++                           std::string{smoother});
++        }
++      } else {
++        options.insert(ctx, "VerbosityLevel", verbosity) | or_die;
++      }
+       if ((physics_type == "mechanics") && (precond == "HypreBoomerAMG") &&
+           (*param.amg_strategy_meca != '\0')) {
+         options.insert(ctx, "Strategy", param.amg_strategy_meca) | or_die;
+-- 
+2.43.0
+

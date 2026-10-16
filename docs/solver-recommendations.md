@@ -98,7 +98,20 @@ computes, with the serial node of Tpetra on the host, except FROSch (see
   (symmetric Gauss-Seidel) is slow on the GPU (a resolution in 3.8 seconds
   instead of 0.071), and its Chebyshev smoother stopped the conjugate
   gradient on the homogeneous beam (preconditioner not positive
-  definite).
+  definite) unless the largest eigenvalue is estimated by 30 iterations
+  of the power method. The smoother depends on the problem: on the thin
+  plate of ex8, the Jacobi smoother damped by 0.6 or 0.3 does not give a
+  positive definite preconditioner, while the Chebyshev smoother (30
+  iterations of the power method, boost factor 1.2) does.
+- Thin plates (ex8 of mfem-mgis-examples): neither MueLu nor BoomerAMG
+  converges well (480 and 441 iterations of the conjugate gradient per
+  resolution), and MUMPS stays the fastest at 28,548 unknowns (22.8
+  seconds against 57.2 for MueLu on 2 CPU processes, 11.2 against 16.8 on
+  the GPU). On the mesh refined once (214,812 unknowns), out of reach of
+  MUMPS, MueLu with the Chebyshev smoother on the GPU runs the 5 steps in
+  264 seconds; the conjugate gradient meets directions of negative
+  curvature of the tangent operator there
+  ([measurements](../results/ex8-muelu-2026-10-16/README.md)).
   The Chebyshev polynomial of Ifpack2 (degree 3) is
   close to BoomerAMG on small systems and 2.5 times slower at 421,443
   unknowns.

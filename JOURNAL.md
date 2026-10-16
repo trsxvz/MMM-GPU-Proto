@@ -5374,3 +5374,15 @@ formula as MTest). All the others give the Newton solution to within
   by 19 to 51 percent (`qr-check.py`). Trilinos develop replaced this code
   by the batched QR of Kokkos Kernels after 17.2.1. mfem-mgis 288a256414
   documents the cause of its default (`use kokkos refactor` false).
+- ex8 of mfem-mgis-examples with MueLu (options `-pcMc MueLu`, `-mls`,
+  `-mld` of ex8, mfem-mgis-examples 33e1bb8; `cases/measure-ex8-muelu.sh`,
+  `results/ex8-muelu-2026-10-16`): MueLu does not reduce the iterations
+  on this thin plate (480 per resolution, 441 for BoomerAMG), and MUMPS
+  stays the fastest on the original mesh (22.8 seconds against 57.2 on 2
+  CPU processes, 11.2 against 16.8 on the GPU). The Jacobi smoother damped
+  by 0.6 or 0.3 does not give a positive definite preconditioner there;
+  the Chebyshev smoother does. On the mesh refined once (214,812 unknowns
+  for the mechanics), MueLu on the GPU runs the 5 steps in 264 seconds
+  (first step 39.7 seconds, against 734.7 on 2 CPU processes), but the
+  conjugate gradient meets directions of negative curvature of the tangent
+  operator: GMRES or MINRES to be measured.
