@@ -1,0 +1,57 @@
+From 35e264ef530bd39a2860acb3c15217cda12f1d1d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 20:37:13 +0200
+Subject: [PATCH] Execution settings: options named after the phases
+
+The options placing each phase in the mixed mode of mfem-mgis are renamed
+--finite-elements-execution, --behaviours-execution,
+--linear-solvers-execution (formerly --linear-solver-device) and
+--post-processings-execution: tests and documentation updated.
+---
+ README.md                  | 2 +-
+ polycrystal/CMakeLists.txt | 2 +-
+ polycrystal/README.md      | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/README.md b/README.md
+index 3312cd7..acc0803 100644
+--- a/README.md
++++ b/README.md
+@@ -24,7 +24,7 @@ cmake --build build -j 4
+ ctest --test-dir build
+ ```
+ 
+-The option `-DMM_OPERA_HPC_GPU_TESTS=ON` also registers the tests of the cases on a GPU (`--execution gpu`, and `--execution mixed --behaviours cpu` for the polycrystal), when MFEM is compiled with CUDA or HIP and the behaviour libraries of the case are built for the GPU (TFEL providing the configuration file `config-cuda-nvcc.json`, resp. `config-hip-hipcc.json`, of MFront; CMake prints why they are not built). A GPU is then required to run them. The three cases accept the options of mfem-mgis, in particular `--execution cpu|gpu|mixed`, which places the computations on the CPU or on the GPU.
++The option `-DMM_OPERA_HPC_GPU_TESTS=ON` also registers the tests of the cases on a GPU (`--execution gpu`, and `--execution mixed --behaviours-execution cpu` for the polycrystal), when MFEM is compiled with CUDA or HIP and the behaviour libraries of the case are built for the GPU (TFEL providing the configuration file `config-cuda-nvcc.json`, resp. `config-hip-hipcc.json`, of MFront; CMake prints why they are not built). A GPU is then required to run them. The three cases accept the options of mfem-mgis, in particular `--execution cpu|gpu|mixed`, which places the computations on the CPU or on the GPU.
+ 
+ For more details on installing mfem-mgis, for example on a supercomputer without internet access, see its installation guide: https://thelfer.github.io/mfem-mgis/installation_guide/installation_guide.html
+ 
+diff --git a/polycrystal/CMakeLists.txt b/polycrystal/CMakeLists.txt
+index d655087..224a60f 100755
+--- a/polycrystal/CMakeLists.txt
++++ b/polycrystal/CMakeLists.txt
+@@ -46,7 +46,7 @@ if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursPolycrystal_HAVE_GPU_BEHAVIOURS)
+     FILE polycrystal-test-mixed-gpu.res ${_polycrystal_checks}
+     COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
+             --macroscopic-stress-output-file polycrystal-test-mixed-gpu.res
+-            --execution mixed --behaviours cpu)
++            --execution mixed --behaviours-execution cpu)
+   set_tests_properties(UniaxialPolycrystalTest-gpu UniaxialPolycrystalTest-mixed-gpu PROPERTIES RESOURCE_LOCK gpu)
+ endif()
+ mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTestPar
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index c3b8cfb..b58dd97 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -168,7 +168,7 @@ This table shows the comparison between the simulated Cauchy stress values and t
+ 
+ ## Tests
+ 
+-`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.2 s without post-processing, whose axial stress `Szz` is compared to the one computed by Cast3M, `results/polycrystal_cast3m.csv`, with a relative tolerance of 1 %, by `cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `UniaxialPolycrystalTest-DisplacementGradient` (the same with `--displacement-gradient`), `UniaxialPolycrystalTestPar` (the same on 2 processes) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours cpu`.
++`ctest` runs `UniaxialPolycrystalTest` (one time step of 0.2 s without post-processing, whose axial stress `Szz` is compared to the one computed by Cast3M, `results/polycrystal_cast3m.csv`, with a relative tolerance of 1 %, by `cmake/run-and-check.py`, which requires Python 3; without it, the case is only run), `UniaxialPolycrystalTest-DisplacementGradient` (the same with `--displacement-gradient`), `UniaxialPolycrystalTestPar` (the same on 2 processes) and `PolycrystalTestWithPostProPar` (one time step of 0.01 s on 2 processes, exporting the von Mises stress and the first eigen stress). With the option `MM_OPERA_HPC_GPU_TESTS` (see the main README), `UniaxialPolycrystalTest-gpu` and `UniaxialPolycrystalTest-mixed-gpu` run the first test with `--execution gpu` and with `--execution mixed --behaviours-execution cpu`.
+ 
+ ## References
+ 
+-- 
+2.43.0
+

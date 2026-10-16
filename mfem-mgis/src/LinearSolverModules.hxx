@@ -214,6 +214,14 @@ namespace mfem_mgis::internals {
    * \param[in] n: name of the linear solver or of the preconditioner
    */
   [[nodiscard]] std::string getUnavailableLibraryHint(std::string_view n);
+  /*!
+   * \return a message explaining why a non linear solver of an optional
+   * library is not registered (the library is not available), or an empty
+   * string if the name is not the one of such a solver
+   * \param[in] n: name of the non linear solver
+   */
+  [[nodiscard]] std::string getUnavailableNonLinearSolverLibraryHint(
+      std::string_view n);
 
   /*!
    * \brief register a linear solver or a preconditioner in a factory, a

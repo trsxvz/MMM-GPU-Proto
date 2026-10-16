@@ -475,17 +475,18 @@ choice:
   :code:`HIP`, as :code:`MFEM` is built), all the computations on the GPU;
 - :code:`mixed`: device :code:`gpu` of :code:`MFEM`, each phase being
   placed on the CPU or on the GPU (:code:`gpu` by default) by
-  :code:`--finite-elements` (:code:`-fe`: gradients, inner forces, tangent
-  operator), :code:`--behaviours` (:code:`-bh`: integration of the
-  behaviours), :code:`--linear-solver-device` (:code:`-lsd`: linear
-  solvers and memory of hypre) and :code:`--post-processings`
-  (:code:`-ppd`). These options are refused in the other modes.
+  :code:`--finite-elements-execution` (:code:`-fex`: gradients, inner
+  forces, tangent operator), :code:`--behaviours-execution` (:code:`-bhx`:
+  integration of the behaviours), :code:`--linear-solvers-execution`
+  (:code:`-lsx`: linear solvers and memory of hypre) and
+  :code:`--post-processings-execution` (:code:`-ppx`). These options are
+  refused in the other modes.
 
 These options are read by :code:`mfem_mgis::initialize` directly from the
 arguments of the program, before the initialization of :code:`MPI` and of
 :code:`hypre`, whatever the options declared by the program: a program must
-not use their long or short names (:code:`-x`, :code:`-fe`, :code:`-bh`,
-:code:`-lsd`, :code:`-ppd`) for its own options.
+not use their long or short names (:code:`-x`, :code:`-fex`, :code:`-bhx`,
+:code:`-lsx`, :code:`-ppx`) for its own options.
 
 The 16 combinations of the mixed mode are tested
 (:code:`ExecutionSettingsTest`, when the behaviour library for the GPU is

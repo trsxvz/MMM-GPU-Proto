@@ -26,8 +26,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   choose the order of the integration rules of the behaviour integrators (8
   points instead of 27 on the hexahedra of order 1 with the order 3).
 - execution settings: option `--execution cpu|gpu|mixed` and, in the mixed
-  mode, `--finite-elements`, `--behaviours`, `--linear-solver-device` and
-  `--post-processings` placing each phase on the CPU or on the GPU
+  mode, `--finite-elements-execution`, `--behaviours-execution`,
+  `--linear-solvers-execution` and `--post-processings-execution` placing
+  each phase on the CPU or on the GPU
   (`getExecutionSettings`); behaviour libraries and linear solvers checked
   against them; parameter `BehaviourExecutionLocation` of
   `addBehaviourIntegrator` giving the location expected for the behaviour

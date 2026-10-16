@@ -136,6 +136,24 @@ namespace mfem_mgis::internals {
     return {};
   }  // end of getUnavailableLibraryHint
 
+  std::string getUnavailableNonLinearSolverLibraryHint(
+      const std::string_view n) {
+#ifndef MFEM_MGIS_HAVE_SUNDIALS
+    if (n == "KINSOL") {
+      return "mfem-mgis does not use SUNDIALS (option enable-sundials, MFEM "
+             "compiled with SUNDIALS)";
+    }
+#endif /* MFEM_MGIS_HAVE_SUNDIALS */
+#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC))
+    if (n == "SNES") {
+      return "mfem-mgis does not use PETSc (option enable-petsc, MFEM "
+             "compiled with PETSc and MPI)";
+    }
+#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)) */
+    static_cast<void>(n);
+    return {};
+  }  // end of getUnavailableNonLinearSolverLibraryHint
+
   template <bool parallel>
   std::unique_ptr<LinearSolverPreconditioner> generatePreconditioner(
       Context& ctx,

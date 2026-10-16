@@ -531,3 +531,58 @@ with or without line search, and its trust region method, give the
 solution of the Newton solver of mfem-mgis in its 9 iterations (8 on a
 GPU), the test checking the solution and the number of iterations within
 two.
+
+.. _non_linear_solver_override:
+
+Nonlinear solver override
+=========================
+
+The nonlinear solver chosen by the program (the :cxx:`NonLinearSolver`
+parameter of the nonlinear evolution problems, :cxx:`Newton` by default)
+can be replaced, without recompiling it, by the option
+:code:`--non-linear-solver-override` (or :code:`-nlso`, declared by
+:cxx:`declareDefaultOptions`) or else by the environment variable
+:code:`MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE`, read by
+:cxx:`mfem_mgis::initialize`. The value is described as the linear solver
+override (see :ref:`linear_solver_override`), in the syntax of the data of
+TFEL. For instance, :code:`NewtonK0` with BoomerAMG as the solver of the
+elastic operator:
+
+.. code-block:: bash
+
+   mpirun -n 4 ./program --non-linear-solver-override \
+     '{Name: "FixedPoint", Options: {Method: "NewtonK0",
+       ElasticOperatorLinearSolver: {Name: "HypreBoomerAMG"}}}'
+
+All the nonlinear evolution problems receive this nonlinear solver, built
+with the options of the override (the name and the options of the
+:cxx:`NonLinearSolver` parameter of the program are ignored). The
+parameters which the program gives later by :cxx:`setSolverParameters` are
+then given to the nonlinear solver override, its own options taking
+precedence over the parameters of the same name. If it refuses them (the
+parameters of the program may be specific to another nonlinear solver,
+such as the :cxx:`StagnationRelativeTolerance` option of the Newton
+solver), it only receives the parameters accepted by all the nonlinear
+solvers (:cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
+:cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
+:cxx:`DiscardLinearSolverFailure`) and the parameters also given by its
+options. The other parameters are ignored, and reported once on the output
+of MFEM with the reason of the refusal: an invalid value of such a
+parameter is thus reported, not raised. An invalid value of a parameter
+accepted by all the nonlinear solvers is refused, and the value of a
+parameter also given by the options of the override is replaced by the one
+of the override. The replacement of the nonlinear solver is reported too.
+
+The linear solver override and the preconditioner override apply to the
+linear solver of the problem, which the nonlinear solver override uses, if
+it uses one (the solvers built by the nonlinear solvers from their own
+options, such as the linear solver of the elastic operator of
+:cxx:`FixedPoint`, are not replaced). The nonlinear solver override does
+not apply with :code:`--use-petsc`, whose nonlinear solver replaces the
+ones of the problems: the construction of a problem then raises an error.
+As the other overrides, an invalid description, an unknown name or
+different descriptions on the processes of MPI are refused by
+:cxx:`mfem_mgis::initialize`, and the override requires mfem-mgis built
+with the utilities of TFEL. A nonlinear solver which is only available in
+parallel (:cxx:`SNES`) is refused at the construction of a sequential
+problem.

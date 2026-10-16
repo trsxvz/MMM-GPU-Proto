@@ -107,7 +107,7 @@ foreach(tg IN ITEMS mumps hypre petsc)
 endforeach()
 
 # the same computations on a GPU (see ../config/TestMode.cmake): hypre on the
-# GPU, and MUMPS on the CPU (option --linear-solver-device cpu)
+# GPU, and MUMPS on the CPU (option --linear-solvers-execution cpu)
 if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx4_HAVE_GPU_BEHAVIOURS)
   add_test(NAME ssna303_3d_hypre-gpu
            COMMAND ssna303_3d_hypre --nbsteps ${ssna303_3d_nsteps}
@@ -120,7 +120,7 @@ if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx4_HAVE_GPU_BEHAVIOURS)
              COMMAND ssna303_3d_mumps --nbsteps ${ssna303_3d_nsteps}
                      --end-time ${ssna303_3d_end_time}
                      --reference-file ssna303_3d-force-10steps.ref
-                     --execution mixed --linear-solver-device cpu)
+                     --execution mixed --linear-solvers-execution cpu)
     set_tests_properties(ssna303_3d_mumps-gpu PROPERTIES
                          RESOURCE_LOCK gpu ENVIRONMENT OMP_NUM_THREADS=1)
   endif()

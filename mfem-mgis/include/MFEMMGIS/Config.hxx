@@ -129,9 +129,10 @@ namespace mfem_mgis {
    * It is safe to call this function multiple times.
    *
    * The option `--execution <cpu|gpu|mixed>` (or `-x`) and, in the `mixed`
-   * mode only, the options `--finite-elements` (`-fe`), `--behaviours`
-   * (`-bh`), `--linear-solver-device` (`-lsd`) and `--post-processings`
-   * (`-ppd`) are read first, before `MPI_Init` (see `ExecutionSettings`).
+   * mode only, the options `--finite-elements-execution` (`-fex`),
+   * `--behaviours-execution` (`-bhx`), `--linear-solvers-execution` (`-lsx`)
+   * and `--post-processings-execution` (`-ppx`) are read first, before
+   * `MPI_Init` (see `ExecutionSettings`).
    * In the `gpu` and `mixed` modes, the device `gpu` of MFEM is created
    * unless `--device` gives another configuration using a GPU or the
    * device is already configured, which must then use a GPU; with
@@ -215,8 +216,12 @@ namespace mfem_mgis {
    * option `--preconditioner-override` (or `-pco`), or else the variable
    * `MFEM_MGIS_PRECONDITIONER_OVERRIDE`, a preconditioner which replaces
    * their preconditioners (see the user guide, linear solver and
-   * preconditioner overrides); an invalid description is refused
-   * (exception).
+   * preconditioner overrides). The option `--non-linear-solver-override`
+   * (or `-nlso`), or else the variable
+   * `MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE`, gives a non linear solver which
+   * replaces the non linear solvers of the non linear evolution problems
+   * (see the user guide, non linear solver override). An invalid
+   * description is refused (exception).
    */
   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
   /*!
@@ -329,14 +334,15 @@ namespace mfem_mgis {
   MFEM_MGIS_EXPORT void setPETSc(const char* petscrc_file);
   /*!
    * \brief declare the default options, read by `initialize`: the execution
-   * settings (`--execution`, `--finite-elements`, `--behaviours`,
-   * `--linear-solver-device`, `--post-processings`), the configuration of
-   * the MFEM device (`--device`), the size of the pool of memory of hypre on
+   * settings (`--execution`, `--finite-elements-execution`,
+   * `--behaviours-execution`, `--linear-solvers-execution`,
+   * `--post-processings-execution`), the configuration of the MFEM device
+   * (`--device`), the size of the pool of memory of hypre on
    * the GPU (`--hypre-device-pool-size`), the computations of hypre on the
    * host (`--hypre-on-host`), the initialization of Kokkos (`--kokkos`), the
-   * linear solver and preconditioner overrides (`--linear-solver-override`,
-   * `--preconditioner-override`), and the PETSc
-   * options (`--use-petsc`, `--petsc-configuration-file`), if PETSc is
+   * solver overrides (`--linear-solver-override`,
+   * `--preconditioner-override`, `--non-linear-solver-override`), and the
+   * PETSc options (`--use-petsc`, `--petsc-configuration-file`), if PETSc is
    * available.
    * \param[in, out] parser: options parser
    */

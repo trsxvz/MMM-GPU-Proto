@@ -241,9 +241,9 @@ Tests
 - ``rjh_plate-newton-k0`` does the same with the mechanical problem solved by
   the ``NewtonK0`` method (``-nlsMc NewtonK0``).
 - ``rjh_plate-gpu`` runs the first simulation on the GPU, MUMPS computing on
-  the CPU (``--execution mixed --linear-solver-device cpu``), and
+  the CPU (``--execution mixed --linear-solvers-execution cpu``), and
   ``rjh_plate-mixed-gpu`` the same with the finite elements computed on the
-  CPU too (``--finite-elements cpu``), with the option
+  CPU too (``--finite-elements-execution cpu``), with the option
   ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` (see :doc:`index`).
 - ``u3si2_swelling`` compares the swelling model to its exact value under a
   power ramp.

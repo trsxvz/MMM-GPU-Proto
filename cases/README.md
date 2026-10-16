@@ -104,8 +104,9 @@ solver). The tool `beam-k0` solves the elastic operator K0 alone, with the
 setup and the resolutions timed separately. The options of mfem-mgis
 apply to all the cases: `--device`, `--hypre-device-pool-size` (`-hdps`),
 `--hypre-on-host`, `--execution cpu|gpu|mixed` (`-x`) and, in `mixed`
-mode, the placement options `--finite-elements`, `--behaviours`,
-`--linear-solver-device` and `--post-processings` (see
+mode, the placement options `--finite-elements-execution`,
+`--behaviours-execution`, `--linear-solvers-execution` and
+`--post-processings-execution` (see
 [docs/plan-execution.md](../docs/plan-execution.md)), and the variables
 `MFEM_MGIS_*` of the computations by batches and by kernels. With
 `--execution`, the placement variables `MFEM_MGIS_*` are ignored, with a

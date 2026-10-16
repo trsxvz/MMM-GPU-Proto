@@ -205,6 +205,35 @@ if(MFEM_MGIS_HAVE_TFEL)
       PASS_REGULAR_EXPRESSION
       "linear solver override 'CGSolver' replaces the linear solver 'GMRESSolver'.*preconditioner override 'DSmoother' is given to the linear solver 'CGSolver'.*Error is lower than threshold"
       FAIL_REGULAR_EXPRESSION "${_override_failures}")
+    # non linear solver override, given by the option
+    # --non-linear-solver-override (sequential test) or by the variable
+    # MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE (parallel test): the Newton solver
+    # of the program is replaced by the modified Newton method of the fixed
+    # point solver, whose verbosity level, given by the override (-1, no
+    # output), takes precedence over the one set by the program (0, which
+    # prints the iterations)
+    set(_nl_override
+        "{Name: \"FixedPoint\", Options: {Method: \"ModifiedNewton\", VerbosityLevel: -1}}")
+    set(_nl_override_regex
+        "non linear solver override 'FixedPoint' replaces the non linear solver 'Newton'.*Error is lower than threshold")
+    set(_nl_override_failures "${_override_failures};Fixed point iteration")
+    add_test(NAME TwoLayerCube-1-NonLinearSolverOverride
+             COMMAND ./TwoLayerCube ${_override_test_options} --no-parallel
+                     --non-linear-solver-override "${_nl_override}")
+    set_tests_properties(TwoLayerCube-1-NonLinearSolverOverride PROPERTIES
+      DEPENDS BehaviourTest
+      PASS_REGULAR_EXPRESSION "${_nl_override_regex}"
+      FAIL_REGULAR_EXPRESSION "${_nl_override_failures}")
+    if(MFEM_USE_MPI)
+      add_test(NAME TwoLayerCube-1-NonLinearSolverOverrideP
+               COMMAND mpirun -n 2 ./TwoLayerCube ${_override_test_options}
+                       --parallel)
+      set_tests_properties(TwoLayerCube-1-NonLinearSolverOverrideP PROPERTIES
+        DEPENDS BehaviourTest
+        ENVIRONMENT "MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE=${_nl_override}"
+        PASS_REGULAR_EXPRESSION "${_nl_override_regex}"
+        FAIL_REGULAR_EXPRESSION "${_nl_override_failures}")
+    endif(MFEM_USE_MPI)
   endif(MFEM_MGIS_HAVE_TFEL_UTILITIES)
 
   # UniaxialTensileTest executable
@@ -323,6 +352,33 @@ if(MFEM_MGIS_HAVE_TFEL)
       PROPERTIES FAIL_REGULAR_EXPRESSION "the resolution failed;test failed"
                  DEPENDS BehaviourTest)
   endif()
+  # a parameter specific to the Newton solver of the program (option
+  # StagnationRelativeTolerance) is refused by the non linear solver override,
+  # which only receives the parameters accepted by all the non linear
+  # solvers: the refused parameter is reported, and the verbosity level of
+  # the program (0) is kept (the iterations are printed)
+  if(MFEM_MGIS_HAVE_TFEL_UTILITIES)
+    add_test(NAME UniaxialTensileTest-NonLinearSolverOverride-OrthotropicElasticity
+             COMMAND ./UniaxialTensileTest
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>
+                     --behaviour OrthotropicElasticity
+                     --internal-state-variable EquivalentStrain
+                     --reference-file
+                     ${CMAKE_CURRENT_SOURCE_DIR}/references/OrthotropicElasticity.ref
+                     --stagnation-relative-tolerance 0.1
+                     --no-parallel --no-post-processing
+                     --non-linear-solver-override
+                     "{Name: \"FixedPoint\", Options: {Method: \"ModifiedNewton\"}}")
+    set_tests_properties(
+      UniaxialTensileTest-NonLinearSolverOverride-OrthotropicElasticity
+      PROPERTIES
+      PASS_REGULAR_EXPRESSION
+      "non linear solver override 'FixedPoint' refuses the parameters given by the program to its non linear solver: the parameters 'StagnationRelativeTolerance' are ignored.*Fixed point iteration"
+      FAIL_REGULAR_EXPRESSION
+      "the resolution failed;test failed;Process received signal;terminate called"
+      DEPENDS BehaviourTest)
+  endif(MFEM_MGIS_HAVE_TFEL_UTILITIES)
 
   # ImposedPressureTest executable
   add_test_executable(ImposedPressureTest)
@@ -352,6 +408,28 @@ if(MFEM_MGIS_HAVE_TFEL)
   endfunction()
 
   add_imposed_pressure_test(IsotropicLinearElasticity)
+  # the linear solver built by the program (setLinearSolver taking a solver
+  # handler) is replaced by the linear solver override given by the variable
+  # MFEM_MGIS_LINEAR_SOLVER_OVERRIDE, the replacement being reported once
+  if(MFEM_MGIS_HAVE_TFEL_UTILITIES)
+    add_test(NAME ImposedPressureTest-IsotropicLinearElasticity-LinearSolverOverride
+             COMMAND ./ImposedPressureTest
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                     --library $<TARGET_FILE:BehaviourTest>
+                     --behaviour IsotropicLinearElasticity
+                     --reference-file
+                     ${CMAKE_CURRENT_SOURCE_DIR}/references/IsotropicLinearElasticity.ref
+                     --parallel 0)
+    set_tests_properties(
+      ImposedPressureTest-IsotropicLinearElasticity-LinearSolverOverride
+      PROPERTIES
+      DEPENDS BehaviourTest
+      ENVIRONMENT "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE={Name: \"CGSolver\", Options: {RelativeTolerance: 1e-12, MaximumNumberOfIterations: 5000}}"
+      PASS_REGULAR_EXPRESSION
+      "linear solver override 'CGSolver' replaces the linear solver built by the program"
+      FAIL_REGULAR_EXPRESSION
+      "replaces the linear solver '';did not converge;valid parameters refused;misspelled parameter;Process received signal;terminate called")
+  endif(MFEM_MGIS_HAVE_TFEL_UTILITIES)
 
   # ImposedPressureTest2 executable
   add_test_executable(ImposedPressureTest2)
@@ -1540,8 +1618,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                            PROPERTIES PASS_REGULAR_EXPRESSION "${message}")
     endfunction()
     add_execution_settings_refusal_test(
-      location "option '--finite-elements' requires '--execution mixed'"
-      --execution cpu --finite-elements gpu)
+      location "option '--finite-elements-execution' requires '--execution mixed'"
+      --execution cpu --finite-elements-execution gpu)
     # an invalid linear solver override (or, without the utilities of TFEL,
     # any linear solver override) is refused by mfem_mgis::initialize
     add_execution_settings_refusal_test(
@@ -1553,12 +1631,22 @@ if(MFEM_MGIS_HAVE_TFEL)
     add_execution_settings_refusal_test(
       preconditioner-override "invalid preconditioner override"
       --preconditioner-override "{Name: \"HypreBoomerAMG\", Unknown: 1}")
+    # the names are only checked once the descriptions are read by the
+    # utilities of TFEL
+    if(MFEM_MGIS_HAVE_TFEL_UTILITIES)
+      add_execution_settings_refusal_test(
+        preconditioner-override-unknown "unknown name 'UnknownPreconditioner'"
+        --preconditioner-override UnknownPreconditioner)
+      add_execution_settings_refusal_test(
+        preconditioner-override-none "no options expected for 'None'"
+        --preconditioner-override "{Name: None, Options: {VerbosityLevel: 0}}")
+      add_execution_settings_refusal_test(
+        non-linear-solver-override-unknown "unknown name 'UnknownSolver'"
+        --non-linear-solver-override UnknownSolver)
+    endif(MFEM_MGIS_HAVE_TFEL_UTILITIES)
     add_execution_settings_refusal_test(
-      preconditioner-override-unknown "unknown name 'UnknownPreconditioner'"
-      --preconditioner-override UnknownPreconditioner)
-    add_execution_settings_refusal_test(
-      preconditioner-override-none "no options expected for 'None'"
-      --preconditioner-override "{Name: None, Options: {VerbosityLevel: 0}}")
+      non-linear-solver-override "invalid non linear solver override"
+      --non-linear-solver-override "{Name: 1}")
     add_execution_settings_refusal_test(
       mode "invalid value 'xpu' for option '--execution'" --execution xpu)
     add_execution_settings_refusal_test(
@@ -1568,15 +1656,15 @@ if(MFEM_MGIS_HAVE_TFEL)
       --execution cpu --device cuda)
     add_execution_settings_refusal_test(
       missing-value "no value given to '--execution'"
-      --execution --behaviours cpu)
+      --execution --behaviours-execution cpu)
     add_execution_settings_refusal_test(
       cpu-pool-size "can't be given with '--execution cpu'"
       --execution cpu --hypre-device-pool-size 1)
     if((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
       # refused before any use of the GPU
       add_execution_settings_refusal_test(
-        location-value "invalid value 'tpu' for option '--behaviours'"
-        --execution mixed --behaviours tpu)
+        location-value "invalid value 'tpu' for option '--behaviours-execution'"
+        --execution mixed --behaviours-execution tpu)
       add_execution_settings_refusal_test(
         host-device "the device 'debug' does not use a GPU"
         --execution gpu --device debug)
@@ -1587,7 +1675,7 @@ if(MFEM_MGIS_HAVE_TFEL)
       add_execution_settings_refusal_test(
         no-hypre-on-host
         "contradicts the location of the linear solvers"
-        --execution mixed --linear-solver-device cpu --no-hypre-on-host)
+        --execution mixed --linear-solvers-execution cpu --no-hypre-on-host)
     endif()
     if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
        AND enable-gpu-tests)
@@ -1622,10 +1710,10 @@ if(MFEM_MGIS_HAVE_TFEL)
               set(_name "${_fe}-${_bh}-${_lsd}-${_ppd}")
               add_test(NAME ExecutionSettingsTest-mixed-${_name}-gpu
                        COMMAND ExecutionSettingsTest --execution mixed
-                               --finite-elements ${_fe}
-                               --behaviours ${_bh}
-                               --linear-solver-device ${_lsd}
-                               --post-processings ${_ppd}
+                               --finite-elements-execution ${_fe}
+                               --behaviours-execution ${_bh}
+                               --linear-solvers-execution ${_lsd}
+                               --post-processings-execution ${_ppd}
                                --expected-settings
                                mixed,${_fe},${_bh},${_lsd},${_ppd}
                                ${execution_settings_test_gpu_arguments})

@@ -38,7 +38,7 @@
 #endif /* MFEM_MGIS_HAVE_KOKKOS */
 #include "PostProcessingsComputation.hxx"
 #include "ExecutionSettings.hxx"
-#include "LinearSolverOverride.hxx"
+#include "SolverOverrides.hxx"
 #include "MGIS/Profiling.hxx"
 #include <MFEMMGIS/Profiler.hxx>
 #include "MFEMMGIS/Config.hxx"
@@ -577,7 +577,7 @@ namespace mfem_mgis {
       mgis::raise(
           "initialize: PETSc computes on the CPU, while the execution "
           "settings place the linear solvers on the GPU (use '--execution "
-          "cpu' or '--execution mixed --linear-solver-device cpu')");
+          "cpu' or '--execution mixed --linear-solvers-execution cpu')");
     }
 #endif /* MFEM_MGIS_HAVE_PETSC */
     // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
@@ -763,14 +763,13 @@ namespace mfem_mgis {
     static bool first = true;
     if (first) {
       mgis::setDefaultLogStream(mfem_mgis::getOutputStream());
-      // the execution settings and the linear solver and preconditioner
-      // overrides are read before the initialization of MPI, which an
-      // invalid option leaves untouched
+      // the execution settings and the solver overrides are read before the
+      // initialization of MPI, which an invalid option leaves untouched
       internals::readExecutionSettings(argc, argv);
-      internals::readLinearSolverOverrides(argc, argv);
+      internals::readSolverOverrides(argc, argv);
       MPI_Init(&argc, &argv);
       try {
-        internals::checkLinearSolverOverrides(MPI_COMM_WORLD);
+        internals::checkSolverOverrides(MPI_COMM_WORLD);
       } catch (...) {
         MPI_Finalize();
         throw;
@@ -806,7 +805,7 @@ namespace mfem_mgis {
     static bool first = true;
     if (first) {
       internals::readExecutionSettings(argc, argv);
-      internals::readLinearSolverOverrides(argc, argv);
+      internals::readSolverOverrides(argc, argv);
       Finalizer::get().initialize(argc, argv);
       first = false;
     }
@@ -851,34 +850,36 @@ namespace mfem_mgis {
         "Execution of the computations: cpu (no GPU, all the "
         "computations on the host), gpu (device gpu of MFEM, all the "
         "computations on the GPU) or mixed (device gpu of MFEM, each phase "
-        "placed by the options --finite-elements, --behaviours, "
-        "--linear-solver-device and --post-processings, gpu by default). "
-        "Read by mfem_mgis::initialize. With this option, the environment "
+        "placed by the options --finite-elements-execution, "
+        "--behaviours-execution, --linear-solvers-execution and "
+        "--post-processings-execution, gpu by default). Read by "
+        "mfem_mgis::initialize. With this option, the environment "
         "variables placing the computations are ignored; without it, the "
         "computations are placed by the other options, the parameters and "
         "the environment variables.");
     static const char* finite_elements = "";
-    parser.AddOption(&finite_elements, internals::finite_elements_short_option,
-                     internals::finite_elements_option,
+    parser.AddOption(&finite_elements,
+                     internals::finite_elements_execution_short_option,
+                     internals::finite_elements_execution_option,
                      "With --execution mixed: location (cpu or gpu) of the "
                      "computations of the finite elements (gradients, inner "
                      "forces, tangent operator).");
     static const char* behaviours = "";
-    parser.AddOption(&behaviours, internals::behaviours_short_option,
-                     internals::behaviours_option,
+    parser.AddOption(&behaviours, internals::behaviours_execution_short_option,
+                     internals::behaviours_execution_option,
                      "With --execution mixed: location (cpu or gpu) of the "
                      "integration of the behaviours, checked against the "
                      "libraries of the behaviours.");
-    static const char* linear_solver_device = "";
-    parser.AddOption(&linear_solver_device,
-                     internals::linear_solver_device_short_option,
-                     internals::linear_solver_device_option,
+    static const char* linear_solvers_execution = "";
+    parser.AddOption(&linear_solvers_execution,
+                     internals::linear_solvers_execution_short_option,
+                     internals::linear_solvers_execution_option,
                      "With --execution mixed: location (cpu or gpu) of the "
                      "linear solvers and of the memory of hypre.");
     static const char* post_processings = "";
     parser.AddOption(&post_processings,
-                     internals::post_processings_short_option,
-                     internals::post_processings_option,
+                     internals::post_processings_execution_short_option,
+                     internals::post_processings_execution_option,
                      "With --execution mixed: location (cpu or gpu) of the "
                      "post-processings.");
     // read by `initialize`: only declared here, as a string, so that the
@@ -908,6 +909,23 @@ namespace mfem_mgis {
         "0}}'. Read by mfem_mgis::initialize, or else from the "
         "environment variable MFEM_MGIS_PRECONDITIONER_OVERRIDE (requires "
         "mfem-mgis built with the utilities of TFEL).");
+    static const char* non_linear_solver_override = "";
+    parser.AddOption(
+        &non_linear_solver_override,
+        internals::non_linear_solver_override_short_option,
+        internals::non_linear_solver_override_option,
+        "Non linear solver replacing the non linear solvers of the non linear "
+        "evolution problems (parameter NonLinearSolver, Newton by default): "
+        "a name, or a map with the entries Name and Options, in the syntax of "
+        "the data of TFEL, for instance '{Name: \"FixedPoint\", Options: "
+        "{Method: \"ModifiedNewton\"}}'. Its options take precedence over "
+        "the parameters of the same name given by the program; if it refuses "
+        "the parameters of the program, it only receives the ones accepted by "
+        "all the non linear solvers and the ones also given by its options, "
+        "the other ones being reported. Read by "
+        "mfem_mgis::initialize, or else from the environment variable "
+        "MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE (requires mfem-mgis built with "
+        "the utilities of TFEL).");
     // the device is created by `initialize`: the option is only declared
     // here, so that the parser accepts it
     static const char* device_configuration = "";

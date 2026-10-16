@@ -62,7 +62,8 @@ run cpu-np2-mumps 2 "${common[@]}" -lsMc MUMPSSolver
 run cpu-np2-cg-muelu 2 "${common[@]}" "${muelu[@]}"
 run cpu-np2-cg-muelu-chebyshev 2 "${common[@]}" "${muelu[@]}" -mls chebyshev
 run gpu-np1-mumps-spd 1 "${common[@]}" -lsMc MUMPSSolver \
-  -msMc SymmetricPositiveDefinite --execution mixed --linear-solver-device cpu
+  -msMc SymmetricPositiveDefinite --execution mixed \
+  --linear-solvers-execution cpu
 run gpu-np1-cg-muelu 1 "${common[@]}" "${muelu[@]}" --execution gpu
 run gpu-np1-cg-muelu-chebyshev 1 "${common[@]}" "${muelu[@]}" \
   -mls chebyshev --execution gpu

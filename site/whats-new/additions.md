@@ -332,6 +332,17 @@ an environment variable.
     the reuse of its hierarchy between operators, FROSch. They compute
     where MFEM computes; on the GPU, the matrices of hypre are converted
     by kernels of Kokkos.
+- **Solver overrides** (16/10/2026), to compare solvers on existing
+  programs without changing them: `--linear-solver-override` (`-lso`),
+  `--preconditioner-override` (`-pco`) and `--non-linear-solver-override`
+  (`-nlso`), or the variables `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`,
+  `MFEM_MGIS_PRECONDITIONER_OVERRIDE` and
+  `MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE`, replace the linear solvers, the
+  preconditioners and the nonlinear solvers set by the program. Each one
+  is described as a factory argument (a name, or `Name` and `Options`) in
+  the syntax of the data of TFEL. The options of the nonlinear solver
+  override take precedence over the parameters of the program; the
+  parameters it refuses are ignored, except the convergence criteria.
 - **GPU build and configuration**: CUDA enabled when MFEM is compiled
   with CUDA, and the sources containing kernels compiled as CUDA, or as
   HIP when MFEM uses HIP; `--device` option of `initialize`; hypre
@@ -339,8 +350,8 @@ an environment variable.
   by `initialize`; profiling sections that wait for the launched kernels.
 - **Execution settings** (`docs/plan-execution.md`):
   - `--execution cpu|gpu|mixed`, and, in `mixed` mode, the placement of
-    each phase: `--finite-elements`, `--behaviours`,
-    `--linear-solver-device`, `--post-processings`;
+    each phase: `--finite-elements-execution`, `--behaviours-execution`,
+    `--linear-solvers-execution`, `--post-processings-execution`;
   - the placement of the behaviour of each material (parameter
     `BehaviourExecutionLocation` of `addBehaviourIntegrator`);
   - counting of the copies of the material arrays

@@ -52,9 +52,9 @@ namespace mfem_mgis {
    *
    * - `--execution` (`-x`): `cpu`, `gpu` or `mixed`;
    * - in the `mixed` mode only, the location of each phase, `cpu` or `gpu`
-   *   (`gpu` by default): `--finite-elements` (`-fe`), `--behaviours`
-   *   (`-bh`), `--linear-solver-device` (`-lsd`) and `--post-processings`
-   *   (`-ppd`).
+   *   (`gpu` by default): `--finite-elements-execution` (`-fex`),
+   *   `--behaviours-execution` (`-bhx`), `--linear-solvers-execution`
+   *   (`-lsx`) and `--post-processings-execution` (`-ppx`).
    *
    * The execution mode gives the default integration of the behaviours
    * (`Batch`), and the locations the default computations of the finite

@@ -195,7 +195,7 @@ PETSc.
 
 With the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` (see :doc:`index`), the tests
 ``mox2-gpu`` and ``mox2-mixed-gpu`` do the same with ``--execution gpu`` and
-with ``--execution mixed --behaviours cpu``.
+with ``--execution mixed --behaviours-execution cpu``.
 
 Post-processing of simulation data
 ----------------------------------

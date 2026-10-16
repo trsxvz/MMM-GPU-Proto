@@ -27,7 +27,7 @@ list(APPEND MFEMMGIS_SOURCES
   AbstractBehaviourIntegrator.cxx
   PostProcessingsComputation.cxx
   ExecutionSettings.cxx
-  LinearSolverOverride.cxx
+  SolverOverrides.cxx
   BehaviourIntegratorBase.cxx
   BehaviourIntegratorFactory.cxx
   MatrixFreeTangentOperator.cxx
@@ -205,7 +205,7 @@ list(APPEND MFEMMGIS_SOURCES
   Batch/Faltus.cxx
   Batch/GlobalStiffnessMatrix.cxx)
 
-# the linear solver override is read by the utilities of TFEL (found
+# the solver overrides are read by the utilities of TFEL (found
 # before the library, whose installed configuration finds them for the
 # projects using the static library)
 set(MFEM_MGIS_HAVE_TFEL_UTILITIES OFF)
@@ -218,7 +218,7 @@ if(MGIS_HAVE_TFEL)
     set(MFEM_MGIS_HAVE_TFEL_UTILITIES ON)
   endif()
 endif()
-message(STATUS "mfem-mgis linear solver override (utilities of TFEL): "
+message(STATUS "mfem-mgis solver overrides (utilities of TFEL): "
         "${MFEM_MGIS_HAVE_TFEL_UTILITIES}")
 # for the tests
 set(MFEM_MGIS_HAVE_TFEL_UTILITIES ${MFEM_MGIS_HAVE_TFEL_UTILITIES}

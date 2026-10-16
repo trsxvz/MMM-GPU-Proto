@@ -83,4 +83,4 @@ The example also accepts the options of mfem-mgis, such as ``--execution``
 Its test ``rve`` runs the default case without post-processing. With the
 option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of the examples, the tests ``rve-gpu``
 and ``rve-mixed-gpu`` do the same with ``--execution gpu`` and with
-``--execution mixed --behaviours cpu``.
+``--execution mixed --behaviours-execution cpu``.

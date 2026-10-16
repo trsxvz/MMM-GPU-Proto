@@ -300,7 +300,7 @@ behaviours. It also accepts the options of mfem-mgis, such as ``--execution``
 Its test ``satoh`` checks the imposed temperature and the reactions of the
 left and right boundaries. With the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of
 the examples, the test ``satoh-gpu`` does the same with ``--execution mixed
---linear-solver-device cpu`` (UMFPack computes on the CPU).
+--linear-solvers-execution cpu`` (UMFPack computes on the CPU).
 
 Ssna303 Example (2D and 3D)
 ---------------------------
@@ -451,4 +451,5 @@ With the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of the examples, the test
 ``ssna303_3d_hypre-gpu`` runs the test of ``ssna303_3d_hypre`` with
 ``--execution gpu``, and, if MFEM is built with MUMPS, the test
 ``ssna303_3d_mumps-gpu`` runs the test of ``ssna303_3d_mumps`` with
-``--execution mixed --linear-solver-device cpu`` (MUMPS computes on the CPU).
+``--execution mixed --linear-solvers-execution cpu`` (MUMPS computes on the
+CPU).

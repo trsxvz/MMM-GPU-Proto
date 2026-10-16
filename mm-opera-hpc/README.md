@@ -24,7 +24,7 @@ cmake --build build -j 4
 ctest --test-dir build
 ```
 
-The option `-DMM_OPERA_HPC_GPU_TESTS=ON` also registers the tests of the cases on a GPU (`--execution gpu`, and `--execution mixed --behaviours cpu` for the polycrystal), when MFEM is compiled with CUDA or HIP and the behaviour libraries of the case are built for the GPU (TFEL providing the configuration file `config-cuda-nvcc.json`, resp. `config-hip-hipcc.json`, of MFront; CMake prints why they are not built). A GPU is then required to run them. The three cases accept the options of mfem-mgis, in particular `--execution cpu|gpu|mixed`, which places the computations on the CPU or on the GPU.
+The option `-DMM_OPERA_HPC_GPU_TESTS=ON` also registers the tests of the cases on a GPU (`--execution gpu`, and `--execution mixed --behaviours-execution cpu` for the polycrystal), when MFEM is compiled with CUDA or HIP and the behaviour libraries of the case are built for the GPU (TFEL providing the configuration file `config-cuda-nvcc.json`, resp. `config-hip-hipcc.json`, of MFront; CMake prints why they are not built). A GPU is then required to run them. The three cases accept the options of mfem-mgis, in particular `--execution cpu|gpu|mixed`, which places the computations on the CPU or on the GPU.
 
 For more details on installing mfem-mgis, for example on a supercomputer without internet access, see its installation guide: https://thelfer.github.io/mfem-mgis/installation_guide/installation_guide.html
 

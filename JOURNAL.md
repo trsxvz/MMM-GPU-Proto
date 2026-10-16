@@ -5469,3 +5469,33 @@ formula as MTest). All the others give the Newton solution to within
   with the options `--refinement`, `--order` and `--no-post-processing`;
   ex2 and the MUMPS variant of ex4 get `--refinement`. All the examples
   can now be refined.
+
+### 2026-10-16, execution options named after the phases, nonlinear solver override
+
+- The placement options of the `mixed` mode are named after the phases,
+  with the same suffix: `--finite-elements-execution` (`-fex`),
+  `--behaviours-execution` (`-bhx`), `--linear-solvers-execution` (`-lsx`)
+  and `--post-processings-execution` (`-ppx`), without aliases
+  (mfem-mgis 1231208141, patch 0266; examples and mm-opera-hpc, patches
+  0036 and 0035). The former names suggested the GPU only, and one of them
+  had a suffix the others did not have. The test of the execution settings
+  passes on the CPU and the GPU (38/38).
+- Nonlinear solver override (mfem-mgis 2f8493b18a, patch 0267): the
+  option `--non-linear-solver-override` (`-nlso`, or the variable
+  `MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE`) replaces the nonlinear solver of
+  all the problems (Newton, `FixedPoint` and its methods, KINSOL, SNES).
+  The options of the override take precedence over the parameters of the
+  same name given by the program; if the override refuses the parameters
+  of the program, it only receives the parameters accepted by all the
+  nonlinear solvers, and the other ones are reported with the reason of
+  the refusal. Refused with `--use-petsc`. Two independent reviews: the
+  first one found 11 points (options of the override applied again at
+  each call, which rebuilt the solvers of `FixedPoint`; an example of the
+  help refused; invalid values reported as foreign parameters), the second
+  one 5 points (a solver built by the program reported twice), all
+  handled and tested. The benchmark of the examples can now combine the
+  linear solver, the preconditioner and the nonlinear solver of each run.
+- Benchmark driver (`cases/benchmark_slides.py`): nonlinear solver axis
+  (`--non-linear newton|modified-newton|newton-k0`, the elastic operator
+  of NewtonK0 being solved by the linear solver of the run), ex2 refined
+  twice, ex5 in parallel and refined twice.

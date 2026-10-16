@@ -135,17 +135,19 @@ message. The available linear solvers and preconditioners are listed in
 :ref:`linear_solvers`; the solvers of each library are registered by a
 module (see :ref:`linear_solver_modules`).
 
-Linear solver and preconditioner overrides
-------------------------------------------
+Solver overrides
+----------------
 
-The options :code:`--linear-solver-override` and
-:code:`--preconditioner-override` (declared by :cxx:`declareDefaultOptions`)
-or the environment variables :code:`MFEM_MGIS_LINEAR_SOLVER_OVERRIDE` and
-:code:`MFEM_MGIS_PRECONDITIONER_OVERRIDE` replace the linear solvers and
-the preconditioners set by the program by the ones described by their names
-and their options, in the syntax of the data of TFEL, for the comparisons
-of linear solvers and preconditioners on existing programs. See
-:ref:`linear_solver_override`.
+The options :code:`--linear-solver-override`,
+:code:`--preconditioner-override` and :code:`--non-linear-solver-override`
+(declared by :cxx:`declareDefaultOptions`) or the environment variables
+:code:`MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`,
+:code:`MFEM_MGIS_PRECONDITIONER_OVERRIDE` and
+:code:`MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE` replace the linear solvers,
+the preconditioners and the nonlinear solvers set by the program by the
+ones described by their names and their options, in the syntax of the data
+of TFEL, for the comparisons of solvers on existing programs. See
+:ref:`linear_solver_override` and :ref:`non_linear_solver_override`.
 
 One option per optional library of MFEM
 ---------------------------------------

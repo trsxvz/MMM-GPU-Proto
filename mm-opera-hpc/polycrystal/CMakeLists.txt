@@ -46,7 +46,7 @@ if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursPolycrystal_HAVE_GPU_BEHAVIOURS)
     FILE polycrystal-test-mixed-gpu.res ${_polycrystal_checks}
     COMMAND $<TARGET_FILE:uniaxial-polycrystal> ${_polycrystal_options}
             --macroscopic-stress-output-file polycrystal-test-mixed-gpu.res
-            --execution mixed --behaviours cpu)
+            --execution mixed --behaviours-execution cpu)
   set_tests_properties(UniaxialPolycrystalTest-gpu UniaxialPolycrystalTest-mixed-gpu PROPERTIES RESOURCE_LOCK gpu)
 endif()
 mm_opera_hpc_add_checked_test(NAME UniaxialPolycrystalTestPar

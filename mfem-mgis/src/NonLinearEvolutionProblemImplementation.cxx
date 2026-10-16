@@ -41,9 +41,73 @@
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
 #include "MFEMMGIS/PostProcessing/NonLinearEvolutionProblemPostProcessingBase.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
-#include "LinearSolverOverride.hxx"
+#include "SolverOverrides.hxx"
 
 namespace mfem_mgis {
+
+  /*!
+   * \return the name of the non linear solver requested by the parameters
+   * of a non linear evolution problem (`NonLinearSolver`, `Newton` by
+   * default)
+   * \param[in] p: parameters of the problem
+   */
+  static std::string getRequestedNonLinearSolverName(const Parameters& p) {
+    if (!contains(
+            p, NonLinearEvolutionProblemImplementationBase::NonLinearSolver)) {
+      return "Newton";
+    }
+    try {
+      return extractFactoryArgument(
+                 throwing,
+                 get<Parameters>(throwing, p,
+                                 NonLinearEvolutionProblemImplementationBase::
+                                     NonLinearSolver))
+          .first;
+    } catch (...) {
+      // the parameter is not read when the override applies
+      return "(invalid parameter)";
+    }
+  }  // end of getRequestedNonLinearSolverName
+
+  /*!
+   * \brief refuses the non linear solver override when the non linear
+   * solvers of PETSc replace the ones of the problems (`--use-petsc`)
+   */
+  static void checkNonLinearSolverOverrideCompatibility() {
+#ifdef MFEM_MGIS_HAVE_PETSC
+    if (usePETSc() && internals::getNonLinearSolverOverride().has_value()) {
+      raise(
+          "NonLinearEvolutionProblemImplementation: the non linear solver "
+          "override does not apply with --use-petsc, whose non linear solver "
+          "replaces the ones of the problems");
+    }
+#endif /* MFEM_MGIS_HAVE_PETSC */
+  }  // end of checkNonLinearSolverOverrideCompatibility
+
+  /*!
+   * \return the non linear solver override built for a problem, or a null
+   * pointer if no override is given
+   * \param[in, out] ctx: execution context
+   * \param[in, out] problem: non linear evolution problem
+   * \param[in] p: parameters of the problem
+   */
+  template <bool parallel>
+  static std::unique_ptr<AbstractNonLinearSolver>
+  generateNonLinearSolverOverride(
+      Context& ctx,
+      NonLinearEvolutionProblemImplementation<parallel>& problem,
+      const Parameters& p) {
+    const auto& o = internals::getNonLinearSolverOverride();
+    if (!o.has_value()) {
+      return {};
+    }
+    checkNonLinearSolverOverrideCompatibility();
+    internals::reportNonLinearSolverOverride(
+        getRequestedNonLinearSolverName(p));
+    auto& f = NonLinearSolverFactory::get();
+    return f.generate(ctx, o->name, problem, o->options) |
+           ctx.getThrowingFailureHandler();
+  }  // end of generateNonLinearSolverOverride
 
   /*!
    * \return true if all the behaviours are integrated on the device, without
@@ -943,6 +1007,11 @@ namespace mfem_mgis {
           "of the mesh");
     }
     auto set_solver = [&ctx, this, &p, &or_raise] {
+      // the non linear solver override replaces the one of the program
+      this->solver = generateNonLinearSolverOverride(ctx, *this, p);
+      if (this->solver != nullptr) {
+        return;
+      }
       if (contains(
               p,
               NonLinearEvolutionProblemImplementationBase::NonLinearSolver)) {
@@ -959,6 +1028,7 @@ namespace mfem_mgis {
     };
 #ifdef MFEM_MGIS_HAVE_PETSC
     if (usePETSc()) {
+      checkNonLinearSolverOverrideCompatibility();
       this->petsc_solver = std::make_unique<mfem::PetscNonlinearSolver>(
           this->getFiniteElementSpace().GetComm(), *this);
       this->petsc_solver->iterative_mode = true;
@@ -1425,7 +1495,11 @@ namespace mfem_mgis {
     if (this->mgis_integrator != nullptr) {
       this->AddDomainIntegrator(this->mgis_integrator);
     }
-    //
+    // the non linear solver override replaces the one of the program
+    this->solver = generateNonLinearSolverOverride(ctx, *this, p);
+    if (this->solver != nullptr) {
+      return;
+    }
     if (contains(
             p, NonLinearEvolutionProblemImplementationBase::NonLinearSolver)) {
       const auto [n, params] = extractFactoryArgument(

@@ -84,7 +84,7 @@ function(add_ssna303_test_ex)
     add_test(NAME ${test}-gpu
              COMMAND ssna303 ${ssna303_loading}
                      --reference-file ssna303-force.ref
-                     --execution mixed --linear-solver-device cpu)
+                     --execution mixed --linear-solvers-execution cpu)
     set_tests_properties(${test}-gpu PROPERTIES
                          RESOURCE_LOCK gpu ENVIRONMENT OMP_NUM_THREADS=1)
     if(MGIS_HAVE_TFEL)
@@ -92,7 +92,7 @@ function(add_ssna303_test_ex)
                COMMAND ssna303 --use-fbar ${ssna303_loading}
                        --reference-file ssna303-force-fbar.ref
                        --standard-reference-file ssna303-force.ref
-                       --execution mixed --linear-solver-device cpu)
+                       --execution mixed --linear-solvers-execution cpu)
       set_tests_properties(${test}-fbar-gpu PROPERTIES
                            RESOURCE_LOCK gpu ENVIRONMENT OMP_NUM_THREADS=1)
     endif(MGIS_HAVE_TFEL)

@@ -99,7 +99,7 @@ including the preconditioners which wrap another one: a program applying
 its operator without assembly, preconditioned by :cxx:`AssembledOperator`
 wrapping :cxx:`HypreBoomerAMG`, keeps this wrapper with
 :code:`{Name: AssembledOperator, Options: {Preconditioner: {Name:
-HypreBoomerAMG}}}`. The first replacements are reported on the output of
+HypreBoomerAMG}}}`. Each replacement is reported once on the output of
 MFEM. The combinations which the factories refuse (a Krylov solver of
 hypre with a preconditioner of another library, a direct solver with a
 preconditioner...) are refused with their messages, and a preconditioner
@@ -119,7 +119,8 @@ environment variables, which apply to all the programs started meanwhile
 (the tests of a project, for instance). The overrides require mfem-mgis
 built with the utilities of TFEL (MGIS built with TFEL). They are meant
 for the comparisons of the linear solvers and of the preconditioners on
-existing programs; the non linear solver stays the one of the program.
+existing programs. The nonlinear solver can also be replaced (see
+:ref:`non_linear_solver_override`).
 
 Linear solvers
 ==============

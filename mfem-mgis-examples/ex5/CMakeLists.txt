@@ -70,7 +70,7 @@ if(MFEM_USE_SUITESPARSE)
   # ../config/TestMode.cmake)
   if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx5_HAVE_GPU_BEHAVIOURS)
     add_test(NAME ${test}-gpu
-             COMMAND ${test} --execution mixed --linear-solver-device cpu)
+             COMMAND ${test} --execution mixed --linear-solvers-execution cpu)
     set_tests_properties(${test}-gpu PROPERTIES RESOURCE_LOCK gpu)
   endif()
 else()

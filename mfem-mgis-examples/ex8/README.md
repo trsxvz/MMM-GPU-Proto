@@ -81,7 +81,7 @@ Here is a summary table of the available options:
 | `-m` | `--mesh` | Path to the mesh file (default: `assemblage_hexa.msh`). |
 | `-lU` | `--libraryU3SI2` | Path to the compiled MFront library (`.so`) for the U3Si2 material (default: the library built with the example, for the CPU or for the GPU as `--execution` places the behaviours). |
 | `-lA` | `--libraryALFENI` | Path to the compiled MFront library (`.so`) for the ALFENI material (default: the library built with the example, for the CPU or for the GPU as `--execution` places the behaviours). |
-| `-x` | `--execution` | Option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements`, `--behaviours`, `--linear-solver-device` and `--post-processings` (`cpu` or `gpu`). |
+| `-x` | `--execution` | Option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements-execution`, `--behaviours-execution`, `--linear-solvers-execution` and `--post-processings-execution` (`cpu` or `gpu`). |
 | `-lsTh` | `--linearsolver-thermal` | Name of the linear solver to use for the heat transfer problem: an iterative solver (default: `HypreGMRES`) or a direct solver, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only, MFEM being built with cuDSS). |
 | `-pcTh` | `--preconditioner-thermal` | Preconditioner associated with the thermal solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
 | `-lsMc` | `--linearsolver-mechanics` | Name of the linear solver to use for the mechanics problem: the direct solver `MUMPSSolver` (default), the direct solver `CuDSSSolver` (on a CUDA GPU only, MFEM being built with cuDSS) or an iterative solver (e.g., `HyprePCG`). |
@@ -140,7 +140,7 @@ the GPU, with the same results:
 
 ```bash
 mpirun -np 1 ./rjh_plate -m assemblage_hexa.msh \
-  --execution mixed --linear-solver-device cpu \
+  --execution mixed --linear-solvers-execution cpu \
   -lsTh HypreGMRES -pcTh HypreBoomerAMG -lsMc MUMPSSolver \
   -msMc SymmetricPositiveDefinite -mra -et 1e5 -ns 5 -no-pp
 ```
@@ -166,7 +166,7 @@ The following tests are run by `ctest`:
 - `rjh_plate-muelu` (mfem-mgis built with Trilinos) solves the mechanical problem by MINRES preconditioned by MueLu with a Chebyshev smoother (`-lsMc MINRESSolver -pcMc MueLu -mls chebyshev`), compared to the same reference;
 - `rjh_plate-mumps-spd` runs the simulation by kernels with the tangent operator of the mechanical problem given to MUMPS as a symmetric positive definite matrix (`-msMc SymmetricPositiveDefinite`), compared to the same reference;
 - `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each resolution of the mechanical problem instead of the tangent operator at each iteration), compared to the same reference;
-- `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solver-device cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour libraries are built for the GPU (see the main README);
+- `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solvers-execution cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour libraries are built for the GPU (see the main README);
 - `u3si2_swelling` compares the swelling model to its exact value under a power ramp (`mtest/Swelling.mtest`);
 - `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`), and `robin_test-gpu` does the same on the GPU (`--execution gpu`), if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour library is built for the GPU (see the main README).
 

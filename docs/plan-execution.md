@@ -43,12 +43,12 @@ Declared by `mfem_mgis::declareDefaultOptions`, read by
   - `mixed`: `gpu` device, and each phase is placed by its sub-switch
     (GPU by default);
 - in `mixed` only (refused otherwise, because contradictory):
-  - `--finite-elements cpu|gpu`: MFEM data, gradients, internal forces,
+  - `--finite-elements-execution cpu|gpu`: MFEM data, gradients, internal forces,
     tangent;
-  - `--behaviours cpu|gpu`: integration of the behaviours (also material
+  - `--behaviours-execution cpu|gpu`: integration of the behaviours (also material
     by material, through the API);
-  - `--linear-solver-device cpu|gpu`: hypre and the linear solvers;
-  - `--post-processings cpu|gpu`;
+  - `--linear-solvers-execution cpu|gpu`: hypre and the linear solvers;
+  - `--post-processings-execution cpu|gpu`;
 - `--device` is kept for experts (MFEM names: `debug`, `omp`,
   `ceed-cuda`...). It is refused if it contradicts `--execution` (for
   example `--execution cpu --device cuda`).
@@ -112,7 +112,7 @@ Real limits, to be refused with a clear message:
 
 - a solver that only exists on one side: MUMPS, UMFPACK, PETSc (on the
   host); AmgX and cuDSS (on the GPU). The solver chosen by the
-  application wins: a conflict with `--linear-solver-device` is an error,
+  application wins: a conflict with `--linear-solvers-execution` is an error,
   not a silent move;
 - the placement of hypre is global to the process (fixed before its
   initialization): all the hypre solvers of a computation are on the same

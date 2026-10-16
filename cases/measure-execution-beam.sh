@@ -38,7 +38,8 @@ for fe in cpu gpu; do
       if [ "$bh" = gpu ]; then
         library=$cuda
       fi
-      options="--execution mixed --finite-elements $fe --behaviours $bh --linear-solver-device $lsd"
+      options="--execution mixed --finite-elements-execution $fe"
+      options+=" --behaviours-execution $bh --linear-solvers-execution $lsd"
       run "execution-mixed-fe-$fe-behaviours-$bh-solver-$lsd" 1 1 "$library"
     done
   done

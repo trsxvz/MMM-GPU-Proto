@@ -1,14 +1,15 @@
 /*!
- * \file   src/LinearSolverOverride.cxx
- * \brief  This file implements the reading of the linear solver which
- * replaces the linear solvers of the non linear evolution problems (see
- * `LinearSolverOverride.hxx`)
+ * \file   src/SolverOverrides.cxx
+ * \brief  This file implements the reading of the linear solver, of the
+ * preconditioner and of the non linear solver which replace the ones of the
+ * non linear evolution problems (see `SolverOverrides.hxx`)
  * \date   16/10/2026
  */
 
 #include <map>
+#include <set>
+#include <mutex>
 #include <algorithm>
-#include <atomic>
 #include <vector>
 #include <cstdlib>
 #include <cstring>
@@ -20,8 +21,10 @@
 #include "mfem/general/globals.hpp"
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/PreconditionerFactory.hxx"
+#include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+#include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
 #include "LinearSolverModules.hxx"
-#include "LinearSolverOverride.hxx"
+#include "SolverOverrides.hxx"
 
 namespace mfem_mgis::internals {
 
@@ -38,6 +41,31 @@ namespace mfem_mgis::internals {
     static auto o = std::optional<FactoryArgumentOverride>{};
     return o;
   }  // end of getPreconditionerOverrideStorage
+
+  //! \return the storage of the non linear solver override
+  static std::optional<FactoryArgumentOverride>&
+  getNonLinearSolverOverrideStorage() {
+    static auto o = std::optional<FactoryArgumentOverride>{};
+    return o;
+  }  // end of getNonLinearSolverOverrideStorage
+
+  /*!
+   * \brief prints a message on the output stream of MFEM, unless it was
+   * already printed: each replacement is reported once, whatever the number
+   * of problems
+   * \param[in] message: message, without the `mfem-mgis: ` prefix
+   */
+  static void reportOnce(const std::string& message) noexcept {
+    static auto m = std::mutex{};
+    static auto reported = std::set<std::string>{};
+    try {
+      const auto lock = std::lock_guard<std::mutex>{m};
+      if (reported.insert(message).second) {
+        mfem::out << "mfem-mgis: " << message << std::endl;
+      }
+    } catch (...) {
+    }
+  }  // end of reportOnce
 
 #ifdef MFEM_MGIS_HAVE_TFEL_UTILITIES
 
@@ -185,22 +213,22 @@ namespace mfem_mgis::internals {
   }  // end of isRegistered
 
   /*!
-   * \brief checks that the linear solver override and the preconditioner
-   * override are registered in the factories, so that a misspelt name is
-   * refused at the initialization, and that `None` (no preconditioner) has
-   * no options
+   * \brief checks that the solver overrides are registered in the
+   * factories, so that a misspelt name is refused at the initialization, and
+   * that `None` (no preconditioner) has no options
    */
   static void checkOverridesNames() {
     const auto check = [](const std::optional<FactoryArgumentOverride>& o,
                           const std::vector<std::string>& sequential,
                           const std::vector<std::string>& parallel,
-                          const std::string& what) {
+                          const std::string& what,
+                          std::string (*const get_hint)(std::string_view)) {
       if ((!o.has_value()) || (isRegistered(sequential, parallel, o->name))) {
         return;
       }
       auto msg = "invalid " + what + " '" + o->description +
                  "': unknown name '" + o->name + "'";
-      const auto hint = getUnavailableLibraryHint(o->name);
+      const auto hint = get_hint(o->name);
       if (!hint.empty()) {
         msg += " (" + hint + ")";
       }
@@ -217,12 +245,17 @@ namespace mfem_mgis::internals {
 #endif /* MFEM_USE_MPI */
     check(getLinearSolverOverride(),
           LinearSolverFactory<false>::getFactory().getNames(), parallel_solvers,
-          "linear solver override");
+          "linear solver override", getUnavailableLibraryHint);
     auto sequential_preconditioners =
         PreconditionerFactory<false>::getFactory().getNames();
     sequential_preconditioners.push_back("None");
     check(getPreconditionerOverride(), sequential_preconditioners,
-          parallel_preconditioners, "preconditioner override");
+          parallel_preconditioners, "preconditioner override",
+          getUnavailableLibraryHint);
+    check(getNonLinearSolverOverride(),
+          NonLinearSolverFactory::get().getNames(), std::vector<std::string>{},
+          "non linear solver override",
+          getUnavailableNonLinearSolverLibraryHint);
     const auto& pc = getPreconditionerOverride();
     if (pc.has_value() && (pc->name == "None") && (!pc->options.empty())) {
       throw std::runtime_error("invalid preconditioner override '" +
@@ -231,8 +264,7 @@ namespace mfem_mgis::internals {
     }
   }  // end of checkOverridesNames
 
-  void readLinearSolverOverrides(const int argc,
-                                 const MainFunctionArguments argv) {
+  void readSolverOverrides(const int argc, const MainFunctionArguments argv) {
     readOverride(getLinearSolverOverrideStorage(), argc, argv,
                  linear_solver_override_option,
                  linear_solver_override_short_option,
@@ -241,8 +273,13 @@ namespace mfem_mgis::internals {
                  preconditioner_override_option,
                  preconditioner_override_short_option,
                  preconditioner_override_variable, "preconditioner override");
+    readOverride(getNonLinearSolverOverrideStorage(), argc, argv,
+                 non_linear_solver_override_option,
+                 non_linear_solver_override_short_option,
+                 non_linear_solver_override_variable,
+                 "non linear solver override");
     checkOverridesNames();
-  }  // end of readLinearSolverOverrides
+  }  // end of readSolverOverrides
 
 #ifdef MFEM_USE_MPI
 
@@ -263,7 +300,7 @@ namespace mfem_mgis::internals {
     return differ != 0;
   }  // end of differsFromFirstProcess
 
-  void checkLinearSolverOverrides(const MPI_Comm comm) {
+  void checkSolverOverrides(const MPI_Comm comm) {
     const auto description =
         [](const std::optional<FactoryArgumentOverride>& o) {
           return o.has_value() ? o->description : std::string{};
@@ -272,15 +309,17 @@ namespace mfem_mgis::internals {
         differsFromFirstProcess(comm, description(getLinearSolverOverride()));
     const auto pc =
         differsFromFirstProcess(comm, description(getPreconditionerOverride()));
-    if (ls || pc) {
+    const auto nls = differsFromFirstProcess(
+        comm, description(getNonLinearSolverOverride()));
+    if (ls || pc || nls) {
       throw std::runtime_error(
-          "the processes have different linear solver or preconditioner "
-          "overrides (the environment variables "
-          "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE and "
-          "MFEM_MGIS_PRECONDITIONER_OVERRIDE shall be given to all the "
+          "the processes have different solver overrides (the environment "
+          "variables MFEM_MGIS_LINEAR_SOLVER_OVERRIDE, "
+          "MFEM_MGIS_PRECONDITIONER_OVERRIDE and "
+          "MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE shall be given to all the "
           "processes)");
     }
-  }  // end of checkLinearSolverOverrides
+  }  // end of checkSolverOverrides
 
 #endif /* MFEM_USE_MPI */
 
@@ -294,33 +333,103 @@ namespace mfem_mgis::internals {
     return getPreconditionerOverrideStorage();
   }  // end of getPreconditionerOverride
 
-  void reportLinearSolverOverride(const std::string_view replaced) noexcept {
-    static auto reported = std::atomic<bool>{false};
-    const auto& o = getLinearSolverOverride();
-    if ((!o.has_value()) || reported.exchange(true)) {
+  const std::optional<FactoryArgumentOverride>&
+  getNonLinearSolverOverride() noexcept {
+    return getNonLinearSolverOverrideStorage();
+  }  // end of getNonLinearSolverOverride
+
+  void reportNonLinearSolverOverride(const std::string_view replaced) noexcept {
+    const auto& o = getNonLinearSolverOverride();
+    if (!o.has_value()) {
       return;
     }
     try {
-      mfem::out << "mfem-mgis: the linear solver override '" << o->name
-                << "' replaces " << replaced << std::endl;
+      reportOnce("the non linear solver override '" + o->name +
+                 "' replaces the non linear solver '" + std::string{replaced} +
+                 "'");
+    } catch (...) {
+    }
+  }  // end of reportNonLinearSolverOverride
+
+  Parameters mergeNonLinearSolverOverrideOptions(const Parameters& p) {
+    auto merged = p;
+    const auto& o = getNonLinearSolverOverride();
+    if (o.has_value()) {
+      // the other options of the override were applied when it was built
+      for (const auto& [n, v] : o->options) {
+        if (contains(p, n)) {
+          merged.replaceOrInsert(n, v);
+        }
+      }
+    }
+    return merged;
+  }  // end of mergeNonLinearSolverOverrideOptions
+
+  std::pair<Parameters, std::vector<std::string>>
+  splitNonLinearSolverParameters(const Parameters& p) {
+    auto common = getIterativeSolverParametersList();
+    common.push_back("DiscardLinearSolverFailure");
+    const auto& o = getNonLinearSolverOverride();
+    auto r = std::pair<Parameters, std::vector<std::string>>{};
+    for (const auto& [n, v] : p) {
+      // a parameter also given by the options of the override is accepted
+      // by it
+      if ((std::find(common.begin(), common.end(), n) != common.end()) ||
+          (o.has_value() && contains(o->options, n))) {
+        r.first.insert(may_throw, n, v);
+      } else {
+        r.second.push_back(n);
+      }
+    }
+    return r;
+  }  // end of splitNonLinearSolverParameters
+
+  void reportIgnoredNonLinearSolverParameters(
+      const std::vector<std::string>& ignored,
+      const std::string_view reason) noexcept {
+    const auto& o = getNonLinearSolverOverride();
+    if ((!o.has_value()) || ignored.empty()) {
+      return;
+    }
+    try {
+      auto names = std::string{};
+      for (const auto& n : ignored) {
+        names += (names.empty() ? "'" : ", '") + n + "'";
+      }
+      reportOnce("the non linear solver override '" + o->name +
+                 "' refuses the parameters given by the program to its non "
+                 "linear solver: the parameters " +
+                 names + " are ignored. Reason of the refusal:\n" +
+                 std::string{reason});
+    } catch (...) {
+    }
+  }  // end of reportIgnoredNonLinearSolverParameters
+
+  void reportLinearSolverOverride(const std::string_view replaced) noexcept {
+    const auto& o = getLinearSolverOverride();
+    if (!o.has_value()) {
+      return;
+    }
+    try {
+      reportOnce("the linear solver override '" + o->name + "' replaces " +
+                 std::string{replaced});
     } catch (...) {
     }
   }  // end of reportLinearSolverOverride
 
   /*!
-   * \brief reports, once, on the output stream of MFEM, that the
-   * preconditioner override is given to a linear solver
+   * \brief reports, once per linear solver, on the output stream of MFEM,
+   * that the preconditioner override is given to a linear solver
    * \param[in] n: name of the linear solver
    */
   static void reportPreconditionerOverride(const std::string_view n) noexcept {
-    static auto reported = std::atomic<bool>{false};
     const auto& o = getPreconditionerOverride();
-    if ((!o.has_value()) || reported.exchange(true)) {
+    if (!o.has_value()) {
       return;
     }
     try {
-      mfem::out << "mfem-mgis: the preconditioner override '" << o->name
-                << "' is given to the linear solver '" << n << "'" << std::endl;
+      reportOnce("the preconditioner override '" + o->name +
+                 "' is given to the linear solver '" + std::string{n} + "'");
     } catch (...) {
     }
   }  // end of reportPreconditionerOverride
@@ -330,7 +439,12 @@ namespace mfem_mgis::internals {
     const auto& ls = getLinearSolverOverride();
     auto r = std::pair<std::string, Parameters>{n, p};
     if (ls.has_value()) {
-      reportLinearSolverOverride("the linear solver '" + std::string{n} + "'");
+      // an empty name is given when the linear solver built by the program
+      // is replaced, which is reported by the caller
+      if (!n.empty()) {
+        reportLinearSolverOverride("the linear solver '" + std::string{n} +
+                                   "'");
+      }
       r = {ls->name, ls->options};
     }
     const auto& pc = getPreconditionerOverride();

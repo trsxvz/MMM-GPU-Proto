@@ -1,18 +1,20 @@
 /*!
- * \file   src/LinearSolverOverride.hxx
- * \brief  This file declares the reading of the linear solver and of the
- * preconditioner which replace the ones of the non linear evolution
- * problems, given by the options `--linear-solver-override` and
- * `--preconditioner-override` or by the environment variables
- * `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE` and `MFEM_MGIS_PRECONDITIONER_OVERRIDE`
- * (internal header)
+ * \file   src/SolverOverrides.hxx
+ * \brief  This file declares the reading of the linear solver, of the
+ * preconditioner and of the non linear solver which replace the ones of the
+ * non linear evolution problems, given by the options
+ * `--linear-solver-override`, `--preconditioner-override` and
+ * `--non-linear-solver-override` or by the environment variables
+ * `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, `MFEM_MGIS_PRECONDITIONER_OVERRIDE` and
+ * `MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE` (internal header)
  * \date   16/10/2026
  */
 
-#ifndef LIB_MFEM_MGIS_SRC_LINEARSOLVEROVERRIDE_HXX
-#define LIB_MFEM_MGIS_SRC_LINEARSOLVEROVERRIDE_HXX
+#ifndef LIB_MFEM_MGIS_SRC_SOLVEROVERRIDES_HXX
+#define LIB_MFEM_MGIS_SRC_SOLVEROVERRIDES_HXX
 
 #include <string>
+#include <vector>
 #include <utility>
 #include <optional>
 #include <string_view>
@@ -40,6 +42,16 @@ namespace mfem_mgis::internals {
   //! \brief environment variable giving the preconditioner override
   inline constexpr const char* preconditioner_override_variable =
       "MFEM_MGIS_PRECONDITIONER_OVERRIDE";
+
+  //! \brief long name of the option giving the non linear solver override
+  inline constexpr const char* non_linear_solver_override_option =
+      "--non-linear-solver-override";
+  //! \brief short name of the option `non_linear_solver_override_option`
+  inline constexpr const char* non_linear_solver_override_short_option =
+      "-nlso";
+  //! \brief environment variable giving the non linear solver override
+  inline constexpr const char* non_linear_solver_override_variable =
+      "MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE";
 
   //! \brief object of a factory given by the user, with its description
   struct FactoryArgumentOverride {
@@ -71,19 +83,21 @@ namespace mfem_mgis::internals {
   /*!
    * \brief reads the linear solver override, given by the option
    * `--linear-solver-override` (or `-lso`), or else by the environment
-   * variable `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, and the preconditioner
+   * variable `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, the preconditioner
    * override, given by the option `--preconditioner-override` (or `-pco`),
-   * or else by the environment variable `MFEM_MGIS_PRECONDITIONER_OVERRIDE`
-   * (see `parseFactoryArgumentOverride`), returned afterwards by
-   * `getLinearSolverOverride` and `getPreconditionerOverride`. An empty
-   * value cancels an override.
+   * or else by the environment variable `MFEM_MGIS_PRECONDITIONER_OVERRIDE`,
+   * and the non linear solver override, given by the option
+   * `--non-linear-solver-override` (or `-nlso`), or else by the environment
+   * variable `MFEM_MGIS_NON_LINEAR_SOLVER_OVERRIDE` (see
+   * `parseFactoryArgumentOverride`), returned afterwards by
+   * `getLinearSolverOverride`, `getPreconditionerOverride` and
+   * `getNonLinearSolverOverride`. An empty value cancels an override.
    * \param[in] argc: number of arguments
    * \param[in] argv: arguments
    * \throws std::runtime_error on an invalid description, or if an option
    * is given twice or without value
    */
-  void readLinearSolverOverrides(const int argc,
-                                 const MainFunctionArguments argv);
+  void readSolverOverrides(const int argc, const MainFunctionArguments argv);
 #ifdef MFEM_USE_MPI
   /*!
    * \brief checks that all the processes of a communicator have the same
@@ -92,7 +106,7 @@ namespace mfem_mgis::internals {
    * \param[in] comm: communicator
    * \throws std::runtime_error on all the processes if they differ
    */
-  void checkLinearSolverOverrides(const MPI_Comm comm);
+  void checkSolverOverrides(const MPI_Comm comm);
 #endif /* MFEM_USE_MPI */
   /*!
    * \return the linear solver which replaces the linear solvers of the non
@@ -108,8 +122,53 @@ namespace mfem_mgis::internals {
   [[nodiscard]] const std::optional<FactoryArgumentOverride>&
   getPreconditionerOverride() noexcept;
   /*!
-   * \brief reports, once, on the output stream of MFEM, that the linear
-   * solver override replaces a linear solver of the program
+   * \return the non linear solver which replaces the non linear solvers of
+   * the non linear evolution problems (parameter `NonLinearSolver`, Newton
+   * by default), if any
+   */
+  [[nodiscard]] const std::optional<FactoryArgumentOverride>&
+  getNonLinearSolverOverride() noexcept;
+  /*!
+   * \brief reports, once per replaced non linear solver, on the output
+   * stream of MFEM, that the non linear solver override replaces a non
+   * linear solver of the program
+   * \param[in] replaced: name of the replaced non linear solver
+   */
+  void reportNonLinearSolverOverride(std::string_view replaced) noexcept;
+  /*!
+   * \return the parameters given by the program to its non linear solver
+   * (`setSolverParameters`), the options of the non linear solver override
+   * taking precedence over the parameters of the same name (its other
+   * options were applied when it was built)
+   * \param[in] p: parameters of the program
+   */
+  [[nodiscard]] Parameters mergeNonLinearSolverOverrideOptions(
+      const Parameters& p);
+  /*!
+   * \return the parameters accepted by all the non linear solvers
+   * (`VerbosityLevel`, `RelativeTolerance`, `AbsoluteTolerance`,
+   * `MaximumNumberOfIterations`, `DiscardLinearSolverFailure`) and the ones
+   * also given by the options of the non linear solver override, then the
+   * names of the other parameters
+   * \param[in] p: parameters given by the program to its non linear solver
+   */
+  [[nodiscard]] std::pair<Parameters, std::vector<std::string>>
+  splitNonLinearSolverParameters(const Parameters& p);
+  /*!
+   * \brief reports, once per message, on the output stream of MFEM, the
+   * parameters of the program ignored because the non linear solver
+   * override refuses them
+   * \param[in] ignored: names of the ignored parameters (nothing is
+   * reported if empty)
+   * \param[in] reason: message of the refusal
+   */
+  void reportIgnoredNonLinearSolverParameters(
+      const std::vector<std::string>& ignored,
+      std::string_view reason) noexcept;
+  /*!
+   * \brief reports, once per replaced linear solver, on the output stream
+   * of MFEM, that the linear solver override replaces a linear solver of the
+   * program
    * \param[in] replaced: description of the replaced linear solver
    */
   void reportLinearSolverOverride(std::string_view replaced) noexcept;
@@ -126,4 +185,4 @@ namespace mfem_mgis::internals {
 
 }  // end of namespace mfem_mgis::internals
 
-#endif /* LIB_MFEM_MGIS_SRC_LINEARSOLVEROVERRIDE_HXX */
+#endif /* LIB_MFEM_MGIS_SRC_SOLVEROVERRIDES_HXX */

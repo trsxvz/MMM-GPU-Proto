@@ -188,9 +188,9 @@ This call is mostly useful in parallel and handles:
    toolkit, if supported and
    requested.
 -  The execution settings given by the option ``--execution`` (and the
-   options ``--finite-elements``, ``--behaviours``,
-   ``--linear-solver-device`` and ``--post-processings``), which place the
-   computations on the CPU or on the GPU.
+   options ``--finite-elements-execution``, ``--behaviours-execution``,
+   ``--linear-solvers-execution`` and ``--post-processings-execution``),
+   which place the computations on the CPU or on the GPU.
 -  The creation of the ``MFEM`` device (option ``--device``), the location
    of the memory of ``hypre`` (options ``--hypre-on-host`` and
    ``--hypre-device-pool-size``) and the initialization of ``Kokkos``
@@ -286,10 +286,10 @@ by ``mfem_mgis::initialize``:
 
 -  ``--execution`` (or ``-x``), which places all the computations:
    ``cpu``, ``gpu`` or ``mixed``;
--  with ``--execution mixed``, ``--finite-elements`` (``-fe``),
-   ``--behaviours`` (``-bh``), ``--linear-solver-device`` (``-lsd``) and
-   ``--post-processings`` (``-ppd``), which place each phase on the CPU
-   or on the GPU;
+-  with ``--execution mixed``, ``--finite-elements-execution`` (``-fex``),
+   ``--behaviours-execution`` (``-bhx``), ``--linear-solvers-execution``
+   (``-lsx``) and ``--post-processings-execution`` (``-ppx``), which place
+   each phase on the CPU or on the GPU;
 -  ``--device`` (or ``-dev``), which selects the configuration of the
    ``MFEM`` device (for instance ``cuda``). No device is created if the
    option is not given, unless ``--execution`` selects a GPU. An
@@ -303,7 +303,9 @@ by ``mfem_mgis::initialize``:
 These options are described in :ref:`mfem_mgis_batch_computations_execution`.
 The options ``--linear-solver-override`` (``-lso``) and
 ``--preconditioner-override`` (``-pco``) replace the linear solvers and the
-preconditioners chosen by the program (see :ref:`linear_solver_override`).
+preconditioners chosen by the program (see :ref:`linear_solver_override`),
+and the option ``--non-linear-solver-override`` (``-nlso``) replaces its
+nonlinear solvers (see :ref:`non_linear_solver_override`).
 
 If ``MFEM`` was built with support of ``PETSc`` library, the following
 options are also added by the ``mfem_mgis::declareDefaultOptions``
@@ -772,4 +774,4 @@ with the finite elements and the behaviours on the GPU, the linear solver
 
 .. code:: sh
 
-   ./ssna303 --execution mixed --linear-solver-device cpu
+   ./ssna303 --execution mixed --linear-solvers-execution cpu

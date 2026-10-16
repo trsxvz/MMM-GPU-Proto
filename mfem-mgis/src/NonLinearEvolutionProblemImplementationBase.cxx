@@ -25,6 +25,7 @@
 #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx"
 #include "ExecutionSettings.hxx"
+#include "SolverOverrides.hxx"
 
 namespace mfem_mgis {
 
@@ -519,11 +520,37 @@ namespace mfem_mgis {
     if (usePETSc()) {
       return mfem_mgis::setSolverParameters(ctx, *(this->petsc_solver), params);
     }
-    return this->solver->setSolverParameters(ctx, params);
-#else  /* MFEM_MGIS_HAVE_PETSC */
-    return this->solver->setSolverParameters(ctx, params);
 #endif /* MFEM_MGIS_HAVE_PETSC */
-  }    // end of setSolverParameters
+    if (!internals::getNonLinearSolverOverride().has_value()) {
+      return this->solver->setSolverParameters(ctx, params);
+    }
+    // the non linear solver override receives the parameters of the
+    // program, its own options taking precedence over the parameters of the
+    // same name. If it refuses them (the parameters of the program may be
+    // specific to another solver), it only receives the parameters accepted
+    // by all the non linear solvers and the ones of its own options, the
+    // other ones being reported with the reason of the refusal. The solvers
+    // read their options before applying them: a refused call leaves the
+    // solver unchanged.
+    try {
+      auto first = Context{};
+      if (this->solver->setSolverParameters(
+              first, internals::mergeNonLinearSolverOverrideOptions(params))) {
+        return true;
+      }
+      const auto [kept, ignored] =
+          internals::splitNonLinearSolverParameters(params);
+      if (!this->solver->setSolverParameters(
+              ctx, internals::mergeNonLinearSolverOverrideOptions(kept))) {
+        return false;
+      }
+      internals::reportIgnoredNonLinearSolverParameters(
+          ignored, first.getErrorMessage());
+      return true;
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
+  }  // end of setSolverParameters
 
   std::vector<size_type>
   NonLinearEvolutionProblemImplementationBase::getEssentialDegreesOfFreedom()

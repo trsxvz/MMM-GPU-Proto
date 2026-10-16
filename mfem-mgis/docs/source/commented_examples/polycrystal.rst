@@ -301,7 +301,7 @@ option ``MM_OPERA_HPC_GPU_TESTS`` of mm-opera-hpc, and if MFEM is compiled with
 CUDA or HIP and the behaviour library of the case is built for the GPU,
 ``UniaxialPolycrystalTest-gpu`` and ``UniaxialPolycrystalTest-mixed-gpu`` run
 the first test with ``--execution gpu`` and with ``--execution mixed
---behaviours cpu``. A GPU is then required to run them.
+--behaviours-execution cpu``. A GPU is then required to run them.
 
 References
 ----------

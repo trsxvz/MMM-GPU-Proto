@@ -96,7 +96,7 @@ Command line | Description
 --linear-solver or -ls | linear solver: `HypreGMRES` preconditioned by `HypreBoomerAMG` (default), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only); an invalid value is refused
 --matrix-symmetry or -ms | symmetry of the matrices given to the direct solver: `Unsymmetric` (default), `SymmetricIndefinite` or `SymmetricPositiveDefinite` (the lower triangle is given without checking the symmetry); an invalid value is refused
 --reuse-analysis or -mra, --no-reuse-analysis or -no-mra | reuse the analysis of the direct solver (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations (default = no; requires a mfem-mgis providing the parameter `ReuseAnalysis`). The options `-ms` and `-mra` are ignored, with a warning, without a direct solver. With `--use-petsc`, `-ls`, `-ms` and `-mra` are ignored, with a warning
---execution or -x | option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements`, `--behaviours`, `--linear-solver-device` and `--post-processings` (`cpu` or `gpu`)
+--execution or -x | option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements-execution`, `--behaviours-execution`, `--linear-solvers-execution` and `--post-processings-execution` (`cpu` or `gpu`)
 --device, --hypre-on-host | options of mfem-mgis for the experts: device of MFEM (for instance `cuda`), computations of hypre on the host when the device is a GPU
 --post-processing or -pp, --no-post-processing or -no-pp | export or not the results to Paraview (default = export)
 --reference-file or -rf | file of reference values of the mean stresses in each material, no comparison if empty (default)
@@ -172,7 +172,7 @@ less than 9 % from the one computed with 40 time steps. This test is `mox2`. The
   (`-ls MUMPSSolver -ms SymmetricPositiveDefinite`), if MFEM is built with MUMPS;
 - `mox2-petsc` with PETSc (`--use-petsc --petsc-configuration-file petscrc`), if MFEM is built with
   PETSc;
-- `mox2-gpu` with `--execution gpu` and `mox2-mixed-gpu` with `--execution mixed --behaviours cpu`,
+- `mox2-gpu` with `--execution gpu` and `mox2-mixed-gpu` with `--execution mixed --behaviours-execution cpu`,
   if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour library is built for the GPU
   (see the main README).
 

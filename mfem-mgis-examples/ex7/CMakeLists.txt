@@ -106,7 +106,7 @@ if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx7_HAVE_GPU_BEHAVIOURS)
            COMMAND mox2 ${mox2_test_options} --execution gpu)
   add_test(NAME ${test}-mixed-gpu
            COMMAND mox2 ${mox2_test_options} --execution mixed
-                   --behaviours cpu)
+                   --behaviours-execution cpu)
   set_tests_properties(${test}-gpu ${test}-mixed-gpu PROPERTIES
                        RESOURCE_LOCK "avgStress;gpu")
 endif()

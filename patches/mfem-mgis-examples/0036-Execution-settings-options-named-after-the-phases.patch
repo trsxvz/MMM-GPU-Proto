@@ -1,0 +1,193 @@
+From 89ee120f6b9c5d9c4606e9198193f4ba0de4980d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 20:37:13 +0200
+Subject: [PATCH] Execution settings: options named after the phases
+
+The options placing each phase in the mixed mode of mfem-mgis are renamed
+--finite-elements-execution, --behaviours-execution,
+--linear-solvers-execution (formerly --linear-solver-device) and
+--post-processings-execution: tests and documentation updated.
+---
+ ex2/CMakeLists.txt | 4 ++--
+ ex4/CMakeLists.txt | 4 ++--
+ ex5/CMakeLists.txt | 2 +-
+ ex6/CMakeLists.txt | 3 ++-
+ ex7/CMakeLists.txt | 2 +-
+ ex7/README.md      | 4 ++--
+ ex8/CMakeLists.txt | 8 ++++----
+ ex8/README.md      | 6 +++---
+ 8 files changed, 17 insertions(+), 16 deletions(-)
+
+diff --git a/ex2/CMakeLists.txt b/ex2/CMakeLists.txt
+index 6a88d33..fb8d60d 100644
+--- a/ex2/CMakeLists.txt
++++ b/ex2/CMakeLists.txt
+@@ -84,7 +84,7 @@ function(add_ssna303_test_ex)
+     add_test(NAME ${test}-gpu
+              COMMAND ssna303 ${ssna303_loading}
+                      --reference-file ssna303-force.ref
+-                     --execution mixed --linear-solver-device cpu)
++                     --execution mixed --linear-solvers-execution cpu)
+     set_tests_properties(${test}-gpu PROPERTIES
+                          RESOURCE_LOCK gpu ENVIRONMENT OMP_NUM_THREADS=1)
+     if(MGIS_HAVE_TFEL)
+@@ -92,7 +92,7 @@ function(add_ssna303_test_ex)
+                COMMAND ssna303 --use-fbar ${ssna303_loading}
+                        --reference-file ssna303-force-fbar.ref
+                        --standard-reference-file ssna303-force.ref
+-                       --execution mixed --linear-solver-device cpu)
++                       --execution mixed --linear-solvers-execution cpu)
+       set_tests_properties(${test}-fbar-gpu PROPERTIES
+                            RESOURCE_LOCK gpu ENVIRONMENT OMP_NUM_THREADS=1)
+     endif(MGIS_HAVE_TFEL)
+diff --git a/ex4/CMakeLists.txt b/ex4/CMakeLists.txt
+index 4b2327e..95935b4 100644
+--- a/ex4/CMakeLists.txt
++++ b/ex4/CMakeLists.txt
+@@ -107,7 +107,7 @@ foreach(tg IN ITEMS mumps hypre petsc)
+ endforeach()
+ 
+ # the same computations on a GPU (see ../config/TestMode.cmake): hypre on the
+-# GPU, and MUMPS on the CPU (option --linear-solver-device cpu)
++# GPU, and MUMPS on the CPU (option --linear-solvers-execution cpu)
+ if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx4_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME ssna303_3d_hypre-gpu
+            COMMAND ssna303_3d_hypre --nbsteps ${ssna303_3d_nsteps}
+@@ -120,7 +120,7 @@ if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx4_HAVE_GPU_BEHAVIOURS)
+              COMMAND ssna303_3d_mumps --nbsteps ${ssna303_3d_nsteps}
+                      --end-time ${ssna303_3d_end_time}
+                      --reference-file ssna303_3d-force-10steps.ref
+-                     --execution mixed --linear-solver-device cpu)
++                     --execution mixed --linear-solvers-execution cpu)
+     set_tests_properties(ssna303_3d_mumps-gpu PROPERTIES
+                          RESOURCE_LOCK gpu ENVIRONMENT OMP_NUM_THREADS=1)
+   endif()
+diff --git a/ex5/CMakeLists.txt b/ex5/CMakeLists.txt
+index 44f4043..05dbeba 100644
+--- a/ex5/CMakeLists.txt
++++ b/ex5/CMakeLists.txt
+@@ -70,7 +70,7 @@ if(MFEM_USE_SUITESPARSE)
+   # ../config/TestMode.cmake)
+   if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx5_HAVE_GPU_BEHAVIOURS)
+     add_test(NAME ${test}-gpu
+-             COMMAND ${test} --execution mixed --linear-solver-device cpu)
++             COMMAND ${test} --execution mixed --linear-solvers-execution cpu)
+     set_tests_properties(${test}-gpu PROPERTIES RESOURCE_LOCK gpu)
+   endif()
+ else()
+diff --git a/ex6/CMakeLists.txt b/ex6/CMakeLists.txt
+index a16611d..3f48cc8 100755
+--- a/ex6/CMakeLists.txt
++++ b/ex6/CMakeLists.txt
+@@ -63,7 +63,8 @@ if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx6_HAVE_GPU_BEHAVIOURS)
+   add_test(NAME ${test}-gpu
+            COMMAND rve --no-post-processing --execution gpu)
+   add_test(NAME ${test}-mixed-gpu
+-           COMMAND rve --no-post-processing --execution mixed --behaviours cpu)
++           COMMAND rve --no-post-processing --execution mixed
++                   --behaviours-execution cpu)
+   set_tests_properties(${test}-gpu ${test}-mixed-gpu PROPERTIES
+                        RESOURCE_LOCK gpu)
+ endif()
+diff --git a/ex7/CMakeLists.txt b/ex7/CMakeLists.txt
+index cea086c..d1f801b 100755
+--- a/ex7/CMakeLists.txt
++++ b/ex7/CMakeLists.txt
+@@ -106,7 +106,7 @@ if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx7_HAVE_GPU_BEHAVIOURS)
+            COMMAND mox2 ${mox2_test_options} --execution gpu)
+   add_test(NAME ${test}-mixed-gpu
+            COMMAND mox2 ${mox2_test_options} --execution mixed
+-                   --behaviours cpu)
++                   --behaviours-execution cpu)
+   set_tests_properties(${test}-gpu ${test}-mixed-gpu PROPERTIES
+                        RESOURCE_LOCK "avgStress;gpu")
+ endif()
+diff --git a/ex7/README.md b/ex7/README.md
+index cf94e3f..50c552c 100644
+--- a/ex7/README.md
++++ b/ex7/README.md
+@@ -96,7 +96,7 @@ Command line | Description
+ --linear-solver or -ls | linear solver: `HypreGMRES` preconditioned by `HypreBoomerAMG` (default), or a direct solver of mfem-mgis, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only); an invalid value is refused
+ --matrix-symmetry or -ms | symmetry of the matrices given to the direct solver: `Unsymmetric` (default), `SymmetricIndefinite` or `SymmetricPositiveDefinite` (the lower triangle is given without checking the symmetry); an invalid value is refused
+ --reuse-analysis or -mra, --no-reuse-analysis or -no-mra | reuse the analysis of the direct solver (ordering and symbolic factorization) for the matrices of the same pattern, as the tangent operators of the successive Newton iterations (default = no; requires a mfem-mgis providing the parameter `ReuseAnalysis`). The options `-ms` and `-mra` are ignored, with a warning, without a direct solver. With `--use-petsc`, `-ls`, `-ms` and `-mra` are ignored, with a warning
+---execution or -x | option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements`, `--behaviours`, `--linear-solver-device` and `--post-processings` (`cpu` or `gpu`)
++--execution or -x | option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements-execution`, `--behaviours-execution`, `--linear-solvers-execution` and `--post-processings-execution` (`cpu` or `gpu`)
+ --device, --hypre-on-host | options of mfem-mgis for the experts: device of MFEM (for instance `cuda`), computations of hypre on the host when the device is a GPU
+ --post-processing or -pp, --no-post-processing or -no-pp | export or not the results to Paraview (default = export)
+ --reference-file or -rf | file of reference values of the mean stresses in each material, no comparison if empty (default)
+@@ -172,7 +172,7 @@ less than 9 % from the one computed with 40 time steps. This test is `mox2`. The
+   (`-ls MUMPSSolver -ms SymmetricPositiveDefinite`), if MFEM is built with MUMPS;
+ - `mox2-petsc` with PETSc (`--use-petsc --petsc-configuration-file petscrc`), if MFEM is built with
+   PETSc;
+-- `mox2-gpu` with `--execution gpu` and `mox2-mixed-gpu` with `--execution mixed --behaviours cpu`,
++- `mox2-gpu` with `--execution gpu` and `mox2-mixed-gpu` with `--execution mixed --behaviours-execution cpu`,
+   if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour library is built for the GPU
+   (see the main README).
+ 
+diff --git a/ex8/CMakeLists.txt b/ex8/CMakeLists.txt
+index b3f18af..3df7066 100644
+--- a/ex8/CMakeLists.txt
++++ b/ex8/CMakeLists.txt
+@@ -153,7 +153,7 @@ if(MFEM_USE_MUMPS)
+       PROCESSORS 2
+       ENVIRONMENT "${rjh_plate_kernels_environment}")
+   # the same computation on a GPU, the direct solver MUMPS computing on the
+-  # CPU (option --execution mixed --linear-solver-device cpu), and with the
++  # CPU (option --execution mixed --linear-solvers-execution cpu), and with the
+   # finite elements computed on the CPU too (see ../config/TestMode.cmake)
+   if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx8_HAVE_GPU_BEHAVIOURS)
+     add_test(NAME rjh_plate-gpu
+@@ -162,7 +162,7 @@ if(MFEM_USE_MUMPS)
+             -m ${rjh_plate_mesh}.msh
+             -lsMc MUMPSSolver
+             -rf ${rjh_plate_mesh}-statistics.ref
+-            --execution mixed --linear-solver-device cpu
++            --execution mixed --linear-solvers-execution cpu
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+     add_test(NAME rjh_plate-mixed-gpu
+         COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+@@ -170,8 +170,8 @@ if(MFEM_USE_MUMPS)
+             -m ${rjh_plate_mesh}.msh
+             -lsMc MUMPSSolver
+             -rf ${rjh_plate_mesh}-statistics.ref
+-            --execution mixed --linear-solver-device cpu
+-            --finite-elements cpu
++            --execution mixed --linear-solvers-execution cpu
++            --finite-elements-execution cpu
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+     set_tests_properties(rjh_plate-gpu rjh_plate-mixed-gpu PROPERTIES
+         PROCESSORS 2
+diff --git a/ex8/README.md b/ex8/README.md
+index bfe0038..c004b7a 100644
+--- a/ex8/README.md
++++ b/ex8/README.md
+@@ -81,7 +81,7 @@ Here is a summary table of the available options:
+ | `-m` | `--mesh` | Path to the mesh file (default: `assemblage_hexa.msh`). |
+ | `-lU` | `--libraryU3SI2` | Path to the compiled MFront library (`.so`) for the U3Si2 material (default: the library built with the example, for the CPU or for the GPU as `--execution` places the behaviours). |
+ | `-lA` | `--libraryALFENI` | Path to the compiled MFront library (`.so`) for the ALFENI material (default: the library built with the example, for the CPU or for the GPU as `--execution` places the behaviours). |
+-| `-x` | `--execution` | Option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements`, `--behaviours`, `--linear-solver-device` and `--post-processings` (`cpu` or `gpu`). |
++| `-x` | `--execution` | Option of mfem-mgis: `cpu`, `gpu` (all the computations on the GPU) or `mixed`, each phase being placed by `--finite-elements-execution`, `--behaviours-execution`, `--linear-solvers-execution` and `--post-processings-execution` (`cpu` or `gpu`). |
+ | `-lsTh` | `--linearsolver-thermal` | Name of the linear solver to use for the heat transfer problem: an iterative solver (default: `HypreGMRES`) or a direct solver, `MUMPSSolver` or `CuDSSSolver` (on a CUDA GPU only, MFEM being built with cuDSS). |
+ | `-pcTh` | `--preconditioner-thermal` | Preconditioner associated with the thermal solver (default: `HypreBoomerAMG`), ignored for direct solvers. |
+ | `-lsMc` | `--linearsolver-mechanics` | Name of the linear solver to use for the mechanics problem: the direct solver `MUMPSSolver` (default), the direct solver `CuDSSSolver` (on a CUDA GPU only, MFEM being built with cuDSS) or an iterative solver (e.g., `HyprePCG`). |
+@@ -140,7 +140,7 @@ the GPU, with the same results:
+ 
+ ```bash
+ mpirun -np 1 ./rjh_plate -m assemblage_hexa.msh \
+-  --execution mixed --linear-solver-device cpu \
++  --execution mixed --linear-solvers-execution cpu \
+   -lsTh HypreGMRES -pcTh HypreBoomerAMG -lsMc MUMPSSolver \
+   -msMc SymmetricPositiveDefinite -mra -et 1e5 -ns 5 -no-pp
+ ```
+@@ -166,7 +166,7 @@ The following tests are run by `ctest`:
+ - `rjh_plate-muelu` (mfem-mgis built with Trilinos) solves the mechanical problem by MINRES preconditioned by MueLu with a Chebyshev smoother (`-lsMc MINRESSolver -pcMc MueLu -mls chebyshev`), compared to the same reference;
+ - `rjh_plate-mumps-spd` runs the simulation by kernels with the tangent operator of the mechanical problem given to MUMPS as a symmetric positive definite matrix (`-msMc SymmetricPositiveDefinite`), compared to the same reference;
+ - `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each resolution of the mechanical problem instead of the tangent operator at each iteration), compared to the same reference;
+-- `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solver-device cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour libraries are built for the GPU (see the main README);
++- `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solvers-execution cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour libraries are built for the GPU (see the main README);
+ - `u3si2_swelling` compares the swelling model to its exact value under a power ramp (`mtest/Swelling.mtest`);
+ - `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`), and `robin_test-gpu` does the same on the GPU (`--execution gpu`), if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour library is built for the GPU (see the main README).
+ 
+-- 
+2.43.0
+

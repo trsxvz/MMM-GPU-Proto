@@ -9,6 +9,8 @@
 #define LIB_MFEM_MGIS_NONLINEARSOLVERS_NONLINEARSOLVERFACTORY_HXX
 
 #include <map>
+#include <string>
+#include <vector>
 #include <memory>
 #include <functional>
 #include "MFEMMGIS/Config.hxx"
@@ -140,6 +142,8 @@ namespace mfem_mgis {
         std::string_view n,
         NonLinearEvolutionProblemImplementation<false>& p,
         const Parameters& parameters) const noexcept;
+    //! \return the names of the registered nonlinear solvers
+    [[nodiscard]] std::vector<std::string> getNames() const;
 
    private:
     //! \brief default constructor

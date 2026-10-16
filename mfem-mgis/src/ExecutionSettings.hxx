@@ -24,22 +24,25 @@ namespace mfem_mgis::internals {
   //! \brief short name of the option `execution_option`
   inline constexpr const char* execution_short_option = "-x";
   //! \brief long name of the option placing the finite elements
-  inline constexpr const char* finite_elements_option = "--finite-elements";
-  //! \brief short name of the option `finite_elements_option`
-  inline constexpr const char* finite_elements_short_option = "-fe";
+  inline constexpr const char* finite_elements_execution_option =
+      "--finite-elements-execution";
+  //! \brief short name of the option `finite_elements_execution_option`
+  inline constexpr const char* finite_elements_execution_short_option = "-fex";
   //! \brief long name of the option placing the behaviours
-  inline constexpr const char* behaviours_option = "--behaviours";
-  //! \brief short name of the option `behaviours_option`
-  inline constexpr const char* behaviours_short_option = "-bh";
+  inline constexpr const char* behaviours_execution_option =
+      "--behaviours-execution";
+  //! \brief short name of the option `behaviours_execution_option`
+  inline constexpr const char* behaviours_execution_short_option = "-bhx";
   //! \brief long name of the option placing the linear solvers
-  inline constexpr const char* linear_solver_device_option =
-      "--linear-solver-device";
-  //! \brief short name of the option `linear_solver_device_option`
-  inline constexpr const char* linear_solver_device_short_option = "-lsd";
+  inline constexpr const char* linear_solvers_execution_option =
+      "--linear-solvers-execution";
+  //! \brief short name of the option `linear_solvers_execution_option`
+  inline constexpr const char* linear_solvers_execution_short_option = "-lsx";
   //! \brief long name of the option placing the post-processings
-  inline constexpr const char* post_processings_option = "--post-processings";
-  //! \brief short name of the option `post_processings_option`
-  inline constexpr const char* post_processings_short_option = "-ppd";
+  inline constexpr const char* post_processings_execution_option =
+      "--post-processings-execution";
+  //! \brief short name of the option `post_processings_execution_option`
+  inline constexpr const char* post_processings_execution_short_option = "-ppx";
 
   /*!
    * \brief reads the execution settings given by the options of the command

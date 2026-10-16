@@ -63,7 +63,8 @@ if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx6_HAVE_GPU_BEHAVIOURS)
   add_test(NAME ${test}-gpu
            COMMAND rve --no-post-processing --execution gpu)
   add_test(NAME ${test}-mixed-gpu
-           COMMAND rve --no-post-processing --execution mixed --behaviours cpu)
+           COMMAND rve --no-post-processing --execution mixed
+                   --behaviours-execution cpu)
   set_tests_properties(${test}-gpu ${test}-mixed-gpu PROPERTIES
                        RESOURCE_LOCK gpu)
 endif()

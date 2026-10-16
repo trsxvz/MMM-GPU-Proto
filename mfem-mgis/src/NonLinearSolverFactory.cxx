@@ -6,12 +6,14 @@
  */
 
 #include <string>
+#include <vector>
 #include <string_view>
 #include "MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx"
 #include "MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx"
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
 #include "KINSOLSolver.hxx"
 #include "PETScSNESSolver.hxx"
+#include "LinearSolverModules.hxx"
 
 namespace mfem_mgis {
 
@@ -25,25 +27,14 @@ namespace mfem_mgis {
 
   /*!
    * \return why an optional nonlinear solver is not declared (its library
-   * is not available), or an empty string
+   * is not available), after a colon, as the linear solver factory, or an
+   * empty string
    * \param[in] n: name of the nonlinear solver
    */
   static std::string getUnavailableNonLinearSolverHint(
       const std::string_view n) {
-#ifndef MFEM_MGIS_HAVE_SUNDIALS
-    if (n == "KINSOL") {
-      return " (mfem-mgis does not use SUNDIALS: option enable-sundials, MFEM "
-             "compiled with SUNDIALS)";
-    }
-#endif /* MFEM_MGIS_HAVE_SUNDIALS */
-#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC))
-    if (n == "SNES") {
-      return " (mfem-mgis does not use PETSc: option enable-petsc, MFEM "
-             "compiled with PETSc and MPI)";
-    }
-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)) */
-    static_cast<void>(n);
-    return {};
+    const auto hint = internals::getUnavailableNonLinearSolverLibraryHint(n);
+    return hint.empty() ? hint : ": " + hint;
   }  // end of getUnavailableNonLinearSolverHint
 
   NonLinearSolverFactory::NonLinearSolverFactory() noexcept {
@@ -129,6 +120,14 @@ namespace mfem_mgis {
     }
     return ptr;
   }  // end of generate
+
+  std::vector<std::string> NonLinearSolverFactory::getNames() const {
+    auto names = std::vector<std::string>{};
+    for (const auto& [n, g] : this->generators) {
+      names.push_back(n);
+    }
+    return names;
+  }  // end of getNames
 
   NonLinearSolverFactory::~NonLinearSolverFactory() = default;
 

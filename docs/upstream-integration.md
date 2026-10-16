@@ -227,9 +227,9 @@ The overall plan is in [plan-mfem-mgis.md](plan-mfem-mgis.md).
     values at the nodes.
 11. **Execution settings** (see [plan-execution.md](plan-execution.md)):
     option `--execution cpu|gpu|mixed` and placement of each phase in
-    `mixed` mode (`--finite-elements`, `--behaviours`,
-    `--linear-solver-device`, `--post-processings`), default values
-    deduced from the placement (batches and kernels, except with PETSc),
+    `mixed` mode (`--finite-elements-execution`, `--behaviours-execution`,
+    `--linear-solvers-execution`, `--post-processings-execution`), default
+    values deduced from the placement (batches and kernels, except with PETSc),
     placement variables ignored with a warning, placement of the behaviour
     of a material (parameter `BehaviourExecutionLocation`), copies of the
     arrays of the materials counted, libraries of behaviours for the CPU
