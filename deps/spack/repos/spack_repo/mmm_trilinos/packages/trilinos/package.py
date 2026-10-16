@@ -21,8 +21,39 @@ class Trilinos(BuiltinTrilinos):
         description="Sparse direct solver Tacho in Amesos2",
     )
 
+    variant(
+        "fastilu",
+        default=False,
+        when="+ifpack2 +shylu",
+        description="Fine grained incomplete factorizations of ShyLU_Node "
+        "(FastILU, FastIC, FastILDL) in Ifpack2",
+    )
+    variant(
+        "teko-tpetra",
+        default=False,
+        when="+tpetra",
+        description="Block preconditioners of Teko on Tpetra (with Thyra and "
+        "Stratimikos), without the packages of Epetra which the variant teko "
+        "requires",
+    )
+
     def cmake_args(self):
         args = super().cmake_args()
+        if self.spec.satisfies("+fastilu"):
+            args += [
+                self.define("Trilinos_ENABLE_ShyLU_NodeFastILU", True),
+                self.define("Ifpack2_ENABLE_ShyLU_NodeFastILU", True),
+                self.define("ShyLU_NodeFastILU_ENABLE_TESTS", False),
+            ]
+        if self.spec.satisfies("+teko-tpetra"):
+            args += [
+                self.define("Trilinos_ENABLE_Teko", True),
+                self.define("Trilinos_ENABLE_Thyra", True),
+                self.define("Trilinos_ENABLE_ThyraTpetraAdapters", True),
+                self.define("Trilinos_ENABLE_Stratimikos", True),
+                self.define("Teko_ENABLE_TESTS", False),
+                self.define("Teko_ENABLE_EXAMPLES", False),
+            ]
         if self.spec.satisfies("+tacho"):
             # the tests of Tacho require GoogleTest, which TriBITS
             # requires as soon as Tacho is enabled, even without the tests

@@ -105,7 +105,7 @@ each library: `tfel/docs/web/generic-parallel-*.md` for TFEL,
 | `reproducers/` | small standalone programs that check a precise point |
 | `results/` | results of the matrices and of the sweeps; compiler defects and their reproducers (`results/nvhpc-bugs/`) |
 | `site/` | pages of the site of the prototype, in English (Sphinx, MyST); the complete site, with the documentations of TFEL, MGIS and mfem-mgis, is built by `scripts/build-site.sh` and published by `.github/workflows/pages.yml` |
-| `deps/spack/` | spack environments of the prototype (`mmm-gpu`; `mmm-solvers`, the solver libraries which require another build of MFEM or PETSc; `mmm-float-cpu` and its double twin `mmm-double-cpu`; `mmm-float-gpu`; `mmm-trilinos`, Trilinos 17.2.1 with Tacho and FROSch; `ci-cpu` and `ci-cpu-float`) and complementary recipes |
+| `deps/spack/` | spack environments of the prototype (`mmm-gpu`; `mmm-solvers`, the solver libraries which require another build of MFEM or PETSc; `mmm-float-cpu` and its double twin `mmm-double-cpu`; `mmm-float-gpu`; `mmm-trilinos`, Trilinos 17.2.1 with Tacho and FROSch, and `mmm-trilinos-teko`, with FastILU and Teko too; `ci-cpu` and `ci-cpu-float`) and complementary recipes |
 | `deps/spack-sycl/` | specification of the LLVM of the old environment |
 
 The working repositories are local clones. `tfel/`, `mfem-mgis/`,

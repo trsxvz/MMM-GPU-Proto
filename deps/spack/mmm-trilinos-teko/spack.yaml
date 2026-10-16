@@ -1,0 +1,165 @@
+# Environment mmm-trilinos (below), with Trilinos also built with the fine
+# grained incomplete factorizations of ShyLU_Node in Ifpack2 (variant
+# fastilu: FAST_ILU, FAST_IC, FAST_ILDL) and the block preconditioners of
+# Teko on Tpetra (variant teko-tpetra: Teko, Thyra, Stratimikos), both
+# variants of the package trilinos of the repository mmm_trilinos. Only
+# Trilinos is built again; mmm-trilinos is left unchanged.
+#
+# Environment of the phase 4 of the integration of the solver libraries in
+# mfem-mgis (docs/plan-solver-libraries.md): the environment mmm-solvers,
+# plus Trilinos 17.2.1 (Tpetra, Belos, Ifpack2, MueLu, Amesos2, and ShyLU
+# for FROSch and Tacho). Trilinos 17.2.1 requires the Kokkos and the
+# Kokkos Kernels it is released with, 5.2.1, where the other environments
+# have 5.2.2: the packages which depend on Kokkos (PETSc, and MFEM through
+# PETSc) are built again here, and mmm-solvers is left unchanged. Trilinos
+# with Kokkos and CUDA requires hwloc with CUDA: LLVM, AdaptiveCpp and TBB,
+# which would be built again with it and are not used by the solvers, are
+# left out. The package trilinos of the repository mmm_trilinos derives
+# from the builtin one, with the variant tacho (sparse direct solver Tacho
+# in Amesos2, which the variant shylu does not enable).
+#
+# Header of the environment mmm-solvers:
+#
+# Environment of the phase 2 of the integration of the solver libraries in
+# mfem-mgis (docs/plan-solver-libraries.md): the environment mmm-gpu, plus
+# the libraries which require to build MFEM and PETSc again: the sparse
+# direct solvers of oneMKL (PARDISO, Cluster Sparse Solver), MAGMA (batched
+# dense linear algebra on the GPU), and PETSc with HPDDM and PaStiX (PETSc
+# with MUMPS requires Fortran, which PETSc is built without: MUMPS is
+# directly available in mfem-mgis).
+# The packages mfem and petsc of the repository mmm_solvers derive from the
+# ones of mmm_gpu, which are left unchanged (their hashes, and so the
+# environment mmm-gpu and the continuous integration, do not change); the
+# other packages keep the hashes of mmm-gpu, and are reused.
+#
+# Header of the environment mmm-gpu:
+#
+# Environment of the prototype (spack 1.2.2, packages of the develop branch
+# of spack-packages, commit 3b7fdffc24).
+#
+# NVIDIA HPC SDK 25.11 and its CUDA 13.0.2 are external: the CUDA used by the
+# packages is the one of the SDK (drivers >= 580, e.g. A100 nodes), seen
+# through a prefix with the layout of the standalone toolkit, built by
+#   deps/spack/make-nvhpc-cuda-prefix.sh \
+#     /opt/nvidia/hpc_sdk/Linux_x86_64/25.11 13.0 \
+#     ~/Bureau/spack-mmm-externals/cuda-13.0.2
+# (the mathematical libraries of the SDK are in a separate directory). The GPU
+# architecture is given by `cuda_arch`: 120 (Blackwell, RTX 5080) here, 80
+# for A100 (Kokkos supports one architecture per build).
+#
+# Solvers and preconditioners: MFEM 4.10 with CUDA and with all the libraries of interest for the study of the solvers
+# on CPU and GPU (see docs/gpu-solvers.md): hypre, Ginkgo, PETSc (with
+# Kokkos, for GAMG), SUNDIALS (KINSOL), AmgX, SuperLU_DIST, STRUMPACK, and
+# the direct solvers of mfem-mgis on CPU (MUMPS, UMFPACK), and cuDSS.
+# The packages of the repository mmm_gpu (deps/spack/repos) replace the
+# ones of spack for AdaptiveCpp, AmgX (commit compatible with CUDA 13),
+# OpenMPI (internal hwloc without OpenCL) and PETSc (Kokkos 5).
+spack:
+  specs:
+  - nvhpc@25.11
+  - cuda@13.0.2
+  # GPU-aware MPI, with its internal hwloc (built without OpenCL, see the
+  # package openmpi of mmm_gpu): the hwloc of spack with CUDA would rebuild
+  # LLVM and TBB, used by TFEL
+  - openmpi@5 +cuda +internal-hwloc +internal-pmix
+  # Kokkos 5 always enables the CUDA lambdas
+  - kokkos@5.2.1 +cuda +openmp +serial +shared +wrapper ~cuda_relocatable_device_code
+    +cuda_constexpr cxxstd=20 cuda_arch=120
+  # as built by PETSc itself: libraries of CUDA, instantiations for the
+  # execution spaces
+  - kokkos-kernels@5.2.1 +cuda +openmp +shared +cublas +cusparse +cusolver
+    +execspace_cuda +execspace_openmp +execspace_serial +memspace_cudaspace
+    cuda_arch=120
+  # distributed matrices and solvers of Ginkgo (MPI)
+  - ginkgo@1.11.0 +cuda +openmp +mpi cuda_arch=120
+  - hypre@3.2.0 +mpi +cuda +umpire ~int64 cuda_arch=120
+  # GAMG on the GPU (aijkokkos, aijcusparse), with hypre; OpenMP as Kokkos
+  # (the headers of a Kokkos built with OpenMP require it)
+  - petsc@3.26.0 +mpi +cuda +kokkos +openmp +hypre +metis ~fortran ~hdf5
+    cuda_arch=120 +hpddm +pastix +hwloc
+  # KINSOL (fixed point with Anderson acceleration, Newton-Krylov)
+  - sundials +mpi +cuda cuda_arch=120
+  - superlu-dist +cuda cuda_arch=120
+  # without the compressions of STRUMPACK on the CPU (ButterflyPACK, ZFP)
+  - strumpack +mpi +cuda ~butterflypack ~zfp cuda_arch=120
+  - amgx@2.5.0.20260701 +cuda +mpi cuda_arch=120
+  - cudss@0.7.1-13 +mpi
+  # MFEM 4.10: interface to cuDSS, distributed solvers of Ginkgo. C++20:
+  # Umpire 2026 (camp) requires it, and mfem-mgis uses it. OpenMP backend
+  # (same kernels on a multicore CPU, requires threadsafe) and libCEED
+  # backend (CPU and GPU)
+  - mfem@4.10.0 +mpi +shared ~static +cuda cuda_arch=120 cxxstd=20 +openmp
+    +threadsafe +libceed +ginkgo +petsc +sundials +superlu-dist +strumpack
+    +amgx +cudss +umpire +suite-sparse +mumps +gslib +mkl-pardiso
+    +mkl-cpardiso +magma
+  # phase 2: oneMKL for its sparse direct solvers (without providing BLAS
+  # and LAPACK, see the package intel-oneapi-mkl-solvers of mmm_solvers),
+  # MAGMA, PaStiX
+  - intel-oneapi-mkl-solvers@2025.3.1
+  - magma +cuda cuda_arch=120
+  - pastix@6.4.0 +mpi
+  - hip@7.2.3 +cuda ~rocm
+  # LLVM, AdaptiveCpp and TBB of mmm-solvers are left out: Trilinos requires
+  # hwloc with CUDA, with which they would be built again
+  # phase 4: Trilinos, built with the nvcc wrapper of Kokkos and its Kokkos
+  # (C++20, as Kokkos 5)
+  - trilinos@17.2.1 +mpi +cuda +wrapper +kokkos +openmp +tpetra +belos
+    +ifpack2 +muelu +amesos2 +shylu +tacho +zoltan2 +basker ~fortran
+    +fastilu +teko-tpetra
+    cxxstd=20 cuda_arch=120
+  - cmake
+  view: true
+  config:
+    # cache of this instance of spack: the cache of the user (~/.spack/cache)
+    # is shared with the other instances of spack of the machine, whose
+    # repository `builtin` may be at another commit (index of the patches)
+    misc_cache: $spack/var/spack/misc-cache
+  concretizer:
+    unify: true
+    reuse: false
+  repos:
+    mmm_trilinos: $env/../repos/spack_repo/mmm_trilinos
+    mmm_solvers: $env/../repos/spack_repo/mmm_solvers
+    mmm_gpu: $env/../repos/spack_repo/mmm_gpu
+    builtin: /home/t/Bureau/spack-packages-mmm/repos/spack_repo/builtin
+  packages:
+    all:
+      require: [target=x86_64_v3]
+    mpi:
+      require: [openmpi@5]
+    # shared library of gslib: libmfem.so links it, and its static library
+    # is not relocatable
+    gslib:
+      require: [+shared]
+    # OpenBLAS rather than the BLAS and LAPACK of the HPC SDK
+    blas:
+      require: [openblas]
+    lapack:
+      require: [openblas]
+    c:
+      require: [gcc@14.2.0]
+    cxx:
+      require: [gcc@14.2.0]
+    fortran:
+      require: [gcc@14.2.0]
+    gcc:
+      buildable: false
+      externals:
+      - spec: gcc@14.2.0 languages:='c,c++,fortran'
+        prefix: /usr
+        extra_attributes:
+          compilers:
+            c: /usr/bin/gcc-14
+            cxx: /usr/bin/g++-14
+            fortran: /usr/bin/gfortran-14
+    nvhpc:
+      buildable: false
+      externals:
+      # BLAS and LAPACK of OpenBLAS (see above)
+      - spec: nvhpc@25.11 ~blas ~lapack ~mpi
+        prefix: /opt/nvidia/hpc_sdk
+    cuda:
+      buildable: false
+      externals:
+      - spec: cuda@13.0.2
+        prefix: /home/t/Bureau/spack-mmm-externals/cuda-13.0.2

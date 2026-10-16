@@ -109,7 +109,20 @@ Content:
   Amesos2: the variant `shylu` only enables ShyLU_DD, and the optional
   dependencies of Amesos2 are not enabled; the tests of Tacho require
   GoogleTest, which TriBITS requires as soon as Tacho is enabled, and are
-  disabled);
+  disabled), and the variants `fastilu` (ShyLU_NodeFastILU in Ifpack2)
+  and `teko-tpetra` (Teko on Tpetra, without Epetra);
+- `mmm-trilinos-teko/spack.yaml`: the environment `mmm-trilinos`, with
+  Trilinos also built with the fast incomplete factorizations of
+  ShyLU_Node in Ifpack2 (variant `fastilu`: `FAST_ILU`, `FAST_IC`,
+  `FAST_ILDL`) and the block preconditioners of Teko on Tpetra (variant
+  `teko-tpetra`: Teko, Thyra, ThyraTpetraAdapters, Stratimikos). Only
+  Trilinos is built again; the other packages, MFEM included, keep the
+  hashes of `mmm-trilinos`, which is left unchanged. The variant `teko`
+  of the builtin package requires the packages of Epetra (`epetraext`,
+  `ml`), removed from Trilinos 17, hence the variant `teko-tpetra` of
+  `mmm_trilinos`;
+- `install-mmm-trilinos-teko.sh`: installation of Trilinos in
+  `mmm-trilinos-teko`, 4 jobs, under `scripts/memory-governor.sh`;
 - `install-mmm-trilinos.sh`: installation of `mmm-trilinos`, as
   `install-mmm-solvers.sh`: the dependencies of MFEM and Trilinos first,
   then MFEM alone with two jobs (the file `fem/lor/lor_batched.cpp` needs
