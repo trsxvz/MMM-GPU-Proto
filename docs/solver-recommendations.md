@@ -77,7 +77,10 @@ computes, with the serial node of Tpetra on the host, except FROSch (see
   AmgX by nodal blocks (`NodalBlocks`) does not reduce the iterations.
 - MueLu of Trilinos with the rigid body modes, a Jacobi smoother (two
   sweeps damped by 0.6), its factories not written with Kokkos (the default
-  of mfem-mgis since d08224ba8f) and its hierarchy reused between operators
+  of mfem-mgis since d08224ba8f: the local QR of the tentative prolongator
+  written with Kokkos is wrong for the rigid body modes up to Trilinos
+  17.2.1, [diagnosis](../results/muelu-factories-2026-10-16/README.md))
+  and its hierarchy reused between operators
   (`reuse: type` set to `RP`): 0.18 seconds per operator at 421,443
   unknowns, the fastest measured on the GPU (0.33 to 0.36 for BoomerAMG),
   0.22 with the inclusions (0.51 to 0.57)

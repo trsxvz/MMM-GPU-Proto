@@ -799,10 +799,14 @@ of equations is given. Unless they are given, mfem-mgis sets, in the
 simplified syntax of MueLu, the parameters :code:`number of equations` (see
 above), :code:`use kokkos refactor` (:code:`false`: the factories of MueLu
 which are not written with :code:`Kokkos`, MueLu using its factories written
-with :code:`Kokkos` on all the nodes but the serial one by default; on the
-linear elasticity with the rigid body modes, the latter needed twice the
-iterations, 22 against 12 on a beam of 421,443 unknowns on the GPU, and a
-longer setup, 0.81 against 0.51 seconds), :code:`aggregation: deterministic`
+with :code:`Kokkos` on all the nodes but the serial one by default; up to
+Trilinos 17.2.1, the local QR factorization of the tentative prolongator
+written with :code:`Kokkos` does not compute the Q factor of a nullspace of
+several vectors, a defect removed from the development version of Trilinos
+after 17.2.1: on the linear elasticity with the rigid body modes, the
+factories written with :code:`Kokkos` needed twice the iterations, 22
+against 12 on a beam of 421,443 unknowns on the GPU, and a longer setup,
+0.81 against 0.51 seconds), :code:`aggregation: deterministic`
 (reproducible aggregates with the factories written with :code:`Kokkos`,
 which aggregate the nodes in a random order by default, the other ones
 following :code:`aggregation: ordering`, natural by default),

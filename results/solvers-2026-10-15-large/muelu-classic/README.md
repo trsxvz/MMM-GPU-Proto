@@ -20,7 +20,9 @@ reserved, one repetition. Table: `summary.md`. Compare with
 
 - With the rigid body modes, the factories not written with Kokkos halve
   the iterations and shorten the setup on the GPU. On the Laplace
-  equation (scalar unknowns), nothing changes.
+  equation (scalar unknowns), nothing changes. Cause: the local QR of the
+  tentative prolongator written with Kokkos is wrong for a nullspace of
+  several vectors in Trilinos 17.2.1 (`../../muelu-factories-2026-10-16`).
 - MueLu with a Jacobi smoother and its hierarchy reused: 0.18 seconds per
   operator on the elasticity, against 0.33 to 0.36 for BoomerAMG of hypre
   on the GPU, and 0.22 with the inclusions (0.51 to 0.57).

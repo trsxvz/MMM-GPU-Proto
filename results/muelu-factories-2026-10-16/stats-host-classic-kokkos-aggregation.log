@@ -1,0 +1,260 @@
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+Clearing old data (if any)
+
+Level 0
+Setup Smoother (MueLu::Ifpack2Smoother{type = RELAXATION})
+"Ifpack2::Relaxation": {Initialized: true, Computed: true, Type: Jacobi, sweeps: 2, damping factor: 0.6, Global matrix dimensions: [56355, 56355], Global nnz: 4170537}
+
+Level 1
+Prolongator smoothing (MueLu::SaPFactory)
+Matrix filtering (MueLu::FilteredAFactory)
+Build (MueLu::CoalesceDropFactory)
+Build (MueLu::AmalgamationFactory)
+lightweight wrap = 1
+algorithm = "classical" classical algorithm = "default": threshold = 0, blocksize = 3
+Detected 289 agglomerated Dirichlet nodes
+Number of dropped entries in amalgamated matrix graph: 0/458880 (0%)
+Filtered matrix is not being constructed as no filtering is being done
+Build (MueLu::TentativePFactory)
+Build (MueLu::UncoupledAggregationFactory)
+  algorithm: serial
+  num colors: 27
+BuildAggregates (Phase - (Dirichlet))
+BuildAggregatesDeterministic (Phase 1 (main))
+BuildAggregatesDeterministic (Phase 2a (secondary))
+BuildAggregatesDeterministic (Phase 2b (expansion))
+Algo "Phase - (Dirichlet)"
+  aggregated : 289 (phase), 289/18785 [1.54%] (total)
+  remaining  : 18496
+  aggregates : 0 (phase), 0 (total)
+Algo "Phase 1 (main)"
+  aggregated : 18207 (phase), 18496/18785 [98.46%] (total)
+  remaining  : 289
+  aggregates : 756 (phase), 756 (total)
+Algo "Phase 2a (secondary)"
+  aggregated : 0 (phase), 18496/18785 [98.46%] (total)
+  remaining  : 289
+  aggregates : 0 (phase), 756 (total)
+Algo "Phase 2b (expansion)"
+  aggregated : 289 (phase), 18785/18785 [100.00%] (total)
+  remaining  : 0
+  aggregates : 0 (phase), 756 (total)
+Algo "Phase 3 (cleanup)" [skipped since no nodes are left to aggregate]
+  aggregated : 0 (phase), 18785/18785 [100.00%] (total)
+  remaining  : 0
+  aggregates : 0 (phase), 756 (total)
+Build (MueLu::CoarseMapFactory)
+Calculating max eigenvalue estimate now (max iters = 10, use point diagonal)
+Prolongator damping factor = 0.493525 (|1.33 / 2.6949|)
+Transpose P (MueLu::TransPFactory)
+Computing Ac (MueLu::RAPFactory)
+Setup Smoother (MueLu::Ifpack2Smoother{type = RELAXATION})
+"Ifpack2::Relaxation": {Initialized: true, Computed: true, Type: Jacobi, sweeps: 2, damping factor: 0.6, Global matrix dimensions: [4536, 4536], Global nnz: 562176}
+
+Level 2
+Prolongator smoothing (MueLu::SaPFactory)
+Matrix filtering (MueLu::FilteredAFactory)
+Build (MueLu::CoalesceDropFactory)
+Build (MueLu::AmalgamationFactory)
+lightweight wrap = 1
+algorithm = "classical" classical algorithm = "default": threshold = 0, blocksize = 6
+Detected 0 agglomerated Dirichlet nodes
+Number of dropped entries in amalgamated matrix graph: 0/15616 (0%)
+Filtered matrix is not being constructed as no filtering is being done
+Build (MueLu::TentativePFactory)
+Build (MueLu::UncoupledAggregationFactory)
+  algorithm: serial
+  num colors: 27
+BuildAggregates (Phase - (Dirichlet))
+BuildAggregatesDeterministic (Phase 1 (main))
+BuildAggregatesDeterministic (Phase 2a (secondary))
+BuildAggregatesDeterministic (Phase 2b (expansion))
+Algo "Phase - (Dirichlet)"
+  aggregated : 0 (phase), 0/756 [0.00%] (total)
+  remaining  : 756
+  aggregates : 0 (phase), 0 (total)
+Algo "Phase 1 (main)"
+  aggregated : 500 (phase), 500/756 [66.14%] (total)
+  remaining  : 256
+  aggregates : 28 (phase), 28 (total)
+Algo "Phase 2a (secondary)"
+  aggregated : 10 (phase), 510/756 [67.46%] (total)
+  remaining  : 246
+  aggregates : 1 (phase), 29 (total)
+Algo "Phase 2b (expansion)"
+  aggregated : 246 (phase), 756/756 [100.00%] (total)
+  remaining  : 0
+  aggregates : 0 (phase), 29 (total)
+Algo "Phase 3 (cleanup)" [skipped since no nodes are left to aggregate]
+  aggregated : 0 (phase), 756/756 [100.00%] (total)
+  remaining  : 0
+  aggregates : 0 (phase), 29 (total)
+Nullspace factory (MueLu::NullspaceFactory)
+Build (MueLu::CoarseMapFactory)
+Calculating max eigenvalue estimate now (max iters = 10, use point diagonal)
+Prolongator damping factor = 0.855334 (|1.33 / 1.55495|)
+Transpose P (MueLu::TransPFactory)
+Computing Ac (MueLu::RAPFactory)
+Max coarse size (<= 2000) achieved
+Setup Smoother (MueLu::Amesos2Smoother{type = Klu})
+
+--------------------------------------------------------------------------------
+---                            Multigrid Summary                             ---
+--------------------------------------------------------------------------------
+Number of levels    = 3
+Operator complexity = 1.14
+Smoother complexity = 1.15
+Cycle type          = V
+
+level   rows      nnz  nnz/row  c ratio  procs
+  0    56355  4170537    74.00               1
+  1     4536   562176   123.94    12.42      1
+  2      174    11484    66.00    26.07      1
+
+Smoother (level 0) both : "Ifpack2::Relaxation": {Initialized: true, Computed: true, Type: Jacobi, sweeps: 2, damping factor: 0.6, Global matrix dimensions: [56355, 56355], Global nnz: 4170537}
+
+Smoother (level 1) both : "Ifpack2::Relaxation": {Initialized: true, Computed: true, Type: Jacobi, sweeps: 2, damping factor: 0.6, Global matrix dimensions: [4536, 4536], Global nnz: 562176}
+
+Smoother (level 2) pre  : KLU2 solver interface
+Smoother (level 2) post : no smoother
+
+================================================================================
+
+                      TimeMonitor results over 1 processor
+
+Timer Name          Global time (num calls)    
+--------------------------------------------------------------------------------
+MueLu setup time    0.2617 (1)                 
+================================================================================
+Clearing old data (if any)
+
+Level 0
+Setup Smoother (MueLu::Ifpack2Smoother{type = RELAXATION})
+"Ifpack2::Relaxation": {Initialized: true, Computed: true, Type: Jacobi, sweeps: 2, damping factor: 0.6, Global matrix dimensions: [56355, 56355], Global nnz: 4170537}
+
+Level 1
+Prolongator smoothing (MueLu::SaPFactory)
+Matrix filtering (MueLu::FilteredAFactory)
+Build (MueLu::CoalesceDropFactory)
+Build (MueLu::AmalgamationFactory)
+lightweight wrap = 1
+algorithm = "classical" classical algorithm = "default": threshold = 0, blocksize = 3
+Detected 289 agglomerated Dirichlet nodes
+Number of dropped entries in amalgamated matrix graph: 0/458880 (0%)
+Filtered matrix is not being constructed as no filtering is being done
+Build (MueLu::TentativePFactory)
+Build (MueLu::UncoupledAggregationFactory)
+  algorithm: serial
+  num colors: 27
+BuildAggregates (Phase - (Dirichlet))
+BuildAggregatesDeterministic (Phase 1 (main))
+BuildAggregatesDeterministic (Phase 2a (secondary))
+BuildAggregatesDeterministic (Phase 2b (expansion))
+Algo "Phase - (Dirichlet)"
+  aggregated : 289 (phase), 289/18785 [1.54%] (total)
+  remaining  : 18496
+  aggregates : 0 (phase), 0 (total)
+Algo "Phase 1 (main)"
+  aggregated : 18207 (phase), 18496/18785 [98.46%] (total)
+  remaining  : 289
+  aggregates : 756 (phase), 756 (total)
+Algo "Phase 2a (secondary)"
+  aggregated : 0 (phase), 18496/18785 [98.46%] (total)
+  remaining  : 289
+  aggregates : 0 (phase), 756 (total)
+Algo "Phase 2b (expansion)"
+  aggregated : 289 (phase), 18785/18785 [100.00%] (total)
+  remaining  : 0
+  aggregates : 0 (phase), 756 (total)
+Algo "Phase 3 (cleanup)" [skipped since no nodes are left to aggregate]
+  aggregated : 0 (phase), 18785/18785 [100.00%] (total)
+  remaining  : 0
+  aggregates : 0 (phase), 756 (total)
+Build (MueLu::CoarseMapFactory)
+Calculating max eigenvalue estimate now (max iters = 10, use point diagonal)
+Prolongator damping factor = 0.493525 (|1.33 / 2.6949|)
+Transpose P (MueLu::TransPFactory)
+Computing Ac (MueLu::RAPFactory)
+Setup Smoother (MueLu::Ifpack2Smoother{type = RELAXATION})
+"Ifpack2::Relaxation": {Initialized: true, Computed: true, Type: Jacobi, sweeps: 2, damping factor: 0.6, Global matrix dimensions: [4536, 4536], Global nnz: 562176}
+
+Level 2
+Prolongator smoothing (MueLu::SaPFactory)
+Matrix filtering (MueLu::FilteredAFactory)
+Build (MueLu::CoalesceDropFactory)
+Build (MueLu::AmalgamationFactory)
+lightweight wrap = 1
+algorithm = "classical" classical algorithm = "default": threshold = 0, blocksize = 6
+Detected 0 agglomerated Dirichlet nodes
+Number of dropped entries in amalgamated matrix graph: 0/15616 (0%)
+Filtered matrix is not being constructed as no filtering is being done
+Build (MueLu::TentativePFactory)
+Build (MueLu::UncoupledAggregationFactory)
+  algorithm: serial
+  num colors: 27
+BuildAggregates (Phase - (Dirichlet))
+BuildAggregatesDeterministic (Phase 1 (main))
+BuildAggregatesDeterministic (Phase 2a (secondary))
+BuildAggregatesDeterministic (Phase 2b (expansion))
+Algo "Phase - (Dirichlet)"
+  aggregated : 0 (phase), 0/756 [0.00%] (total)
+  remaining  : 756
+  aggregates : 0 (phase), 0 (total)
+Algo "Phase 1 (main)"
+  aggregated : 500 (phase), 500/756 [66.14%] (total)
+  remaining  : 256
+  aggregates : 28 (phase), 28 (total)
+Algo "Phase 2a (secondary)"
+  aggregated : 10 (phase), 510/756 [67.46%] (total)
+  remaining  : 246
+  aggregates : 1 (phase), 29 (total)
+Algo "Phase 2b (expansion)"
+  aggregated : 246 (phase), 756/756 [100.00%] (total)
+  remaining  : 0
+  aggregates : 0 (phase), 29 (total)
+Algo "Phase 3 (cleanup)" [skipped since no nodes are left to aggregate]
+  aggregated : 0 (phase), 756/756 [100.00%] (total)
+  remaining  : 0
+  aggregates : 0 (phase), 29 (total)
+Nullspace factory (MueLu::NullspaceFactory)
+Build (MueLu::CoarseMapFactory)
+Calculating max eigenvalue estimate now (max iters = 10, use point diagonal)
+Prolongator damping factor = 0.855334 (|1.33 / 1.55495|)
+Transpose P (MueLu::TransPFactory)
+Computing Ac (MueLu::RAPFactory)
+Max coarse size (<= 2000) achieved
+Setup Smoother (MueLu::Amesos2Smoother{type = Klu})
+
+--------------------------------------------------------------------------------
+---                            Multigrid Summary                             ---
+--------------------------------------------------------------------------------
+Number of levels    = 3
+Operator complexity = 1.14
+Smoother complexity = 1.15
+Cycle type          = V
+
+level   rows      nnz  nnz/row  c ratio  procs
+  0    56355  4170537    74.00               1
+  1     4536   562176   123.94    12.42      1
+  2      174    11484    66.00    26.07      1
+
+Smoother (level 0) both : "Ifpack2::Relaxation": {Initialized: true, Computed: true, Type: Jacobi, sweeps: 2, damping factor: 0.6, Global matrix dimensions: [56355, 56355], Global nnz: 4170537}
+
+Smoother (level 1) both : "Ifpack2::Relaxation": {Initialized: true, Computed: true, Type: Jacobi, sweeps: 2, damping factor: 0.6, Global matrix dimensions: [4536, 4536], Global nnz: 562176}
+
+Smoother (level 2) pre  : KLU2 solver interface
+Smoother (level 2) post : no smoother
+
+================================================================================
+
+                      TimeMonitor results over 1 processor
+
+Timer Name          Global time (num calls)    
+--------------------------------------------------------------------------------
+MueLu setup time    0.2522 (1)                 
+================================================================================
+label=elasticity/muelu-kokkos/classic-kokkos-aggregation/host problem=elasticity unknowns=56355 processes=1 solver=CGSolver setup=0.299862 first=0.161815 solve=0.158207 resetup=0.289259 refirst=0.157452 iterations=22 residual=7.27136e-07 residual2=7.27136e-07 converged=1

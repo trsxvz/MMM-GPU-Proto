@@ -5363,3 +5363,14 @@ formula as MTest). All the others give the Newton solution to within
   with BoomerAMG and 15.6 to 15.8 for Newton with the assembled tangent
   operator; Newton with the preconditioner set up every 4 iterations
   takes 10.8 seconds with MueLu, 18.7 with BoomerAMG.
+- Why the factories of MueLu written with Kokkos needed twice the
+  iterations with the rigid body modes (`cases/measure-muelu-factories.sh`,
+  `results/muelu-factories-2026-10-16`): with the aggregation of the host,
+  they build the same hierarchy as the other factories, and without the
+  local QR of the tentative prolongator both give the same resolution. The
+  local QR of `TentativePFactory_kokkos` of Trilinos 17.2.1 applies the
+  Householder reflections to the trailing block of Q^T only and uses Q^T
+  as Q: its Q factor is not orthonormal and Q R differs from the nullspace
+  by 19 to 51 percent (`qr-check.py`). Trilinos develop replaced this code
+  by the batched QR of Kokkos Kernels after 17.2.1. mfem-mgis 288a256414
+  documents the cause of its default (`use kokkos refactor` false).

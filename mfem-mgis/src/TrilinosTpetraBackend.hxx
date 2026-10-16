@@ -1030,10 +1030,13 @@ namespace mfem_mgis::trilinos {
         // the factories of MueLu which are not written with Kokkos (dropping,
         // aggregation and tentative prolongator computed on the host), MueLu
         // using its factories written with Kokkos on all the nodes but the
-        // serial one by default: on the linear elasticity with the rigid
-        // body modes, the latter needed twice the iterations (22 against 12
-        // at 421,443 unknowns on the GPU), and a longer setup (0.81 against
-        // 0.51 seconds)
+        // serial one by default: up to Trilinos 17.2.1, the local QR
+        // factorization of the tentative prolongator written with Kokkos
+        // does not compute the Q factor of a nullspace of several vectors
+        // (replaced in the development version of Trilinos after 17.2.1): on
+        // the linear elasticity with the rigid body modes, twice the
+        // iterations (22 against 12 at 421,443 unknowns on the GPU), and a
+        // longer setup (0.81 against 0.51 seconds)
         if (!p.isParameter("use kokkos refactor")) {
           p.set("use kokkos refactor", false);
         }

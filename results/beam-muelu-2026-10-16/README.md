@@ -36,7 +36,9 @@ displacement (to 1e-8) and the same Newton iterations (28 to 35).
 - On the GPU, MueLu first needed 78 iterations per resolution (48 for
   BoomerAMG), against 11 for the same MueLu on one CPU process: the
   factories of MueLu written with Kokkos, which MueLu uses on a GPU, give a
-  worse coarse space with the rigid body modes. With the other factories
+  worse coarse space with the rigid body modes (cause: the local QR of
+  their tentative prolongator, see `../muelu-factories-2026-10-16`). With
+  the other factories
   (`use kokkos refactor` set to false, the default of mfem-mgis since
   d08224ba8f), MueLu is as fast as BoomerAMG on the GPU (3.21 against
   2.99 seconds at refinement 4, 15.61 against 15.81 at refinement 5).

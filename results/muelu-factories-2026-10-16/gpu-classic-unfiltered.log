@@ -1,0 +1,22 @@
+Kokkos::OpenMP::initialize WARNING: OMP_PROC_BIND environment variable not set
+  In general, for best performance with OpenMP 4.0 or better set OMP_PROC_BIND=spread and OMP_PLACES=threads
+  For best performance with OpenMP 3.1 set OMP_PROC_BIND=true
+  For unit testing set OMP_PROC_BIND=false
+
+================================================================================
+
+                      TimeMonitor results over 1 processor
+
+Timer Name          Global time (num calls)    
+--------------------------------------------------------------------------------
+MueLu setup time    0.4826 (1)                 
+================================================================================
+================================================================================
+
+                      TimeMonitor results over 1 processor
+
+Timer Name          Global time (num calls)    
+--------------------------------------------------------------------------------
+MueLu setup time    0.5005 (1)                 
+================================================================================
+label=elasticity/muelu-kokkos/classic-unfiltered/gpu problem=elasticity unknowns=421443 processes=1 solver=CGSolver setup=0.510579 first=0.0405888 solve=0.039892 resetup=0.537537 refirst=0.0403676 iterations=12 residual=3.5458e-06 residual2=3.5458e-06 converged=1
