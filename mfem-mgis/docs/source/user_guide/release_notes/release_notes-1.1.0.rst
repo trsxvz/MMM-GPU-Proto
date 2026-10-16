@@ -135,6 +135,16 @@ message. The available linear solvers and preconditioners are listed in
 :ref:`linear_solvers`; the solvers of each library are registered by a
 module (see :ref:`linear_solver_modules`).
 
+Linear solver override
+----------------------
+
+The option :code:`--linear-solver-override` (declared by
+:cxx:`declareDefaultOptions`) or the environment variable
+:code:`MFEM_MGIS_LINEAR_SOLVER_OVERRIDE` replaces the linear solvers set by
+the program by a linear solver described by its name and its options,
+in the syntax of the data of TFEL, for the comparisons of linear solvers
+on existing programs. See :ref:`linear_solver_override`.
+
 One option per optional library of MFEM
 ---------------------------------------
 

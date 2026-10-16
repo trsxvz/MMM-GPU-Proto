@@ -208,6 +208,12 @@ namespace mfem_mgis {
    * call); otherwise, Kokkos chooses it. It requires mfem-mgis built with
    * Kokkos (CMake option `enable-kokkos`): otherwise, the option is an
    * error and the environment variable is ignored with a warning.
+   *
+   * The option `--linear-solver-override` (or `-lso`), or else the
+   * environment variable `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, gives a linear
+   * solver which replaces the linear solvers set by the program (see the
+   * user guide, linear solver override); an invalid description is refused
+   * (exception).
    */
   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
   /*!
@@ -324,9 +330,10 @@ namespace mfem_mgis {
    * `--linear-solver-device`, `--post-processings`), the configuration of
    * the MFEM device (`--device`), the size of the pool of memory of hypre on
    * the GPU (`--hypre-device-pool-size`), the computations of hypre on the
-   * host (`--hypre-on-host`), the initialization of Kokkos (`--kokkos`), and
-   * the PETSc options (`--use-petsc`, `--petsc-configuration-file`), if
-   * PETSc is available.
+   * host (`--hypre-on-host`), the initialization of Kokkos (`--kokkos`), the
+   * linear solver override (`--linear-solver-override`), and the PETSc
+   * options (`--use-petsc`, `--petsc-configuration-file`), if PETSc is
+   * available.
    * \param[in, out] parser: options parser
    */
   MFEM_MGIS_EXPORT void declareDefaultOptions(mfem::OptionsParser& parser);

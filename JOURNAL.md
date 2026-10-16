@@ -5447,3 +5447,12 @@ formula as MTest). All the others give the Newton solution to within
   on 1, 2 and 3 processes, on the CPU and the GPU, with and without Teko;
   generic test of the linear solvers on CUDA; PETSc test. Two independent
   reviews, all their findings handled.
+- Linear solver override (mfem-mgis 4d214c3c02, patch 0264): the option
+  `--linear-solver-override` (or the variable
+  `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`) replaces the linear solvers set by a
+  program, described as a factory argument (name, or `Name` and
+  `Options`) in the syntax of the data of TFEL. It lets the benchmark of
+  the examples compare the same linear solvers on all the programs,
+  without changing them. An independent review found two defects before
+  the publication (empty braces refused; programs giving a solver already
+  built not replaced), both corrected and tested.

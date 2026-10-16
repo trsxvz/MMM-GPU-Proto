@@ -27,6 +27,7 @@ list(APPEND MFEMMGIS_SOURCES
   AbstractBehaviourIntegrator.cxx
   PostProcessingsComputation.cxx
   ExecutionSettings.cxx
+  LinearSolverOverride.cxx
   BehaviourIntegratorBase.cxx
   BehaviourIntegratorFactory.cxx
   MatrixFreeTangentOperator.cxx
@@ -204,6 +205,24 @@ list(APPEND MFEMMGIS_SOURCES
   Batch/Faltus.cxx
   Batch/GlobalStiffnessMatrix.cxx)
 
+# the linear solver override is read by the utilities of TFEL (found
+# before the library, whose installed configuration finds them for the
+# projects using the static library)
+set(MFEM_MGIS_HAVE_TFEL_UTILITIES OFF)
+if(MGIS_HAVE_TFEL)
+  if(NOT TARGET tfel::TFELUtilities)
+    find_package(TFELUtilities QUIET
+                 HINTS "${TFEL_DIR}" "${_TFEL_MODULE_PATH}")
+  endif()
+  if(TARGET tfel::TFELUtilities)
+    set(MFEM_MGIS_HAVE_TFEL_UTILITIES ON)
+  endif()
+endif()
+message(STATUS "mfem-mgis linear solver override (utilities of TFEL): "
+        "${MFEM_MGIS_HAVE_TFEL_UTILITIES}")
+# for the tests
+set(MFEM_MGIS_HAVE_TFEL_UTILITIES ${MFEM_MGIS_HAVE_TFEL_UTILITIES}
+    PARENT_SCOPE)
 mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
 mfem_mgis_compile_as_device_code(MFEMMGIS ${MFEMMGIS_DEVICE_SOURCES})
 # in single precision, the stiffness matrices are computed on the device
@@ -329,6 +348,10 @@ if(MFEM_MGIS_HAVE_TRILINOS)
       target_compile_definitions(${_target} PRIVATE MFEM_MGIS_HAVE_TEKO)
     endif()
   endforeach()
+endif()
+if(MFEM_MGIS_HAVE_TFEL_UTILITIES)
+  target_link_libraries(MFEMMGIS PRIVATE tfel::TFELUtilities)
+  target_compile_definitions(MFEMMGIS PRIVATE MFEM_MGIS_HAVE_TFEL_UTILITIES)
 endif()
 if(MFEM_USE_GSLIB AND MGIS_HAVE_TFEL)
  target_compile_definitions(MFEMMGIS PUBLIC 

@@ -41,6 +41,7 @@
 #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
 #include "MFEMMGIS/PostProcessing/NonLinearEvolutionProblemPostProcessingBase.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
+#include "LinearSolverOverride.hxx"
 
 namespace mfem_mgis {
 
@@ -1204,6 +1205,13 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<true>::setLinearSolver(
       Context& ctx, LinearSolverHandler s) noexcept {
+    if (internals::getLinearSolverOverride().has_value()) {
+      // the linear solver built by the program is replaced by the linear
+      // solver override
+      internals::reportLinearSolverOverride(
+          "the linear solver built by the program");
+      return this->setLinearSolver(ctx, "", Parameters{});
+    }
     if (isInvalid(s)) {
       return ctx.registerErrorMessage("invalid linear solver");
     }
@@ -1212,11 +1220,17 @@ namespace mfem_mgis {
   }
 
   bool NonLinearEvolutionProblemImplementation<true>::setLinearSolver(
-      Context& ctx, std::string_view n, const Parameters& p) noexcept {
+      Context& ctx, std::string_view n0, const Parameters& p0) noexcept {
+    // the linear solver override given at the initialization, if any
+    const auto [n, p] = internals::selectLinearSolver(n0, p0);
     const auto& f = LinearSolverFactory<true>::getFactory();
     auto& fespace = this->getFiniteElementSpace();
     auto s = f.generate(ctx, n, fespace, p);
     if (isInvalid(s)) {
+      if (internals::getLinearSolverOverride().has_value()) {
+        return ctx.registerErrorMessage("the linear solver override '" +
+                                        std::string{n} + "' can't be built");
+      }
       return false;
     }
     this->updateLinearSolver(ctx, std::move(s));
@@ -1680,6 +1694,13 @@ namespace mfem_mgis {
 
   bool NonLinearEvolutionProblemImplementation<false>::setLinearSolver(
       Context& ctx, LinearSolverHandler s) noexcept {
+    if (internals::getLinearSolverOverride().has_value()) {
+      // the linear solver built by the program is replaced by the linear
+      // solver override
+      internals::reportLinearSolverOverride(
+          "the linear solver built by the program");
+      return this->setLinearSolver(ctx, "", Parameters{});
+    }
     if (isInvalid(s)) {
       return ctx.registerErrorMessage("invalid linear solver");
     }
@@ -1688,11 +1709,17 @@ namespace mfem_mgis {
   }
 
   bool NonLinearEvolutionProblemImplementation<false>::setLinearSolver(
-      Context& ctx, std::string_view n, const Parameters& p) noexcept {
+      Context& ctx, std::string_view n0, const Parameters& p0) noexcept {
+    // the linear solver override given at the initialization, if any
+    const auto [n, p] = internals::selectLinearSolver(n0, p0);
     const auto& f = LinearSolverFactory<false>::getFactory();
     auto& fespace = this->getFiniteElementSpace();
     auto s = f.generate(ctx, n, fespace, p);
     if (isInvalid(s)) {
+      if (internals::getLinearSolverOverride().has_value()) {
+        return ctx.registerErrorMessage("the linear solver override '" +
+                                        std::string{n} + "' can't be built");
+      }
       return false;
     }
     this->updateLinearSolver(ctx, std::move(s));

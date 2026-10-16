@@ -301,6 +301,8 @@ by ``mfem_mgis::initialize``:
    (``-kk``, cancelled by ``--no-kokkos``).
 
 These options are described in :ref:`mfem_mgis_batch_computations_execution`.
+The option ``--linear-solver-override`` (``-lso``) replaces the linear
+solvers chosen by the program (see :ref:`linear_solver_override`).
 
 If ``MFEM`` was built with support of ``PETSc`` library, the following
 options are also added by the ``mfem_mgis::declareDefaultOptions``

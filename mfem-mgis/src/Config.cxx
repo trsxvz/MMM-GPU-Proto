@@ -38,6 +38,7 @@
 #endif /* MFEM_MGIS_HAVE_KOKKOS */
 #include "PostProcessingsComputation.hxx"
 #include "ExecutionSettings.hxx"
+#include "LinearSolverOverride.hxx"
 #include "MGIS/Profiling.hxx"
 #include <MFEMMGIS/Profiler.hxx>
 #include "MFEMMGIS/Config.hxx"
@@ -762,10 +763,18 @@ namespace mfem_mgis {
     static bool first = true;
     if (first) {
       mgis::setDefaultLogStream(mfem_mgis::getOutputStream());
-      // the execution settings are read before the initialization of MPI,
-      // which an invalid option leaves untouched
+      // the execution settings and the linear solver override are read
+      // before the initialization of MPI, which an invalid option leaves
+      // untouched
       internals::readExecutionSettings(argc, argv);
+      internals::readLinearSolverOverride(argc, argv);
       MPI_Init(&argc, &argv);
+      try {
+        internals::checkLinearSolverOverride(MPI_COMM_WORLD);
+      } catch (...) {
+        MPI_Finalize();
+        throw;
+      }
       // with hypre on the host, neither the initialization of hypre nor the
       // configuration of the device of MFEM make hypre use the GPU (nor
       // initialize its libraries on the GPU), even if the device is
@@ -797,6 +806,7 @@ namespace mfem_mgis {
     static bool first = true;
     if (first) {
       internals::readExecutionSettings(argc, argv);
+      internals::readLinearSolverOverride(argc, argv);
       Finalizer::get().initialize(argc, argv);
       first = false;
     }
@@ -871,6 +881,20 @@ namespace mfem_mgis {
                      internals::post_processings_option,
                      "With --execution mixed: location (cpu or gpu) of the "
                      "post-processings.");
+    // read by `initialize`: only declared here, as a string, so that the
+    // parser accepts it
+    static const char* linear_solver_override = "";
+    parser.AddOption(
+        &linear_solver_override, internals::linear_solver_override_short_option,
+        internals::linear_solver_override_option,
+        "Linear solver replacing the linear solvers set by the program "
+        "(setLinearSolver of the non linear evolution problems): a name, or "
+        "a map with the entries Name and Options, in the syntax of the data "
+        "of TFEL, for instance '{Name: \"BelosSolver\", Options: {Solver: "
+        "\"CG\", Preconditioner: {Name: \"MueLu\"}}}'. Read by "
+        "mfem_mgis::initialize, or else from the environment variable "
+        "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE (requires mfem-mgis built with the "
+        "utilities of TFEL).");
     // the device is created by `initialize`: the option is only declared
     // here, so that the parser accepts it
     static const char* device_configuration = "";

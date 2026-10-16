@@ -121,6 +121,41 @@ if(MFEM_MGIS_HAVE_TFEL)
     endforeach()
   endforeach()
 
+  # linear solver override, given by the variable
+  # MFEM_MGIS_LINEAR_SOLVER_OVERRIDE (sequential test) or by the option
+  # --linear-solver-override (parallel test, with a preconditioner whose
+  # options are empty braces), read by the utilities of TFEL: the GMRES solver
+  # requested by the program is replaced by a conjugate gradient, the
+  # replacement being reported (see ExecutionSettingsTest for the refusals)
+  if(MFEM_MGIS_HAVE_TFEL_UTILITIES)
+    set(_override_options "AbsoluteTolerance: 1e-12, RelativeTolerance: 1e-12, MaximumNumberOfIterations: 5000")
+    set(_override_test_options
+        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+        --library $<TARGET_FILE:BehaviourTest> --test-case 1
+        --linearsolver GMRESSolver)
+    set(_override_regex
+        "linear solver override 'CGSolver' replaces the linear solver 'GMRESSolver'.*Error is lower than threshold")
+    set(_override_failures
+        "Error is greater than threshold;Process received signal;terminate called")
+    add_test(NAME TwoLayerCube-1-LinearSolverOverride
+             COMMAND ./TwoLayerCube ${_override_test_options} --no-parallel)
+    set_tests_properties(TwoLayerCube-1-LinearSolverOverride PROPERTIES
+      DEPENDS BehaviourTest
+      ENVIRONMENT "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE={Name: \"CGSolver\", Options: {${_override_options}}}"
+      PASS_REGULAR_EXPRESSION "${_override_regex}"
+      FAIL_REGULAR_EXPRESSION "${_override_failures}")
+    if(MFEM_USE_MPI)
+      add_test(NAME TwoLayerCube-1-LinearSolverOverrideP
+               COMMAND mpirun -n 2 ./TwoLayerCube ${_override_test_options}
+                       --parallel --linear-solver-override
+                       "{Name: \"CGSolver\", Options: {${_override_options}, Preconditioner: {Name: \"HypreDiagScale\", Options: {}}}}")
+      set_tests_properties(TwoLayerCube-1-LinearSolverOverrideP PROPERTIES
+        DEPENDS BehaviourTest
+        PASS_REGULAR_EXPRESSION "${_override_regex}"
+        FAIL_REGULAR_EXPRESSION "${_override_failures}")
+    endif(MFEM_USE_MPI)
+  endif(MFEM_MGIS_HAVE_TFEL_UTILITIES)
+
   # UniaxialTensileTest executable
   add_test_executable(UniaxialTensileTest)
 
@@ -1456,6 +1491,14 @@ if(MFEM_MGIS_HAVE_TFEL)
     add_execution_settings_refusal_test(
       location "option '--finite-elements' requires '--execution mixed'"
       --execution cpu --finite-elements gpu)
+    # an invalid linear solver override (or, without the utilities of TFEL,
+    # any linear solver override) is refused by mfem_mgis::initialize
+    add_execution_settings_refusal_test(
+      linear-solver-override "invalid linear solver override"
+      --linear-solver-override "{Name: 1}")
+    add_execution_settings_refusal_test(
+      linear-solver-override-twice "--linear-solver-override is given twice"
+      --linear-solver-override CGSolver --linear-solver-override CGSolver)
     add_execution_settings_refusal_test(
       mode "invalid value 'xpu' for option '--execution'" --execution xpu)
     add_execution_settings_refusal_test(
