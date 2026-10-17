@@ -228,7 +228,9 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "preconditioner.");
   args.AddOption(
       &p.d_min, "-dm", "--dmin",
-      "Distance to evaluate bubble rupture, in µm, default = 0.950.");
+      "Distance from the surface of each bubble within which its maximum "
+      "principal stress is searched, in µm (0.950 by default); the periodic "
+      "images of the bubbles are not considered.");
   args.AddOption(&p.bubble_pressure, "-pr", "--pref",
                  "Internal bubble pressure, in N µm^-2 (unit of the Young "
                  "modulus of the case, whose lengths are in µm)");
@@ -410,6 +412,26 @@ int main(int argc, char** argv) {
 
   print_mesh_information(problem.getImplementation<true>());
 
+  // the boundary identifiers of the bubbles shall be the ones of
+  // boundaries of the mesh (an identifier out of range would select no
+  // surface, or an invalid one)
+  {
+    const auto& mesh = fed->getMesh<true>();
+    const auto max_attribute =
+        mesh.bdr_attributes.Size() == 0 ? 0 : mesh.bdr_attributes.Max();
+    for (const auto& b : bubbles) {
+      if ((b.boundary_identifier < 1) ||
+          (b.boundary_identifier > max_attribute)) {
+        const auto msg = "invalid boundary identifier " +
+                         std::to_string(b.boundary_identifier) +
+                         " of a bubble (the boundary identifiers of the "
+                         "mesh range from 1 to " +
+                         std::to_string(max_attribute) + ")";
+        mfem_mgis::abort(msg.c_str());
+      }
+    }
+  }
+
   // Set macroscopic strain to zero
   std::vector<mfem_mgis::real> e(6, mfem_mgis::real{0});
   problem.setMacroscopicGradientsEvolution(
@@ -562,10 +584,13 @@ int main(int argc, char** argv) {
       const auto by = b.center[1];
       const auto bz = b.center[2];
 
+      // the points are searched within the distance 'dmin' of the surface
+      // of the bubble, i.e. within the distance 'reach' of its center
+      const auto reach = b.radius + dmin;
       // X-axis slice:
-      // Only search points within distance 'dmin' along the X-axis
-      const auto min_x_search = bx - dmin;
-      const auto max_x_search = bx + dmin;
+      // Only search points within distance 'reach' along the X-axis
+      const auto min_x_search = bx - reach;
+      const auto max_x_search = bx + reach;
 
       // Find the starting point for our search using binary search on sorted
       // X-coordinates
@@ -591,11 +616,11 @@ int main(int argc, char** argv) {
         // Now we carry on with a matrioska checking
         // Second check is on the y: check if point is within bounding box on
         // Y-axis
-        if (std::abs(pt.location[1] - by) > dmin) continue;
+        if (std::abs(pt.location[1] - by) > reach) continue;
 
         // Third check is on the z: check if point is within bounding box on
         // 2-axis
-        if (std::abs(pt.location[2] - bz) > dmin) continue;
+        if (std::abs(pt.location[2] - bz) > reach) continue;
         // if we made here, the point is worthwile of consideration!
         const auto dx = pt.location[0] - bx;
         const auto dy = pt.location[1] - by;
@@ -606,9 +631,10 @@ int main(int argc, char** argv) {
                            tfel::math::power<2>(dz));
         }();
 
-        // If point is within spherical radius 'dmin' and has higher stress than
-        // current max, update the maximum stress and its location
-        if ((dist < dmin) && (local_max_stress < pt.value)) {
+        // If point is within the distance 'dmin' of the surface of the
+        // bubble and has higher stress than current max, update the maximum
+        // stress and its location
+        if ((dist < reach) && (local_max_stress < pt.value)) {
           local_max_stress = pt.value;
           local_max_loc = pt.location;
         }
@@ -629,7 +655,7 @@ int main(int argc, char** argv) {
                     "Location[1]", "Location[2]", "Stress");
 
       for (auto& el : bubbles_information) {
-        Message("Bubble ID = ", el.boundary_id - 1);
+        Message("Bubble ID = ", el.boundary_id);
         Message("Stress = ", el.stress_value);
         for (auto& el1 : el.location) {
           Message("Location=", el1);
@@ -649,8 +675,8 @@ int main(int argc, char** argv) {
     {
       CatchTimeSection(ctx, "Bubble::EigenAndHydrostaticStresses");
       auto end = mfem_mgis::Material::END_OF_TIME_STEP;
-      mfem_mgis::computeFirstEigenStress(ctx, eig, m, end);
-      mfem_mgis::computeHydrostaticPressure(ctx, hyp, m, end);
+      mfem_mgis::computeFirstEigenStress(ctx, eig, m, end) | or_die;
+      mfem_mgis::computeHydrostaticPressure(ctx, hyp, m, end) | or_die;
     }
 
     // calculate the average hydrostatic stress on the rev

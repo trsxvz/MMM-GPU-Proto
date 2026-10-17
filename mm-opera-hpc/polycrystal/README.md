@@ -14,7 +14,9 @@ This test case illustrates the simulation of a Representative Volume Element (RV
 	- Poisson ratio = 0.27
 	- Shear Modulus = 54.e9 Pa
 
-The orthotropic basis of each grain is given as input data of the material parameter of the crystal plasticity law. This orthotropic basis is pre computed with the Euler angles of the grain. The fixed-point algorithm used the homogenized elastic properties of the polycrystal in order to predict the displacement gradient needed to converge toward a uniaxial tensile test. These macroscopic properties are derived from the single crystal elastic constant given above with the mean values of the Voigt and Reuss bounds for an isotropic polycrystal (see `MacroscropicElasticMaterialProperties.cxx` on the repository).
+The orthotropic basis of each grain is given as input data of the material parameter of the crystal plasticity law. This orthotropic basis is pre computed with the Euler angles of the grain. The fixed-point algorithm used the homogenized elastic properties of the polycrystal in order to predict the displacement gradient needed to converge toward a uniaxial tensile test. These macroscopic properties are derived from the single crystal elastic constants given above with the self-consistent estimate of Kröner for an isotropic polycrystal (see `MacroscropicElasticMaterialProperties.cxx` on the repository; it is close to the mean of the Voigt and Reuss bounds).
+
+The macroscopic stresses `Sxx` and `Syy` are driven to zero, while the macroscopic shear components of the deformation gradient are kept null: the macroscopic shear stresses are reactions, about 2 % of `Szz` in the elastic regime for the 5 grains of the default mesh (the reference computation of Cast3M imposes the same conditions). The loading is thus uniaxial for the normal stresses only.
 
 ## Mesh generation
 

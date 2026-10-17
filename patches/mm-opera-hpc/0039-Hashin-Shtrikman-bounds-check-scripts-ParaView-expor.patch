@@ -1,0 +1,210 @@
+From 48f31a07ae9f5741b22e724ed9ce9a6d28c71401 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 17 Oct 2026 01:10:14 +0200
+Subject: [PATCH] Hashin-Shtrikman bounds, check scripts, ParaView exports,
+ documentation
+
+- the Hashin-Shtrikman bounds of the shear modulus (printed only) used
+  wrong formulas: the lower bound was the Voigt value;
+- check_polycrystal_restults.py and check_cermet_restults.py now exit with
+  a non null status on a mismatch or if no time is common to the results
+  and to the reference, and match the times once rounded (float outputs);
+- the fields exported to ParaView by the polycrystal are labelled with the
+  time of the end of the step;
+- the documentation states that only the normal stresses are uniaxial (the
+  macroscopic shear stresses are the reactions of the null off-diagonal
+  components of the deformation gradient) and that the macroscopic elastic
+  properties are given by the estimate of Kroener.
+---
+ cermet/check_cermet_restults.py               | 26 +++++++++++++------
+ ...ialMacroscopicStressPeriodicSimulation.hxx |  6 +++--
+ polycrystal/README.md                         |  4 ++-
+ polycrystal/UniaxialPolycrystal.cxx           |  3 ++-
+ polycrystal/check_polycrystal_restults.py     | 26 +++++++++++++------
+ src/MacroscropicElasticMaterialProperties.cxx | 10 +++++--
+ 6 files changed, 53 insertions(+), 22 deletions(-)
+
+diff --git a/cermet/check_cermet_restults.py b/cermet/check_cermet_restults.py
+index c6513be..e180adf 100644
+--- a/cermet/check_cermet_restults.py
++++ b/cermet/check_cermet_restults.py
+@@ -1,10 +1,13 @@
++import sys
++
+ import numpy as np
+ import pandas as pd
+ 
+-tolerance = 4 # 2%
++# relative difference accepted, in %
++tolerance = 4
+ 
+ # --- Lecture du fichier .res ---
+-data_res = pd.read_csv("cermet.res", sep="\s+", header=None)
++data_res = pd.read_csv("cermet.res", sep=r"\s+", header=None)
+ data_res.columns = [f"col{i+1}" for i in range(data_res.shape[1])]
+ data_res['col1'] = data_res['col1'].astype(float)
+ 
+@@ -15,14 +18,17 @@ data_csv = data_csv[data_csv[0] != '']            # supprimer lignes vides
+ data_csv[0] = data_csv[0].astype(float)
+ 
+ # --- Fusion sur la première colonne ---
++# the times are matched once rounded: in single precision, the program
++# writes 0.40000000596046 for 0.4
++data_res['time_key'] = data_res['col1'].round(6)
++data_csv['time_key'] = data_csv[0].round(6)
+ merged = pd.merge(
+     data_res,
+     data_csv,
+-    left_on='col1',
+-    right_on=0,
++    on='time_key',
+     how='inner',
+     suffixes=('_res', '_csv')
+-)
++).drop(columns='time_key')
+ 
+ # --- Comparaison ---
+ col_res = 'col7'      # 7ème colonne du .res
+@@ -48,8 +54,12 @@ output.columns = ['Time', 'MFEM/MGIS', 'CAST3M', 'RelDiff_%', 'Status']
+ print(output)
+ output.to_csv("comparison_results.csv", index=False)
+ 
+-# Check if the 'Status' column contains any "MISMATCH"
++# Check if the 'Status' column contains any "MISMATCH": the exit status is
++# not null on a mismatch, or if no time is common to both files
++if output.empty:
++    print("No time common to the results and to the reference!")
++    sys.exit(1)
+ if (output['Status'] == 'MISMATCH').any():
+     print("There is at least one MISMATCH in the data!")
+-else:
+-    print("Check PASS.")
++    sys.exit(1)
++print("Check PASS.")
+diff --git a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+index a33d1bd..0dcfe92 100644
+--- a/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
++++ b/include/MM_OPERA_HPC/UniaxialMacroscopicStressPeriodicSimulation.hxx
+@@ -30,8 +30,10 @@ namespace mm_opera_hpc {
+   /*!
+    * \brief the role of this class is to perform a periodic simulation where:
+    *
+-   * - the macroscopic stress state is uniaxial along the zz axis (up to a given
+-   *   tolerance)
++   * - the macroscopic normal stresses Sxx and Syy are null (up to a given
++   *   tolerance): the normal stresses are uniaxial along the zz axis, the
++   *   shear stresses being the reactions of the null off-diagonal
++   *   components of the deformation gradient
+    * - the axial componenent Fzz of the macroscopic deformation gradient is
+    *   prescribed
+    * - the off-diagonal components of the macroscopic deformation gradient are
+diff --git a/polycrystal/README.md b/polycrystal/README.md
+index b58dd97..3ec6932 100644
+--- a/polycrystal/README.md
++++ b/polycrystal/README.md
+@@ -14,7 +14,9 @@ This test case illustrates the simulation of a Representative Volume Element (RV
+ 	- Poisson ratio = 0.27
+ 	- Shear Modulus = 54.e9 Pa
+ 
+-The orthotropic basis of each grain is given as input data of the material parameter of the crystal plasticity law. This orthotropic basis is pre computed with the Euler angles of the grain. The fixed-point algorithm used the homogenized elastic properties of the polycrystal in order to predict the displacement gradient needed to converge toward a uniaxial tensile test. These macroscopic properties are derived from the single crystal elastic constant given above with the mean values of the Voigt and Reuss bounds for an isotropic polycrystal (see `MacroscropicElasticMaterialProperties.cxx` on the repository).
++The orthotropic basis of each grain is given as input data of the material parameter of the crystal plasticity law. This orthotropic basis is pre computed with the Euler angles of the grain. The fixed-point algorithm used the homogenized elastic properties of the polycrystal in order to predict the displacement gradient needed to converge toward a uniaxial tensile test. These macroscopic properties are derived from the single crystal elastic constants given above with the self-consistent estimate of Kröner for an isotropic polycrystal (see `MacroscropicElasticMaterialProperties.cxx` on the repository; it is close to the mean of the Voigt and Reuss bounds).
++
++The macroscopic stresses `Sxx` and `Syy` are driven to zero, while the macroscopic shear components of the deformation gradient are kept null: the macroscopic shear stresses are reactions, about 2 % of `Szz` in the elastic regime for the 5 grains of the default mesh (the reference computation of Cast3M imposes the same conditions). The loading is thus uniaxial for the normal stresses only.
+ 
+ ## Mesh generation
+ 
+diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
+index 64b6668..528dbc5 100644
+--- a/polycrystal/UniaxialPolycrystal.cxx
++++ b/polycrystal/UniaxialPolycrystal.cxx
+@@ -706,7 +706,8 @@ static void addOptionalPostProcessings(
+                                                            mfem_mgis::real dt) {
+       static int count = 0;
+       exporter->SetCycle(count++);
+-      exporter->SetTime(t);
++      // the fields are the ones of the end of the time step
++      exporter->SetTime(t + dt);
+       const int nMat =
+           getMaterialsAttributes(*(p.getFiniteElementDiscretizationPointer()))
+               .Max();
+diff --git a/polycrystal/check_polycrystal_restults.py b/polycrystal/check_polycrystal_restults.py
+index 55089c1..1f08be6 100644
+--- a/polycrystal/check_polycrystal_restults.py
++++ b/polycrystal/check_polycrystal_restults.py
+@@ -1,10 +1,13 @@
++import sys
++
+ import numpy as np
+ import pandas as pd
+ 
+-tolerance = 5 # 5%
++# relative difference accepted, in %
++tolerance = 5
+ 
+ # --- Lecture du fichier .res ---
+-data_res = pd.read_csv("uniaxial-polycrystal.res", sep="\s+", header=None)
++data_res = pd.read_csv("uniaxial-polycrystal.res", sep=r"\s+", header=None)
+ data_res.columns = [f"col{i+1}" for i in range(data_res.shape[1])]
+ data_res['col1'] = data_res['col1'].astype(float)
+ 
+@@ -15,14 +18,17 @@ data_csv[0] = data_csv[0].astype(str).str.strip()  # enlever espaces
+ data_csv[0] = data_csv[0].astype(float)
+ 
+ # --- Fusion sur la première colonne ---
++# the times are matched once rounded: in single precision, the program
++# writes 0.40000000596046 for 0.4
++data_res['time_key'] = data_res['col1'].round(6)
++data_csv['time_key'] = data_csv[0].round(6)
+ merged = pd.merge(
+     data_res,
+     data_csv,
+-    left_on='col1',
+-    right_on=0,
++    on='time_key',
+     how='inner',
+     suffixes=('_res', '_csv')
+-)
++).drop(columns='time_key')
+ 
+ # --- Comparaison ---
+ col_res = 'col7'      # 7ème colonne du .res
+@@ -48,8 +54,12 @@ output.columns = ['Time', 'MFEM/MGIS', 'CAST3M', 'RelDiff_%', 'Status']
+ print(output)
+ output.to_csv("comparison_results.csv", index=False)
+ 
+-# Check if the 'Status' column contains any "MISMATCH"
++# Check if the 'Status' column contains any "MISMATCH": the exit status is
++# not null on a mismatch, or if no time is common to both files
++if output.empty:
++    print("No time common to the results and to the reference!")
++    sys.exit(1)
+ if (output['Status'] == 'MISMATCH').any():
+     print("There is at least one MISMATCH in the data!")
+-else:
+-    print("Check PASS.")
++    sys.exit(1)
++print("Check PASS.")
+diff --git a/src/MacroscropicElasticMaterialProperties.cxx b/src/MacroscropicElasticMaterialProperties.cxx
+index 5cdf5f2..14db389 100644
+--- a/src/MacroscropicElasticMaterialProperties.cxx
++++ b/src/MacroscropicElasticMaterialProperties.cxx
+@@ -36,8 +36,14 @@ namespace mm_opera_hpc {
+         -3 * (Keff + 2 * Gv) / (5 * Gv * (3 * Keff + 4 * Gv));
+     const mfem_mgis::real beta2 =
+         -3 * (Keff + 2 * C44) / (5 * C44 * (3 * Keff + 4 * C44));
+-    const mfem_mgis::real GHSl = Gv + 3 * ((C44 - Gv) - 4 * beta1) / 5;
+-    const mfem_mgis::real GHSu = C44 + 3 * ((Gv - C44) - 6 * beta2) / 5;
++    // bounds of a cubic polycrystal: G1 + 3 / (5 / (G2 - G1) - 4 beta1)
++    // and G2 + 2 / (5 / (G1 - G2) - 6 beta2), with G1 = (C11 - C12) / 2
++    // and G2 = C44 (Hashin and Shtrikman, 1962); the first one is the lower
++    // bound if G2 > G1, the upper one otherwise
++    const mfem_mgis::real GHS1 = Gv + 3 / (5 / (C44 - Gv) - 4 * beta1);
++    const mfem_mgis::real GHS2 = C44 + 2 / (5 / (Gv - C44) - 6 * beta2);
++    const mfem_mgis::real GHSl = std::min(GHS1, GHS2);
++    const mfem_mgis::real GHSu = std::max(GHS1, GHS2);
+     // Kroener
+     mfem_mgis::real m0, mus;
+     mfem_mgis::real D1, sD1, D2;
+-- 
+2.43.0
+

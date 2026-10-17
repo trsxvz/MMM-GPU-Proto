@@ -54,7 +54,7 @@ Usage: ./test-bubble [options] ...
 | `-v <int>, --verbosity-level <int>`       | int    | `0`                      | Verbosity level of the output.              |
 | `-sf <double>, --scale-factor-vp <double>`| double | `0.9`                    | Scaling factor for the principal stress.    |
 | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the testcase.                       |
-| `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
+| `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance from the surface of each bubble within which its maximum principal stress is searched (periodic images not considered). |
 | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in N µm<sup>-2</sup>, the unit of the Young modulus. |
 | `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver `HyprePCG` (`HypreDiagScale`..., `none` for no preconditioner). |
 

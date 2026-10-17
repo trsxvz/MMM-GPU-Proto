@@ -1,0 +1,50 @@
+From cdda7868a2a4aba24de9ebd3af37923beea7db5c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 17 Oct 2026 01:10:14 +0200
+Subject: [PATCH] Grain law of UO2: consistent tangent operator
+
+The derivative of the residual of the elastic strain with respect to the
+deformation gradient missed the plastic part of Fe = Fe_tr * idFp: it is
+now -0.5 dC/dFe tpld(idFp, dFe_tr/dF). The stresses do not change; the
+tangent operator now matches the numerical one in mtest (the Newton
+solver needed 6 to 28 % more iterations with the former one).
+---
+ cermet/law/Mono_UO2_CosH_Jaco3.mfront      | 5 +++--
+ polycrystal/law/Mono_UO2_CosH_Jaco3.mfront | 5 +++--
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/cermet/law/Mono_UO2_CosH_Jaco3.mfront b/cermet/law/Mono_UO2_CosH_Jaco3.mfront
+index 72c45a9..e8c720c 100644
+--- a/cermet/law/Mono_UO2_CosH_Jaco3.mfront
++++ b/cermet/law/Mono_UO2_CosH_Jaco3.mfront
+@@ -112,8 +112,9 @@ eel.setMaximumIncrementValuePerIteration(1e-5);
+   computePushForwardDerivative(dtau_dFe, dS_dFe, S, Fe);
+   //
+   const auto dFe_tr_ddF = t2tot2<N, real>::tpld(Fe0);
+-  // computation of ddeel_ddF
+-  dfeel_ddF = -0.5 * dC_dFe * dFe_tr_ddF;
++  // computation of ddeel_ddF: Fe = Fe_tr * idFp, idFp being given by the
++  // integration variables
++  dfeel_ddF = -0.5 * dC_dFe * t2tot2<N, real>::tpld(idFp, dFe_tr_ddF);
+   auto ddeel_ddF = t2tost2<N, real>{};
+   getIntegrationVariablesDerivatives_F(ddeel_ddF);
+   //
+diff --git a/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront b/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront
+index 72c45a9..e8c720c 100644
+--- a/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront
++++ b/polycrystal/law/Mono_UO2_CosH_Jaco3.mfront
+@@ -112,8 +112,9 @@ eel.setMaximumIncrementValuePerIteration(1e-5);
+   computePushForwardDerivative(dtau_dFe, dS_dFe, S, Fe);
+   //
+   const auto dFe_tr_ddF = t2tot2<N, real>::tpld(Fe0);
+-  // computation of ddeel_ddF
+-  dfeel_ddF = -0.5 * dC_dFe * dFe_tr_ddF;
++  // computation of ddeel_ddF: Fe = Fe_tr * idFp, idFp being given by the
++  // integration variables
++  dfeel_ddF = -0.5 * dC_dFe * t2tot2<N, real>::tpld(idFp, dFe_tr_ddF);
+   auto ddeel_ddF = t2tost2<N, real>{};
+   getIntegrationVariablesDerivatives_F(ddeel_ddF);
+   //
+-- 
+2.43.0
+

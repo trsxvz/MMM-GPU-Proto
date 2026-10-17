@@ -36,8 +36,14 @@ namespace mm_opera_hpc {
         -3 * (Keff + 2 * Gv) / (5 * Gv * (3 * Keff + 4 * Gv));
     const mfem_mgis::real beta2 =
         -3 * (Keff + 2 * C44) / (5 * C44 * (3 * Keff + 4 * C44));
-    const mfem_mgis::real GHSl = Gv + 3 * ((C44 - Gv) - 4 * beta1) / 5;
-    const mfem_mgis::real GHSu = C44 + 3 * ((Gv - C44) - 6 * beta2) / 5;
+    // bounds of a cubic polycrystal: G1 + 3 / (5 / (G2 - G1) - 4 beta1)
+    // and G2 + 2 / (5 / (G1 - G2) - 6 beta2), with G1 = (C11 - C12) / 2
+    // and G2 = C44 (Hashin and Shtrikman, 1962); the first one is the lower
+    // bound if G2 > G1, the upper one otherwise
+    const mfem_mgis::real GHS1 = Gv + 3 / (5 / (C44 - Gv) - 4 * beta1);
+    const mfem_mgis::real GHS2 = C44 + 2 / (5 / (Gv - C44) - 6 * beta2);
+    const mfem_mgis::real GHSl = std::min(GHS1, GHS2);
+    const mfem_mgis::real GHSu = std::max(GHS1, GHS2);
     // Kroener
     mfem_mgis::real m0, mus;
     mfem_mgis::real D1, sD1, D2;

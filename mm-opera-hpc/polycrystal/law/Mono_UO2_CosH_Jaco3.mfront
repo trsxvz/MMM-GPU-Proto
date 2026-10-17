@@ -112,8 +112,9 @@ eel.setMaximumIncrementValuePerIteration(1e-5);
   computePushForwardDerivative(dtau_dFe, dS_dFe, S, Fe);
   //
   const auto dFe_tr_ddF = t2tot2<N, real>::tpld(Fe0);
-  // computation of ddeel_ddF
-  dfeel_ddF = -0.5 * dC_dFe * dFe_tr_ddF;
+  // computation of ddeel_ddF: Fe = Fe_tr * idFp, idFp being given by the
+  // integration variables
+  dfeel_ddF = -0.5 * dC_dFe * t2tot2<N, real>::tpld(idFp, dFe_tr_ddF);
   auto ddeel_ddF = t2tost2<N, real>{};
   getIntegrationVariablesDerivatives_F(ddeel_ddF);
   //

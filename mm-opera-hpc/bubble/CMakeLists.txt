@@ -44,6 +44,19 @@ mm_opera_hpc_add_checked_test(NAME BubbleTest
   TOLERANCE 0.2
   COMMAND $<TARGET_FILE:test-bubble> ${_bubble_options})
 set_tests_properties(BubbleTest PROPERTIES RESOURCE_LOCK bubble_output)
+# the mean hydrostatic stress of the solid (column Average of sig_hydro.txt)
+# is compared to the one of the composite sphere assemblage with a null
+# macroscopic strain, -3 K f p / (3 K f + 4 mu), f being the volume
+# fraction of the bubble (2.68e-4): -4.354e-4 p (written -0.0004354, which
+# argparse reads as a number). This checks the sign and
+# the magnitude of the pressure, the Poisson ratio and the volume of the
+# cavity (-0.5 % on the coarse mesh of the test)
+mm_opera_hpc_add_checked_test(NAME BubbleTest-hydrostatic-stress
+  FILE sig_hydro.txt CHECKS first Average -0.0004354
+  TOLERANCE 0.02
+  COMMAND $<TARGET_FILE:test-bubble> ${_bubble_options})
+set_tests_properties(BubbleTest-hydrostatic-stress PROPERTIES
+                     RESOURCE_LOCK bubble_output)
 if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursBubble_HAVE_GPU_BEHAVIOURS)
   mm_opera_hpc_add_checked_test(NAME BubbleTest-gpu
     FILE bubbles_and_stresses_selected.txt CHECKS first Stress 0.5

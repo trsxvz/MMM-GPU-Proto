@@ -1,0 +1,171 @@
+From a63f0c892aadaedec8255cbd68ae06a5b32039fa Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 17 Oct 2026 01:10:14 +0200
+Subject: [PATCH] Bubble: search of the stresses around the surfaces, checks
+
+- the maximum principal stress of a bubble is searched within the distance
+  dmin of its surface, not of its center: a bubble whose radius exceeds
+  dmin found no point (the periodic images are still not considered);
+- the boundary identifiers of the bubbles are checked against the ones of
+  the mesh;
+- the failures of the computation of the first eigen stress and of the
+  hydrostatic pressure are no longer ignored;
+- the identifier of a bubble printed on the output is the one written in
+  the output file;
+- new test of the mean hydrostatic stress of the solid, compared to the
+  one of the composite sphere assemblage (sign and magnitude of the
+  pressure, Poisson ratio, volume of the cavity), the existing test only
+  checking the maximum stress with a tolerance of 20 %.
+---
+ bubble/CMakeLists.txt | 13 +++++++++++
+ bubble/README.md      |  2 +-
+ bubble/src/Bubble.cxx | 50 ++++++++++++++++++++++++++++++++-----------
+ 3 files changed, 52 insertions(+), 13 deletions(-)
+
+diff --git a/bubble/CMakeLists.txt b/bubble/CMakeLists.txt
+index 6fb2cb5..1f8a120 100644
+--- a/bubble/CMakeLists.txt
++++ b/bubble/CMakeLists.txt
+@@ -44,6 +44,19 @@ mm_opera_hpc_add_checked_test(NAME BubbleTest
+   TOLERANCE 0.2
+   COMMAND $<TARGET_FILE:test-bubble> ${_bubble_options})
+ set_tests_properties(BubbleTest PROPERTIES RESOURCE_LOCK bubble_output)
++# the mean hydrostatic stress of the solid (column Average of sig_hydro.txt)
++# is compared to the one of the composite sphere assemblage with a null
++# macroscopic strain, -3 K f p / (3 K f + 4 mu), f being the volume
++# fraction of the bubble (2.68e-4): -4.354e-4 p (written -0.0004354, which
++# argparse reads as a number). This checks the sign and
++# the magnitude of the pressure, the Poisson ratio and the volume of the
++# cavity (-0.5 % on the coarse mesh of the test)
++mm_opera_hpc_add_checked_test(NAME BubbleTest-hydrostatic-stress
++  FILE sig_hydro.txt CHECKS first Average -0.0004354
++  TOLERANCE 0.02
++  COMMAND $<TARGET_FILE:test-bubble> ${_bubble_options})
++set_tests_properties(BubbleTest-hydrostatic-stress PROPERTIES
++                     RESOURCE_LOCK bubble_output)
+ if(MM_OPERA_HPC_RUN_GPU_TESTS AND BehavioursBubble_HAVE_GPU_BEHAVIOURS)
+   mm_opera_hpc_add_checked_test(NAME BubbleTest-gpu
+     FILE bubbles_and_stresses_selected.txt CHECKS first Stress 0.5
+diff --git a/bubble/README.md b/bubble/README.md
+index b8e5be4..8990c84 100644
+--- a/bubble/README.md
++++ b/bubble/README.md
+@@ -54,7 +54,7 @@ Usage: ./test-bubble [options] ...
+ | `-v <int>, --verbosity-level <int>`       | int    | `0`                      | Verbosity level of the output.              |
+ | `-sf <double>, --scale-factor-vp <double>`| double | `0.9`                    | Scaling factor for the principal stress.    |
+ | `-n <string>, --name-case <string>`       | string | `TestCaseBubble`         | Name of the testcase.                       |
+-| `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance to evaluate bubble rupture.        |
++| `-dm <double>, --dmin <double>`           | double | `0.950`                  | Distance from the surface of each bubble within which its maximum principal stress is searched (periodic images not considered). |
+ | `-pr <double>, --pref <double>`           | double | `1`                      | Internal bubble pressure in N µm<sup>-2</sup>, the unit of the Young modulus. |
+ | `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver `HyprePCG` (`HypreDiagScale`..., `none` for no preconditioner). |
+ 
+diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
+index f00c582..bff15c2 100644
+--- a/bubble/src/Bubble.cxx
++++ b/bubble/src/Bubble.cxx
+@@ -228,7 +228,9 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
+                  "preconditioner.");
+   args.AddOption(
+       &p.d_min, "-dm", "--dmin",
+-      "Distance to evaluate bubble rupture, in µm, default = 0.950.");
++      "Distance from the surface of each bubble within which its maximum "
++      "principal stress is searched, in µm (0.950 by default); the periodic "
++      "images of the bubbles are not considered.");
+   args.AddOption(&p.bubble_pressure, "-pr", "--pref",
+                  "Internal bubble pressure, in N µm^-2 (unit of the Young "
+                  "modulus of the case, whose lengths are in µm)");
+@@ -410,6 +412,26 @@ int main(int argc, char** argv) {
+ 
+   print_mesh_information(problem.getImplementation<true>());
+ 
++  // the boundary identifiers of the bubbles shall be the ones of
++  // boundaries of the mesh (an identifier out of range would select no
++  // surface, or an invalid one)
++  {
++    const auto& mesh = fed->getMesh<true>();
++    const auto max_attribute =
++        mesh.bdr_attributes.Size() == 0 ? 0 : mesh.bdr_attributes.Max();
++    for (const auto& b : bubbles) {
++      if ((b.boundary_identifier < 1) ||
++          (b.boundary_identifier > max_attribute)) {
++        const auto msg = "invalid boundary identifier " +
++                         std::to_string(b.boundary_identifier) +
++                         " of a bubble (the boundary identifiers of the "
++                         "mesh range from 1 to " +
++                         std::to_string(max_attribute) + ")";
++        mfem_mgis::abort(msg.c_str());
++      }
++    }
++  }
++
+   // Set macroscopic strain to zero
+   std::vector<mfem_mgis::real> e(6, mfem_mgis::real{0});
+   problem.setMacroscopicGradientsEvolution(
+@@ -562,10 +584,13 @@ int main(int argc, char** argv) {
+       const auto by = b.center[1];
+       const auto bz = b.center[2];
+ 
++      // the points are searched within the distance 'dmin' of the surface
++      // of the bubble, i.e. within the distance 'reach' of its center
++      const auto reach = b.radius + dmin;
+       // X-axis slice:
+-      // Only search points within distance 'dmin' along the X-axis
+-      const auto min_x_search = bx - dmin;
+-      const auto max_x_search = bx + dmin;
++      // Only search points within distance 'reach' along the X-axis
++      const auto min_x_search = bx - reach;
++      const auto max_x_search = bx + reach;
+ 
+       // Find the starting point for our search using binary search on sorted
+       // X-coordinates
+@@ -591,11 +616,11 @@ int main(int argc, char** argv) {
+         // Now we carry on with a matrioska checking
+         // Second check is on the y: check if point is within bounding box on
+         // Y-axis
+-        if (std::abs(pt.location[1] - by) > dmin) continue;
++        if (std::abs(pt.location[1] - by) > reach) continue;
+ 
+         // Third check is on the z: check if point is within bounding box on
+         // 2-axis
+-        if (std::abs(pt.location[2] - bz) > dmin) continue;
++        if (std::abs(pt.location[2] - bz) > reach) continue;
+         // if we made here, the point is worthwile of consideration!
+         const auto dx = pt.location[0] - bx;
+         const auto dy = pt.location[1] - by;
+@@ -606,9 +631,10 @@ int main(int argc, char** argv) {
+                            tfel::math::power<2>(dz));
+         }();
+ 
+-        // If point is within spherical radius 'dmin' and has higher stress than
+-        // current max, update the maximum stress and its location
+-        if ((dist < dmin) && (local_max_stress < pt.value)) {
++        // If point is within the distance 'dmin' of the surface of the
++        // bubble and has higher stress than current max, update the maximum
++        // stress and its location
++        if ((dist < reach) && (local_max_stress < pt.value)) {
+           local_max_stress = pt.value;
+           local_max_loc = pt.location;
+         }
+@@ -629,7 +655,7 @@ int main(int argc, char** argv) {
+                     "Location[1]", "Location[2]", "Stress");
+ 
+       for (auto& el : bubbles_information) {
+-        Message("Bubble ID = ", el.boundary_id - 1);
++        Message("Bubble ID = ", el.boundary_id);
+         Message("Stress = ", el.stress_value);
+         for (auto& el1 : el.location) {
+           Message("Location=", el1);
+@@ -649,8 +675,8 @@ int main(int argc, char** argv) {
+     {
+       CatchTimeSection(ctx, "Bubble::EigenAndHydrostaticStresses");
+       auto end = mfem_mgis::Material::END_OF_TIME_STEP;
+-      mfem_mgis::computeFirstEigenStress(ctx, eig, m, end);
+-      mfem_mgis::computeHydrostaticPressure(ctx, hyp, m, end);
++      mfem_mgis::computeFirstEigenStress(ctx, eig, m, end) | or_die;
++      mfem_mgis::computeHydrostaticPressure(ctx, hyp, m, end) | or_die;
+     }
+ 
+     // calculate the average hydrostatic stress on the rev
+-- 
+2.43.0
+

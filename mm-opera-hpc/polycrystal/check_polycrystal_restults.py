@@ -1,10 +1,13 @@
+import sys
+
 import numpy as np
 import pandas as pd
 
-tolerance = 5 # 5%
+# relative difference accepted, in %
+tolerance = 5
 
 # --- Lecture du fichier .res ---
-data_res = pd.read_csv("uniaxial-polycrystal.res", sep="\s+", header=None)
+data_res = pd.read_csv("uniaxial-polycrystal.res", sep=r"\s+", header=None)
 data_res.columns = [f"col{i+1}" for i in range(data_res.shape[1])]
 data_res['col1'] = data_res['col1'].astype(float)
 
@@ -15,14 +18,17 @@ data_csv[0] = data_csv[0].astype(str).str.strip()  # enlever espaces
 data_csv[0] = data_csv[0].astype(float)
 
 # --- Fusion sur la première colonne ---
+# the times are matched once rounded: in single precision, the program
+# writes 0.40000000596046 for 0.4
+data_res['time_key'] = data_res['col1'].round(6)
+data_csv['time_key'] = data_csv[0].round(6)
 merged = pd.merge(
     data_res,
     data_csv,
-    left_on='col1',
-    right_on=0,
+    on='time_key',
     how='inner',
     suffixes=('_res', '_csv')
-)
+).drop(columns='time_key')
 
 # --- Comparaison ---
 col_res = 'col7'      # 7ème colonne du .res
@@ -48,8 +54,12 @@ output.columns = ['Time', 'MFEM/MGIS', 'CAST3M', 'RelDiff_%', 'Status']
 print(output)
 output.to_csv("comparison_results.csv", index=False)
 
-# Check if the 'Status' column contains any "MISMATCH"
+# Check if the 'Status' column contains any "MISMATCH": the exit status is
+# not null on a mismatch, or if no time is common to both files
+if output.empty:
+    print("No time common to the results and to the reference!")
+    sys.exit(1)
 if (output['Status'] == 'MISMATCH').any():
     print("There is at least one MISMATCH in the data!")
-else:
-    print("Check PASS.")
+    sys.exit(1)
+print("Check PASS.")

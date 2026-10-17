@@ -1,0 +1,50 @@
+From e29bd9d565d6b8a51ca98addef0cb01c72e0f87f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 17 Oct 2026 01:10:14 +0200
+Subject: [PATCH] Norton law of chromium: prefactor within the range of float
+
+The prefactor A D1 1e-6^n1 / (b^2 C^n1), about 2e-38 at 1600 K, was close
+to the smallest normal float, and subnormal below about 1570 K. A D1 / b^2
+and the normalisation of the stress 1e-6 / C are now kept apart; the flow
+rate is unchanged.
+---
+ cermet/law/NortonCr.mfront | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/cermet/law/NortonCr.mfront b/cermet/law/NortonCr.mfront
+index 58eecd3..3bdd0dc 100644
+--- a/cermet/law/NortonCr.mfront
++++ b/cermet/law/NortonCr.mfront
+@@ -22,7 +22,11 @@ p.setGlossaryName("EquivalentViscoplasticStrain");
+ @Parameter real D0 = 1.55e-5;
+ @Parameter real b = 2.5e-10;
+ 
++// A D1 / b^2 and the normalisation of the stress (1e-6 / C, in Pa^-1),
++// kept apart so that no intermediate value leaves the range of float
++// (their product with pow(1e-6 / C, n1) is about 2e-38 at 1600 K)
+ @LocalVariable real Ae;
++@LocalVariable real iC;
+ @Theta 1.;
+ 
+ @InitLocalVariables{
+@@ -31,13 +35,15 @@ p.setGlossaryName("EquivalentViscoplasticStrain");
+   const auto T_mts = T + theta * dT;
+   const auto C = 264110 - 10 * T_mts - 0.025 * T_mts * T_mts;
+   const auto D1 = D0 * exp(-Q / (R * T_mts));
+-  Ae = A * D1 * pow(1.e-06, n1) / (b * b * pow(C, n1));
++  Ae = A * D1 / (b * b);
++  iC = 1.e-06 / C;
+ }
+ 
+ @Integrator {
+   const real eps = 1.e-12;
+   const auto seq = sigmaeq(sig);
+-  const auto tmp = Ae* pow(seq, n1 - 1);
++  // Ae * (seq * iC)^n1 = tmp * seq
++  const auto tmp = Ae * iC * pow(seq * iC, n1 - 1);
+   const auto df_dseq = n1 * tmp;
+   const auto iseq = 1 / max(seq, eps * young);
+   const Stensor n = 3 * deviator(sig) * iseq / 2;
+-- 
+2.43.0
+

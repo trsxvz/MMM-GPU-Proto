@@ -30,8 +30,10 @@ namespace mm_opera_hpc {
   /*!
    * \brief the role of this class is to perform a periodic simulation where:
    *
-   * - the macroscopic stress state is uniaxial along the zz axis (up to a given
-   *   tolerance)
+   * - the macroscopic normal stresses Sxx and Syy are null (up to a given
+   *   tolerance): the normal stresses are uniaxial along the zz axis, the
+   *   shear stresses being the reactions of the null off-diagonal
+   *   components of the deformation gradient
    * - the axial componenent Fzz of the macroscopic deformation gradient is
    *   prescribed
    * - the off-diagonal components of the macroscopic deformation gradient are
