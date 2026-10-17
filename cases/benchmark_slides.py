@@ -253,6 +253,9 @@ LINEAR_SOLVERS = {
     # double build (mfem-mgis refuses AmgX in a float build)
     "amgx": ("{amgx}", _DOUBLE),
     "amgx-single": ("{amgx_single}", _DOUBLE),
+    # aggregation multigrid of AmgX (block Jacobi smoother): the classical
+    # one fails at its setup on ex3 (CUDA kernel launch error)
+    "amgx-agg": ("{amgx_agg}", _DOUBLE),
     # direct solvers, the analysis being reused while the pattern of the
     # matrix does not change
     "cudss": ('{{Name: "CuDSSSolver", Options: {{ReuseAnalysis: true{spd}}}}}',
@@ -416,6 +419,7 @@ def _gpu_configurations(nonlinear, direct=True, native_on_cpu=True,
          # Belos stops (ex1, bubble)
          "gpu-muelu-chebyshev": Configuration("gpu", "muelu-chebyshev"),
          "gpu-amgx": Configuration("gpu", "amgx"),
+         "gpu-amgx-agg": Configuration("gpu", "amgx-agg"),
          "gpu-amgx-single": Configuration("gpu", "amgx-single", tier=2),
          "gpu-cg-jacobi": Configuration("gpu", "cg-jacobi", tier=2),
          "gpu-ginkgo-jacobi": Configuration("gpu", "ginkgo-jacobi", tier=2)})
@@ -536,13 +540,16 @@ FIELDS = ["date", "case", "size", "order", "precision", "configuration",
           "unknowns", "command"]
 
 
-def _amgx(case, single, precision="double"):
+def _amgx(case, single, precision="double", aggregation=False):
     """the solver of AmgX of a case (`AmgX` alone is one cycle of its
-    multigrid, without convergence criteria); in single precision, the
-    relative tolerance of AmgXPCG is at least 1e-6 (floor of AmgX)"""
+    multigrid, without convergence criteria), with the classical multigrid
+    or the aggregation one; in single precision, the relative tolerance of
+    AmgXPCG is at least 1e-6 (floor of AmgX)"""
     base = _tolerance(case, precision)
     tolerance = max(base, 1e-6) if single else base
     precision = ", Precision: \"Single\"" if single else ""
+    if aggregation:
+        precision += ", Multigrid: \"Aggregation\""
     if case.symmetric:
         return ('{Name: "AmgXPCG", Options: {RelativeTolerance: ' +
                 repr(tolerance) + ', MaximumNumberOfIterations: 5000' +
@@ -581,7 +588,8 @@ def _format(template, case, precision="double"):
         spd=", Symmetric: true, PositiveDefinite: true" if s else "",
         sym=", Symmetric: true" if s else "",
         amgx=_amgx(case, False, precision),
-        amgx_single=_amgx(case, True, precision))
+        amgx_single=_amgx(case, True, precision),
+        amgx_agg=_amgx(case, False, precision, aggregation=True))
 
 
 def command(case, configuration, processes, size, precision="double"):

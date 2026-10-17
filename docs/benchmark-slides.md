@@ -103,7 +103,7 @@ inexact Newton method while it still converges).
   operator by one cycle of BoomerAMG or of MueLu).
 - GPU, tier 1 (screened first): the solvers of the program when they
   compute on the GPU, hypre with BoomerAMG, Belos with MueLu (Jacobi or
-  Chebyshev smoother), AmgX, cuDSS, MUMPS on the CPU with the elements and the
+  Chebyshev smoother), AmgX (classical or aggregation multigrid), cuDSS, MUMPS on the CPU with the elements and the
   behaviours on the GPU, the solvers of the program in this mixed
   placement, the inexact Newton method, NewtonK0 with its elastic operator
   by BoomerAMG or MueLu, with or without the tangent operator applied
