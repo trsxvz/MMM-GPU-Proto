@@ -220,7 +220,7 @@ precision, the best time with the solvers of the program on the CPU, the
 best CPU configuration and the best configurations with the GPU, with
 their speedups, and two overviews of the speedups (against the solvers of
 the examples and against the best CPU configuration), with an index
-`README.md`. The graphs of the measurements are in `slides/`.
+`README.md`. The graphs are generated in `slides/` on the machine of the measurements, and not versioned: they are drawn again from the `runs.csv` of the results.
 
 The runs need the libraries of the installation in `LD_LIBRARY_PATH` (TFEL
 built with CUDA, MGIS, CUDA). The solvers of Trilinos initialize the GPU
