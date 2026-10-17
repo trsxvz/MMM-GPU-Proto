@@ -308,9 +308,9 @@ LINEAR_SOLVERS = {
     "mumps": ('{{Name: "MUMPSSolver", Options: {{ReuseAnalysis: true{sym}}}}}',
               _BOTH),
     # Tacho: Cholesky factorization by default, LU for the non symmetric
-    # cases
+    # cases (Tacho of Trilinos 17.2.1 is only instantiated in double)
     "tacho": ('{{Name: "Amesos2Solver", Options: {{Solver: "Tacho", '
-              'Parameters: {{method: "{tacho}"}}}}}}', _BOTH),
+              'Parameters: {{method: "{tacho}"}}}}}}', _DOUBLE),
     "strumpack": ('{{Name: "STRUMPACKSolver", Options: {{ReuseAnalysis: '
                   'true}}}}', _DOUBLE),
     # PETSc with its algebraic multigrid, stopped on the true residual
