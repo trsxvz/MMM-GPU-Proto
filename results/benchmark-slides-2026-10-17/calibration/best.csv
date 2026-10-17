@@ -1,0 +1,11 @@
+case,size,order,precision,cpu_native_seconds,cpu_native_processes,cpu_best_seconds,cpu_best_configuration,gpu_best_seconds,gpu_best_configuration,speedup_native,speedup_best
+bubble,bench,2,double,,,,,7.68,gpu-native,,
+cermet,bench,1,double,,,,,12.76,gpu-native,,
+ex2,bench,1,double,,,,,419.76,gpu-hypre-amg,,
+ex3,bench,1,double,,,,,15.92,gpu-native,,
+ex4,bench,1,double,,,,,30.60,gpu-native,,
+ex5,bench,2,double,,,,,3.73,gpu-hypre-amg,,
+ex6,bench,1,double,,,,,9.90,gpu-native,,
+ex7,bench,2,double,,,,,13.85,gpu-native,,
+ex8,bench,1,double,,,,,229.45,gpu-minres-muelu-chebyshev,,
+polycrystal,bench,1,double,,,,,21.07,gpu-native,,
