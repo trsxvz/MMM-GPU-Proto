@@ -51,8 +51,11 @@ NATIVE_NAMES = {
     "ex7": "GMRES of hypre + BoomerAMG",
     "ex8": "thermal: GMRES of hypre + BoomerAMG, mechanics: MUMPS",
     "polycrystal": "PCG of hypre + BoomerAMG",
+    "polycrystal-r2": "PCG of hypre + BoomerAMG",
+    "polycrystal-o2": "PCG of hypre + BoomerAMG",
     "bubble": "PCG of hypre + BoomerAMG",
     "cermet": "PCG of hypre + BoomerAMG",
+    "cermet-r2": "PCG of hypre + BoomerAMG",
 }
 
 CASES = {
@@ -69,9 +72,15 @@ CASES = {
     "ex7": "ex7, RVE of a MOX fuel",
     "ex8": "ex8, thermomechanical plate (thermal and mechanical problems)",
     "polycrystal": "mm-opera-hpc, polycrystal of UO2, crystal plasticity",
+    "polycrystal-r2": "mm-opera-hpc, polycrystal of UO2, crystal "
+                      "plasticity, refined mesh",
+    "polycrystal-o2": "mm-opera-hpc, polycrystal of UO2, crystal "
+                      "plasticity, quadratic elements",
     "bubble": "mm-opera-hpc, pressurized bubbles in a periodic cell, "
               "elasticity",
     "cermet": "mm-opera-hpc, cermet (UO2 grains, chromium interface)",
+    "cermet-r2": "mm-opera-hpc, cermet (UO2 grains, chromium interface), "
+                 "refined mesh",
 }
 
 

@@ -186,6 +186,24 @@ CASES = {
                                ["-r", "1", "--nstep", "4", "--duration",
                                 "0.8"]),
                         1e-12, False),
+    # larger meshes (one refinement more) and quadratic elements, for the
+    # same number of unknowns (1,360,002 for the polycrystal)
+    "polycrystal-r2": Case("opera", "polycrystal", "./uniaxial-polycrystal",
+                           [],
+                           _sizes(["--nstep", "2", "--duration", "0.4"],
+                                  ["-r", "2", "--nstep", "1", "--duration",
+                                   "0.2"],
+                                  ["-r", "2", "--nstep", "4", "--duration",
+                                   "0.8"]),
+                           1e-12, False),
+    "polycrystal-o2": Case("opera", "polycrystal", "./uniaxial-polycrystal",
+                           [],
+                           _sizes(["--nstep", "2", "--duration", "0.4"],
+                                  ["-r", "1", "--nstep", "1", "--duration",
+                                   "0.2"],
+                                  ["-r", "1", "--nstep", "4", "--duration",
+                                   "0.8"], order=2),
+                           1e-12, False),
     "bubble": Case("opera", "bubble", "./test-bubble",
                    ["--post-processing", "0"],
                    # the program solves with a relative tolerance of 1e-10
@@ -197,6 +215,12 @@ CASES = {
                    # finite strain behaviours: tangent operator not
                    # symmetric in general (same grain law as the polycrystal)
                    1e-12, False),
+    "cermet-r2": Case("opera", "cermet", "./cermet", ["--postprocessing", "0"],
+                      _sizes(["--nstep", "1", "--duration", "0.4"],
+                             ["-r", "2", "--nstep", "1", "--duration", "0.2"],
+                             ["-r", "2", "--nstep", "2", "--duration",
+                              "0.4"]),
+                      1e-12, False),
 }
 
 # Linear solvers, given by the linear solver override of mfem-mgis (name
@@ -537,8 +561,12 @@ CONFIGURATIONS = {
     "ex7": _configurations(True),
     "ex8": _ex8_configurations(),
     "polycrystal": _configurations(True),
+    # without the direct solvers on the largest meshes (memory)
+    "polycrystal-r2": _configurations(True, direct=False, direct_cpu=False),
+    "polycrystal-o2": _configurations(True, direct=False, direct_cpu=False),
     "bubble": _configurations(False, direct=False, direct_cpu=False),
     "cermet": _configurations(True, direct_cpu=False),
+    "cermet-r2": _configurations(True, direct=False, direct_cpu=False),
 }
 
 # numbers of unknowns of the cases whose programs do not print them, given
@@ -561,6 +589,14 @@ UNKNOWNS = {
     ("ex6-o2", "bench"): 786432,
     ("polycrystal", "small"): 20553, ("polycrystal", "screen"): 168885,
     ("polycrystal", "bench"): 168885,
+    ("polycrystal-r2", "small"): 20553,
+    ("polycrystal-r2", "screen"): 1360002,
+    ("polycrystal-r2", "bench"): 1360002,
+    ("polycrystal-o2", "small"): 168885,
+    ("polycrystal-o2", "screen"): 1360002,
+    ("polycrystal-o2", "bench"): 1360002,
+    ("cermet-r2", "small"): 33015, ("cermet-r2", "screen"): 2164290,
+    ("cermet-r2", "bench"): 2164290,
     ("cermet", "small"): 33015, ("cermet", "screen"): 269253,
     ("cermet", "bench"): 269253,
     # ex8 prints the unknowns of the thermal problem first: the ones of the
