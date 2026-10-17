@@ -90,6 +90,14 @@ struct TestParameters {
 #endif
   bool post_processing = true;
   /*!
+   * predict the increment of the unknowns with the elastic operator. By
+   * default, the increment of the imposed displacement is concentrated in
+   * the elements next to the boundary Xmax: on fine meshes, their strain
+   * increment is far beyond the elastic limit and the Newton solver may not
+   * converge, in particular when the loading is reversed.
+   */
+  bool prediction = false;
+  /*!
    * give the displacement gradient instead of the deformation gradient to a
    * finite strain behaviour
    */
@@ -147,6 +155,10 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
   args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
                  "--no-post-processing",
                  "Export or not the results to Paraview.");
+  args.AddOption(&p.prediction, "-pred", "--prediction", "-no-pred",
+                 "--no-prediction",
+                 "Predict the increment of the unknowns with the elastic "
+                 "operator at the beginning of each time step.");
   args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
                  "-no-dg", "--no-displacement-gradient",
                  "Give the displacement gradient instead of the deformation "
@@ -520,6 +532,11 @@ int main(int argc, char** argv) {
                                       p.stagnation_relative_tolerance);
   }
   problem.setSolverParameters(ctx, solver_parameters) | or_die;
+  if (p.prediction) {
+    problem.setPredictionPolicy(
+        {.strategy =
+             mfem_mgis::PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
+  }
   // name of the outputs, distinct for the cases with the displacement
   // gradient, which may run at the same time
   const auto name =

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <string_view>
 #include <utility>
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/MPI.hxx"
@@ -143,10 +144,12 @@ namespace mfem_mgis {
   /*!
    * \return the computation of the tangent operator given by the
    * `TangentOperatorComputation` parameter, or by the
-   * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable (ignored
-   * with `--execution`), or else by the execution settings (see
-   * `getDefaultFiniteElementsComputation`): `ElementByElement`, `Kernels`
-   * or `MatrixFree`
+   * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable, or else
+   * by the execution settings (see `getDefaultFiniteElementsComputation`):
+   * `ElementByElement`, `Kernels` or `MatrixFree`. With `--execution`, the
+   * environment variable is ignored, except its value `MatrixFree`, which
+   * chooses an algorithm rather than a placement: the tangent operator is
+   * then applied without assembly where the finite elements are computed
    * \param[in] p: parameters
    */
   [[nodiscard]] static NonLinearEvolutionProblemImplementationBase::
@@ -159,7 +162,11 @@ namespace mfem_mgis {
     const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
     // default value given by the environment, or else by the execution
     // settings
-    const auto* const e = internals::getPlacementEnvironmentVariable(v);
+    const auto* const raw = std::getenv(v);
+    const auto* const e =
+        ((raw != nullptr) && (std::string_view{raw} == "MatrixFree"))
+            ? raw
+            : internals::getPlacementEnvironmentVariable(v);
     const auto d =
         e != nullptr
             ? std::string{e}

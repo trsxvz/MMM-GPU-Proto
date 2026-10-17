@@ -75,8 +75,9 @@ A parameter given to the problem takes precedence over the environment
 variable, which only replaces the default value. The default values given
 in this table are the ones without the option :code:`--execution`, which
 gives other default values and makes the environment variables (except
-:code:`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`) ignored (see
-:ref:`mfem_mgis_batch_computations_execution`). The environment variables
+:code:`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`, and the value
+:code:`MatrixFree` of :code:`MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`)
+ignored (see :ref:`mfem_mgis_batch_computations_execution`). The environment variables
 are read when the problem is built. An invalid value is reported with the
 name of the parameter, or of the environment variable, which gave it.
 
@@ -522,7 +523,10 @@ built). The settings give:
 With :code:`--execution`, the environment variables placing the
 computations (:code:`MFEM_MGIS_DEVICE`, :code:`MFEM_MGIS_HYPRE_ON_HOST`,
 :code:`MFEM_MGIS_BEHAVIOUR_INTEGRATION` and the variables
-:code:`MFEM_MGIS_*_COMPUTATION`) are ignored, with a warning.
+:code:`MFEM_MGIS_*_COMPUTATION`) are ignored, with a warning. The value
+:code:`MatrixFree` of :code:`MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` is
+kept: it chooses an algorithm, the tangent operator applied without
+assembly where the finite elements are computed, rather than a placement.
 
 The behaviour libraries and the linear solvers are checked against the
 settings, since they decide where they compute:

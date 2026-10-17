@@ -236,6 +236,37 @@ if(MFEM_MGIS_HAVE_TFEL)
     endif(MFEM_USE_MPI)
   endif(MFEM_MGIS_HAVE_TFEL_UTILITIES)
 
+  # the value MatrixFree of MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION chooses
+  # an algorithm, not a placement: it is kept with --execution, without the
+  # warning of the ignored placement variables. The conjugate gradient
+  # without preconditioner converges with the tangent operator applied
+  # without assembly, while UMFPack, which requires an assembled matrix,
+  # fails, which shows that the operator is not assembled
+  add_test(NAME TwoLayerCube-1-MatrixFreeExecution
+           COMMAND ./TwoLayerCube
+                   --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                   --library $<TARGET_FILE:BehaviourTest> --test-case 1
+                   --no-parallel --execution cpu)
+  set_tests_properties(TwoLayerCube-1-MatrixFreeExecution PROPERTIES
+    DEPENDS BehaviourTest
+    ENVIRONMENT "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree"
+    PASS_REGULAR_EXPRESSION "Error is lower than threshold"
+    FAIL_REGULAR_EXPRESSION
+    "is ignored;Error is greater than threshold;Process received signal;terminate called")
+  if(MFEM_MGIS_HAVE_SUITESPARSE)
+    add_test(NAME TwoLayerCube-1-MatrixFreeExecution-UMFPack
+             COMMAND ./TwoLayerCube
+                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
+                     --library $<TARGET_FILE:BehaviourTest> --test-case 1
+                     --no-parallel --execution cpu
+                     --linearsolver UMFPackSolver)
+    set_tests_properties(TwoLayerCube-1-MatrixFreeExecution-UMFPack
+      PROPERTIES
+      DEPENDS BehaviourTest
+      ENVIRONMENT "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree"
+      PASS_REGULAR_EXPRESSION "not a SparseMatrix")
+  endif(MFEM_MGIS_HAVE_SUITESPARSE)
+
   # UniaxialTensileTest executable
   add_test_executable(UniaxialTensileTest)
 
