@@ -5,6 +5,7 @@
  * \date   28/03/2022
  */
 
+#include <type_traits>
 #include <string_view>
 #include <string>
 #include <cmath>
@@ -147,7 +148,12 @@ static bool checkReactions(mfem_mgis::Context& ctx,
   };
   const auto Fl = reaction("left");
   const auto Fr = reaction("right");
-  if (std::abs(Fl + Fr) > 1e-10 * std::abs(Fl)) {
+  // relative tolerances of the checks: in single precision, the residual of
+  // the Newton solver stagnates at about 1e-5 of the initial one
+  constexpr auto in_double = std::is_same_v<mfem_mgis::real, double>;
+  constexpr auto balance_tolerance = in_double ? 1e-10 : 1e-4;
+  constexpr auto reference_tolerance = in_double ? 1e-8 : 1e-4;
+  if (std::abs(Fl + Fr) > balance_tolerance * std::abs(Fl)) {
     mfem_mgis::getErrorStream()
         << "the reactions of the left and right "
         << "boundaries are not opposite (" << Fl << " vs " << Fr << ")\n";
@@ -158,7 +164,7 @@ static bool checkReactions(mfem_mgis::Context& ctx,
   // plate, with free (2.44e9 N/m) and blocked (4.27e9 N/m) upper and lower
   // boundaries.
   constexpr auto Fref = mfem_mgis::real{2.743179149139e9};
-  if (reference && (std::abs(Fl - Fref) > 1e-8 * Fref)) {
+  if (reference && (std::abs(Fl - Fref) > reference_tolerance * Fref)) {
     mfem_mgis::getErrorStream() << "invalid reaction of the left boundary ("
                                 << Fl << " vs " << Fref << ")\n";
     return false;

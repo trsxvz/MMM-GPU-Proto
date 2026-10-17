@@ -1,0 +1,107 @@
+From 58ad56b7e0f7ec57fdca8359aead66c95b2d3623 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 17 Oct 2026 12:28:29 +0200
+Subject: [PATCH] ex5: built with MUMPS without SuiteSparse, checks in single
+ precision
+
+satoh uses UMFPACK in sequential and MUMPS in parallel: it is built if
+SuiteSparse or MUMPS with MPI is available (MFEM refuses SuiteSparse in
+single precision), the sequential tests requiring SuiteSparse. In single
+precision, the residual of the Newton solver stagnates at about 1e-5 of
+the initial one: the relative tolerances of the checks of the reactions
+are 1e-4 instead of 1e-10 and 1e-8.
+---
+ ex5/CMakeLists.txt | 21 ++++++++++++++++-----
+ ex5/SatohTest.cxx  | 10 ++++++++--
+ 2 files changed, 24 insertions(+), 7 deletions(-)
+
+diff --git a/ex5/CMakeLists.txt b/ex5/CMakeLists.txt
+index 05dbeba..69519ed 100644
+--- a/ex5/CMakeLists.txt
++++ b/ex5/CMakeLists.txt
+@@ -27,7 +27,14 @@ endif(NOT TARGET mfem-mgis::MFEMMGIS)
+ 
+ # Define a test that will be called during the "make check"
+ 
+-if(MFEM_USE_SUITESPARSE)
++# satoh uses UMFPACK in sequential (SuiteSparse) and MUMPS in parallel: it
++# is built if one of them is available (MFEM refuses SuiteSparse in single
++# precision)
++set(MFEM_MGIS_EX5_PARALLEL OFF)
++if(MFEM_USE_MUMPS AND MFEM_USE_MPI)
++  set(MFEM_MGIS_EX5_PARALLEL ON)
++endif()
++if(MFEM_USE_SUITESPARSE OR MFEM_MGIS_EX5_PARALLEL)
+   # Copy the files needed at run time. Unlike file(COPY), configure_file updates
+   # the copies when these files are modified.
+   foreach(input IsotropicLinearThermoElasticity.mfront square.msh)
+@@ -57,9 +64,11 @@ if(MFEM_USE_SUITESPARSE)
+   # the mesh (it is only checked with the original mesh and order: options
+   # --refinement and --order).
+   set(test "satoh")
+-  add_test(NAME ${test} COMMAND ${test})
++  if(MFEM_USE_SUITESPARSE)
++    add_test(NAME ${test} COMMAND ${test})
++  endif()
+   # the same computation in parallel, MUMPS replacing UMFPACK
+-  if(MFEM_USE_MUMPS AND MFEM_USE_MPI)
++  if(MFEM_MGIS_EX5_PARALLEL)
+     add_test(NAME ${test}-parallel
+              COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+                      $<TARGET_FILE:satoh> --parallel)
+@@ -68,13 +77,15 @@ if(MFEM_USE_SUITESPARSE)
+   endif()
+   # the same computation on a GPU, UMFPack computing on the CPU (see
+   # ../config/TestMode.cmake)
+-  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx5_HAVE_GPU_BEHAVIOURS)
++  if(MFEM_USE_SUITESPARSE AND MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND
++     BehavioursEx5_HAVE_GPU_BEHAVIOURS)
+     add_test(NAME ${test}-gpu
+              COMMAND ${test} --execution mixed --linear-solvers-execution cpu)
+     set_tests_properties(${test}-gpu PROPERTIES RESOURCE_LOCK gpu)
+   endif()
+ else()
+-  message(STATUS "Disabling satoh. Compile MFEM with SuiteSparse support to enable it")
++  message(STATUS "Disabling satoh. Compile MFEM with SuiteSparse support, "
++                 "or with MUMPS and MPI, to enable it")
+ endif()
+ 
+ 
+diff --git a/ex5/SatohTest.cxx b/ex5/SatohTest.cxx
+index 2d886a6..9390ecf 100644
+--- a/ex5/SatohTest.cxx
++++ b/ex5/SatohTest.cxx
+@@ -5,6 +5,7 @@
+  * \date   28/03/2022
+  */
+ 
++#include <type_traits>
+ #include <string_view>
+ #include <string>
+ #include <cmath>
+@@ -147,7 +148,12 @@ static bool checkReactions(mfem_mgis::Context& ctx,
+   };
+   const auto Fl = reaction("left");
+   const auto Fr = reaction("right");
+-  if (std::abs(Fl + Fr) > 1e-10 * std::abs(Fl)) {
++  // relative tolerances of the checks: in single precision, the residual of
++  // the Newton solver stagnates at about 1e-5 of the initial one
++  constexpr auto in_double = std::is_same_v<mfem_mgis::real, double>;
++  constexpr auto balance_tolerance = in_double ? 1e-10 : 1e-4;
++  constexpr auto reference_tolerance = in_double ? 1e-8 : 1e-4;
++  if (std::abs(Fl + Fr) > balance_tolerance * std::abs(Fl)) {
+     mfem_mgis::getErrorStream()
+         << "the reactions of the left and right "
+         << "boundaries are not opposite (" << Fl << " vs " << Fr << ")\n";
+@@ -158,7 +164,7 @@ static bool checkReactions(mfem_mgis::Context& ctx,
+   // plate, with free (2.44e9 N/m) and blocked (4.27e9 N/m) upper and lower
+   // boundaries.
+   constexpr auto Fref = mfem_mgis::real{2.743179149139e9};
+-  if (reference && (std::abs(Fl - Fref) > 1e-8 * Fref)) {
++  if (reference && (std::abs(Fl - Fref) > reference_tolerance * Fref)) {
+     mfem_mgis::getErrorStream() << "invalid reaction of the left boundary ("
+                                 << Fl << " vs " << Fref << ")\n";
+     return false;
+-- 
+2.43.0
+

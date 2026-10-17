@@ -27,7 +27,14 @@ endif(NOT TARGET mfem-mgis::MFEMMGIS)
 
 # Define a test that will be called during the "make check"
 
-if(MFEM_USE_SUITESPARSE)
+# satoh uses UMFPACK in sequential (SuiteSparse) and MUMPS in parallel: it
+# is built if one of them is available (MFEM refuses SuiteSparse in single
+# precision)
+set(MFEM_MGIS_EX5_PARALLEL OFF)
+if(MFEM_USE_MUMPS AND MFEM_USE_MPI)
+  set(MFEM_MGIS_EX5_PARALLEL ON)
+endif()
+if(MFEM_USE_SUITESPARSE OR MFEM_MGIS_EX5_PARALLEL)
   # Copy the files needed at run time. Unlike file(COPY), configure_file updates
   # the copies when these files are modified.
   foreach(input IsotropicLinearThermoElasticity.mfront square.msh)
@@ -57,9 +64,11 @@ if(MFEM_USE_SUITESPARSE)
   # the mesh (it is only checked with the original mesh and order: options
   # --refinement and --order).
   set(test "satoh")
-  add_test(NAME ${test} COMMAND ${test})
+  if(MFEM_USE_SUITESPARSE)
+    add_test(NAME ${test} COMMAND ${test})
+  endif()
   # the same computation in parallel, MUMPS replacing UMFPACK
-  if(MFEM_USE_MUMPS AND MFEM_USE_MPI)
+  if(MFEM_MGIS_EX5_PARALLEL)
     add_test(NAME ${test}-parallel
              COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
                      $<TARGET_FILE:satoh> --parallel)
@@ -68,13 +77,15 @@ if(MFEM_USE_SUITESPARSE)
   endif()
   # the same computation on a GPU, UMFPack computing on the CPU (see
   # ../config/TestMode.cmake)
-  if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx5_HAVE_GPU_BEHAVIOURS)
+  if(MFEM_USE_SUITESPARSE AND MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND
+     BehavioursEx5_HAVE_GPU_BEHAVIOURS)
     add_test(NAME ${test}-gpu
              COMMAND ${test} --execution mixed --linear-solvers-execution cpu)
     set_tests_properties(${test}-gpu PROPERTIES RESOURCE_LOCK gpu)
   endif()
 else()
-  message(STATUS "Disabling satoh. Compile MFEM with SuiteSparse support to enable it")
+  message(STATUS "Disabling satoh. Compile MFEM with SuiteSparse support, "
+                 "or with MUMPS and MPI, to enable it")
 endif()
 
 
