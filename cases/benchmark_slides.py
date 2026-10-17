@@ -769,6 +769,9 @@ def _gpu_lock(side):
             yield
         finally:
             fcntl.flock(f, fcntl.LOCK_UN)
+            # the other users of the GPU waiting for the lock get it before
+            # the next run of the driver
+            time.sleep(3)
 
 
 def run(results, case_name, configuration_name, precision, processes,
