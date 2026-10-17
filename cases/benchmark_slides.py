@@ -291,8 +291,9 @@ LINEAR_SOLVERS = {
     # Ginkgo: Krylov solvers with a Jacobi preconditioner on the GPU (the
     # sparse solvers of MAGMA are only available in sequential, and all the
     # programs compute in parallel)
+    # (Ginkgo is refused by MFEM in single precision)
     "ginkgo-jacobi": (_krylov("{ginkgo}", '{{Name: "GinkgoJacobi"}}',
-                              iterations=100000), _BOTH),
+                              iterations=100000), _DOUBLE),
 }
 
 # Non linear solvers, given by the non linear solver override of

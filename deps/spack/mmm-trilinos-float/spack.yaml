@@ -3,13 +3,12 @@
 # accepts them in single precision. Built in single precision: hypre (with
 # its internal BLAS and LAPACK: with an external LAPACK, hypre 3.2.0 has no
 # single precision names for the LAPACK routines it uses), PETSc, MFEM, and
-# Trilinos with the instantiations of Tpetra for float. Left out:
-# SuperLU_DIST, STRUMPACK and SuiteSparse (the wrappers of MFEM are written
-# for double), SUNDIALS (refused by the makefile of MFEM in single
-# precision), GSLIB, libCEED, the wrapper of AmgX of MFEM (mode dDDI; AmgX
-# itself is kept, mfem-mgis uses it directly), PaStiX and HPDDM (not used
-# by the benchmark), and Teko (only used in double by mfem-mgis). The other
-# packages (Kokkos, Ginkgo, AmgX, cuDSS, MUMPS with its single precision
+# Trilinos with the instantiations of Tpetra for float. Left out: the
+# packages refused by the makefile of MFEM in single precision (SUNDIALS,
+# SuiteSparse, SuperLU_DIST, STRUMPACK, Ginkgo, AmgX, GSLIB, libCEED, among
+# others), PaStiX and HPDDM (not used by the benchmark), and Teko (only used
+# in double by mfem-mgis). AmgX itself is kept: mfem-mgis uses it directly.
+# The other packages (Kokkos, AmgX, cuDSS, MUMPS with its single precision
 # library, MAGMA, oneMKL) are the ones of mmm-trilinos-teko, reused.
 spack:
   specs:
@@ -21,7 +20,6 @@ spack:
   - kokkos-kernels@5.2.1 +cuda +openmp +shared +cublas +cusparse +cusolver
     +execspace_cuda +execspace_openmp +execspace_serial +memspace_cudaspace
     cuda_arch=120
-  - ginkgo@1.11.0 +cuda +openmp +mpi cuda_arch=120
   - hypre@3.2.0 +mpi +cuda +umpire ~int64 ~lapack precision=single
     cuda_arch=120
   - petsc@3.26.0 ~double +mpi +cuda +kokkos +openmp +hypre +metis ~fortran
@@ -29,7 +27,7 @@ spack:
   - amgx@2.5.0.20260701 +cuda +mpi cuda_arch=120
   - cudss@0.7.1-13 +mpi
   - mfem@4.10.0 +mpi +shared ~static +cuda cuda_arch=120 cxxstd=20 +openmp
-    +threadsafe ~libceed +ginkgo +petsc ~sundials ~superlu-dist ~strumpack
+    +threadsafe ~libceed ~ginkgo +petsc ~sundials ~superlu-dist ~strumpack
     ~amgx +cudss +umpire ~suite-sparse +mumps ~gslib +mkl-pardiso
     +mkl-cpardiso +magma precision=single
   - intel-oneapi-mkl-solvers@2025.3.1

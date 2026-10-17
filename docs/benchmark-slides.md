@@ -130,8 +130,8 @@ in the mixed placement when they are refused on the CPU with the rest on
 the GPU (conjugate gradient of MFEM of ex1 and ex3).
 
 Not used: the sparse solvers of MAGMA (sequential only, the programs are
-parallel), AmgX in a float build (refused by mfem-mgis), SuperLU_DIST,
-STRUMPACK and SuiteSparse in float (refused by MFEM).
+parallel), AmgX in a float build (refused by mfem-mgis), Ginkgo,
+SuperLU_DIST, STRUMPACK and SuiteSparse in float (refused by MFEM).
 
 ## Sizes
 
@@ -195,14 +195,13 @@ side.
 
 The float build (`deps/spack/mmm-trilinos-float`) has hypre, PETSc and
 MFEM built in single precision, Trilinos with the float
-instantiations of Tpetra, MUMPS (its single precision library), cuDSS,
-Ginkgo and oneMKL. Not available in float: SuperLU_DIST, STRUMPACK and
-SuiteSparse (the wrappers of MFEM are written for double), SUNDIALS
-(refused by the makefile of MFEM in single precision; not used by the
-benchmark), GSLIB, AmgX
-(refused by mfem-mgis in a float build; it is measured in double, also
-computing in single precision within the double build), Teko (double
-only). The relative tolerances of the linear solvers are at least 1e-6.
+instantiations of Tpetra, MUMPS (its single precision library), cuDSS
+and oneMKL. Not available in float: the packages refused by the makefile
+of MFEM in single precision (SuperLU_DIST, STRUMPACK, SuiteSparse,
+SUNDIALS, Ginkgo, GSLIB, libCEED, among others), AmgX (refused by
+mfem-mgis in a float build; it is measured in double, also computing in
+single precision within the double build), Teko (double only). The
+relative tolerances of the linear solvers are at least 1e-6.
 
 ## Trials at the small size (16/10/2026, previous driver)
 
