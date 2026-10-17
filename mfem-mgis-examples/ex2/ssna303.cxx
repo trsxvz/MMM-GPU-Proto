@@ -19,6 +19,7 @@
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/ExecutionSettings.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/Profiler.hxx"
 
 //! \brief vertical component of the resultant force at a given time
 struct VerticalForce {
@@ -118,6 +119,11 @@ int main(int argc, char** argv) {
 #else
   bool parallel = false;
 #endif
+  // export the displacements and the fields at the integration points for
+  // ParaView at each step
+  bool paraview = true;
+  // print the time table of the profiler at the end
+  bool profiling = false;
   auto order = 1;
   auto refinement = 0;
   auto nbsteps = 50;
@@ -139,6 +145,13 @@ int main(int argc, char** argv) {
                  "boundary, no comparison if empty.");
   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
                  "Perform parallel computations.");
+  args.AddOption(&paraview, "-pv", "--paraview", "-no-pv", "--no-paraview",
+                 "Export the displacements and the fields at the integration "
+                 "points for ParaView at each step (the resultant force is "
+                 "always written).");
+  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
+                 "--no-profiling",
+                 "Print the time table of the profiler at the end.");
   args.AddOption(&library, "-l", "--library",
                  "Behaviour library. By default, the library built with the "
                  "example for the CPU or for the GPU, as the option "
@@ -162,6 +175,7 @@ int main(int argc, char** argv) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  ctx.enableProfiling(profiling);
   // behaviour library: given by --library, or else the library built with
   // the example for the processor of the behaviours (option --execution)
   const auto behaviour_library =
@@ -263,18 +277,21 @@ int main(int argc, char** argv) {
       ctx, "ComputeResultantForceOnBoundary",
       {{"Boundary", 2}, {"OutputFileName", output_file}}) |
       or_die;
-  problem.addPostProcessing(ctx, "ParaviewExportResults",
-                            {{"OutputFileName", "ssna303-displacements"}}) |
-      or_die;
-  problem.addPostProcessing(ctx, "ParaviewExportIntegrationPointResultsAtNodes",
-                            {{{"Results", "FirstPiolaKirchhoffStress"},
-                              {"OutputFileName", "ssna303-stress"}}}) |
-      or_die;
-  problem.addPostProcessing(
-      ctx, "ParaviewExportIntegrationPointResultsAtNodes",
-      {{{"Results", "EquivalentPlasticStrain"},
-        {"OutputFileName", "ssna303-equivalent-plastic-strain"}}}) |
-      or_die;
+  if (paraview) {
+    problem.addPostProcessing(ctx, "ParaviewExportResults",
+                              {{"OutputFileName", "ssna303-displacements"}}) |
+        or_die;
+    problem.addPostProcessing(
+        ctx, "ParaviewExportIntegrationPointResultsAtNodes",
+        {{{"Results", "FirstPiolaKirchhoffStress"},
+          {"OutputFileName", "ssna303-stress"}}}) |
+        or_die;
+    problem.addPostProcessing(
+        ctx, "ParaviewExportIntegrationPointResultsAtNodes",
+        {{{"Results", "EquivalentPlasticStrain"},
+          {"OutputFileName", "ssna303-equivalent-plastic-strain"}}}) |
+        or_die;
+  }
   // loop over time step
   const auto nsteps = mfem_mgis::size_type(nbsteps);
   const auto dt = end_time / nsteps;
@@ -310,6 +327,7 @@ int main(int argc, char** argv) {
     ++iteration;
     std::cout << '\n';
   }
+  mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
   // comparison to the reference values, only on the process writing the
   // resultant force. The tolerance is above the rounding of the forces, which
   // are written with 6 significant digits. It is larger for the reference

@@ -24,6 +24,7 @@
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/Profiler.hxx"
 
 /*!
  * \brief call a function at each integration point of a partial quadrature
@@ -148,6 +149,8 @@ static bool checkReactions(mfem_mgis::Context& ctx,
   };
   const auto Fl = reaction("left");
   const auto Fr = reaction("right");
+  mfem_mgis::getOutputStream() << "reaction of the left boundary: " << Fl
+                               << " N/m\n";
   // relative tolerances of the checks: in single precision, the residual of
   // the Newton solver stagnates at about 1e-5 of the initial one
   constexpr auto in_double = std::is_same_v<mfem_mgis::real, double>;
@@ -202,6 +205,8 @@ int main(int argc, char** argv) {
   auto refinement = 0;
   auto order = 2;
   auto post_processing = true;
+  // print the time table of the profiler at the end
+  auto profiling = false;
   mfem::OptionsParser args(argc, argv);
   args.AddOption(&library, "-l", "--library",
                  "Behaviour library. By default, the library built with the "
@@ -216,6 +221,9 @@ int main(int argc, char** argv) {
   args.AddOption(&post_processing, "-pp", "--post-processing", "-no-pp",
                  "--no-post-processing",
                  "Export the results (ParaView, hydrostatic pressure).");
+  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
+                 "--no-profiling",
+                 "Print the time table of the profiler at the end.");
   // options of mfem-mgis, such as the device (--device)
   mfem_mgis::declareDefaultOptions(args);
   args.Parse();
@@ -229,6 +237,7 @@ int main(int argc, char** argv) {
     mfem_mgis::abort(EXIT_FAILURE);
   }
   args.PrintOptions(mfem_mgis::getOutputStream());
+  ctx.enableProfiling(profiling);
   // behaviour library: given by --library, or else the library built with
   // the example for the processor of the behaviours (option --execution)
   const auto behaviour_library =
@@ -345,5 +354,6 @@ int main(int argc, char** argv) {
   const auto temperature = checkImposedTemperature(fed, parallel, T);
   const auto reactions =
       checkReactions(ctx, problem, parallel, (refinement == 0) && (order == 2));
+  mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
   return (temperature && reactions) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

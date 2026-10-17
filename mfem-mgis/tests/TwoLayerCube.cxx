@@ -28,6 +28,7 @@
  * \date   14/10/2020
  */
 
+#include <limits>
 #include <string>
 #include <memory>
 #include <string_view>
@@ -192,6 +193,24 @@ static mfem_mgis::real getThreshold(const std::string_view s) noexcept {
   return mfem_mgis::unit_tests::tolerance(1e-7, 1.2e-3);
 }  // end of getThreshold
 
+/*!
+ * \brief prints the L2 error to the analytical solution, without comparing
+ * it to a threshold
+ * \return true, or an empty value on error
+ */
+std::optional<bool> printError(mfem_mgis::Context& ctx,
+                               mfem_mgis::NonLinearEvolutionProblem& problem,
+                               const std::size_t i) {
+  const auto ob = mfem_mgis::compareToAnalyticalSolution(
+      ctx, problem, getSolution(i),
+      {{"VerbosityLevel", 2},
+       {"CriterionThreshold", std::numeric_limits<mfem_mgis::real>::max()}});
+  if (mfem_mgis::isInvalid(ob)) {
+    return {};
+  }
+  return true;
+}
+
 std::optional<bool> checkSolution(mfem_mgis::Context& ctx,
                                   mfem_mgis::NonLinearEvolutionProblem& problem,
                                   const std::size_t i,
@@ -243,6 +262,10 @@ struct TestParameters {
   mfem_mgis::real zmax = 1.;
   bool parallel = true;
   bool check = true;
+  //! \brief export the results for ParaView
+  bool post_processing = true;
+  //! \brief print the time table of the profiler at the end
+  bool profiling = false;
 };
 
 TestParameters parseCommandLineOptions(int& argc, char* argv[]) {
@@ -280,7 +303,15 @@ TestParameters parseCommandLineOptions(int& argc, char* argv[]) {
                  "Perform parallel computations.");
   args.AddOption(&p.check, "-c", "--check", "-no-c", "--no-check",
                  "Compare the solution to the analytical solution of the "
-                 "two-layer cube, only valid for the provided meshes.");
+                 "two-layer cube, only valid for the provided meshes. "
+                 "Without the comparison, the L2 error to the analytical "
+                 "solution is still printed.");
+  args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
+                 "--no-post-processing",
+                 "Export the results for ParaView.");
+  args.AddOption(&p.profiling, "-prof", "--profiling", "-no-prof",
+                 "--no-profiling",
+                 "Print the time table of the profiler at the end.");
   // options of mfem-mgis, such as --execution, handled by
   // mfem_mgis::initialize
   mfem_mgis::declareDefaultOptions(args);
@@ -378,30 +409,35 @@ int executeMFEMMGISTest(mfem_mgis::Context& ctx, const TestParameters& p) {
   setSolverParameters(ctx, problem) | or_die;
 
   // Add postprocessing and outputs
-  problem.addPostProcessing(
-      ctx, "ParaviewExportResults",
-      {{"OutputFileName", "TwoLayerCubeOutput-" + std::to_string(p.tcase)}}) |
-      or_die;
-  std::vector<mfem_mgis::Parameter> materials_out{1, 2};
-  problem.addPostProcessing(ctx, "ParaviewExportIntegrationPointResultsAtNodes",
-                            {{"OutputFileName", "TwoLayerCubeOutput-Strain-" +
-                                                    std::to_string(p.tcase)},
-                             {"Materials", {materials_out}},
-                             {"Results", "Strain"}}) |
-      or_die;
-  problem.addPostProcessing(ctx, "ParaviewExportIntegrationPointResultsAtNodes",
-                            {{"OutputFileName", "TwoLayerCubeOutput-Stress-" +
-                                                    std::to_string(p.tcase)},
-                             {"Materials", {materials_out}},
-                             {"Results", "Stress"}}) |
-      or_die;
+  if (p.post_processing) {
+    problem.addPostProcessing(ctx, "ParaviewExportResults",
+                              {{"OutputFileName", "TwoLayerCubeOutput-" +
+                                                      std::to_string(p.tcase)}}) |
+        or_die;
+    std::vector<mfem_mgis::Parameter> materials_out{1, 2};
+    problem.addPostProcessing(
+        ctx, "ParaviewExportIntegrationPointResultsAtNodes",
+        {{"OutputFileName",
+          "TwoLayerCubeOutput-Strain-" + std::to_string(p.tcase)},
+         {"Materials", {materials_out}},
+         {"Results", "Strain"}}) |
+        or_die;
+    problem.addPostProcessing(
+        ctx, "ParaviewExportIntegrationPointResultsAtNodes",
+        {{"OutputFileName",
+          "TwoLayerCubeOutput-Stress-" + std::to_string(p.tcase)},
+         {"Materials", {materials_out}},
+         {"Results", "Stress"}}) |
+        or_die;
+  }
   // solving the problem
   problem.solve(ctx, 0, 1) | or_die;
   problem.executePostProcessings(ctx, 0, 1) | or_die;
-  //
+  // the L2 error to the analytical solution is printed, and compared to the
+  // threshold of the linear solver if requested
   const auto b =
       p.check ? (checkSolution(ctx, problem, p.tcase, p.linearsolver) | or_die)
-              : true;
+              : (printError(ctx, problem, p.tcase) | or_die);
   mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
   return b ? EXIT_SUCCESS : EXIT_FAILURE;
 }
@@ -410,5 +446,6 @@ int main(int argc, char* argv[]) {
   auto ctx = mfem_mgis::Context{};
   mfem_mgis::initialize(argc, argv);
   const auto p = parseCommandLineOptions(argc, argv);
+  ctx.enableProfiling(p.profiling);
   return executeMFEMMGISTest(ctx, p);
 }

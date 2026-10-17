@@ -71,7 +71,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
                  "--no-post-processing", "Export the results to Paraview.");
   args.AddOption(&p.check, "-c", "--check", "-no-c", "--no-check",
                  "Compare the solution to the analytical solution of the "
-                 "two-layer cube, only valid for cube_2mat_per.mesh.");
+                 "two-layer cube, only valid for cube_2mat_per.mesh. Without "
+                 "the comparison, the error is still printed.");
   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
                  "Verbosity level of the solvers.");
   // options of mfem-mgis, such as the device (--device)
@@ -200,8 +201,8 @@ void run_solve(mfem_mgis::attributes::MayAbort,
 }
 
 /*!
- * \brief compare the solution to the analytical solution of the two-layer
- * cube.
+ * \brief prints the error to the analytical solution of the two-layer
+ * cube and, if `compare` is true, compares it to a tolerance.
  *
  * The two layers are normal to the x-axis and have the same thickness. The
  * deformation gradient is uniform in each layer, F = diag(l_i, 1, 1), and the
@@ -211,7 +212,9 @@ void run_solve(mfem_mgis::attributes::MayAbort,
  * which gives l_1 by Newton's method.
  */
 [[nodiscard]] static bool checkSolution(
-    mfem_mgis::Context& ctx, mfem_mgis::PeriodicNonLinearEvolutionProblem& p) {
+    mfem_mgis::Context& ctx,
+    mfem_mgis::PeriodicNonLinearEvolutionProblem& p,
+    const bool compare) {
   using real = mfem_mgis::real;
   auto or_die = ctx.getFatalFailureHandler();
   const auto M1 = young1 * (1 - poisson) / ((1 + poisson) * (1 - 2 * poisson));
@@ -252,7 +255,9 @@ void run_solve(mfem_mgis::attributes::MayAbort,
   // the Newton solver, raised to 1.2e-5 by mfem-mgis for this type
   constexpr auto tolerance =
       std::is_same_v<mfem_mgis::real, double> ? 1e-10 : 4e-5;
-  if (error > tolerance) {
+  mfem_mgis::getOutputStream()
+      << "error to the analytical solution: " << error << '\n';
+  if (compare && (error > tolerance)) {
     mfem_mgis::getErrorStream()
         << "the solution does not match the analytical solution (error: "
         << error << ")\n";
@@ -312,7 +317,9 @@ int main(int argc, char* argv[]) {
   if (p.post_processing) {
     execute_post_processings(mfem_mgis::may_abort, ctx, problem, 0, 1);
   }
-  const auto success = p.check ? checkSolution(ctx, problem) : true;
+  // the error is printed in any case, but only meaningful on the meshes of
+  // the two-layer RVE
+  const auto success = checkSolution(ctx, problem, p.check);
 
   // print and write timetable
   mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);

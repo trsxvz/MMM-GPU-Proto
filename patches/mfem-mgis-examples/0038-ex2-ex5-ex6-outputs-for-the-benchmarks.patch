@@ -1,0 +1,219 @@
+From cbdd937ca66ad621f6bb7af0b8d84fd0d4ee8393 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 17 Oct 2026 14:24:55 +0200
+Subject: [PATCH] ex2, ex5, ex6: outputs for the benchmarks
+
+ex2: option --no-paraview (the resultant force is always written). ex5:
+the reaction of the left boundary is printed. ex6: the error to the
+analytical solution is printed, also without --check. ex2 and ex5: option
+--profiling (time table of the profiler).
+---
+ ex2/ssna303.cxx             | 42 ++++++++++++++++++++++++++-----------
+ ex5/SatohTest.cxx           | 10 +++++++++
+ ex6/RveNonLinearElastic.cxx | 19 +++++++++++------
+ 3 files changed, 53 insertions(+), 18 deletions(-)
+
+diff --git a/ex2/ssna303.cxx b/ex2/ssna303.cxx
+index 6074d49..ac8d062 100644
+--- a/ex2/ssna303.cxx
++++ b/ex2/ssna303.cxx
+@@ -19,6 +19,7 @@
+ #include "MFEMMGIS/Material.hxx"
+ #include "MFEMMGIS/ExecutionSettings.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/Profiler.hxx"
+ 
+ //! \brief vertical component of the resultant force at a given time
+ struct VerticalForce {
+@@ -118,6 +119,11 @@ int main(int argc, char** argv) {
+ #else
+   bool parallel = false;
+ #endif
++  // export the displacements and the fields at the integration points for
++  // ParaView at each step
++  bool paraview = true;
++  // print the time table of the profiler at the end
++  bool profiling = false;
+   auto order = 1;
+   auto refinement = 0;
+   auto nbsteps = 50;
+@@ -139,6 +145,13 @@ int main(int argc, char** argv) {
+                  "boundary, no comparison if empty.");
+   args.AddOption(&parallel, "-p", "--parallel", "-no-p", "--no-parallel",
+                  "Perform parallel computations.");
++  args.AddOption(&paraview, "-pv", "--paraview", "-no-pv", "--no-paraview",
++                 "Export the displacements and the fields at the integration "
++                 "points for ParaView at each step (the resultant force is "
++                 "always written).");
++  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
++                 "--no-profiling",
++                 "Print the time table of the profiler at the end.");
+   args.AddOption(&library, "-l", "--library",
+                  "Behaviour library. By default, the library built with the "
+                  "example for the CPU or for the GPU, as the option "
+@@ -162,6 +175,7 @@ int main(int argc, char** argv) {
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   args.PrintOptions(mfem_mgis::getOutputStream());
++  ctx.enableProfiling(profiling);
+   // behaviour library: given by --library, or else the library built with
+   // the example for the processor of the behaviours (option --execution)
+   const auto behaviour_library =
+@@ -263,18 +277,21 @@ int main(int argc, char** argv) {
+       ctx, "ComputeResultantForceOnBoundary",
+       {{"Boundary", 2}, {"OutputFileName", output_file}}) |
+       or_die;
+-  problem.addPostProcessing(ctx, "ParaviewExportResults",
+-                            {{"OutputFileName", "ssna303-displacements"}}) |
+-      or_die;
+-  problem.addPostProcessing(ctx, "ParaviewExportIntegrationPointResultsAtNodes",
+-                            {{{"Results", "FirstPiolaKirchhoffStress"},
+-                              {"OutputFileName", "ssna303-stress"}}}) |
+-      or_die;
+-  problem.addPostProcessing(
+-      ctx, "ParaviewExportIntegrationPointResultsAtNodes",
+-      {{{"Results", "EquivalentPlasticStrain"},
+-        {"OutputFileName", "ssna303-equivalent-plastic-strain"}}}) |
+-      or_die;
++  if (paraview) {
++    problem.addPostProcessing(ctx, "ParaviewExportResults",
++                              {{"OutputFileName", "ssna303-displacements"}}) |
++        or_die;
++    problem.addPostProcessing(
++        ctx, "ParaviewExportIntegrationPointResultsAtNodes",
++        {{{"Results", "FirstPiolaKirchhoffStress"},
++          {"OutputFileName", "ssna303-stress"}}}) |
++        or_die;
++    problem.addPostProcessing(
++        ctx, "ParaviewExportIntegrationPointResultsAtNodes",
++        {{{"Results", "EquivalentPlasticStrain"},
++          {"OutputFileName", "ssna303-equivalent-plastic-strain"}}}) |
++        or_die;
++  }
+   // loop over time step
+   const auto nsteps = mfem_mgis::size_type(nbsteps);
+   const auto dt = end_time / nsteps;
+@@ -310,6 +327,7 @@ int main(int argc, char** argv) {
+     ++iteration;
+     std::cout << '\n';
+   }
++  mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
+   // comparison to the reference values, only on the process writing the
+   // resultant force. The tolerance is above the rounding of the forces, which
+   // are written with 6 significant digits. It is larger for the reference
+diff --git a/ex5/SatohTest.cxx b/ex5/SatohTest.cxx
+index 9390ecf..df45ab9 100644
+--- a/ex5/SatohTest.cxx
++++ b/ex5/SatohTest.cxx
+@@ -24,6 +24,7 @@
+ #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+ #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#include "MFEMMGIS/Profiler.hxx"
+ 
+ /*!
+  * \brief call a function at each integration point of a partial quadrature
+@@ -148,6 +149,8 @@ static bool checkReactions(mfem_mgis::Context& ctx,
+   };
+   const auto Fl = reaction("left");
+   const auto Fr = reaction("right");
++  mfem_mgis::getOutputStream() << "reaction of the left boundary: " << Fl
++                               << " N/m\n";
+   // relative tolerances of the checks: in single precision, the residual of
+   // the Newton solver stagnates at about 1e-5 of the initial one
+   constexpr auto in_double = std::is_same_v<mfem_mgis::real, double>;
+@@ -202,6 +205,8 @@ int main(int argc, char** argv) {
+   auto refinement = 0;
+   auto order = 2;
+   auto post_processing = true;
++  // print the time table of the profiler at the end
++  auto profiling = false;
+   mfem::OptionsParser args(argc, argv);
+   args.AddOption(&library, "-l", "--library",
+                  "Behaviour library. By default, the library built with the "
+@@ -216,6 +221,9 @@ int main(int argc, char** argv) {
+   args.AddOption(&post_processing, "-pp", "--post-processing", "-no-pp",
+                  "--no-post-processing",
+                  "Export the results (ParaView, hydrostatic pressure).");
++  args.AddOption(&profiling, "-prof", "--profiling", "-no-prof",
++                 "--no-profiling",
++                 "Print the time table of the profiler at the end.");
+   // options of mfem-mgis, such as the device (--device)
+   mfem_mgis::declareDefaultOptions(args);
+   args.Parse();
+@@ -229,6 +237,7 @@ int main(int argc, char** argv) {
+     mfem_mgis::abort(EXIT_FAILURE);
+   }
+   args.PrintOptions(mfem_mgis::getOutputStream());
++  ctx.enableProfiling(profiling);
+   // behaviour library: given by --library, or else the library built with
+   // the example for the processor of the behaviours (option --execution)
+   const auto behaviour_library =
+@@ -345,5 +354,6 @@ int main(int argc, char** argv) {
+   const auto temperature = checkImposedTemperature(fed, parallel, T);
+   const auto reactions =
+       checkReactions(ctx, problem, parallel, (refinement == 0) && (order == 2));
++  mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
+   return (temperature && reactions) ? EXIT_SUCCESS : EXIT_FAILURE;
+ }
+diff --git a/ex6/RveNonLinearElastic.cxx b/ex6/RveNonLinearElastic.cxx
+index e063f0d..554b79a 100644
+--- a/ex6/RveNonLinearElastic.cxx
++++ b/ex6/RveNonLinearElastic.cxx
+@@ -71,7 +71,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
+                  "--no-post-processing", "Export the results to Paraview.");
+   args.AddOption(&p.check, "-c", "--check", "-no-c", "--no-check",
+                  "Compare the solution to the analytical solution of the "
+-                 "two-layer cube, only valid for cube_2mat_per.mesh.");
++                 "two-layer cube, only valid for cube_2mat_per.mesh. Without "
++                 "the comparison, the error is still printed.");
+   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
+                  "Verbosity level of the solvers.");
+   // options of mfem-mgis, such as the device (--device)
+@@ -200,8 +201,8 @@ void run_solve(mfem_mgis::attributes::MayAbort,
+ }
+ 
+ /*!
+- * \brief compare the solution to the analytical solution of the two-layer
+- * cube.
++ * \brief prints the error to the analytical solution of the two-layer
++ * cube and, if `compare` is true, compares it to a tolerance.
+  *
+  * The two layers are normal to the x-axis and have the same thickness. The
+  * deformation gradient is uniform in each layer, F = diag(l_i, 1, 1), and the
+@@ -211,7 +212,9 @@ void run_solve(mfem_mgis::attributes::MayAbort,
+  * which gives l_1 by Newton's method.
+  */
+ [[nodiscard]] static bool checkSolution(
+-    mfem_mgis::Context& ctx, mfem_mgis::PeriodicNonLinearEvolutionProblem& p) {
++    mfem_mgis::Context& ctx,
++    mfem_mgis::PeriodicNonLinearEvolutionProblem& p,
++    const bool compare) {
+   using real = mfem_mgis::real;
+   auto or_die = ctx.getFatalFailureHandler();
+   const auto M1 = young1 * (1 - poisson) / ((1 + poisson) * (1 - 2 * poisson));
+@@ -252,7 +255,9 @@ void run_solve(mfem_mgis::attributes::MayAbort,
+   // the Newton solver, raised to 1.2e-5 by mfem-mgis for this type
+   constexpr auto tolerance =
+       std::is_same_v<mfem_mgis::real, double> ? 1e-10 : 4e-5;
+-  if (error > tolerance) {
++  mfem_mgis::getOutputStream()
++      << "error to the analytical solution: " << error << '\n';
++  if (compare && (error > tolerance)) {
+     mfem_mgis::getErrorStream()
+         << "the solution does not match the analytical solution (error: "
+         << error << ")\n";
+@@ -312,7 +317,9 @@ int main(int argc, char* argv[]) {
+   if (p.post_processing) {
+     execute_post_processings(mfem_mgis::may_abort, ctx, problem, 0, 1);
+   }
+-  const auto success = p.check ? checkSolution(ctx, problem) : true;
++  // the error is printed in any case, but only meaningful on the meshes of
++  // the two-layer RVE
++  const auto success = checkSolution(ctx, problem, p.check);
+ 
+   // print and write timetable
+   mfem_mgis::Profiler::OutputManager::printTimeTable(ctx);
+-- 
+2.43.0
+

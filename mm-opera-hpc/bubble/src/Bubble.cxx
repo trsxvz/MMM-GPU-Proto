@@ -185,7 +185,12 @@ struct TestParameters : PhysicalParameters {
   int parallel_mesh = 0;    ///< Flag for parallel mesh format
   int order = 2;            ///< Finite element order
   int refinement = 0;       ///< Mesh refinement level
-  int post_processing = 1;  ///< Enable post-processing (1=yes)
+  /*!
+   * post-processing: 0, none; 1, all (ParaView exports, maximum stresses
+   * around the bubbles, average hydrostatic stress); 2, without the ParaView
+   * exports (maximum stresses and average hydrostatic stress only)
+   */
+  int post_processing = 1;
   int verbosity_level = 0;  ///< Output verbosity level
   mfem_mgis::real scale_factor_vp =
       0.9;  ///< Scale factor for principal stress threshold
@@ -214,7 +219,8 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
   args.AddOption(&p.refinement, "-r", "--refinement",
                  "refinement level of the mesh, default = 0");
   args.AddOption(&p.post_processing, "-p", "--post-processing",
-                 "run post processing step");
+                 "post-processing: 0, none; 1, all; 2, without the ParaView "
+                 "exports");
   args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
                  "choose the verbosity level");
   args.AddOption(&p.scale_factor_vp, "-sf", "--scale-factor-vp",
@@ -508,7 +514,7 @@ int main(int argc, char** argv) {
         or_die;  // Room temperature
   }
   // Configure post-processing output
-  if (post_processing) {
+  if (post_processing == 1) {
     auto results = std::vector<mfem_mgis::Parameter>{"Stress"};
     problem.addPostProcessing(
         ctx, "ParaviewExportIntegrationPointResultsAtNodes",
@@ -668,7 +674,9 @@ int main(int argc, char** argv) {
       write_message(outfile_sighydr, "Volume", "Integral", "Average");
 
     // Execute standard post-processing (Paraview export)
-    post_process(ctx, problem, 0, 1);
+    if (post_processing == 1) {
+      post_process(ctx, problem, 0, 1);
+    }
 
     // Compute and export principal stress and hydrostatic stress
     // field
@@ -689,32 +697,34 @@ int main(int argc, char** argv) {
 
     // L2 projection of the first eigenstress at the nodes
     // for better visualization
-    auto& lsf = mfem_mgis::LinearSolverFactory<true>::getFactory();
-    auto& fespace =
-        problem.getFiniteElementDiscretization().getFiniteElementSpace<true>();
-    auto linear_solver =
-        lsf.generate(ctx, "HyprePCG", fespace,
-                     mfem_mgis::Parameters{
-                         {"Preconditioner",
-                          mfem_mgis::Parameters{{"Name", "HypreILU"}}}}) |
-        or_die;
+    if (post_processing == 1) {
+      auto& lsf = mfem_mgis::LinearSolverFactory<true>::getFactory();
+      auto& fespace =
+          problem.getFiniteElementDiscretization().getFiniteElementSpace<true>();
+      auto linear_solver =
+          lsf.generate(ctx, "HyprePCG", fespace,
+                       mfem_mgis::Parameters{
+                           {"Preconditioner",
+                            mfem_mgis::Parameters{{"Name", "HypreILU"}}}}) |
+          or_die;
 
-    auto projection = [&ctx, &linear_solver, &eig] {
-      CatchTimeSection(ctx, "Bubble::L2Projection");
-      return mfem_mgis::computeL2Projection<true>(ctx, linear_solver, {eig});
-    }();
+      auto projection = [&ctx, &linear_solver, &eig] {
+        CatchTimeSection(ctx, "Bubble::L2Projection");
+        return mfem_mgis::computeL2Projection<true>(ctx, linear_solver, {eig});
+      }();
 
-    auto eigenstress_gf_ptr = projection->result.get();
+      auto eigenstress_gf_ptr = projection->result.get();
 
-    CatchTimeSection(ctx, "Bubble::ExportFirstEigenStress");
-    mfem::ParaViewDataCollection exporter("Eigenstress-pp");
-    exporter.SetDataFormat(mfem::VTKFormat::BINARY);
-    exporter.RegisterField("FirstEigenStress", eigenstress_gf_ptr);
-    exporter.SetMesh(
-        &(problem.getFiniteElementDiscretization().getMesh<true>()));
-    exporter.SetCycle(1);
-    exporter.SetTime(1);
-    exporter.Save();
+      CatchTimeSection(ctx, "Bubble::ExportFirstEigenStress");
+      mfem::ParaViewDataCollection exporter("Eigenstress-pp");
+      exporter.SetDataFormat(mfem::VTKFormat::BINARY);
+      exporter.RegisterField("FirstEigenStress", eigenstress_gf_ptr);
+      exporter.SetMesh(
+          &(problem.getFiniteElementDiscretization().getMesh<true>()));
+      exporter.SetCycle(1);
+      exporter.SetTime(1);
+      exporter.Save();
+    }
   }
 
   // Clean up, close, and win

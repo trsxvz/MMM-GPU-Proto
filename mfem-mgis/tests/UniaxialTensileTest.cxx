@@ -99,6 +99,8 @@ struct TestParameters {
    * converge, in particular when the loading is reversed.
    */
   bool prediction = false;
+  //! \brief print the time table of the profiler at the end
+  bool profiling = false;
   /*!
    * give the displacement gradient instead of the deformation gradient to a
    * finite strain behaviour
@@ -157,6 +159,9 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
   args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
                  "--no-post-processing",
                  "Export or not the results to Paraview.");
+  args.AddOption(&p.profiling, "-prof", "--profiling", "-no-prof",
+                 "--no-profiling",
+                 "Print the time table of the profiler at the end.");
   args.AddOption(&p.prediction, "-pred", "--prediction", "-no-pred",
                  "--no-prediction",
                  "Predict the increment of the unknowns with the elastic "
@@ -455,6 +460,7 @@ int main(int argc, char** argv) {
   auto or_die = ctx.getFatalFailureHandler();
   mfem_mgis::initialize(argc, argv);
   const auto p = parseCommandLineOptions(argc, argv);
+  ctx.enableProfiling(p.profiling);
   constexpr const auto dim = mfem_mgis::size_type{3};
   // building the non linear problem
   auto problem =
