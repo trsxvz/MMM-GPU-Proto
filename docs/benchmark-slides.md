@@ -206,7 +206,14 @@ and oneMKL. Not available in float: the packages refused by the makefile
 of MFEM in single precision (SuperLU_DIST, STRUMPACK, SuiteSparse,
 SUNDIALS, Ginkgo, GSLIB, libCEED, among others), AmgX (refused by
 mfem-mgis in a float build; it is measured in double, also computing in
-single precision within the double build), Teko (double only). The
+single precision within the double build), Teko (double only), Tacho (only
+instantiated in double: Amesos2 of the float Trilinos refers to its float
+instantiations, provided to the linker by a library of stubs which abort,
+`deps/spack/mmm-trilinos-float/tacho-float-stubs.sh`). MGIS is built with
+`MGIS_REAL_TYPE=float` (`install/h-interface/mgis-float`), and the driver
+puts the library of MGIS of the precision of each run first in
+`LD_LIBRARY_PATH`. In float, ptxas exceeds 15 GB on `fem/lor/lor_batched.cpp`
+of MFEM, compiled as PTX only (`reproducers/ptxas-float-lor-batched`). The
 relative tolerances of the linear solvers are at least 1e-6.
 
 ## Trials at the small size (16/10/2026, previous driver)
