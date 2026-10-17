@@ -36,10 +36,24 @@ def ginkgo(preconditioner, iterations=100000):
     return b._krylov("{ginkgo}", preconditioner, iterations=iterations)
 
 
+def gamg(options="", nsmooths=1):
+    """the Krylov solver of PETSc with GAMG (options of the driver), with
+    additional options of PETSc and the number of smoothings of the
+    prolongator (0: plain aggregation)"""
+    d = b.LINEAR_SOLVERS["petsc-gamg"][0].replace(
+        "pc_gamg_agg_nsmooths: 1", f"pc_gamg_agg_nsmooths: {nsmooths}")
+    if options:
+        d = d.replace('pc_type: "gamg", ', 'pc_type: "gamg", ' + options +
+                      ", ")
+    return d
+
+
 # variants: name -> (linear solver, non linear solver or None, environment)
 VARIANTS = {
     # BoomerAMG on the GPU
     "amg-default": (amg(""), None, {}),
+    # the tangent operator applied without assembly (for NewtonK0)
+    "amg-default-mf": (amg(""), None, b.MATRIX_FREE),
     "amg-cheb": (amg("RelaxationType: 16, ChebyshevOrder: 2"), None, {}),
     "amg-cheb3": (amg("RelaxationType: 16, ChebyshevOrder: 3"), None, {}),
     "amg-l1j2": (amg("RelaxationType: 18, RelaxationSweeps: 2"), None, {}),
@@ -131,6 +145,49 @@ VARIANTS = {
     "gko-ic": (ginkgo('{{Name: "GinkgoIC"}}'), None, {}),
     "gko-ilu-isai": (ginkgo('{{Name: "GinkgoILUISAI"}}'), None, {}),
     "gko-ic-isai": (ginkgo('{{Name: "GinkgoICISAI"}}'), None, {}),
+    # GAMG of PETSc on the GPU: the settings of the driver, the
+    # prolongators kept from one resolution to the next (only the Galerkin
+    # products and the smoothers are computed again; already the default of
+    # PETSc 3.26), the plain aggregation, no aggressive coarsening (by the
+    # square of the graph on the first level by default), and the profile
+    # of PETSc (share of the operations on the GPU)
+    "petsc-gamg": (gamg(), None, {}),
+    "petsc-gamg-reuse": (gamg("pc_gamg_reuse_interpolation: true"), None,
+                         {}),
+    "petsc-gamg-agg0": (gamg(nsmooths=0), None, {}),
+    "petsc-gamg-agg0-reuse": (gamg("pc_gamg_reuse_interpolation: true",
+                                   nsmooths=0), None, {}),
+    "petsc-gamg-noaggressive": (gamg("pc_gamg_aggressive_coarsening: 0"),
+                                None, {}),
+    "petsc-gamg-log": (gamg(), None, {"PETSC_OPTIONS": "-log_view"}),
+    # the aggressive coarsening by MIS-2 instead of the square of the graph
+    # (60 % of the time of ex1 with the plain aggregation, on the host), the
+    # preconditioner built for the first resolution and reused for all the
+    # next ones, and both
+    "petsc-gamg-mis": (gamg("pc_gamg_aggressive_square_graph: false"), None,
+                       {}),
+    "petsc-gamg-agg0-mis": (gamg("pc_gamg_aggressive_square_graph: false",
+                                 nsmooths=0), None, {}),
+    "petsc-gamg-reused": (gamg("ksp_reuse_preconditioner: true"), None, {}),
+    "petsc-gamg-mis-reused": (gamg("pc_gamg_aggressive_square_graph: false, "
+                                   "ksp_reuse_preconditioner: true"), None,
+                              {}),
+    "petsc-gamg-agg0-mis-reused": (gamg("pc_gamg_aggressive_square_graph: "
+                                        "false, ksp_reuse_preconditioner: "
+                                        "true", nsmooths=0), None, {}),
+    "petsc-gamg-mis-log": (gamg('pc_gamg_aggressive_square_graph: false, '
+                                'ksp_converged_reason: ""'), None,
+                           {"PETSC_OPTIONS": "-log_view"}),
+    "petsc-gamg-agg0-reused": (gamg("ksp_reuse_preconditioner: true",
+                                    nsmooths=0), None, {}),
+    "petsc-gamg-reason": (gamg('ksp_converged_reason: ""'), None, {}),
+    "petsc-gamg-mis-reason": (gamg('pc_gamg_aggressive_square_graph: '
+                                   'false, ksp_converged_reason: ""'), None,
+                              {}),
+    # the plain aggregation, with the profile of PETSc and the number of
+    # iterations of the conjugate gradient
+    "petsc-gamg-agg0-log": (gamg('ksp_converged_reason: ""', nsmooths=0),
+                            None, {"PETSC_OPTIONS": "-log_view"}),
     # MueLu
     "muelu-cheb": (b.LINEAR_SOLVERS["muelu-chebyshev"][0], None, {}),
     "muelu-cheb3": ('{{Name: "BelosSolver", Options: {{Solver: "{belos}", '
@@ -163,6 +220,18 @@ AMGX_PARAMETERS = {
     "amgx-ilu": 'selector: "SIZE_4", "smoother(ilu)": "MULTICOLOR_ILU"',
     "amgx-agg8": 'selector: "SIZE_8"',
 }
+
+
+# NewtonK0 with one cycle of GAMG in smoothed aggregation (`k0-petsc` of
+# the driver uses the plain aggregation; the runs named
+# tune-amg-default-k0-petsc before the 17/10/2026 at 20:40 used the
+# smoothed one, as their commands show, and the runs named
+# tune-amg-default-k0-petsc-agg0 the plain one)
+b.NON_LINEAR_SOLVERS["k0-petsc-sa"] = (
+    b.NON_LINEAR_SOLVERS["k0-petsc"][0].replace("pc_gamg_agg_nsmooths: 0",
+                                                "pc_gamg_agg_nsmooths: 1"),
+    b._BOTH)
+b._NOT_HYPRE_NON_LINEAR.add("k0-petsc-sa")
 
 
 def main():

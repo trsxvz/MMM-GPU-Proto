@@ -43,6 +43,21 @@ namespace mfem_mgis::internals {
    * mfem-mgis, or by the program, which then finalizes it)
    */
   void initializePETSc();
+  /*!
+   * \brief finalize PETSc at exit, before the destruction of the objects of
+   * PETSc built since the start of the program, if PETSc has been
+   * initialized by mfem-mgis (it is otherwise finalized with MPI, by
+   * `finalize` or at the destruction of the static objects of mfem-mgis).
+   *
+   * The solvers and the preconditioners of PETSc call this function after
+   * their first resolution on the GPU: PETSc then holds pools of events and
+   * of memory of the GPU in static objects of functions, built at their
+   * first use, after the static objects of mfem-mgis, and thus destroyed
+   * before them at exit. `PetscFinalize`, if called afterwards, wrote in
+   * these destroyed pools (heap corruption) and freed the memory of the
+   * GPU with invalid streams (errors of CUDA), and the program aborted.
+   */
+  void finalizePETScAtExit();
 
   /*!
    * \brief options of a solver of PETSc, written in the options database of
@@ -82,6 +97,11 @@ namespace mfem_mgis::internals {
     ~PETScOptions();
     //! \brief mark the solver as used (called by the `Mult` methods)
     void markAsUsed() const noexcept;
+    /*!
+     * \brief finalize PETSc at exit (see `finalizePETScAtExit`), once per
+     * solver, after its first resolution on the GPU
+     */
+    void finalizePETScAtExitOnce() const;
     //! \brief prefix of the options
     const std::string prefix;
 
@@ -92,6 +112,8 @@ namespace mfem_mgis::internals {
     std::vector<std::string> options;
     //! \brief if true, the solver has been used
     mutable bool used = false;
+    //! \brief if true, `finalizePETScAtExit` has been called by the solver
+    mutable bool finalized_at_exit = false;
   };  // end of struct PETScOptions
 
   //! \brief vector of PETSc, destroyed with this object
@@ -152,6 +174,76 @@ namespace mfem_mgis::internals {
    */
   [[nodiscard]] std::unique_ptr<mfem::PetscParMatrix> makeHostMatrix(
       MPI_Comm c, const mfem::Operator& op);
+  /*!
+   * \return if the solvers and the preconditioners of PETSc compute on the
+   * GPU: MFEM computes on a GPU with CUDA (or HIP), PETSc is built with CUDA
+   * (or HIP), and the execution settings, if given, place the linear solvers
+   * on the GPU. Otherwise, when MFEM computes on a GPU, they compute on the
+   * host (see `makeHostMatrix` and `createHostVector`).
+   */
+  [[nodiscard]] bool usePETScOnDevice() noexcept;
+  /*!
+   * \return a matrix of PETSc in the AIJ format of the GPU (CUDA or HIP),
+   * copy of an operator, when the solvers of PETSc compute on the GPU (see
+   * `usePETScOnDevice`). A matrix of hypre is converted by MFEM, through
+   * the `MATHYPRE` format of PETSc, where hypre stores it (on the GPU when
+   * hypre computes on the GPU). A matrix of PETSc is referenced, and
+   * converted in place to the format of the GPU if needed. The other
+   * operators are converted by MFEM.
+   * \param[in] c: communicator of the operators which are not matrices of
+   * hypre
+   * \param[in] op: operator
+   */
+  [[nodiscard]] std::unique_ptr<mfem::PetscParMatrix> makeDeviceMatrix(
+      MPI_Comm c, const mfem::Operator& op);
+  /*!
+   * \brief create a vector of PETSc of the GPU (CUDA or HIP) whose array of
+   * the GPU is the one of a vector of MFEM, without copy. The vector of PETSc
+   * does not own this array, and shall be destroyed before the vector of
+   * MFEM is used again, after `synchronizeDeviceVector` if PETSc wrote it.
+   *
+   * The vectors of PETSc of MFEM 4.10 are not used: when the device memory
+   * of MFEM is managed by Umpire (the default when MFEM is built with
+   * Umpire), they are vectors of the host, which the matrices and the
+   * preconditioners of PETSc of the GPU write on the GPU without the
+   * vectors seeing it (wrong solutions).
+   * \param[out] v: vector
+   * \param[in] c: communicator
+   * \param[in] a: array of the GPU (`Read`, `Write` or `ReadWrite` of the
+   * vector of MFEM on the device), null if the local size is null
+   * \param[in] n: local size
+   */
+  void createDeviceVector(PETScVector& v,
+                          MPI_Comm c,
+                          const real* const a,
+                          const int n);
+  /*!
+   * \brief make the array of the GPU of a vector of PETSc of the GPU up to
+   * date: PETSc may have left the values in its array of the host (for
+   * instance after a direct solver computing on the host)
+   * \param[in] v: vector
+   */
+  void synchronizeDeviceVector(Vec v);
+  /*!
+   * \brief apply an operator of MFEM to vectors of PETSc of the GPU (shell
+   * preconditioners), copied on the GPU from and to vectors of MFEM of the
+   * GPU. These vectors are kept by the caller: the operators of MFEM may keep
+   * aliases of the memory of the vectors given to `Mult` (the solvers of
+   * hypre do, in their own vectors), which shall thus outlive the call (a
+   * vector of MFEM wrapping the array of a vector of PETSc, destroyed after
+   * the call, would leave dangling aliases in the memory manager of MFEM,
+   * which erases a memory without checking its aliases).
+   * \param[in] op: operator
+   * \param[in, out] r: vector of MFEM receiving `x`
+   * \param[in, out] z: vector of MFEM receiving the result
+   * \param[in] x: vector
+   * \param[out] y: result
+   */
+  void applyOnDevice(const mfem::Operator& op,
+                     mfem::Vector& r,
+                     mfem::Vector& z,
+                     Vec x,
+                     Vec y);
 
   /*!
    * \brief rigid body modes of the unknowns of a finite element space,

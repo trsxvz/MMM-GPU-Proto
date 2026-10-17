@@ -284,7 +284,7 @@ The solvers marked as parallel are only available in parallel.
    * - :cxx:`PETScLinearSolver` (parallel)
      - PETSc
      - iterative
-     - host
+     - host, or GPU (PETSc built with CUDA or HIP), as the linear solvers
      - any
      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
        :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
@@ -457,7 +457,7 @@ Preconditioners
        factorization
    * - :cxx:`PETScPreconditioner` (parallel)
      - PETSc
-     - host
+     - host, or GPU (PETSc built with CUDA or HIP), as the linear solvers
      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
        :cxx:`RigidBodyModes`, :cxx:`Fields`
    * - :cxx:`Ifpack2`, :cxx:`MueLu`, :cxx:`FROSch`,
@@ -653,22 +653,33 @@ PETSc ignores the options it does not know: the options which PETSc never
 read (for instance a misspelt option) are reported when a solver which
 has been used is destroyed.
 
-The solvers and the preconditioners of PETSc compute on the host, even
-when :code:`MFEM` computes on a GPU. The matrices of hypre are copied in
-the AIJ format of the host by mfem-mgis: the conversion of :code:`MFEM`
-goes through the :code:`MATHYPRE` format of PETSc, whose creation
-initializes the GPU when PETSc and hypre are built for it (a context per
-process, about 260 MiB of the GPU and 0.4 second each with CUDA 13), even
-for a computation on the host. When :code:`MFEM` computes on a GPU, the
-vectors are copied from and to the vectors of :code:`MFEM`, the
-preconditioners of mfem-mgis given to the Krylov solvers of PETSc being
-applied on the vectors of :code:`MFEM`. With :code:`MFEM`
-4.10 and :code:`PETSc` 3.26 built with CUDA, the vectors of :code:`MFEM`
-placed in the vectors of PETSc (whose internal offload mask :code:`MFEM`
-sets) were seen as null by the Krylov solvers of PETSc and by the shell
-preconditioners, and the vectors of PETSc of the GPU made
-:code:`PetscFinalize` abort the program when freeing the memory of PETSc on
-the GPU.
+When :code:`MFEM` computes on a GPU and PETSc is built for it (CUDA or
+HIP), the solvers and the preconditioners of PETSc compute on the GPU,
+unless the execution settings place the linear solvers on the CPU (the
+:cxx:`mixed` mode with :code:`--linear-solvers-execution cpu`). The
+matrices are converted to the AIJ format of the GPU (the matrices of hypre
+by :code:`MFEM`, through the :code:`MATHYPRE` format of PETSc), and the
+vectors of PETSc of the GPU wrap the memory of the GPU of the vectors of
+:code:`MFEM`, without copy (the preconditioners of mfem-mgis given to the
+Krylov solvers of PETSc are applied to vectors of :code:`MFEM` copied on the
+GPU). The vectors of PETSc of :code:`MFEM` 4.10
+are not used: when the device memory of :code:`MFEM` is managed by Umpire
+(the default when :code:`MFEM` is built with Umpire), they are vectors of
+the host, which the matrices and the preconditioners of PETSc of the GPU
+write on the GPU without the vectors seeing it (wrong solutions). PETSc is
+then finalized at exit, before the destruction of its pools of events and
+of memory of the GPU, which made :code:`PetscFinalize` abort the program
+when it was called by the destruction of the static objects of mfem-mgis.
+
+Otherwise, the solvers and the preconditioners of PETSc compute on the
+host. The matrices of hypre are copied in the AIJ format of the host by
+mfem-mgis: the conversion of :code:`MFEM` goes through the
+:code:`MATHYPRE` format of PETSc, whose creation initializes the GPU when
+PETSc and hypre are built for it (a context per process, about 260 MiB of
+the GPU and 0.4 second each with CUDA 13), even for a computation on the
+host. When :code:`MFEM` computes on a GPU, the vectors are copied from and
+to the vectors of :code:`MFEM`, the preconditioners of mfem-mgis given to
+the Krylov solvers of PETSc being applied on the vectors of :code:`MFEM`.
 
 Without options, the defaults of PETSc apply: the GMRES solver restarted
 every 30 iterations, preconditioned by an incomplete LU factorization in

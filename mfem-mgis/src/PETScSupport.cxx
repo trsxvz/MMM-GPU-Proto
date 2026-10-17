@@ -20,15 +20,22 @@
 #include <optional>
 #include <utility>
 #include <algorithm>
+#include <type_traits>
 #include "petscsys.h"
 #include "petscvec.h"
+#include "petscdevice.h"
 #include "petscmat.h"
 #include "petscpc.h"
 #include "petscis.h"
+#include "mfem/general/device.hpp"
+#include "mfem/general/backends.hpp"
+#include "mfem/general/mem_manager.hpp"
 #include "mfem/fem/pfespace.hpp"
 #include "mfem/linalg/hypre.hpp"
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/ExecutionSettings.hxx"
+#include "ExecutionSettings.hxx"
 #include "NodesCoordinates.hxx"
 #include "PETScSupport.hxx"
 
@@ -129,6 +136,13 @@ namespace mfem_mgis::internals {
   void PETScOptions::markAsUsed() const noexcept {
     this->used = true;
   }  // end of markAsUsed
+
+  void PETScOptions::finalizePETScAtExitOnce() const {
+    if (!this->finalized_at_exit) {
+      finalizePETScAtExit();
+      this->finalized_at_exit = true;
+    }
+  }  // end of finalizePETScAtExitOnce
 
   PETScOptions::~PETScOptions() {
     auto finalized = PetscBool{};
@@ -307,6 +321,198 @@ namespace mfem_mgis::internals {
     convertToHostMatrix(*m);
     return m;
   }  // end of makeHostMatrix
+
+  bool usePETScOnDevice() noexcept {
+#if defined(MFEM_USE_CUDA) && defined(PETSC_HAVE_CUDA)
+    const auto device = mfem::Device::Allows(mfem::Backend::CUDA_MASK);
+#elif defined(MFEM_USE_HIP) && defined(PETSC_HAVE_HIP)
+    const auto device = mfem::Device::Allows(mfem::Backend::HIP_MASK);
+#else
+    const auto device = false;
+#endif
+    if ((!device) || (!isExecutionModeSpecified())) {
+      return device;
+    }
+    return getExecutionSettings().linear_solver == ExecutionLocation::GPU;
+  }  // end of usePETScOnDevice
+
+  /*!
+   * \brief convert a matrix of PETSc in the AIJ format of the host to the AIJ
+   * format of the GPU (CUDA or HIP), in place
+   * \param[in, out] a: matrix
+   */
+  static void convertToDeviceMatrix(Mat a) {
+    if (a == nullptr) {
+      return;
+    }
+    auto host = PetscBool{};
+    if (PetscObjectTypeCompareAny(reinterpret_cast<PetscObject>(a), &host,
+                                  MATSEQAIJ, MATMPIAIJ, "") != 0) {
+      mgis::raise("convertToDeviceMatrix: PetscObjectTypeCompareAny failed");
+    }
+    if (host == PETSC_FALSE) {
+      return;
+    }
+#if defined(MFEM_USE_CUDA) && defined(PETSC_HAVE_CUDA)
+    if (MatConvert(a, MATAIJCUSPARSE, MAT_INPLACE_MATRIX, &a) != 0) {
+      mgis::raise("convertToDeviceMatrix: MatConvert failed");
+    }
+#elif defined(MFEM_USE_HIP) && defined(PETSC_HAVE_HIP)
+    if (MatConvert(a, MATAIJHIPSPARSE, MAT_INPLACE_MATRIX, &a) != 0) {
+      mgis::raise("convertToDeviceMatrix: MatConvert failed");
+    }
+#else
+    mgis::raise("convertToDeviceMatrix: PETSc is not built for the GPU");
+#endif
+  }  // end of convertToDeviceMatrix
+
+  std::unique_ptr<mfem::PetscParMatrix> makeDeviceMatrix(
+      MPI_Comm c, const mfem::Operator& op) {
+    const auto* const a = dynamic_cast<const mfem::HypreParMatrix*>(&op);
+    if (a != nullptr) {
+      // the arrays of hypre are where hypre computes
+      a->HypreRead();
+      auto m =
+          std::make_unique<mfem::PetscParMatrix>(a, mfem::Operator::PETSC_MATAIJ);
+      convertToDeviceMatrix(*m);
+      return m;
+    }
+    const auto* const p = dynamic_cast<const mfem::PetscParMatrix*>(&op);
+    if (p != nullptr) {
+      auto m =
+          std::make_unique<mfem::PetscParMatrix>(static_cast<Mat>(*p), true);
+      convertToDeviceMatrix(*m);
+      return m;
+    }
+    auto m = std::make_unique<mfem::PetscParMatrix>(
+        c, &op, mfem::Operator::PETSC_MATAIJ);
+    convertToDeviceMatrix(*m);
+    return m;
+  }  // end of makeDeviceMatrix
+
+  void createDeviceVector(PETScVector& v,
+                          MPI_Comm c,
+                          const real* const a,
+                          const int n) {
+    static_assert(std::is_same_v<real, PetscScalar>,
+                  "the vectors of MFEM and of PETSc shall have the same "
+                  "numerical type");
+    auto size = int{};
+    if (MPI_Comm_size(c, &size) != MPI_SUCCESS) {
+      mgis::raise("createDeviceVector: MPI_Comm_size failed");
+    }
+    const auto ln = static_cast<PetscInt>(n);
+#if defined(MFEM_USE_CUDA) && defined(PETSC_HAVE_CUDA)
+    const auto e = (size == 1)
+                       ? VecCreateSeqCUDAWithArray(c, 1, ln, a, &(v.v))
+                       : VecCreateMPICUDAWithArray(c, 1, ln, PETSC_DECIDE, a,
+                                                   &(v.v));
+#elif defined(MFEM_USE_HIP) && defined(PETSC_HAVE_HIP)
+    const auto e = (size == 1)
+                       ? VecCreateSeqHIPWithArray(c, 1, ln, a, &(v.v))
+                       : VecCreateMPIHIPWithArray(c, 1, ln, PETSC_DECIDE, a,
+                                                  &(v.v));
+#else
+    std::ignore = ln;
+    std::ignore = a;
+    const auto e = PETSC_ERR_SUP;
+#endif
+    if (e != 0) {
+      mgis::raise("createDeviceVector: the vector can't be created");
+    }
+  }  // end of createDeviceVector
+
+  void synchronizeDeviceVector(Vec v) {
+    // the array of the GPU is given by PETSc after the copy of the values of
+    // the host, if needed
+    const auto* a = static_cast<const PetscScalar*>(nullptr);
+    auto t = PetscMemType{};
+    if ((VecGetArrayReadAndMemType(v, &a, &t) != 0) ||
+        (VecRestoreArrayReadAndMemType(v, &a) != 0)) {
+      mgis::raise("synchronizeDeviceVector: the array can't be read");
+    }
+  }  // end of synchronizeDeviceVector
+
+  /*!
+   * \brief copy an array of the GPU in another one, after the end of the
+   * computations of PETSc and of MFEM on the GPU, the copy being finished on
+   * return (PETSc computes in its own streams; the copies of PETSc only
+   * accept the arrays allocated by PETSc)
+   * \param[out] dst: destination
+   * \param[in] src: source
+   * \param[in] n: size
+   */
+  static void copyDeviceArray(PetscScalar* const dst,
+                              const PetscScalar* const src,
+                              const PetscInt n) {
+    if (n == 0) {
+      return;
+    }
+    auto dctx = PetscDeviceContext{};
+    if ((PetscDeviceContextGetCurrentContext(&dctx) != 0) ||
+        (PetscDeviceContextSynchronize(dctx) != 0)) {
+      mgis::raise("copyDeviceArray: the context of PETSc can't be synchronized");
+    }
+    const auto bytes = static_cast<std::size_t>(n) * sizeof(PetscScalar);
+#if defined(MFEM_USE_CUDA)
+    mfem::CuMemcpyDtoD(dst, src, bytes);
+#elif defined(MFEM_USE_HIP)
+    mfem::HipMemcpyDtoD(dst, src, bytes);
+#else
+    std::ignore = bytes;
+    mgis::raise("copyDeviceArray: MFEM is built without GPU support");
+#endif
+    MFEM_DEVICE_SYNC;
+  }  // end of copyDeviceArray
+
+  void applyOnDevice(const mfem::Operator& op,
+                     mfem::Vector& r,
+                     mfem::Vector& z,
+                     Vec x,
+                     Vec y) {
+    // arrays of the GPU of the vectors of PETSc, given back to PETSc on exit
+    // (the values of the array of x being up to date on the GPU, y being
+    // written on the GPU)
+    struct DeviceArrays {
+      ~DeviceArrays() {
+        if (this->ya != nullptr) {
+          std::ignore = VecRestoreArrayWriteAndMemType(this->y, &(this->ya));
+        }
+        if (this->xa != nullptr) {
+          std::ignore = VecRestoreArrayReadAndMemType(this->x, &(this->xa));
+        }
+      }
+      Vec x;
+      Vec y;
+      const PetscScalar* xa = nullptr;
+      PetscScalar* ya = nullptr;
+    };
+    auto nx = PetscInt{};
+    auto ny = PetscInt{};
+    if ((VecGetLocalSize(x, &nx) != 0) || (VecGetLocalSize(y, &ny) != 0)) {
+      mgis::raise("applyOnDevice: VecGetLocalSize failed");
+    }
+    auto arrays = DeviceArrays{.x = x, .y = y};
+    auto tx = PetscMemType{};
+    auto ty = PetscMemType{};
+    if ((VecGetArrayReadAndMemType(x, &(arrays.xa), &tx) != 0) ||
+        (VecGetArrayWriteAndMemType(y, &(arrays.ya), &ty) != 0)) {
+      mgis::raise("applyOnDevice: the arrays of the vectors can't be read");
+    }
+    if (((nx != 0) && (!PetscMemTypeDevice(tx))) ||
+        ((ny != 0) && (!PetscMemTypeDevice(ty)))) {
+      mgis::raise("applyOnDevice: the vectors are not vectors of the GPU");
+    }
+    r.UseDevice(true);
+    r.SetSize(static_cast<int>(nx));
+    z.UseDevice(true);
+    z.SetSize(static_cast<int>(ny));
+    copyDeviceArray(r.Write(), arrays.xa, nx);
+    op.Mult(r, z);
+    // `Read` copies the values computed on the host by the operator, if any,
+    // on the GPU
+    copyDeviceArray(arrays.ya, z.Read(), ny);
+  }  // end of applyOnDevice
 
   void PETScRigidBodyModes::initialize(FiniteElementSpace<true>& fespace) {
     this->dimension = 0;

@@ -303,7 +303,12 @@ State on 15/10/2026: `PETScLinearSolver` and `PETScPreconditioner` give
 GAMG the block size and the rigid body modes when the unknowns are ordered
 by vector dimension (15 conjugate gradient iterations instead of 51 on the
 beam of the tests of mfem-mgis). With MFEM on a GPU, the solvers of PETSc
-compute on the host (see [plan-solver-libraries.md](plan-solver-libraries.md)).
+computed on the host at that date (see
+[plan-solver-libraries.md](plan-solver-libraries.md)); since the
+17/10/2026 (`patches/mfem-mgis/0272-*`), they compute on the GPU when the
+linear solvers are placed there (see
+[benchmark-slides.md](benchmark-slides.md) and
+`reproducers/petsc-gpu-vectors`).
 
 ### AmgX (NVIDIA)
 

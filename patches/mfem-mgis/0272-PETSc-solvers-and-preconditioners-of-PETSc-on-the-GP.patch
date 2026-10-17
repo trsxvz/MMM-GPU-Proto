@@ -1,0 +1,912 @@
+From a628bcfe8c412b7481f8145d67d37dcebcf8b4eb Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 17 Oct 2026 18:54:52 +0200
+Subject: [PATCH] PETSc: solvers and preconditioners of PETSc on the GPU
+
+When MFEM computes on a GPU and PETSc is built for it (CUDA or HIP), the
+Krylov solvers (PETScLinearSolver) and the preconditioners
+(PETScPreconditioner) of PETSc compute on the GPU, unless the execution
+settings place the linear solvers on the CPU (mixed mode with
+--linear-solvers-execution cpu, which keeps the previous computation on the
+host): placement LinearSolverPlacement::REQUESTED, new, where the execution
+settings place the linear solvers.
+
+- the operators are converted to the AIJ format of the GPU (the matrices of
+  hypre by MFEM, through the MATHYPRE format of PETSc, where hypre stores
+  them), instead of the copy on the host;
+- the right hand side and the solution are vectors of PETSc of the GPU
+  wrapping the memory of the GPU of the vectors of MFEM, without copy
+  (VecCreate{Seq,MPI}{CUDA,HIP}WithArray), instead of the copies through
+  the arrays of the host;
+- the preconditioners of mfem-mgis given to the Krylov solvers of PETSc are
+  applied to persistent vectors of MFEM, copied on the GPU from and to the
+  vectors of PETSc: the solvers of hypre keep aliases of the memory given
+  to Mult, which a vector of MFEM wrapping an array of PETSc and destroyed
+  after the call would leave dangling.
+
+The vectors of PETSc of MFEM 4.10 are not used: with the Umpire device
+memory types (the default when MFEM is built with Umpire),
+PetscParVector::SetVecType_ gives vectors of the host, which the matrices
+and the preconditioners of PETSc of the GPU write on the GPU without the
+vectors seeing it (null preconditioned residuals, wrong solutions).
+
+PetscFinalize aborted the program after a computation of PETSc on the
+GPU: PETSc 3.26 keeps its pools of events and of memory of the GPU in
+static objects of functions, built at their first use, after the static
+Finalizer of mfem-mgis, and thus destroyed before it at exit (heap
+corruption, invalid streams). PETSc is now finalized by a function
+registered with std::atexit after the first resolution on the GPU of each
+solver of PETSc (Finalizer::finalizePETSc, idempotent; hypre and MPI are
+still finalized by the Finalizer).
+
+Tests: PETScSolversTest checks that the matrix given to the Krylov solver
+is in the AIJ format of the GPU on a GPU (of the host otherwise), and that
+a shell preconditioner applied once (preonly) to the vectors of the solver
+gives the result of the preconditioner; it measures the norms with
+InnerProduct, mfem::ParNormlp reading the host array without synchronizing
+it (mfem/mfem#5586). PETScSolversTest and SNESSolverTest pass on the host
+and on the GPU, with 1 and 2 processes.
+---
+ docs/source/user_guide/linear_solvers.rst     |  47 ++--
+ .../release_notes/release_notes-1.1.0.rst     |   6 +-
+ include/MFEMMGIS/LinearSolverDescription.hxx  |   7 +-
+ src/Config.cxx                                |  33 ++-
+ src/ExecutionSettings.cxx                     |   1 +
+ src/PETScLinearSolvers.cxx                    | 112 +++++++---
+ src/PETScSupport.cxx                          | 206 ++++++++++++++++++
+ src/PETScSupport.hxx                          |  92 ++++++++
+ tests/CMakeLists.txt                          |   3 +-
+ tests/PETScSolversTest.cxx                    |  49 ++++-
+ 10 files changed, 497 insertions(+), 59 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index b3133369ea..43b458e78e 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -284,7 +284,7 @@ The solvers marked as parallel are only available in parallel.
+    * - :cxx:`PETScLinearSolver` (parallel)
+      - PETSc
+      - iterative
+-     - host
++     - host, or GPU (PETSc built with CUDA or HIP), as the linear solvers
+      - any
+      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
+        :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
+@@ -457,7 +457,7 @@ Preconditioners
+        factorization
+    * - :cxx:`PETScPreconditioner` (parallel)
+      - PETSc
+-     - host
++     - host, or GPU (PETSc built with CUDA or HIP), as the linear solvers
+      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
+        :cxx:`RigidBodyModes`, :cxx:`Fields`
+    * - :cxx:`Ifpack2`, :cxx:`MueLu`, :cxx:`FROSch`,
+@@ -653,22 +653,33 @@ PETSc ignores the options it does not know: the options which PETSc never
+ read (for instance a misspelt option) are reported when a solver which
+ has been used is destroyed.
+ 
+-The solvers and the preconditioners of PETSc compute on the host, even
+-when :code:`MFEM` computes on a GPU. The matrices of hypre are copied in
+-the AIJ format of the host by mfem-mgis: the conversion of :code:`MFEM`
+-goes through the :code:`MATHYPRE` format of PETSc, whose creation
+-initializes the GPU when PETSc and hypre are built for it (a context per
+-process, about 260 MiB of the GPU and 0.4 second each with CUDA 13), even
+-for a computation on the host. When :code:`MFEM` computes on a GPU, the
+-vectors are copied from and to the vectors of :code:`MFEM`, the
+-preconditioners of mfem-mgis given to the Krylov solvers of PETSc being
+-applied on the vectors of :code:`MFEM`. With :code:`MFEM`
+-4.10 and :code:`PETSc` 3.26 built with CUDA, the vectors of :code:`MFEM`
+-placed in the vectors of PETSc (whose internal offload mask :code:`MFEM`
+-sets) were seen as null by the Krylov solvers of PETSc and by the shell
+-preconditioners, and the vectors of PETSc of the GPU made
+-:code:`PetscFinalize` abort the program when freeing the memory of PETSc on
+-the GPU.
++When :code:`MFEM` computes on a GPU and PETSc is built for it (CUDA or
++HIP), the solvers and the preconditioners of PETSc compute on the GPU,
++unless the execution settings place the linear solvers on the CPU (the
++:cxx:`mixed` mode with :code:`--linear-solvers-execution cpu`). The
++matrices are converted to the AIJ format of the GPU (the matrices of hypre
++by :code:`MFEM`, through the :code:`MATHYPRE` format of PETSc), and the
++vectors of PETSc of the GPU wrap the memory of the GPU of the vectors of
++:code:`MFEM`, without copy (the preconditioners of mfem-mgis given to the
++Krylov solvers of PETSc are applied to vectors of :code:`MFEM` copied on the
++GPU). The vectors of PETSc of :code:`MFEM` 4.10
++are not used: when the device memory of :code:`MFEM` is managed by Umpire
++(the default when :code:`MFEM` is built with Umpire), they are vectors of
++the host, which the matrices and the preconditioners of PETSc of the GPU
++write on the GPU without the vectors seeing it (wrong solutions). PETSc is
++then finalized at exit, before the destruction of its pools of events and
++of memory of the GPU, which made :code:`PetscFinalize` abort the program
++when it was called by the destruction of the static objects of mfem-mgis.
++
++Otherwise, the solvers and the preconditioners of PETSc compute on the
++host. The matrices of hypre are copied in the AIJ format of the host by
++mfem-mgis: the conversion of :code:`MFEM` goes through the
++:code:`MATHYPRE` format of PETSc, whose creation initializes the GPU when
++PETSc and hypre are built for it (a context per process, about 260 MiB of
++the GPU and 0.4 second each with CUDA 13), even for a computation on the
++host. When :code:`MFEM` computes on a GPU, the vectors are copied from and
++to the vectors of :code:`MFEM`, the preconditioners of mfem-mgis given to
++the Krylov solvers of PETSc being applied on the vectors of :code:`MFEM`.
+ 
+ Without options, the defaults of PETSc apply: the GMRES solver restarted
+ every 30 iterations, preconditioned by an incomplete LU factorization in
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index e08a2d5737..fa38ad1e35 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -178,8 +178,10 @@ mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
+ :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
+ For the linear elasticity, with the unknowns ordered by vector dimension,
+ the rigid body modes are given to the preconditioners of PETSc (GAMG).
+-The solvers of PETSc compute on the host, the matrices of hypre being
+-copied without initializing the GPU. The :cxx:`Fields` option set to
++The solvers of PETSc compute on the GPU when MFEM computes on a GPU for
++which PETSc is built, unless the linear solvers are placed on the CPU, the
++vectors of MFEM being wrapped without copy, and on the host otherwise, the
++matrices of hypre being then copied without initializing the GPU. The :cxx:`Fields` option set to
+ :cxx:`Components` gives the field split preconditioner of PETSc one field
+ per component of the unknowns, whatever their ordering. See
+ :ref:`petsc_linear_solvers`.
+diff --git a/include/MFEMMGIS/LinearSolverDescription.hxx b/include/MFEMMGIS/LinearSolverDescription.hxx
+index 490f7d9a93..1b4840970d 100644
+--- a/include/MFEMMGIS/LinearSolverDescription.hxx
++++ b/include/MFEMMGIS/LinearSolverDescription.hxx
+@@ -32,7 +32,12 @@ namespace mfem_mgis {
+     //! \brief where the device of MFEM computes (solvers of MFEM)
+     MFEM,
+     //! \brief where the memory of hypre is (solvers of hypre)
+-    HYPRE
++    HYPRE,
++    /*!
++     * \brief where the execution settings place the linear solvers, on the
++     * host or on the GPU (solvers of PETSc built for the GPU of MFEM)
++     */
++    REQUESTED
+   };  // end of LinearSolverPlacement
+ 
+   //! \brief kind of linear solver
+diff --git a/src/Config.cxx b/src/Config.cxx
+index ff0ec397a1..28a954360d 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -116,6 +116,12 @@ namespace mfem_mgis {
+      * before MPI, if it is initialized by this call.
+      */
+     void initializeKokkosOnDemand();
++    /*!
++     * \brief finalize PETSc, if it has been initialized by mfem-mgis and not
++     * finalized yet, before MPI (called by `finalize`, and at exit by the
++     * function registered by `finalizePETScAtExit`)
++     */
++    void finalizePETSc();
+     //! \brief finalize the execution of the mfem-mgis
+     void finalize();
+     /*!
+@@ -133,6 +139,8 @@ namespace mfem_mgis {
+      * and its preconditioners (see `initializePETScOnDemand`)
+      */
+     bool petsc_initialized_on_demand = false;
++    //! \brief boolean stating if PETSc has been finalized by mfem-mgis
++    bool petsc_finalized = false;
+ #endif /* MFEM_MGIS_HAVE_PETSC */
+     /*!
+      * \brief MFEM device, created by `initialize` (option `--device`,
+@@ -424,6 +432,15 @@ namespace mfem_mgis {
+     mfem::MFEMInitializePetsc();
+     this->petsc_initialized_on_demand = true;
+   }  // end of initializePETScOnDemand
++
++  void Finalizer::finalizePETSc() {
++    if ((this->pendingExit) || (this->petsc_finalized) ||
++        ((!this->use_petsc) && (!this->petsc_initialized_on_demand))) {
++      return;
++    }
++    mfem::MFEMFinalizePetsc();
++    this->petsc_finalized = true;
++  }  // end of finalizePETSc
+ #else  /* MFEM_MGIS_HAVE_PETSC */
+   void Finalizer::setPETSc(const char*) {
+     mgis::raise("Finalizer::setPETSc: PETSc is not supported");
+@@ -432,6 +449,8 @@ namespace mfem_mgis {
+   void Finalizer::initializePETScOnDemand() {
+     mgis::raise("Finalizer::initializePETScOnDemand: PETSc is not supported");
+   }
++
++  void Finalizer::finalizePETSc() {}
+ #endif /*MFEM_MGIS_HAVE_PETSC*/
+ 
+   void Finalizer::initializeKokkosOnDemand() {
+@@ -713,11 +732,7 @@ namespace mfem_mgis {
+ #endif /* MFEM_MGIS_HAVE_KOKKOS */
+     if (!this->pendingExit) {
+ #ifdef MFEM_USE_MPI
+-#ifdef MFEM_MGIS_HAVE_PETSC
+-      if ((this->use_petsc) || (this->petsc_initialized_on_demand)) {
+-        mfem::MFEMFinalizePetsc();
+-      }
+-#endif /* MFEM_MGIS_HAVE_PETSC */
++      this->finalizePETSc();
+       mfem::Hypre::Finalize();
+       MPI_Finalize();
+       this->pendingExit = true;
+@@ -996,6 +1011,14 @@ namespace mfem_mgis {
+     Finalizer::get().initializePETScOnDemand();
+   }  // end of initializePETScOnDemand
+ 
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
++  void internals::finalizePETScAtExit() {
++    if (std::atexit([] { Finalizer::get().finalizePETSc(); }) != 0) {
++      mgis::raise("finalizePETScAtExit: std::atexit failed");
++    }
++  }  // end of finalizePETScAtExit
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
++
+ #ifdef MFEM_MGIS_HAVE_KOKKOS
+   void internals::initializeKokkosOnDemand() {
+     Finalizer::get().initializeKokkosOnDemand();
+diff --git a/src/ExecutionSettings.cxx b/src/ExecutionSettings.cxx
+index 38bd09389c..c69144503d 100644
+--- a/src/ExecutionSettings.cxx
++++ b/src/ExecutionSettings.cxx
+@@ -354,6 +354,7 @@ namespace mfem_mgis::internals {
+     const auto mfem_location = s.mode == ExecutionMode::CPU
+                                    ? ExecutionLocation::CPU
+                                    : ExecutionLocation::GPU;
++    // `LinearSolverPlacement::REQUESTED`: where the linear solvers are placed
+     auto location = requested;
+     if (p == LinearSolverPlacement::HOST) {
+       location = ExecutionLocation::CPU;
+diff --git a/src/PETScLinearSolvers.cxx b/src/PETScLinearSolvers.cxx
+index 699dec469f..914952e691 100644
+--- a/src/PETScLinearSolvers.cxx
++++ b/src/PETScLinearSolvers.cxx
+@@ -5,16 +5,25 @@
+  * solver (`KSP`) and a preconditioner (`PC`) of PETSc, configured by the
+  * options database of PETSc.
+  *
+- * The solvers and the preconditioners of PETSc compute on the host, even
+- * when MFEM computes on a GPU: the matrices are copied in the AIJ format of
+- * the host (see `makeHostMatrix`, which does not initialize the GPU), and,
+- * when MFEM computes on a GPU, the vectors are copied from and to the
+- * vectors of MFEM through the arrays of the host of PETSc. With MFEM 4.10 and
+- * PETSc 3.26 built with CUDA, the vectors of MFEM placed by MFEM in the vectors
+- * of PETSc, whose internal offload mask MFEM sets, were seen as null by the
+- * Krylov solvers of PETSc and by the shell preconditioners, and the vectors of
+- * PETSc of the GPU made `PetscFinalize` abort the program when freeing the
+- * memory pool of PETSc on the GPU.
++ * When MFEM computes on a GPU and PETSc is built for it (CUDA or HIP), the
++ * solvers and the preconditioners of PETSc compute on the GPU, unless the
++ * execution settings place the linear solvers on the host (see
++ * `usePETScOnDevice`): the matrices are converted to the AIJ format of the
++ * GPU (see `makeDeviceMatrix`), and the vectors of PETSc of the GPU wrap the
++ * memory of the GPU of the vectors of MFEM, without copy (see
++ * `createDeviceVector`; the shell preconditioners are applied to vectors of
++ * MFEM copied on the GPU, see `applyOnDevice`). Otherwise, they compute on the
++ * host: the matrices are copied in the AIJ format of the host (see
++ * `makeHostMatrix`, which does not initialize the GPU), and, when MFEM
++ * computes on a GPU, the vectors are copied from and to the vectors of MFEM
++ * through the arrays of the host of PETSc.
++ *
++ * The vectors of PETSc of MFEM 4.10 are not used on the GPU: when the device
++ * memory of MFEM is managed by Umpire (the default when MFEM is built with
++ * Umpire), they are vectors of the host, which the matrices and the
++ * preconditioners of PETSc of the GPU write on the GPU without the vectors
++ * seeing it, and the Krylov solvers of PETSc saw null preconditioned
++ * residuals (wrong solutions).
+  * \date   15/10/2026
+  */
+ 
+@@ -74,12 +83,10 @@ namespace mfem_mgis::internals {
+      * solver, the others are seen by PETSc as shell preconditioners. This
+      * method hides the one of MFEM, which is not virtual.
+      *
+-     * The shell preconditioners are the ones of mfem-mgis, whose vectors
+-     * are copied from and to the vectors of PETSc through their arrays of
+-     * the host: the shell preconditioners of MFEM wrap the vectors of PETSc
+-     * by setting their internal offload mask, which, when MFEM computes on
+-     * a GPU, gave null vectors to the preconditioner (MFEM 4.10, PETSc
+-     * 3.26 built with CUDA).
++     * The shell preconditioners are the ones of mfem-mgis, applied to
++     * vectors of MFEM copied from and to the vectors of PETSc, on the GPU
++     * when the solvers of PETSc compute on the GPU (see `applyOnDevice`),
++     * through the arrays of the host of the vectors of PETSc otherwise.
+      * \param[in] p: preconditioner
+      */
+     void SetPreconditioner(mfem::Solver& p) {
+@@ -105,10 +112,10 @@ namespace mfem_mgis::internals {
+       if (this->shell_preconditioner != nullptr) {
+         this->shell_preconditioner->SetOperator(op);
+       }
+-      // the operator is copied in the AIJ format of the host (see
+-      // `makeHostMatrix` and the description of this file), referenced by
+-      // the Krylov solver
+-      const auto a = makeHostMatrix(this->GetComm(), op);
++      // the operator is copied in the AIJ format of the GPU or of the host
++      // (see the description of this file), referenced by the Krylov solver
++      const auto a = usePETScOnDevice() ? makeDeviceMatrix(this->GetComm(), op)
++                                        : makeHostMatrix(this->GetComm(), op);
+       this->rigid_body_modes.attach(*a);
+       mfem::PetscLinearSolver::SetOperator(*a);
+     }
+@@ -158,16 +165,30 @@ namespace mfem_mgis::internals {
+       }
+       // see the description of this file
+       auto* const ksp = static_cast<KSP>(*this);
+-      auto vx = PETScVector{};
+-      auto vb = PETScVector{};
+-      createHostVector(vb, this->GetComm(), b.Size());
+-      createHostVector(vx, this->GetComm(), x.Size());
+-      copyToPETScVector(vb.v, b);
+       auto guess = PetscBool{};
+       if (KSPGetInitialGuessNonzero(ksp, &guess) != 0) {
+         mgis::raise(
+             "PETScKrylovSolver::Mult: KSPGetInitialGuessNonzero failed");
+       }
++      auto vx = PETScVector{};
++      auto vb = PETScVector{};
++      if (usePETScOnDevice()) {
++        createDeviceVector(vb, this->GetComm(), b.Read(), b.Size());
++        createDeviceVector(vx, this->GetComm(),
++                           guess == PETSC_TRUE ? x.ReadWrite() : x.Write(),
++                           x.Size());
++        // the right hand side is not modified
++        if ((VecLockReadPush(vb.v) != 0) ||
++            (KSPSolve(ksp, vb.v, vx.v) != 0) || (VecLockReadPop(vb.v) != 0)) {
++          mgis::raise("PETScKrylovSolver::Mult: KSPSolve failed");
++        }
++        synchronizeDeviceVector(vx.v);
++        this->finalizePETScAtExitOnce();
++        return;
++      }
++      createHostVector(vb, this->GetComm(), b.Size());
++      createHostVector(vx, this->GetComm(), x.Size());
++      copyToPETScVector(vb.v, b);
+       if (guess == PETSC_TRUE) {
+         copyToPETScVector(vx.v, x);
+       }
+@@ -215,6 +236,11 @@ namespace mfem_mgis::internals {
+           return PETSC_ERR_LIB;
+         }
+         const auto& s = *static_cast<const PETScKrylovSolver*>(d);
++        if (usePETScOnDevice()) {
++          applyOnDevice(*(s.shell_preconditioner), s.shell_rhs,
++                        s.shell_solution, x, y);
++          return PETSC_SUCCESS;
++        }
+         auto n = PetscInt{};
+         if (VecGetLocalSize(x, &n) != 0) {
+           return PETSC_ERR_LIB;
+@@ -253,10 +279,10 @@ namespace mfem_mgis::internals {
+         : PETScOptions(comm, "pc"),
+           mfem::PetscPreconditioner(comm, this->prefix) {}
+     void SetOperator(const mfem::Operator& op) override {
+-      // the operator is copied in the AIJ format of the host (see
+-      // `makeHostMatrix` and the description of this file), referenced by
+-      // the preconditioner
+-      const auto a = makeHostMatrix(this->GetComm(), op);
++      // the operator is copied in the AIJ format of the GPU or of the host
++      // (see the description of this file), referenced by the preconditioner
++      const auto a = usePETScOnDevice() ? makeDeviceMatrix(this->GetComm(), op)
++                                        : makeHostMatrix(this->GetComm(), op);
+       this->rigid_body_modes.attach(*a);
+       mfem::PetscPreconditioner::SetOperator(*a);
+     }
+@@ -307,6 +333,17 @@ namespace mfem_mgis::internals {
+       // see the description of this file
+       auto vx = PETScVector{};
+       auto vb = PETScVector{};
++      if (usePETScOnDevice()) {
++        createDeviceVector(vb, this->GetComm(), b.Read(), b.Size());
++        createDeviceVector(vx, this->GetComm(), x.Write(), x.Size());
++        if ((VecLockReadPush(vb.v) != 0) || (PCSetUp(pc) != 0) ||
++            (PCApply(pc, vb.v, vx.v) != 0) || (VecLockReadPop(vb.v) != 0)) {
++          mgis::raise("PETScPreconditioner::Mult: PCApply failed");
++        }
++        synchronizeDeviceVector(vx.v);
++        this->finalizePETScAtExitOnce();
++        return;
++      }
+       createHostVector(vb, this->GetComm(), b.Size());
+       createHostVector(vx, this->GetComm(), x.Size());
+       copyToPETScVector(vb.v, b);
+@@ -323,6 +360,19 @@ namespace mfem_mgis::internals {
+     PETScComponentFields component_fields;
+   };  // end of struct PETScPreconditioner
+ 
++  /*!
++   * \brief where the solvers and the preconditioners of PETSc compute: where
++   * the execution settings place the linear solvers if PETSc is built for the
++   * GPU of MFEM (see `usePETScOnDevice`), on the host otherwise
++   */
++  static constexpr auto petsc_placement =
++#if (defined(MFEM_USE_CUDA) && defined(PETSC_HAVE_CUDA)) || \
++    (defined(MFEM_USE_HIP) && defined(PETSC_HAVE_HIP))
++      LinearSolverPlacement::REQUESTED;
++#else
++      LinearSolverPlacement::HOST;
++#endif
++
+   //! \return the options of the Krylov solver of PETSc
+   [[nodiscard]] static std::vector<std::string> getPETScKrylovSolverOptions() {
+     auto options = getIterativeSolverParametersList();
+@@ -497,7 +547,7 @@ namespace mfem_mgis::internals {
+     const auto d = LinearSolverDescription{
+         .library = "PETSc",
+         .kind = LinearSolverKind::ITERATIVE,
+-        .placement = LinearSolverPlacement::HOST,
++        .placement = petsc_placement,
+         .preconditioners = AcceptedPreconditioners::ANY,
+         .options = getPETScKrylovSolverOptions(),
+         .description =
+@@ -511,7 +561,7 @@ namespace mfem_mgis::internals {
+             LinearSolverDescription{
+                 .library = "PETSc",
+                 .kind = LinearSolverKind::PRECONDITIONER,
+-                .placement = LinearSolverPlacement::HOST,
++                .placement = petsc_placement,
+                 .preconditioners = AcceptedPreconditioners::NONE,
+                 .options = {"Options", "RigidBodyModes", "Fields"},
+                 .description = "preconditioner of PETSc (PC), configured by "
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+index c27da8b37e..9333c12615 100644
+--- a/src/PETScSupport.cxx
++++ b/src/PETScSupport.cxx
+@@ -20,15 +20,22 @@
+ #include <optional>
+ #include <utility>
+ #include <algorithm>
++#include <type_traits>
+ #include "petscsys.h"
+ #include "petscvec.h"
++#include "petscdevice.h"
+ #include "petscmat.h"
+ #include "petscpc.h"
+ #include "petscis.h"
++#include "mfem/general/device.hpp"
++#include "mfem/general/backends.hpp"
++#include "mfem/general/mem_manager.hpp"
+ #include "mfem/fem/pfespace.hpp"
+ #include "mfem/linalg/hypre.hpp"
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
++#include "MFEMMGIS/ExecutionSettings.hxx"
++#include "ExecutionSettings.hxx"
+ #include "NodesCoordinates.hxx"
+ #include "PETScSupport.hxx"
+ 
+@@ -130,6 +137,13 @@ namespace mfem_mgis::internals {
+     this->used = true;
+   }  // end of markAsUsed
+ 
++  void PETScOptions::finalizePETScAtExitOnce() const {
++    if (!this->finalized_at_exit) {
++      finalizePETScAtExit();
++      this->finalized_at_exit = true;
++    }
++  }  // end of finalizePETScAtExitOnce
++
+   PETScOptions::~PETScOptions() {
+     auto finalized = PetscBool{};
+     if ((PetscFinalized(&finalized) != 0) || (finalized == PETSC_TRUE)) {
+@@ -308,6 +322,198 @@ namespace mfem_mgis::internals {
+     return m;
+   }  // end of makeHostMatrix
+ 
++  bool usePETScOnDevice() noexcept {
++#if defined(MFEM_USE_CUDA) && defined(PETSC_HAVE_CUDA)
++    const auto device = mfem::Device::Allows(mfem::Backend::CUDA_MASK);
++#elif defined(MFEM_USE_HIP) && defined(PETSC_HAVE_HIP)
++    const auto device = mfem::Device::Allows(mfem::Backend::HIP_MASK);
++#else
++    const auto device = false;
++#endif
++    if ((!device) || (!isExecutionModeSpecified())) {
++      return device;
++    }
++    return getExecutionSettings().linear_solver == ExecutionLocation::GPU;
++  }  // end of usePETScOnDevice
++
++  /*!
++   * \brief convert a matrix of PETSc in the AIJ format of the host to the AIJ
++   * format of the GPU (CUDA or HIP), in place
++   * \param[in, out] a: matrix
++   */
++  static void convertToDeviceMatrix(Mat a) {
++    if (a == nullptr) {
++      return;
++    }
++    auto host = PetscBool{};
++    if (PetscObjectTypeCompareAny(reinterpret_cast<PetscObject>(a), &host,
++                                  MATSEQAIJ, MATMPIAIJ, "") != 0) {
++      mgis::raise("convertToDeviceMatrix: PetscObjectTypeCompareAny failed");
++    }
++    if (host == PETSC_FALSE) {
++      return;
++    }
++#if defined(MFEM_USE_CUDA) && defined(PETSC_HAVE_CUDA)
++    if (MatConvert(a, MATAIJCUSPARSE, MAT_INPLACE_MATRIX, &a) != 0) {
++      mgis::raise("convertToDeviceMatrix: MatConvert failed");
++    }
++#elif defined(MFEM_USE_HIP) && defined(PETSC_HAVE_HIP)
++    if (MatConvert(a, MATAIJHIPSPARSE, MAT_INPLACE_MATRIX, &a) != 0) {
++      mgis::raise("convertToDeviceMatrix: MatConvert failed");
++    }
++#else
++    mgis::raise("convertToDeviceMatrix: PETSc is not built for the GPU");
++#endif
++  }  // end of convertToDeviceMatrix
++
++  std::unique_ptr<mfem::PetscParMatrix> makeDeviceMatrix(
++      MPI_Comm c, const mfem::Operator& op) {
++    const auto* const a = dynamic_cast<const mfem::HypreParMatrix*>(&op);
++    if (a != nullptr) {
++      // the arrays of hypre are where hypre computes
++      a->HypreRead();
++      auto m =
++          std::make_unique<mfem::PetscParMatrix>(a, mfem::Operator::PETSC_MATAIJ);
++      convertToDeviceMatrix(*m);
++      return m;
++    }
++    const auto* const p = dynamic_cast<const mfem::PetscParMatrix*>(&op);
++    if (p != nullptr) {
++      auto m =
++          std::make_unique<mfem::PetscParMatrix>(static_cast<Mat>(*p), true);
++      convertToDeviceMatrix(*m);
++      return m;
++    }
++    auto m = std::make_unique<mfem::PetscParMatrix>(
++        c, &op, mfem::Operator::PETSC_MATAIJ);
++    convertToDeviceMatrix(*m);
++    return m;
++  }  // end of makeDeviceMatrix
++
++  void createDeviceVector(PETScVector& v,
++                          MPI_Comm c,
++                          const real* const a,
++                          const int n) {
++    static_assert(std::is_same_v<real, PetscScalar>,
++                  "the vectors of MFEM and of PETSc shall have the same "
++                  "numerical type");
++    auto size = int{};
++    if (MPI_Comm_size(c, &size) != MPI_SUCCESS) {
++      mgis::raise("createDeviceVector: MPI_Comm_size failed");
++    }
++    const auto ln = static_cast<PetscInt>(n);
++#if defined(MFEM_USE_CUDA) && defined(PETSC_HAVE_CUDA)
++    const auto e = (size == 1)
++                       ? VecCreateSeqCUDAWithArray(c, 1, ln, a, &(v.v))
++                       : VecCreateMPICUDAWithArray(c, 1, ln, PETSC_DECIDE, a,
++                                                   &(v.v));
++#elif defined(MFEM_USE_HIP) && defined(PETSC_HAVE_HIP)
++    const auto e = (size == 1)
++                       ? VecCreateSeqHIPWithArray(c, 1, ln, a, &(v.v))
++                       : VecCreateMPIHIPWithArray(c, 1, ln, PETSC_DECIDE, a,
++                                                  &(v.v));
++#else
++    std::ignore = ln;
++    std::ignore = a;
++    const auto e = PETSC_ERR_SUP;
++#endif
++    if (e != 0) {
++      mgis::raise("createDeviceVector: the vector can't be created");
++    }
++  }  // end of createDeviceVector
++
++  void synchronizeDeviceVector(Vec v) {
++    // the array of the GPU is given by PETSc after the copy of the values of
++    // the host, if needed
++    const auto* a = static_cast<const PetscScalar*>(nullptr);
++    auto t = PetscMemType{};
++    if ((VecGetArrayReadAndMemType(v, &a, &t) != 0) ||
++        (VecRestoreArrayReadAndMemType(v, &a) != 0)) {
++      mgis::raise("synchronizeDeviceVector: the array can't be read");
++    }
++  }  // end of synchronizeDeviceVector
++
++  /*!
++   * \brief copy an array of the GPU in another one, after the end of the
++   * computations of PETSc and of MFEM on the GPU, the copy being finished on
++   * return (PETSc computes in its own streams; the copies of PETSc only
++   * accept the arrays allocated by PETSc)
++   * \param[out] dst: destination
++   * \param[in] src: source
++   * \param[in] n: size
++   */
++  static void copyDeviceArray(PetscScalar* const dst,
++                              const PetscScalar* const src,
++                              const PetscInt n) {
++    if (n == 0) {
++      return;
++    }
++    auto dctx = PetscDeviceContext{};
++    if ((PetscDeviceContextGetCurrentContext(&dctx) != 0) ||
++        (PetscDeviceContextSynchronize(dctx) != 0)) {
++      mgis::raise("copyDeviceArray: the context of PETSc can't be synchronized");
++    }
++    const auto bytes = static_cast<std::size_t>(n) * sizeof(PetscScalar);
++#if defined(MFEM_USE_CUDA)
++    mfem::CuMemcpyDtoD(dst, src, bytes);
++#elif defined(MFEM_USE_HIP)
++    mfem::HipMemcpyDtoD(dst, src, bytes);
++#else
++    std::ignore = bytes;
++    mgis::raise("copyDeviceArray: MFEM is built without GPU support");
++#endif
++    MFEM_DEVICE_SYNC;
++  }  // end of copyDeviceArray
++
++  void applyOnDevice(const mfem::Operator& op,
++                     mfem::Vector& r,
++                     mfem::Vector& z,
++                     Vec x,
++                     Vec y) {
++    // arrays of the GPU of the vectors of PETSc, given back to PETSc on exit
++    // (the values of the array of x being up to date on the GPU, y being
++    // written on the GPU)
++    struct DeviceArrays {
++      ~DeviceArrays() {
++        if (this->ya != nullptr) {
++          std::ignore = VecRestoreArrayWriteAndMemType(this->y, &(this->ya));
++        }
++        if (this->xa != nullptr) {
++          std::ignore = VecRestoreArrayReadAndMemType(this->x, &(this->xa));
++        }
++      }
++      Vec x;
++      Vec y;
++      const PetscScalar* xa = nullptr;
++      PetscScalar* ya = nullptr;
++    };
++    auto nx = PetscInt{};
++    auto ny = PetscInt{};
++    if ((VecGetLocalSize(x, &nx) != 0) || (VecGetLocalSize(y, &ny) != 0)) {
++      mgis::raise("applyOnDevice: VecGetLocalSize failed");
++    }
++    auto arrays = DeviceArrays{.x = x, .y = y};
++    auto tx = PetscMemType{};
++    auto ty = PetscMemType{};
++    if ((VecGetArrayReadAndMemType(x, &(arrays.xa), &tx) != 0) ||
++        (VecGetArrayWriteAndMemType(y, &(arrays.ya), &ty) != 0)) {
++      mgis::raise("applyOnDevice: the arrays of the vectors can't be read");
++    }
++    if (((nx != 0) && (!PetscMemTypeDevice(tx))) ||
++        ((ny != 0) && (!PetscMemTypeDevice(ty)))) {
++      mgis::raise("applyOnDevice: the vectors are not vectors of the GPU");
++    }
++    r.UseDevice(true);
++    r.SetSize(static_cast<int>(nx));
++    z.UseDevice(true);
++    z.SetSize(static_cast<int>(ny));
++    copyDeviceArray(r.Write(), arrays.xa, nx);
++    op.Mult(r, z);
++    // `Read` copies the values computed on the host by the operator, if any,
++    // on the GPU
++    copyDeviceArray(arrays.ya, z.Read(), ny);
++  }  // end of applyOnDevice
++
+   void PETScRigidBodyModes::initialize(FiniteElementSpace<true>& fespace) {
+     this->dimension = 0;
+     this->coordinates.clear();
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+index d2ea23f7ee..9f08f47f04 100644
+--- a/src/PETScSupport.hxx
++++ b/src/PETScSupport.hxx
+@@ -43,6 +43,21 @@ namespace mfem_mgis::internals {
+    * mfem-mgis, or by the program, which then finalizes it)
+    */
+   void initializePETSc();
++  /*!
++   * \brief finalize PETSc at exit, before the destruction of the objects of
++   * PETSc built since the start of the program, if PETSc has been
++   * initialized by mfem-mgis (it is otherwise finalized with MPI, by
++   * `finalize` or at the destruction of the static objects of mfem-mgis).
++   *
++   * The solvers and the preconditioners of PETSc call this function after
++   * their first resolution on the GPU: PETSc then holds pools of events and
++   * of memory of the GPU in static objects of functions, built at their
++   * first use, after the static objects of mfem-mgis, and thus destroyed
++   * before them at exit. `PetscFinalize`, if called afterwards, wrote in
++   * these destroyed pools (heap corruption) and freed the memory of the
++   * GPU with invalid streams (errors of CUDA), and the program aborted.
++   */
++  void finalizePETScAtExit();
+ 
+   /*!
+    * \brief options of a solver of PETSc, written in the options database of
+@@ -82,6 +97,11 @@ namespace mfem_mgis::internals {
+     ~PETScOptions();
+     //! \brief mark the solver as used (called by the `Mult` methods)
+     void markAsUsed() const noexcept;
++    /*!
++     * \brief finalize PETSc at exit (see `finalizePETScAtExit`), once per
++     * solver, after its first resolution on the GPU
++     */
++    void finalizePETScAtExitOnce() const;
+     //! \brief prefix of the options
+     const std::string prefix;
+ 
+@@ -92,6 +112,8 @@ namespace mfem_mgis::internals {
+     std::vector<std::string> options;
+     //! \brief if true, the solver has been used
+     mutable bool used = false;
++    //! \brief if true, `finalizePETScAtExit` has been called by the solver
++    mutable bool finalized_at_exit = false;
+   };  // end of struct PETScOptions
+ 
+   //! \brief vector of PETSc, destroyed with this object
+@@ -152,6 +174,76 @@ namespace mfem_mgis::internals {
+    */
+   [[nodiscard]] std::unique_ptr<mfem::PetscParMatrix> makeHostMatrix(
+       MPI_Comm c, const mfem::Operator& op);
++  /*!
++   * \return if the solvers and the preconditioners of PETSc compute on the
++   * GPU: MFEM computes on a GPU with CUDA (or HIP), PETSc is built with CUDA
++   * (or HIP), and the execution settings, if given, place the linear solvers
++   * on the GPU. Otherwise, when MFEM computes on a GPU, they compute on the
++   * host (see `makeHostMatrix` and `createHostVector`).
++   */
++  [[nodiscard]] bool usePETScOnDevice() noexcept;
++  /*!
++   * \return a matrix of PETSc in the AIJ format of the GPU (CUDA or HIP),
++   * copy of an operator, when the solvers of PETSc compute on the GPU (see
++   * `usePETScOnDevice`). A matrix of hypre is converted by MFEM, through
++   * the `MATHYPRE` format of PETSc, where hypre stores it (on the GPU when
++   * hypre computes on the GPU). A matrix of PETSc is referenced, and
++   * converted in place to the format of the GPU if needed. The other
++   * operators are converted by MFEM.
++   * \param[in] c: communicator of the operators which are not matrices of
++   * hypre
++   * \param[in] op: operator
++   */
++  [[nodiscard]] std::unique_ptr<mfem::PetscParMatrix> makeDeviceMatrix(
++      MPI_Comm c, const mfem::Operator& op);
++  /*!
++   * \brief create a vector of PETSc of the GPU (CUDA or HIP) whose array of
++   * the GPU is the one of a vector of MFEM, without copy. The vector of PETSc
++   * does not own this array, and shall be destroyed before the vector of
++   * MFEM is used again, after `synchronizeDeviceVector` if PETSc wrote it.
++   *
++   * The vectors of PETSc of MFEM 4.10 are not used: when the device memory
++   * of MFEM is managed by Umpire (the default when MFEM is built with
++   * Umpire), they are vectors of the host, which the matrices and the
++   * preconditioners of PETSc of the GPU write on the GPU without the
++   * vectors seeing it (wrong solutions).
++   * \param[out] v: vector
++   * \param[in] c: communicator
++   * \param[in] a: array of the GPU (`Read`, `Write` or `ReadWrite` of the
++   * vector of MFEM on the device), null if the local size is null
++   * \param[in] n: local size
++   */
++  void createDeviceVector(PETScVector& v,
++                          MPI_Comm c,
++                          const real* const a,
++                          const int n);
++  /*!
++   * \brief make the array of the GPU of a vector of PETSc of the GPU up to
++   * date: PETSc may have left the values in its array of the host (for
++   * instance after a direct solver computing on the host)
++   * \param[in] v: vector
++   */
++  void synchronizeDeviceVector(Vec v);
++  /*!
++   * \brief apply an operator of MFEM to vectors of PETSc of the GPU (shell
++   * preconditioners), copied on the GPU from and to vectors of MFEM of the
++   * GPU. These vectors are kept by the caller: the operators of MFEM may keep
++   * aliases of the memory of the vectors given to `Mult` (the solvers of
++   * hypre do, in their own vectors), which shall thus outlive the call (a
++   * vector of MFEM wrapping the array of a vector of PETSc, destroyed after
++   * the call, would leave dangling aliases in the memory manager of MFEM,
++   * which erases a memory without checking its aliases).
++   * \param[in] op: operator
++   * \param[in, out] r: vector of MFEM receiving `x`
++   * \param[in, out] z: vector of MFEM receiving the result
++   * \param[in] x: vector
++   * \param[out] y: result
++   */
++  void applyOnDevice(const mfem::Operator& op,
++                     mfem::Vector& r,
++                     mfem::Vector& z,
++                     Vec x,
++                     Vec y);
+ 
+   /*!
+    * \brief rigid body modes of the unknowns of a finite element space,
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index f8e21603dd..bae1203c00 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -2145,7 +2145,8 @@ if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_PETSC)
+   add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
+   set_tests_properties(PETScSolversTest PETScSolversTestP PROPERTIES
+     FAIL_REGULAR_EXPRESSION "check failed")
+-  # with MFEM on a GPU, the solvers of PETSc compute on the host
++  # with MFEM on a GPU, the solvers of PETSc compute on the GPU if PETSc is
++  # built for it, on the host otherwise
+   if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
+      enable-gpu-tests)
+     if(MFEM_USE_CUDA STREQUAL "YES")
+diff --git a/tests/PETScSolversTest.cxx b/tests/PETScSolversTest.cxx
+index c8d0358464..bdb95dfa5c 100644
+--- a/tests/PETScSolversTest.cxx
++++ b/tests/PETScSolversTest.cxx
+@@ -35,7 +35,9 @@
+  *   factorization of PETSc), and the Krylov solvers of HPDDM (GCRODR,
+  *   recycling a subspace between two resolutions);
+  * - the matrix given to the Krylov solver of PETSc is the matrix of hypre
+- *   (products by a vector compared);
++ *   (products by a vector compared), in the AIJ format of the GPU when MFEM
++ *   computes on a GPU for which PETSc is built (the solvers of PETSc then
++ *   compute on the GPU), of the host otherwise;
+  * - when MFEM computes on the host, the solvers of PETSc do not initialize
+  *   the GPU.
+  * \date   15/10/2026
+@@ -45,6 +47,7 @@
+ #include <array>
+ #include <algorithm>
+ #include <string>
++#include <string_view>
+ #include <cstdlib>
+ #include <iostream>
+ #include <stdexcept>
+@@ -194,6 +197,20 @@ static void checkMatrixCopy(System& s, const std::string& name) {
+   ls.linear_solver->SetOperator(s.A);
+   auto a = Mat{};
+   petsc(KSPGetOperators(getKSP(ls), &a, nullptr), "KSPGetOperators");
++  // the solvers of PETSc compute on the GPU when MFEM computes on a GPU for
++  // which PETSc is built
++#if defined(MFEM_USE_CUDA) && defined(PETSC_HAVE_CUDA)
++  const auto device = mfem::Device::Allows(mfem::Backend::CUDA_MASK);
++#elif defined(MFEM_USE_HIP) && defined(PETSC_HAVE_HIP)
++  const auto device = mfem::Device::Allows(mfem::Backend::HIP_MASK);
++#else
++  const auto device = false;
++#endif
++  auto type = MatType{};
++  petsc(MatGetType(a, &type), "MatGetType");
++  const auto t = std::string_view{type};
++  check((t.ends_with("cusparse") || t.ends_with("hipsparse")) == device,
++        name + ": the matrix given to PETSc is of type " + std::string{t});
+   const auto n = s.B.Size();
+   auto x = mfem::Vector(n);
+   x.UseDevice(true);
+@@ -447,6 +464,36 @@ static void checkPreconditioners(LaplaceSystem<true>& s) {
+   const auto ramg = solve(s, *(amg.linear_solver));
+   check(getPCType(amg) == "shell", "CG, BoomerAMG: shell preconditioner");
+   check(isSolved(ramg) && isFaster(ramg, rj), "CG, BoomerAMG: resolution");
++  // the shell preconditioner applied once (preonly), to the vectors of PETSc
++  // wrapping the right hand side and the solution given to the solver: the
++  // result is the one of the preconditioner applied by itself
++  {
++    auto once = generate(
++        s, "PETScLinearSolver",
++        Parameters{
++            {"Options", Parameters{{"ksp_type", "preonly"}}},
++            {"Preconditioner",
++             Parameters{{"Name", "HypreBoomerAMG"},
++                        {"Options", Parameters{{"VerbosityLevel", 0}}}}}});
++    const auto n = s.B.Size();
++    auto x1 = mfem::Vector(n);
++    x1.UseDevice(true);
++    x1 = 0.;
++    once.linear_solver->SetOperator(s.A);
++    once.linear_solver->Mult(s.B, x1);
++    auto x2 = mfem::Vector(n);
++    x2.UseDevice(true);
++    once.preconditioner->Mult(s.B, x2);
++    // `mfem::ParNormlp` reads the host array without synchronizing it in
++    // MFEM 4.10 (mfem/mfem#5586)
++    const auto norm = std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, x2, x2));
++    x2 -= x1;
++    const auto difference =
++        std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, x2, x2));
++    check((norm > 0) && (difference <= 1e-10 * norm),
++          "preonly, BoomerAMG: the shell preconditioner gives another result "
++          "than the preconditioner");
++  }
+   auto mesh =
+       mfem::Mesh::MakeCartesian3D(12, 12, 12, mfem::Element::HEXAHEDRON);
+   auto fec = mfem::H1_FECollection(1, 3);
+-- 
+2.43.0
+

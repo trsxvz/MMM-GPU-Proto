@@ -178,8 +178,10 @@ mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
 :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
 For the linear elasticity, with the unknowns ordered by vector dimension,
 the rigid body modes are given to the preconditioners of PETSc (GAMG).
-The solvers of PETSc compute on the host, the matrices of hypre being
-copied without initializing the GPU. The :cxx:`Fields` option set to
+The solvers of PETSc compute on the GPU when MFEM computes on a GPU for
+which PETSc is built, unless the linear solvers are placed on the CPU, the
+vectors of MFEM being wrapped without copy, and on the host otherwise, the
+matrices of hypre being then copied without initializing the GPU. The :cxx:`Fields` option set to
 :cxx:`Components` gives the field split preconditioner of PETSc one field
 per component of the unknowns, whatever their ordering. See
 :ref:`petsc_linear_solvers`.

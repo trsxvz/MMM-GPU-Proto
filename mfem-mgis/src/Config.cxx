@@ -116,6 +116,12 @@ namespace mfem_mgis {
      * before MPI, if it is initialized by this call.
      */
     void initializeKokkosOnDemand();
+    /*!
+     * \brief finalize PETSc, if it has been initialized by mfem-mgis and not
+     * finalized yet, before MPI (called by `finalize`, and at exit by the
+     * function registered by `finalizePETScAtExit`)
+     */
+    void finalizePETSc();
     //! \brief finalize the execution of the mfem-mgis
     void finalize();
     /*!
@@ -133,6 +139,8 @@ namespace mfem_mgis {
      * and its preconditioners (see `initializePETScOnDemand`)
      */
     bool petsc_initialized_on_demand = false;
+    //! \brief boolean stating if PETSc has been finalized by mfem-mgis
+    bool petsc_finalized = false;
 #endif /* MFEM_MGIS_HAVE_PETSC */
     /*!
      * \brief MFEM device, created by `initialize` (option `--device`,
@@ -424,6 +432,15 @@ namespace mfem_mgis {
     mfem::MFEMInitializePetsc();
     this->petsc_initialized_on_demand = true;
   }  // end of initializePETScOnDemand
+
+  void Finalizer::finalizePETSc() {
+    if ((this->pendingExit) || (this->petsc_finalized) ||
+        ((!this->use_petsc) && (!this->petsc_initialized_on_demand))) {
+      return;
+    }
+    mfem::MFEMFinalizePetsc();
+    this->petsc_finalized = true;
+  }  // end of finalizePETSc
 #else  /* MFEM_MGIS_HAVE_PETSC */
   void Finalizer::setPETSc(const char*) {
     mgis::raise("Finalizer::setPETSc: PETSc is not supported");
@@ -432,6 +449,8 @@ namespace mfem_mgis {
   void Finalizer::initializePETScOnDemand() {
     mgis::raise("Finalizer::initializePETScOnDemand: PETSc is not supported");
   }
+
+  void Finalizer::finalizePETSc() {}
 #endif /*MFEM_MGIS_HAVE_PETSC*/
 
   void Finalizer::initializeKokkosOnDemand() {
@@ -713,11 +732,7 @@ namespace mfem_mgis {
 #endif /* MFEM_MGIS_HAVE_KOKKOS */
     if (!this->pendingExit) {
 #ifdef MFEM_USE_MPI
-#ifdef MFEM_MGIS_HAVE_PETSC
-      if ((this->use_petsc) || (this->petsc_initialized_on_demand)) {
-        mfem::MFEMFinalizePetsc();
-      }
-#endif /* MFEM_MGIS_HAVE_PETSC */
+      this->finalizePETSc();
       mfem::Hypre::Finalize();
       MPI_Finalize();
       this->pendingExit = true;
@@ -995,6 +1010,14 @@ namespace mfem_mgis {
   void internals::initializePETScOnDemand() {
     Finalizer::get().initializePETScOnDemand();
   }  // end of initializePETScOnDemand
+
+#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
+  void internals::finalizePETScAtExit() {
+    if (std::atexit([] { Finalizer::get().finalizePETSc(); }) != 0) {
+      mgis::raise("finalizePETScAtExit: std::atexit failed");
+    }
+  }  // end of finalizePETScAtExit
+#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
 
 #ifdef MFEM_MGIS_HAVE_KOKKOS
   void internals::initializeKokkosOnDemand() {

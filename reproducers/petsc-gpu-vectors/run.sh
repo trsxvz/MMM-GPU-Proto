@@ -2,8 +2,8 @@
 # Build the example ex1p of PETSc of MFEM 4.10 (unmodified copy) against the
 # MFEM of the prototype (CUDA, PETSc 3.26 built with CUDA) and solve the
 # same problem on the CPU and on the GPU, on 1 and 2 processes: on the GPU,
-# the preconditioned residual of the conjugate gradient of PETSc is zero
-# from the first iteration and the solution stays zero.
+# the conjugate gradient of PETSc stops early (preconditioned residual seen
+# as zero) and the solution is wrong (zero on one process).
 # usage: reproducers/petsc-gpu-vectors/run.sh [MFEM installation]
 R=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 P=$(cd "$R/../.." && pwd)

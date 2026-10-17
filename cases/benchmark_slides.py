@@ -280,6 +280,14 @@ _MUELU_CHEBYSHEV = ('{{Name: "MueLu", Options: {{Parameters: {{"smoother: '
                     'factor": 1.2}}, "reuse: type": "RP"}}}}}}')
 _MUELU_DEFAULT = ('{{Name: "MueLu", Options: {{Parameters: {{"reuse: type": '
                   '"RP"}}}}}}')
+# the algebraic multigrid of PETSc (smoothed aggregation with Chebyshev
+# and Jacobi smoothers)
+_GAMG = ('pc_type: "gamg", pc_gamg_threshold: 0.02, pc_gamg_agg_nsmooths: 1, '
+         'mg_levels_ksp_type: "chebyshev", mg_levels_pc_type: "jacobi"')
+# on the GPU, the plain aggregation (the product PtAP of cuSPARSE with the
+# smoothed prolongators exceeds the memory of the GPU at 786,432 unknowns,
+# see `petsc-gamg-gpu`)
+_GAMG_GPU = _GAMG.replace("pc_gamg_agg_nsmooths: 1", "pc_gamg_agg_nsmooths: 0")
 _BOTH = ("double", "float")
 _DOUBLE = ("double",)
 
@@ -367,18 +375,26 @@ LINEAR_SOLVERS = {
               'Parameters: {{Tacho: {{method: "{tacho}"}}}}}}}}', _DOUBLE),
     "strumpack": ('{{Name: "STRUMPACKSolver", Options: {{ReuseAnalysis: '
                   'true}}}}', _DOUBLE),
-    # PETSc with its algebraic multigrid, stopped on the true residual
-    # PETSc computes on the host only (mfem-mgis copies the operator to an
-    # AIJ matrix of the host: MFEM 4.10 with PETSc 3.26 and CUDA sees null
-    # vectors); smoothed aggregation with Chebyshev and Jacobi smoothers.
-    # The rigid body modes are only given with the ordering byVDIM (the
-    # programs use byNODES)
+    # PETSc with its algebraic multigrid, stopped on the true residual.
+    # PETSc computes where the linear solvers are placed: on the host on the
+    # CPU and in the mixed placement, on the GPU with `--execution gpu` (the
+    # operator converted to the AIJ format of cuSPARSE, the vectors of PETSc
+    # wrapping the memory of MFEM on the GPU). The rigid body modes are only
+    # given with the ordering byVDIM (the programs use byNODES)
     "petsc-gamg": ('{{Name: "PETScLinearSolver", Options: {{Options: '
-                   '{{ksp_type: "{petsc}", pc_type: "gamg", '
-                   'pc_gamg_threshold: 0.02, pc_gamg_agg_nsmooths: 1, '
-                   'mg_levels_ksp_type: "chebyshev", mg_levels_pc_type: '
-                   '"jacobi", ksp_rtol: {tolerance}, ksp_max_it: 5000, '
-                   'ksp_norm_type: "unpreconditioned"}}}}}}', _BOTH),
+                   '{{ksp_type: "{petsc}", ' + _GAMG + ', ksp_rtol: '
+                   '{tolerance}, ksp_max_it: 5000, ksp_norm_type: '
+                   '"unpreconditioned"}}}}}}', _BOTH),
+    # GAMG on the GPU (trials of the 17/10/2026, see
+    # docs/benchmark-slides.md): plain aggregation, the hierarchy being
+    # built for the first resolution and reused by all the next ones (built
+    # for each resolution, its setup, partly on the host, takes 72 % of the
+    # time of ex1)
+    "petsc-gamg-gpu": ('{{Name: "PETScLinearSolver", Options: {{Options: '
+                       '{{ksp_type: "{petsc}", ' + _GAMG_GPU +
+                       ', ksp_reuse_preconditioner: true, ksp_rtol: '
+                       '{tolerance}, ksp_max_it: 5000, ksp_norm_type: '
+                       '"unpreconditioned"}}}}}}', _BOTH),
     # Ginkgo: Krylov solvers with a Jacobi preconditioner on the GPU (the
     # sparse solvers of MAGMA are only available in sequential, and all the
     # programs compute in parallel)
@@ -428,7 +444,7 @@ NON_LINEAR_SOLVERS = {
     # inexact Newton method (Eisenstat and Walker)
     "newton-ew": ('{{Name: "Newton", Options: {{' + _EW + '}}}}', _BOTH),
     # NewtonK0, the elastic operator being inverted by one cycle of
-    # BoomerAMG, of MueLu, of AmgX, or factorized by cuDSS
+    # BoomerAMG, of MueLu, of AmgX, of GAMG (PETSc), or factorized by cuDSS
     "k0-amg": (_newton_k0('"HypreBoomerAMG"'), _BOTH),
     "k0-muelu": (_newton_k0('{{Name: "MueLu", Options: {{Parameters: '
                             '{{"smoother: type": "RELAXATION", "smoother: '
@@ -437,6 +453,12 @@ NON_LINEAR_SOLVERS = {
     "k0-muelu-sgs": (_newton_k0('{{Name: "MueLu"}}'), _BOTH),
     "k0-amgx": (_newton_k0('"AmgX"'), _DOUBLE),
     "k0-cudss": (_newton_k0('"CuDSSSolver"'), _BOTH),
+    # (one cycle of GAMG in plain aggregation: the Krylov solver of PETSc
+    # without iterations, the preconditioners of PETSc not being linear
+    # solvers of mfem-mgis)
+    "k0-petsc": (_newton_k0('{{Name: "PETScLinearSolver", Options: {{'
+                            'Options: {{ksp_type: "preonly", ' + _GAMG_GPU +
+                            '}}}}}}'), _BOTH),
     # modified Newton method: the tangent operator of the first iteration
     # of each resolution, given to the linear solver of the problem (a
     # factorization reused by the iterations with a direct solver, the
@@ -467,8 +489,9 @@ MATRIX_FREE = {"MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION": "MatrixFree"}
 
 # With the GPU, hypre allocates at once a pool of 4 GiB (Umpire), which
 # leaves too little memory to Trilinos, AmgX or cuDSS for the largest
-# cases (failed allocations on ex3, ex4, ex6): with their solvers, the
-# initial pool of hypre is 1 GiB (it grows if needed)
+# cases (failed allocations on ex3, ex4, ex6): with the solvers of the other
+# libraries (also Ginkgo and PETSc), the initial pool of hypre is 1 GiB (it
+# grows if needed)
 SMALL_HYPRE_POOL = {"MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE": "1"}
 # in the mixed placement, hypre computes on the host: the initial pool of
 # hypre on the GPU, if any, is reduced since the GPU is shared by all the
@@ -476,8 +499,10 @@ SMALL_HYPRE_POOL = {"MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE": "1"}
 MIXED_HYPRE_POOL = {"MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE": "0.25"}
 _NOT_HYPRE_LINEAR = {"muelu-jacobi", "muelu-chebyshev", "muelu-sgs", "amgx",
                      "amgx-single", "amgx-agg", "amgx-agg8", "amgx-gs",
-                     "cudss", "tacho", "ginkgo-jacobi", "ginkgo-amg"}
-_NOT_HYPRE_NON_LINEAR = {"k0-muelu", "k0-muelu-sgs", "k0-amgx", "k0-cudss"}
+                     "cudss", "tacho", "ginkgo-jacobi", "ginkgo-amg",
+                     "petsc-gamg-gpu"}
+_NOT_HYPRE_NON_LINEAR = {"k0-muelu", "k0-muelu-sgs", "k0-amgx", "k0-cudss",
+                         "k0-petsc"}
 
 # sides: execution options of mfem-mgis
 SIDES = {
@@ -597,7 +622,8 @@ def _gpu_configurations(nonlinear, direct=True, native_on_cpu=True,
          "gpu-ginkgo-jacobi": Configuration("gpu", "ginkgo-jacobi"),
          "gpu-ginkgo-amg": Configuration("gpu", "ginkgo-amg"),
          "gpu-amgx-agg8": Configuration("gpu", "amgx-agg8"),
-         "gpu-amgx-gs": Configuration("gpu", "amgx-gs")})
+         "gpu-amgx-gs": Configuration("gpu", "amgx-gs"),
+         "gpu-petsc-gamg": Configuration("gpu", "petsc-gamg-gpu")})
     # mixed placement: the elements and the behaviours on the GPU, shared by
     # the 8 processes, the linear solvers on the 8 cores
     if direct_cpu:
@@ -629,6 +655,11 @@ def _gpu_configurations(nonlinear, direct=True, native_on_cpu=True,
                                                environment=MATRIX_FREE)
         c["gpu-k0-anderson"] = Configuration("gpu", "hypre-amg",
                                              "k0-anderson")
+        c["gpu-k0-petsc"] = Configuration("gpu", "hypre-amg", "k0-petsc")
+        # without the assembled tangent operator, the polycrystal fits in
+        # the memory of the GPU with GAMG (not ex6)
+        c["gpu-k0-petsc-mf"] = Configuration("gpu", "hypre-amg", "k0-petsc",
+                                             environment=MATRIX_FREE)
         c["gpu-cg-jacobi-mf"] = Configuration("gpu", "cg-jacobi",
                                               environment=MATRIX_FREE)
         for k0, tier in (("k0-amg", 1), ("k0-muelu", 1), ("k0-amgx", 1)):

@@ -45,11 +45,13 @@ phase 1 were done on 15/10/2026: MUMPS as a preconditioner, the
 aggregation multigrid of AmgX in the default configurations, the generic
 test on elasticity, MGR of hypre and SNES of PETSc in the factory of
 nonlinear solvers (the solvers of PETSc computing on the host when MFEM
-computes on a GPU). `AMGFSolver`, `LORSolver` and the p-multigrid of MFEM
-are not applicable as is to the tangent operators of mfem-mgis: AMGF needs
-a filtered subspace (contact problems), LOR a high order bilinear form to
-refine, and the p-multigrid the operators of each level, which the
-behaviour integrators would have to assemble on coarser spaces. Phase 4
+computes on a GPU; since the 17/10/2026, the linear solvers of PETSc
+compute on the GPU, SNES staying on the host). `AMGFSolver`, `LORSolver`
+and the p-multigrid of MFEM are not applicable as is to the tangent
+operators of mfem-mgis: AMGF needs a filtered subspace (contact problems),
+LOR a high order bilinear form to refine, and the p-multigrid the
+operators of each level, which the behaviour integrators would have to
+assemble on coarser spaces. Phase 4
 done on 16/10/2026: environment `mmm-trilinos` (Trilinos 17.2.1 with Tacho
 and FROSch, Kokkos 5.2.1), module of Trilinos built and tested on the host
 and on the GPU (Belos, Amesos2 with KLU2 and Tacho, Ifpack2, MueLu with the

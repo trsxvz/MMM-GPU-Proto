@@ -78,6 +78,22 @@ The first pass (17/10/2026, `results/benchmark-slides-2026-10-17`,
   and mixed placement), Tacho (its parameters were given outside of its
   sublist in the first pass, where it always failed). The options of the
   solvers suited to the GPU were chosen by the trials below.
+- PETSc computes on the GPU (`patches/mfem-mgis/0272-*`; the defect of
+  MFEM it works around is described in `reproducers/petsc-gpu-vectors`).
+  Three configurations use it: GAMG with the Krylov solver of PETSc
+  (`gpu-petsc-gamg`), and NewtonK0 with one cycle of GAMG on the elastic
+  operator, with or without the tangent operator assembled
+  (`gpu-k0-petsc`, `gpu-k0-petsc-mf`). With the options of the CPU, the
+  product PtAP of cuSPARSE exceeds the memory of the GPU at 786,432
+  unknowns. Built for each resolution, the hierarchy takes most of the
+  time (its setup is partly on the host). On the GPU, GAMG thus uses the
+  plain aggregation, the hierarchy being built for the first resolution
+  and reused by the next ones (trials below). Some failures are expected
+  in the screening: out of memory on ex6 and the polycrystal (except
+  `gpu-k0-petsc-mf` on the polycrystal), no convergence of GMRES on the
+  cermet (also on the CPU) and on ex4 in float. The checks of these
+  configurations through the driver are in
+  `results/benchmark-slides-v2-petsc` (screening size, order 1).
 - The final runs try the next configuration of the screening when one
   fails at the measurement size (in float, the selected configurations of
   ex2 and ex7 did not converge over the whole loading in the first pass),
@@ -135,6 +151,15 @@ in `results/benchmark-slides-v2-fit`:
 | AmgX | l1-Jacobi, Chebyshev polynomial, multicolour ILU smoothers | timeout on the polycrystal; failure; "Configuration feature is not implemented" | not kept |
 | MueLu | Chebyshev of degree 3, dropping tolerance 0.02 | no gain on ex3 and ex5 | not kept |
 | hypre | FSAI, ILU(0) by blocks | ex3: 6 and 12 times slower than BoomerAMG | not kept |
+| GAMG of PETSc | options of the CPU (smoothed aggregation, aggressive coarsening by the square of the graph) | ex3, polycrystal: out of memory in the product PtAP of cuSPARSE; ex1: 64.9 s (solvers of the program: 7.4 s) | replaced |
+| GAMG of PETSc | prolongators kept from one resolution to the next (`pc_gamg_reuse_interpolation`, already the default of PETSc 3.26); no aggressive coarsening | ex1: 65.2 s, no effect (the square of the graph is computed again at each of the 41 setups: mfem-mgis gives PETSc a new matrix at each resolution); ex3: out of memory | not kept |
+| GAMG of PETSc | plain aggregation (`pc_gamg_agg_nsmooths: 0`) | ex3: 17.2 s twice, the only options fitting in memory (BoomerAMG: 5.5 s); ex1: 63.9 s, 135 to 204 iterations per resolution, the 41 setups taking 72 % of the time and the square of the graph (on the host) 60 % (profile of PETSc) | kept |
+| GAMG of PETSc | aggressive coarsening by MIS-2 instead of the square of the graph | ex1: 28.4 s, 29.9 s (plain aggregation), 19.7 s and 22.8 s (with the preconditioner reused), but four runs stopped at 300 s, the numbers of iterations of the linear solves being unchanged | not kept (not repeatable) |
+| GAMG of PETSc | preconditioner built for the first resolution and reused by the next ones (`ksp_reuse_preconditioner`) | ex1: 20.1 and 20.2 s (smoothed aggregation), 20.3 s (plain aggregation) | kept with the plain aggregation (`petsc-gamg-gpu`) |
+| GAMG of PETSc | ex6 (786,432 unknowns, non linear): plain aggregation with the preconditioner reused, NewtonK0 (smoothed or plain aggregation); polycrystal (1,360,002 unknowns): the options of the CPU, plain aggregation (with or without the preconditioner reused), NewtonK0 (smoothed aggregation) | out of memory in all the runs | screened, failures expected |
+| GAMG of PETSc | non symmetric cases (GMRES): cermet, ex4 in float | cermet: first resolution stopped at 5,000 iterations without converging, 2,825 iterations after the time step was halved, run stopped at 300 s, also on the CPU; ex4 in float: no convergence (ex4 in double: 22.4 s) | screened, failures expected |
+| NewtonK0 with GAMG | tangent operator applied without assembly | polycrystal: 47.0 s (fits in memory; NewtonK0 with BoomerAMG: 22.5 s); ex6: out of memory; ex1: 17.1 s | kept (`gpu-k0-petsc-mf`) |
+| NewtonK0 with GAMG | one cycle of GAMG (Krylov solver of PETSc without iterations, `preonly`: the preconditioners of PETSc are not linear solvers of mfem-mgis), smoothed or plain aggregation | ex1: 12.0 s in both cases (one cycle of BoomerAMG: 9.4 s); ex4: 9.0 s, cermet: 8.7 s; the results differ from the ones of the CPU on ex4 (2.5e-4 in double) and on the cermet (1.2e-5), as with NewtonK0 and the other libraries on ex4 (AmgX: 1.8e-4, BoomerAMG: 2.7e-5 at the small size; 2e-6 to 5e-6 on the cermet) | kept with the plain aggregation (`k0-petsc`) |
 
 Not available, with the reason:
 
@@ -142,7 +167,7 @@ Not available, with the reason:
 |---|---|---|
 | Elasticity options of BoomerAMG on the GPU | not supported by hypre on the GPU; MFEM aborts (`linalg/hypre.cpp`) | limit of hypre |
 | Elasticity options of BoomerAMG and rigid body modes of GAMG on the CPU | require the ordering `byVDIM` of the unknowns, the programs use `byNODES` | not done: option of the programs |
-| PETSc on the GPU | mfem-mgis copies the operators to the host: with MFEM 4.10 and PETSc 3.26 built with CUDA, the vectors were seen as null (MFEM sets the offload mask of the vectors of PETSc) and `PetscFinalize` aborted | defect at the interface MFEM-PETSc, to be addressed in mfem-mgis |
+| GAMG of PETSc on the GPU for the large non linear cases | out of memory on ex6, and on the polycrystal except with NewtonK0 and the tangent operator applied without assembly (products of cuSPARSE, operator copied to the format of PETSc in addition to the one of hypre) | limit of the backend CUDA of PETSc here; its backend Kokkos is not supported by mfem-mgis yet |
 | Anderson acceleration of NewtonK0 | refused by the fixed point solver of mfem-mgis (an acceleration of a Newton method) | choice of mfem-mgis |
 | Ginkgo, SUNDIALS, SuiteSparse, SuperLU_DIST, STRUMPACK, GSLIB, libCEED in float | refused by the makefile of MFEM in single precision | limit of MFEM |
 | AmgX in float | refused by mfem-mgis in a float build (measured computing in single precision in the double build) | choice of mfem-mgis |
@@ -241,8 +266,9 @@ to 50 iterations: they need more iterations than the exact Newton method
 for which the programs set their maximum (10 for ex2, reached by the
 inexact Newton method while it still converges). With the GPU, hypre
 allocates at once a pool of 4 GiB, which left too little memory to
-Trilinos, AmgX and cuDSS on ex3, ex4 and ex6: with their solvers, the
-initial pool of hypre is 1 GiB (`MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`; it
+Trilinos, AmgX and cuDSS on ex3, ex4 and ex6: with the solvers of the
+other libraries (Trilinos, AmgX, cuDSS, Ginkgo, PETSc), the initial pool
+of hypre is 1 GiB (`MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`; it
 grows if needed).
 
 - CPU: the solvers of the program on 8 and 16 processes; on 8 processes,
@@ -258,7 +284,9 @@ grows if needed).
   by BoomerAMG or MueLu, with or without the tangent operator applied
   without assembly, NewtonK0 with the elastic operator factorized by cuDSS,
   and the conjugate gradient with a Jacobi preconditioner on the tangent
-  operator applied without assembly.
+  operator applied without assembly; GAMG of PETSc (plain aggregation,
+  hierarchy built once) and NewtonK0 with one cycle of GAMG, with or
+  without the tangent operator assembled.
 - GPU, tier 2 (variants dominated in the measurements of the solvers,
   `docs/solver-recommendations.md`): aggressive coarsening of BoomerAMG,
   Krylov solvers of MFEM with BoomerAMG, AmgX in single precision within
@@ -333,7 +361,8 @@ results/benchmark-slides-v2/double --keep 5`), double at the order 2,
 float at the order 2. In each window, for each case: `screen` of the GPU
 and mixed configurations, `screen` of the CPU configurations, `finals`,
 then the graphs (`slides/order-1`, `slides/order-2`). Estimated
-duration: 6 to 8 hours for a window in double, 2 to 3 hours in float.
+duration: 6 to 8 hours for a window in double (PETSc on the GPU adds
+about 30 minutes), 2 to 3 hours in float.
 
 First pass:
 
@@ -369,6 +398,11 @@ puts the library of MGIS of the precision of each run first in
 `LD_LIBRARY_PATH`. In float, ptxas exceeds 15 GB on `fem/lor/lor_batched.cpp`
 of MFEM, compiled as PTX only (`reproducers/ptxas-float-lor-batched`). The
 relative tolerances of the linear solvers are at least 1e-6.
+The tests of the solvers of PETSc of mfem-mgis (`PETScSolversTest`, linked
+with the library of stubs of Tacho) fail in float on the CPU and on the GPU
+alike, their tolerances being calibrated in double: the numbers of
+iterations are the same on the CPU and on the GPU, up to two iterations of
+GAMG.
 
 ## Trials at the small size (16/10/2026, previous driver)
 

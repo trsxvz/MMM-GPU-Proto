@@ -32,7 +32,12 @@ namespace mfem_mgis {
     //! \brief where the device of MFEM computes (solvers of MFEM)
     MFEM,
     //! \brief where the memory of hypre is (solvers of hypre)
-    HYPRE
+    HYPRE,
+    /*!
+     * \brief where the execution settings place the linear solvers, on the
+     * host or on the GPU (solvers of PETSc built for the GPU of MFEM)
+     */
+    REQUESTED
   };  // end of LinearSolverPlacement
 
   //! \brief kind of linear solver

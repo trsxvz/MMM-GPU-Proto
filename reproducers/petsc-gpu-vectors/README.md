@@ -52,26 +52,38 @@ limit of `rc_ex1p_device`, which does not choose the preconditioner: the
 residual decreases normally, down to 2.2e-6 relatively.) The program
 ends normally in all the runs.
 
-## Leads
+## Cause
 
-- MFEM wraps its vectors in the vectors of PETSc without copy
-  (`PetscParVector`, `linalg/petsc.cpp`) and sets the internal offload mask
-  of the vectors of PETSc itself, through the private header
-  `petsc/private/vecimpl.h` (`__mfem_VecSetOffloadMask`, l. 5512-5519 of
-  `linalg/petsc.cpp`, and its callers). A change of the handling of the
-  device arrays of the vectors of PETSc (`VecCUDA`, `VecCUPM`) would make
-  PETSc read an array which is not up to date (the array of the host while
-  the values are on the device, or the converse).
-- To check: the same problem with PETSc alone (`-vec_type cuda -mat_type
-  aijcusparse`, for instance a tutorial of KSP of PETSc) to rule out PETSc;
-  the offload mask and the arrays of the host and of the device of the
-  vectors given to the preconditioner (`PCApply`) at the iteration 0; the
-  public functions of PETSc (`VecCUDAPlaceArray`, `VecCUDAResetArray`,
-  `VecCUDAGetArray`...) instead of the private field; an older version of
-  PETSc, to know whether the behaviour changed.
-- In mfem-mgis, the solvers of PETSc compute on the host since 15/10/2026
-  (`src/PETScLinearSolvers.cxx`): the matrices are copied in the AIJ format
-  of the host and the vectors through the arrays of the host. The same
-  vectors seen as zero were met there, with also an abort of the program in
-  `PetscFinalize` when the memory pool of PETSc on the GPU was freed: this
-  abort does not happen with `ex1p`.
+MFEM is built with Umpire: its default memory type on the device is then
+`DEVICE_UMPIRE` (`host-umpire,cuda-umpire`). `PetscParVector::SetVecType_`
+(l. 399 of `linalg/petsc.cpp`) and `PetscParMatrix::MakeWrapper` (l. 1382)
+only test the memory types `DEVICE` and `MANAGED`: with `DEVICE_UMPIRE`,
+the vectors given to PETSc are vectors of the host (`VECSTANDARD`), while
+the matrix is a matrix of cuSPARSE (`MATAIJCUSPARSE`). The preconditioner
+writes its result on the GPU, then the conjugate gradient reads the array
+of the host, which stayed at zero. At the iteration 0, the vectors `B`,
+`X`, `R` and `Z` of the conjugate gradient are of type `seq`, and z'r is
+zero on the arrays of the host and 4.6e-4 on the arrays of the device.
+With `MFEM_MEMORY=cuda` (memory of the device without Umpire:
+`MFEM_MEMORY=cuda reproducers/petsc-gpu-vectors/run.sh`), the runs on the
+GPU give the results of the runs on the CPU. The offload mask written
+by MFEM, first suspected, is not the cause.
+
+The fix of MFEM (all the memory types of the device, except the debug
+one, give vectors of PETSc on the device) is proposed in
+[mfem/mfem#5646](https://github.com/mfem/mfem/pull/5646).
+
+## In mfem-mgis
+
+Since `patches/mfem-mgis/0272-*`, the solvers and the preconditioners of
+PETSc compute on the GPU when the linear solvers are placed there
+(`--execution gpu`), without the vectors of PETSc of MFEM: the operator is
+converted to the AIJ format of cuSPARSE and the vectors of PETSc of the GPU
+wrap the memory of MFEM on the device (`VecCreateSeqCUDAWithArray`,
+`VecCreateMPICUDAWithArray`, and their HIP versions). This
+works with the MFEM 4.10 installed (with or without the fix above). The
+abort in `PetscFinalize` met before was another defect: PETSc 3.26 keeps
+its pools of the GPU (events, memory) in static variables of functions,
+built after the static finalizer of mfem-mgis and thus destroyed before
+it at the exit; PETSc is now finalized by a function registered with
+`std::atexit` after the first resolution on the GPU.

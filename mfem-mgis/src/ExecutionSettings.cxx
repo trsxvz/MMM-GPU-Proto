@@ -354,6 +354,7 @@ namespace mfem_mgis::internals {
     const auto mfem_location = s.mode == ExecutionMode::CPU
                                    ? ExecutionLocation::CPU
                                    : ExecutionLocation::GPU;
+    // `LinearSolverPlacement::REQUESTED`: where the linear solvers are placed
     auto location = requested;
     if (p == LinearSolverPlacement::HOST) {
       location = ExecutionLocation::CPU;

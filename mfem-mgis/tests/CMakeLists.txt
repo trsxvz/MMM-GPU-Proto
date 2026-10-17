@@ -2145,7 +2145,8 @@ if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_PETSC)
   add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
   set_tests_properties(PETScSolversTest PETScSolversTestP PROPERTIES
     FAIL_REGULAR_EXPRESSION "check failed")
-  # with MFEM on a GPU, the solvers of PETSc compute on the host
+  # with MFEM on a GPU, the solvers of PETSc compute on the GPU if PETSc is
+  # built for it, on the host otherwise
   if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
      enable-gpu-tests)
     if(MFEM_USE_CUDA STREQUAL "YES")

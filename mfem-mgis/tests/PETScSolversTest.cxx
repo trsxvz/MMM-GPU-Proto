@@ -35,7 +35,9 @@
  *   factorization of PETSc), and the Krylov solvers of HPDDM (GCRODR,
  *   recycling a subspace between two resolutions);
  * - the matrix given to the Krylov solver of PETSc is the matrix of hypre
- *   (products by a vector compared);
+ *   (products by a vector compared), in the AIJ format of the GPU when MFEM
+ *   computes on a GPU for which PETSc is built (the solvers of PETSc then
+ *   compute on the GPU), of the host otherwise;
  * - when MFEM computes on the host, the solvers of PETSc do not initialize
  *   the GPU.
  * \date   15/10/2026
@@ -45,6 +47,7 @@
 #include <array>
 #include <algorithm>
 #include <string>
+#include <string_view>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -194,6 +197,20 @@ static void checkMatrixCopy(System& s, const std::string& name) {
   ls.linear_solver->SetOperator(s.A);
   auto a = Mat{};
   petsc(KSPGetOperators(getKSP(ls), &a, nullptr), "KSPGetOperators");
+  // the solvers of PETSc compute on the GPU when MFEM computes on a GPU for
+  // which PETSc is built
+#if defined(MFEM_USE_CUDA) && defined(PETSC_HAVE_CUDA)
+  const auto device = mfem::Device::Allows(mfem::Backend::CUDA_MASK);
+#elif defined(MFEM_USE_HIP) && defined(PETSC_HAVE_HIP)
+  const auto device = mfem::Device::Allows(mfem::Backend::HIP_MASK);
+#else
+  const auto device = false;
+#endif
+  auto type = MatType{};
+  petsc(MatGetType(a, &type), "MatGetType");
+  const auto t = std::string_view{type};
+  check((t.ends_with("cusparse") || t.ends_with("hipsparse")) == device,
+        name + ": the matrix given to PETSc is of type " + std::string{t});
   const auto n = s.B.Size();
   auto x = mfem::Vector(n);
   x.UseDevice(true);
@@ -447,6 +464,36 @@ static void checkPreconditioners(LaplaceSystem<true>& s) {
   const auto ramg = solve(s, *(amg.linear_solver));
   check(getPCType(amg) == "shell", "CG, BoomerAMG: shell preconditioner");
   check(isSolved(ramg) && isFaster(ramg, rj), "CG, BoomerAMG: resolution");
+  // the shell preconditioner applied once (preonly), to the vectors of PETSc
+  // wrapping the right hand side and the solution given to the solver: the
+  // result is the one of the preconditioner applied by itself
+  {
+    auto once = generate(
+        s, "PETScLinearSolver",
+        Parameters{
+            {"Options", Parameters{{"ksp_type", "preonly"}}},
+            {"Preconditioner",
+             Parameters{{"Name", "HypreBoomerAMG"},
+                        {"Options", Parameters{{"VerbosityLevel", 0}}}}}});
+    const auto n = s.B.Size();
+    auto x1 = mfem::Vector(n);
+    x1.UseDevice(true);
+    x1 = 0.;
+    once.linear_solver->SetOperator(s.A);
+    once.linear_solver->Mult(s.B, x1);
+    auto x2 = mfem::Vector(n);
+    x2.UseDevice(true);
+    once.preconditioner->Mult(s.B, x2);
+    // `mfem::ParNormlp` reads the host array without synchronizing it in
+    // MFEM 4.10 (mfem/mfem#5586)
+    const auto norm = std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, x2, x2));
+    x2 -= x1;
+    const auto difference =
+        std::sqrt(mfem::InnerProduct(MPI_COMM_WORLD, x2, x2));
+    check((norm > 0) && (difference <= 1e-10 * norm),
+          "preonly, BoomerAMG: the shell preconditioner gives another result "
+          "than the preconditioner");
+  }
   auto mesh =
       mfem::Mesh::MakeCartesian3D(12, 12, 12, mfem::Element::HEXAHEDRON);
   auto fec = mfem::H1_FECollection(1, 3);

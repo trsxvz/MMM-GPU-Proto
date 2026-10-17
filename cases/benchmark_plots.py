@@ -134,6 +134,8 @@ LINEAR_NAMES = {
     "tacho": "Tacho of Trilinos (direct)",
     "strumpack": "STRUMPACK (direct)",
     "petsc-gamg": "Krylov of PETSc + GAMG",
+    "petsc-gamg-gpu": "Krylov of PETSc + GAMG (plain aggregation, built "
+                      "once)",
     "ginkgo-jacobi": "Krylov of Ginkgo + Jacobi",
     "ginkgo-amg": "Krylov of Ginkgo + its multigrid (PGM)",
     "magma-jacobi": "Krylov of MAGMA + Jacobi",
@@ -144,6 +146,7 @@ NON_LINEAR_NAMES = {
     "k0-muelu": "Newton-K0, K0 by one cycle of MueLu",
     "k0-amgx": "Newton-K0, K0 by one cycle of AmgX",
     "k0-cudss": "Newton-K0, K0 factorized by cuDSS",
+    "k0-petsc": "Newton-K0, K0 by one cycle of GAMG (PETSc)",
     "k0-muelu-sgs": "Newton-K0, K0 by one cycle of MueLu (Gauss-Seidel "
                     "smoother)",
     "modified-newton": "modified Newton",
