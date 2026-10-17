@@ -61,6 +61,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # builds of the examples and of mm-opera-hpc for each precision
 BUILDS = {"double": ROOT / "build" / "bench",
           "float": ROOT / "build" / "bench-float"}
+# libraries of MGIS (displacement gradient interface) of each build: the
+# one of the precision of a run comes first in LD_LIBRARY_PATH, the other
+# one is removed
+MGIS_LIBRARIES = {"double": ROOT / "install" / "h-interface" / "mgis" / "lib",
+                  "float": ROOT / "install" / "h-interface" / "mgis-float" /
+                  "lib"}
 OPENMPI = pathlib.Path(
     "/home/t/Bureau/spack-mmm/opt/spack/linux-x86_64_v3/"
     "openmpi-5.0.10-57cvs5dydumy2shauuhl64r4ybhyn2iw")
@@ -829,6 +835,11 @@ def run(results, case_name, configuration_name, precision, processes,
     env = dict(os.environ)
     env["OMP_NUM_THREADS"] = "1"
     env.update(extra)
+    others = {str(p) for p in MGIS_LIBRARIES.values()}
+    env["LD_LIBRARY_PATH"] = ":".join(
+        [str(MGIS_LIBRARIES[precision])] +
+        [p for p in env.get("LD_LIBRARY_PATH", "").split(":")
+         if p and p not in others])
     order = case.sizes[size].order
     prefix = " ".join(f"{k}={v}" for k, v in extra.items())
     for r in range(first_repeat, first_repeat + repeat):
