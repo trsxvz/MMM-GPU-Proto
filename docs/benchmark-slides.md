@@ -154,6 +154,9 @@ unknowns are printed by the programs, or given by
 | ex6-o2 | -r 3 | 2 | 786,432 | 1 solve |
 | bubble | default mesh | 2 | 467,109 | 1 solve |
 | cermet | -r 1 | 1 | 269,253 | 2 steps of 0.2 s |
+| polycrystal-r2 | -r 2 | 1 | 1,360,002 | 4 steps of 0.2 s |
+| polycrystal-o2 | -r 1 | 2 | 1,360,002 | 4 steps of 0.2 s |
+| cermet-r2 | -r 2 | 1 | 2,164,290 | 2 steps of 0.2 s |
 
 - ex1: by default, the increment of the imposed displacement is
   concentrated in the elements next to the loaded face. With 4 refinements
@@ -170,6 +173,9 @@ unknowns are printed by the programs, or given by
 - ex3-o2 and ex6-o2: ex3 and ex6 with quadratic elements and one
   refinement less, for the same number of unknowns: more work per unknown
   in the kernels of the elements and denser matrices.
+- polycrystal-r2, polycrystal-o2 and cermet-r2: the cases of mm-opera-hpc
+  on larger meshes, and the polycrystal with quadratic elements for the
+  same number of unknowns, without the direct solvers (memory).
 - The polycrystal and the cermet run for short durations (the same in
   double and in float): their grain law of UO2 fails in float beyond about
   0.8 s (rounding of its elastic strain when the deformation gradient is
