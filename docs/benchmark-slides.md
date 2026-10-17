@@ -62,7 +62,7 @@ gives the usage of its subcommands:
   selected by the screening (the solvers of the program on the CPU with
   their best number of processes, the best other CPU configuration, the
   two best configurations with the GPU), all but the second GPU one being
-  repeated (three runs) unless their first run took more than five
+  repeated (three runs) unless their first run took more than two
   minutes;
 - `best RESULTS`: the best times and the speedups.
 

@@ -4,7 +4,9 @@
  * This example models a cyclic tension-compression test on a unit cube. The
  * displacement imposed on the face x = 1, equal to the axial strain, goes up
  * to 0.9 %, down to -2.1 % and back up to 1.9 %. The faces x = 0, y = 0 and
- * z = 0 are symmetry planes.
+ * z = 0 are symmetry planes. With the option --prediction, the increment of
+ * the unknowns of each time step is predicted with the elastic operator
+ * (necessary on fine meshes, see TestParameters::prediction).
  *
  * At each time step, the first two components of the gradients, the first
  * component of the thermodynamic forces and an internal state variable are
@@ -569,11 +571,13 @@ int main(int argc, char** argv) {
     mfem_mgis::getOutputStream()
         << "time step " << i + 1 << " from " << t << " to " << t + dt << '\n';
     // a resolution which does not converge ends the test with a failure
-    // (expected by UniaxialTensileTest-NoStagnation-*), not with an abort
+    // (expected by UniaxialTensileTest-NoStagnation-*), not with an abort.
+    // As on success, mfem-mgis is finalized after the destruction of the
+    // problem: finalizing it here would destroy the solvers after Kokkos
+    // (abort of Kokkos with the solvers of Trilinos)
     if (!problem.solve(ctx, t, dt).status) {
       mfem_mgis::getErrorStream() << ctx.getErrorMessage() << '\n'
                                   << "the resolution failed\n";
-      mfem_mgis::finalize();
       return EXIT_FAILURE;
     }
     problem.executePostProcessings(ctx, t, dt) | or_die;

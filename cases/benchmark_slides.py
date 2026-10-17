@@ -852,7 +852,7 @@ def _screened(results, case_name, precision, size):
 
 
 def finals(results, case_name, precision, screen_size, size, repeat,
-           timeout, dry_run, long_run=300):
+           timeout, dry_run, long_run=120):
     """runs at the measurement size the configurations selected by the
     screening: the solvers of the program on the CPU (best number of
     processes, or 8 if the screening did not finish), the best other CPU
