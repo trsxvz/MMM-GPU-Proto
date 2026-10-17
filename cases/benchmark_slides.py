@@ -139,6 +139,13 @@ CASES = {
     "ex3": Case("examples", "ex3", "./two_layer_cube", ["--test-case", "1"],
                 _sizes(["-r", "2"], ["-r", "4"], ["-r", "4"]),
                 1e-12, True, parallel_option="--parallel"),
+    # the same with quadratic elements, for the same number of unknowns
+    # (one refinement less): more work per unknown in the kernels of the
+    # elements, denser matrices
+    "ex3-o2": Case("examples", "ex3", "./two_layer_cube",
+                   ["--test-case", "1"],
+                   _sizes(["-r", "1"], ["-r", "3"], ["-r", "3"], order=2),
+                   1e-12, True, parallel_option="--parallel"),
     "ex4": Case("examples", "ex4", "./ssna303_3d_hypre", [],
                 _sizes(["--nbsteps", "2", "--end-time", "1"],
                        ["-r", "1", "--nbsteps", "2", "--end-time", "0.2"],
@@ -150,6 +157,9 @@ CASES = {
     "ex6": Case("examples", "ex6", "./rve", ["--no-post-processing"],
                 _sizes(["-r", "1"], ["-r", "4"], ["-r", "4"]),
                 1e-12, True),
+    "ex6-o2": Case("examples", "ex6", "./rve", ["--no-post-processing"],
+                   _sizes(["-r", "1"], ["-r", "3"], ["-r", "3"], order=2),
+                   1e-12, True),
     # ex7 has no option of the end time: with 1 refinement, it has only
     # 21012 unknowns; it is measured with 2 refinements, and screened with
     # 10 time steps instead of 40
@@ -517,9 +527,12 @@ CONFIGURATIONS = {
     "ex2": _configurations(True, native_on_gpu=False),
     "ex3": _configurations(False, direct=False, native_on_cpu=False,
                            direct_cpu=False),
+    "ex3-o2": _configurations(False, direct=False, native_on_cpu=False,
+                              direct_cpu=False),
     "ex4": _configurations(True),
     "ex5": _configurations(False, native_on_gpu=False),
     "ex6": _configurations(True, direct=False, direct_cpu=False),
+    "ex6-o2": _configurations(True, direct=False, direct_cpu=False),
     "ex7": _configurations(True),
     "ex8": _ex8_configurations(),
     "polycrystal": _configurations(True),
@@ -541,6 +554,10 @@ UNKNOWNS = {
     ("ex5", "bench"): 1847042,
     ("ex6", "small"): 1536, ("ex6", "screen"): 786432,
     ("ex6", "bench"): 786432,
+    ("ex3-o2", "small"): 12288, ("ex3-o2", "screen"): 786432,
+    ("ex3-o2", "bench"): 786432,
+    ("ex6-o2", "small"): 12288, ("ex6-o2", "screen"): 786432,
+    ("ex6-o2", "bench"): 786432,
     ("polycrystal", "small"): 20553, ("polycrystal", "screen"): 168885,
     ("polycrystal", "bench"): 168885,
     ("cermet", "small"): 33015, ("cermet", "screen"): 269253,

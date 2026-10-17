@@ -150,6 +150,8 @@ unknowns are printed by the programs, or given by
 | ex7 | -r 2 | 2 | printed by the program | 40 |
 | ex8 | -r 1 | 1 | 214,812 (mechanics) | 5 |
 | polycrystal | -r 1 | 1 | 168,885 | 4 steps of 0.2 s |
+| ex3-o2 | -r 3 | 2 | 786,432 | 1 solve |
+| ex6-o2 | -r 3 | 2 | 786,432 | 1 solve |
 | bubble | default mesh | 2 | 467,109 | 1 solve |
 | cermet | -r 1 | 1 | 269,253 | 2 steps of 0.2 s |
 
@@ -165,6 +167,9 @@ unknowns are printed by the programs, or given by
 - ex7: with 1 refinement, it has only 21,012 unknowns, which do not fill
   the GPU: it is measured with 2 refinements, and screened with 10 steps
   instead of 40 (no option of the end time).
+- ex3-o2 and ex6-o2: ex3 and ex6 with quadratic elements and one
+  refinement less, for the same number of unknowns: more work per unknown
+  in the kernels of the elements and denser matrices.
 - The polycrystal and the cermet run for short durations (the same in
   double and in float): their grain law of UO2 fails in float beyond about
   0.8 s (rounding of its elastic strain when the deformation gradient is
