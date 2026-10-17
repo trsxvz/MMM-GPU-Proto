@@ -117,15 +117,17 @@ def _sizes(small, screen, bench, order=1):
 # program has an option of the end time. The orders are the ones of the
 # programs (2 for ex5, ex7 and the bubble), always given explicitly.
 CASES = {
-    # the time step of ex1 is 1 / nbsteps (100 steps by default): with 20
-    # steps or less, the Newton solver does not converge at the onset of
-    # plasticity. With 6 refinements, the Newton solver does not converge
-    # from the first step, even with 100 steps, on the CPU and on the GPU,
-    # by kernels or element by element (to be investigated): 5 refinements
+    # the time step of ex1 is 1 / nbsteps (100 steps by default); its
+    # loading is cyclic, reversed at t = 0.3. Without --prediction, the
+    # increment of the imposed displacement is concentrated in the elements
+    # next to the loaded face: with 4 refinements or more, the Newton solver
+    # does not converge at the reversal (with 6, not even at the first
+    # step). ex1 has no option of the end time: "screen" uses the mesh of 5
+    # refinements (107811 unknowns), "bench" the one of 6 (823875).
     "ex1": Case("examples", "ex1", "./uniaxial_tensile_test",
-                ["--no-post-processing"],
+                ["--no-post-processing", "--prediction"],
                 _sizes(["-r", "2", "-ns", "25"], ["-r", "5", "-ns", "25"],
-                       ["-r", "5", "-ns", "25"]),
+                       ["-r", "6", "-ns", "25"]),
                 1e-12, True, parallel_option="--parallel"),
     "ex2": Case("examples", "ex2", "./ssna303", [],
                 _sizes(["--nbsteps", "5"],
@@ -278,9 +280,12 @@ LINEAR_SOLVERS = {
 # Non linear solvers, given by the non linear solver override of
 # mfem-mgis, {tangent} being replaced by the iterative solver of the tangent
 # operator of NewtonK0 (conjugate gradient or GMRES); the linear solver of
-# the elastic operator of NewtonK0 is set up once
+# the elastic operator of NewtonK0 is set up once. The inexact methods need
+# more iterations than the exact Newton method for which the programs set
+# their maximum number of iterations (10 for ex2, which the inexact Newton
+# method reaches while it still converges), hence the maximum of 50
 _EW = ('AdaptiveLinearSolverTolerance: {{EisenstatWalker1: '
-       '{{InitialTolerance: 0.1}}}}')
+       '{{InitialTolerance: 0.1}}}}, MaximumNumberOfIterations: 50')
 
 
 def _newton_k0(elastic_operator_solver):
@@ -365,15 +370,18 @@ class Configuration:
         return ", ".join(parts)
 
 
-def _cpu_configurations(nonlinear):
-    """the solvers of the program and three strong alternatives on 8 and 16
-    processes, and NewtonK0 for the non linear computations"""
+def _cpu_configurations(nonlinear, direct_cpu=True):
+    """the solvers of the program on 8 and 16 processes, strong alternatives
+    on 8 processes, and the non linear solvers for the non linear
+    computations; `direct_cpu`: if false, MUMPS is left out (its
+    factorization of a large 3D case exceeds the memory of the machine)"""
     c = {"cpu-native": Configuration("cpu"),
          "cpu-hypre-amg": Configuration("cpu", "hypre-amg", processes=[8]),
          "cpu-muelu-sgs": Configuration("cpu", "muelu-sgs", processes=[8]),
          "cpu-petsc-gamg": Configuration("cpu", "petsc-gamg",
-                                         processes=[8]),
-         "cpu-mumps": Configuration("cpu", "mumps", processes=[8])}
+                                         processes=[8])}
+    if direct_cpu:
+        c["cpu-mumps"] = Configuration("cpu", "mumps", processes=[8])
     if nonlinear:
         # the non linear solvers tried with the GPU, on the CPU too
         c["cpu-hypre-amg-newton-ew"] = Configuration(
@@ -386,7 +394,7 @@ def _cpu_configurations(nonlinear):
 
 
 def _gpu_configurations(nonlinear, direct=True, native_on_cpu=True,
-                        native_on_gpu=True):
+                        native_on_gpu=True, direct_cpu=True):
     """the configurations on the GPU: the solvers of the program, the
     linear solvers suited to the GPU, and for the non linear computations
     the inexact Newton method and NewtonK0 (also with the tangent operator
@@ -402,13 +410,17 @@ def _gpu_configurations(nonlinear, direct=True, native_on_cpu=True,
          "gpu-hypre-amg-agg": Configuration("gpu", "hypre-amg-agg", tier=2),
          "gpu-mfem-amg": Configuration("gpu", "mfem-amg", tier=2),
          "gpu-muelu-jacobi": Configuration("gpu", "muelu-jacobi"),
-         "gpu-muelu-chebyshev": Configuration("gpu", "muelu-chebyshev",
-                                              tier=2),
+         # the Chebyshev smoother estimates the largest eigenvalue: the
+         # damped Jacobi smoother (factor 0.6) may make the multigrid cycle
+         # indefinite in 3D elasticity, where the conjugate gradient of
+         # Belos stops (ex1, bubble)
+         "gpu-muelu-chebyshev": Configuration("gpu", "muelu-chebyshev"),
          "gpu-amgx": Configuration("gpu", "amgx"),
          "gpu-amgx-single": Configuration("gpu", "amgx-single", tier=2),
          "gpu-cg-jacobi": Configuration("gpu", "cg-jacobi", tier=2),
-         "gpu-ginkgo-jacobi": Configuration("gpu", "ginkgo-jacobi", tier=2),
-         "mixed-mumps": Configuration("mixed", "mumps")})
+         "gpu-ginkgo-jacobi": Configuration("gpu", "ginkgo-jacobi", tier=2)})
+    if direct_cpu:
+        c["mixed-mumps"] = Configuration("mixed", "mumps")
     if native_on_cpu:
         c["mixed-native"] = Configuration("mixed")
     if direct:
@@ -435,11 +447,11 @@ def _gpu_configurations(nonlinear, direct=True, native_on_cpu=True,
 
 
 def _configurations(nonlinear, direct=True, native_on_cpu=True,
-                    native_on_gpu=True):
+                    native_on_gpu=True, direct_cpu=True):
     """the configurations of a case, CPU then GPU"""
-    c = _cpu_configurations(nonlinear)
+    c = _cpu_configurations(nonlinear, direct_cpu)
     c.update(_gpu_configurations(nonlinear, direct, native_on_cpu,
-                                 native_on_gpu))
+                                 native_on_gpu, direct_cpu))
     return c
 
 
@@ -477,21 +489,22 @@ def _ex8_configurations():
 
 
 # configurations of each case: one solve of a linear problem (ex3, ex5,
-# bubble) or non linear computations; the direct solvers on the GPU are
-# left out of the cases whose size is too large for them (ex1: 824k
-# unknowns)
+# bubble) or non linear computations; the direct solvers are left out of
+# the large 3D cases (on the GPU, its 16 GB; on the CPU, MUMPS on ex3 at
+# 786,432 unknowns exceeded the 30 GB of the machine)
 CONFIGURATIONS = {
     "ex1": _configurations(True, direct=False, native_on_cpu=False),
     "ex2": _configurations(True, native_on_gpu=False),
-    "ex3": _configurations(False, direct=False, native_on_cpu=False),
+    "ex3": _configurations(False, direct=False, native_on_cpu=False,
+                           direct_cpu=False),
     "ex4": _configurations(True),
     "ex5": _configurations(False, native_on_gpu=False),
-    "ex6": _configurations(True),
+    "ex6": _configurations(True, direct=False, direct_cpu=False),
     "ex7": _configurations(True),
     "ex8": _ex8_configurations(),
     "polycrystal": _configurations(True),
-    "bubble": _configurations(False, direct=False),
-    "cermet": _configurations(True),
+    "bubble": _configurations(False, direct=False, direct_cpu=False),
+    "cermet": _configurations(True, direct_cpu=False),
 }
 
 # numbers of unknowns of the cases whose programs do not print them, given
@@ -499,7 +512,7 @@ CONFIGURATIONS = {
 # the order of the size)
 UNKNOWNS = {
     ("ex1", "small"): 375, ("ex1", "screen"): 107811,
-    ("ex1", "bench"): 107811,
+    ("ex1", "bench"): 823875,
     ("ex2", "small"): 3726, ("ex2", "screen"): 908226,
     ("ex2", "bench"): 908226,
     ("ex3", "small"): 12288, ("ex3", "screen"): 786432,

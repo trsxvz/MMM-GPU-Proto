@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installation of the environment mmm-trilinos-float (single precision twin
 # of mmm-trilinos-teko, see its spack.yaml): only the packages built in
-# single precision are new (Trilinos, PETSc, SUNDIALS, MFEM), the other ones
+# single precision are new (Trilinos, PETSc, hypre, MFEM), the other ones
 # are reused. Built with 4 jobs, the lowest priority, under
 # scripts/memory-governor.sh, on the cores given by the variable CORES (by
 # default all of them), and tried again with 2 jobs if it fails.

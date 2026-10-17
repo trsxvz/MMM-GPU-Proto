@@ -91,7 +91,10 @@ assembly (`MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree`, kept with
 problem: a global override would give the same one to the thermal and to
 the mechanical problems). The programs keep their convergence criteria;
 the relative tolerance of the linear solvers is the one of the program,
-at least 1e-6 in float.
+at least 1e-6 in float. The inexact Newton method and NewtonK0 may make up
+to 50 iterations: they need more iterations than the exact Newton method
+for which the programs set their maximum (10 for ex2, reached by the
+inexact Newton method while it still converges).
 
 - CPU: the solvers of the program on 8 and 16 processes; on 8 processes,
   the Krylov solver of hypre with BoomerAMG, Belos with MueLu (Gauss-Seidel
@@ -99,8 +102,8 @@ at least 1e-6 in float.
   linear computations the inexact Newton method and NewtonK0 (elastic
   operator by one cycle of BoomerAMG or of MueLu).
 - GPU, tier 1 (screened first): the solvers of the program when they
-  compute on the GPU, hypre with BoomerAMG, Belos with MueLu (Jacobi
-  smoother), AmgX, cuDSS, MUMPS on the CPU with the elements and the
+  compute on the GPU, hypre with BoomerAMG, Belos with MueLu (Jacobi or
+  Chebyshev smoother), AmgX, cuDSS, MUMPS on the CPU with the elements and the
   behaviours on the GPU, the solvers of the program in this mixed
   placement, the inexact Newton method, NewtonK0 with its elastic operator
   by BoomerAMG or MueLu, with or without the tangent operator applied
@@ -109,8 +112,7 @@ at least 1e-6 in float.
   operator applied without assembly.
 - GPU, tier 2 (variants dominated in the measurements of the solvers,
   `docs/solver-recommendations.md`): aggressive coarsening of BoomerAMG,
-  Krylov solvers of MFEM with BoomerAMG, MueLu with a Chebyshev smoother,
-  AmgX in single precision within the double build, the Jacobi
+  Krylov solvers of MFEM with BoomerAMG, AmgX in single precision within the double build, the Jacobi
   preconditioner on the assembled operator, Ginkgo, Tacho, NewtonK0 with
   AmgX, the modified Newton method with cuDSS.
 
@@ -126,7 +128,7 @@ unknowns are printed by the programs, or given by
 
 | Case | Measurement size | Order | Unknowns | Steps |
 |---|---|---|---|---|
-| ex1 | -r 5 | 1 | 107,811 | 25 |
+| ex1 | -r 6, --prediction | 1 | 823,875 | 25 |
 | ex2 | -r 4 | 1 | 908,226 | 50 |
 | ex3 | -r 4 | 1 | 786,432 | 1 solve |
 | ex4 | -r 1 | 1 | 196,047 | 10 |
@@ -138,10 +140,14 @@ unknowns are printed by the programs, or given by
 | bubble | default mesh | 2 | 467,109 | 1 solve |
 | cermet | -r 1 | 1 | 269,253 | 2 steps of 0.2 s |
 
-- ex1: with 6 refinements (823,875 unknowns), the Newton solver of the
-  example does not converge from the first step, even with 100 steps, on
-  the CPU and on the GPU, by kernels and element by element: to be
-  investigated.
+- ex1: by default, the increment of the imposed displacement is
+  concentrated in the elements next to the loaded face. With 4 refinements
+  or more, their strain increment is far beyond the elastic limit and the
+  Newton solver does not converge when the loading is reversed (with 6
+  refinements, not even at the first step). The option `--prediction` of
+  the example (elastic prediction, as in ex2 and ex4) removes the failure:
+  41 Newton iterations for the 25 steps. ex1 has no option of the end
+  time: it is screened with 5 refinements (107,811 unknowns).
 - The polycrystal and the cermet run for short durations (the same in
   double and in float): their grain law of UO2 fails in float beyond about
   0.8 s (rounding of its elastic strain when the deformation gradient is
@@ -165,11 +171,13 @@ side.
 
 ## Single precision
 
-The float build (`deps/spack/mmm-trilinos-float`) has hypre, PETSc,
-SUNDIALS and MFEM built in single precision, Trilinos with the float
+The float build (`deps/spack/mmm-trilinos-float`) has hypre, PETSc and
+MFEM built in single precision, Trilinos with the float
 instantiations of Tpetra, MUMPS (its single precision library), cuDSS,
 Ginkgo and oneMKL. Not available in float: SuperLU_DIST, STRUMPACK and
-SuiteSparse (the wrappers of MFEM are written for double), GSLIB, AmgX
+SuiteSparse (the wrappers of MFEM are written for double), SUNDIALS
+(refused by the makefile of MFEM in single precision; not used by the
+benchmark), GSLIB, AmgX
 (refused by mfem-mgis in a float build; it is measured in double, also
 computing in single precision within the double build), Teko (double
 only). The relative tolerances of the linear solvers are at least 1e-6.
@@ -225,6 +233,5 @@ README with the configurations retained and the checks.
 - Overrides per problem: a single linear solver override replaces the
   solvers of all the problems of a program (ex8 uses its own options
   instead).
-- ex1 with 6 refinements (see Sizes).
 - Whole program time or time of the resolution only (the whole program is
   measured).
