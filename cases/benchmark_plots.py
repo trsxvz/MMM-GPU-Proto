@@ -392,7 +392,16 @@ def main():
     summaries = []
     missing = []
     groups, stopped = load(args.results)
-    for key in sorted(set(groups) | set(stopped)):
+    keys = sorted(set(groups) | set(stopped))
+    # a case measured at the measurement size is not shown at the screening
+    # size any more (preliminary graph, removed)
+    measured = {(c, o, p) for c, sz, o, p in keys if sz == "bench"}
+    for key in keys:
+        case, size, order, precision = key
+        if size != "bench" and (case, order, precision) in measured:
+            (args.output /
+             f"{case}-{size}-o{order}-{precision}.png").unlink(missing_ok=True)
+            continue
         s = case_graph(key, groups.get(key, []), stopped.get(key, []),
                        args.output, hardware)
         if isinstance(s, str):
@@ -416,9 +425,13 @@ def main():
     for o in (o1, o2):
         if o:
             lines += [f"![{o}]({o})", ""]
-    lines += ["| graph | case | unknowns | precision | GPU | speedup vs "
-              "solvers of the example | speedup vs best CPU |",
-              "|---|---|---|---|---|---|---|"]
+    lines += ["The graphs at the screening size are preliminary (one run of "
+              "each configuration, fewer steps): they are replaced by the "
+              "graphs at the measurement size once the final runs of the "
+              "case are made.", "",
+              "| graph | case | size | unknowns | precision | GPU | speedup "
+              "vs solvers of the example | speedup vs best CPU |",
+              "|---|---|---|---|---|---|---|---|"]
     # sorted and highlighted by the speedup against the best CPU
     # configuration, the fairest comparison
     for s in sorted(summaries, key=lambda s: -s["speedup_best"]):
@@ -429,8 +442,12 @@ def main():
                   else "solvers of the example failed")
         best_cpu = (">= " if s["cpu_bound"] else "") + \
             f"x{s['speedup_best']:.1f}"
+        size = {"bench": "measurement",
+                "screen": "screening (preliminary)"}.get(s["size"],
+                                                          s["size"])
         lines.append(f"| [{s['name']}]({s['name']}){mark} | {s['case']} | "
-                     f"{s['unknowns']} | {s['precision']} | {s['gpu']} | "
+                     f"{size} | {s['unknowns']} | {s['precision']} | "
+                     f"{s['gpu']} | "
                      f"{native} | {best_cpu} |")
     if missing:
         lines += ["", "Cases and sizes without a graph:", ""]
