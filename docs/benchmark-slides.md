@@ -183,7 +183,7 @@ unknowns are printed by the programs, or given by
 | Screening, GPU | GPU shared | tier 1 of each case at the screening size |
 | Screening, CPU | exclusive | the CPU configurations at the screening size |
 | Final runs | exclusive | `finals` of each case, graphs after each case |
-| Float | same stages | once the float build is installed |
+| Float | same stages | once the float build is installed; screening of the solvers of the program and of the 3 best configurations of each side in double (`screen --reference`) |
 | Refinement | as available | tier 2, variants of the winners |
 
 The full grid (all the solvers, processes, orders and precisions, three

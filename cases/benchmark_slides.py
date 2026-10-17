@@ -850,13 +850,39 @@ def _done(results, case_name, precision, size):
                 and row["size"] == size}
 
 
+def _best_of_reference(reference, case_name, precision, size, keep,
+                       reference_precision="double"):
+    """the configurations to screen in `precision` from the screening made
+    in `reference_precision` in the results `reference`: the solvers of the
+    program on the CPU and, among the configurations available in
+    `precision`, the `keep` best ones on the CPU and the `keep` best ones
+    with the GPU"""
+    times = _screened(reference, case_name, reference_precision, size)
+    configurations = CONFIGURATIONS[case_name]
+    selected = {"cpu-native"}
+    for on_cpu in (True, False):
+        ranked = []
+        for (name, _), t in sorted(times.items(), key=lambda x: x[1]):
+            c = configurations.get(name)
+            if (c is None or name in ranked or name == "cpu-native" or
+                    (c.side == "cpu") != on_cpu or
+                    precision not in c.precisions()):
+                continue
+            ranked.append(name)
+        selected.update(ranked[:keep])
+    return selected
+
+
 def screen(results, case_name, precision, sides, size, timeout, dry_run,
-           tiers=(1,)):
+           tiers=(1,), only=None):
     """runs the configurations of a case of the given tiers on the given
-    sides, except the ones already run"""
+    sides, except the ones already run (and, if `only` is given, the ones
+    which are not in it)"""
     done = _done(results, case_name, precision, size)
     for name, c in CONFIGURATIONS[case_name].items():
         if c.side not in sides or c.tier not in tiers:
+            continue
+        if only is not None and name not in only:
             continue
         for processes in c.processes:
             if (name, processes) in done:
@@ -984,6 +1010,13 @@ def main():
     sc.add_argument("--sides", default="cpu,gpu,mixed")
     sc.add_argument("--tiers", default="1",
                     help="tiers of the configurations, for instance 1,2")
+    sc.add_argument("--reference", type=pathlib.Path, default=None,
+                    help="results of the screening in double: only the "
+                    "solvers of the program on the CPU and the best "
+                    "configurations of this screening are run")
+    sc.add_argument("--keep", type=int, default=3,
+                    help="number of the best configurations of the "
+                    "reference kept on each side (CPU, GPU)")
     fi = sub.add_parser("finals")
     fi.add_argument("results", type=pathlib.Path)
     fi.add_argument("case", choices=sorted(CASES))
@@ -1039,9 +1072,12 @@ def main():
         unknown = [x for x in sides if x not in SIDES]
         if unknown:
             parser.error("unknown sides: " + ", ".join(unknown))
+        only = (_best_of_reference(args.reference, args.case,
+                                   args.precision, args.size, args.keep)
+                if args.reference is not None else None)
         screen(args.results, args.case, args.precision, sides, args.size,
                args.timeout, args.dry_run,
-               tuple(int(t) for t in args.tiers.split(",")))
+               tuple(int(t) for t in args.tiers.split(",")), only)
     elif args.action == "finals":
         finals(args.results, args.case, args.precision, args.screen_size,
                args.size, args.repeat, args.timeout, args.dry_run)
