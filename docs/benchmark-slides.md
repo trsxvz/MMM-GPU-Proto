@@ -63,7 +63,8 @@ gives the usage of its subcommands:
   their best number of processes, the best other CPU configuration, the
   two best configurations with the GPU), all but the second GPU one being
   repeated (three runs) unless their first run took more than two
-  minutes;
+  minutes; the configurations already measured are skipped, so that
+  `finals` can be run again after a new screening;
 - `best RESULTS`: the best times and the speedups.
 
 Common options: `--precision double|float`, `--size small|screen|bench`,
@@ -95,7 +96,11 @@ the relative tolerance of the linear solvers is the one of the program,
 at least 1e-6 in float. The inexact Newton method and NewtonK0 may make up
 to 50 iterations: they need more iterations than the exact Newton method
 for which the programs set their maximum (10 for ex2, reached by the
-inexact Newton method while it still converges).
+inexact Newton method while it still converges). With the GPU, hypre
+allocates at once a pool of 4 GiB, which left too little memory to
+Trilinos, AmgX and cuDSS on ex3, ex4 and ex6: with their solvers, the
+initial pool of hypre is 1 GiB (`MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`; it
+grows if needed).
 
 - CPU: the solvers of the program on 8 and 16 processes; on 8 processes,
   the Krylov solver of hypre with BoomerAMG, Belos with MueLu (Gauss-Seidel

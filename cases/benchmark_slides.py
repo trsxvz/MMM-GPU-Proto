@@ -330,6 +330,17 @@ NON_LINEAR_SOLVERS = {
 # tangent operator applied without assembly (kept with --execution)
 MATRIX_FREE = {"MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION": "MatrixFree"}
 
+# With the GPU, hypre allocates at once a pool of 4 GiB (Umpire), which
+# leaves too little memory to Trilinos, AmgX or cuDSS for the largest
+# cases (failed allocations on ex3, ex4, ex6): with their solvers, the
+# initial pool of hypre is 1 GiB (it grows if needed)
+SMALL_HYPRE_POOL = {"MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE": "1"}
+_NOT_HYPRE_LINEAR = {"muelu-jacobi", "muelu-chebyshev", "muelu-sgs", "amgx",
+                     "amgx-single", "amgx-agg", "cudss", "tacho",
+                     "ginkgo-jacobi"}
+_NOT_HYPRE_NON_LINEAR = {"k0-muelu", "k0-muelu-sgs", "k0-amgx", "k0-cudss",
+                         "modified-newton"}
+
 # sides: execution options of mfem-mgis
 SIDES = {
     "cpu": ["--execution", "cpu"],
@@ -621,7 +632,11 @@ def command(case, configuration, processes, size, precision="double"):
         smt = ["--use-hwthread-cpus"] if processes > 8 else []
         cmd = ([str(OPENMPI / "bin" / "mpirun"), "-n", str(processes)] + smt +
                ["--bind-to", unit, "--map-by", unit] + cmd)
-    return cmd, c.environment
+    environment = dict(c.environment)
+    if c.side != "cpu" and (c.linear in _NOT_HYPRE_LINEAR or
+                            c.non_linear in _NOT_HYPRE_NON_LINEAR):
+        environment.update(SMALL_HYPRE_POOL)
+    return cmd, environment
 
 
 def _session_processes(sid):
@@ -861,7 +876,7 @@ def finals(results, case_name, precision, screen_size, size, repeat,
     the best GPU configuration are repeated (`repeat` runs in all), unless
     their first run succeeds in more than `long_run` seconds or fails. The
     configurations of the results which are no longer defined are
-    ignored"""
+    ignored, and the ones already run at this size are not run again"""
     times = _screened(results, case_name, precision, screen_size)
     configurations = CONFIGURATIONS[case_name]
 
@@ -879,7 +894,12 @@ def finals(results, case_name, precision, screen_size, size, repeat,
         selection.append((cpu[0][1], repeat))
     for i, (_, k) in enumerate(gpu[:2]):
         selection.append((k, repeat if i == 0 else 1))
+    # the configurations already measured are not run again, so that finals
+    # can be run again after a new screening
+    done = _done(results, case_name, precision, size)
     for (name, processes), r in selection:
+        if (name, processes) in done:
+            continue
         first = run(results, case_name, name, precision, processes, size, 1,
                     dry_run, timeout)
         if (r > 1 and first and first[0][0] == 0 and
