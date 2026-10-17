@@ -54,15 +54,16 @@ gives the usage of its subcommands:
 - `calibrate RESULTS`: each case at the measurement size with the solvers
   of the program, on 8 processes and with the GPU;
 - `screen RESULTS CASE`: the configurations of a case (sides, tiers) at the
-  screening size (the mesh of the measurements, one or two steps of the
-  same time step, or all the steps when the program has no option of the
-  end time); the runs already made are skipped, so that an interrupted
-  screening resumes;
+  screening size (the mesh of the measurements and one or two steps of
+  the same time step; ex1 and ex7, without an option of the end time, are
+  screened on a coarser mesh or with fewer steps, see Sizes); the runs
+  already made are skipped, so that an interrupted screening resumes;
 - `finals RESULTS CASE`: at the measurement size, the configurations
   selected by the screening (the solvers of the program on the CPU with
   their best number of processes, the best other CPU configuration, the
-  two best configurations with the GPU), the first ones being repeated
-  (three runs) unless their first run took more than five minutes;
+  two best configurations with the GPU), all but the second GPU one being
+  repeated (three runs) unless their first run took more than five
+  minutes;
 - `best RESULTS`: the best times and the speedups.
 
 Common options: `--precision double|float`, `--size small|screen|bench`,
@@ -103,8 +104,8 @@ inexact Newton method while it still converges).
   operator by one cycle of BoomerAMG or of MueLu).
 - GPU, tier 1 (screened first): the solvers of the program when they
   compute on the GPU, hypre with BoomerAMG, Belos with MueLu (Jacobi or
-  Chebyshev smoother), AmgX (classical or aggregation multigrid), cuDSS, MUMPS on the CPU with the elements and the
-  behaviours on the GPU, the solvers of the program in this mixed
+  Chebyshev smoother), AmgX (classical or aggregation multigrid), cuDSS,
+  MUMPS on the CPU with the elements and the behaviours on the GPU, the solvers of the program in this mixed
   placement, the inexact Newton method, NewtonK0 with its elastic operator
   by BoomerAMG or MueLu, with or without the tangent operator applied
   without assembly, NewtonK0 with the elastic operator factorized by cuDSS,
@@ -112,9 +113,16 @@ inexact Newton method while it still converges).
   operator applied without assembly.
 - GPU, tier 2 (variants dominated in the measurements of the solvers,
   `docs/solver-recommendations.md`): aggressive coarsening of BoomerAMG,
-  Krylov solvers of MFEM with BoomerAMG, AmgX in single precision within the double build, the Jacobi
-  preconditioner on the assembled operator, Ginkgo, Tacho, NewtonK0 with
+  Krylov solvers of MFEM with BoomerAMG, AmgX in single precision within
+  the double build, the Jacobi preconditioner on the assembled operator, Ginkgo, Tacho, NewtonK0 with
   AmgX, the modified Newton method with cuDSS.
+
+Left out for some cases: the direct solvers (MUMPS on the CPU, cuDSS)
+for the large 3D cases (ex3, ex6, the bubble; cuDSS for ex1, MUMPS for the
+cermet), MUMPS having saturated the memory of the machine on ex3; the solvers of the
+program on the GPU when they are refused there (MUMPS of ex2 and ex5) and
+in the mixed placement when they are refused on the CPU with the rest on
+the GPU (conjugate gradient of MFEM of ex1 and ex3).
 
 Not used: the sparse solvers of MAGMA (sequential only, the programs are
 parallel), AmgX in a float build (refused by mfem-mgis), SuperLU_DIST,
@@ -134,7 +142,7 @@ unknowns are printed by the programs, or given by
 | ex4 | -r 1 | 1 | 196,047 | 10 |
 | ex5 | -r 4, parallel | 2 | 1,847,042 | 1 solve |
 | ex6 | -r 4 | 1 | 786,432 | 1 solve |
-| ex7 | -r 1 | 2 | printed by the program | 40 |
+| ex7 | -r 2 | 2 | printed by the program | 40 |
 | ex8 | -r 1 | 1 | 214,812 (mechanics) | 5 |
 | polycrystal | -r 1 | 1 | 168,885 | 4 steps of 0.2 s |
 | bubble | default mesh | 2 | 467,109 | 1 solve |
@@ -146,8 +154,12 @@ unknowns are printed by the programs, or given by
   Newton solver does not converge when the loading is reversed (with 6
   refinements, not even at the first step). The option `--prediction` of
   the example (elastic prediction, as in ex2 and ex4) removes the failure:
-  41 Newton iterations for the 25 steps. ex1 has no option of the end
-  time: it is screened with 5 refinements (107,811 unknowns).
+  25 predictions and 16 Newton iterations for the 25 steps. ex1 has no
+  option of the end time: it is screened with 5 refinements (107,811
+  unknowns).
+- ex7: with 1 refinement, it has only 21,012 unknowns, which do not fill
+  the GPU: it is measured with 2 refinements, and screened with 10 steps
+  instead of 40 (no option of the end time).
 - The polycrystal and the cermet run for short durations (the same in
   double and in float): their grain law of UO2 fails in float beyond about
   0.8 s (rounding of its elastic strain when the deformation gradient is

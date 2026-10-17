@@ -23,7 +23,8 @@ and `install/mfem-mgis-bench-float` (see `docs/benchmark-slides.md`).
 Stages of the measurements: `calibrate` runs each case once with the
 solvers of the program, on 8 processes and on the GPU; `screen` runs all
 the configurations of a case at the screening size (the mesh of the
-measurements, one or two steps of the same time step); `run` runs one
+measurements and one or two steps of the same time step, or for ex1 and
+ex7 a coarser mesh or fewer steps); `run` runs one
 configuration, for the repetitions of the best ones; `best` and
 `cases/benchmark_plots.py` summarize the results.
 
@@ -114,8 +115,9 @@ def _sizes(small, screen, bench, order=1):
 # unknowns, one or several waves of the multiprocessors of the GPU for the
 # kernels of the elements), as given by the calibration; "screen" keeps
 # the mesh and the time step of "bench", with one or two steps when the
-# program has an option of the end time. The orders are the ones of the
-# programs (2 for ex5, ex7 and the bubble), always given explicitly.
+# program has an option of the end time, except for ex1 and ex7 which
+# have no such option (see below). The orders are the ones of the programs
+# (2 for ex5, ex7 and the bubble), always given explicitly.
 CASES = {
     # the time step of ex1 is 1 / nbsteps (100 steps by default); its
     # loading is cyclic, reversed at t = 0.3. Without --prediction, the
@@ -148,10 +150,13 @@ CASES = {
     "ex6": Case("examples", "ex6", "./rve", ["--no-post-processing"],
                 _sizes(["-r", "1"], ["-r", "4"], ["-r", "4"]),
                 1e-12, True),
+    # ex7 has no option of the end time: with 1 refinement, it has only
+    # 21012 unknowns; it is measured with 2 refinements, and screened with
+    # 10 time steps instead of 40
     "ex7": Case("examples", "ex7", "./mox2",
                 ["--no-post-processing", "--mesh", "mesh/OneSphere.msh"],
-                _sizes(["--nbsteps", "5"], ["-r", "1", "--nbsteps", "40"],
-                       ["-r", "1", "--nbsteps", "40"], order=2),
+                _sizes(["--nbsteps", "5"], ["-r", "2", "--nbsteps", "10"],
+                       ["-r", "2", "--nbsteps", "40"], order=2),
                 1e-12, False),
     "ex8": Case("examples", "ex8", "./rjh_plate",
                 ["-m", "assemblage_hexa.msh"],
@@ -413,10 +418,10 @@ def _gpu_configurations(nonlinear, direct=True, native_on_cpu=True,
          "gpu-hypre-amg-agg": Configuration("gpu", "hypre-amg-agg", tier=2),
          "gpu-mfem-amg": Configuration("gpu", "mfem-amg", tier=2),
          "gpu-muelu-jacobi": Configuration("gpu", "muelu-jacobi"),
-         # the Chebyshev smoother estimates the largest eigenvalue: the
-         # damped Jacobi smoother (factor 0.6) may make the multigrid cycle
-         # indefinite in 3D elasticity, where the conjugate gradient of
-         # Belos stops (ex1, bubble)
+         # the conjugate gradient of Belos stops on a non positive p.A.p
+         # on ex1 with the Jacobi smoother (GPU) and the symmetric
+         # Gauss-Seidel one (CPU), and on the bubble with the Jacobi one:
+         # the Chebyshev smoother is screened too
          "gpu-muelu-chebyshev": Configuration("gpu", "muelu-chebyshev"),
          "gpu-amgx": Configuration("gpu", "amgx"),
          "gpu-amgx-agg": Configuration("gpu", "amgx-agg"),
@@ -852,15 +857,18 @@ def finals(results, case_name, precision, screen_size, size, repeat,
     screening: the solvers of the program on the CPU (best number of
     processes, or 8 if the screening did not finish), the best other CPU
     configuration, and the two best configurations with the GPU; the
-    solvers of the program on the CPU and the best GPU configuration are
-    repeated (`repeat` runs in all), unless their first run succeeds in more
-    than `long_run` seconds or fails"""
+    solvers of the program on the CPU, the best other CPU configuration and
+    the best GPU configuration are repeated (`repeat` runs in all), unless
+    their first run succeeds in more than `long_run` seconds or fails. The
+    configurations of the results which are no longer defined are
+    ignored"""
     times = _screened(results, case_name, precision, screen_size)
     configurations = CONFIGURATIONS[case_name]
 
     def ranked(predicate):
         return sorted((t, k) for k, t in times.items()
-                      if predicate(configurations[k[0]], k[0]))
+                      if k[0] in configurations and
+                      predicate(configurations[k[0]], k[0]))
 
     native = ranked(lambda c, n: n == "cpu-native")
     cpu = ranked(lambda c, n: c.side == "cpu" and n != "cpu-native")
