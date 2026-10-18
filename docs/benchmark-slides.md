@@ -296,7 +296,12 @@ their speedups, and two overviews of the speedups (against the solvers of
 the examples and against the best CPU configuration), with an index
 `README.md`. The graphs are generated in `slides/` on the machine of the
 measurements, and not versioned: they are drawn again from the `runs.csv`
-of the results.
+of the results. With `--agreeing-only`, the graphs only show the runs whose
+results agree with the reference, without any hatched bar (the lower
+bounds of the runs stopped by the time limit are given by the texts); with
+`--by-precision`, the graphs of the cases of each order are in `double/`
+and `float/`, the overviews and the index in the directory of the order. The final graphs
+of the second pass are drawn with both options (`slides/final-fixed`).
 
 The runs need the libraries of the installation in `LD_LIBRARY_PATH` (TFEL
 built with CUDA, MGIS, CUDA). The solvers of Trilinos initialize the GPU

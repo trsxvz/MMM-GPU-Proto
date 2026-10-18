@@ -7,6 +7,7 @@ overview of the speedups of all the cases. The graphs are written in the
 output directory with an index (README.md) giving their context.
 
 usage: benchmark_plots.py OUTPUT RESULTS [RESULTS...] [--threshold S]
+                          [--agreeing-only] [--by-precision]
 """
 
 import argparse
@@ -53,6 +54,12 @@ PHASE_COLORS = {
                        "#008300"),
     "other": ("rest", "#a8a69f"),
 }
+
+# the bars of the runs stopped by the time limit (lower bounds), whose
+# results differ or which are not checked are hatched (not with the option
+# --agreeing-only, whose graphs have no mark: the texts give the lower
+# bounds)
+HATCH = True
 
 # solvers of each program (the reference of the speedups)
 NATIVE_NAMES = {
@@ -287,6 +294,34 @@ def load(paths):
     return groups, stopped, differs
 
 
+def keep_agreeing(groups):
+    """leaves out of the groups the runs whose results differ from the
+    reference or are not checked: the graphs then only show runs whose
+    results agree. When all the runs of the solvers of the program are left
+    out, the other runs of the case are marked, so that no speedup is given
+    against them; returns the runs left out of each group (configuration
+    and number of processes)"""
+    left_out = {}
+    for key, rows in groups.items():
+        wrong = [r for r in rows if "differs" in r or "unchecked" in r]
+        rows[:] = [r for r in rows
+                   if "differs" not in r and "unchecked" not in r]
+        native_wrong = (any(r["configuration"] == "cpu-native"
+                            for r in wrong) and
+                        not any(r["configuration"] == "cpu-native"
+                                for r in rows))
+        for r in rows:
+            if native_wrong:
+                r["native_left_out"] = True
+        if wrong:
+            left_out[key] = sorted(
+                {f"{r['configuration']} ({r['processes']} process"
+                 f"{'es' if r['processes'] != '1' else ''}"
+                 f"{', not checked' if 'unchecked' in r else ''})"
+                 for r in wrong})
+    return left_out
+
+
 def best_by_configuration(rows):
     """the best run of each configuration, whatever its number of processes
     (given in the labels)"""
@@ -357,8 +392,10 @@ def case_graph(key, rows, stopped, output, hardware):
     if native is None and cpu is None:
         return "no successful run on the CPU"
     # the solvers of the program give wrong results (in float, against the
-    # reference in double): no speedup against them
-    native_wrong = native is not None and "differs" in native
+    # reference in double), shown or left out (see `keep_agreeing`): no
+    # speedup against them
+    native_wrong = ((native is not None and "differs" in native) or
+                    any(r.get("native_left_out") for r in rows))
     bars = []
     if native is not None:
         bars.append((native, REFERENCE_COLOR))
@@ -383,12 +420,12 @@ def case_graph(key, rows, stopped, output, hardware):
     y = range(len(bars))[::-1]
     patches = ax.barh(list(y), times, height=0.5, color=[c for _, c in bars],
                       edgecolor=SURFACE, linewidth=2)
-    if bound:
+    if bound and HATCH:
         patches[0].set_hatch("//")
         patches[0].set_edgecolor(INK_SECONDARY)
     # results which differ from the ones of the solvers of the example
     for patch, (r, _) in zip(patches, bars):
-        if "differs" in r or "unchecked" in r:
+        if HATCH and ("differs" in r or "unchecked" in r):
             patch.set_hatch("xx" if "differs" in r else "..")
             patch.set_edgecolor(INK_SECONDARY)
     ax.set_yticks(list(y), labels, color=INK, fontsize=9)
@@ -719,10 +756,25 @@ def coupling_overview(summaries, output, hardware,
 
 
 def order_graphs(order, keys, groups, stopped, output, hardware,
-                 threshold, differs):
-    """the graphs, the overviews and the index of an order, in `output`;
-    returns the number of graphs"""
+                 threshold, differs, by_precision=False, left_out=None):
+    """the graphs, the overviews and the index of an order, in `output`
+    (the graphs of each case in a directory of its precision if
+    `by_precision` is true, the overviews and the index in `output`);
+    `left_out`: the configurations left out of each group because their
+    results differ (see `keep_agreeing`), None if they are shown; returns
+    the number of graphs"""
     output.mkdir(parents=True, exist_ok=True)
+
+    def place(precision):
+        """the directory of the graphs of a precision"""
+        d = output / precision if by_precision else output
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def link(precision, name):
+        """the link to a graph from the index"""
+        return f"{precision}/{name}" if by_precision else name
+
     summaries = []
     missing = []
     # a case measured at the measurement size is not shown at the screening
@@ -731,12 +783,14 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
     for key in keys:
         case, size, _, precision = key
         if size != "bench" and (case, precision) in measured:
-            (output /
+            (place(precision) /
              f"{case}-{size}-o{order}-{precision}.png").unlink(missing_ok=True)
             continue
         s = case_graph(key, groups.get(key, []), stopped.get(key, []),
-                       output, hardware)
+                       place(precision), hardware)
         if isinstance(s, str):
+            if left_out and key in left_out:
+                s += " whose results agree"
             missing.append((key, s))
         else:
             summaries.append(s)
@@ -753,8 +807,8 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
                   "Speedup with the GPU against the best configuration on "
                   f"the CPU, order {order}", "overview-speedup-best-cpu.png")
     o3 = precision_overview(valid, output, hardware)
-    organization = [c for c in (coupling_graph(k, groups.get(k, []), output,
-                                               hardware)
+    organization = [c for c in (coupling_graph(k, groups.get(k, []),
+                                               place(k[3]), hardware)
                                 for k in keys if k[1] == "bench")
                     if c is not None]
     o4 = coupling_overview(organization, output, hardware)
@@ -794,7 +848,8 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
                 "screen": "screening (preliminary)"}.get(s["size"],
                                                           s["size"])
         gpu = s["gpu"] + (" (results differ)" if s["gpu_differs"] else "")
-        lines.append(f"| [{s['name']}]({s['name']}){mark} | {s['case']} | "
+        lines.append(f"| [{s['name']}]({link(s['precision'], s['name'])})"
+                     f"{mark} | {s['case']} | "
                      f"{size} | {s['unknowns']} | {s['precision']} | "
                      f"{gpu} | {native} | {best_cpu} | "
                      f"{s['iterations']} |")
@@ -807,7 +862,8 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
                   "cpu: integration by batches and kernels):", "",
                   "| graph | case | precision | coupled | prototype | gain |",
                   "|---|---|---|---|---|---|"]
-        lines += [f"| [{c['name']}]({c['name']}) | {c['case']} | "
+        lines += [f"| [{c['name']}]({link(c['precision'], c['name'])}) | "
+                  f"{c['case']} | "
                   f"{c['precision']} | {c['t_coupled']:.1f} s | "
                   f"{c['t_prototype']:.1f} s | x{c['gain']:.2f} |"
                   for c in organization]
@@ -829,13 +885,28 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
               "reached in float), and always beyond 5 %. The best "
               "configurations are taken among the runs whose results agree "
               "first; when the solvers of the example give wrong results in "
-              "float, no speedup is given against them. The runs whose "
-              "results differ are kept in the graphs, hatched, "
-              "with their relative difference (or the ratio of the errors), "
-              "to be examined; the runs without a quantity of interest (or "
-              "whose reference has none) are dotted, not checked; the "
-              "overviews leave out the cases whose best run with the GPU "
-              "gives results which differ:", ""]
+              "float, no speedup is given against them. "]
+    if left_out is not None:
+        lines[-1] += ("Only the runs whose results agree are shown (option "
+                      "--agreeing-only); the runs left out because their "
+                      "results differ (or are not checked):")
+        lines.append("")
+        # the runs of the graphs: at the measurement size, or at the
+        # screening size for a case not measured
+        shown = {(c, pr) for c, sz, _, pr in keys if sz == "bench"}
+        lines += ([f"- {c}, {sz}, {pr}: " + ", ".join(names)
+                   for (c, sz, _, pr), names in sorted(left_out.items())
+                   if sz == "bench" or (c, pr) not in shown]
+                  or ["- none"])
+        (output / "README.md").write_text("\n".join(lines) + "\n")
+        return len(summaries)
+    lines[-1] += ("The runs whose results differ are kept in the graphs, "
+                  "hatched, with their relative difference (or the ratio of "
+                  "the errors), to be examined; the runs without a quantity "
+                  "of interest (or whose reference has none) are dotted, not "
+                  "checked; the overviews leave out the cases whose best run "
+                  "with the GPU gives results which differ:")
+    lines.append("")
     if differs:
         lines += [f"- {c}, {sz}, {pr}: " + ", ".join(
                   f"{n} ({d})" if isinstance(d, str) else
@@ -854,11 +925,21 @@ def main():
     parser.add_argument("results", nargs="+")
     parser.add_argument("--threshold", type=float, default=1.5,
                         help="speedup above which a case is highlighted")
+    parser.add_argument("--agreeing-only", action="store_true",
+                        help="only show the runs whose results agree with "
+                        "the reference (no hatched bar)")
+    parser.add_argument("--by-precision", action="store_true",
+                        help="the graphs of each case in a directory of its "
+                        "precision (double, float), the overviews and the "
+                        "index in the directory of the order")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     cpu_name, gpu_name = machine()
     hardware = f"CPU: {cpu_name} (8 cores, 16 threads); GPU: {gpu_name}"
     groups, stopped, differs = load(args.results)
+    left_out = keep_agreeing(groups) if args.agreeing_only else None
+    global HATCH
+    HATCH = not args.agreeing_only
     keys = sorted(set(groups) | set(stopped))
     # one directory for each order of the elements
     orders = sorted({k[2] for k in keys})
@@ -870,7 +951,10 @@ def main():
         n = order_graphs(order, [k for k in keys if k[2] == order], groups,
                          stopped, args.output / f"order-{order}", hardware,
                          args.threshold,
-                         {k: v for k, v in differs.items() if k[2] == order})
+                         {k: v for k, v in differs.items() if k[2] == order},
+                         args.by_precision,
+                         None if left_out is None else
+                         {k: v for k, v in left_out.items() if k[2] == order})
         lines.append(f"- [order {order}](order-{order}/README.md): {n} "
                      "graphs")
         print(f"{n} graphs in {args.output / f'order-{order}'}")
