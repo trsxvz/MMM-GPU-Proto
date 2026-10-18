@@ -105,6 +105,47 @@ CASES = {
     "cermet-r2": "mm-opera-hpc, cermet (UO2 grains, chromium interface), "
                  "refined mesh",
 }
+# short names of the cases, shown in the graphs with their repository
+# (mm-examples: mfem-mgis-examples)
+CASE_NAMES = {
+    "ex1": "Cube in tension",
+    "ex2": "Notched bar (2D)",
+    "ex3": "Two-layer cube",
+    "ex4": "Notched bar (3D)",
+    "ex5": "Satoh plate",
+    "ex6": "Two-layer RVE",
+    "ex7": "MOX fuel RVE",
+    "ex8": "RJH plate",
+    "polycrystal": "UO2 polycrystal",
+    "bubble": "Pressurized bubbles",
+    "cermet": "UO2-Cr cermet",
+}
+PRECISION_NAMES = {"double": "double-precision", "float": "single-precision"}
+SIZE_NAMES = {"bench": "measurement", "screen": "screening (preliminary)"}
+
+
+def case_name(case):
+    """the short name of a case (variants: refined mesh)"""
+    name = CASE_NAMES.get(case.split("-")[0], case)
+    return name + (" (refined mesh)" if case.endswith("-r2") else "")
+
+
+def case_source(case):
+    """the repository of a case"""
+    return ("mm-opera-hpc" if case.split("-")[0] in
+            ("polycrystal", "bubble", "cermet") else "mm-examples")
+
+
+def case_label(case, size="bench"):
+    """the label of a case in the overviews: its short name, and its
+    repository below"""
+    return (f"{case_name(case)}\n({case_source(case)}"
+            f"{', screening' if size == 'screen' else ''})")
+
+
+def precision_name(precision):
+    """the name of a precision in the graphs"""
+    return PRECISION_NAMES.get(precision, precision)
 
 
 def machine():
@@ -463,15 +504,15 @@ def case_graph(key, rows, stopped, output, hardware):
     ax.set_xlim(0, right * 2.4)
     case, size, order, precision = key
     unknowns = next((r["unknowns"] for r in rows if r["unknowns"]), "")
-    title = CASES.get(case, case)
-    detail = [f"order {order}", precision,
+    title = case_name(case)
+    detail = [f"order {order}", precision_name(precision),
               size_description(case, size, order)]
     if unknowns:
         detail.insert(0, f"{int(unknowns):,} unknowns".replace(",", " "))
     fig.suptitle(title, x=0.01, ha="left", color=INK, fontsize=11.5,
                  fontweight="bold")
-    ax.set_title(", ".join(detail), loc="left", color=INK_SECONDARY,
-                 fontsize=9)
+    ax.set_title(f"({case_source(case)}) " + ", ".join(detail), loc="left",
+                 color=INK_SECONDARY, fontsize=9)
     fig.tight_layout(rect=(0, 0.06, 1, 1))
     fig.text(0.01, 0.01, hardware, color=INK_SECONDARY, fontsize=7.5)
     name = f"{case}-{size}-o{order}-{precision}.png"
@@ -518,7 +559,8 @@ def overview(summaries, output, hardware, field, title, name):
             # bars from 1 (same time on both sides) on the log scale
             ax.barh(yj, s[field] - 1, left=1, height=height, color=color,
                     edgecolor=SURFACE, linewidth=2,
-                    label=None if precision in labelled else precision)
+                    label=(None if precision in labelled else
+                           precision_name(precision)))
             labelled.add(precision)
             ge = ">= " if ((s["bound"] and field == "speedup_native") or
                            (s["cpu_bound"] and field == "speedup_best")) \
@@ -534,8 +576,8 @@ def overview(summaries, output, hardware, field, title, name):
                 2.2 * max(s[field] for s in rows))
     ax.axvline(1, color=INK_SECONDARY, linewidth=1)
     ax.set_yticks(range(len(cases))[::-1],
-                  [f"{c} (order {o}{', screening' if s == 'screen' else ''})"
-                   for c, s, o in cases], color=INK, fontsize=9)
+                  [case_label(c, s) for c, s, o in cases], color=INK,
+                  fontsize=9)
     ax.set_xlabel("speedup (time on the CPU / time with the GPU), log "
                   "scale; 1 = same time", color=INK_SECONDARY, fontsize=9)
     ax.legend(frameon=False, fontsize=9, loc="lower right")
@@ -588,13 +630,14 @@ def precision_overview(summaries, output, hardware,
     ax.set_xlim(min(0.8, 0.8 * min(gains)), 1.6 * max(gains))
     ax.axvline(1, color=INK_SECONDARY, linewidth=1)
     ax.set_yticks(range(len(pairs))[::-1],
-                  [f"{c} (order {o}{', screening' if sz == 'screen' else ''})"
-                   for (c, sz, o), _, _ in pairs], color=INK, fontsize=9)
-    ax.set_xlabel("time in double / time in float (best configuration of "
-                  "each precision), log scale; 1 = same time",
-                  color=INK_SECONDARY, fontsize=9)
+                  [case_label(c, sz) for (c, sz, o), _, _ in pairs],
+                  color=INK, fontsize=9)
+    ax.set_xlabel("time in double-precision / time in single-precision (best "
+                  "configuration of each precision), log scale; 1 = same "
+                  "time", color=INK_SECONDARY, fontsize=9)
     ax.legend(frameon=False, fontsize=9, loc="lower right")
-    fig.suptitle("Gain of single precision (float) over double precision",
+    fig.suptitle("Gain of single-precision over double-precision, order "
+                 f"{pairs[0][0][2]}",
                  x=0.01, ha="left", color=INK, fontsize=11.5,
                  fontweight="bold")
     fig.tight_layout(rect=(0, 0.06, 1, 1))
@@ -627,6 +670,78 @@ def phases(row):
                                values["total"])
     parts["other"] = max(wall - sum(parts.values()), 0.0)
     return parts
+
+
+def organization_iterations(rows):
+    """the numbers of non linear iterations of the best runs of the solvers
+    of the program in the two organizations on the CPU (prototype,
+    coupled), None if one of them is missing"""
+    best = [min((r for r in rows if r["configuration"] == c),
+                key=lambda r: float(r["seconds"]), default=None)
+            for c in ("cpu-native", "cpu-native-coupled")]
+    if None in best or not all(r.get("iterations") for r in best):
+        return None
+    return tuple(int(r["iterations"]) for r in best)
+
+
+def organization_times(rows):
+    """the wall times and the times of the linear algebra (setup of the
+    solvers and resolutions) of the best runs of the solvers of the program
+    in the two organizations on the CPU (prototype, coupled), None if one of
+    them is missing"""
+    best = [min((r for r in rows if r["configuration"] == c),
+                key=lambda r: float(r["seconds"]), default=None)
+            for c in ("cpu-native", "cpu-native-coupled")]
+    if None in best:
+        return None
+    parts = [phases(r) for r in best]
+    if None in parts:
+        return None
+    return ([float(r["seconds"]) for r in best],
+            [q["linear_setup"] + q["linear_solve"] for q in parts])
+
+
+def points_to_study(keys, groups):
+    """the points noticed in the comparison of the two organizations on the
+    CPU, to be studied: different numbers of non linear iterations, and
+    linear algebra slower with the prototype at the same work (more than 4
+    %)"""
+    points = []
+    for key in keys:
+        case, size, order, precision = key
+        rows = groups.get(key, [])
+        its = organization_iterations(rows)
+        times = organization_times(rows)
+        if its is None or times is None:
+            continue
+        (t_prototype, t_coupled), (la_prototype, la_coupled) = times
+        what = (f"{case_name(case)} ({case_source(case)}), order {order}, "
+                f"{precision_name(precision)}")
+        gain = t_coupled / t_prototype
+        overall = (f"the prototype takes {1 / gain:.2f} times the time of "
+                   "the coupled organization" if gain < 1 else
+                   f"gain of the prototype x{gain:.2f}")
+        if not same_work(rows):
+            points.append(
+                f"{what}: the prototype makes {its[0]} non linear "
+                f"iterations against {its[1]} for the coupled organization "
+                f"(results agreeing with the reference; {overall}), the "
+                "comparison of the organizations is not shown")
+        elif la_coupled > 0 and la_prototype > 1.04 * la_coupled:
+            points.append(
+                f"{what}: at the same number of non linear iterations, the "
+                "linear algebra (setup of the solvers and resolutions) takes "
+                f"{100 * (la_prototype / la_coupled - 1):.0f} % more time "
+                f"with the prototype ({overall})")
+    return points
+
+
+def same_work(rows):
+    """if the two organizations made the same number of non linear
+    iterations (within 10 %, the runs in single precision not being
+    deterministic): their times are then compared"""
+    its = organization_iterations(rows)
+    return its is None or max(its) <= 1.1 * min(its)
 
 
 def coupling_graph(key, rows, output, hardware):
@@ -678,10 +793,11 @@ def coupling_graph(key, rows, output, hardware):
     ax.set_xlim(0, right * 1.5)
     gain = float(best["cpu-native-coupled"]["seconds"]) / \
         float(best["cpu-native"]["seconds"])
-    fig.suptitle(CASES.get(case, case) + ": organization of the "
+    fig.suptitle(case_name(case) + ": organization of the "
                  f"computations on the CPU (x{gain:.2f})", x=0.01,
                  ha="left", color=INK, fontsize=11.5, fontweight="bold")
-    ax.set_title(f"solvers of the example, order {order}, {precision}, "
+    ax.set_title(f"({case_source(case)}) solvers of the example, order "
+                 f"{order}, {precision_name(precision)}, "
                  f"{size_description(case, size, order)}", loc="left",
                  color=INK_SECONDARY, fontsize=9)
     # the legend under the axes (it hides no bar), in a band of the figure
@@ -728,7 +844,8 @@ def coupling_overview(summaries, output, hardware,
             yj = len(keys) - 1 - j + (0.2 if i == 0 else -0.2)
             ax.barh(yj, s["gain"] - 1, left=1, height=0.36, color=color,
                     edgecolor=SURFACE, linewidth=2,
-                    label=None if precision in labelled else precision)
+                    label=(None if precision in labelled else
+                           precision_name(precision)))
             labelled.add(precision)
             ax.text(max(s["gain"], 1) * 1.03, yj, f"x{s['gain']:.2f}",
                     va="center", fontsize=8.5, color=INK)
@@ -739,14 +856,16 @@ def coupling_overview(summaries, output, hardware,
     ax.set_xticks(ticks, [f"x{t:g}" for t in ticks])
     ax.set_xlim(min(0.8, 0.8 * min(gains)), 1.6 * max(gains))
     ax.axvline(1, color=INK_SECONDARY, linewidth=1)
-    ax.set_yticks(range(len(keys))[::-1], [c for c, _ in keys], color=INK,
+    ax.set_yticks(range(len(keys))[::-1],
+                  [case_label(c, sz) for c, sz in keys], color=INK,
                   fontsize=9)
     ax.set_xlabel("time of the coupled organization (as the master branch) / "
                   "time of the prototype, log scale; 1 = same time",
                   color=INK_SECONDARY, fontsize=9)
     ax.legend(frameon=False, fontsize=9, loc="lower right")
     fig.suptitle("Gain of the organization of the prototype on the CPU "
-                 "(solvers of the examples)", x=0.01, ha="left", color=INK,
+                 f"(solvers of the examples), order {summaries[0]['order']}",
+                 x=0.01, ha="left", color=INK,
                  fontsize=11.5, fontweight="bold")
     fig.tight_layout(rect=(0, 0.06, 1, 1))
     fig.text(0.01, 0.01, hardware, color=INK_SECONDARY, fontsize=7.5)
@@ -762,7 +881,7 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
     `by_precision` is true, the overviews and the index in `output`);
     `left_out`: the configurations left out of each group because their
     results differ (see `keep_agreeing`), None if they are shown; returns
-    the number of graphs"""
+    the number of graphs and the points to be studied"""
     output.mkdir(parents=True, exist_ok=True)
 
     def place(precision):
@@ -789,8 +908,9 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
         s = case_graph(key, groups.get(key, []), stopped.get(key, []),
                        place(precision), hardware)
         if isinstance(s, str):
-            if left_out and key in left_out:
-                s += " whose results agree"
+            if left_out is not None:
+                s = ("no comparison with the GPU" if "GPU" in s else
+                     "no comparison with the CPU")
             missing.append((key, s))
         else:
             summaries.append(s)
@@ -807,9 +927,18 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
                   "Speedup with the GPU against the best configuration on "
                   f"the CPU, order {order}", "overview-speedup-best-cpu.png")
     o3 = precision_overview(valid, output, hardware)
+    # the organizations are compared when they made the same work
+    measured_keys = [k for k in keys if k[1] == "bench"]
+    other_work = [(k, organization_iterations(groups.get(k, [])))
+                  for k in measured_keys if not same_work(groups.get(k, []))]
+    for (case, size, _, precision), _ in other_work:
+        # a graph of an earlier drawing
+        (place(precision) / f"{case}-{size}-o{order}-{precision}-cpu-"
+         "organization.png").unlink(missing_ok=True)
     organization = [c for c in (coupling_graph(k, groups.get(k, []),
                                                place(k[3]), hardware)
-                                for k in keys if k[1] == "bench")
+                                for k in measured_keys
+                                if same_work(groups.get(k, [])))
                     if c is not None]
     o4 = coupling_overview(organization, output, hardware)
     lines = [f"# Graphs of the benchmark of the examples, order {order} "
@@ -840,17 +969,18 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
         mark = " **(highlight)**" if s["speedup_best"] >= threshold else ""
         native = ((">= " if s["bound"] else "") +
                   f"x{s['speedup_native']:.1f}" if s["speedup_native"]
-                  else "solvers of the example wrong in float"
+                  else "-" if left_out is not None
+                  else "solvers of the example wrong in single-precision"
                   if s["native_wrong"] else "solvers of the example failed")
         best_cpu = (">= " if s["cpu_bound"] else "") + \
             f"x{s['speedup_best']:.1f}"
-        size = {"bench": "measurement",
-                "screen": "screening (preliminary)"}.get(s["size"],
-                                                          s["size"])
+        size = SIZE_NAMES.get(s["size"], s["size"])
         gpu = s["gpu"] + (" (results differ)" if s["gpu_differs"] else "")
         lines.append(f"| [{s['name']}]({link(s['precision'], s['name'])})"
-                     f"{mark} | {s['case']} | "
-                     f"{size} | {s['unknowns']} | {s['precision']} | "
+                     f"{mark} | {case_name(s['case'])} "
+                     f"({case_source(s['case'])}) | "
+                     f"{size} | {s['unknowns']} | "
+                     f"{precision_name(s['precision'])} | "
                      f"{gpu} | {native} | {best_cpu} | "
                      f"{s['iterations']} |")
     if organization:
@@ -863,43 +993,59 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
                   "| graph | case | precision | coupled | prototype | gain |",
                   "|---|---|---|---|---|---|"]
         lines += [f"| [{c['name']}]({link(c['precision'], c['name'])}) | "
-                  f"{c['case']} | "
-                  f"{c['precision']} | {c['t_coupled']:.1f} s | "
+                  f"{case_name(c['case'])} ({case_source(c['case'])}) | "
+                  f"{precision_name(c['precision'])} | "
+                  f"{c['t_coupled']:.1f} s | "
                   f"{c['t_prototype']:.1f} s | x{c['gain']:.2f} |"
                   for c in organization]
+    if other_work and left_out is None:
+        lines += ["", "Organizations not compared (different numbers of non "
+                  "linear iterations, prototype / coupled):", ""]
+        lines += [f"- {case_name(c)} ({case_source(c)}), order {o}, "
+                  f"{precision_name(pr)}: {its[0]} / {its[1]}"
+                  for (c, _, o, pr), its in other_work]
+    study = points_to_study(measured_keys, groups)
+    if study:
+        lines += ["", "Points to be studied (noticed in the comparison of "
+                  "the organizations on the CPU, not explained yet):", ""]
+        lines += [f"- {x}." for x in study]
     if missing:
         lines += ["", "Cases and sizes without a graph:", ""]
-        lines += [f"- {c}, {sz}, order {o}, {pr}: {reason}"
+        lines += [f"- {case_name(c)} ({case_source(c)}), "
+                  f"{SIZE_NAMES.get(sz, sz)}, order {o}, "
+                  f"{precision_name(pr)}: {reason}"
                   for (c, sz, o, pr), reason in missing]
+    if left_out is not None:
+        # the graphs only show runs whose results agree: the index gives
+        # the reference of the checks
+        lines += ["", "The quantity of interest of each run shown "
+                  "(resultant force, mean stresses, error to the analytical "
+                  "solution...) agrees with the one of the solvers of the "
+                  "example on the CPU in double-precision (or of the fastest "
+                  "configuration on the CPU when they do not finish): within "
+                  "1e-5 in double-precision, within the accuracy reached in "
+                  "single-precision by each case (from 1e-3 to a few %), and "
+                  "an error to the analytical solution within ten times the "
+                  "one of the reference."]
+        (output / "README.md").write_text("\n".join(lines) + "\n")
+        return len(summaries), study
     lines += ["", "The results of each run are checked: its quantity of "
               "interest (resultant force, mean stresses, error to the "
               "analytical solution...) is compared to the one of the "
               "solvers of the example on the CPU (or, when they did not "
               "finish, of the fastest configuration on the CPU), with a "
-              "relative tolerance of 1e-5 in double and 1e-3 in float (an "
-              "error to the analytical solution may be ten times the one of "
-              "the reference). The runs in float are compared to the "
-              "reference in double when it is measured: they differ beyond "
+              "relative tolerance of 1e-5 in double-precision and 1e-3 in "
+              "single-precision (an error to the analytical solution may be "
+              "ten times the one of the reference). The runs in "
+              "single-precision are compared to the reference in "
+              "double-precision when it is measured: they differ beyond "
               "1e-3 and three times the median of the best differences of "
-              "the configurations in float of the case (the accuracy "
-              "reached in float), and always beyond 5 %. The best "
-              "configurations are taken among the runs whose results agree "
-              "first; when the solvers of the example give wrong results in "
-              "float, no speedup is given against them. "]
-    if left_out is not None:
-        lines[-1] += ("Only the runs whose results agree are shown (option "
-                      "--agreeing-only); the runs left out because their "
-                      "results differ (or are not checked):")
-        lines.append("")
-        # the runs of the graphs: at the measurement size, or at the
-        # screening size for a case not measured
-        shown = {(c, pr) for c, sz, _, pr in keys if sz == "bench"}
-        lines += ([f"- {c}, {sz}, {pr}: " + ", ".join(names)
-                   for (c, sz, _, pr), names in sorted(left_out.items())
-                   if sz == "bench" or (c, pr) not in shown]
-                  or ["- none"])
-        (output / "README.md").write_text("\n".join(lines) + "\n")
-        return len(summaries)
+              "the configurations in single-precision of the case (the "
+              "accuracy reached in single-precision), and always beyond 5 "
+              "%. The best configurations are taken among the runs whose "
+              "results agree first; when the solvers of the example give "
+              "wrong results in single-precision, no speedup is given "
+              "against them. "]
     lines[-1] += ("The runs whose results differ are kept in the graphs, "
                   "hatched, with their relative difference (or the ratio of "
                   "the errors), to be examined; the runs without a quantity "
@@ -908,15 +1054,16 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
                   "with the GPU gives results which differ:")
     lines.append("")
     if differs:
-        lines += [f"- {c}, {sz}, {pr}: " + ", ".join(
-                  f"{n} ({d})" if isinstance(d, str) else
-                  f"{n} ({d:.1e})" if d is not None else n
-                  for n, d in sorted(names.items()))
+        lines += [f"- {case_name(c)} ({case_source(c)}), "
+                  f"{SIZE_NAMES.get(sz, sz)}, {precision_name(pr)}: " +
+                  ", ".join(f"{n} ({d})" if isinstance(d, str) else
+                            f"{n} ({d:.1e})" if d is not None else n
+                            for n, d in sorted(names.items()))
                   for (c, sz, _, pr), names in sorted(differs.items())]
     else:
         lines.append("- none")
     (output / "README.md").write_text("\n".join(lines) + "\n")
-    return len(summaries)
+    return len(summaries), study
 
 
 def main():
@@ -945,19 +1092,27 @@ def main():
     orders = sorted({k[2] for k in keys})
     lines = ["# Graphs of the benchmark of the examples", "",
              "One directory for each order of the elements, each with its "
-             "overviews (speedups in double and in float, gain of the float "
-             "build) and its index:", ""]
+             "overviews (speedups in double-precision and in "
+             "single-precision, gain of single-precision) and its index:",
+             ""]
+    study = []
     for order in orders:
-        n = order_graphs(order, [k for k in keys if k[2] == order], groups,
-                         stopped, args.output / f"order-{order}", hardware,
-                         args.threshold,
-                         {k: v for k, v in differs.items() if k[2] == order},
-                         args.by_precision,
-                         None if left_out is None else
-                         {k: v for k, v in left_out.items() if k[2] == order})
+        n, points = order_graphs(
+            order, [k for k in keys if k[2] == order], groups, stopped,
+            args.output / f"order-{order}", hardware, args.threshold,
+            {k: v for k, v in differs.items() if k[2] == order},
+            args.by_precision,
+            None if left_out is None else
+            {k: v for k, v in left_out.items() if k[2] == order})
         lines.append(f"- [order {order}](order-{order}/README.md): {n} "
                      "graphs")
+        study += [f"- {x} ([order {order}](order-{order}/README.md))."
+                  for x in points]
         print(f"{n} graphs in {args.output / f'order-{order}'}")
+    if study:
+        lines += ["", "Points to be studied (noticed in the comparison of "
+                  "the organizations on the CPU, not explained yet):", ""]
+        lines += study
     (args.output / "README.md").write_text("\n".join(lines) + "\n")
     return 0
 

@@ -101,7 +101,13 @@ The first pass (17/10/2026, `results/benchmark-slides-2026-10-17`,
   point by point and computations element by element, the integration and
   the assembly being coupled in the loops over the elements, as in the
   master branch of mfem-mgis), against the organization of the prototype
-  (`--execution cpu`: integration by batches and kernels).
+  (`--execution cpu`: integration by batches and kernels). The two
+  organizations are compared when they make the same number of non linear
+  iterations (within 10 %, the runs in single precision not being
+  deterministic): on ex5 at the order 2 in double, the prototype makes 4
+  or 5 Newton iterations against 2 for the coupled organization (results
+  agreeing to 1e-5; not explained yet), and in float ex5 at the order 1 (6
+  against 4) and ex6 at the order 2 (3 against 5) differ too.
 - Mixed placement on 8 processes (the linear solvers compute on the 8
   cores): on one process, its solvers could not compete. Each process
   sharing the GPU reserves the memory of the integration of its
@@ -296,12 +302,17 @@ their speedups, and two overviews of the speedups (against the solvers of
 the examples and against the best CPU configuration), with an index
 `README.md`. The graphs are generated in `slides/` on the machine of the
 measurements, and not versioned: they are drawn again from the `runs.csv`
-of the results. With `--agreeing-only`, the graphs only show the runs whose
-results agree with the reference, without any hatched bar (the lower
-bounds of the runs stopped by the time limit are given by the texts); with
-`--by-precision`, the graphs of the cases of each order are in `double/`
-and `float/`, the overviews and the index in the directory of the order. The final graphs
-of the second pass are drawn with both options (`slides/final-fixed`).
+of the results. The cases are named by a short name and their repository
+(mm-examples for mfem-mgis-examples, mm-opera-hpc), the precisions
+double-precision and single-precision. With `--agreeing-only`, the graphs
+only show the runs whose results agree with the reference, without any
+hatched bar, the index only stating their agreement with the reference
+(the lower bounds of the runs stopped by the time limit are given by the
+texts); with `--by-precision`, the graphs of the cases of each order are
+in `double/` and `float/`, the overviews and the index in the directory of
+the order. The indexes list the points noticed in the comparison of the
+organizations on the CPU, to be studied. The final graphs of the second
+pass are drawn with both options (`slides/final-fixed`).
 
 The runs need the libraries of the installation in `LD_LIBRARY_PATH` (TFEL
 built with CUDA, MGIS, CUDA). The solvers of Trilinos initialize the GPU
