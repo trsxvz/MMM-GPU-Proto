@@ -14,6 +14,7 @@ import csv
 import pathlib
 import subprocess
 import sys
+import textwrap
 
 import matplotlib
 
@@ -37,17 +38,20 @@ REFERENCE_COLOR = "#a8a69f"
 # overview: the precisions (categorical slots 1 and 3, values labelled)
 DOUBLE_COLOR = "#2a78d6"
 FLOAT_COLOR = "#1baf7a"
-# phases of the computations (categorical slots 1 to 5 in their fixed
+# phases of the computations (categorical slots 1 to 6 in their fixed
 # order, and a neutral gray for the rest), from the time table of the
-# profiler (column phases of runs.csv)
+# profiler (column phases of runs.csv, see `_phases` in the driver): the
+# prediction of each time step is counted in the integration, the tangent
+# operator and the linear solves
 PHASE_COLORS = {
-    "residual": ("integration of the behaviours and inner forces",
-                 "#2a78d6"),
-    "tangent": ("tangent operator", "#eb6834"),
-    "linear_setup": ("setup of the linear solver", "#1baf7a"),
-    "linear_solve": ("linear solves", "#eda100"),
+    "residual": ("behaviours, inner forces, update of the state", "#2a78d6"),
+    "tangent": ("tangent operator and its assembly", "#eb6834"),
+    "linear_setup": ("setup of the linear solvers", "#1baf7a"),
+    "linear_solve": ("linear solves (setup of hypre included)", "#eda100"),
     "post_processings": ("post-processings", "#e87ba4"),
-    "other": ("rest of the program (mesh, setup, other phases)", "#a8a69f"),
+    "initialization": ("initialization (MPI, device, mesh, problems)",
+                       "#008300"),
+    "other": ("rest", "#a8a69f"),
 }
 
 # solvers of each program (the reference of the speedups)
@@ -213,6 +217,8 @@ def load(paths):
     limit (lower bounds of their time)"""
     groups = {}
     stopped = {}
+    # the directory of the results of each group
+    directory = {}
     for p in paths:
         path = pathlib.Path(p) / "runs.csv"
         if not path.exists():
@@ -228,6 +234,7 @@ def load(paths):
             for row in reader:
                 key = (row["case"], row["size"], row["order"],
                        row["precision"])
+                directory[key] = pathlib.Path(p)
                 if row["status"] == "0":
                     groups.setdefault(key, []).append(row)
                 elif (row["status"] == "timeout" and
@@ -235,27 +242,43 @@ def load(paths):
                     stopped.setdefault(key, []).append(row)
     # the runs whose quantity of interest differs from the one of the
     # solvers of the program on the CPU are kept, marked (key "differs":
-    # the relative difference, or the ratio of the errors), and listed
+    # the relative difference, or the ratio of the errors), and listed. The
+    # runs in float are checked against the reference in double (same
+    # case, size and order), when it is measured: the solvers of a program
+    # may give wrong results in float (MUMPS in single precision on ex8),
+    # then marked too
     differs = {}
     for key, rows in groups.items():
-        case, _, _, precision = key
+        case, size, order, precision = key
         if case not in benchmark_slides.QUANTITIES:
             continue
-        reference = next((benchmark_slides._quantity(r) for r in rows
-                          if r["configuration"] == "cpu-native" and
-                          benchmark_slides._quantity(r) is not None), None)
+        reference, kind = None, None
+        if precision == "float":
+            double = groups.get((case, size, order, "double"))
+            if double is None:
+                # the results in double next to the ones in float, as the
+                # driver
+                double = [r for r in benchmark_slides._read_rows(
+                    directory[key].resolve().parent / "double", case,
+                    "double", size, int(order)) if r["status"] == "0"]
+            reference, kind = benchmark_slides._reference(double)
+        in_double = reference is not None
+        if not in_double:
+            reference, kind = benchmark_slides._reference(rows)
+        benchmark_slides.annotate_quantities(case, precision, rows,
+                                             reference, in_double)
         for r in rows:
-            if r["configuration"] == "cpu-native":
+            if r["configuration"] == "cpu-native" and not in_double:
                 continue
-            values = benchmark_slides._quantity(r)
-            check = benchmark_slides.check_quantity(case, precision, values,
-                                                   reference)
-            if check is False:
-                r["differs"] = benchmark_slides.quantity_difference(
-                    case, values, reference)
+            r["reference"] = ({"native": "the solvers of the example",
+                               "fastest CPU": "the fastest CPU "
+                               "configuration"}.get(kind, "the reference") +
+                              (" in double" if in_double else ""))
+            if r["agrees"] is False:
+                r["differs"] = r["difference"]
                 differs.setdefault(key, {})[r["configuration"]] = \
                     r["differs"]
-            elif check is None:
+            elif r["agrees"] is None:
                 # no quantity for this run or for the reference: not
                 # checked, also marked and listed
                 r["unchecked"] = True
@@ -267,13 +290,16 @@ def load(paths):
 def best_by_configuration(rows):
     """the best run of each configuration, whatever its number of processes
     (given in the labels)"""
+    def order(r):
+        # the runs whose results agree first
+        return ("differs" in r, float(r["seconds"]))
+
     best = {}
     for row in rows:
         k = row["configuration"]
-        if (k not in best) or (float(row["seconds"]) <
-                               float(best[k]["seconds"])):
+        if (k not in best) or (order(row) < order(best[k])):
             best[k] = row
-    return sorted(best.values(), key=lambda r: float(r["seconds"]))
+    return sorted(best.values(), key=order)
 
 
 def summarize(rows):
@@ -282,10 +308,13 @@ def summarize(rows):
     runs = best_by_configuration(rows)
     native = [r for r in runs if r["configuration"] == "cpu-native"]
     # the coupled organization of the solvers of the program is shown in
-    # the graphs of the organization, not as a CPU configuration
-    cpu = [r for r in runs if r["side"] == "cpu" and
-           r["configuration"] != "cpu-native-coupled"]
-    gpu = [r for r in runs if r["side"] != "cpu"]
+    # the graphs of the organization, not as a CPU configuration; the best
+    # configurations are taken among the runs whose results agree first
+    agree_first = (lambda r: ("differs" in r, float(r["seconds"])))
+    cpu = sorted((r for r in runs if r["side"] == "cpu" and
+                  r["configuration"] != "cpu-native-coupled"),
+                 key=agree_first)
+    gpu = sorted((r for r in runs if r["side"] != "cpu"), key=agree_first)
     return (native[0] if native else None, cpu[0] if cpu else None,
             gpu[:3])
 
@@ -327,6 +356,9 @@ def case_graph(key, rows, stopped, output, hardware):
         return "no successful run with the GPU"
     if native is None and cpu is None:
         return "no successful run on the CPU"
+    # the solvers of the program give wrong results (in float, against the
+    # reference in double): no speedup against them
+    native_wrong = native is not None and "differs" in native
     bars = []
     if native is not None:
         bars.append((native, REFERENCE_COLOR))
@@ -340,10 +372,13 @@ def case_graph(key, rows, stopped, output, hardware):
     # the program stopped by the time limit
     cpu_bound = bound and (cpu is None or t_ref < t_cpu)
     t_cpu = min(t_cpu, t_ref) if bound else t_cpu
-    fig, ax = plt.subplots(figsize=(11, 1.2 + 0.62 * len(bars)), dpi=150)
+    # long descriptions on several lines
+    labels = [textwrap.fill(describe(r), 70) for r, _ in bars]
+    lines = sum(label.count("\n") for label in labels)
+    fig, ax = plt.subplots(figsize=(11, 1.2 + 0.62 * len(bars) +
+                                    0.18 * lines), dpi=150)
     fig.patch.set_facecolor(SURFACE)
     style(ax)
-    labels = [describe(r) for r, _ in bars]
     times = [float(r["seconds"]) for r, _ in bars]
     y = range(len(bars))[::-1]
     patches = ax.barh(list(y), times, height=0.5, color=[c for _, c in bars],
@@ -368,19 +403,21 @@ def case_graph(key, rows, stopped, output, hardware):
         if bound and r is native:
             text = f"> {t:.0f} s (stopped)"
         if r["side"] != "cpu":
-            if native is not None:
+            if native is not None and not native_wrong:
                 text += f"   {ge}x{t_ref / t:.1f} vs CPU with the " \
                         "solvers of the example"
                 if cpu is not None and cpu is not native:
                     text += f", {'>= ' if cpu_bound else ''}" \
                             f"x{t_cpu / t:.1f} vs best CPU"
+            elif native_wrong:
+                text += f"   x{t_cpu / t:.1f} vs best CPU"
             else:
                 # the solvers of the program failed on the CPU
                 text += f"   x{t_cpu / t:.1f} vs best CPU (the solvers " \
                         "of the example failed)"
         if "differs" in r:
             d = r["differs"]
-            text += ("   results differ from the solvers of the example" +
+            text += (f"   results differ from {r['reference']}" +
                      (f" ({d:.1e})" if d is not None else ""))
         elif "unchecked" in r:
             text += "   results not checked (no quantity of interest)"
@@ -407,14 +444,17 @@ def case_graph(key, rows, stopped, output, hardware):
     return {"name": name, "case": case, "size": size, "order": order,
             "bound": bound, "cpu_bound": cpu_bound,
             "precision": precision, "unknowns": unknowns,
-            "speedup_native": t_ref / t_gpu if native is not None else None,
+            "speedup_native": (t_ref / t_gpu if native is not None and
+                               not native_wrong else None),
             "speedup_best": t_cpu / t_gpu, "gpu": describe(gpu[0]),
             "cpu": describe(cpu) if cpu else "",
             "t_native": t_ref if native is not None else None,
             "t_cpu": t_cpu, "t_gpu": t_gpu,
             "gpu_differs": "differs" in gpu[0],
-            "iterations": "/".join(r.get("iterations", "") or "-"
-                                   for r in (native or cpu, gpu[0]))}
+            "native_wrong": native_wrong,
+            "iterations": "/".join(
+                r.get("iterations", "") or "-"
+                for r in (cpu if native_wrong else native or cpu, gpu[0]))}
 
 
 def overview(summaries, output, hardware, field, title, name):
@@ -536,13 +576,19 @@ def phases(row):
         return None
     values = dict((k, float(v)) for k, v in
                   (item.split("=") for item in text.split(";")))
-    if "total" not in values:
+    # rows of an older analysis (without the initialization): see
+    # `benchmark_slides.py reanalyze`
+    if "total" not in values or "initialization" not in values:
         return None
-    # the rest of the wall time of the program (the time table starts
-    # after the initialization of MPI and of the device)
-    total = max(float(row["seconds"]), values["total"])
-    parts = {k: values[k] for k in PHASE_COLORS if k in values}
-    parts["other"] = max(total - sum(parts.values()), 0.0)
+    # the time table starts after the initialization of MPI, of the device
+    # and of the libraries: the rest of the wall time of the program is
+    # counted in the initialization
+    wall = max(float(row["seconds"]), values["total"])
+    parts = {k: values[k] for k in PHASE_COLORS
+             if k in values and k != "other"}
+    parts["initialization"] = (parts.get("initialization", 0.0) + wall -
+                               values["total"])
+    parts["other"] = max(wall - sum(parts.values()), 0.0)
     return parts
 
 
@@ -560,7 +606,7 @@ def coupling_graph(key, rows, output, hardware):
     if None in best.values():
         return None
     case, size, order, precision = key
-    fig, ax = plt.subplots(figsize=(11, 3.0), dpi=150)
+    fig, ax = plt.subplots(figsize=(11, 3.5), dpi=150)
     fig.patch.set_facecolor(SURFACE)
     style(ax)
     labels = []
@@ -593,9 +639,6 @@ def coupling_graph(key, rows, output, hardware):
                   color=INK_SECONDARY, fontsize=9)
     right = max(float(best[c]["seconds"]) for c in best)
     ax.set_xlim(0, right * 1.5)
-    # under the axes, so that it hides no bar
-    ax.legend(frameon=False, fontsize=7.5, loc="upper left",
-              bbox_to_anchor=(0, -0.32), ncol=3)
     gain = float(best["cpu-native-coupled"]["seconds"]) / \
         float(best["cpu-native"]["seconds"])
     fig.suptitle(CASES.get(case, case) + ": organization of the "
@@ -604,7 +647,15 @@ def coupling_graph(key, rows, output, hardware):
     ax.set_title(f"solvers of the example, order {order}, {precision}, "
                  f"{size_description(case, size, order)}", loc="left",
                  color=INK_SECONDARY, fontsize=9)
-    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    # the legend under the axes (it hides no bar), in a band of the figure
+    # reserved above the line of the hardware
+    handles, names = ax.get_legend_handles_labels()
+    rows = -(-len(names) // 3)
+    bottom = 0.08 + 0.055 * rows
+    fig.tight_layout(rect=(0, bottom, 1, 1))
+    fig.legend(handles, names, frameon=False, fontsize=7.5, ncol=3,
+               loc="upper left",
+               bbox_to_anchor=(ax.get_position().x0, bottom - 0.005))
     fig.text(0.01, 0.01, hardware, color=INK_SECONDARY, fontsize=7.5)
     name = f"{case}-{size}-o{order}-{precision}-cpu-organization.png"
     fig.savefig(output / name, facecolor=SURFACE, bbox_inches="tight")
@@ -690,13 +741,18 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
         else:
             summaries.append(s)
     elements = "linear" if order == "1" else "quadratic"
-    o1 = overview(summaries, output, hardware, "speedup_native",
+    # the overviews only show the speedups of the runs with the GPU whose
+    # results agree (the others are in the graphs of the cases, hatched,
+    # and listed in the index)
+    valid = [s for s in summaries if not s["gpu_differs"]]
+    o1 = overview(valid, output, hardware, "speedup_native",
                   "Speedup with the GPU against the CPU with the solvers of "
-                  f"each example, order {order}", "overview-speedup-native.png")
-    o2 = overview(summaries, output, hardware, "speedup_best",
+                  f"each example, order {order}",
+                  "overview-speedup-native.png")
+    o2 = overview(valid, output, hardware, "speedup_best",
                   "Speedup with the GPU against the best configuration on "
                   f"the CPU, order {order}", "overview-speedup-best-cpu.png")
-    o3 = precision_overview(summaries, output, hardware)
+    o3 = precision_overview(valid, output, hardware)
     organization = [c for c in (coupling_graph(k, groups.get(k, []), output,
                                                hardware)
                                 for k in keys if k[1] == "bench")
@@ -730,7 +786,8 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
         mark = " **(highlight)**" if s["speedup_best"] >= threshold else ""
         native = ((">= " if s["bound"] else "") +
                   f"x{s['speedup_native']:.1f}" if s["speedup_native"]
-                  else "solvers of the example failed")
+                  else "solvers of the example wrong in float"
+                  if s["native_wrong"] else "solvers of the example failed")
         best_cpu = (">= " if s["cpu_bound"] else "") + \
             f"x{s['speedup_best']:.1f}"
         size = {"bench": "measurement",
@@ -761,13 +818,24 @@ def order_graphs(order, keys, groups, stopped, output, hardware,
     lines += ["", "The results of each run are checked: its quantity of "
               "interest (resultant force, mean stresses, error to the "
               "analytical solution...) is compared to the one of the "
-              "solvers of the example on the CPU (relative tolerance 1e-5 "
-              "in double, 1e-3 in float; an error to the analytical "
-              "solution may be ten times the one of the reference). The "
-              "runs whose results differ are kept in the graphs, hatched, "
+              "solvers of the example on the CPU (or, when they did not "
+              "finish, of the fastest configuration on the CPU), with a "
+              "relative tolerance of 1e-5 in double and 1e-3 in float (an "
+              "error to the analytical solution may be ten times the one of "
+              "the reference). The runs in float are compared to the "
+              "reference in double when it is measured: they differ beyond "
+              "1e-3 and three times the median of the best differences of "
+              "the configurations in float of the case (the accuracy "
+              "reached in float), and always beyond 5 %. The best "
+              "configurations are taken among the runs whose results agree "
+              "first; when the solvers of the example give wrong results in "
+              "float, no speedup is given against them. The runs whose "
+              "results differ are kept in the graphs, hatched, "
               "with their relative difference (or the ratio of the errors), "
               "to be examined; the runs without a quantity of interest (or "
-              "whose reference has none) are dotted, not checked:", ""]
+              "whose reference has none) are dotted, not checked; the "
+              "overviews leave out the cases whose best run with the GPU "
+              "gives results which differ:", ""]
     if differs:
         lines += [f"- {c}, {sz}, {pr}: " + ", ".join(
                   f"{n} ({d})" if isinstance(d, str) else

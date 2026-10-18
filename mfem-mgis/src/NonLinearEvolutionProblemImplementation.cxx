@@ -877,6 +877,11 @@ namespace mfem_mgis {
         return registerExceptionInErrorBacktrace(ctx);
       }
     } else {
+      // the assembly of the operator of the prediction (parallel assembly
+      // and elimination of the essential degrees of freedom; the element
+      // matrices are computed in `PRED::forms` here, in `PRED::assemble`
+      // with the kernels)
+      CatchTimeSection(ctx, "PRED::assemble");
       // diagonal set to one at the essential degrees of freedom, as in
       // parallel and with the kernels (the sequential bilinear forms of MFEM
       // keep the diagonal of the stiffness by default): an iterative linear

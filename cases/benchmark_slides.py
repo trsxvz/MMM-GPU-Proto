@@ -45,11 +45,12 @@ usage:
   benchmark_slides.py finals RESULTS CASE [--precision P] [--order O]
                       [--size SIZE] [--screen-size SIZE] [--repeat R]
                       [--timeout S] [--dry-run]
+  benchmark_slides.py best RESULTS
+  benchmark_slides.py reanalyze RESULTS [RESULTS...]
 
 In dry-run mode, `finals` prints the runs of all the candidates (the runs
 which would follow a failure included), but not the runs with several
-processes sharing the GPU (they depend on the measured times)
-  benchmark_slides.py best RESULTS
+processes sharing the GPU (they depend on the measured times).
 """
 
 import argparse
@@ -57,14 +58,18 @@ import contextlib
 import csv
 import datetime
 import fcntl
+import math
 import os
 import pathlib
 import re
 import shlex
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
+import tarfile
+import tempfile
 import threading
 import time
 
@@ -141,10 +146,11 @@ def _orders(first, second):
 # The ParaView exports are disabled (they would be timed with the
 # computations); the quantity of interest of each case is written in any
 # case (see QUANTITIES); the profiler of each program is enabled (its time
-# table gives the phases of the computations, see PHASES; on the GPU, the
-# sections synchronize the device). The sizes are given for the orders 1 and 2. The sizes "bench" fill the 8
-# cores and the GPU (about one million unknowns, one or several waves of
-# the multiprocessors of the GPU for the kernels of the elements); at the
+# table gives the phases of the computations, see PHASE_OF_SECTION; on the
+# GPU, the sections synchronize the device). The sizes are given for the
+# orders 1 and 2. The sizes "bench" fill the 8 cores and the GPU (about one
+# million unknowns, one or several waves of the multiprocessors of the GPU
+# for the kernels of the elements); at the
 # order 2, the mesh has one refinement less, for about the same number of
 # unknowns as at the order 1, except for ex8 (direct solver of the program,
 # MUMPS, whose memory limits the size). "screen" keeps the mesh and the
@@ -998,23 +1004,128 @@ def _collect_outputs(case_name, precision, results, name, start):
 # "Fixed Point iteration" with |res|)
 _ITERATION = re.compile(r"^(?:Newton|Fixed point) iteration\s+(\d+)\s*:\s*"
                         r"\|\|r\|\|", re.MULTILINE)
-# a line of the time table: name, number of calls and the times (one
-# process: time and part; several processes: minimum, mean, maximum, part
-# and imbalance)
-_SECTION = re.compile(r"^ \|[ |]*(?:-->|>) (.+?)\s*\|\s*(\d+)\s*\|(.*)$",
+# a line of the time table: indentation (depth in the tree of the
+# sections), name, number of calls and the times (one process: time and
+# part; several processes: minimum, mean, maximum, part and imbalance)
+_SECTION = re.compile(r"^ \|([ |]*)(?:--> |> )(.+?)\s*\|\s*(\d+)\s*\|(.*)$",
                       re.MULTILINE)
-# phases: name in runs.csv and sections of the profiler (the behaviours are
-# integrated in the estimation of the new unknowns, before the computation
-# of the residual)
-PHASES = {
-    "total": ["root"],
-    "nonlinear_solve": ["NLEP::solve"],
-    "residual": ["NS::processNewUnknownsEstimate", "NS::computeResidual"],
-    "tangent": ["NS::getJacobian"],
-    "linear_setup": ["NS::setLinearSolverOperator"],
-    "linear_solve": ["MFEM::Mult(r,c)"],
-    "post_processings": ["NLEP::executePostProcessings"],
+# phases of a run: each section of the profiler gives its own time (its
+# time minus the ones of its sub-sections) to its phase, a section without
+# a phase to the one of its parent, and the sections which only contain
+# other ones (the non linear solvers, the time loops and the coupling
+# schemes of the programs) to the phase "other". The time before the start
+# of the profiler (initialization of MPI, of the device and of the
+# libraries) is added to the initialization by the graphs
+PHASE_OF_SECTION = {
+    # mesh, finite element spaces, boundary conditions, behaviours and
+    # solvers of the problems
+    "Mesh::Constructor": "initialization",
+    "FED::Constructor": "initialization",
+    "PeriodicNonLinEvPB::constructor_with_bct": "initialization",
+    "PeriodicNonLinEvPB::constructor_with_corners": "initialization",
+    "set_mgis_stuff": "initialization",
+    "set_linear_solver": "initialization",
+    "common::print_mesh_information": "initialization",
+    "CouplingSchemeBase::performInitializationTaks": "initialization",
+    "NLEPIB::updateLinearSolver": "initialization",
+    # integration of the behaviours (in the estimation of the new unknowns,
+    # also at the start of the iterations of the fixed point methods and of
+    # the prediction), inner forces, update of the state at the end of each
+    # time step (or its restoration after a failure)
+    "NS::processNewUnknownsEstimate": "residual",
+    "NS::computeResidual": "residual",
+    "FPS::integrate": "residual",
+    "PRED::integrate": "residual",
+    "NLEPIB::update": "residual",
+    "NLEPIB::revert": "residual",
+    "U3SI2_SolidSwelling_Tridimensional": "residual",
+    # tangent operator and its assembly (with the elimination of the
+    # boundary conditions), also for the prediction: the assembly of the
+    # prediction is not a sub-section of NLEPIB::computePrediction in the
+    # coupled organization (FormLinearSystem), hence its own time
+    "NS::getJacobian": "tangent",
+    "PRED::forms": "tangent",
+    "PRED::assemble": "tangent",
+    "NLEPIB::computePrediction": "tangent",
+    # setup of the linear solvers made by SetOperator (factorizations,
+    # hierarchies of AMG built there; the solvers of hypre are set up by
+    # MFEM at their first resolution, counted in the linear solves)
+    "NS::setLinearSolverOperator": "linear_setup",
+    # linear solves, also the ones of the prediction
+    "MFEM::Mult(r,c)": "linear_solve",
+    "PRED::solve": "linear_solve",
+    # post-processings of mfem-mgis and of the programs
+    "NLEP::executePostProcessings": "post_processings",
+    "common::post_processing_step": "post_processings",
+    "OperaHPC::FindFirstPrincipal": "post_processings",
+    "BubbleLoop": "post_processings",
+    # the Anderson acceleration of the fixed point methods (with the rest)
+    "FPS::accelerate": "other",
 }
+# containers (sections containing other ones: their own time is the code
+# of the solvers, of the loops and of the programs outside the sections),
+# whose own time goes to the phase "other"
+_CONTAINERS = {"root", "NLEP::solve", "NLEPIB::solve", "NLEPIB::setup",
+               "NS::Mult", "NS::Mult::WhileLoop",
+               "NS::computeNewtonCorrection", "FPS::Mult", "Solve",
+               "time_loop", "IterativeCouplingScheme::computeNextState",
+               "Thermal", "Mechanics", "FieldUpdater"}
+PHASES = ["initialization", "residual", "tangent", "linear_setup",
+          "linear_solve", "post_processings", "other"]
+
+
+def _sections(text):
+    """the sections of the time table of the profiler: (depth, name,
+    number of calls, time), the time being the mean over the processes,
+    or the time of a single process"""
+    sections = []
+    for prefix, name, count, rest in _SECTION.findall(text):
+        try:
+            values = [float(v.strip().rstrip("%"))
+                      for v in rest.split("|") if v.strip()]
+        except ValueError:
+            continue
+        if not values:
+            continue
+        t = values[1] if len(values) >= 5 else values[0]
+        sections.append((len(prefix), name, int(count), t))
+    return sections
+
+
+def _phases(sections):
+    """the times of the phases of a run (and the total time of the
+    profiler, "total", and of the resolutions of the problems,
+    "nonlinear_solve") from the sections of its profiler"""
+    phases = dict.fromkeys(PHASES, 0.0)
+    # the stack of the ancestors of a section: (depth, phase, index of the
+    # time given to its phase, to which the time of its sub-sections is
+    # removed)
+    stack = []
+    own = []
+    total = 0.0
+    nonlinear = 0.0
+    for depth, name, _, t in sections:
+        while stack and stack[-1][0] >= depth:
+            stack.pop()
+        if stack:
+            own[stack[-1][2]][1] -= t
+        if name == "root":
+            total = t
+        if name == "NLEP::solve" and not any(
+                own[a[2]][2] == "NLEP::solve" for a in stack):
+            nonlinear += t
+        if name in _CONTAINERS:
+            phase = "other"
+        else:
+            phase = PHASE_OF_SECTION.get(
+                name, stack[-1][1] if stack else "other")
+        own.append([phase, t, name])
+        stack.append((depth, phase, len(own) - 1))
+    for phase, t, _ in own:
+        phases[phase] += max(t, 0.0)
+    phases["total"] = total
+    phases["nonlinear_solve"] = nonlinear
+    return phases
 
 
 def _analysis(log_path):
@@ -1026,24 +1137,11 @@ def _analysis(log_path):
     except OSError:
         return "", "", ""
     iterations = sum(1 for i in _ITERATION.findall(text) if int(i) > 0)
-    sections = {}
-    calls = {}
-    for name, count, rest in _SECTION.findall(text):
-        try:
-            values = [float(v.strip().rstrip("%"))
-                      for v in rest.split("|") if v.strip()]
-        except ValueError:
-            continue
-        if not values:
-            continue
-        # mean over the processes, or the time of a single process
-        t = values[1] if len(values) >= 5 else values[0]
-        sections[name] = sections.get(name, 0.0) + t
-        calls[name] = calls.get(name, 0) + int(count)
-    phases = {k: sum(sections.get(n, 0.0) for n in names)
-              for k, names in PHASES.items()
-              if any(n in sections for n in names)}
-    resolutions = calls.get("NLEP::solve", "")
+    sections = _sections(text)
+    if not sections:
+        return str(iterations), "", ""
+    resolutions = sum(c for _, n, c, _ in sections if n == "NLEP::solve")
+    phases = _phases(sections)
     return (str(iterations), str(resolutions),
             ";".join(f"{k}={v:.4g}" for k, v in phases.items()))
 
@@ -1378,6 +1476,59 @@ def run(results, case_name, configuration_name, precision, processes,
     return outcomes
 
 
+def reanalyze(results):
+    """computes again the numbers of iterations and of resolutions and the
+    times of the phases of the runs of `results` from their logs, without
+    any run (after a change of the analysis); the runs whose log is missing
+    are kept as they are. Not to be used while a driver writes in the same
+    directory"""
+    path = results / "runs.csv"
+    _check_header(path)
+    before = path.stat()
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    analyzed = changed = 0
+    with tempfile.TemporaryDirectory() as tmp:
+        # the logs, or their archive (logs.tar.xz, versioned), extracted
+        # once
+        logs = results / "logs"
+        if not logs.is_dir() and (results / "logs.tar.xz").exists():
+            with tarfile.open(results / "logs.tar.xz") as archive:
+                archive.extractall(tmp, members=[
+                    m for m in archive.getmembers()
+                    if m.isfile() and m.name.startswith("logs/")],
+                    filter="data")
+            logs = pathlib.Path(tmp) / "logs"
+        for row in rows:
+            name = (f"{row['case']}-{row['size']}-o{row['order']}-"
+                    f"{row['precision']}-{row['configuration']}-"
+                    f"np{row['processes']}-{row['repeat']}")
+            log_path = logs / (name + ".log")
+            if not log_path.exists():
+                continue
+            analyzed += 1
+            analysis = dict(zip(("iterations", "resolutions", "phases"),
+                                _analysis(log_path)))
+            if any(row[k] != v for k, v in analysis.items()):
+                changed += 1
+            row.update(analysis)
+    written = path.with_name(path.name + ".new")
+    with open(written, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=FIELDS)
+        w.writeheader()
+        w.writerows(rows)
+    # runs.csv written by a driver meanwhile: nothing replaced
+    after = path.stat()
+    if (after.st_size, after.st_mtime_ns) != (before.st_size,
+                                              before.st_mtime_ns):
+        written.unlink()
+        raise RuntimeError(f"{path} was modified during the analysis: run "
+                           "reanalyze again once no driver writes in it")
+    written.replace(path)
+    print(f"{path}: {analyzed} of {len(rows)} runs analyzed again "
+          f"({changed} changed, {len(rows) - analyzed} without a log)")
+
+
 def calibrate(results, precision, size, cases, timeout, dry_run, order=1):
     """runs each case once with the solvers of the program on 8 processes,
     and on the GPU (hypre with BoomerAMG when the solver of the program is
@@ -1493,27 +1644,116 @@ def _quantity(row):
     return [float(v) for v in q.split()] if q else None
 
 
-def _rows(results, case_name, precision, size, order):
-    """the rows of runs.csv of a case, precision, size and order; the key
-    "agrees" of a row is true when its quantity of interest agrees with the
-    one of the solvers of the program on the CPU, false when it differs,
-    None when one of them is missing"""
+def _read_rows(results, case_name, precision, size, order):
+    """the rows of runs.csv of a case, precision, size and order"""
     path = results / "runs.csv"
     if not path.exists():
         return []
     with open(path, newline="") as f:
-        rows = [row for row in csv.DictReader(f)
+        return [row for row in csv.DictReader(f)
                 if row["case"] == case_name and
                 row["precision"] == precision and row["size"] == size and
                 row["order"] == str(order)]
-    reference = next((_quantity(r) for r in rows
-                      if r["configuration"] == "cpu-native" and
-                      r["status"] == "0" and _quantity(r) is not None), None)
+
+
+def _reference(rows):
+    """the reference of the checks among rows and its kind: the quantity of
+    interest of the solvers of the program on the CPU ("native") or, when
+    they did not finish (time limit), of the fastest successful
+    configuration on the CPU ("fastest CPU"); (None, None) if unknown"""
+    native = next((_quantity(r) for r in rows
+                   if r["configuration"] == "cpu-native" and
+                   r["status"] == "0" and _quantity(r) is not None), None)
+    if native is not None:
+        return native, "native"
+    cpu = sorted((r for r in rows if r["side"] == "cpu" and
+                  r["status"] == "0" and _quantity(r) is not None),
+                 key=lambda r: float(r["seconds"]))
+    return (_quantity(cpu[0]), "fastest CPU") if cpu else (None, None)
+
+
+def _reference_quantity(rows):
+    """the quantity of interest of the reference of the checks among rows
+    (see `_reference`), None if unknown"""
+    return _reference(rows)[0]
+
+
+# a run in float checked against the reference in double differs when it
+# is off by more than the tolerance in float and more than FLOAT_SPREAD times
+# the median of the best differences of the configurations in float of the
+# case (a robust measure of the accuracy reached in float): the accuracy
+# depends on the case (the crystal plasticity of the polycrystal and of the
+# cermet stays 1 to 4 % off double with all the solvers), a wrong solver is
+# far beyond it (MUMPS in single precision on ex8, 9 %). Beyond FLOAT_LIMIT,
+# a run always differs (on ex8 at the order 2, all the runs in float use
+# MUMPS in single precision and are 13 % off double)
+FLOAT_SPREAD = 3.0
+FLOAT_LIMIT = 0.05
+
+
+def annotate_quantities(case_name, precision, rows, reference, in_double):
+    """sets the keys "agrees" (true, false, or None when not checked) and
+    "difference" of the rows (runs of a case, size, order and precision)
+    against the reference; `in_double`: the rows in float are checked
+    against the reference in double (see FLOAT_SPREAD)"""
+    q = QUANTITIES.get(case_name)
+    differences = {}
+    for i, r in enumerate(rows):
+        values = _quantity(r) if r["status"] == "0" else None
+        if (q is None or values is None or reference is None or
+                len(values) != len(reference)):
+            continue
+        differences[i] = quantity_difference(case_name, values, reference)
+    tolerance = QUANTITY_TOLERANCES[precision]
+    threshold = tolerance
+    if in_double and q is not None and q.kind != "error":
+        # the accuracy reached in float: the median of the best difference
+        # of each configuration
+        best = {}
+        for i, d in differences.items():
+            c = rows[i]["configuration"]
+            if math.isfinite(d):
+                best[c] = min(d, best.get(c, d))
+        if best:
+            threshold = max(tolerance, min(
+                FLOAT_SPREAD * statistics.median(best.values()),
+                FLOAT_LIMIT))
+    for i, r in enumerate(rows):
+        d = differences.get(i)
+        r["difference"] = d
+        if d is None:
+            r["agrees"] = None
+        elif q.kind == "error":
+            r["agrees"] = check_quantity(case_name, precision, _quantity(r),
+                                         reference)
+        elif not math.isfinite(d):
+            r["agrees"] = False
+        else:
+            r["agrees"] = d <= threshold
+
+
+def _rows(results, case_name, precision, size, order):
+    """the rows of runs.csv of a case, precision, size and order; the key
+    "agrees" of a row is true when its quantity of interest agrees with the
+    one of the solvers of the program on the CPU, false when it differs,
+    None when one of them is missing. The runs in float are compared to the
+    reference in double (results of the directory `double` next to the one
+    of the float runs), when it is measured: the solvers of a program may
+    give wrong results in float"""
+    rows = _read_rows(results, case_name, precision, size, order)
+    reference = None
+    if precision == "float":
+        reference = _reference_quantity(_read_rows(
+            results.resolve().parent / "double", case_name, "double", size,
+            order))
+    in_double = reference is not None
+    if not in_double:
+        reference = _reference_quantity(rows)
+    annotate_quantities(case_name, precision, rows, reference, in_double)
     for row in rows:
-        row["agrees"] = (True if row["configuration"] == "cpu-native" and
-                         row["status"] == "0" else
-                         check_quantity(case_name, precision, _quantity(row),
-                                        reference))
+        if (row["configuration"] == "cpu-native" and row["status"] == "0" and
+                not in_double):
+            row["agrees"] = True
     return rows
 
 
@@ -1672,23 +1912,34 @@ def best(results):
     and the GPU (at least the behaviours and the finite elements on the
     GPU)"""
     with open(results / "runs.csv", newline="") as f:
-        rows = list(csv.DictReader(f))
+        keys = {(r["case"], r["size"], r["order"], r["precision"])
+                for r in csv.DictReader(f)}
+    rows = [r for c, sz, o, pr in sorted(keys)
+            for r in _rows(results, c, pr, sz, int(o))]
+    # the solvers of the program give wrong results (in float, against the
+    # reference in double): no speedup against them
+    wrong = {(r["case"], r["size"], r["order"], r["precision"])
+             for r in rows if r["configuration"] == "cpu-native" and
+             r["agrees"] is False}
     table = {}
     for row in rows:
         if row["status"] != "0":
             continue
         key = (row["case"], row["size"], row["order"], row["precision"])
-        t = float(row["seconds"])
+        # the runs whose results agree first
+        t = (row["agrees"] is False, float(row["seconds"]))
         # (the coupled organization of the solvers of the program is not a
         # CPU configuration of the comparison)
         kinds = ["gpu"] if row["side"] != "cpu" else (
-            ["cpu-native", "cpu"] if row["configuration"] == "cpu-native"
+            (["cpu"] if key in wrong else ["cpu-native", "cpu"])
+            if row["configuration"] == "cpu-native"
             else [] if row["configuration"] == "cpu-native-coupled"
             else ["cpu"])
         for kind in kinds:
             k = key + (kind,)
             if (k not in table) or (t < table[k][0]):
                 table[k] = (t, row["configuration"], row["processes"])
+    table = {k: (v[0][1],) + v[1:] for k, v in table.items()}
     print("case,size,order,precision,cpu_native_seconds,cpu_native_processes,"
           "cpu_best_seconds,cpu_best_configuration,gpu_best_seconds,"
           "gpu_best_configuration,speedup_native,speedup_best")
@@ -1752,6 +2003,11 @@ def main():
                        help="order of the elements (sizes of each order)")
     b = sub.add_parser("best")
     b.add_argument("results", type=pathlib.Path)
+    ra = sub.add_parser("reanalyze",
+                        help="analyze again the logs of the runs of a "
+                        "results directory (iterations, resolutions, "
+                        "phases), without any run")
+    ra.add_argument("results", type=pathlib.Path, nargs="+")
     args = parser.parse_args()
     # SIGTERM stops the run in progress, as Ctrl-C (SIGKILL can't be
     # handled: the program would then go on)
@@ -1805,6 +2061,9 @@ def main():
         finals(args.results, args.case, args.precision, args.screen_size,
                args.size, args.repeat, args.timeout, args.dry_run,
                order=args.order)
+    elif args.action == "reanalyze":
+        for results in args.results:
+            reanalyze(results)
     else:
         best(args.results)
     return 0

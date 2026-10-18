@@ -31,11 +31,27 @@ The first pass (17/10/2026, `results/benchmark-slides-2026-10-17`,
 - Results checked: the quantity of interest of each run (resultant force,
   mean stresses, reaction, error to the analytical solution, statistics
   of the fields of ex8) is compared to the one of the solvers of the
-  example on the CPU (relative tolerance 1e-5 in double, 1e-3 in float).
-  The values are compared by groups (the components of a tensor, the
-  minimum, maximum and mean values of a field), relatively to the norm of
-  their group in the reference, and the deformation gradients of the
-  polycrystal and of the cermet by their strains (F - 1). The runs whose
+  example on the CPU, or of the fastest configuration on the CPU when they
+  did not finish (relative tolerance 1e-5 in double, 1e-3 in float). The
+  runs in float are compared to the reference in double when it is
+  measured: they differ beyond 1e-3 and beyond three times the median of
+  the best differences of the configurations in float of the case, and
+  always beyond 5 %, the accuracy reached in float depending on the case
+  (at the measurement size, the crystal plasticity of the polycrystal and
+  of the cermet stays 0.8 to 4 % off double at the order 1 and 0.5 to
+  1.6 % at the order 2 with all the solvers, the solvers of the programs
+  included; 0.15 to 0.8 % at the screening size). The solvers of a program may give
+  wrong results in float: on ex8, MUMPS in single precision gives a norm of
+  the displacement 9 % off the one of all the solvers in double (which
+  agree to 1e-12; its maximum is 8.7 % below, its mean 11 %), while
+  NewtonK0 and the conjugate gradient of hypre in float agree with double
+  (at the order 2, only the solvers using MUMPS ran in float, 13 % off).
+  No speedup is then given against the solvers of the program, and the
+  best configurations are taken among the runs which agree. The values are compared by groups (the
+  components of a tensor, the minimum, maximum and mean values of a field),
+  relatively to the norm of their group in the reference, and the
+  deformation gradients of the polycrystal and of the cermet by their
+  strains (F - 1). The runs whose
   results differ keep their bar in the graphs, hatched, with the
   difference, and are listed in the indexes; the runs without a quantity
   of interest are dotted and listed as not checked. The output files of
@@ -45,12 +61,41 @@ The first pass (17/10/2026, `results/benchmark-slides-2026-10-17`,
 - Analysis of each run from its log, without any additional run: the
   number of non linear iterations, the number of resolutions (time steps,
   sub-steps, iterations of the coupling scheme of ex8) and the times of the
-  phases given by the time table of the profiler (integration of the
-  behaviours, in the estimation of the new unknowns, and inner forces,
-  tangent operator, setup of the linear
-  solver, linear solves, post-processings). The profiler is enabled in all
-  the programs (option `--profiling` added to ex1, ex2, ex3 and ex5); on
-  the GPU, its sections synchronize the device.
+  phases given by the time table of the profiler. Each section of the
+  profiler gives its own time (without the ones of its sub-sections) to
+  its phase (`PHASE_OF_SECTION` in the driver), so that the whole time of
+  the profiler is counted once:
+  - initialization: mesh, finite element spaces, boundary conditions,
+    behaviours and solvers of the problems, and the time before the start
+    of the profiler (initialization of MPI, of the device and of the
+    libraries; up to 13 s of the 27 s of the polycrystal in float on the
+    GPU);
+  - integration of the behaviours (in the estimation of the new unknowns,
+    in the fixed point methods and in the prediction), inner forces and
+    update of the state at the end of each time step;
+  - tangent operator and its assembly, with the elimination of the
+    boundary conditions (also the assembly of the prediction, not timed by
+    a sub-section in the coupled organization before patch `0273`);
+  - setup of the linear solvers by `SetOperator` (factorizations,
+    hierarchies of AMG outside hypre: MFEM sets the solvers of hypre up
+    at their first resolution, counted in the linear solves);
+  - linear solves, with the ones of the prediction (one per time step,
+    each costing about one Newton iteration);
+  - post-processings of mfem-mgis and of the programs;
+  - the rest: the own time of the non linear solvers (with the Anderson
+    acceleration), of the time loops, of the coupling scheme of ex8 and of
+    the code of the programs outside the sections (up to 2 % at the
+    measurement size, 4 % at the screening size).
+
+  The first pass of the analysis left the prediction, the fixed point
+  methods and the post-processings of the programs out of the phases
+  (most of the time of ex1 in gray): `benchmark_slides.py reanalyze
+  RESULTS...` computes the iterations, resolutions and phases of the runs
+  again from their logs (`logs/`, or `logs.tar.xz` when `logs/` is
+  absent), without any run, once no driver writes in the directory (a
+  `runs.csv` modified during the analysis is not replaced). The profiler
+  is enabled in all the programs (option `--profiling` added to ex1, ex2,
+  ex3 and ex5); on the GPU, its sections synchronize the device.
 - Organization of the computations on the CPU: the solvers of the program
   are also run without the option `--execution` (behaviours integrated
   point by point and computations element by element, the integration and
@@ -233,7 +278,11 @@ gives the usage of its subcommands:
   repeated (three runs) unless their first run took more than two
   minutes; the configurations already measured are skipped, so that
   `finals` can be run again after a new screening;
-- `best RESULTS`: the best times and the speedups.
+- `best RESULTS`: the best times and the speedups;
+- `reanalyze RESULTS...`: the numbers of iterations and of resolutions
+  and the times of the phases of the runs, computed again from their logs
+  (`logs/`, or `logs.tar.xz` when `logs/` is absent), without any run and
+  once no driver writes in the directory.
 
 Common options: `--precision double|float`, `--size small|screen|bench`,
 `--timeout S` (a run is stopped with all its processes, `mpirun` and its
@@ -245,7 +294,9 @@ precision, the best time with the solvers of the program on the CPU, the
 best CPU configuration and the best configurations with the GPU, with
 their speedups, and two overviews of the speedups (against the solvers of
 the examples and against the best CPU configuration), with an index
-`README.md`. The graphs are generated in `slides/` on the machine of the measurements, and not versioned: they are drawn again from the `runs.csv` of the results.
+`README.md`. The graphs are generated in `slides/` on the machine of the
+measurements, and not versioned: they are drawn again from the `runs.csv`
+of the results.
 
 The runs need the libraries of the installation in `LD_LIBRARY_PATH` (TFEL
 built with CUDA, MGIS, CUDA). The solvers of Trilinos initialize the GPU
@@ -379,6 +430,46 @@ The full grid (all the solvers, processes, orders and precisions, three
 repetitions) would take about 9,900 runs, three to five weeks of the
 machine; the stages above select the configurations which may win on each
 side.
+
+## Validation of the second pass
+
+All the runs of `results/benchmark-slides-v2` were checked after the
+campaign (18/10/2026), without any additional run: 1,088 runs in double
+and 561 in float, at the orders 1 and 2.
+
+- Quantities of interest in double: all the final runs agree with the
+  solvers of the programs (1e-5), at both orders. At the order 2 of ex1,
+  the solvers of the program (conjugate gradient without preconditioner)
+  did not finish within 1,800 s: the runs are checked against the fastest
+  CPU configuration (BoomerAMG), and agree within 7e-13.
+- Quantities of interest in float, against double:
+  - ex8: the solvers of the program (MUMPS in single precision) are 9 %
+    (order 1) and 13 % (order 2) off; at the order 1, NewtonK0 and the
+    conjugate gradient of hypre agree, and give the speedup (x1.6).
+  - ex7 at the order 1: the GPU runs on one process are 1.8e-3 off (the
+    solvers of the program: 1.2e-4); the run on 2 processes sharing the
+    GPU agrees and gives the speedup.
+  - polycrystal and cermet: all the runs are 0.5 to 4 % off (crystal
+    plasticity in float), the solvers of the programs included, within
+    the accuracy reached in float on these cases.
+  - ex7 at the order 2: no configuration converged at the screening size;
+    at the measurement size, only the solvers of the program finished, on
+    the CPU (1,315 s, coupled organization 1,726 s): no graph.
+- Repeatability: the times of the repeated runs are within 10 % for most
+  configurations. Some runs are not deterministic: one more non linear
+  iteration or sub-step in some repetitions (ex5 at the order 2 with
+  MUMPS: 4 or 5 Newton iterations, 19 to 24 s; NewtonK0 on the GPU, one
+  iteration), more often in float (ex8 at the order 1: 39 to 41
+  iterations, 40 to 54 s). The first run of a configuration may be slower
+  (polycrystal at the order 2: 40 s, then 29 and 30 s). The final runs
+  keep the best time of each configuration.
+- Final runs which failed: the runs with several processes sharing the
+  GPU, stopped at 1.5 times the best time or out of memory, the solvers
+  of the program at the order 2 of ex1 (time limit), the solvers of
+  NewtonK0 in float on ex2 (no convergence at the measurement size), and
+  the solvers of the program of ex4 at the order 2 in float.
+- Phases: the time left out of the phases (rest) is below 2 % of every
+  final run.
 
 ## Single precision
 
