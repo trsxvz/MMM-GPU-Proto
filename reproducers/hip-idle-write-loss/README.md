@@ -39,7 +39,7 @@ Wrong Newton residual at the first step (imposed components not zeroed),
 and memory faults of hypre in rocsparse or rocprim when the lost writes
 are those of hypre. The tests on this GPU run with the kernels and the
 copies serialised (`AMD_SERIALIZE_KERNEL=3`, `AMD_SERIALIZE_COPY=3`,
-`scripts/build-hip-amd.sh`). Even then, the examples rve and
-ssna303_3d_hypre on the GPU stay blocked at the first launch of a kernel
-of the library of behaviours (`BusyWaitSignal::WaitAcquire` under
-`hipLaunchKernel`); not analysed further.
+`scripts/build-hip-amd.sh`). The examples rve and ssna303_3d_hypre on
+the GPU stayed blocked even then, at the first launch of a kernel of the
+library of behaviours: a separate defect, in the code generation of the
+compiler (`reproducers/hip-finite-strain-3d-hang`).

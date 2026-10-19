@@ -266,17 +266,30 @@ scratch (mfem-mgis 7db41904c0, examples a48701a). Nothing runs on an
 AMD GPU there.
 
 The same script with `HIP_ARCH=gfx1036 GPU_TESTS=ON` also runs the tests
-on the AMD GPU integrated in the processor (13 and 14/10). With ROCm 10.1
+on the AMD GPU integrated in the processor (13 and 14/10, and on 20/10 with
+`HYPRE_HIP=ON`). With ROCm 10.1
 (packages of TheRock), the writes of a finished kernel to device memory
 are lost when this GPU stays idle about 300 µs before the next operation
 (`reproducers/hip-idle-write-loss`, reported as
 [ROCm/rocm-systems#13469](https://github.com/ROCm/rocm-systems/issues/13469)).
 The tests therefore run with the kernels and the copies serialised
 (`AMD_SERIALIZE_KERNEL=3`, `AMD_SERIALIZE_COPY=3`):
-ExecutionSettingsTest 33/33; on the GPU, the examples rve and
-ssna303_3d_hypre stay blocked at the first launch of a kernel of their
-library of behaviours, the other nine pass (mox2 failed once on 13/10,
-then passed four times out of four).
+ExecutionSettingsTest 33/33. The kernels of two finite strain behaviours
+in 3D compiled at -O2 or -O3 for this GPU never end, a defect of the code
+generation of the compiler of ROCm 10.1
+(`reproducers/hip-finite-strain-3d-hang`): the
+examples rve and ssna303_3d_hypre stayed blocked at the first launch of a
+kernel of their library of behaviours. The script compiles the libraries
+of behaviours at -O1 for gfx1036 only. On 20/10, with this option, the
+examples pass (26/26, the eleven tests on the GPU included:
+ssna303_3d_hypre-gpu in 91 s, rve-gpu in 1.3 s). mfem-mgis passes 269 tests
+out of 279: the tests of the displacement gradient (six) and the two
+AddBehaviourIntegratorTest need a TFEL providing the displacement
+gradient, which the TFEL of this environment does not;
+TwoLayerCube-1-PreconditionerOverrideP stops on the host (Newton stagnating
+at a relative residual of 2.7e-12); HypreMGRTestP-gpu, which uses no
+behaviour, exceeds its 300 s. mox2 failed once on 13/10, then passed four
+times out of four, and again on 20/10.
 
 The option `enable-kokkos` (initialization of Kokkos by mfem-mgis) is
 validated in two separate builds: `build/mfem-mgis-kokkos-off`
