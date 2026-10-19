@@ -6,8 +6,9 @@
 # usage: ./build-mgis.sh [full]
 #
 # Without argument: build in build/mgis (Release, CUDA tests of the batch
-# libraries), target `check` (tests included), then installation in
-# install/mgis, where mfem-mgis finds MGIS.
+# libraries, tests of the stlpar backend compiled by nvc++ for the GPU),
+# target `check` (tests included), then installation in install/mgis, where
+# mfem-mgis finds MGIS.
 #
 # With `full`: build in build/mgis-full, with HDF5 and the C, Fortran and
 # Python bindings (HDF5, pybind11, Python and numpy from the spack
@@ -22,6 +23,8 @@ case "${1:-default}" in
   default)
     BUILD=$P/build/mgis
     OPTIONS=(-Denable-generic-parallel-cuda-tests=ON
+      -Denable-generic-parallel-stlpar-nvhpc-gpu-tests=ON
+      -DMGIS_NVHPC_CXX_COMPILER="$PROTO_NVHPC/compilers/bin/nvc++"
       -Denable-hdf5-automatic-support=OFF
       -DCMAKE_INSTALL_PREFIX="$P/install/mgis")
     ;;

@@ -338,8 +338,10 @@ its contract already describes each field by two strides.
 - **End of time step on GPU**: `update`, `revert` and `updateValues` take
   copy operations (`FieldOperations`), just as allocations go through a
   `std::pmr::memory_resource`. MGIS knows which arrays to copy, the caller
-  provides the copy. Headers for CUDA, HIP, SYCL, Kokkos and OpenMP,
-  compiled by the caller with its GPU toolchain.
+  provides the copy. Headers for CUDA, HIP, SYCL, Kokkos, OpenMP and the
+  parallel algorithms of C++ (`ParallelSTLFieldOperations`, on the host or
+  on an NVIDIA GPU with `nvc++ -stdpar=gpu`), compiled by the caller with
+  its toolchain.
 - **Unchecked view and update of the inputs only**: `make_unchecked_view`
   returns the view of a manager like `make_view`, without checking that
   the values kept on the host (uniform values, local storage, mass
@@ -446,9 +448,13 @@ These defects were found along the way and fixed in separate commits:
 - **Continuous integration**: the `generic-parallel` tests of MGIS are
   built only if the TFEL found provides the interface. The official CI of
   MGIS uses TFEL master: they will only run there once the interface is
-  integrated into TFEL. The CUDA tests are disabled by default
-  (`enable-generic-parallel-cuda-tests`). The other backends are tested in
-  TFEL: MGIS only passes pointers, a queue and a memory space.
+  integrated into TFEL. The tests on the host use the `stlpar` backend.
+  The GPU tests are disabled by default: `cuda` backend
+  (`enable-generic-parallel-cuda-tests`), `stlpar` backend compiled by
+  `nvc++ -stdpar=gpu` (`enable-generic-parallel-stlpar-nvhpc-gpu-tests`,
+  same tests, libraries and tests compiled by nvc++ whatever the compiler
+  of MGIS). The other backends are tested in TFEL: MGIS only passes
+  pointers, a queue and a memory space.
 - **No status per point**: the optional array of TFEL is not exposed.
 - **Bindings**: the C bindings refuse batch libraries; the Python and
   Fortran bindings do not know the batch functions. All three expose the
@@ -495,7 +501,9 @@ The documentation of MGIS, in English, is up to date with these changes:
 - `docs/web/release-notes-3.2.md`: incompatibilities, new `cmake` option,
   new features and fixes;
 - `README.md`, `INSTALL-cmake.md`, `docs/web/install.md`: presentation,
-  option `enable-generic-parallel-cuda-tests`, conditions of the tests;
+  options `enable-generic-parallel-cuda-tests` and
+  `enable-generic-parallel-stlpar-nvhpc-gpu-tests`, conditions of the
+  tests;
 - public headers: each function says what it does for a `generic-parallel`
   library (switch, refusal, location of the arrays). The copies of the
   structures of TFEL are documented like their originals.
@@ -510,7 +518,13 @@ MGIS is configured in `float` with the option `MGIS_REAL_TYPE` (`double`
 by default), which generates the header `MGIS/RealType.h`. The numeric type
 of each entry point is checked at loading time (symbol `<f>_real_size` of
 TFEL). The tests pass in `float` (49/49) and with CUDA (51/51, in double as
-in float). Limit found in `float`: the Norton behaviour of the tests can no
-longer be integrated around 3e9 Pa, and the cycle of
-FieldOperationsCUDATest makes three steps instead of four. Details in
+in float), and with the tests of the `stlpar` backend on the host and
+compiled by `nvc++ -stdpar=gpu` (54/54 in double as in float, 20/10).
+Limits found in `float`: the Norton behaviour of the tests can no longer be
+integrated around 3e9 Pa, and the cycle shared by the tests of the field
+operations (`FieldOperationsTest.hxx`) makes three steps instead of four.
+Compiled by `nvc++`, the Norton behaviour differs from the reference by
+3.1e-5 on the stresses and 1.5e-3 on the tangent operator at the onset of
+the flow, on the GPU as on the host and without contraction: the float
+tolerances of `GenericParallelCUDATest` depend on the compiler. Details in
 [plan-precision.md](plan-precision.md); patches 0064 to 0070.

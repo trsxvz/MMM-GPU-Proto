@@ -54,7 +54,7 @@ Each library only knows the interface of the previous one.
 | | TFEL/MFront | MGIS | mfem-mgis |
 |---|---|---|---|
 | Role | code of one material point, processing of a batch of points | material data, loading of libraries, dispatch | finite elements, solvers, orchestration |
-| GPU code | kernels of the batch functions (one backend per generated library) | none in the compiled library; copies and end of step on the GPU by kernels in headers (`FieldOperations`: CUDA, HIP, Kokkos, SYCL, OpenMP offload), compiled by the caller | kernels of mfem-mgis (gradients, internal forces, tangent, prediction, post-processings), assembly and solvers of MFEM, hypre, AmgX and cuDSS |
+| GPU code | kernels of the batch functions (one backend per generated library) | none in the compiled library; copies and end of step by headers compiled by the caller (`FieldOperations`: kernels of CUDA, HIP, Kokkos, SYCL and OpenMP offload, parallel algorithms of C++ on the host or offloaded by `nvc++ -stdpar=gpu`) | kernels of mfem-mgis (gradients, internal forces, tangent, prediction, post-processings), assembly and solvers of MFEM, hypre, AmgX and cuDSS |
 | Memory | does not allocate the data of the points; allocates once per device the copies of shared data and the state and statistics blocks, reused from one call to the next (and, with SYCL, copies of inaccessible values) | uses the arrays of the caller, or a memory resource given by the caller | owns the data, decides where they live |
 | Exposed interface | versioned C structures, description symbols | `MaterialDataManager`, batch functions | nonlinear forms of MFEM |
 

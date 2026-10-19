@@ -144,6 +144,8 @@ cd .. && source scripts/env.sh
 cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$PROTO_TFEL_INSTALL" -DCMAKE_CXX_COMPILER=g++-14 \
   -Denable-generic-parallel-cuda-tests=ON \
+  -Denable-generic-parallel-stlpar-nvhpc-gpu-tests=ON \
+  -DMGIS_NVHPC_CXX_COMPILER="$PROTO_NVHPC/compilers/bin/nvc++" \
   -DCMAKE_CUDA_COMPILER="$(which nvcc)" -DCMAKE_CUDA_HOST_COMPILER=g++-14
 cmake --build build/mgis --target check -j16   # builds and runs the tests
 ```

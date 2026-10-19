@@ -224,7 +224,8 @@ compilation and linking only).
   code path.
 - **End of step on the GPU.** `update`, `revert` and `updateValues` take
   copy operations (`FieldOperations`), with headers for CUDA, HIP, SYCL,
-  Kokkos and OpenMP compiled by the caller. `make_unchecked_view` and
+  Kokkos, OpenMP and the parallel algorithms of C++ (on the host, or on
+  the GPU with `nvc++ -stdpar=gpu`) compiled by the caller. `make_unchecked_view` and
   `updateInputValues` let a caller such as mfem-mgis keep the data of
   its materials on the GPU.
 - **No heap allocation** in the usual synchronous calls once the arrays
@@ -241,9 +242,10 @@ compilation and linking only).
   `FiniteStrainBehaviourOptions` and its bindings; the options of the
   behaviour are now given to the initialize functions and
   post-processings.
-- **MGIS has no dependency on any GPU library.** The CUDA test needs an
-  NVIDIA GPU and is disabled by default
-  (`enable-generic-parallel-cuda-tests`).
+- **MGIS has no dependency on any GPU library.** The GPU tests need an
+  NVIDIA GPU and are disabled by default
+  (`enable-generic-parallel-cuda-tests` and
+  `enable-generic-parallel-stlpar-nvhpc-gpu-tests`).
 
 ## mfem-mgis
 

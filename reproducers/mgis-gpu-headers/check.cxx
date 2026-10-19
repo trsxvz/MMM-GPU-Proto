@@ -3,8 +3,10 @@
  * \brief  check of the headers of MGIS compiled by the calling code with a
  * GPU programming model: field operations (MGIS/FieldOperations) and memory
  * resources (MGIS/MemoryResources). The backend is chosen by one of the
- * macros MGIS_CHECK_CUDA, MGIS_CHECK_HIP, MGIS_CHECK_SYCL, MGIS_CHECK_KOKKOS
- * and MGIS_CHECK_OPENMP (see scripts/check-mgis-gpu-headers.sh).
+ * macros MGIS_CHECK_CUDA, MGIS_CHECK_HIP, MGIS_CHECK_SYCL, MGIS_CHECK_KOKKOS,
+ * MGIS_CHECK_OPENMP and MGIS_CHECK_STLPAR (parallel algorithms of the C++
+ * standard library compiled by nvc++ -stdpar=gpu, with the memory and the
+ * managed memory resource of CUDA) (see scripts/check-mgis-gpu-headers.sh).
  *
  * The field operations copy and fill views located in the memory of the
  * device only: contiguous copy, transposition between the point by point and
@@ -36,6 +38,10 @@
 #include "MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx"
 #elif defined(MGIS_CHECK_OPENMP)
 #include "MGIS/FieldOperations/OpenMPFieldOperations.hxx"
+#elif defined(MGIS_CHECK_STLPAR)
+#include <cuda_runtime.h>
+#include "MGIS/FieldOperations/ParallelSTLFieldOperations.hxx"
+#include "MGIS/MemoryResources/CUDAManagedMemoryResource.hxx"
 #else
 #error "no backend selected"
 #endif
@@ -61,7 +67,7 @@ struct Backend {
 #endif
   real* allocate(const size_type n) {
     void* p = nullptr;
-#if defined(MGIS_CHECK_CUDA)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
     if (cudaMalloc(&p, n * sizeof(real)) != cudaSuccess) {
       throw std::runtime_error("cudaMalloc failed");
     }
@@ -83,7 +89,7 @@ struct Backend {
     return static_cast<real*>(p);
   }
   void free(real* const p) {
-#if defined(MGIS_CHECK_CUDA)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
     static_cast<void>(cudaFree(p));
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipFree(p));
@@ -97,7 +103,7 @@ struct Backend {
   }
   void toDevice(real* const d, const std::vector<real>& h) {
     [[maybe_unused]] const auto s = h.size() * sizeof(real);
-#if defined(MGIS_CHECK_CUDA)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
     static_cast<void>(cudaMemcpy(d, h.data(), s, cudaMemcpyHostToDevice));
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipMemcpy(d, h.data(), s, hipMemcpyHostToDevice));
@@ -117,7 +123,7 @@ struct Backend {
   std::vector<real> toHost(const real* const d, const size_type n) {
     auto h = std::vector<real>(n);
     [[maybe_unused]] const auto s = n * sizeof(real);
-#if defined(MGIS_CHECK_CUDA)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
     static_cast<void>(cudaMemcpy(h.data(), d, s, cudaMemcpyDeviceToHost));
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipMemcpy(h.data(), d, s, hipMemcpyDeviceToHost));
@@ -136,7 +142,7 @@ struct Backend {
     return h;
   }
   void synchronize() {
-#if defined(MGIS_CHECK_CUDA)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
     static_cast<void>(cudaDeviceSynchronize());
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipDeviceSynchronize());
@@ -165,6 +171,10 @@ struct Backend {
 #elif defined(MGIS_CHECK_OPENMP)
   mgis::field_operations::OpenMPFieldOperations operations() {
     return mgis::field_operations::OpenMPFieldOperations{};
+  }
+#elif defined(MGIS_CHECK_STLPAR)
+  mgis::field_operations::ParallelSTLFieldOperations<> operations() {
+    return mgis::field_operations::ParallelSTLFieldOperations<>{};
   }
 #endif
 };
@@ -209,7 +219,7 @@ static void test(Backend& backend) {
 #if !defined(MGIS_CHECK_OPENMP)
   // memory resource: memory written by the device, read by the host
   {
-#if defined(MGIS_CHECK_CUDA)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
     auto r = mgis::memory_resources::CUDAManagedMemoryResource{};
 #elif defined(MGIS_CHECK_HIP)
     auto r = mgis::memory_resources::HIPManagedMemoryResource{};
@@ -268,6 +278,9 @@ int main() {
 #elif defined(MGIS_CHECK_OPENMP)
     check(omp_get_num_devices() > 0, "no OpenMP device");
 #endif
+    // with CUDA, HIP and the parallel algorithms of nvc++, the views are in
+    // the memory of the device only (cudaMalloc, hipMalloc): operations made
+    // by the host would fail
     test(backend);
   } catch (std::exception& e) {
     std::cerr << e.what() << '\n';

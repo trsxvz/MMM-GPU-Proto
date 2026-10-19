@@ -103,8 +103,9 @@ contract they read. The details are in [mgis.md](mgis.md).
    type checked when loading each entry point, tests in float on the CPU
    and with CUDA, documentation. It follows contribution 7 of TFEL.
 
-The CUDA test of MGIS needs an NVIDIA GPU. It is disabled by default
-(option `enable-generic-parallel-cuda-tests`), so that the continuous
+The GPU tests of MGIS need an NVIDIA GPU. They are disabled by default
+(options `enable-generic-parallel-cuda-tests` and
+`enable-generic-parallel-stlpar-nvhpc-gpu-tests`), so that the continuous
 integration of MGIS stays on CPU.
 
 ## mfem-mgis

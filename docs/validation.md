@@ -119,7 +119,7 @@ untracked.
 ## MGIS
 
 MGIS is built in `build/mgis` against the TFEL of the prototype. Its
-tests (`ctest`, 50 tests) include the original ones and:
+tests (`ctest`, 54 tests on 19/10) include the original ones and:
 
 | Test | What is checked |
 |---|---|
@@ -131,6 +131,8 @@ tests (`ctest`, 50 tests) include the original ones and:
 | `MaterialDataManagerLayoutTest` | manager stored component by component identical bit for bit to the point by point layout: integration on ranges, empty sets, thread pool (errors included), policies, `revert`; initialization and post-processing in all their forms; end of step of the material properties and external variables (external arrays, local arrays, uniform values, update policies); conversions of finite strain on views and on the manager, in 3D and in plane strain, Piola-Kirchhoff stress compared with its definition; views of the variables, *strided coalesced* views; `MaterialFunctionManager`; `save` and `restore`; `updateInputValues` (inputs updated, arrays of the states not copied) |
 | `GenericParallelIntegrateTest`, `GenericParallelEvaluateTest` (additions) | rotations and `evaluate` on views, identical bit for bit to the overloads on arrays, for all the layouts of the source and of the destination, in place or not, matrices given in the five ways, without policy, synchronous and asynchronous |
 | `FieldOperationsCUDATest` | CUDA operations (copies, transpositions, fills), complete cycle on GPU (arrays of the caller component by component in GPU memory only, integration and end of step on the GPU, compared with the host), integration, initialization, post-processing, `update`, `revert` and extraction directly on a `MaterialDataView` in GPU memory, rotations and `evaluate` on views in GPU memory, asynchronous computations with a managed memory pool, mass density kept on the host refused |
+| `FieldOperationsParallelSTLTest` | the checks of `FieldOperationsCUDATest` (shared body `FieldOperationsTest.hxx`) with the `stlpar` backend on the host, except the two refusals that only concern a device (mixed copy, mass density kept on the host): operations of `ParallelSTLFieldOperations` (parallel algorithms of C++), arrays of the caller in the memory of the host, stresses of the cycle within 1e-12 of the integration point by point (difference measured: 0, same compiler); copies and fills with the policies `par`, `seq` and `unseq` |
+| `GenericParallelNVHPCGPUTest`, `FieldOperationsParallelSTLNVHPCGPUTest` | `GenericParallelCUDATest` and the checks of `FieldOperationsCUDATest` for the `stlpar` backend compiled by `nvc++ -stdpar=gpu` (libraries and tests compiled by nvc++, option `enable-generic-parallel-stlpar-nvhpc-gpu-tests`): data in managed memory and in the memory of the device only, end of step by the parallel algorithms on the GPU (policies `par_unseq` and `par`); stresses of the cycle within 1e-11 of the host (difference measured: 1.2e-12; 9.6e-13 with nvcc, checked within 1e-12); in float, Norton within 5e-5 (stresses) and 3e-3 (tangent) of the host, differences of nvc++ on the host as on the GPU (3.1e-5 and 1.5e-3 at the onset of the flow) |
 | `AllocationTest` | no heap allocation in the calling thread for the integration, `update` and `revert` of the managers (two layouts) and of the views, the rotations and `evaluate`, for both interfaces |
 | `RotationMatrixCopyTest` | copies and moves of the rotation matrices, local and external storage, rotation after destruction of the original |
 | `ProfilingTest` (addition) | synchronization function of `setProfilingSynchronization` called at the start and at the end of each active section, never for an inactive section |
@@ -145,10 +147,18 @@ Python bindings (96 tests), including the tests of the layout in each binding
 blocks of the tangent in Fortran in both layouts, strides of the
 numpy arrays and strided arrays refused in Python). The script `scripts/check-mgis-gpu-headers.sh` compiles the
 GPU headers of MGIS (copy operations and memory resources) with the
-CUDA, HIP, SYCL, Kokkos and OpenMP offload toolchains of the prototype, and
-runs them on the GPU (`reproducers/mgis-gpu-headers/check.cxx`).
+CUDA, HIP, SYCL, Kokkos, OpenMP offload and `nvc++ -stdpar=gpu` toolchains
+of the prototype, and runs them on the GPU
+(`reproducers/mgis-gpu-headers/check.cxx`): six successes on 19/10.
 
-The CUDA test requires the CMake option `enable-generic-parallel-cuda-tests`.
+The CUDA tests require the CMake option `enable-generic-parallel-cuda-tests`,
+the tests of `nvc++ -stdpar=gpu` the option
+`enable-generic-parallel-stlpar-nvhpc-gpu-tests` (and `MGIS_NVHPC_CXX_COMPILER`
+if `nvc++` is not in the `PATH`). The continuous integration has no `nvc++`:
+it does not configure this option, which is only checked on the
+development machine. The header `ParallelSTLFieldOperations.hxx` also
+compiles with `clang` and `libc++` (`-fexperimental-library`), checked by
+hand on 19/10.
 The batch libraries of the tests are built by the functions of
 `mgis/cmake/modules/generic-parallel.cmake`.
 
