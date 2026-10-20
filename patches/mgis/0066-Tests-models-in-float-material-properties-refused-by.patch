@@ -1,4 +1,4 @@
-From 6001da7210fdec0c68659ac5f6b9836586b6cec5 Mon Sep 17 00:00:00 2001
+From d5f0bb61bd5b36b784e7faeb0d299b4b225b0c57 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:40:30 +0200
 Subject: [PATCH] Tests: models in float, material properties refused by

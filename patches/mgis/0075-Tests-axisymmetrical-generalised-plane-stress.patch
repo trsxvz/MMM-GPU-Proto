@@ -1,4 +1,4 @@
-From 3a777e8478de6ada57e032b0cd48285d670675f9 Mon Sep 17 00:00:00 2001
+From 471de3d493a11e28a38bb5cf42ab02eb3f67513a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 00:36:56 +0200
 Subject: [PATCH] Tests: axisymmetrical generalised plane stress

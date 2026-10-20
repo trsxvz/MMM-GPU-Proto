@@ -1,4 +1,4 @@
-From 3731baf6212f74cb923fecc6172c913157481a77 Mon Sep 17 00:00:00 2001
+From fa4d48f1e5c8323dc536a1a448cdd5f2b2ece0a5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 00:11:45 +0200
 Subject: [PATCH] Bindings: getAxialDeformationGradientOffset

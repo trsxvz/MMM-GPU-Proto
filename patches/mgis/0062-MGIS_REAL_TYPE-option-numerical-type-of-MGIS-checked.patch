@@ -1,4 +1,4 @@
-From e4be3f23d369ca473d306e9d3db9f15144cf1c8d Mon Sep 17 00:00:00 2001
+From 9d2b1a4f0b6832b5eea1744acec5b9d6de59ba45 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:34:46 +0200
 Subject: [PATCH] MGIS_REAL_TYPE option: numerical type of MGIS, checked at

@@ -1,4 +1,4 @@
-From e69737536ccc59f0fde3b73ab03d1a57a6cf009d Mon Sep 17 00:00:00 2001
+From 20a0afb64694d7c0c6b135c3f6114a244c9baa80 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:01:16 +0200
 Subject: [PATCH] CMake version of the CUDA tests, profiling page generated,
@@ -8,24 +8,27 @@ Subject: [PATCH] CMake version of the CUDA tests, profiling page generated,
 - docs/web/profiling.md is generated and listed in the menu of the site.
 - FieldOperationsCUDATest checks that the managed memory resource of CUDA allocates zero bytes (cudaMallocManaged accepts a size of zero).
 ---
- docs/web/CMakeLists.txt          |  1 +
+ docs/web/CMakeLists.txt          |  2 +-
  docs/web/mgis-template.html      |  1 +
  tests/CMakeLists.txt             |  5 +++++
  tests/FieldOperationsCUDATest.cu | 12 ++++++++++++
- 4 files changed, 19 insertions(+)
+ 4 files changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/docs/web/CMakeLists.txt b/docs/web/CMakeLists.txt
-index 561e160..af6793c 100644
+index 561e160..cd6f445 100644
 --- a/docs/web/CMakeLists.txt
 +++ b/docs/web/CMakeLists.txt
-@@ -93,6 +93,7 @@ if(MGIS_HAVE_PANDOC)
+@@ -93,9 +93,9 @@ if(MGIS_HAVE_PANDOC)
    mgis_pandoc_generate_html_page(orthotropic-behaviours "--toc" "--toc-depth=3")
    mgis_pandoc_generate_html_page(generic-parallel "--toc" "--toc-depth=3")
    mgis_pandoc_generate_html_page(views "--toc" "--toc-depth=3")
 +  mgis_pandoc_generate_html_page(profiling "--toc" "--toc-depth=3")
    mgis_pandoc_generate_html_page(behaviour-integration-failure-analysis "--toc" "--toc-depth=3")
    mgis_pandoc_generate_html_page(functions "--toc" "--toc-depth=3")
-   mgis_pandoc_generate_html_page(profiling "--toc" "--toc-depth=3")
+-  mgis_pandoc_generate_html_page(profiling "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(evaluators "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(FEniCSBindings)
+   mgis_pandoc_generate_html_page(mgis_fenics "--toc" "--toc-depth=3")
 diff --git a/docs/web/mgis-template.html b/docs/web/mgis-template.html
 index 5cc00c8..ef517b7 100644
 --- a/docs/web/mgis-template.html

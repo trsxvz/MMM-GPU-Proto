@@ -1,4 +1,4 @@
-From 0e7498674ccbcd82dd908df5b01475fbcca97452 Mon Sep 17 00:00:00 2001
+From 30a839dd28a10b8c6c71fe3cfbe29c501537458c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:19:36 +0200
 Subject: [PATCH] Bindings: displacement gradient option

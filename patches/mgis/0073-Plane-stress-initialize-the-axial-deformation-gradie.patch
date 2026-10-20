@@ -1,4 +1,4 @@
-From 47aeb091ca7e7050b5f801eedcc835e82c203e6e Mon Sep 17 00:00:00 2001
+From 116e5c978e8fdab1ff9877546740c51d01f67117 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 00:11:45 +0200
 Subject: [PATCH] Plane stress: initialize the axial deformation gradient to

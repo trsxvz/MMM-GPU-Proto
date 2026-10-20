@@ -1,4 +1,4 @@
-From 884664b0380ce8bccb7911a97da275e550e0ea13 Mon Sep 17 00:00:00 2001
+From 8488130ad56ec5c41e47d1c6e2b7768e3be2593a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 00:17:33 +0200
 Subject: [PATCH] FieldOperations: parallel algorithms of C++, tests with nvc++

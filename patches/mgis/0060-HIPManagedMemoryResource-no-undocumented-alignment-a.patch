@@ -1,4 +1,4 @@
-From 217e8bb8919749a7eed3722b5d223a0fe62d4155 Mon Sep 17 00:00:00 2001
+From 58a653bdeb385aa79831c48b4e5048b5b0126110 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:28:57 +0200
 Subject: [PATCH] HIPManagedMemoryResource: no undocumented alignment assumed

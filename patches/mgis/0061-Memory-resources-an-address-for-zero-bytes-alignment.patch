@@ -1,4 +1,4 @@
-From 5d728d4167ead22e0b3de03dc3d837fc0e67d6eb Mon Sep 17 00:00:00 2001
+From 69ce28abf05059f0c62181b7a3baf74f4f6392f1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:10:26 +0200
 Subject: [PATCH] Memory resources: an address for zero bytes, alignment of

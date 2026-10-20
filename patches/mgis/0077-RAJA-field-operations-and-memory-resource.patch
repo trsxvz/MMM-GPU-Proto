@@ -1,4 +1,4 @@
-From 054b2f5a47198cb20c05fc825407e44ed03b51d3 Mon Sep 17 00:00:00 2001
+From 53b032c0359c2d2c4a87a6cbcf91ee15ffaeb8c5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 03:12:44 +0200
 Subject: [PATCH] RAJA: field operations and memory resource

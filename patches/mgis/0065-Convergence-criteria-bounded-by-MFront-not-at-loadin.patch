@@ -1,4 +1,4 @@
-From 6a3b815d088384f7d3544888eb008d731047d034 Mon Sep 17 00:00:00 2001
+From 6692072f0b1689342864c91f2153b19b27040ba1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:40:29 +0200
 Subject: [PATCH] Convergence criteria bounded by MFront, not at loading

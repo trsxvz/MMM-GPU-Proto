@@ -1,4 +1,4 @@
-From 0e6bc2ede64a1ddf5865ab3f163f1c1dddaff812 Mon Sep 17 00:00:00 2001
+From 2aa5c79a1af2df62d0c690129b0f7fbdc0e16fe7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:01:32 +0200
 Subject: [PATCH] Finite strain behaviours: option to give the displacement
