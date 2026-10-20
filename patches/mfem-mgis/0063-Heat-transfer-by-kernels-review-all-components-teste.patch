@@ -1,4 +1,4 @@
-From 2c8b4ca73186fe0465de69cd6063c0bb9431bb2b Mon Sep 17 00:00:00 2001
+From ca8c6e8fc96270953ee2e45bd67d3ecee21157b8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 06:41:38 +0200
 Subject: [PATCH] Heat transfer by kernels: review (all components tested, skew

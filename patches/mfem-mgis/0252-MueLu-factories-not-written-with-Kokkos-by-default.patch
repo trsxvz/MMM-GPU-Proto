@@ -1,4 +1,4 @@
-From fef2f47f780735c9f868b1cc38adbe7f928ef6b9 Mon Sep 17 00:00:00 2001
+From d4ca00f0838e9be99bd8f4afc7f5dc2b2ec84a3b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 10:28:07 +0200
 Subject: [PATCH] MueLu: factories not written with Kokkos by default

@@ -1,4 +1,4 @@
-From a59bb63222c3a42df5851257bb177a7f31924c8a Mon Sep 17 00:00:00 2001
+From 30c4e5bed24099a3bb12840550a7ee43ddaa2656 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:04:36 +0200
 Subject: [PATCH] Fixed point solver with acceleration algorithms (FixedPoint)

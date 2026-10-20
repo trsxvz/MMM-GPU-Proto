@@ -1,4 +1,4 @@
-From 4c5012059c3c72249ea2c7ea3396a835bc10961b Mon Sep 17 00:00:00 2001
+From 5a396613556e35516624a6205bf93f1436b5b416 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 18:12:04 +0200
 Subject: [PATCH] Documentation of the statistics of the generic-parallel
@@ -30,7 +30,7 @@ index 00ebf3115..4cf6c65a7 100644
  The message describes invalid arguments and runtime errors. The error
  messages of the points (`error_message` of the `generic` interface) are not
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index d2300dfef..e43ad39f8 100644
+index 71e2c057d..a759e65d7 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -52,9 +52,8 @@ In addition, the `generic-parallel` interface also exports:
@@ -293,7 +293,7 @@ index d2300dfef..e43ad39f8 100644
  //
  auto Q = sycl::queue{sycl::gpu_selector_v};
  auto usm_allocator = usm_allocator_type{Q};
-@@ -614,8 +631,8 @@ As for the behaviours, `Kokkos` must be a shared library, built without
+@@ -619,8 +636,8 @@ As for the behaviours, `Kokkos` must be a shared library, built without
  relocatable device code, so that the calling code and the generated
  libraries share the same instance of `Kokkos`.
  

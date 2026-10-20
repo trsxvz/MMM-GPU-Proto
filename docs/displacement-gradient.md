@@ -81,9 +81,9 @@ axial strain, in relative value, with F as with H).
 
 ## Implementation
 
-Patches `patches/tfel/0121` to `0124`, `patches/mgis/0071` to `0073`,
-`patches/mfem-mgis/0182` and `patches/mm-opera-hpc/0034` (TFEL 5522bc432,
-MGIS 5a28283, mfem-mgis a42e0038da, mm-opera-hpc 1322426).
+Patches `patches/tfel/0118` to `0121`, `patches/mgis/0070` to `0072`,
+`patches/mfem-mgis/0182` and `patches/mm-opera-hpc/0034`. The plane stress
+corrections are in `patches/tfel/0122` and `patches/mgis/0073` to `0075`.
 
 TFEL:
 

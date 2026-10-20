@@ -1,4 +1,4 @@
-From d70bce0e48b0775362c6ed814a5ad4f7e529f903 Mon Sep 17 00:00:00 2001
+From 2a6ff2e0f3d636a1af4fd1893e42879de50aeb0e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 06:04:07 +0200
 Subject: [PATCH] MaterialArraysTest: angle of the rotation in the numerical

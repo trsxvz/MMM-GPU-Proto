@@ -1,4 +1,4 @@
-From a6324072693aa47160053dd676b84e80b1976059 Mon Sep 17 00:00:00 2001
+From 0a67f1952013f8012524d8365a9d6e207a777cf3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 11:16:41 +0200
 Subject: [PATCH] Ordered assembly of the stiffness matrices computed by

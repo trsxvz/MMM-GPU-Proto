@@ -1,4 +1,4 @@
-From 16f45fb9cfd824b518452a86159ce060c65bf253 Mon Sep 17 00:00:00 2001
+From 66881528b707e18d1da334cf96aa4e5002dffe4d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:57:11 +0200
 Subject: [PATCH] Tests: solvers of PETSc, Laplace system shared by the solver

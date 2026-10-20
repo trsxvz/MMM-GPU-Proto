@@ -1,11 +1,11 @@
 # Patches
 
-Series of patches giving this tree from TFEL master, commit `ff0959ece`
-(12/10/2026):
+Series of patches giving this tree from TFEL master, commit `fdeb6abf8`
+(20/10/2026):
 
 ```bash
 git clone <official TFEL repository> tfel && cd tfel
-git checkout ff0959ece
+git checkout fdeb6abf8
 git am --keep-cr /path/to/patches/*.patch
 ```
 
@@ -58,16 +58,16 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
   isotropic DSLs (and the test Plasticity8, which depends on it), DDIF2
   brick (non constant fracture stresses and energies, checks of the
   options), error normalization factor of `rkCastem`.
-- single precision (patches 0112 to 0120): DSL option `real_type`
+- single precision (patches 0109 to 0117): DSL option `real_type`
   (numerical type of the `generic` and `generic-parallel` interfaces,
   symbols `<f>_real_size`, API versions shifted for `float`), other
   interfaces refusing `float`, `IsAssignableTo` for floating point types,
   MTest checking the numerical type, convergence criteria bounded at the
   generation with warnings, documentation;
-- RAJA backend (patch 0126): execution policy given as an option and
+- RAJA backend (patch 0123): execution policy given as an option and
   checked before being copied in the generated code, resource of camp as
   queue, `raja` and `raja-host` configurations, tests;
-- OpenACC backend (patch 0127): `parallel loop` with reductions, memory
+- OpenACC backend (patch 0124): `parallel loop` with reductions, memory
   space deduced from the compilation macros, stack size set through the
   CUDA driver, `openacc-nvhpc-gpu` and `openacc-nvhpc-multicore`
   configurations, tests;

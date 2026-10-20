@@ -1,4 +1,4 @@
-From 8d65dd77a4572e67a0953dfada5ddd3591da283e Mon Sep 17 00:00:00 2001
+From c1b3987492462e119b1b1e19904dc9a68b95fa33 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:10:47 +0200
 Subject: [PATCH] Newton: relative tolerance of the linear solver adapted to

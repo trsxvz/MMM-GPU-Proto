@@ -1,4 +1,4 @@
-From 1e7982a9dfd7dc1ee4f282dbe95d54e66d810470 Mon Sep 17 00:00:00 2001
+From 2c0053a111f0110f99e501d3ec6316fc5d5fa901 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:23:18 +0200
 Subject: [PATCH] Mesh read mode Restart: errors reported instead of aborting

@@ -1,4 +1,4 @@
-From 12083e7d587161a3e6fd2e5fe51467faf4f872d0 Mon Sep 17 00:00:00 2001
+From 34e0bed266b5d50ac4f3fa6633684f9706d6b676 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 00:36:49 +0200
 Subject: [PATCH] generic-parallel material properties: symbols, shared kernel
@@ -42,7 +42,7 @@ version.
  create mode 100644 test-suite/material-properties/generic-parallel/symbols.hxx
 
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index 8ce234c00..9350c4f3f 100644
+index 8f6244b2a..dc700220b 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -34,6 +34,13 @@ In addition, the `generic-parallel` interface also exports:
@@ -1530,10 +1530,10 @@ index 39b40b8cd..ccec55a1f 100644
  
  }  // end of namespace mfront::generic_parallel::material_property
 diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-index f872d0ec9..6632c0971 100644
+index 6da60f7db..fdcc15e0b 100644
 --- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
 +++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-@@ -57,9 +57,7 @@ namespace mfront::generic_parallel::material_property {
+@@ -74,9 +74,7 @@ namespace mfront::generic_parallel::material_property {
        const MaterialPropertyDescription& mpd) const {
      CxxProgrammingModelBackendBase::writeSpecificIncludesInSourceFile(os, i,
                                                                        mpd);
@@ -1715,7 +1715,7 @@ index 44a272093..c3b65e066 100644
    }  // end of execute
  
 diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-index 182151ae1..15d79a5bc 100644
+index 6a498653e..d2341fd2f 100644
 --- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
 +++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
 @@ -27,6 +27,7 @@
@@ -1726,10 +1726,10 @@ index 182151ae1..15d79a5bc 100644
  
  #ifdef TFEL_SYCL_DEVICE
  #if TFEL_SYCL_DEVICE == 0
-@@ -60,6 +61,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
-     this->test11();
+@@ -61,6 +62,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      this->test12();
      this->test13();
+     this->test18();
 +    TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
      return this->result;
    }  // end of execute

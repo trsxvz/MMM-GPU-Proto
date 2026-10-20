@@ -1,4 +1,4 @@
-From 16d83ccd7963e7582edf30dcc807d38bc175bae6 Mon Sep 17 00:00:00 2001
+From f274f909263bfc7d80a74e95441a661aa2d06e7a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 03:12:32 +0200
 Subject: [PATCH] generic-parallel: raja backend
@@ -814,7 +814,7 @@ index 70b042a75..ccccdbeac 100644
 +policy being copied in the generated code
 +(`check-execution-policies.sh` script, generation of the sources only).
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index f2f61ed4c..fec55c487 100644
+index dad0de5cc..6319c03a6 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -41,9 +41,9 @@ In addition, the `generic-parallel` interface also exports:
@@ -944,7 +944,7 @@ index f2f61ed4c..fec55c487 100644
  
  Before launching a kernel, the stack size of the threads is increased if
  the kernel requires it, as for the behaviours (see the
-@@ -688,6 +691,41 @@ the behaviours.
+@@ -692,6 +695,41 @@ the behaviours.
    The execution space is copied in the generated code: it must be the name
    of a type, made of identifiers separated by `::`.
  
@@ -986,7 +986,7 @@ index f2f61ed4c..fec55c487 100644
  ## `OpenMP` backend
  
  The `OpenMP` backend evaluates the material property on the default device
-@@ -743,6 +781,9 @@ The following tests configurations are currently supported:
+@@ -747,6 +785,9 @@ The following tests configurations are currently supported:
    compiler on the GPU using the `generic` target.
  - `kokkos`: compilation with the compiler and flags of `Kokkos`, tests
    on the default execution space and on the default host execution space.

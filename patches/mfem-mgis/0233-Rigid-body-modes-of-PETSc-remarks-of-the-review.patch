@@ -1,4 +1,4 @@
-From 377fe82ecca0f3cf680d2d7558daef262a051de9 Mon Sep 17 00:00:00 2001
+From d81019021ca87bb6fb6cd97113224a2709687985 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 19:08:55 +0200
 Subject: [PATCH] Rigid body modes of PETSc: remarks of the review

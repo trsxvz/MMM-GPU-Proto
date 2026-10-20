@@ -1,4 +1,4 @@
-From 52b6f5c4f9db41481f1475e7a0e260cfeefd3067 Mon Sep 17 00:00:00 2001
+From 58192b782f5fb9bd2a71b7a2cf96ec877725a8ae Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 17:29:52 +0200
 Subject: [PATCH] Configuration files of sycl-default-acpp also installed for

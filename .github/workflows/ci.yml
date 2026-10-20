@@ -66,9 +66,9 @@ jobs:
           fi
           echo "patches/$directory: applied on $base"
         }
-        check tfel https://github.com/thelfer/tfel.git d24a5cfe8
+        check tfel https://github.com/thelfer/tfel.git fdeb6abf8
         check mgis https://github.com/thelfer/MFrontGenericInterfaceSupport.git a30dbf5
-        check mfem-mgis https://github.com/thelfer/mfem-mgis.git 5bbd5a6981
+        check mfem-mgis https://github.com/thelfer/mfem-mgis.git b63d1958ac
         check mfem-mgis-examples https://github.com/latug0/mfem-mgis-examples.git f256bd8
         check mm-opera-hpc https://github.com/rprat-pro/mm-opera-hpc.git f3fc124
 

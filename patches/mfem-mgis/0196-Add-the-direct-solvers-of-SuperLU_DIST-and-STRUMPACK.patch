@@ -1,4 +1,4 @@
-From b6fb248cf3e9dc93a2df3c116b1a1b9fdd4bf60f Mon Sep 17 00:00:00 2001
+From bf2ab30a16bb0122d1b37fae80efe443039af689 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 05:34:07 +0200
 Subject: [PATCH] Add the direct solvers of SuperLU_DIST and STRUMPACK

@@ -1,4 +1,4 @@
-From ca811231285ded81799660e029f359f8038ef102 Mon Sep 17 00:00:00 2001
+From 072955a671581f2bc7eafc1f47bf96f761be772a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 22:03:02 +0200
 Subject: [PATCH] Float bounds: criteria at a tenth of epsilon, perturbation at

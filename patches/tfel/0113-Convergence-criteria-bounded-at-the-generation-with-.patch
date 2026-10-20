@@ -1,4 +1,4 @@
-From 7653d34b59906bc3971fe393578047a8593ca020 Mon Sep 17 00:00:00 2001
+From 2393fe69e0aa19f9241d96a63b9bcc4299a02d9a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:36:06 +0200
 Subject: [PATCH] Convergence criteria bounded at the generation with the float

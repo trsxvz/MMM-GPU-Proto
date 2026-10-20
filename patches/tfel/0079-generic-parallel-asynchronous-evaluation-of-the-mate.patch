@@ -1,4 +1,4 @@
-From afd305e58c6f4d3f223e9c7a8b98c363641d4d7b Mon Sep 17 00:00:00 2001
+From bdc2d31c7f9c8bd157aa4cbe9728329cc8e0f578 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 15:21:03 +0200
 Subject: [PATCH] generic-parallel: asynchronous evaluation of the material
@@ -42,7 +42,7 @@ arguments after a delay precedes the evaluation).
  14 files changed, 383 insertions(+), 42 deletions(-)
 
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index b70ff678d..11781bea3 100644
+index cc5d79f9e..83a7edaf5 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -44,6 +44,9 @@ In addition, the `generic-parallel` interface also exports:
@@ -465,10 +465,10 @@ index ee709adf4..66eaec5ca 100644
      this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
    }  // end of writeKernelCall
 diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-index f9f89a64b..7a1747f8e 100644
+index 3257c26ba..bfe2c7934 100644
 --- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
 +++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-@@ -88,6 +88,9 @@ namespace mfront::generic_parallel::material_property {
+@@ -112,6 +112,9 @@ namespace mfront::generic_parallel::material_property {
           << "requires(!std::is_const_v<T>){ "
           << "  return this->device_ptr != nullptr;\n"
           << "}\n"
@@ -478,25 +478,25 @@ index f9f89a64b..7a1747f8e 100644
           << "~DataBuffer() noexcept{\n"
           << "try{\n"
           << "this->cleanup();\n"
-@@ -176,11 +179,14 @@ namespace mfront::generic_parallel::material_property {
+@@ -210,11 +213,14 @@ namespace mfront::generic_parallel::material_property {
               << ">(mfront_output_ptr.data(), mfront_output_host, " << npoints
-              << ", mfront_sycl_kernel_event).wait();\n";
+              << ", mfront_sycl_kernel_event).wait_and_throw();\n";
          }
 -        os << "} else {"
 +        os << "} else if ((!mfront_asynchronous) || mfront_sycl_copies) {\n"
-            << "  mfront_sycl_kernel_event.wait();\n"
+            << "  mfront_sycl_kernel_event.wait_and_throw();\n"
             << "}\n";
        } else {
--        os << "mfront_sycl_kernel_event.wait();\n";
+-        os << "mfront_sycl_kernel_event.wait_and_throw();\n";
 +        // an asynchronous evaluation returns once the kernel is submitted
 +        os << "if (!mfront_asynchronous) {\n"
-+           << "mfront_sycl_kernel_event.wait();\n"
++           << "mfront_sycl_kernel_event.wait_and_throw();\n"
 +           << "}\n";
        }
      };
      this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
-@@ -259,6 +265,13 @@ namespace mfront::generic_parallel::material_property {
-          << "mfront_npoints, false));\n";
+@@ -296,6 +302,13 @@ namespace mfront::generic_parallel::material_property {
+          << "mfront_npoints, true));\n";
      }
      os << "auto *mfront_output = mfront_output_ptr.data();\n";
 +    // the copies must be completed before the buffers are destroyed: the
@@ -735,18 +735,18 @@ index 76d98b9c7..9a476cfc7 100644
      constexpr auto eps = double{1e-2};
      auto output = mfront_gmp_OutputStatus{};
 diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-index 8354a9c6e..abfcf0939 100644
+index 51aa7acef..ac7c13523 100644
 --- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
 +++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-@@ -62,6 +62,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
-     this->test12();
+@@ -63,6 +63,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      this->test13();
+     this->test18();
      this->test14();
 +    this->test15();
      TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
      return this->result;
    }  // end of execute
-@@ -72,6 +73,41 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -73,6 +74,41 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      return (-3.1636e-3 * TC * TC - 3.8654 * TC + 2.1421e+4) * 1e7;
    }  // end of fct
  

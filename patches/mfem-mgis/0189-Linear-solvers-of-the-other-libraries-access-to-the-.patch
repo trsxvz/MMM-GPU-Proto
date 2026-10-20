@@ -1,4 +1,4 @@
-From a8decbb815b23253e7860a8ec14dc16c42cecc72 Mon Sep 17 00:00:00 2001
+From 027d6bc2aa4d6948b6093017ff88f8bf6c259c31 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:57:11 +0200
 Subject: [PATCH] Linear solvers of the other libraries: access to the relative

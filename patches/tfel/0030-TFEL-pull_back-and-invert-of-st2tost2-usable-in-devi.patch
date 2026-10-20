@@ -1,4 +1,4 @@
-From 3da6364d1fe5fb3cde94d4d8d9f29740e8a3a814 Mon Sep 17 00:00:00 2001
+From 6b28d3856c7c6fde46e24a26f00f240a4e961475 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 05:53:21 +0200
 Subject: [PATCH] TFEL: pull_back and invert of st2tost2 usable in device code

@@ -1,4 +1,4 @@
-From 251c8148ba861f640556a011b615dd20fb19d153 Mon Sep 17 00:00:00 2001
+From bfe130d8002053833fd6e7df11a291e65754b7cb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 22:23:44 +0200
 Subject: [PATCH] ParaSails preconditioner: fixes of an independent review

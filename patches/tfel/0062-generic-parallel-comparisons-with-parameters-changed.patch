@@ -1,4 +1,4 @@
-From c73f1062dc36ceb32c09ab8c7507e3802327d1be Mon Sep 17 00:00:00 2001
+From dbac4c071b4077dd135f7d60c5c50949c4a4de92 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 03:26:15 +0200
 Subject: [PATCH] generic-parallel: comparisons with parameters changed at

@@ -1,4 +1,4 @@
-From aae88321e546d0a9058fd49f3c6446b762bf41be Mon Sep 17 00:00:00 2001
+From c601a946f427522e70a2dd9e11c9aff8729a7162 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 04:07:21 +0200
 Subject: [PATCH] Solvers and preconditioners of Trilinos

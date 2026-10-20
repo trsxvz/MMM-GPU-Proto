@@ -1,4 +1,4 @@
-From 14654169784f25440ee68257dfb834f2d03031d7 Mon Sep 17 00:00:00 2001
+From f1c1d96aa8f4d5930df0d0fc224cf9dd90e32120 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:26:46 +0200
 Subject: [PATCH] Fix the findings of the review of the update on the device

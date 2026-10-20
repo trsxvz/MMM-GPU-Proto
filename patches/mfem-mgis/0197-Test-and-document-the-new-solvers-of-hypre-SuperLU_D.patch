@@ -1,4 +1,4 @@
-From 50c3366bd035b8ccb46650e98e37b9a04aba0ba8 Mon Sep 17 00:00:00 2001
+From e44fe91692c259c2c0a62da11e64fcb1b6d965e4 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 05:34:07 +0200
 Subject: [PATCH] Test and document the new solvers of hypre, SuperLU_DIST and

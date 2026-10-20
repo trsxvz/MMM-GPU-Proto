@@ -1,4 +1,4 @@
-From 3ce3eac9cf2acd877fdee528102ccea4fda3ab19 Mon Sep 17 00:00:00 2001
+From 439c6fd6bd3e874069a8c632cf33f61de96f3b40 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 13:35:48 +0200
 Subject: [PATCH] AmgX: sequential initialisation, test fixes

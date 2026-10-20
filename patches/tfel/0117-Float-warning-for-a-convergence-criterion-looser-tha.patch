@@ -1,4 +1,4 @@
-From db8415aa8db370bac0d7b83b5a5ab1c550689ebf Mon Sep 17 00:00:00 2001
+From c8365436d97ff292825b78bd41cbb93134a19fe9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 05:22:01 +0200
 Subject: [PATCH] Float: warning for a convergence criterion looser than 1e-5

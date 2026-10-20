@@ -1,4 +1,4 @@
-From ea6e3b860a1cfdeaf14e4c8b4e2a921e65296883 Mon Sep 17 00:00:00 2001
+From a7c7394ab5bb0cb143bed2d17dede44db1373b5d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 03:23:46 +0200
 Subject: [PATCH] Config: review of the size of the pool of memory of hypre

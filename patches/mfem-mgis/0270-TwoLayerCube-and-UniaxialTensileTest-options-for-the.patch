@@ -1,4 +1,4 @@
-From 9fdb0c5ff7ce1f1b6a9e42169d5199fbae563c2a Mon Sep 17 00:00:00 2001
+From d97da33f53f585bd9af0e96fe82a82082a4a4ebf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 14:24:55 +0200
 Subject: [PATCH] TwoLayerCube and UniaxialTensileTest: options for the

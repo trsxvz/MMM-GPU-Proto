@@ -1,4 +1,4 @@
-From efb0dd3495c49f35ac01c35ae56c758c56049cb3 Mon Sep 17 00:00:00 2001
+From d99e5ed5f648693bc6e9685e0eb2d643fb1e9b04 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 23:54:43 +0200
 Subject: [PATCH] Kernels: action and diagonal of the tangent operator without

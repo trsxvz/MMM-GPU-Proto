@@ -1,4 +1,4 @@
-From 941667351788bf7a8af41f6447e0f67a2cbf25c6 Mon Sep 17 00:00:00 2001
+From ef104617f180beb483554a2f733baf5b40ff87e8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:12:03 +0200
 Subject: [PATCH] Compute the nodal blocks of the tangent operator applied

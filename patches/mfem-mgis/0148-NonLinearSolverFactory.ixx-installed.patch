@@ -1,4 +1,4 @@
-From a938e477dfaa016b29d505f7bc4d1a337a9ee36e Mon Sep 17 00:00:00 2001
+From 167f49d047cb27e128d539cadd085190172af2d6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:24:00 +0200
 Subject: [PATCH] NonLinearSolverFactory.ixx installed

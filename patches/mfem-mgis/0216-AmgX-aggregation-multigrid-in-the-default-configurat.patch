@@ -1,4 +1,4 @@
-From b6693b3e3c0d4b2210f74f87e49aa482fb755abe Mon Sep 17 00:00:00 2001
+From 0afce101f45d36f0998b01771ec2f03809f315e0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:24:49 +0200
 Subject: [PATCH] AmgX: aggregation multigrid in the default configurations

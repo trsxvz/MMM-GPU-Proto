@@ -1,4 +1,4 @@
-From a73af80a4e982f8eb85a89b4f46b84c5b9beda6f Mon Sep 17 00:00:00 2001
+From 384730a2865434c68f6c2484c49097bda7ad8c02 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 15:49:54 +0200
 Subject: [PATCH] HIP: kernels of mfem-mgis compiled as HIP code when MFEM uses

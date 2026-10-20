@@ -1,4 +1,4 @@
-From 09dd1aee293ac7d4b33a139736a6d0f37cce84f3 Mon Sep 17 00:00:00 2001
+From 1e6420bf0aea983bf8d71ec99602263f65517b9a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 16:00:36 +0200
 Subject: [PATCH] Optional libraries of MFEM: one option per library

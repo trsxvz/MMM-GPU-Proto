@@ -1,4 +1,4 @@
-From 6bdd12436d2a4e13b4f1351536fdbfde17001866 Mon Sep 17 00:00:00 2001
+From 3edff574a2a82a5b61c6d9f7da5cd26c65d7bd70 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 13:17:56 +0200
 Subject: [PATCH] Kernels: other integrators of the non linear form added to

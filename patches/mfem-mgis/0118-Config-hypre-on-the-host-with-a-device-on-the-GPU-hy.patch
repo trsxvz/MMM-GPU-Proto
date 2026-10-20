@@ -1,4 +1,4 @@
-From d73ea42de292973770e52ff901460d059ccdb4a7 Mon Sep 17 00:00:00 2001
+From 71a05225595f624b730fa2d33148e16d973c1678 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:59:26 +0200
 Subject: [PATCH] Config: hypre on the host with a device on the GPU

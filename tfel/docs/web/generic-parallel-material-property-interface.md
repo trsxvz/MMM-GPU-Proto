@@ -648,7 +648,8 @@ available:
   the statistics of an asynchronous evaluation. An array is accessible if
   it is allocated by `SYCL` (unified shared memory of any kind: device,
   shared or host) or if the device is the host. The output is copied too,
-  so that the points where the evaluation fails keep their values. The
+  so that the values which are not computed (points where the evaluation
+  fails, values between two values of a strided output) are kept. The
   output and the statistics are copied back once the kernel is completed:
   the evaluation is then synchronous. This policy is shared with the
   behaviours (`MFront/GenericParallel/SYCLDeviceCopies.hxx`).
@@ -661,10 +662,13 @@ throws them, as the handlers of most calling codes do.
 
 > **Providing data on the device**
 > 
-> Data copy in `SYCL` are asynchronous operations. Thus, if the
-> data are provided on the device, the user is responsible for ensuring
-> that the data are effectively copied before calling `MFront`'s generated
-> functions.
+> Data copy in `SYCL` are asynchronous operations. The generated
+> functions submit their commands after the commands previously submitted
+> to the given queue: an in-order queue orders them, and the generated
+> functions wait for the end of the commands previously submitted to an
+> out-of-order queue. If the data are provided by commands submitted to
+> another queue, the user is responsible for ensuring that the data are
+> effectively copied before calling `MFront`'s generated functions.
 
 ## `Kokkos` backend
 

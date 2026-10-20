@@ -1,4 +1,4 @@
-From 32c0fe09e0e37b0c87a5bfa6505740d8805d10f3 Mon Sep 17 00:00:00 2001
+From 789529e777cecf1db8e669dfaaae34c5cca98dfd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 13:28:40 +0200
 Subject: [PATCH] generic-parallel: memory space of the fields, libraries kept
@@ -102,7 +102,7 @@ index a7b95163e..655b466f3 100644
  With `nvc++ -stdpar=gpu`, the computations are offloaded to an NVIDIA GPU.
  The memory mode shall be given explicitly by `-gpu=mem:managed` (see the
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index c3808257b..25098aae6 100644
+index 207287c81..4dadf2e05 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -41,6 +41,9 @@ In addition, the `generic-parallel` interface also exports:
@@ -542,10 +542,10 @@ index 60ba26940..c3ff687a2 100644
  
  }  // end of namespace mfront::generic_parallel::material_property
 diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-index 75ddf9ba0..3c271afcc 100644
+index 68c8c482e..97c2b5b03 100644
 --- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
 +++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-@@ -284,6 +284,15 @@ namespace mfront::generic_parallel::material_property {
+@@ -321,6 +321,15 @@ namespace mfront::generic_parallel::material_property {
        const MaterialPropertyDescription&,
        const bool) const {}
  

@@ -1,4 +1,4 @@
-From 391e651e55b9df24e78a72ba8a9968e916fe8fa8 Mon Sep 17 00:00:00 2001
+From ea6f8823213c04a79279196ef56c18b3c27580e1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 16:04:36 +0200
 Subject: [PATCH] Documentation of the generic-parallel interfaces updated
@@ -27,7 +27,7 @@ Pages of the generic interface, of TFEL/Config, of the keywords
  docs/web/documentations.md                    |   1 +
  docs/web/generic-behaviours-interface.md      |  23 +-
  .../generic-parallel-behaviour-interface.md   | 216 +++++++++++---
- ...ic-parallel-material-property-interface.md | 214 +++++++++-----
+ ...ic-parallel-material-property-interface.md | 218 +++++++++-----
  docs/web/initializers.md                      |  10 +-
  docs/web/mfront-template.html                 |   2 +
  docs/web/post-processings.md                  |  10 +-
@@ -35,7 +35,7 @@ Pages of the generic interface, of TFEL/Config, of the keywords
  docs/web/tensors.md                           |   9 +
  docs/web/tfel-config.md                       |  42 ++-
  docs/web/tfel-math.md                         |  20 ++
- 20 files changed, 752 insertions(+), 134 deletions(-)
+ 20 files changed, 754 insertions(+), 136 deletions(-)
 
 diff --git a/docs/mfront/CompareToNumericalJacobian.md b/docs/mfront/CompareToNumericalJacobian.md
 index 135cefb83..9aca49133 100644
@@ -694,7 +694,7 @@ index 655b466f3..00ebf3115 100644
 +configuration, with the computations performed on the CPU by the OpenMP
 +backend of AdaptiveCpp (`ACPP_VISIBILITY_MASK=omp`).
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index 11781bea3..d2300dfef 100644
+index 83a7edaf5..71e2c057d 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -14,10 +14,16 @@ secPrefixTemplate: "$$i$$"
@@ -992,7 +992,7 @@ index 11781bea3..d2300dfef 100644
  
  ### Example of usage
  
-@@ -511,21 +567,30 @@ Inconel600_YoungModulus(&output, d_E.get(), 3, args.data(),
+@@ -511,23 +567,32 @@ Inconel600_YoungModulus(&output, d_E.get(), 3, args.data(),
  
  `SYCL` has no default queue: the queue must be given by the execution
  options. It gives the device and the context of the unified shared memory
@@ -1019,17 +1019,21 @@ index 11781bea3..d2300dfef 100644
  
 -- `automatic`: this policy may automatically trigger a copy of the data
 -  if needed. No copy is made if the data are already on the device or in
--  shared memory.
+-  shared memory. The output is copied in both directions, so that the
+-  values which are not computed (points where the evaluation fails,
+-  values between two values of a strided output) are kept.
 -- `none`: this policy assumes that the data are already on the device on
 +- `automatic` (or `auto`, default): this policy may automatically trigger
 +  a copy of the data if needed. No copy is made if the data are already on
-+  the device or in shared memory. The evaluation is synchronous if a copy
-+  is made.
++  the device or in shared memory. The output is copied in both directions,
++  so that the values which are not computed (points where the evaluation
++  fails, values between two values of a strided output) are kept. The
++  evaluation is synchronous if a copy is made.
 +- `none`: this policy assumes that the data are already on the device or
    in shared memory.
  
  > ** Providing data on the device**
-@@ -539,11 +604,26 @@ available:
+@@ -544,11 +609,26 @@ available:
  
  The `Kokkos` backend evaluates the material property with
  `Kokkos::parallel_for` in the execution space given by the
@@ -1059,7 +1063,7 @@ index 11781bea3..d2300dfef 100644
  
  ## `OpenMP` backend
  
-@@ -555,7 +635,10 @@ the output must be accessible from the device, for instance in managed
+@@ -560,7 +640,10 @@ the output must be accessible from the device, for instance in managed
  memory with `nvc++ -mp=gpu -gpu=mem:managed` (see the
  `config-openmp-offload-nvhpc-gpu.json` and `config-openmp-host-gcc.json`
  configuration files). The `device_stack_size` option has the same meaning
@@ -1071,7 +1075,7 @@ index 11781bea3..d2300dfef 100644
  
  # Tests
  
-@@ -565,29 +648,33 @@ This allows to tests various configurations that may use various `C++`
+@@ -570,29 +653,33 @@ This allows to tests various configurations that may use various `C++`
  compilers, a feature unsupported by the `cmake` build system.
  
  The list of configurations tested must be specified by defining a list
@@ -1116,7 +1120,7 @@ index 11781bea3..d2300dfef 100644
    compiler on the GPU using the `generic` target.
  - `kokkos`: compilation with the compiler and flags of `Kokkos`, tests
    on the default execution space and on the default host execution space.
-@@ -599,6 +686,7 @@ The following tests configurations are currently supported:
+@@ -604,6 +691,7 @@ The following tests configurations are currently supported:
  ### Notes
  
  For configurations based on HIP, the variable `HIP_PLATFORM` must be

@@ -1,4 +1,4 @@
-From 15248289408edf236776166fd48621ce51702dfa Mon Sep 17 00:00:00 2001
+From 0b0b1c71513586de7a4a5fbadf422991ac7594f1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:56:04 +0200
 Subject: [PATCH] Linear solvers: AmgX preconditioner and solvers (work in

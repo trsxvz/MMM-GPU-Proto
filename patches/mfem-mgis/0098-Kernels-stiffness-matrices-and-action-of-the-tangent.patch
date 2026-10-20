@@ -1,4 +1,4 @@
-From 647076c7a3e641a7c4ed41d8d922186d0e17754a Mon Sep 17 00:00:00 2001
+From 49b1e19d4903e4850a66b7126ba8a14f3899b90f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 09:58:22 +0200
 Subject: [PATCH] Kernels: stiffness matrices and action of the tangent

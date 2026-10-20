@@ -1,4 +1,4 @@
-From 669cd5688e8e321eb8c85e71e06f77671f3b4a5e Mon Sep 17 00:00:00 2001
+From 857316b0d0d68cd9560bfd1405b2ae8d483a1559 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:01:09 +0200
 Subject: [PATCH] generic-parallel: options shared by the backends of both
@@ -26,8 +26,8 @@ differently and why their statuses follow different conventions.
  .../MaterialProperty/KokkosBackend.cxx        |   7 +-
  .../MaterialProperty/OpenMPBackend.cxx        |   7 +-
  .../MaterialProperty/ParallelSTLBackend.cxx   |  31 ++----
- .../MaterialProperty/SYCLBackend.cxx          |  24 ++---
- 13 files changed, 236 insertions(+), 107 deletions(-)
+ .../MaterialProperty/SYCLBackend.cxx          |  25 ++---
+ 13 files changed, 236 insertions(+), 108 deletions(-)
  create mode 100644 mfront/include/MFront/GenericParallel/BackendOptions.hxx
  create mode 100644 mfront/src/GenericParallel/BackendOptions.cxx
 
@@ -548,10 +548,15 @@ index 170cc227c..2279e268a 100644
  
    std::string ParallelSTLBackend::getName() const {
 diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-index e923e0b60..7e0c386ad 100644
+index 606e66fc8..f995d451f 100644
 --- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
 +++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-@@ -15,6 +15,7 @@
+@@ -11,11 +11,11 @@
+  * project under specific licensing conditions.
+  */
+ #include <ostream>
+-#include "TFEL/Raise.hxx"
+ #include "MFront/VariableDescription.hxx"
  #include "MFront/MaterialPropertyDescription.hxx"
  #include "MFront/MaterialPropertyParametersHandler.hxx"
  #include "MFront/GenericParallelMaterialPropertyInterface.hxx"
@@ -559,7 +564,7 @@ index e923e0b60..7e0c386ad 100644
  #include "MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx"
  
  namespace mfront::generic_parallel::material_property {
-@@ -23,24 +24,13 @@ namespace mfront::generic_parallel::material_property {
+@@ -41,24 +41,13 @@ namespace mfront::generic_parallel::material_property {
  
    SYCLBackend::SYCLBackend(const tfel::utilities::DataMap& opts) {
      auto validator = tfel::utilities::DataMapValidator{};

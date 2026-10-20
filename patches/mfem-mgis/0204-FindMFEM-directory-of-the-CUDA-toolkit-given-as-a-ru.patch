@@ -1,4 +1,4 @@
-From c78f5635fcabfb48a38c74539551aaf95a05bf74 Mon Sep 17 00:00:00 2001
+From 100d2f93376ede3c9217ba559ad3f81671ce68d3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 07:57:24 +0200
 Subject: [PATCH] FindMFEM: directory of the CUDA toolkit given as a run path

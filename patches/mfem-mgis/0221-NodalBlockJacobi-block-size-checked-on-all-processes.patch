@@ -1,4 +1,4 @@
-From c93b958c49bfba91409d52815ee39fcd70a16abf Mon Sep 17 00:00:00 2001
+From 39864e8617fa56b69a9ee8ff9a56e137cd3e1790 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:01:03 +0200
 Subject: [PATCH] NodalBlockJacobi: block size checked on all processes, empty

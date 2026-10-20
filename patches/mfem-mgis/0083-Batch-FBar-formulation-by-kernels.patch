@@ -1,4 +1,4 @@
-From 048c6d25a7adf9ff485c083858ce4a906225e3d0 Mon Sep 17 00:00:00 2001
+From 52bb661ac7771a055ef05677b55326c54e129beb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 04:00:05 +0200
 Subject: [PATCH] Batch: FBar formulation by kernels

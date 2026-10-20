@@ -1,4 +1,4 @@
-From 8ff39b1305c8902e3d313422ff06630a43048ed3 Mon Sep 17 00:00:00 2001
+From c81e32c2b8449894060a60790eeb92e4eae99c29 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:03:50 +0200
 Subject: [PATCH] generic-parallel: minor fixes found by the review

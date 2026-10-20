@@ -1,4 +1,4 @@
-From 2ecf07d3d248a3d7a638b5eeb0289c3a9273878e Mon Sep 17 00:00:00 2001
+From 55781062c2e803050fa4fc5d46e1e6e03e848bd6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:36 +0200
 Subject: [PATCH] Tests and documentation of the generic-parallel interface for

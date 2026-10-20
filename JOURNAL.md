@@ -5538,3 +5538,35 @@ formula as MTest). All the others give the Newton solution to within
   examples, 9 of mm-opera-hpc and 143 of `cases/`, all green. The `-O3`
   matrix of the `generic-parallel` tests, the compilation sweeps and the
   suite of mfem-mgis on the GPU are run afterwards.
+
+### 2026-10-20, TFEL and mfem-mgis onto the new official masters
+
+- TFEL is rebased onto `fdeb6abf8` (merge of PR #1067, defects of the
+  `sycl` backend of the material properties) and mfem-mgis onto
+  `b63d1958ac` (comparison of the quadrature spaces in `assign`). The
+  corrections of PR #1067 came from the prototype: its code already had
+  them. The patch of `assign` is now official and is dropped. TFEL has
+  125 patches, mfem-mgis 273.
+- Carried over from PR #1067: a test of a strided output (the values
+  between two values of the output are kept), `tfel::raise` for a failed
+  allocation (also in the SYCL copies shared with the behaviours), and the
+  documentation of the copies and of the ordering of the queues. The
+  synchronization of an out-of-order queue of the official code is not
+  kept: the prototype does it once, when the queue is read, before the
+  copies and the kernel.
+- The last patch of TFEL is the one of PR #1061 which the prototype did
+  not have yet (messages of the bounds of the material properties of the
+  `generic` and `castem` interfaces). It will be dropped when PR #1061 is
+  merged. The other commits of PR #1061 were already in the prototype.
+- The bases and the numbers of patches are updated in the scripts, the CI,
+  the README, the documentation and the site, whose numbers of patches
+  were out of date.
+- `scratch/validate3.sh` dropped the `raja` configuration when it
+  reconfigured the build of TFEL: it reads the configurations of
+  `build-tfel.sh`, which adds `raja` on an indented line, only if RAJA is
+  installed. The `raja` tests of the `-O3` matrix of 20/10 were thus
+  skipped. The script now applies the same rule.
+- Tests: the eight SYCL configurations of the `-O3` matrix, the only
+  configurations changed by PR #1067, pass on the new base (behaviours and
+  material properties). The complete validation is made with the next two
+  steps.

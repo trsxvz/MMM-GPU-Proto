@@ -1,4 +1,4 @@
-From 094ec7503af4146001c82ab7bb3a4d725edbcdd3 Mon Sep 17 00:00:00 2001
+From 23f896700734dd29ee6c367ce4494a4577e86c8d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:29:33 +0200
 Subject: [PATCH] PostProcessingsKernelsTest: shorter regularization length

@@ -1,4 +1,4 @@
-From a49d800bf1dbbb0eb0afac3f4d0ac7d65e7bcb0e Mon Sep 17 00:00:00 2001
+From 0291c89eb8248e494d8647c3c76d1361e383cfda Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 18:09:49 +0200
 Subject: [PATCH] generic-parallel material properties: statistics and output
@@ -46,8 +46,8 @@ reference by such a lambda in an OpenMP target region.
  .../generic-parallel/test-hip.hip             | 107 ++--
  .../generic-parallel/test-sycl-device.cxx     |  84 +--
  .../generic-parallel/test-sycl-usm.cxx        |  86 +--
- .../generic-parallel/test-sycl.cxx            | 118 ++--
- 23 files changed, 1160 insertions(+), 683 deletions(-)
+ .../generic-parallel/test-sycl.cxx            | 120 ++--
+ 23 files changed, 1161 insertions(+), 684 deletions(-)
  create mode 100644 mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
 
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
@@ -1687,10 +1687,10 @@ index 8a0c844a7..1bab10378 100644
      this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
    }  // end of writeKernelCall
 diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-index 52856d650..513296a64 100644
+index 481e8845b..e40b6749b 100644
 --- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
 +++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-@@ -154,12 +154,13 @@ namespace mfront::generic_parallel::material_property {
+@@ -164,12 +164,13 @@ namespace mfront::generic_parallel::material_property {
      const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
      writeDeviceStackSizeSetting(os, this->device_stack_size);
      if (requiresBoundsCheck) {
@@ -1707,8 +1707,8 @@ index 52856d650..513296a64 100644
 +          "*mfront_queue);");
      }
      this->writeKernels(os, i, mpd, fd, treatStrides);
-     auto write_kernel_call = [&os, this, &types](const std::string_view npoints,
-@@ -206,6 +207,31 @@ namespace mfront::generic_parallel::material_property {
+     // the asynchronous errors of the kernels and of the copies are passed
+@@ -219,6 +220,31 @@ namespace mfront::generic_parallel::material_property {
      this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
    }  // end of writeKernelCall
  
@@ -3318,10 +3318,10 @@ index 28f2a9eac..e0bba2b7d 100644
      for (std::size_t i = 0; i != v.size(); ++i) {
        TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
 diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-index 075fb3c0a..ea553f16c 100644
+index 1f5334b8c..0b5d5a9ee 100644
 --- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
 +++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-@@ -75,38 +75,40 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -76,38 +76,40 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
    }  // end of fct
  
    void test15() {
@@ -3371,7 +3371,7 @@ index 075fb3c0a..ea553f16c 100644
      sycl::free(T, Q);
      sycl::free(E, Q);
    }
-@@ -115,20 +117,20 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -116,20 +118,20 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      // an asynchronous evaluation is refused with an out-of-order queue
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
      TFEL_TESTS_ASSERT(!Q.is_in_order());
@@ -3397,7 +3397,7 @@ index 075fb3c0a..ea553f16c 100644
      sycl::free(T, Q);
      sycl::free(E, Q);
    }
-@@ -136,7 +138,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -137,7 +139,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
    void test14() {
      // SYCL has no default queue: a queue must be given by the execution
      // options
@@ -3406,7 +3406,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(4);
      const auto T = std::vector<double>{300, 500, 300, 800};
      const auto args = std::array<const double *, 1u>{T.data()};
-@@ -149,8 +151,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -150,8 +152,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
  
    void test1() {
      constexpr auto eps = double{1e-2};
@@ -3417,7 +3417,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(4);
      auto E_qt = std::vector<double>(4);
      const auto T = std::vector<double>{300, 500, 300, 800};
-@@ -164,10 +166,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -165,10 +167,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
                                 args_strides.data(), 1, 4, policy, &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -3430,7 +3430,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
      for (std::size_t i = 0; i != E.size(); ++i) {
        TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
-@@ -177,8 +179,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -178,8 +180,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
  
    void test2() {
      constexpr auto eps = double{1e-2};
@@ -3441,7 +3441,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(4);
      auto E_qt = std::vector<double>(4);
      const auto T = std::vector<double>{300};
-@@ -192,10 +194,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -193,10 +195,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
                                 args_strides.data(), 1, 4, policy, &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -3454,7 +3454,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
      for (std::size_t i = 0; i != E.size(); ++i) {
        TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[0])) < eps);
-@@ -205,8 +207,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -206,8 +208,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
  
    void test3() {
      constexpr auto eps = double{1e-2};
@@ -3465,7 +3465,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(1);
      auto E_qt = std::vector<double>(1);
      const auto T = std::vector<double>{300};
-@@ -220,10 +222,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -221,10 +223,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 0, args.data(),
                                 args_strides.data(), 1, 1, policy, &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -3478,7 +3478,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
      TFEL_TESTS_ASSERT(std::abs(E[0] - fct(T[0])) < eps);
      TFEL_TESTS_ASSERT(std::abs(E_qt[0] - fct(T[0])) < eps);
-@@ -231,8 +233,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -232,8 +234,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
  
    void test4() {
      constexpr auto eps = double{1e-2};
@@ -3489,7 +3489,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(4);
      auto E_qt = std::vector<double>(4);
      const auto T = std::vector<double>{300, 500, 300, 800};
-@@ -245,10 +247,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -246,10 +248,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
                                  policy, &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -3502,7 +3502,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
      for (std::size_t i = 0; i != E.size(); ++i) {
        TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
-@@ -258,8 +260,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -259,8 +261,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
    // check detection of physical bounds violation
    void test5() {
      constexpr auto eps = double{1e-2};
@@ -3513,7 +3513,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(4);
      auto E_qt = std::vector<double>(4);
      const auto T = std::vector<double>{-300, 500, 300, 800};
-@@ -273,10 +275,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -274,10 +276,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
                                 args_strides.data(), 1, 4, policy, &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, -1);
@@ -3528,7 +3528,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
      TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
      TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
-@@ -288,8 +292,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -289,8 +293,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
  
    void test6() {
      constexpr auto eps = double{1e-2};
@@ -3539,7 +3539,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(4);
      auto E_qt = std::vector<double>(4);
      const auto T = std::vector<double>{-300, 500, 300, 800};
-@@ -302,10 +306,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -303,10 +307,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
                                  policy, &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, -1);
@@ -3554,7 +3554,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
      TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
      TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
-@@ -317,8 +323,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -318,8 +324,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
  
    void test7() {
      constexpr auto eps = double{1e-2};
@@ -3565,7 +3565,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(4 * 3);
      auto E_qt = std::vector<double>(4 * 3);
      const auto T =
-@@ -333,10 +339,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -334,10 +340,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 3, args.data(),
                                 args_strides.data(), 1, 4, policy, &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -3578,7 +3578,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
      for (std::size_t i = 0; i != 4; ++i) {
        TFEL_TESTS_ASSERT(std::abs(E[i * 3] - fct(T[i * 2])) < eps);
-@@ -345,8 +351,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -346,8 +352,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
    }
  
    void test8() {
@@ -3589,7 +3589,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(1);
      const auto T = std::vector<double>{300};
      const auto policy = mfront_gmp_OutOfBoundsPolicy{};
-@@ -378,8 +384,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -379,8 +385,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
  
    void test9() {
      constexpr auto eps = double{1e-14};
@@ -3600,7 +3600,7 @@ index 075fb3c0a..ea553f16c 100644
      auto nu = std::vector<double>(4);
      const auto policy = mfront_gmp_OutOfBoundsPolicy{};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
-@@ -387,7 +393,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -388,7 +394,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      PoissonRatioTest(&output, nu.data(), 1, nullptr, nullptr, 0, 4, policy,
                       &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -3609,7 +3609,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
      for (std::size_t i = 0; i != nu.size(); ++i) {
        TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
-@@ -401,15 +407,15 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -402,15 +408,15 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
  
    void test10() {
      constexpr auto eps = double{1e-14};
@@ -3628,7 +3628,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
      for (std::size_t i = 0; i != nu.size(); ++i) {
        TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
-@@ -431,8 +437,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -432,8 +438,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
        return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
      };
      //
@@ -3639,7 +3639,7 @@ index 075fb3c0a..ea553f16c 100644
      auto E = std::vector<double>(4);
      const auto T = std::vector<double>{300, 500, 300, 800};
      const auto f = std::vector<double>{0, 0.1, 0.15, 0.12};
-@@ -445,7 +451,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -446,7 +452,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
                                  args_strides.data(), args.size(), 4, policy,
                                  &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -3648,7 +3648,7 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
      for (std::size_t i = 0; i != E.size(); ++i) {
        TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
-@@ -481,7 +487,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -482,7 +488,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
        const std::array<double, 4u>& T_values,
        const std::array<double, 4u>& references) {
      constexpr auto eps = double{1e-2};
@@ -3657,7 +3657,7 @@ index 075fb3c0a..ea553f16c 100644
      auto v = std::vector<double>(T_values.size());
      const auto T = std::vector<double>(T_values.begin(), T_values.end());
      const auto policy = mfront_gmp_OutOfBoundsPolicy{};
-@@ -492,7 +498,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -493,7 +499,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      mp(&output, v.data(), 1, args.data(), args_strides.data(), args.size(),
         T.size(), policy, &options);
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
@@ -3666,6 +3666,15 @@ index 075fb3c0a..ea553f16c 100644
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
      for (std::size_t i = 0; i != v.size(); ++i) {
        TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
+@@ -505,7 +511,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   void test18() {
+     constexpr auto eps = double{1e-2};
+     constexpr auto v = double{-1};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4 * 3, v);
+     const auto T = std::vector<double>{300, 500, 300, 800};
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
 -- 
 2.43.0
 

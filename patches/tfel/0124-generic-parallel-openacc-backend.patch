@@ -1,4 +1,4 @@
-From 9a27877879ae20581ad02dc40e0ad159b8901de9 Mon Sep 17 00:00:00 2001
+From 521949c0d23828a7e8d317037e81a66eacf4363c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 07:48:12 +0200
 Subject: [PATCH] generic-parallel: openacc backend
@@ -762,7 +762,7 @@ index ccccdbeac..959080447 100644
  worked around in the generated code and the headers (see the comments of
  the headers of `MFront/GenericParallelBehaviour` and
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index fec55c487..cdf7c65f4 100644
+index 6319c03a6..f2cf21de2 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -41,8 +41,8 @@ In addition, the `generic-parallel` interface also exports:
@@ -836,7 +836,7 @@ index fec55c487..cdf7c65f4 100644
  
  Before launching a kernel, the stack size of the threads is increased if
  the kernel requires it, as for the behaviours (see the
-@@ -741,6 +745,26 @@ configuration). See the page of the [`generic-parallel` interface for
+@@ -745,6 +749,26 @@ configuration). See the page of the [`generic-parallel` interface for
  behaviours](generic-parallel-behaviour-interface.html) for the constraints
  of `nvc++ -mp=gpu`.
  
@@ -863,7 +863,7 @@ index fec55c487..cdf7c65f4 100644
  # Tests
  
  Unlike other material property interfaces, the tests for the
-@@ -788,6 +812,10 @@ The following tests configurations are currently supported:
+@@ -792,6 +816,10 @@ The following tests configurations are currently supported:
    threads of the host.
  - `openmp-offload-nvhpc-gpu`: compilation with `nvc++ -mp=gpu`,
    computations offloaded to an NVIDIA GPU.

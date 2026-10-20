@@ -1,4 +1,4 @@
-From 8a617daab063ef67f0cd70ffad7e142bd24571bc Mon Sep 17 00:00:00 2001
+From 8b4575116766228db9834acaba0be8be446c45a7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 08:54:45 +0200
 Subject: [PATCH] Heat transfer and geometry: review (sign of the transient

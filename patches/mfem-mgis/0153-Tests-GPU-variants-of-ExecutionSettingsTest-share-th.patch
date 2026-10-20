@@ -1,4 +1,4 @@
-From 7e7109d081e5a1c1120ff89621a232382bb712b0 Mon Sep 17 00:00:00 2001
+From 6c54b815834185faa7f74427c2d61b3dc874a0ff Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:47:59 +0200
 Subject: [PATCH] Tests: GPU variants of ExecutionSettingsTest share the GPU

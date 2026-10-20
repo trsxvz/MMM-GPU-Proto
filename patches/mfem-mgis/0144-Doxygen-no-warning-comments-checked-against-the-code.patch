@@ -1,4 +1,4 @@
-From 3357dcf295cabdaee9d57149eaee90a7c282ee86 Mon Sep 17 00:00:00 2001
+From 78932b6060790ef2a7a9c891905f6e397472565e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:17:30 +0200
 Subject: [PATCH] Doxygen: no warning, comments checked against the code
@@ -3476,7 +3476,7 @@ index 0cd28152b6..10d4088149 100644
      auto operator()(const size_type i) const;
  
 diff --git a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
-index d740d73c8a..5e9094a893 100644
+index 15e7ff763c..ac6454cbbc 100644
 --- a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
 +++ b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
 @@ -65,7 +65,8 @@ namespace mfem_mgis::internals {

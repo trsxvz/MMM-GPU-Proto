@@ -1,4 +1,4 @@
-From b33d5ccd5cd8c3e26a0b421f0f0bfc34aa5ce290 Mon Sep 17 00:00:00 2001
+From 668758ff58acadf99e7be731939daeda6d2f1443 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 00:04:58 +0200
 Subject: [PATCH] Tangent operator applied without assembly (MatrixFree)

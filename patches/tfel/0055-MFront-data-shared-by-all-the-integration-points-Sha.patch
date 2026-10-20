@@ -1,4 +1,4 @@
-From 3e62200d477ec7ddb133d61d8fcde46279e88161 Mon Sep 17 00:00:00 2001
+From 659c5f630ca3dd534eee97cc668a98710d461a6d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 21:00:25 +0200
 Subject: [PATCH] MFront: data shared by all the integration points

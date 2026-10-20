@@ -1,4 +1,4 @@
-From 8c632d07bf46d8614547dc14e87db92a292f84ea Mon Sep 17 00:00:00 2001
+From 0c245b0a30d877600e3cd4f4ef9ebc8773ce7d4e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 06:37:00 +0200
 Subject: [PATCH] MueLu: reuse of the hierarchy

@@ -1,4 +1,4 @@
-From 947e5e8fd01d6599aad60662572223dab179b554 Mon Sep 17 00:00:00 2001
+From e1cc08ede2c77b05daca7a7873a66fcfbb4bc623 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 06:40:06 +0200
 Subject: [PATCH] generic-parallel: tests of material properties using data or
@@ -38,8 +38,8 @@ values.
  .../generic-parallel/test-hip.hip             | 45 +++++++++--
  .../generic-parallel/test-sycl-device.cxx     | 53 +++++++++++++
  .../generic-parallel/test-sycl-usm.cxx        | 50 ++++++++++++
- .../generic-parallel/test-sycl.cxx            | 43 +++++++++--
- 23 files changed, 279 insertions(+), 96 deletions(-)
+ .../generic-parallel/test-sycl.cxx            | 45 ++++++++---
+ 23 files changed, 280 insertions(+), 97 deletions(-)
  create mode 100644 test-suite/material-properties/generic-parallel/MaterialLawCallTest.mfront
 
 diff --git a/test-suite/material-properties/generic-parallel/MaterialLawCallTest.mfront b/test-suite/material-properties/generic-parallel/MaterialLawCallTest.mfront
@@ -704,7 +704,7 @@ index 151dc488a..44a272093 100644
  
  TFEL_TESTS_GENERATE_PROXY(Iconel600YoungModulusTest,
 diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-index 214b4333e..182151ae1 100644
+index 5908c90f6..6a498653e 100644
 --- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
 +++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
 @@ -26,6 +26,7 @@
@@ -715,15 +715,15 @@ index 214b4333e..182151ae1 100644
  
  #ifdef TFEL_SYCL_DEVICE
  #if TFEL_SYCL_DEVICE == 0
-@@ -58,6 +59,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
-     this->test10();
+@@ -59,6 +60,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      this->test11();
      this->test12();
-+    this->test13();
+     this->test13();
++    this->test18();
      return this->result;
    }  // end of execute
  
-@@ -356,24 +358,49 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -357,30 +359,55 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      }
    }
  
@@ -780,7 +780,14 @@ index 214b4333e..182151ae1 100644
 +      TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
      }
    }
- };
+ 
+   // strided output: the values between two values of the output and the
+   // values after the last one are not modified
+-  void test13() {
++  void test18() {
+     constexpr auto eps = double{1e-2};
+     constexpr auto v = double{-1};
+     auto output = mfront_gmp_OutputStatus{};
 -- 
 2.43.0
 

@@ -1,4 +1,4 @@
-From d8e0e3e22b5579745f033dd1d860dd6e3bee5167 Mon Sep 17 00:00:00 2001
+From 745f6b282385cf1a9857bb42238fa5fb6bf8f697 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:01:32 +0200
 Subject: [PATCH] MUMPS and AmgX: approximate factorization tested, aggregation

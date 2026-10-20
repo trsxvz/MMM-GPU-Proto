@@ -1,4 +1,4 @@
-From d322942dc8481d1af1d8242468fdfda1d7f8dc3a Mon Sep 17 00:00:00 2001
+From 46134dad18b8ac4fb5d9449cfb92dd9f3dee1e7e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 18:38:27 +0200
 Subject: [PATCH] Kokkos: launcher on its target only, GPU of a device

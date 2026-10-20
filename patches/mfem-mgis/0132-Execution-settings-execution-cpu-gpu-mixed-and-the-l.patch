@@ -1,4 +1,4 @@
-From 1fd4923af79123080b41f7c3db51d0ea5318d535 Mon Sep 17 00:00:00 2001
+From c89075c80601943f5cb2a159585870970294bade Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 12:52:25 +0200
 Subject: [PATCH] Execution settings: --execution cpu|gpu|mixed and the

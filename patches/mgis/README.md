@@ -1,11 +1,11 @@
 # Patches
 
 Series of patches giving the MGIS of the prototype from MGIS master, commit
-`e8ef4b4` (13/10/2026):
+`a30dbf5` (20/10/2026):
 
 ```bash
 git clone <official MGIS repository> mgis && cd mgis
-git checkout e8ef4b4
+git checkout a30dbf5
 git am /path/to/patches/*.patch
 ```
 
@@ -43,6 +43,6 @@ Patches, by subject (independently of their numbers; the details are in
   the failing points;
 - no allocation on the heap in the usual calls, tests (CPU and CUDA) and
   documentation (headers and web pages);
-- single precision (patches 0064 to 0070): option `MGIS_REAL_TYPE`,
+- single precision (patches 0062 to 0068): option `MGIS_REAL_TYPE`,
   numerical type checked at the loading of each entry point, tests in
   float on the CPU and with CUDA, documentation.

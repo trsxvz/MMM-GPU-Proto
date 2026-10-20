@@ -1,4 +1,4 @@
-From 0851218c336e88146a3688a793e9c34e7137eb68 Mon Sep 17 00:00:00 2001
+From ca3bf619ac5494284a73ac3e19b06e6a1a8646c2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:01:41 +0200
 Subject: [PATCH] Add the multigrid reduction of hypre (HypreMGR)

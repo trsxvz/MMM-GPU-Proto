@@ -1,4 +1,4 @@
-From 392248271482b7df911312c81e0bf4220ae2382b Mon Sep 17 00:00:00 2001
+From 7c860259b67313fa4571df6aa7658355cfad427c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:34:20 +0200
 Subject: [PATCH] MFront rkCastem: static error normalization factor, debug

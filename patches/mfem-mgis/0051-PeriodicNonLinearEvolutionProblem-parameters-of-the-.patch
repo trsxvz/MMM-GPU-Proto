@@ -1,4 +1,4 @@
-From 8c987dbc2d006cab49390ac756f85cde890733f8 Mon Sep 17 00:00:00 2001
+From 7b6dd30472cbe5ae3e74ad52ce05d45e3bf968ae Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:35:31 +0200
 Subject: [PATCH] PeriodicNonLinearEvolutionProblem: parameters of the problem

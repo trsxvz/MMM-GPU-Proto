@@ -17,7 +17,7 @@ repository=${1:?usage: scripts/sync-repository.sh repository}
 # the examples, consistent with this commit of mfem-mgis), main of
 # mm-opera-hpc (rprat-pro/mm-opera-hpc, its reference repository)
 case "$repository" in
-  mfem-mgis) BASE=5bbd5a6981 ;;
+  mfem-mgis) BASE=b63d1958ac ;;
   mfem-mgis-examples) BASE=f256bd8 ;;
   mm-opera-hpc) BASE=f3fc124 ;;
   *)

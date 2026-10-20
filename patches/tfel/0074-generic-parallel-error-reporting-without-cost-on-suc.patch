@@ -1,4 +1,4 @@
-From 5ea0b5f949b7b057370c592decadfe772956230b Mon Sep 17 00:00:00 2001
+From 352c4182e11192c11a414c607d9efae0867b2b77 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 05:40:45 +0200
 Subject: [PATCH] generic-parallel: error reporting without cost on success
@@ -138,7 +138,7 @@ index c44a9347e..a7b95163e 100644
  The values of a point are copied in local arrays and the results are
  copied back after the integration, whatever the layout of the fields.
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index 9350c4f3f..091dd7852 100644
+index dc700220b..76b9c57ae 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -222,9 +222,14 @@ analyses, uncertainty propagation studies or perform a new
@@ -1042,10 +1042,10 @@ index 2279e268a..60ba26940 100644
      this->writeKernels(os, i, mpd, fd, treatStrides);
      auto write_kernel_call = [&os, this, &types](const std::string_view npoints,
 diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-index 6632c0971..75ddf9ba0 100644
+index fdcc15e0b..68c8c482e 100644
 --- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
 +++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-@@ -154,15 +154,12 @@ namespace mfront::generic_parallel::material_property {
+@@ -185,15 +185,12 @@ namespace mfront::generic_parallel::material_property {
           << "}\n";
      }
      if (requiresBoundsCheck) {
@@ -1066,7 +1066,7 @@ index 6632c0971..75ddf9ba0 100644
 +          "return sycl::malloc_shared<int>(mfront_n, *mfront_queue);");
      }
      this->writeKernels(os, i, mpd, fd, treatStrides);
-     auto write_kernel_call = [&os, this, &types](const std::string_view npoints,
+     // the asynchronous errors of the kernels and of the copies are passed
 diff --git a/mfront/src/GenericParallelMaterialPropertyInterface.cxx b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
 index 806290368..9f681595f 100644
 --- a/mfront/src/GenericParallelMaterialPropertyInterface.cxx

@@ -1,4 +1,4 @@
-From 8ec1deacd0b4b396dd2ea69fbd3fecac711ed1fe Mon Sep 17 00:00:00 2001
+From 016b5a842f646ad1fbbe0187b76eb28d1cf1bf0d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:25:58 +0200
 Subject: [PATCH] IsAssignableTo: floating-point values assignable to

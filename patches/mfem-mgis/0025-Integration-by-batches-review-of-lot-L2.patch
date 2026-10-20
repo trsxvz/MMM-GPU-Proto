@@ -1,4 +1,4 @@
-From af68d65ea3f687b4aabb44a3859cc80d280d3ef8 Mon Sep 17 00:00:00 2001
+From 8978d39ff0e47e5d82cde07fde02014f8cc14935 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 19:10:28 +0200
 Subject: [PATCH] Integration by batches: review of lot L2
@@ -484,7 +484,7 @@ index 4899266442..0cd28152b6 100644
  
    /*!
 diff --git a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
-index a58dd1cb59..d740d73c8a 100644
+index 37772fda4c..15e7ff763c 100644
 --- a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
 +++ b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
 @@ -65,20 +65,21 @@ namespace mfem_mgis::internals {

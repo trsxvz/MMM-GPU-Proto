@@ -1,4 +1,4 @@
-From fc22cc624a89c687c58edec8acd314a639b22f92 Mon Sep 17 00:00:00 2001
+From dd49769e5d3e0a7205e747389ffad55d3277743d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 23:22:04 +0200
 Subject: [PATCH] Kernels: tests of the prediction and of two materials, review

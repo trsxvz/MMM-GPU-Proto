@@ -1,4 +1,4 @@
-From 6f7b0ef558ec006937238ffd916bdc3889a8f934 Mon Sep 17 00:00:00 2001
+From 397c806655c686ef3d96f6d82cd03fb7b03d1f68 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 04:01:39 +0200
 Subject: [PATCH] Measures and integrals summed in double, checked against MFEM

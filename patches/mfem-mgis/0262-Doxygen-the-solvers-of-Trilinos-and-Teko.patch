@@ -1,4 +1,4 @@
-From 5dc0fe5437b26364e6a8b9f4459f5cb6970f1ea0 Mon Sep 17 00:00:00 2001
+From 8443675e6a8b46cd3e80319cdac6e34bdfe0a59a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 18:32:02 +0200
 Subject: [PATCH] Doxygen: the solvers of Trilinos and Teko

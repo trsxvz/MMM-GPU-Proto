@@ -1,4 +1,4 @@
-From efc4d8d185e186252c3376452be6f8713269cf29 Mon Sep 17 00:00:00 2001
+From d8bfc7b980bdeb5e3aac4710e839eec5af312d9b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 20:37:08 +0200
 Subject: [PATCH] Execution settings: options named after the phases

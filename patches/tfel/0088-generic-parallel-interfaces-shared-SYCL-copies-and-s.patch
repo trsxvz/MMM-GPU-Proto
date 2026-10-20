@@ -1,4 +1,4 @@
-From 67238c7881f4505ea0b0d8f6d609c0e15b56398d Mon Sep 17 00:00:00 2001
+From d4fe3f402c04c34e973f9cb3b75821d102e6c61e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 19:38:21 +0200
 Subject: [PATCH] generic-parallel interfaces: shared SYCL copies and stack
@@ -45,17 +45,17 @@ behaviours (sycl-default-acpp-2), execution of a material property
 compiled without runtime checks, empty sets.
 ---
  .../generic-parallel-behaviour-interface.md   |  70 +++--
- ...ic-parallel-material-property-interface.md |  71 +++--
+ ...ic-parallel-material-property-interface.md |  70 +++--
  docs/web/release-notes/release-notes-5.2.md   |  17 +-
  mfront/include/CMakeLists.txt                 |   3 +
  .../MFront/GenericParallel/GPUStackSize.hxx   | 122 +++++++++
  .../GenericParallel/KokkosStackSize.hxx       |  80 ++++++
- .../GenericParallel/SYCLDeviceCopies.hxx      | 249 ++++++++++++++++++
+ .../GenericParallel/SYCLDeviceCopies.hxx      | 248 ++++++++++++++++++
  .../GenericParallelBehaviour/BatchData.h      |  48 +++-
  .../MFront/GenericParallelBehaviour/GPU.hxx   |  58 +---
  .../GenericParallelBehaviour/Integrate.hxx    |  23 +-
  .../GenericParallelBehaviour/Kokkos.hxx       | 136 ++++------
- .../MFront/GenericParallelBehaviour/SYCL.hxx  | 205 ++------------
+ .../MFront/GenericParallelBehaviour/SYCL.hxx  | 205 ++-------------
  .../MaterialProperty.h                        |  31 ++-
  .../PointStatus.hxx                           |   7 +-
  .../MaterialProperty/BackendBase.cxx          |  30 ++-
@@ -64,7 +64,7 @@ compiled without runtime checks, empty sets.
  .../MaterialProperty/HIPBackend.cxx           |   4 +-
  .../MaterialProperty/KokkosBackend.cxx        |  28 +-
  .../MaterialProperty/ParallelSTLBackend.cxx   |   4 -
- .../MaterialProperty/SYCLBackend.cxx          | 203 ++++----------
+ .../MaterialProperty/SYCLBackend.cxx          | 216 ++++-----------
  .../src/GenericParallelBehaviourInterface.cxx |  11 +
  .../behaviours/generic-parallel/compare.cxx   |  93 ++++++-
  .../sycl-default-acpp-2/test.check            |  17 ++
@@ -74,8 +74,8 @@ compiled without runtime checks, empty sets.
  .../generic-parallel/test-cxx.cxx             |  49 ++++
  .../generic-parallel/test-hip.hip             |  47 ++++
  .../test-no-runtime-checks.cxx                |  93 +++++++
- .../generic-parallel/test-sycl.cxx            |  35 +++
- 31 files changed, 1236 insertions(+), 608 deletions(-)
+ .../generic-parallel/test-sycl.cxx            |  37 ++-
+ 31 files changed, 1234 insertions(+), 623 deletions(-)
  create mode 100644 mfront/include/MFront/GenericParallel/GPUStackSize.hxx
  create mode 100644 mfront/include/MFront/GenericParallel/KokkosStackSize.hxx
  create mode 100644 mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
@@ -192,7 +192,7 @@ index 4cf6c65a7..4245577f6 100644
    GPU when the computations are performed on an NVIDIA GPU through the CUDA
    runtime (AdaptiveCpp). 8192 bytes are used in the `sycl-default-acpp`
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index e43ad39f8..5eed851f7 100644
+index a759e65d7..97dd9afe8 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -137,8 +137,11 @@ the execution options of the behaviours:
@@ -282,22 +282,23 @@ index e43ad39f8..5eed851f7 100644
  On output, the user knows the number of points where the evaluation
  failed and the first of them. For instance, the `UO2_ShearModulus`
  function may report that the temperature is negative at two points, the
-@@ -603,12 +627,21 @@ This backend has two options:
+@@ -603,14 +627,22 @@ This backend has two options:
  Two policies regarding data transfer between host and device are
  available:
  
 -- `automatic` (or `auto`, default): this policy may automatically trigger
 -  a copy of the data if needed. No copy is made if the data are already on
--  the device or in shared memory. The evaluation is synchronous if a copy
--  is made.
--- `none`: this policy assumes that the data are already on the device or
--  in shared memory.
+-  the device or in shared memory. The output is copied in both directions,
 +- `automatic` (or `auto`, default): the arrays which are not accessible
 +  by the device are copied in device memory: the arguments, the output and
 +  the statistics of an asynchronous evaluation. An array is accessible if
 +  it is allocated by `SYCL` (unified shared memory of any kind: device,
 +  shared or host) or if the device is the host. The output is copied too,
-+  so that the points where the evaluation fails keep their values. The
+   so that the values which are not computed (points where the evaluation
+   fails, values between two values of a strided output) are kept. The
+-  evaluation is synchronous if a copy is made.
+-- `none`: this policy assumes that the data are already on the device or
+-  in shared memory.
 +  output and the statistics are copied back once the kernel is completed:
 +  the evaluation is then synchronous. This policy is shared with the
 +  behaviours (`MFront/GenericParallel/SYCLDeviceCopies.hxx`).
@@ -310,7 +311,7 @@ index e43ad39f8..5eed851f7 100644
  
  > ** Providing data on the device**
  > 
-@@ -632,8 +665,12 @@ relocatable device code, so that the calling code and the generated
+@@ -637,8 +669,12 @@ relocatable device code, so that the calling code and the generated
  libraries share the same instance of `Kokkos`.
  
  The statistics of the synchronous evaluations are held by memory
@@ -598,10 +599,10 @@ index 000000000..f6c48b350
 +#endif /* LIB_MFRONT_GENERICPARALLEL_KOKKOSSTACKSIZE_HXX */
 diff --git a/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
 new file mode 100644
-index 000000000..1538ee711
+index 000000000..d65022e5f
 --- /dev/null
 +++ b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
-@@ -0,0 +1,249 @@
+@@ -0,0 +1,248 @@
 +/*!
 + * \file   mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
 + * \brief  This file declares the copies in device memory of the arrays which
@@ -623,10 +624,10 @@ index 000000000..1538ee711
 +#include <cstddef>
 +#include <cstring>
 +#include <optional>
-+#include <stdexcept>
 +#include <type_traits>
 +#include <vector>
 +#include <sycl/sycl.hpp>
++#include "TFEL/Raise.hxx"
 +
 +namespace mfront::generic_parallel::sycl {
 +
@@ -830,8 +831,7 @@ index 000000000..1538ee711
 +      this->copies.reserve(this->copies.size() + 1);
 +      auto* const c = ::sycl::malloc_device(size, this->queue);
 +      if (c == nullptr) {
-+        throw std::runtime_error(
-+            "memory allocation failed on the SYCL device");
++        tfel::raise("memory allocation failed on the SYCL device");
 +      }
 +      this->copies.push_back(
 +          Copy{const_cast<void*>(p), c, size, value_size, output, layout});
@@ -1861,17 +1861,18 @@ index 1bab10378..b40008612 100644
           << "mfront::generic_parallel::CountingIterator<mfront_index_type>;\n";
        const auto range = "mfront_index_iterator{0}, mfront_index_iterator{"
 diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-index 513296a64..fcbb1dac8 100644
+index e40b6749b..fcbb1dac8 100644
 --- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
 +++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-@@ -45,74 +45,11 @@ namespace mfront::generic_parallel::material_property {
+@@ -45,84 +45,11 @@ namespace mfront::generic_parallel::material_property {
      if (this->device_stack_size != 0) {
        os << "#include\"MFront/GenericParallel/DeviceStackSize.hxx\"\n";
      }
 -    os << "\n";
  
      if (this->handlesDataTransfer()) {
--      os << "namespace mfront::gpmp::sycl{\n\n"
+-      os << "#include\"TFEL/Raise.hxx\"\n\n"
+-         << "namespace mfront::gpmp::sycl{\n\n"
 -         << "template<typename T>\n"
 -         << "struct [[nodiscard]] DataBuffer{\n"
 -         << "DataBuffer(::sycl::queue& q)\n"
@@ -1894,9 +1895,15 @@ index 513296a64..fcbb1dac8 100644
 -         << "if (may_require_device_allocation && is_queue_device) {\n"
 -         << "  this->device_ptr = "
 -         << "  ::sycl::malloc_device<std::remove_const_t<T>>(s, this->queue);\n"
+-         << "  if (this->device_ptr == nullptr) {\n"
+-         << "    tfel::raise(\"memory allocation on the device "
+-         << "failed\");\n"
+-         << "  }\n"
 -         << "  this->ptr = this->device_ptr;\n"
 -         << "  if (do_copy) {\n"
--         << "    return this->queue.copy(src, this->device_ptr, s);\n"
+-         << "    this->copy_event = "
+-         << "this->queue.copy(src, this->device_ptr, s);\n"
+-         << "    return this->copy_event;\n"
 -         << "  }\n"
 -         << "  return ::sycl::event{};\n"
 -         << "}\n"
@@ -1921,6 +1928,8 @@ index 513296a64..fcbb1dac8 100644
 -         << "}\n"
 -         << "void cleanup(){\n"
 -         << "if(this->device_ptr != nullptr) {\n"
+-         << "// the copy may still be running if an exception was thrown\n"
+-         << "this->copy_event.wait();\n"
 -         << "::sycl::free(this->device_ptr, this->queue);\n"
 -         << "}\n"
 -         << "this->host_ptr = nullptr;\n"
@@ -1932,6 +1941,7 @@ index 513296a64..fcbb1dac8 100644
 -         << "T* ptr = nullptr;\n"
 -         << "T* host_ptr = nullptr;\n"
 -         << "std::remove_const_t<T>* device_ptr = nullptr;\n"
+-         << "::sycl::event copy_event;\n"
 -         << "};\n\n"
 -         << "} // end of namespace mfront::gpmp::sycl\n";
 +      os << "#include\"MFront/GenericParallel/SYCLDeviceCopies.hxx\"\n";
@@ -1941,7 +1951,7 @@ index 513296a64..fcbb1dac8 100644
    }  // end of writeSpecificIncludesInSourceFile
  
    void SYCLBackend::writeExecutionPreparation(
-@@ -150,7 +87,6 @@ namespace mfront::generic_parallel::material_property {
+@@ -160,7 +87,6 @@ namespace mfront::generic_parallel::material_property {
        const MaterialPropertyDescription& mpd,
        const FileDescription& fd,
        const bool treatStrides) const {
@@ -1949,7 +1959,7 @@ index 513296a64..fcbb1dac8 100644
      const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
      writeDeviceStackSizeSetting(os, this->device_stack_size);
      if (requiresBoundsCheck) {
-@@ -161,46 +97,36 @@ namespace mfront::generic_parallel::material_property {
+@@ -171,44 +97,31 @@ namespace mfront::generic_parallel::material_property {
            "{mfront_queue->get_device(), mfront_queue->get_context()}",
            "return sycl::malloc_shared<mfront_gpmp_Statistics>(1, "
            "*mfront_queue);");
@@ -1962,6 +1972,9 @@ index 513296a64..fcbb1dac8 100644
 +      }
      }
      this->writeKernels(os, i, mpd, fd, treatStrides);
+-    // the asynchronous errors of the kernels and of the copies are passed
+-    // to the asynchronous handler of the queue (wait_and_throw). The
+-    // exceptions it throws are reported by the status -2
 -    auto write_kernel_call = [&os, this, &types](const std::string_view npoints,
 -                                                 const bool handleStrides) {
 +    auto write_kernel_call = [&os, this](const std::string_view npoints,
@@ -1984,20 +1997,20 @@ index 513296a64..fcbb1dac8 100644
 -          if (npoints == "1") {
 -            os << "mfront_queue->copy<" << types.real_type
 -               << ">(mfront_output_ptr.data(), mfront_output_host, " << 1
--               << ", mfront_sycl_kernel_event).wait();\n";
+-               << ", mfront_sycl_kernel_event).wait_and_throw();\n";
 -          } else {
 -            os << "mfront_queue->copy<" << types.real_type
 -               << ">(mfront_output_ptr.data(), mfront_output_host, "  //
 -               << "(" << npoints << " - 1) * mfront_output_stride + 1, "
--               << "mfront_sycl_kernel_event).wait();\n";
+-               << "mfront_sycl_kernel_event).wait_and_throw();\n";
 -          }
 -        } else {
 -          os << "mfront_queue->copy<" << types.real_type
 -             << ">(mfront_output_ptr.data(), mfront_output_host, " << npoints
--             << ", mfront_sycl_kernel_event).wait();\n";
+-             << ", mfront_sycl_kernel_event).wait_and_throw();\n";
 -        }
 -        os << "} else if ((!mfront_asynchronous) || mfront_sycl_copies) {\n"
--           << "  mfront_sycl_kernel_event.wait();\n"
+-           << "  mfront_sycl_kernel_event.wait_and_throw();\n"
 +        // the copies must be completed before they are destroyed: the
 +        // evaluation is then synchronous
 +        os << "if (mfront_copies.holdsCopies()) {\n"
@@ -2007,13 +2020,7 @@ index 513296a64..fcbb1dac8 100644
             << "}\n";
        } else {
          // an asynchronous evaluation returns once the kernel is submitted
-         os << "if (!mfront_asynchronous) {\n"
--           << "mfront_sycl_kernel_event.wait();\n"
-+           << "mfront_sycl_kernel_event.wait_and_throw();\n"
-            << "}\n";
-       }
-     };
-@@ -241,78 +167,39 @@ namespace mfront::generic_parallel::material_property {
+@@ -254,80 +167,39 @@ namespace mfront::generic_parallel::material_property {
        const GenericParallelMaterialPropertyInterface& i,
        const MaterialPropertyDescription& mpd,
        const bool treatStrides) const {
@@ -2078,6 +2085,9 @@ index 513296a64..fcbb1dac8 100644
 -      os << "const " << types.real_type << " * * mfront_args = "
 -         << "mfront_args_storage.data();\n";
 -    }
+-    // the output is copied to the device, so that the values which are not
+-    // computed (points where the evaluation fails, values between two
+-    // values of a strided output) are kept when the output is copied back
 -    os << "auto mfront_output_ptr = "
 -       << "::mfront::gpmp::sycl::DataBuffer<" << types.real_type
 -       << ">{*mfront_queue};\n";
@@ -2087,17 +2097,16 @@ index 513296a64..fcbb1dac8 100644
 -      // them
 -      os << "if (mfront_output_stride == 0) {\n"
 -         << "mfront_sycl_copy_events.push_back("
--         << "mfront_output_ptr.acquire(mfront_output_host,  1, false));\n"
+-         << "mfront_output_ptr.acquire(mfront_output_host,  1, true));\n"
 -         << "} else {\n"
 -         << "mfront_sycl_copy_events.push_back("
 -         << "mfront_output_ptr.acquire(mfront_output_host, "
--         << "(mfront_npoints - 1) * mfront_output_stride + 1, "
--         << "mfront_output_stride > 1));\n"
+-         << "(mfront_npoints - 1) * mfront_output_stride + 1, true));\n"
 -         << "}\n";
 -    } else {
 -      os << "mfront_sycl_copy_events.push_back("
 -         << "mfront_output_ptr.acquire(mfront_output_host, "
--         << "mfront_npoints, false));\n";
+-         << "mfront_npoints, true));\n";
 -    }
 -    os << "auto *mfront_output = mfront_output_ptr.data();\n";
 -    // the copies must be completed before the buffers are destroyed: the
@@ -2630,18 +2639,23 @@ index 000000000..b78ddd8f3
 +  return m.execute().success() ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-index ea553f16c..2735592ed 100644
+index 0b5d5a9ee..19c6a8cb5 100644
 --- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
 +++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-@@ -64,6 +64,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -61,10 +61,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test11();
+     this->test12();
+     this->test13();
+-    this->test18();
      this->test14();
      this->test15();
      this->test16();
 +    this->test17();
++    this->test18();
      TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
      return this->result;
    }  // end of execute
-@@ -113,6 +114,40 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -114,6 +115,40 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      sycl::free(E, Q);
    }
  

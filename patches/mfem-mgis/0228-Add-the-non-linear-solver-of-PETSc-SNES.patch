@@ -1,4 +1,4 @@
-From 7a121c3223bb972ea44bad9ed62adef9d3e67681 Mon Sep 17 00:00:00 2001
+From 7de7a979e21fb7fe203a7505ec93610a2a453525 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:27:34 +0200
 Subject: [PATCH] Add the non linear solver of PETSc (SNES)

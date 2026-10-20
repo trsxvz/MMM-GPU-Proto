@@ -1,4 +1,4 @@
-From 613db4ef1fc817e3f5ae0626fd4f1c530e61db0b Mon Sep 17 00:00:00 2001
+From 86b57c50a0d25493d0e49c3d0f5c00630ef25f98 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:28:41 +0200
 Subject: [PATCH] generic-parallel: Kokkos and SYCL backends, GPU offloading
@@ -1741,10 +1741,10 @@ index 4139a391a..2767c936c 100644
        // we do need to use heap allocations as nvc++ would automatically use
        // managed memory
 diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-index fb3e84131..70523c6e5 100644
+index 95722f0bb..347478e5c 100644
 --- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
 +++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-@@ -24,7 +24,11 @@ namespace mfront::generic_parallel::material_property {
+@@ -42,7 +42,11 @@ namespace mfront::generic_parallel::material_property {
    SYCLBackend::SYCLBackend(const tfel::utilities::DataMap& opts) {
      auto validator = tfel::utilities::DataMapValidator{};
      validator.addDataTypeValidator<std::string>("data_transfer_policy");
@@ -1756,7 +1756,7 @@ index fb3e84131..70523c6e5 100644
      if (contains(opts, "data_transfer_policy")) {
        const auto dl = get<std::string>(opts, "data_transfer_policy");
        if ((dl == "auto") || (dl == "automatic")) {
-@@ -65,7 +69,11 @@ namespace mfront::generic_parallel::material_property {
+@@ -83,7 +87,11 @@ namespace mfront::generic_parallel::material_property {
                                                                        mpd);
      os << "#include<concepts>\n"
         << "#include<type_traits>\n"
@@ -1768,11 +1768,11 @@ index fb3e84131..70523c6e5 100644
 +    os << "\n";
  
      if (this->handlesDataTransfer()) {
-       os << "namespace mfront::gpmp::sycl{\n\n"
-@@ -146,6 +154,14 @@ namespace mfront::generic_parallel::material_property {
-       const bool treatStrides) const {
-     const auto types = i.getTypesDescription();
-     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
+       os << "#include\"TFEL/Raise.hxx\"\n\n"
+@@ -181,6 +189,14 @@ namespace mfront::generic_parallel::material_property {
+       // otherwise, done before the data transfers
+       writeOutOfOrderQueueSynchronization(os);
+     }
 +    if (this->device_stack_size != 0) {
 +      os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
 +         << this->device_stack_size << ")) {\n"

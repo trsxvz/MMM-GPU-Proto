@@ -1,4 +1,4 @@
-From 2b655effdfdc45d07936eaf023e6fef112944d91 Mon Sep 17 00:00:00 2001
+From 2fda6c81d4d98e78086297927d038b746c68f1ae Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 16:45:48 +0200
 Subject: [PATCH] Documentation: review of the pages and comments changed by
@@ -754,7 +754,7 @@ index abda379d5..c6463137b 100644
  configuration, with the computations performed on the CPU by the OpenMP
  backend of AdaptiveCpp (`ACPP_VISIBILITY_MASK=omp`).
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index 5eed851f7..c465289ac 100644
+index 97dd9afe8..57d2b0ed0 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -56,7 +56,7 @@ In addition, the `generic-parallel` interface also exports:
@@ -848,16 +848,16 @@ index 5eed851f7..c465289ac 100644
  for details.
  
  ### Notes
-@@ -643,7 +652,7 @@ the asynchronous handler of the queue (`sycl::event::wait_and_throw`), as
+@@ -644,7 +653,7 @@ the asynchronous handler of the queue (`sycl::event::wait_and_throw`), as
  for the behaviours: they are reported with the status `-6` if this handler
  throws them, as the handlers of most calling codes do.
  
 -> ** Providing data on the device**
 +> **Providing data on the device**
  > 
- > Data copy in `SYCL` are asynchronous operations. Thus, if the
- > data are provided on the device, the user is responsible for ensuring
-@@ -697,8 +706,8 @@ of `nvc++ -mp=gpu`.
+ > Data copy in `SYCL` are asynchronous operations. The generated
+ > functions submit their commands after the commands previously submitted
+@@ -701,8 +710,8 @@ of `nvc++ -mp=gpu`.
  # Tests
  
  Unlike other material property interfaces, the tests for the
@@ -868,7 +868,7 @@ index 5eed851f7..c465289ac 100644
  compilers, a feature unsupported by the `cmake` build system.
  
  The list of configurations tested must be specified by defining a list
-@@ -718,7 +727,9 @@ The following tests configurations are currently supported:
+@@ -722,7 +731,9 @@ The following tests configurations are currently supported:
    compiler.
  - `hip-hipcc`: compilation of `HIP` files using the `hipcc` compiler.
  - `hip-clang`: compilation of `HIP` files using the `clang++` compiler,
@@ -1872,7 +1872,7 @@ index 741af31bb..bb6c1e423 100644
    inline constexpr const char* device_memory_space = "device";
    /*!
 diff --git a/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
-index 1538ee711..1e97086ad 100644
+index d65022e5f..4160ed194 100644
 --- a/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
 +++ b/mfront/include/MFront/GenericParallel/SYCLDeviceCopies.hxx
 @@ -156,8 +156,8 @@ namespace mfront::generic_parallel::sycl {

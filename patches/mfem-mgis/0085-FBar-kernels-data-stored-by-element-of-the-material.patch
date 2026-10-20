@@ -1,4 +1,4 @@
-From 65c5731ef85b11a269f71066a4e5de9446de3ee5 Mon Sep 17 00:00:00 2001
+From f748cc49cd1f8431d3101a57bf7b63b3f66c6d67 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] FBar kernels: data stored by element of the material

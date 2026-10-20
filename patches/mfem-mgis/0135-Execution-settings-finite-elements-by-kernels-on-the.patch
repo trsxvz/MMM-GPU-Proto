@@ -1,4 +1,4 @@
-From 5c8686327f3d30f2153fcf9253bd4e5317b73aec Mon Sep 17 00:00:00 2001
+From 7237d5e32975d7fa998a2dcfbabe4e27b765390e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 14:32:39 +0200
 Subject: [PATCH] Execution settings: finite elements by kernels on the host

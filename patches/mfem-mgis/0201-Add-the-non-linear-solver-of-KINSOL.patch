@@ -1,4 +1,4 @@
-From 54af4d53423e26d0d839476deea65aad4c9b5311 Mon Sep 17 00:00:00 2001
+From 2ce7a079020eb69e5b4703ac8c701088b435604c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 07:11:15 +0200
 Subject: [PATCH] Add the non linear solver of KINSOL

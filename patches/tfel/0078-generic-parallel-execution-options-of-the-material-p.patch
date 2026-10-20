@@ -1,4 +1,4 @@
-From 9a68e1e4cf3c542f5d44eac3aebaabc2c56a9b97 Mon Sep 17 00:00:00 2001
+From 801490fb9bed212ee0d15c9f80344986b2b67e95 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 14:30:51 +0200
 Subject: [PATCH] generic-parallel: execution options of the material
@@ -41,11 +41,11 @@ denotes an uniform argument).
  .../generic-parallel/test-hip.hip             |  92 +++++++---
  .../generic-parallel/test-sycl-device.cxx     |  99 +++++-----
  .../generic-parallel/test-sycl-usm.cxx        |  97 ++++++----
- .../generic-parallel/test-sycl.cxx            | 112 ++++++++----
- 19 files changed, 627 insertions(+), 420 deletions(-)
+ .../generic-parallel/test-sycl.cxx            | 117 +++++++-----
+ 19 files changed, 630 insertions(+), 422 deletions(-)
 
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index 25098aae6..b70ff678d 100644
+index 4dadf2e05..cc5d79f9e 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
 @@ -53,15 +53,15 @@ In addition, the `generic-parallel` interface also exports:
@@ -714,10 +714,10 @@ index c3ff687a2..8a0c844a7 100644
        // the statuses are allocated on the heap, which is accessible by the
        // device when the computations are offloaded (managed memory with
 diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-index 3c271afcc..f9f89a64b 100644
+index 97c2b5b03..3257c26ba 100644
 --- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
 +++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
-@@ -35,22 +35,6 @@ namespace mfront::generic_parallel::material_property {
+@@ -52,22 +52,6 @@ namespace mfront::generic_parallel::material_property {
  
    std::string SYCLBackend::getName() const { return "sycl"; }  // end of getName
  
@@ -740,7 +740,7 @@ index 3c271afcc..f9f89a64b 100644
    void SYCLBackend::writeSpecificIncludesInSourceFile(
        std::ostream& os,
        const GenericParallelMaterialPropertyInterface& i,
-@@ -128,14 +112,20 @@ namespace mfront::generic_parallel::material_property {
+@@ -155,14 +139,20 @@ namespace mfront::generic_parallel::material_property {
  
    }  // end of writeSpecificIncludesInSourceFile
  
@@ -769,10 +769,10 @@ index 3c271afcc..f9f89a64b 100644
  
    void SYCLBackend::writeKernelCall(
        std::ostream& os,
-@@ -145,14 +135,7 @@ namespace mfront::generic_parallel::material_property {
-       const bool treatStrides) const {
-     const auto types = i.getTypesDescription();
-     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
+@@ -176,14 +166,7 @@ namespace mfront::generic_parallel::material_property {
+       // otherwise, done before the data transfers
+       writeOutOfOrderQueueSynchronization(os);
+     }
 -    if (this->device_stack_size != 0) {
 -      os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
 -         << this->device_stack_size << ")) {\n"
@@ -2119,18 +2119,18 @@ index c3b65e066..28f2a9eac 100644
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
 diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-index 15d79a5bc..8354a9c6e 100644
+index d2341fd2f..51aa7acef 100644
 --- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
 +++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
-@@ -61,6 +61,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
-     this->test11();
+@@ -62,6 +62,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      this->test12();
      this->test13();
+     this->test18();
 +    this->test14();
      TFEL_TESTS_ASSERT(checkGenericParallelSymbols("sycl"));
      return this->result;
    }  // end of execute
-@@ -71,6 +72,20 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -72,6 +73,20 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      return (-3.1636e-3 * TC * TC - 3.8654 * TC + 2.1421e+4) * 1e7;
    }  // end of fct
  
@@ -2151,7 +2151,7 @@ index 15d79a5bc..8354a9c6e 100644
    void test1() {
      constexpr auto eps = double{1e-2};
      auto output = mfront_gmp_OutputStatus{};
-@@ -82,10 +97,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -83,10 +98,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto args = std::array<const double *, 1u>{T.data()};
      const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2167,7 +2167,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
-@@ -109,10 +125,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -110,10 +126,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto args = std::array<const double *, 1u>{T.data()};
      const auto args_strides = std::array<mfront_gmp_size_type, 1u>{0};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2183,7 +2183,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
-@@ -136,10 +153,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -137,10 +154,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto args = std::array<const double *, 1u>{T.data()};
      const auto args_strides = std::array<mfront_gmp_size_type, 1u>{0};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2199,7 +2199,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
-@@ -160,9 +178,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -161,9 +179,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto policy = mfront_gmp_OutOfBoundsPolicy{};
      const auto args = std::array<const double *, 1u>{T.data()};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2214,7 +2214,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
-@@ -186,10 +206,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -187,10 +207,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto args = std::array<const double *, 1u>{T.data()};
      const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2230,7 +2230,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, -1);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
-@@ -214,9 +235,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -215,9 +236,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto policy = mfront_gmp_OutOfBoundsPolicy{};
      const auto args = std::array<const double *, 1u>{T.data()};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2245,7 +2245,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, -1);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
-@@ -243,10 +266,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -244,10 +267,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto args = std::array<const double *, 1u>{T.data()};
      const auto args_strides = std::array<mfront_gmp_size_type, 1u>{2};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2261,7 +2261,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
-@@ -268,22 +292,23 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -269,22 +293,23 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto args = std::array<const double *, 1u>{T.data()};
      const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2291,7 +2291,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, -7);
      TFEL_TESTS_CHECK_EQUAL(std::string(output.msg),
                             "if the output is uniform, the number of points "
-@@ -297,7 +322,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -298,7 +323,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      auto nu = std::vector<double>(4);
      const auto policy = mfront_gmp_OutOfBoundsPolicy{};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2302,7 +2302,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
-@@ -306,7 +333,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -307,7 +334,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      }
      nu.resize(1);
      nu.at(0) = 0;
@@ -2312,7 +2312,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_ASSERT(std::abs(nu[0] - 0.39991) < eps);
    }
  
-@@ -317,7 +345,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -318,7 +346,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      auto nu = std::vector<double>(4);
      const auto policy = mfront_gmp_OutOfBoundsPolicy{};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2322,7 +2322,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
-@@ -326,7 +355,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -327,7 +356,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      }
      nu.resize(1);
      nu.at(0) = 0;
@@ -2331,7 +2331,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_ASSERT(std::abs(nu[0] - 0.39991) < eps);
    }
  
-@@ -350,8 +379,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -351,8 +380,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto args = std::array<const double *, 2u>{T.data(), f.data()};
      const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 1};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2344,7 +2344,7 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
-@@ -396,8 +427,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+@@ -397,8 +428,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
      const auto args = std::array<const double *, 1u>{T.data()};
      const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
      auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
@@ -2356,6 +2356,18 @@ index 15d79a5bc..8354a9c6e 100644
      TFEL_TESTS_CHECK_EQUAL(output.status, 0);
      TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
      TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+@@ -419,8 +451,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     const auto args = std::array<const double *, 1u>{T.data()};
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+-    Inconel600_YoungModulus(&output, E.data(), 3, &Q, args.data(),
+-                            args_strides.data(), 1, 4, policy);
++    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
++    Inconel600_YoungModulus(&output, E.data(), 3, args.data(),
++                            args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       if (i % 3 == 0) {
 -- 
 2.43.0
 

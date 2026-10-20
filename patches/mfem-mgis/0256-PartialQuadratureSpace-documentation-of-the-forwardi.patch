@@ -1,4 +1,4 @@
-From f00afa8750b2603d47e5c15c5fa69f492bf66842 Mon Sep 17 00:00:00 2001
+From d6c96e6b91f2724e36edfed94de3f17ececb6161 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 13:13:41 +0200
 Subject: [PATCH] PartialQuadratureSpace: documentation of the forwarding

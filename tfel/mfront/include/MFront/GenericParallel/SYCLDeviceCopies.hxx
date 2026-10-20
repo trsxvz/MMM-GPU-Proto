@@ -19,10 +19,10 @@
 #include <cstddef>
 #include <cstring>
 #include <optional>
-#include <stdexcept>
 #include <type_traits>
 #include <vector>
 #include <sycl/sycl.hpp>
+#include "TFEL/Raise.hxx"
 
 namespace mfront::generic_parallel::sycl {
 
@@ -227,8 +227,7 @@ namespace mfront::generic_parallel::sycl {
       this->copies.reserve(this->copies.size() + 1);
       auto* const c = ::sycl::malloc_device(size, this->queue);
       if (c == nullptr) {
-        throw std::runtime_error(
-            "memory allocation failed on the SYCL device");
+        tfel::raise("memory allocation failed on the SYCL device");
       }
       this->copies.push_back(
           Copy{const_cast<void*>(p), c, size, value_size, output, layout});

@@ -1,4 +1,4 @@
-From be956be17c5da0974dcac0a1969100319db550f2 Mon Sep 17 00:00:00 2001
+From b61d87cb21907b69a639f9895bdb8a75409da93e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:59:08 +0200
 Subject: [PATCH] L2 projection: copy the components of the solution on the

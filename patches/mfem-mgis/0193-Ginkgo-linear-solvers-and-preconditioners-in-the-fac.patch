@@ -1,4 +1,4 @@
-From cb9efd245786c93ac124ac99134b30bd2dab3d06 Mon Sep 17 00:00:00 2001
+From 09be5aa0aa6a48f1b1045b345cb6f35e87712381 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 04:37:56 +0200
 Subject: [PATCH] Ginkgo: linear solvers and preconditioners in the factories

@@ -1,4 +1,4 @@
-From 514d5381215bbfb3905e876043baa2ddb05f41b6 Mon Sep 17 00:00:00 2001
+From 4ccf41ce8d2a9c61fc86a6421836731801e55935 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 16:33:19 +0200
 Subject: [PATCH] Material arrays: review of lot L1
@@ -526,7 +526,7 @@ index 070ba7421e..b6c7807c04 100644
       * \return true on success
       */
 diff --git a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
-index 712dd4a3f9..0d14587c57 100644
+index c4c37f2bda..47021265a3 100644
 --- a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
 +++ b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
 @@ -98,6 +98,13 @@ namespace mfem_mgis {

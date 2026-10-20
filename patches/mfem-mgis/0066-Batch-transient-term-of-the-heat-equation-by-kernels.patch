@@ -1,4 +1,4 @@
-From 719c32a7c0fbc123ced2a5ef5f36d469e8d24e3c Mon Sep 17 00:00:00 2001
+From 9c201e68b3a66a601d81ea8c28f170b84e0f5b70 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 07:36:52 +0200
 Subject: [PATCH] Batch: transient term of the heat equation by kernels

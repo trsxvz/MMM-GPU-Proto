@@ -1,4 +1,4 @@
-From 19d7e97b652e70d83b0738ffce631203dc8153fa Mon Sep 17 00:00:00 2001
+From f1b14f40aa0117b2076dc4104f0cdbc53365820a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:48:11 +0200
 Subject: [PATCH] Documentation: fixes found by the check of the review
@@ -11,10 +11,10 @@ hip-clang on the AMD platform still requires HIP and clang++; a reference derive
  3 files changed, 8 insertions(+), 7 deletions(-)
 
 diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
-index c465289ac..f2f61ed4c 100644
+index 57d2b0ed0..dad0de5cc 100644
 --- a/docs/web/generic-parallel-material-property-interface.md
 +++ b/docs/web/generic-parallel-material-property-interface.md
-@@ -728,8 +728,8 @@ The following tests configurations are currently supported:
+@@ -732,8 +732,8 @@ The following tests configurations are currently supported:
  - `hip-hipcc`: compilation of `HIP` files using the `hipcc` compiler.
  - `hip-clang`: compilation of `HIP` files using the `clang++` compiler,
    only on the NVIDIA platform (`HIP_PLATFORM=nvidia`). On the AMD

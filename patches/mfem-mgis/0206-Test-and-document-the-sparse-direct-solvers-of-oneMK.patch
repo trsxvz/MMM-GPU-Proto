@@ -1,4 +1,4 @@
-From 5f822e59b6e9b65795a0d2dfdf142898ef1a7716 Mon Sep 17 00:00:00 2001
+From 058cffc3724efdeb78e69a4565f5570d7084e37c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 10:10:50 +0200
 Subject: [PATCH] Test and document the sparse direct solvers of oneMKL

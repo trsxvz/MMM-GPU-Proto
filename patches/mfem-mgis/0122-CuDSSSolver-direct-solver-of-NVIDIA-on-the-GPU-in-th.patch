@@ -1,4 +1,4 @@
-From ff9cfe9c1b418ab4a12455d64c79f7afec9f818c Mon Sep 17 00:00:00 2001
+From 2409c4bcbc60eecc7d5cdb6af6fa5060129fec30 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 06:18:10 +0200
 Subject: [PATCH] CuDSSSolver: direct solver of NVIDIA on the GPU in the

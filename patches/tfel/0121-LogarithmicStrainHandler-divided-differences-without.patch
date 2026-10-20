@@ -1,4 +1,4 @@
-From abe085054f6ceb6e8cb73f788e2429e6aa99dbc8 Mon Sep 17 00:00:00 2001
+From 55edd79c405c326ebf7b50b987833f724b27677d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 19:55:44 +0200
 Subject: [PATCH] LogarithmicStrainHandler: divided differences without

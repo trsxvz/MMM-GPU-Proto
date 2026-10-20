@@ -1,4 +1,4 @@
-From f669b68936d5fcce6d53a0dbea7e6ffe0af44fcc Mon Sep 17 00:00:00 2001
+From bccfb2047af0b7474a1f1b83c35dbc51939cff03 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:36:05 +0200
 Subject: [PATCH] MTest checks the numerical type of the generic material

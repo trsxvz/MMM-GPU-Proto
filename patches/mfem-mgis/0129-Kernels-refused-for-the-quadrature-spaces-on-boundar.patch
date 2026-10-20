@@ -1,4 +1,4 @@
-From b2eab1092ff68abaab7e8bc5c13202bd21ff6306 Mon Sep 17 00:00:00 2001
+From 3a0dffdd89f3d46be5082fb9d7beeb6d79da4885 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 11:47:19 +0200
 Subject: [PATCH] Kernels refused for the quadrature spaces on boundary

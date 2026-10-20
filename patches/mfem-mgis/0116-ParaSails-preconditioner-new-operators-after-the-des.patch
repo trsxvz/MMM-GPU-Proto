@@ -1,4 +1,4 @@
-From 9621e58b6300c76ffa15e8f41aa76a7ba212ec04 Mon Sep 17 00:00:00 2001
+From 00004ec97715f1dad423b766e6d912dbc7649a0c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 22:07:25 +0200
 Subject: [PATCH] ParaSails preconditioner: new operators after the destruction

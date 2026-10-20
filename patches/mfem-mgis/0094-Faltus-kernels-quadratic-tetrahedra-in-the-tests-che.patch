@@ -1,4 +1,4 @@
-From f0fd759a1f7c2b65156f8b8b5e53c499fde9fbb3 Mon Sep 17 00:00:00 2001
+From fbd1499d8120e65b63dcd9ce9f2bd96e0d43899f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 07:47:58 +0200
 Subject: [PATCH] Faltus kernels: quadratic tetrahedra in the tests, checks and

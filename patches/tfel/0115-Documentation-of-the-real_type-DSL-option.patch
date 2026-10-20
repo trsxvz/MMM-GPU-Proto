@@ -1,4 +1,4 @@
-From 0471270b5281d04ec4e12abed1075a28e9dac4e6 Mon Sep 17 00:00:00 2001
+From 35f2771ffe1ed64cfc81a8630121bfca7ce400cf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 22:55:00 +0200
 Subject: [PATCH] Documentation of the real_type DSL option

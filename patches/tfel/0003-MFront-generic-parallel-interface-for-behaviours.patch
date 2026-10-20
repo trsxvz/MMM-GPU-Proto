@@ -1,4 +1,4 @@
-From 7f05d224ae8dc576c1bc62244a23d6f1bcaaf83b Mon Sep 17 00:00:00 2001
+From ec29a1c850d9815ae3f031417cf731e486ea8dca Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:36 +0200
 Subject: [PATCH] MFront: generic-parallel interface for behaviours

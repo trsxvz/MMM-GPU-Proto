@@ -1,4 +1,4 @@
-From 9f16ebf644060e34d12a18c4977c5b42ceddded9 Mon Sep 17 00:00:00 2001
+From aa86e812c67d26e39c2201d7bc0decd10416b9d8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 16:14:19 +0200
 Subject: [PATCH] Trilinos: the numerical type of mfem-mgis

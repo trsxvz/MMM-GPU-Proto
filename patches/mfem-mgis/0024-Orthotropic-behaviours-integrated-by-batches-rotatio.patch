@@ -1,4 +1,4 @@
-From 3eb9968e9cb3e9aef4d6ce5d8c1a06f80ed75e72 Mon Sep 17 00:00:00 2001
+From 254e8955c9fdc8d90deab571d7485ce523c88695 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 18:28:05 +0200
 Subject: [PATCH] Orthotropic behaviours integrated by batches: rotations of
@@ -629,7 +629,7 @@ index 9324516f45..4899266442 100644
  
    /*!
 diff --git a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
-index e2c28b9155..a58dd1cb59 100644
+index 003b3d79df..37772fda4c 100644
 --- a/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
 +++ b/include/MFEMMGIS/QPEvaluator/QPEvaluator.ixx
 @@ -9,7 +9,10 @@
