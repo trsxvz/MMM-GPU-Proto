@@ -1,4 +1,4 @@
-From cf2fd74d3a09a6a0249aaf102177237afb8e1842 Mon Sep 17 00:00:00 2001
+From fd40e79957b91bfce8f212de2a3d64b61f9f540b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 00:16:46 +0200
 Subject: [PATCH] Preconditioner built on the assembled tangent operator
@@ -99,10 +99,10 @@ index 3b4f5f50d5..54c5f650c4 100644
  
  #endif /* LIB_MFEM_MGIS_MATRIXFREETANGENTOPERATOR_HXX */
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
-index a6b3daf496..dfe9976952 100644
+index 0998fd4e35..3189b9d8d6 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
-@@ -114,6 +114,15 @@ namespace mfem_mgis {
+@@ -113,6 +113,15 @@ namespace mfem_mgis {
      ~NonLinearEvolutionProblemImplementation() override;
  
     protected:
@@ -118,7 +118,7 @@ index a6b3daf496..dfe9976952 100644
      //
      [[nodiscard]] std::optional<real> computePrediction(
          Context& ctx, const real t, const real dt) noexcept override;
-@@ -209,6 +218,15 @@ namespace mfem_mgis {
+@@ -207,6 +216,15 @@ namespace mfem_mgis {
      ~NonLinearEvolutionProblemImplementation() override;
  
     protected:
@@ -135,7 +135,7 @@ index a6b3daf496..dfe9976952 100644
      [[nodiscard]] std::optional<real> computePrediction(
          Context& ctx, const real t, const real dt) noexcept override;
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index c3fb4c78e1..0c5ffa8d5a 100644
+index a04b33a004..6def9da321 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 @@ -10,6 +10,7 @@
@@ -146,7 +146,7 @@ index c3fb4c78e1..0c5ffa8d5a 100644
  #include <vector>
  #include "mfem/linalg/vector.hpp"
  #include "mfem/linalg/sparsemat.hpp"
-@@ -35,6 +36,7 @@ namespace mfem_mgis {
+@@ -36,6 +37,7 @@ namespace mfem_mgis {
    struct AbstractBehaviourIntegrator;
    struct MultiMaterialNonLinearIntegrator;
    struct MatrixFreeTangentOperator;
@@ -154,7 +154,7 @@ index c3fb4c78e1..0c5ffa8d5a 100644
    struct NewtonSolver;
    enum struct IntegrationType;
    struct LinearSolverHandler;
-@@ -354,11 +356,14 @@ namespace mfem_mgis {
+@@ -351,11 +353,14 @@ namespace mfem_mgis {
      /*!
       * \return the tangent operator applied without assembly, the essential
       * degrees of freedom being constrained (created at the first call, or
@@ -171,7 +171,7 @@ index c3fb4c78e1..0c5ffa8d5a 100644
      /*!
       * \brief inner forces computed by kernels (local vector of the finite
       * element space), kept between the evaluations of the residual
-@@ -375,7 +380,7 @@ namespace mfem_mgis {
+@@ -372,7 +377,7 @@ namespace mfem_mgis {
      //! \brief tangent operator applied without assembly
      mutable std::unique_ptr<MatrixFreeTangentOperator> tangent_operator;
      //! \brief tangent operator with constrained essential degrees of freedom
@@ -181,7 +181,7 @@ index c3fb4c78e1..0c5ffa8d5a 100644
      //! \brief number of essential degrees of freedom of this operator
      mutable int constrained_tangent_operator_essential_dofs = -1;
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index b7e09a709a..4707a49372 100644
+index 99f3261219..ce62233bb1 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
 @@ -18,6 +18,7 @@
@@ -192,7 +192,7 @@ index b7e09a709a..4707a49372 100644
  #include "MGIS/Contract.hxx"
  #include "MFEMMGIS/Parameters.hxx"
  #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
-@@ -264,6 +265,51 @@ namespace mfem_mgis {
+@@ -277,6 +278,51 @@ namespace mfem_mgis {
        std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
      };
  
@@ -244,7 +244,7 @@ index b7e09a709a..4707a49372 100644
    }  // end of namespace
  
    template <bool parallel>
-@@ -287,6 +333,36 @@ namespace mfem_mgis {
+@@ -300,6 +346,36 @@ namespace mfem_mgis {
              *oname + "'");
        }
        return {};
@@ -318,10 +318,10 @@ index 9955aa0da9..8ad00c0107 100644
 +
  }  // end of namespace mfem_mgis
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 4ba940007e..16915bd78c 100644
+index 315621f201..ee3cab42e3 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -747,44 +747,50 @@ namespace mfem_mgis {
+@@ -749,44 +749,50 @@ namespace mfem_mgis {
          this->inner_forces_by_kernels, r);
    }  // end of Mult
  
@@ -401,7 +401,7 @@ index 4ba940007e..16915bd78c 100644
      }
      // other integrators in the form: the stiffness matrices computed by
      // kernels are copied by the element loop of MFEM
-@@ -1088,42 +1094,48 @@ namespace mfem_mgis {
+@@ -1089,42 +1095,48 @@ namespace mfem_mgis {
          this->inner_forces_by_kernels, r);
    }  // end of Mult
  
@@ -478,10 +478,10 @@ index 4ba940007e..16915bd78c 100644
      computeStiffnessMatricesByKernels(this->getFiniteElementDiscretization(),
                                        *(this->mgis_integrator),
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index ae5ef1812c..57bad4a0d6 100644
+index f3fafd4e93..30eb575f66 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -694,7 +694,8 @@ namespace mfem_mgis {
+@@ -683,7 +683,8 @@ namespace mfem_mgis {
  
    mfem::Operator&
    NonLinearEvolutionProblemImplementationBase::getMatrixFreeTangentOperator(
@@ -491,9 +491,9 @@ index ae5ef1812c..57bad4a0d6 100644
      if (this->mgis_integrator == nullptr) {
        raise("no multiple material integrator defined");
      }
-@@ -705,9 +706,8 @@ namespace mfem_mgis {
+@@ -694,9 +695,8 @@ namespace mfem_mgis {
        this->tangent_operator = std::make_unique<MatrixFreeTangentOperator>(
-           *(this->fe_discretization), *(this->mgis_integrator));
+           this->fe_discretization, *(this->mgis_integrator));
        this->constrained_tangent_operator =
 -          std::make_unique<mfem::ConstrainedOperator>(
 -              this->tangent_operator.get(), essential_dofs, false,
@@ -504,7 +504,7 @@ index ae5ef1812c..57bad4a0d6 100644
      }
      return *(this->constrained_tangent_operator);
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 428bf9a751..11ccb25367 100644
+index b03a4945cf..c9855fcd28 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -113,6 +113,13 @@ struct ComputationOptions {

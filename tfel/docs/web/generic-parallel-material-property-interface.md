@@ -81,6 +81,11 @@ properties](generic-material-property-interface.html). The
 `mfront_gmp_real` type is by default an alias to double precision
 floating point numbers.
 
+Contrary to the `generic` interface, `errno` is not used to detect
+errors: it is thread-local and does not exist on GPUs. A result which is
+not finite (`nan` or infinite) at one point at least is reported by the
+status `-4`.
+
 If the number of points is null, no computation is made.
 
 A null stride means that the associated argument is uniform. The stride
@@ -108,7 +113,7 @@ void (*)(mfront_gpmp_OutputStatus* const,    // output status
 
 This function assumes that the values of the arguments and the values of
 the output are stored contiguously in memory. In other words, this
-prototype is equivalent to the the first prototype when all strides are
+prototype is equivalent to the first prototype when all strides are
 equal to one.
 
 ## Execution options

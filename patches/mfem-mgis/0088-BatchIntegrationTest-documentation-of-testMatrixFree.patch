@@ -1,4 +1,4 @@
-From 5589d72f7bdfdfdbd30b1b411e77fc9e6c9d8a08 Mon Sep 17 00:00:00 2001
+From 21c44a973c030b9fe17b73a3066b68b5d1070b43 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] BatchIntegrationTest: documentation of testMatrixFreeRefusal
@@ -9,10 +9,10 @@ Subject: [PATCH] BatchIntegrationTest: documentation of testMatrixFreeRefusal
  1 file changed, 8 insertions(+), 5 deletions(-)
 
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index b804bdbfa2..f2620e3528 100644
+index c22cbd5f8f..60bb7c7732 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
-@@ -949,11 +949,6 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
+@@ -954,11 +954,6 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
    }
  }  // end of testElementByElementSequence
  
@@ -24,7 +24,7 @@ index b804bdbfa2..f2620e3528 100644
  /*!
   * \brief the tangent operator of the FBar formulation can't be computed by
   * kernels from gradients computed element by element
-@@ -1022,6 +1017,14 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -1027,6 +1022,14 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
              msg + ")");
  }  // end of testFBarTangentOperatorRefusal
  

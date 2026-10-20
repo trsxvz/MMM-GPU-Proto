@@ -1,4 +1,4 @@
-From 68780efa677016bc5cac00c24ab8d73fd7f37a48 Mon Sep 17 00:00:00 2001
+From cb9efd245786c93ac124ac99134b30bd2dab3d06 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 04:37:56 +0200
 Subject: [PATCH] Ginkgo: linear solvers and preconditioners in the factories
@@ -247,7 +247,7 @@ index 0c9fc7ba96..673417916e 100644
 +preconditioner (for instance :cxx:`preconditioner::Schwarz`), without the
 +L1 smoother. The preconditioners of Ginkgo require assembled operators.
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index d42b91b413..8a4828d39b 100644
+index d52c584b41..df9cf6b55d 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -148,6 +148,22 @@ mfem-mgis can be given to :cxx:`PETScLinearSolver`, and

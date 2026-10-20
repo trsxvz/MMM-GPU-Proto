@@ -1,4 +1,4 @@
-From 0d6087400fec6c0017af9ca0d1560ba920e87ec0 Mon Sep 17 00:00:00 2001
+From 63deb729f67e1b543ef498ac4137f722dca32a53 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:05:38 +0200
 Subject: [PATCH] Documentation: review of the user documentation
@@ -49,18 +49,18 @@ sphinx-build -W gives no warning, as before.
  .../main_classes/main_classes.rst             |   2 +-
  docs/source/developer_guide/parameter.rst     |  23 +--
  docs/source/index.rst                         |  14 +-
- .../installation_guide/installation_guide.rst | 164 +++++++++++++++---
+ .../installation_guide/installation_guide.rst | 164 ++++++++++++++---
  docs/source/user_guide/batch_computations.rst | 151 ++++++++++++++--
  .../user_guide/behaviour_integrators.rst      |  57 +++++-
  .../source/user_guide/boundary_conditions.rst |  61 ++++++-
- docs/source/user_guide/glossary.rst           | 161 ++++++++++++++---
+ docs/source/user_guide/glossary.rst           | 168 ++++++++++++++----
  docs/source/user_guide/help.rst               |  16 ++
- docs/source/user_guide/mesh/curves.rst        |  69 +++++++-
+ docs/source/user_guide/mesh/curves.rst        |  69 ++++++-
  docs/source/user_guide/mesh/mesh-reader.rst   |  37 +++-
  .../user_guide/nonlinear_algorithms.rst       |  91 +++++++---
  docs/source/user_guide/overview.rst           |  27 +--
  .../partial_quadrature_functions.rst          |  44 +++--
- .../partial_quadrature_spaces.rst             |   8 +
+ .../partial_quadrature_spaces.rst             |   6 +
  .../general_post_processings.rst              |  51 +++++-
  .../mechanical_postprocessings.rst            |  10 +-
  .../release_notes/release_notes-1.0.0.rst     |   4 +-
@@ -69,10 +69,10 @@ sphinx-build -W gives no warning, as before.
  .../simulation/simulation_class_overview.rst  |  61 ++++---
  docs/source/user_guide/tests/unit_tests.rst   |   1 +
  docs/source/user_guide/tutorial.rst           | 114 +++++++++---
- 42 files changed, 1588 insertions(+), 415 deletions(-)
+ 42 files changed, 1587 insertions(+), 421 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index f92f891d6e..590c050a58 100644
+index 846dbe258f..d92c15f242 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -22,26 +22,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -2260,7 +2260,7 @@ index ba85758436..31945f1480 100644
  ===============================================
  
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index 46653bd4e2..cd481a376a 100644
+index 7a51e09771..cd481a376a 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
 @@ -33,6 +33,14 @@ parallel versions (except for ``hypre`` solvers).
@@ -2291,7 +2291,7 @@ index 46653bd4e2..cd481a376a 100644
    - when hypre computes on the host (option ``--hypre-on-host``), a GPU
      reading the pageable memory of the host (heterogeneous memory
      management): the solver is refused otherwise
-@@ -501,17 +511,42 @@ the assembled version of an operator applied without assembly, and
+@@ -501,30 +511,50 @@ the assembled version of an operator applied without assembly, and
  Algebraic MultiGrid (AMG) 
  -------------------------
  
@@ -2301,14 +2301,20 @@ index 46653bd4e2..cd481a376a 100644
 +  given directly to the solver).
  - Options:
  
--+--------------------+---------------------------------------------------------------------------------------------------------------+
--| Key                | Description                                                                                                   |
--+====================+===============================================================================================================+
--| ``Strategy``       | Propose strategies that can lead to improve convergence and scalability, [Elasticity, System, None]. [string] |
--|                    | ``Elasticity`` requires the ``FiniteElementSpaceOrdering`` parameter set to ``byVDIM``.                       |
--+--------------------+---------------------------------------------------------------------------------------------------------------+
--| ``VerbosityLevel`` | Define the verbosity of the solver. [int: 0,1]                                                                |
--+--------------------+---------------------------------------------------------------------------------------------------------------+
+-+----------------------+-------------------------------------------------------------------------------------------------------------------------------+
+-| Key                  | Description                                                                                                                   |
+-+======================+===============================================================================================================================+
+-|| ``Strategy``        || Propose strategies that can lead to improve convergence and scalability, [Elasticity, System, None]. [string]                |
+-||                     || ``Elasticity`` requires the ``FiniteElementSpaceOrdering`` parameter set to ``byVDIM``.                                      |
+-+----------------------+-------------------------------------------------------------------------------------------------------------------------------+
+-|| ``StrongThreshold`` || Controls how much of the matrix is ignored. Higher means more values ignored, ie. faster but less powerful preconditioning.  |
+-||                     || The default is 0.25. For 2D Laplace operators, 0.25 is a good value, for 3D Laplace operators, 0.5 or 0.6 is a better value. |
+-||                     || For elasticity problems, a large strength threshold, such as 0.9, is often better. [double] 0 <= StrongThreshold <= 1        |
+-||                     || For more details this the "Strong Threshold" section on `this page`_.                                                        |
+-+----------------------+-------------------------------------------------------------------------------------------------------------------------------+
+-| ``VerbosityLevel``   | Define the verbosity of the solver. [int: 0,1]                                                                                |
+-+----------------------+-------------------------------------------------------------------------------------------------------------------------------+
+-.. _this page: https://mooseframework.inl.gov/application_usage/hypre.html
 ++--------------------------------+---------------------------------------------------------------------------------------------------------------+
 +| Key                            | Description                                                                                                   |
 ++================================+===============================================================================================================+
@@ -2340,10 +2346,10 @@ index 46653bd4e2..cd481a376a 100644
 +
 +The values of the options of ``hypre`` are the ones of ``hypre`` (see its
 +documentation).
- 
++
  - website: https://hypre.readthedocs.io/en/latest/solvers-boomeramg.html
  
-@@ -519,7 +554,7 @@ Algebraic MultiGrid (AMG)
+ **Example:**
  
  .. code-block:: cpp
  
@@ -2352,7 +2358,7 @@ index 46653bd4e2..cd481a376a 100644
      auto amg = mfem_mgis::Parameters{{"Name","HypreBoomerAMG"}, {"Options",options}};
  
  **Reference:**
-@@ -559,7 +594,9 @@ Incomplete LU factorization (HypreILU)
+@@ -564,7 +594,9 @@ Incomplete LU factorization (HypreILU)
  
  - Preconditioner name: ``HypreILU``
  - Dependencies:
@@ -2362,7 +2368,7 @@ index 46653bd4e2..cd481a376a 100644
  - Options:
  
  +-------------------------+------------------------------------------------+
-@@ -795,8 +832,12 @@ Setup Your NonLinearProblem
+@@ -800,8 +832,12 @@ Setup Your NonLinearProblem
  
    This section is under construction.
  
@@ -2377,7 +2383,7 @@ index 46653bd4e2..cd481a376a 100644
  
  +----------------------------+----------------------------------------------------------+
  | Key                        | Description                                              |
-@@ -805,6 +846,9 @@ PeriodicNonLinearEvolutionProblem
+@@ -810,6 +846,9 @@ PeriodicNonLinearEvolutionProblem
  +----------------------------+----------------------------------------------------------+
  | MeshFileName               | Path to the mesh file [string]                           |
  +----------------------------+----------------------------------------------------------+
@@ -2387,7 +2393,7 @@ index 46653bd4e2..cd481a376a 100644
  | FiniteElementOrder         | Finite Element Order, >= 1 [int]                         |
  +----------------------------+----------------------------------------------------------+
  | FiniteElementSpaceOrdering | Ordering of the dofs: byNODES (default), byVDIM [string] |
-@@ -818,10 +862,65 @@ PeriodicNonLinearEvolutionProblem
+@@ -823,10 +862,65 @@ PeriodicNonLinearEvolutionProblem
  +----------------------------+----------------------------------------------------------+
  | Parallel                   | Run parallel execution [bool]                            |
  +----------------------------+----------------------------------------------------------+
@@ -2454,7 +2460,7 @@ index 46653bd4e2..cd481a376a 100644
  
  CPP example:
  
-@@ -844,25 +943,39 @@ Material parameters
+@@ -849,25 +943,39 @@ Material parameters
  Material Identifier
  ^^^^^^^^^^^^^^^^^^^
  
@@ -3024,15 +3030,13 @@ index 0b5a062054..5390fc4a69 100644
 +:cxx:`computeCauchyStressInGlobalFrame` (see
 +:doc:`../post_processings/mechanical_postprocessings`).
 diff --git a/docs/source/user_guide/partial_quadrature_functions/partial_quadrature_spaces.rst b/docs/source/user_guide/partial_quadrature_functions/partial_quadrature_spaces.rst
-index d400af6989..fceb0b7036 100644
+index 3fecf86900..1aa2c331f9 100644
 --- a/docs/source/user_guide/partial_quadrature_functions/partial_quadrature_spaces.rst
 +++ b/docs/source/user_guide/partial_quadrature_functions/partial_quadrature_spaces.rst
-@@ -23,6 +23,14 @@ Another constructor takes a finite element space as second argument, for
- instance a finite element space defined on a submesh. This finite
- element space must be managed by the finite element discretization.
+@@ -28,6 +28,12 @@ element space must be managed by the finite element discretization.
+    A partial quadrature space is handled by value:
+    its copies share the same data and compare equal.
  
-+.. note::
-+
 +   The computations by kernels (see :ref:`mfem_mgis_batch_computations`)
 +   only apply to the spaces defined on materials whose elements use the
 +   same integration rule, returned by :cxx:`getUniformIntegrationRule` (a
@@ -3197,7 +3201,7 @@ index 3ebd973169..1575cbe65b 100644
  - Issue 152: [post-processing] Add support for projecting ip fields at
    nodes using L2 projection
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 5f94551ae3..3af03f601c 100644
+index 7a06290938..fe794dbd22 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -26,7 +26,7 @@ Highlights
@@ -3433,7 +3437,7 @@ index 5f94551ae3..3af03f601c 100644
  Profiling Toolkit
  -----------------
  
-@@ -484,26 +477,26 @@ Issues fixed
+@@ -486,26 +479,26 @@ Issues fixed
    `ParaviewExportIntegrationPointResultsAtNodesBase::getPartialQuadratureFunctionViews`
    and `ParaviewExportIntegrationPointResultsAtNodesBase::getResultDescription`
  - Issue 290: Add support for partial quadratures spaces on boundaries
@@ -3465,7 +3469,7 @@ index 5f94551ae3..3af03f601c 100644
  - Issue 260: Refactor commented examples documentation
  - Issue 257: Allow NewtonSolver to discard linear solver failures
  - Issue 254: Missing parameter option for GMRESSolver
-@@ -515,15 +508,15 @@ Issues fixed
+@@ -517,15 +510,15 @@ Issues fixed
  - Issue 237: [cmake] Add a build-tests target
  - Issue 218: [performance] synchronize success of the setup methods at a
    higher level to minimize collective communications enhancement

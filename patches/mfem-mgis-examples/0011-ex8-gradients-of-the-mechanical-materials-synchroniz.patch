@@ -1,4 +1,4 @@
-From 965fc05a8dd215e818e8c23b81ef6c35fde3005d Mon Sep 17 00:00:00 2001
+From 72669e5c7eca11c052751a31a510f0ab77d9762c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 14:58:22 +0200
 Subject: [PATCH] ex8: gradients of the mechanical materials synchronized
@@ -54,7 +54,7 @@ index 1444eab..23a810d 100644
  - `u3si2_swelling` compares the swelling model to its exact value under a power ramp (`mtest/Swelling.mtest`);
  - `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`).
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index 7184cb4..3d67eb3 100644
+index c90de72..d562eab 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -198,9 +198,15 @@ int main(int argc, char* argv[]) {

@@ -1,4 +1,4 @@
-From 2b543eaf33c501197552143f401450c8628ee063 Mon Sep 17 00:00:00 2001
+From e3a8ff363ba950fc8b87875960bed34b8177a407 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 16:05:11 +0200
 Subject: [PATCH] Newton solver: stagnation criterion fixed after an
@@ -275,10 +275,10 @@ index 4213143a4f..f1a6009f30 100644
              (previous_norms[0] > 100 * std::numeric_limits<real>::min()) &&
              (previous_norms[1] > 100 * std::numeric_limits<real>::min())) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index dfc283df6d..54a5808ebc 100644
+index eed9372f2f..782742ae62 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -153,43 +153,34 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -156,43 +156,34 @@ if(MFEM_MGIS_HAVE_TFEL)
    # convergence of the Newton solver at the floor of the residual, in float
    # only: with an unreachable relative tolerance, a stagnation of the
    # residual is accepted as convergence (option StagnationRelativeTolerance

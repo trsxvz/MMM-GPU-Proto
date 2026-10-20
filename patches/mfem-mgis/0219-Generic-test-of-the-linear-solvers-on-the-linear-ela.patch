@@ -1,4 +1,4 @@
-From d54366e8bdfd9c6570eedb0d223a0b7af75f116d Mon Sep 17 00:00:00 2001
+From 659a867d51d709752cdb855b79d6ffa1c0c7fc21 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:58:47 +0200
 Subject: [PATCH] Generic test of the linear solvers on the linear elasticity
@@ -26,10 +26,10 @@ scientific notation.
  2 files changed, 129 insertions(+), 27 deletions(-)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 816bc2fea9..810032b6dc 100644
+index 069ff1e027..26cfa4a70c 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1637,12 +1637,20 @@ endif(MFEM_USE_MPI)
+@@ -1640,12 +1640,20 @@ endif(MFEM_USE_MPI)
  # preconditioner registered in the factories (generic test, see the test)
  add_test_executable(LinearSolverFactoriesTest)
  add_test(NAME LinearSolverFactoriesTest COMMAND LinearSolverFactoriesTest)
@@ -52,7 +52,7 @@ index 816bc2fea9..810032b6dc 100644
      FAIL_REGULAR_EXPRESSION "check failed")
  endif(MFEM_USE_MPI)
  # on a CUDA GPU, the entries which only compute on the GPU (AmgX, cuDSS) are
-@@ -1650,7 +1658,10 @@ endif(MFEM_USE_MPI)
+@@ -1653,7 +1661,10 @@ endif(MFEM_USE_MPI)
  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
    add_test(NAME LinearSolverFactoriesTest-cuda
             COMMAND LinearSolverFactoriesTest --device cuda)

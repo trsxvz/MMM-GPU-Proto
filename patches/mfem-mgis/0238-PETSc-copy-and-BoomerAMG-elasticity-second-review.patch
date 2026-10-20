@@ -1,4 +1,4 @@
-From 745785a960a5d739549a6863e546afd2bacb37fd Mon Sep 17 00:00:00 2001
+From 201edb92ddb371299e3757043d485103096ed880 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 20:55:35 +0200
 Subject: [PATCH] PETSc copy and BoomerAMG elasticity: second review
@@ -19,7 +19,7 @@ Subject: [PATCH] PETSc copy and BoomerAMG elasticity: second review
  4 files changed, 26 insertions(+), 11 deletions(-)
 
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 4acfb597c6..c18fe10d07 100644
+index 2ccbebabbc..0b8da1be3c 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -184,9 +184,9 @@ and transposed interpolations kept. The values of the

@@ -2,7 +2,7 @@
  * \file   mfront/src/GenericBehaviourInterface.cxx
  * \brief
  * \author Thomas Helfer
- * \date   30/06/2018
+ * \date 30/06/2018
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -276,7 +276,7 @@ namespace mfront {
         << "* \\brief  This file declares the umat interface for the "
         << bd.getClassName() << " behaviour law\n"
         << "* \\author " << fd.authorName << '\n'
-        << "* \\date   " << fd.date << '\n'
+        << "* \\date " << fd.date << '\n'
         << "*/\n\n";
 
     const auto hg = this->getHeaderGuard(bd);
@@ -341,7 +341,7 @@ namespace mfront {
         << "* \\brief  This file implements the umat interface for the "
         << bd.getClassName() << " behaviour law\n"
         << "* \\author " << fd.authorName << '\n'
-        << "* \\date   " << fd.date << '\n'
+        << "* \\date " << fd.date << '\n'
         << "*/\n\n";
 
     writeRealTypeDefinitions(out, bd);
@@ -1197,7 +1197,7 @@ namespace mfront {
     const auto& d = bd.getBehaviourData(h);
     // this constructor is shared with the interfaces derived from the
     // `generic` interface, so its documentation shall not depend on them
-    os << "/*\n"
+    os << "/*!\n"
        << " * \\brief constructor for the "
        << this->GenericBehaviourInterface::getInterfaceName() << " interface\n"
        << " * \\param[in] mgb_d: behaviour data\n"

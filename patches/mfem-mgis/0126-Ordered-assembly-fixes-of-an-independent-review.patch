@@ -1,4 +1,4 @@
-From c37cd55c6851dc0563164b0872b85fefefa02c95 Mon Sep 17 00:00:00 2001
+From b66f02b5738c7afb74cf5d3c9be83bbdf2cf07f6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 11:41:13 +0200
 Subject: [PATCH] Ordered assembly: fixes of an independent review
@@ -100,10 +100,10 @@ index c75a03226a..167b0f8c51 100644
     * \param[in, out] m: assembled matrix
     * \param[in] r: rows of the stiffness matrices of the elements contributing
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index d94ca5e552..4066b45364 100644
+index fa635167cc..9848ccc51c 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -236,12 +236,20 @@ namespace mfem_mgis {
+@@ -235,12 +235,20 @@ namespace mfem_mgis {
       * matrix row by row, in a fixed order (see
       * `batch::addStiffnessMatricesByRows`): the values of the matrix are the
       * same at each assembly, on a GPU too, at the cost of the storage of the
@@ -127,7 +127,7 @@ index d94ca5e552..4066b45364 100644
      /*!
       * \brief add the action of the tangent operator, assembled from the
       * stiffness matrices of the elements computed by kernels from the
-@@ -287,8 +295,10 @@ namespace mfem_mgis {
+@@ -286,8 +294,10 @@ namespace mfem_mgis {
       * \brief assemble the stiffness matrices of all the elements, computed
       * by kernels, in a sparse matrix on the local vector of the finite
       * element space, without storing them (see
@@ -140,7 +140,7 @@ index d94ca5e552..4066b45364 100644
       * device of MFEM is used, the positions of the entries in the rows of
       * the matrix are computed at the first call and reused (see
       * `batch::computeStiffnessMatricesPositions`), separately for the
-@@ -492,12 +502,18 @@ namespace mfem_mgis {
+@@ -491,12 +501,18 @@ namespace mfem_mgis {
      mfem::Vector inner_forces_element_values;
      //! \brief see `setInnerForcesComputedByKernels`
      bool inner_forces_computed_by_kernels = false;
@@ -161,10 +161,10 @@ index d94ca5e552..4066b45364 100644
       * \brief rows of the stiffness matrices of the elements contributing to
       * each row of the assembled matrices, computed by
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index 4cadc22e5d..d7a2a40289 100644
+index 959751f8c5..b20ea0d4ef 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -146,8 +146,9 @@ namespace mfem_mgis {
+@@ -147,8 +147,9 @@ namespace mfem_mgis {
       * same at each assembly, at the cost of the storage of the stiffness
       * matrices of all the elements, see
       * `MultiMaterialNonLinearIntegrator::setOrderedStiffnessMatricesAssembly`).
@@ -176,7 +176,7 @@ index 4cadc22e5d..d7a2a40289 100644
       */
      static const char* const TangentOperatorAssembly;
      //! \brief computations of the tangent operator
-@@ -316,6 +317,14 @@ namespace mfem_mgis {
+@@ -313,6 +314,14 @@ namespace mfem_mgis {
       */
      [[nodiscard]] size_type getNumberOfTangentOperatorAssembliesByKernels()
          const noexcept;
@@ -260,10 +260,10 @@ index f5c8196fb5..729995fc9e 100644
              // `ElementMatricesStorage`)
              const auto* const ke = k + sn * sn * e;
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index a239882e4f..5f278b0e7a 100644
+index 2dc80b3c1c..f61d128d55 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -656,6 +656,11 @@ namespace mfem_mgis {
+@@ -655,6 +655,11 @@ namespace mfem_mgis {
      this->ordered_stiffness_matrices_assembly = b;
    }  // end of setOrderedStiffnessMatricesAssembly
  
@@ -275,7 +275,7 @@ index a239882e4f..5f278b0e7a 100644
    bool MultiMaterialNonLinearIntegrator::addTangentOperatorActionByKernels(
        Context& ctx,
        const mfem::FiniteElementSpace& fes,
-@@ -762,8 +767,17 @@ namespace mfem_mgis {
+@@ -761,8 +766,17 @@ namespace mfem_mgis {
        // stiffness matrices stored element by element, then added row by row
        // in a fixed order
        if (fes.GetNE() == 0) {
@@ -293,7 +293,7 @@ index a239882e4f..5f278b0e7a 100644
        if (!this->computeStiffnessMatricesByKernels(ctx, fes)) {
          return false;
        }
-@@ -774,11 +788,15 @@ namespace mfem_mgis {
+@@ -773,11 +787,15 @@ namespace mfem_mgis {
            return false;
          }
        }
@@ -315,10 +315,10 @@ index a239882e4f..5f278b0e7a 100644
      // positions of the entries in the rows of the matrix, kept for each
      // layout of the rows (columns sorted, for example by a direct solver, or
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index eda18f73a1..63352e1a3d 100644
+index 6c01eec993..af9a7638f8 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -800,6 +800,15 @@ namespace mfem_mgis {
+@@ -789,6 +789,15 @@ namespace mfem_mgis {
      return *(this->assembled_tangent_operator_revision);
    }  // end of getNumberOfTangentOperatorAssembliesByKernels
  
@@ -335,10 +335,10 @@ index eda18f73a1..63352e1a3d 100644
        getNumberOfOtherIntegratorsResidualEvaluations() const noexcept {
      return this->other_integrators_residual_evaluations;
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 631b565835..b66fddf4f1 100644
+index f718fc0db7..3fc5cabb9f 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
-@@ -744,6 +744,23 @@ static mfem_mgis::size_type getNumberOfTangentOperatorAssembliesByKernels(
+@@ -749,6 +749,23 @@ static mfem_mgis::size_type getNumberOfTangentOperatorAssembliesByKernels(
        .getNumberOfTangentOperatorAssembliesByKernels();
  }  // end of getNumberOfTangentOperatorAssembliesByKernels
  
@@ -362,7 +362,7 @@ index 631b565835..b66fddf4f1 100644
  /*!
   * \return the number of evaluations of the residual in which the
   * contributions of the other integrators of the non linear form were added
-@@ -1125,6 +1142,16 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -1130,6 +1147,16 @@ static Results compute(mfem_mgis::Context& ctx,
    // the contributions of the other integrators of the non linear form being
    // added to the local matrix, except with an integrator on the interior
    // faces
@@ -380,7 +380,7 @@ index 631b565835..b66fddf4f1 100644
      const auto n = getNumberOfTangentOperatorAssembliesByKernels(problem);
      const auto expected =
 diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
-index 589bde9377..68a3b05678 100644
+index d227963fb6..9c87a0cdbe 100644
 --- a/tests/GradientsKernelsTest.cxx
 +++ b/tests/GradientsKernelsTest.cxx
 @@ -889,6 +889,8 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,

@@ -1,4 +1,4 @@
-From 05358bd9fffd8071376df88665f7235c14d5fe1d Mon Sep 17 00:00:00 2001
+From a66d529ec75fdfa4a0ad95c5f4b59902b34d9794 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 14:22:38 +0200
 Subject: [PATCH] Lateral stresses: tolerance of at least twice the resolution

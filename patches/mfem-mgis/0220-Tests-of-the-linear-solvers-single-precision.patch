@@ -1,4 +1,4 @@
-From 3b6fabfd97699371da3b9188fbb85fb86158d374 Mon Sep 17 00:00:00 2001
+From 2e51eeca77b1f35afc4c71719a4503d22d6f6bd0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 12:15:54 +0200
 Subject: [PATCH] Tests of the linear solvers: single precision
@@ -15,10 +15,10 @@ which is not the one of the system.
  2 files changed, 41 insertions(+), 23 deletions(-)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 810032b6dc..4db16b4882 100644
+index 26cfa4a70c..cdc9b04580 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1637,31 +1637,43 @@ endif(MFEM_USE_MPI)
+@@ -1640,31 +1640,43 @@ endif(MFEM_USE_MPI)
  # preconditioner registered in the factories (generic test, see the test)
  add_test_executable(LinearSolverFactoriesTest)
  add_test(NAME LinearSolverFactoriesTest COMMAND LinearSolverFactoriesTest)

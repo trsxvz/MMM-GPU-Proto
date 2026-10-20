@@ -1,4 +1,4 @@
-From fdfdafd76d146ff45c60383fda10d83f2af5e043 Mon Sep 17 00:00:00 2001
+From b49b857c90a57f6f5da2c476a496c139e92283b0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 13:12:06 +0200
 Subject: [PATCH] Cermet test: stress at 0.4 s only checked in single precision

@@ -1,4 +1,4 @@
-From b3c98230676cd9067ae6cd029d18abc30b01b2b9 Mon Sep 17 00:00:00 2001
+From 93820aef5a89e40f14cc4ac34663c630ee9522d2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 05:36:45 +0200
 Subject: [PATCH] Smoothers and adaptive tolerance: review (scaling invariance,
@@ -29,10 +29,10 @@ Subject: [PATCH] Smoothers and adaptive tolerance: review (scaling invariance,
  7 files changed, 159 insertions(+), 58 deletions(-)
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index 808bdbb3e3..4a9a0f3af3 100644
+index b9be720c97..4662497a9c 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
-@@ -575,7 +575,8 @@ Chebyshev smoother (OperatorChebyshevSmoother)
+@@ -580,7 +580,8 @@ Chebyshev smoother (OperatorChebyshevSmoother)
  
  Chebyshev smoother of ``MFEM``: polynomial of the operator scaled by the
  inverse of its diagonal, the largest eigenvalue of the scaled operator being
@@ -42,7 +42,7 @@ index 808bdbb3e3..4a9a0f3af3 100644
  smoother, it only uses products by the operator and its diagonal. The
  essential degrees of freedom shall be eliminated with a diagonal set to one.
  
-@@ -614,6 +615,16 @@ at the end of each resolution (the predictions keep it).
+@@ -619,6 +620,16 @@ at the end of each resolution (the predictions keep it).
  - Option name: ``AdaptiveLinearSolverTolerance``, with the value ``None``
    (default), ``EisenstatWalker1`` or ``EisenstatWalker2``, possibly with
    options.
@@ -128,10 +128,10 @@ index 19b07fbc61..6cc67ad671 100644
    check(areClose(*getRelativeTolerance(s), 1e-9),
          "first choice: initial tolerance not restored");
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 8826013fff..5dba929e1e 100644
+index ee4b21b0ff..f58f453f73 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -902,30 +902,6 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -905,30 +905,6 @@ if(MFEM_MGIS_HAVE_TFEL)
                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
    endif()
  
@@ -162,7 +162,7 @@ index 8826013fff..5dba929e1e 100644
    # FixedPointSolverTest executable: fixed point solver (methods,
    # accelerations, linear solvers of the elastic operator) compared to the
    # Newton solver
-@@ -1019,6 +995,31 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1022,6 +998,31 @@ if(MFEM_MGIS_HAVE_TFEL)
  
  endif(MFEM_MGIS_HAVE_TFEL)
  

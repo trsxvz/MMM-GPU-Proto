@@ -1,4 +1,4 @@
-From c80200014227968194610d6710c344aaa463f372 Mon Sep 17 00:00:00 2001
+From eae113a60a7e49c3a7105e6c899ce040faac3507 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 10:10:43 +0200
 Subject: [PATCH] Add the sparse direct solvers of oneMKL

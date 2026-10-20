@@ -1,4 +1,4 @@
-From e4cf93a0aa82fdf15d62c30873e28ebc04db2f6f Mon Sep 17 00:00:00 2001
+From ffef28e7ff8ae65dab15ce6d67c8015f1533f64e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 22:56:22 +0200
 Subject: [PATCH] Documentation: numerical type, AMD GPU

@@ -176,7 +176,7 @@ static bool haveSameValues(const mfem::Vector& a, const mfem::Vector& b) {
 
 static void testMaterial(
     mfem_mgis::Context& ctx,
-    std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
+    const mfem_mgis::PartialQuadratureSpace& qspace,
     const char* const library,
     const char* const behaviour,
     const mgis::FieldLayout layout) {
@@ -189,7 +189,7 @@ static void testMaterial(
   }
   auto m = Material(qspace, std::move(b), layout);
   auto& a = m.getArrays();
-  const auto n = qspace->getNumberOfIntegrationPoints();
+  const auto n = qspace.getNumberOfIntegrationPoints();
   const auto pbp = layout == mgis::FieldLayout::POINT_BY_POINT;
   const auto name = std::string{behaviour} +
                     (pbp ? " (point by point)" : " (component by component)");
@@ -398,7 +398,7 @@ static void testAxialDeformationGradient(mfem_mgis::Context& ctx,
                                  {"NumberOfUniformRefinements", 0},
                                  {"Parallel", false}}) |
              or_die;
-  auto qspace = make_shared<const PartialQuadratureSpace>(
+  const auto qspace = construct<PartialQuadratureSpace>(
                     ctx, *fed, MaterialIdentifier{.id = 5},
                     [](const mfem::FiniteElement& e,
                        const mfem::ElementTransformation&) noexcept
@@ -406,7 +406,7 @@ static void testAxialDeformationGradient(mfem_mgis::Context& ctx,
                       return mfem::IntRules.Get(e.GetGeomType(), 2);
                     }) |
                 or_die;
-  const auto n = qspace->getNumberOfIntegrationPoints();
+  const auto n = qspace.getNumberOfIntegrationPoints();
   for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
                        mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
     const auto name =
@@ -672,7 +672,7 @@ static bool checkValuesInGlobalFrame(const mfem_mgis::Material& m,
  */
 static void testRotation(
     mfem_mgis::Context& ctx,
-    std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
+    const mfem_mgis::PartialQuadratureSpace& qspace,
     const char* const library) {
   using namespace mfem_mgis;
   for (const auto* const behaviour :
@@ -775,7 +775,7 @@ static void testPointWiseModel(mfem_mgis::Context& ctx,
                                  {"NumberOfUniformRefinements", 0},
                                  {"Parallel", false}}) |
              or_die;
-  auto qspace = make_shared<const PartialQuadratureSpace>(
+  const auto qspace = construct<PartialQuadratureSpace>(
                     ctx, *fed, MaterialIdentifier{.id = 5},
                     [](const mfem::FiniteElement& e,
                        const mfem::ElementTransformation&) noexcept
@@ -868,7 +868,7 @@ static void testPointWiseModel(mfem_mgis::Context& ctx,
     }
     const auto s = getInternalStateVariable(ctx, m, "Shrinkage", ets) | or_die;
     auto ok = true;
-    for (size_type i = 0; i != getSpaceSize(*qspace); ++i) {
+    for (size_type i = 0; i != getSpaceSize(qspace); ++i) {
       ok = ok && (std::abs(s.getIntegrationPointValue(i) - s_ref) < 1e-8);
     }
     check(ok, "point-wise model: shrinkage (" + step + ")");
@@ -964,7 +964,7 @@ int main(int argc, char** argv) {
                       {"UnknownsSize", 3},
                       {"NumberOfUniformRefinements", 2},
                       {"Parallel", false}});
-  auto qspace = std::make_shared<const PartialQuadratureSpace>(
+  const auto qspace = PartialQuadratureSpace(
       *fed, MaterialIdentifier{.id = 1},
       [](const mfem::FiniteElement& e,
          const mfem::ElementTransformation& tr) noexcept
@@ -988,7 +988,7 @@ int main(int argc, char** argv) {
     testPointWiseModel(ctx, mesh_2d, generic_parallel_library);
   }
   testHostAccesses(ctx, mesh, library);
-  testQuadratureSpaceArrays(*qspace);
+  testQuadratureSpaceArrays(qspace);
   {
     // a material covering a part of the mesh
     auto fed2 = FiniteElementDiscretization(

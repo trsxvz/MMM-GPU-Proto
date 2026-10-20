@@ -1,4 +1,4 @@
-From 4833e2179092c277e657c9d7a0518bed59085527 Mon Sep 17 00:00:00 2001
+From a40e31b610a0079204339427d41db59576b4a7a8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 20:51:27 +0200
 Subject: [PATCH] Kernels: review of the gradients, inner forces and stiffness
@@ -54,7 +54,7 @@ point). 144/144.
  11 files changed, 172 insertions(+), 37 deletions(-)
 
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index 090652b23c..2a1da5c545 100644
+index ad51fbd907..1099cd277e 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -235,6 +235,14 @@ namespace mfem_mgis {
@@ -122,7 +122,7 @@ index 53b86c785c..a49772e8d5 100644
            "addStiffnessMatrices: the elements of the material do not use the "
            "integration rule of the geometric data");
 diff --git a/src/ImposedDirichletBoundaryConditionAtClosestNode.cxx b/src/ImposedDirichletBoundaryConditionAtClosestNode.cxx
-index f25cd355dc..4347e50672 100644
+index ac5584c07f..299382c1d6 100644
 --- a/src/ImposedDirichletBoundaryConditionAtClosestNode.cxx
 +++ b/src/ImposedDirichletBoundaryConditionAtClosestNode.cxx
 @@ -230,7 +230,8 @@ namespace mfem_mgis {
@@ -146,7 +146,7 @@ index f25cd355dc..4347e50672 100644
  
    ImposedDirichletBoundaryConditionAtClosestNode::
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 2f240fef21..26cc204d32 100644
+index e5b2300838..36e229633b 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
 @@ -14,6 +14,7 @@
@@ -157,7 +157,7 @@ index 2f240fef21..26cc204d32 100644
  #include "mfem/fem/bilinearform.hpp"
  #ifdef MFEM_USE_MPI
  #include "mfem/mesh/pmesh.hpp"
-@@ -365,11 +366,55 @@ namespace mfem_mgis {
+@@ -364,11 +365,55 @@ namespace mfem_mgis {
                std::to_string(m) +
                "' can't be computed by kernels (supported: standard "
                "mechanical behaviours in 3D, plane strain and plane stress, "
@@ -215,7 +215,7 @@ index 2f240fef21..26cc204d32 100644
      return true;
    }  // end of checkKernelsSupport
  
-@@ -460,6 +505,8 @@ namespace mfem_mgis {
+@@ -459,6 +504,8 @@ namespace mfem_mgis {
          if ((r != nullptr) && (!this->elements_geometry.contains(r))) {
            if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
                                                fes, *r)) {
@@ -225,10 +225,10 @@ index 2f240fef21..26cc204d32 100644
            }
          }
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 0d7b4cfbe2..e89096a965 100644
+index e6a992a366..e196b8d7a1 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -255,8 +255,9 @@ namespace mfem_mgis {
+@@ -258,8 +258,9 @@ namespace mfem_mgis {
      // sequential, one in parallel)
      const auto norm = [&B, &fespace, &essential_dofs] {
        auto r = B;
@@ -239,7 +239,7 @@ index 0d7b4cfbe2..e89096a965 100644
        }
        if constexpr (parallel) {
          return std::sqrt(mfem::InnerProduct(fespace.GetComm(), r, r));
-@@ -273,8 +274,12 @@ namespace mfem_mgis {
+@@ -276,8 +277,12 @@ namespace mfem_mgis {
      }
      // an iterative linear solver only approximates the imposed increments,
      // which are known exactly
@@ -254,7 +254,7 @@ index 0d7b4cfbe2..e89096a965 100644
      }
      a.RecoverFEMSolution(X, b, *mdu);
      //
-@@ -355,6 +360,9 @@ namespace mfem_mgis {
+@@ -358,6 +363,9 @@ namespace mfem_mgis {
        r += f;
      }
      r.SetSubVector(essential_dofs, real{0});
@@ -264,7 +264,7 @@ index 0d7b4cfbe2..e89096a965 100644
    }  // end of addInnerForcesComputedByKernels
  
    /*!
-@@ -460,14 +468,28 @@ namespace mfem_mgis {
+@@ -462,14 +470,28 @@ namespace mfem_mgis {
  
    void NonLinearEvolutionProblemImplementation<true>::Mult(
        const mfem::Vector& u, mfem::Vector& r) const {
@@ -299,7 +299,7 @@ index 0d7b4cfbe2..e89096a965 100644
    }  // end of Mult
  
    mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
-@@ -477,6 +499,8 @@ namespace mfem_mgis {
+@@ -479,6 +501,8 @@ namespace mfem_mgis {
        computeStiffnessMatricesByKernels(*(this->mgis_integrator),
                                          this->getFiniteElementSpace());
      }
@@ -308,7 +308,7 @@ index 0d7b4cfbe2..e89096a965 100644
      return mfem_mgis::NonlinearForm<true>::GetGradient(u);
    }  // end of GetGradient
  
-@@ -743,12 +767,25 @@ namespace mfem_mgis {
+@@ -744,12 +768,25 @@ namespace mfem_mgis {
    void NonLinearEvolutionProblemImplementation<false>::Mult(
        const mfem::Vector& u, mfem::Vector& r) const {
      // see the parallel version
@@ -339,7 +339,7 @@ index 0d7b4cfbe2..e89096a965 100644
    }  // end of Mult
  
    mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
-@@ -758,6 +795,8 @@ namespace mfem_mgis {
+@@ -759,6 +796,8 @@ namespace mfem_mgis {
        computeStiffnessMatricesByKernels(*(this->mgis_integrator),
                                          this->getFiniteElementSpace());
      }
@@ -349,10 +349,10 @@ index 0d7b4cfbe2..e89096a965 100644
    }  // end of GetGradient
  
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index 581e6fb754..798af95ddc 100644
+index ff0e0daf00..9b7fc104ef 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -641,7 +641,17 @@ namespace mfem_mgis {
+@@ -630,7 +630,17 @@ namespace mfem_mgis {
  #endif /* MFEM_USE_PETSC */
      } else {
        this->solver->setContext(ctx);
@@ -372,7 +372,7 @@ index 581e6fb754..798af95ddc 100644
        fill_output(*(this->solver));
        output.initial_residual_norm = this->solver->GetInitialNorm();
 diff --git a/src/UniformDirichletBoundaryCondition.cxx b/src/UniformDirichletBoundaryCondition.cxx
-index 02df7f862e..f2d4146f3d 100644
+index 51b400fdc6..9244a19af3 100644
 --- a/src/UniformDirichletBoundaryCondition.cxx
 +++ b/src/UniformDirichletBoundaryCondition.cxx
 @@ -64,16 +64,21 @@ namespace mfem_mgis {
@@ -400,10 +400,10 @@ index 02df7f862e..f2d4146f3d 100644
    }  // end of setImposedValuesIncrements
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 3b076f24ac..08e7bfdd62 100644
+index d7f4dd0b98..00aa15e9c2 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -812,13 +812,25 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -815,13 +815,25 @@ if(MFEM_MGIS_HAVE_TFEL)
             "--${_backend}-library" "${_library}")
      endif()
    endforeach()

@@ -1,4 +1,4 @@
-From 000851915590fb7990c4a5e203f080955eeb71b3 Mon Sep 17 00:00:00 2001
+From 1d9ce44918fe9e6c4ee4d055b36958d395aadb52 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:55:11 +0200
 Subject: [PATCH] AdaptiveLinearSolverTolerance: review (safeguard of the first
@@ -39,10 +39,10 @@ Subject: [PATCH] AdaptiveLinearSolverTolerance: review (safeguard of the first
  9 files changed, 295 insertions(+), 78 deletions(-)
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index c1b1436192..808bdbb3e3 100644
+index bfd441f901..b9be720c97 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
-@@ -585,7 +585,8 @@ essential degrees of freedom shall be eliminated with a diagonal set to one.
+@@ -590,7 +590,8 @@ essential degrees of freedom shall be eliminated with a diagonal set to one.
  +-----------------------------+------------------------------------------------+
  | Key                         | Description                                    |
  +=============================+================================================+
@@ -52,7 +52,7 @@ index c1b1436192..808bdbb3e3 100644
  +-----------------------------+------------------------------------------------+
  | ``NumberOfPowerIterations`` | Iterations of the power method, 10 by default. |
  |                             | [int]                                          |
-@@ -599,6 +600,50 @@ essential degrees of freedom shall be eliminated with a diagonal set to one.
+@@ -604,6 +605,50 @@ essential degrees of freedom shall be eliminated with a diagonal set to one.
          {"Name", "OperatorChebyshevSmoother"},
          {"Options", mfem_mgis::Parameters{{"Order", 3}}}};
  

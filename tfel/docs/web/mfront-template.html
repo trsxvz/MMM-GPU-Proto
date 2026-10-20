@@ -43,9 +43,6 @@
     <!--[if lt IE 7]>
         <p class="browsehappy">You are using an <strong>outdated</strong> browser. Please <a href="http://browsehappy.com/">upgrade your browser</a> to improve your experience.</p>
     <![endif]-->
-    $for(include-before)$
-    $include-before$
-    $endfor$
     <header>
       <ul id="nav">
 	<li><a href="news.html">News</a></li>
@@ -311,6 +308,7 @@
 		  <li><a href="tfel-math-data-interpolation.html">Data interpolation</a></li>
 	        </ul>
 		<li><a href="tfel-material.html">TFEL/Material</a></li>
+		<li><a href="tfel-material-homogenization.html">TFEL/Material homogenization</a></li>
                  <li><a href="glossary.html">Glossary</a></li>
                  <li><a href="physical-constants.html">Physical constants</a></li>
 		<li><a href="tfel-mfront-database.html">TFELMFrontDatabase</a></li>
@@ -360,6 +358,9 @@ $if(date)$
 $endif$
 </div>
 $endif$
+$for(include-before)$
+$include-before$
+$endfor$
 $if(toc)$
 <div id="$idprefix$TOC">
 $toc$

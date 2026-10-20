@@ -1,4 +1,4 @@
-From e4d1403e3460e68085ad92b8313fc07c2f725bb7 Mon Sep 17 00:00:00 2001
+From 16d82cdc713148b7a581cd817cffd8fa9a07714b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 14:24:55 +0200
 Subject: [PATCH] Bubble: post-processing without the ParaView exports
@@ -11,7 +11,7 @@ and the L2 projection of the first eigen stress.
  1 file changed, 40 insertions(+), 30 deletions(-)
 
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index bff15c2..52b0c95 100644
+index 8201d8d..b5ab3f4 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -185,7 +185,12 @@ struct TestParameters : PhysicalParameters {

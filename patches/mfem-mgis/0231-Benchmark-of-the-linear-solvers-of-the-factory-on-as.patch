@@ -1,4 +1,4 @@
-From 95f380f810331c83d744761e48d057bdc196ad78 Mon Sep 17 00:00:00 2001
+From e7867a09dc78f72cc0f72496df136f93822fe286 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 14:43:31 +0200
 Subject: [PATCH] Benchmark of the linear solvers of the factory on assembled

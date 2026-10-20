@@ -1,0 +1,78 @@
+From db8415aa8db370bac0d7b83b5a5ab1c550689ebf Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 05:22:01 +0200
+Subject: [PATCH] Float: warning for a convergence criterion looser than 1e-5
+
+With the float numerical type, the warnings advising more stringent
+convergence criteria (written for double) are not reported. A criterion
+given by @Epsilon looser than 1e-5 is now reported for the implicit and
+isotropic DSLs, with an advice suited to float (a value of the order of
+1e-8). Nothing changes with double.
+---
+ docs/web/release-notes/release-notes-5.2.md |  4 +++-
+ mfront/src/ImplicitDSLBase.cxx              | 11 +++++++++++
+ mfront/src/IsotropicBehaviourDSLBase.cxx    | 11 +++++++++++
+ 3 files changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
+index 55daa630e..a61fdd1df 100644
+--- a/docs/web/release-notes/release-notes-5.2.md
++++ b/docs/web/release-notes/release-notes-5.2.md
+@@ -897,7 +897,9 @@ $ mfront --obuild --interface=generic --dsl-option=real_type:float \
+   of the order of the criterion times the elastic moduli. The default
+   criterion (`1e-8`, when `@Epsilon` is not used), close to this bound, is
+   kept, and the default perturbation (a tenth of the criterion) is raised
+-  without warning. The comparison to a numerical jacobian
++  without warning. The warnings advising more stringent criteria are
++  written for `double`: with `float`, only a criterion looser than `1e-5`
++  is reported. The comparison to a numerical jacobian
+   (`@CompareToNumericalJacobian`) uses by default the convergence
+   criterion, which is too strict for finite differences computed in
+   `float`: its criterion must then be given explicitly
+diff --git a/mfront/src/ImplicitDSLBase.cxx b/mfront/src/ImplicitDSLBase.cxx
+index 4a5c29b74..2c777c8a9 100644
+--- a/mfront/src/ImplicitDSLBase.cxx
++++ b/mfront/src/ImplicitDSLBase.cxx
+@@ -689,6 +689,17 @@ namespace mfront {
+           "). You may want to consider a more stringent value (1e-14 "
+           "is generally a good choice).");
+     }
++    // with the float numerical type, only a value much looser than the
++    // precision of this type is reported
++    if ((!safe) && (getRealType(this->mb) == "float") && (epsilon > 1e-5)) {
++      auto converter = std::ostringstream{};
++      converter << std::scientific << epsilon;
++      reportWarning(
++          "the choosen value for the convergence threshold could be too "
++          "loose for the float numerical type (" +
++          converter.str() +
++          "). You may want to consider a value of the order of 1e-8.");
++    }
+     this->readSpecifiedToken("ImplicitDSLBase::treatEpsilon", ";");
+     VariableDescription e("NumericType", "\u03B5", "epsilon", 1u, 0u);
+     e.description =
+diff --git a/mfront/src/IsotropicBehaviourDSLBase.cxx b/mfront/src/IsotropicBehaviourDSLBase.cxx
+index 744f190a3..92aef15d0 100644
+--- a/mfront/src/IsotropicBehaviourDSLBase.cxx
++++ b/mfront/src/IsotropicBehaviourDSLBase.cxx
+@@ -226,6 +226,17 @@ namespace mfront {
+           "). You may want to consider a more stringent value (1e-14 "
+           "is generally a good choice).");
+     }
++    // with the float numerical type, only a value much looser than the
++    // precision of this type is reported
++    if ((!safe) && (getRealType(this->mb) == "float") && (epsilon > 1e-5)) {
++      auto converter = std::ostringstream{};
++      converter << std::scientific << epsilon;
++      reportWarning(
++          "the choosen value for the convergence threshold could be too "
++          "loose for the float numerical type (" +
++          converter.str() +
++          "). You may want to consider a value of the order of 1e-8.");
++    }
+     ++(this->current);
+     this->readSpecifiedToken("IsotropicBehaviourDSLBase::treatEpsilon", ";");
+     this->mb.addParameter(
+-- 
+2.43.0
+

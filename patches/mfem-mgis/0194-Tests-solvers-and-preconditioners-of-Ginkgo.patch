@@ -1,4 +1,4 @@
-From 0eaedf051b9f79c3afbf8e30672dd02db0cab848 Mon Sep 17 00:00:00 2001
+From 19bbd524a0a5b9eb87aaa915e13bbf8ca6503244 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 04:37:56 +0200
 Subject: [PATCH] Tests: solvers and preconditioners of Ginkgo
@@ -21,10 +21,10 @@ preconditioners.
  create mode 100644 tests/GinkgoSolversTest.cxx
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 83617f3e8d..e6c3d5eb1e 100644
+index 0fbb48f16a..7a8cbb46bf 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1601,15 +1601,6 @@ if(MFEM_USE_MPI)
+@@ -1604,15 +1604,6 @@ if(MFEM_USE_MPI)
    set_tests_properties(LinearSolverFactoriesTestP PROPERTIES
      FAIL_REGULAR_EXPRESSION "check failed")
  endif(MFEM_USE_MPI)
@@ -40,7 +40,7 @@ index 83617f3e8d..e6c3d5eb1e 100644
  # on a CUDA GPU, the entries which only compute on the GPU (AmgX, cuDSS) are
  # also checked
  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
-@@ -1627,6 +1618,44 @@ if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+@@ -1630,6 +1621,44 @@ if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
      FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
  endif()
  

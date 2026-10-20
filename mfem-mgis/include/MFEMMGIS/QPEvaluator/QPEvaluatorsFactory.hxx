@@ -19,6 +19,16 @@
 
 namespace mfem_mgis {
 
+  // forward declaration
+  struct PartialQuadratureSpace;
+
+  namespace internals {
+
+    // forward declaration
+    struct PartialQuadratureSpaceImplementation;
+
+  }  // end of namespace internals
+
   /*!
    * \brief abstract factory for quadrature point evaluators
    *
@@ -47,8 +57,7 @@ namespace mfem_mgis {
      * \param[in] s: stage in the time step
      */
     static std::string getLocationDescription(
-        const std::shared_ptr<const PartialQuadratureSpace> qspace,
-        const TimeStepStage s) noexcept;
+        const PartialQuadratureSpace &qspace, const TimeStepStage s) noexcept;
     //! \brief default constructor
     QPEvaluatorsFactory() noexcept;
     // disabling copy and move constructors and assignment operators
@@ -65,10 +74,9 @@ namespace mfem_mgis {
      * \param[in] s: stage in the time step
      * \param[in] n: name of the evaluator
      */
-    [[nodiscard]] bool containsGenerator(
-        const std::shared_ptr<const PartialQuadratureSpace> qspace,
-        const TimeStepStage s,
-        const std::string &n) const noexcept;
+    [[nodiscard]] bool containsGenerator(const PartialQuadratureSpace &qspace,
+                                         const TimeStepStage s,
+                                         const std::string &n) const noexcept;
     //     /*
     //      * \brief register a new evaluator generator
     //      * \param[in, out] ctx: execution context
@@ -80,7 +88,7 @@ namespace mfem_mgis {
     //      */
     //     [[nodiscard]] bool registerGenerator(
     //         Context &,
-    //         const std::shared_ptr<const PartialQuadratureSpace>,
+    //         const PartialQuadratureSpace&,
     //         const TimeStepStage,
     //         const std::string &,
     //         const Generator &) noexcept;
@@ -94,7 +102,7 @@ namespace mfem_mgis {
     //      */
     //     [[nodiscard]] std::shared_ptr<AbstractQPEvaluator> generate(
     //         Context &,
-    //         const std::shared_ptr<const PartialQuadratureSpace>,
+    //         const PartialQuadratureSpace&,
     //         const TimeStepStage,
     //         const QPEvaluatorDescription &) const noexcept;
     //     /*
@@ -107,7 +115,7 @@ namespace mfem_mgis {
     //      */
     //     [[nodiscard]] std::shared_ptr<AbstractQPEvaluator> generate(
     //         Context &,
-    //         const std::shared_ptr<const PartialQuadratureSpace>,
+    //         const PartialQuadratureSpace&,
     //         const TimeStepStage,
     //         const std::string &) const noexcept;
     //     /*
@@ -187,10 +195,11 @@ namespace mfem_mgis {
     /*!
      * \brief a simple alias
      */
-    using GeneratorsContainer =
-        std::map<LocationIdentifier,
-                 std::map<std::shared_ptr<const PartialQuadratureSpace>,
-                          std::map<std::string, Generator>>>;
+    using GeneratorsContainer = std::map<
+        LocationIdentifier,
+        std::map<std::shared_ptr<const ::mfem_mgis::internals::
+                                     PartialQuadratureSpaceImplementation>,
+                 std::map<std::string, Generator>>>;
     /*!
      * \return generators associated with the given stage in the time step
      * \param[in] s: stage in the time step

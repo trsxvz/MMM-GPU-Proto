@@ -1,4 +1,4 @@
-From 7f015c17bf4dcab05aea2a798866bd34a19767af Mon Sep 17 00:00:00 2001
+From 22a5d874406c39b6cd60364a342a68090ef4efda Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 09:19:36 +0200
 Subject: [PATCH] Ordered assembly: one thread per value of the matrix
@@ -200,10 +200,10 @@ index 167b0f8c51..5294c7ab12 100644
    /*!
     * \brief adds the stiffness matrices of the elements of a material to an
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 4066b45364..5bf937c09f 100644
+index 9848ccc51c..e8c5528ac1 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -230,16 +230,23 @@ namespace mfem_mgis {
+@@ -229,16 +229,23 @@ namespace mfem_mgis {
       */
      void setStiffnessMatricesComputedByKernels(const bool) noexcept;
      /*!
@@ -237,7 +237,7 @@ index 4066b45364..5bf937c09f 100644
       * \param[in] b: boolean
       */
      void setOrderedStiffnessMatricesAssembly(const bool) noexcept;
-@@ -250,6 +257,16 @@ namespace mfem_mgis {
+@@ -249,6 +256,16 @@ namespace mfem_mgis {
       */
      [[nodiscard]] size_type getNumberOfOrderedStiffnessMatricesAssemblies()
          const noexcept;
@@ -254,7 +254,7 @@ index 4066b45364..5bf937c09f 100644
      /*!
       * \brief add the action of the tangent operator, assembled from the
       * stiffness matrices of the elements computed by kernels from the
-@@ -515,12 +532,14 @@ namespace mfem_mgis {
+@@ -514,12 +531,14 @@ namespace mfem_mgis {
      //! \brief see `getNumberOfOrderedStiffnessMatricesAssemblies`
      size_type ordered_stiffness_matrices_assemblies = 0;
      /*!
@@ -275,10 +275,10 @@ index 4066b45364..5bf937c09f 100644
       * \brief degrees of freedom of all the elements (see
       * `batch::computeElementsDegreesOfFreedom`), computed once by
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index d7a2a40289..c47f892c9e 100644
+index b20ea0d4ef..8b067f78c4 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -138,17 +138,18 @@ namespace mfem_mgis {
+@@ -139,17 +139,18 @@ namespace mfem_mgis {
       * \brief name of the parameter selecting the assembly of the stiffness
       * matrices computed by kernels in the sparse matrices of the tangent
       * operator and of the elastic operator (see `TangentOperatorComputation`):
@@ -648,10 +648,10 @@ index 55d6660ecf..d4560b0cfd 100644
    /*!
     * \brief launches the kernel adding the stiffness matrices of the
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 5f278b0e7a..da3b058d0f 100644
+index f61d128d55..65b72ad022 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -763,16 +763,19 @@ namespace mfem_mgis {
+@@ -762,16 +762,19 @@ namespace mfem_mgis {
      if (!batch::zeroSparseMatrixValues(ctx, m)) {
        return false;
      }
@@ -677,7 +677,7 @@ index 5f278b0e7a..da3b058d0f 100644
          return ctx.registerErrorMessage(
              "assembleStiffnessMatrixByKernels: too many values to store the "
              "stiffness matrices of all the elements in the ordered assembly "
-@@ -781,20 +784,33 @@ namespace mfem_mgis {
+@@ -780,20 +783,33 @@ namespace mfem_mgis {
        if (!this->computeStiffnessMatricesByKernels(ctx, fes)) {
          return false;
        }
@@ -722,7 +722,7 @@ index 5f278b0e7a..da3b058d0f 100644
        ++(this->ordered_stiffness_matrices_assemblies);
        return true;
      }
-@@ -847,9 +863,19 @@ namespace mfem_mgis {
+@@ -846,9 +862,19 @@ namespace mfem_mgis {
          positions.DeleteAll();
        }
      }
@@ -743,7 +743,7 @@ index 5f278b0e7a..da3b058d0f 100644
        const mfem::FiniteElement& e,
        mfem::ElementTransformation& tr,
 diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
-index 68a3b05678..c6daf3adac 100644
+index 9c87a0cdbe..2ae14d783e 100644
 --- a/tests/GradientsKernelsTest.cxx
 +++ b/tests/GradientsKernelsTest.cxx
 @@ -10,8 +10,8 @@

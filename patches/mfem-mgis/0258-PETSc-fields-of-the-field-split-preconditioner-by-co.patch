@@ -1,0 +1,594 @@
+From 3237199aaf58f07a23df5733138551fe8fe016aa Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 16:00:43 +0200
+Subject: [PATCH] PETSc: fields of the field split preconditioner by component
+
+Option Fields of PETScLinearSolver and PETScPreconditioner: None (by
+default) or Components. With Components, the field split preconditioner
+of PETSc (pc_type fieldsplit) receives one field per component of the
+unknowns, named after the index of the component: the rows of the true
+degrees of freedom of each component, whatever the ordering of the
+unknowns (byNODES or byVDIM), which the block size of PETSc does not allow
+with the unknowns ordered by nodes. The fields are given after the options
+of PETSc and before the setup of the preconditioner, only to an operator
+of the size of the finite element space; a preconditioner of PETSc which
+preconditions PETScLinearSolver gives its own fields.
+
+Test: an additive field split by component with GAMG on each component
+solves the linear elasticity for both orderings, with three fields and
+close numbers of iterations, with the Krylov solvers of PETSc and of MFEM;
+an invalid value of Fields is refused (1 and 2 processes).
+---
+ docs/source/user_guide/linear_solvers.rst     |  34 +++++-
+ .../release_notes/release_notes-1.1.0.rst     |   7 +-
+ src/PETScLinearSolvers.cxx                    | 111 +++++++++++++++---
+ src/PETScSupport.cxx                          |  95 +++++++++++++++
+ src/PETScSupport.hxx                          |  38 ++++++
+ tests/PETScSolversTest.cxx                    |  69 +++++++++++
+ 6 files changed, 336 insertions(+), 18 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 3058b9f5f9..b1809159a8 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -211,7 +211,7 @@ The solvers marked as parallel are only available in parallel.
+      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
+        :cxx:`VerbosityLevel`, :cxx:`RelativeTolerance`,
+        :cxx:`AbsoluteTolerance`, :cxx:`MaximumNumberOfIterations`,
+-       :cxx:`Preconditioner`, :cxx:`RigidBodyModes`
++       :cxx:`Preconditioner`, :cxx:`RigidBodyModes`, :cxx:`Fields`
+    * - :cxx:`BelosSolver` (parallel)
+      - Trilinos
+      - iterative
+@@ -381,7 +381,7 @@ Preconditioners
+      - PETSc
+      - host
+      - :cxx:`Options` (see :ref:`petsc_linear_solvers`),
+-       :cxx:`RigidBodyModes`
++       :cxx:`RigidBodyModes`, :cxx:`Fields`
+    * - :cxx:`Ifpack2`, :cxx:`MueLu`, :cxx:`FROSch`,
+        :cxx:`Amesos2Preconditioner` (parallel)
+      - Trilinos
+@@ -622,6 +622,36 @@ splits by default by components). The nonlinear solver :cxx:`SNES` gives
+ them likewise to the tangent operator converted for the linear solvers of
+ PETSc (option :cxx:`RigidBodyModes` of :cxx:`SNES`).
+ 
++The option :cxx:`Fields` of :cxx:`PETScLinearSolver` and
++:cxx:`PETScPreconditioner` (:cxx:`None` by default) set to
++:cxx:`Components` gives the field split preconditioner of PETSc
++(:code:`pc_type fieldsplit`) one field per component of the unknowns,
++named after the index of the component: the rows of the true degrees of
++freedom of each component, whatever the ordering of the unknowns (by nodes
++or by vector dimension). Each field is configured by the options of PETSc
++with the prefix :code:`fieldsplit_<index>_`, for instance a block Jacobi
++method by component with an algebraic multigrid on each of them:
++
++.. code-block:: cpp
++
++   {"PETScPreconditioner",
++    Parameters{{"Options", Parameters{{"pc_type", "fieldsplit"},
++                                      {"pc_fieldsplit_type", "additive"},
++                                      {"fieldsplit_0_pc_type", "gamg"},
++                                      {"fieldsplit_1_pc_type", "gamg"},
++                                      {"fieldsplit_2_pc_type", "gamg"}}},
++               {"Fields", "Components"}}}
++
++The fields are only given to a field split preconditioner whose operator
++has the size of the finite element space (with another type of
++preconditioner, the option is ignored), and when the preconditioner of
++PETSc preconditions :cxx:`PETScLinearSolver`, the option of the
++preconditioner applies. The fields replace the splits which the options of
++PETSc would define (:code:`pc_fieldsplit_block_size`,
++:code:`pc_fieldsplit_<index>_fields`): with this option, the components
++can not be grouped in a field (for instance the first two components in
++one field of a Schur complement).
++
+ A preconditioner of mfem-mgis may be given by the :cxx:`Preconditioner`
+ parameter of :cxx:`PETScLinearSolver`:
+ 
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 3f6168a2a2..d847bc0d93 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -164,8 +164,11 @@ mfem-mgis can be given to :cxx:`PETScLinearSolver`, and
+ :cxx:`PETScPreconditioner` can be used by the Krylov solvers of |MFEM|.
+ For the linear elasticity, with the unknowns ordered by vector dimension,
+ the rigid body modes are given to the preconditioners of PETSc (GAMG).
+-They compute on the host, the matrices of hypre being copied without
+-initializing the GPU. See :ref:`petsc_linear_solvers`.
++The solvers of PETSc compute on the host, the matrices of hypre being
++copied without initializing the GPU. The :cxx:`Fields` option set to
++:cxx:`Components` gives the field split preconditioner of PETSc one field
++per component of the unknowns, whatever their ordering. See
++:ref:`petsc_linear_solvers`.
+ 
+ Linear solvers and preconditioners of Trilinos
+ ----------------------------------------------
+diff --git a/src/PETScLinearSolvers.cxx b/src/PETScLinearSolvers.cxx
+index 196f3855de..699dec469f 100644
+--- a/src/PETScLinearSolvers.cxx
++++ b/src/PETScLinearSolvers.cxx
+@@ -127,8 +127,31 @@ namespace mfem_mgis::internals {
+     void setRigidBodyModes(const PETScRigidBodyModes& m) {
+       this->rigid_body_modes = m;
+     }
++    /*!
++     * \brief compute the fields given to a field split preconditioner of
++     * PETSc (see `PETScComponentFields`)
++     * \param[in] fespace: finite element space
++     */
++    void initializeComponentFields(FiniteElementSpace<true>& fespace) {
++      this->component_fields.initialize(fespace);
++    }
++    /*!
++     * \brief set the fields given to a field split preconditioner of PETSc
++     * \param[in] f: fields
++     */
++    void setComponentFields(const PETScComponentFields& f) {
++      this->component_fields = f;
++    }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+       this->markAsUsed();
++      // the options of PETSc are applied before the fields are given to
++      // a field split preconditioner, which must precede its setup
++      this->Customize();
++      auto pc = PC{};
++      if (KSPGetPC(static_cast<KSP>(*this), &pc) != 0) {
++        mgis::raise("PETScKrylovSolver::Mult: KSPGetPC failed");
++      }
++      this->component_fields.attach(pc);
+       if (!mfem::Device::IsEnabled()) {
+         mfem::PetscLinearSolver::Mult(b, x);
+         return;
+@@ -148,7 +171,6 @@ namespace mfem_mgis::internals {
+       if (guess == PETSC_TRUE) {
+         copyToPETScVector(vx.v, x);
+       }
+-      this->Customize();
+       if (KSPSolve(ksp, vb.v, vx.v) != 0) {
+         mgis::raise("PETScKrylovSolver::Mult: KSPSolve failed");
+       }
+@@ -217,6 +239,8 @@ namespace mfem_mgis::internals {
+     mutable mfem::Vector shell_solution;
+     //! \brief rigid body modes given to the preconditioners of PETSc
+     PETScRigidBodyModes rigid_body_modes;
++    //! \brief fields given to a field split preconditioner of PETSc
++    PETScComponentFields component_fields;
+   };  // end of struct PETScKrylovSolver
+ 
+   //! \brief preconditioner of PETSc (`PC`) configured by the options database
+@@ -253,20 +277,39 @@ namespace mfem_mgis::internals {
+         const noexcept {
+       return this->rigid_body_modes;
+     }
++    /*!
++     * \brief compute the fields given to the preconditioner of PETSc, if
++     * it is a field split preconditioner (see `PETScComponentFields`)
++     * \param[in] fespace: finite element space
++     */
++    void initializeComponentFields(FiniteElementSpace<true>& fespace) {
++      this->component_fields.initialize(fespace);
++    }
++    /*!
++     * \return the fields given to the preconditioner, used by a Krylov
++     * solver of PETSc which it preconditions
++     */
++    [[nodiscard]] const PETScComponentFields& getComponentFields()
++        const noexcept {
++      return this->component_fields;
++    }
+     void Mult(const mfem::Vector& b, mfem::Vector& x) const override {
+       this->markAsUsed();
++      auto* const pc = static_cast<PC>(*this);
++      // the options of PETSc are applied before the fields are given to
++      // a field split preconditioner, which must precede its setup
++      this->Customize();
++      this->component_fields.attach(pc);
+       if (!mfem::Device::IsEnabled()) {
+         mfem::PetscPreconditioner::Mult(b, x);
+         return;
+       }
+       // see the description of this file
+-      auto* const pc = static_cast<PC>(*this);
+       auto vx = PETScVector{};
+       auto vb = PETScVector{};
+       createHostVector(vb, this->GetComm(), b.Size());
+       createHostVector(vx, this->GetComm(), x.Size());
+       copyToPETScVector(vb.v, b);
+-      this->Customize();
+       if ((PCSetUp(pc) != 0) || (PCApply(pc, vb.v, vx.v) != 0)) {
+         mgis::raise("PETScPreconditioner::Mult: PCApply failed");
+       }
+@@ -276,16 +319,43 @@ namespace mfem_mgis::internals {
+    private:
+     //! \brief rigid body modes given to the preconditioner
+     PETScRigidBodyModes rigid_body_modes;
++    //! \brief fields given to a field split preconditioner
++    PETScComponentFields component_fields;
+   };  // end of struct PETScPreconditioner
+ 
+   //! \return the options of the Krylov solver of PETSc
+   [[nodiscard]] static std::vector<std::string> getPETScKrylovSolverOptions() {
+     auto options = getIterativeSolverParametersList();
+     options.insert(options.end(),
+-                   {"Options", "Preconditioner", "RigidBodyModes"});
++                   {"Options", "Preconditioner", "RigidBodyModes", "Fields"});
+     return options;
+   }  // end of getPETScKrylovSolverOptions
+ 
++  /*!
++   * \return if the fields of the components of the unknowns are given to a
++   * field split preconditioner of PETSc (option `Fields`: `Components`, or
++   * `None`, the default), see `PETScComponentFields`
++   * \param[in, out] ctx: execution context
++   * \param[in] params: parameters
++   */
++  [[nodiscard]] static std::optional<bool> getComponentFieldsOption(
++      Context& ctx, const Parameters& params) {
++    const auto of =
++        get_if<std::string>(ctx, params, "Fields", std::string{"None"});
++    if (isInvalid(of)) {
++      return {};
++    }
++    if (*of == "Components") {
++      return true;
++    }
++    if (*of == "None") {
++      return false;
++    }
++    return ctx.registerErrorMessage("invalid value '" + *of +
++                                    "' of the option 'Fields' (expected "
++                                    "'Components' or 'None')");
++  }  // end of getComponentFieldsOption
++
+   /*!
+    * \return the generator of the Krylov solver of PETSc
+    * \param[in] d: description of the solver
+@@ -301,7 +371,8 @@ namespace mfem_mgis::internals {
+       const auto oopts =
+           get_if<Parameters>(ctx, params, "Options", Parameters{});
+       const auto orbm = get_if<bool>(ctx, params, "RigidBodyModes", true);
+-      if (isInvalid(oopts) || isInvalid(orbm)) {
++      const auto ofields = getComponentFieldsOption(ctx, params);
++      if (isInvalid(oopts) || isInvalid(orbm) || isInvalid(ofields)) {
+         return {};
+       }
+       initializePETSc();
+@@ -365,15 +436,21 @@ namespace mfem_mgis::internals {
+         }
+         s->SetPreconditioner(**oprec);
+       }
+-      // rigid body modes: a preconditioner of PETSc shares its object of
+-      // PETSc with the solver, which sets its operators: its own option
+-      // applies
++      // rigid body modes and fields: a preconditioner of PETSc shares its
++      // object of PETSc with the solver, which sets its operators: its own
++      // options apply
+       const auto* const pp =
+           dynamic_cast<const PETScPreconditioner*>(oprec->get());
+       if (pp != nullptr) {
+         s->setRigidBodyModes(pp->getRigidBodyModes());
+-      } else if (*orbm) {
+-        s->initializeRigidBodyModes(fespace);
++        s->setComponentFields(pp->getComponentFields());
++      } else {
++        if (*orbm) {
++          s->initializeRigidBodyModes(fespace);
++        }
++        if (*ofields) {
++          s->initializeComponentFields(fespace);
++        }
+       }
+       return LinearSolverHandler{std::move(s), std::move(*oprec)};
+     };
+@@ -384,19 +461,22 @@ namespace mfem_mgis::internals {
+    * \param[in, out] ctx: execution context
+    * \param[in] fespace: finite element space
+    * \param[in] opts: options (`Options`, the options of PETSc;
+-   * `RigidBodyModes`, true by default, see `PETScRigidBodyModes`)
++   * `RigidBodyModes`, true by default, see `PETScRigidBodyModes`; `Fields`,
++   * see `getComponentFieldsOption`)
+    */
+   [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
+   makePETScPreconditioner(Context& ctx,
+                           FiniteElementSpace<true>& fespace,
+                           const Parameters& opts) {
+     if (!checkParameters(
+-            ctx, opts, std::vector<std::string>{"Options", "RigidBodyModes"})) {
++            ctx, opts,
++            std::vector<std::string>{"Options", "RigidBodyModes", "Fields"})) {
+       return {};
+     }
+     const auto oopts = get_if<Parameters>(ctx, opts, "Options", Parameters{});
+     const auto orbm = get_if<bool>(ctx, opts, "RigidBodyModes", true);
+-    if (isInvalid(oopts) || isInvalid(orbm)) {
++    const auto ofields = getComponentFieldsOption(ctx, opts);
++    if (isInvalid(oopts) || isInvalid(orbm) || isInvalid(ofields)) {
+       return {};
+     }
+     initializePETSc();
+@@ -407,6 +487,9 @@ namespace mfem_mgis::internals {
+     if (*orbm) {
+       p->initializeRigidBodyModes(fespace);
+     }
++    if (*ofields) {
++      p->initializeComponentFields(fespace);
++    }
+     return p;
+   }  // end of makePETScPreconditioner
+ 
+@@ -430,7 +513,7 @@ namespace mfem_mgis::internals {
+                 .kind = LinearSolverKind::PRECONDITIONER,
+                 .placement = LinearSolverPlacement::HOST,
+                 .preconditioners = AcceptedPreconditioners::NONE,
+-                .options = {"Options", "RigidBodyModes"},
++                .options = {"Options", "RigidBodyModes", "Fields"},
+                 .description = "preconditioner of PETSc (PC), configured by "
+                                "the options of PETSc given by the 'Options' "
+                                "parameter"},
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+index 8ceb42526d..c27da8b37e 100644
+--- a/src/PETScSupport.cxx
++++ b/src/PETScSupport.cxx
+@@ -23,6 +23,8 @@
+ #include "petscsys.h"
+ #include "petscvec.h"
+ #include "petscmat.h"
++#include "petscpc.h"
++#include "petscis.h"
+ #include "mfem/fem/pfespace.hpp"
+ #include "mfem/linalg/hypre.hpp"
+ #include "MGIS/Raise.hxx"
+@@ -397,6 +399,99 @@ namespace mfem_mgis::internals {
+     }
+   }  // end of attach
+ 
++  void PETScComponentFields::initialize(FiniteElementSpace<true>& fespace) {
++    this->rows.clear();
++    this->size = static_cast<PetscInt>(fespace.GetTrueVSize());
++    const auto vdim = fespace.GetVDim();
++    if (vdim < 2) {
++      return;
++    }
++    const auto ndofs = fespace.GetNDofs();
++    const auto by_nodes = fespace.GetOrdering() == mfem::Ordering::byNODES;
++    const auto offset = static_cast<PetscInt>(fespace.GetMyTDofOffset());
++    // component of each true degree of freedom of the process, given by its
++    // local degree of freedom (the true degrees of freedom are a subset of
++    // the local ones)
++    auto components =
++        std::vector<int>(static_cast<std::size_t>(this->size), -1);
++    for (int ldof = 0; ldof != fespace.GetVSize(); ++ldof) {
++      const auto tdof = fespace.GetLocalTDofNumber(ldof);
++      if (tdof < 0) {
++        continue;
++      }
++      components[static_cast<std::size_t>(tdof)] =
++          by_nodes ? ldof / ndofs : ldof % vdim;
++    }
++    this->rows.resize(static_cast<std::size_t>(vdim));
++    for (std::size_t tdof = 0; tdof != components.size(); ++tdof) {
++      const auto c = components[tdof];
++      if ((c < 0) || (c >= vdim)) {
++        mgis::raise(
++            "PETScComponentFields::initialize: a true degree of freedom has "
++            "no component");
++      }
++      this->rows[static_cast<std::size_t>(c)].push_back(
++          offset + static_cast<PetscInt>(tdof));
++    }
++  }  // end of initialize
++
++  void PETScComponentFields::attach(PC pc) const {
++    if ((this->rows.empty()) || (pc == nullptr)) {
++      return;
++    }
++    auto fieldsplit = PetscBool{};
++    if (PetscObjectTypeCompare(reinterpret_cast<PetscObject>(pc), PCFIELDSPLIT,
++                               &fieldsplit) != 0) {
++      mgis::raise(
++          "PETScComponentFields::attach: PetscObjectTypeCompare failed");
++    }
++    if (fieldsplit == PETSC_FALSE) {
++      return;
++    }
++    // fields already given (by a previous call)
++    auto first = IS{};
++    if (PCFieldSplitGetIS(pc, "0", &first) != 0) {
++      mgis::raise("PETScComponentFields::attach: PCFieldSplitGetIS failed");
++    }
++    if (first != nullptr) {
++      return;
++    }
++    auto a = Mat{};
++    auto p = Mat{};
++    auto comm = MPI_Comm{};
++    auto nrows = PetscInt{};
++    auto ncolumns = PetscInt{};
++    if ((PCGetOperators(pc, &a, &p) != 0) ||
++        (PetscObjectGetComm(reinterpret_cast<PetscObject>(pc), &comm) != 0) ||
++        (MatGetLocalSize(p, &nrows, &ncolumns) != 0)) {
++      mgis::raise(
++          "PETScComponentFields::attach: the operator of the preconditioner "
++          "can't be described");
++    }
++    // the fields are only given to the operators of the finite element
++    // space, the decision being taken on all the processes
++    auto mismatch = static_cast<int>(nrows != this->size);
++    MPI_Allreduce(MPI_IN_PLACE, &mismatch, 1, MPI_INT, MPI_LOR, comm);
++    if (mismatch != 0) {
++      return;
++    }
++    for (std::size_t c = 0; c != this->rows.size(); ++c) {
++      const auto& r = this->rows[c];
++      auto is = IS{};
++      if (ISCreateGeneral(comm, static_cast<PetscInt>(r.size()), r.data(),
++                          PETSC_COPY_VALUES, &is) != 0) {
++        mgis::raise("PETScComponentFields::attach: ISCreateGeneral failed");
++      }
++      // the preconditioner keeps its own reference to the set
++      const auto name = std::to_string(c);
++      const auto status = PCFieldSplitSetIS(pc, name.c_str(), is);
++      ISDestroy(&is);
++      if (status != 0) {
++        mgis::raise("PETScComponentFields::attach: PCFieldSplitSetIS failed");
++      }
++    }
++  }  // end of attach
++
+ }  // end of namespace mfem_mgis::internals
+ 
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+index 916555cf9c..d2ea23f7ee 100644
+--- a/src/PETScSupport.hxx
++++ b/src/PETScSupport.hxx
+@@ -17,6 +17,7 @@
+ #include <mpi.h>
+ #include "petscvec.h"
+ #include "petscmat.h"
++#include "petscpc.h"
+ #include "mfem/linalg/vector.hpp"
+ #include "mfem/linalg/petsc.hpp"
+ #include "MFEMMGIS/MFEMForward.hxx"
+@@ -187,6 +188,43 @@ namespace mfem_mgis::internals {
+     std::vector<PetscScalar> coordinates;
+   };  // end of struct PETScRigidBodyModes
+ 
++  /*!
++   * \brief fields of the field split preconditioner of PETSc
++   * (`PCFIELDSPLIT`), one per component of the unknowns of a finite element
++   * space, named after the index of the component (`0`, `1`, ...): each
++   * field is the set of the rows of the true degrees of freedom of a
++   * component, whatever the ordering of the unknowns (`byNODES` or
++   * `byVDIM`). The options of PETSc then configure each field by the prefix
++   * `fieldsplit_<index>_` of the preconditioner (for instance
++   * `fieldsplit_0_pc_type`).
++   */
++  struct PETScComponentFields {
++    /*!
++     * \brief compute the rows of each component owned by the process
++     * \param[in] fespace: finite element space
++     */
++    void initialize(FiniteElementSpace<true>& fespace);
++    /*!
++     * \brief give the fields to a preconditioner of PETSc, if they are
++     * defined (see `initialize`), if the preconditioner is a field split
++     * preconditioner without fields, and if its operator has the size and
++     * the distribution of the finite element space (checked on all the
++     * processes). This method shall be called after the options of PETSc
++     * are applied and before the setup of the preconditioner.
++     * \param[in] pc: preconditioner
++     */
++    void attach(PC pc) const;
++
++   private:
++    /*!
++     * \brief global rows of the true degrees of freedom of the process, by
++     * component (empty if the fields are not defined)
++     */
++    std::vector<std::vector<PetscInt>> rows;
++    //! \brief number of true degrees of freedom of the process
++    PetscInt size = 0;
++  };  // end of struct PETScComponentFields
++
+ #endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+ 
+ }  // end of namespace mfem_mgis::internals
+diff --git a/tests/PETScSolversTest.cxx b/tests/PETScSolversTest.cxx
+index 385d3f045c..c8d0358464 100644
+--- a/tests/PETScSolversTest.cxx
++++ b/tests/PETScSolversTest.cxx
+@@ -560,6 +560,71 @@ static void checkRigidBodyModes(ElasticitySystem<true>& e1,
+         "option of the preconditioner");
+ }  // end of checkRigidBodyModes
+ 
++/*!
++ * \brief checks the fields of the field split preconditioner of PETSc, one
++ * per component of the unknowns (option `Fields` set to `Components`), for
++ * both orderings of the unknowns: an additive field split (block Jacobi by
++ * component) with GAMG on each component solves the linear elasticity, with
++ * close numbers of iterations for both orderings, and with three fields
++ * \param[in] e1: system, unknowns ordered by vector dimension
++ * \param[in] e2: system, unknowns ordered by nodes
++ */
++static void checkFieldSplit(ElasticitySystem<true>& e1,
++                            ElasticitySystem<true>& e2) {
++  using namespace mfem_mgis;
++  // the conjugate gradients stop on the norm of the preconditioned
++  // residual
++  const auto solved = [](const Resolution& r) {
++    return r.converged && (r.residual < 1e-5);
++  };
++  const auto options = Parameters{{"pc_type", "fieldsplit"},
++                                  {"pc_fieldsplit_type", "additive"},
++                                  {"fieldsplit_0_pc_type", "gamg"},
++                                  {"fieldsplit_1_pc_type", "gamg"},
++                                  {"fieldsplit_2_pc_type", "gamg"}};
++  auto ksp_options = options;
++  ksp_options.insert(may_throw, Parameters{{"ksp_type", "cg"}});
++  const auto parameters = Parameters{{"Options", ksp_options},
++                                     {"RelativeTolerance", 1e-8},
++                                     {"MaximumNumberOfIterations", 1000},
++                                     {"Fields", "Components"}};
++  const auto number_of_fields = [](const LinearSolverHandler& ls) {
++    auto pc = PC{};
++    auto n = PetscInt{};
++    auto* sub = static_cast<KSP*>(nullptr);
++    if ((KSPGetPC(getKSP(ls), &pc) != 0) ||
++        (PCFieldSplitGetSubKSP(pc, &n, &sub) != 0)) {
++      return PetscInt{-1};
++    }
++    PetscFree(sub);
++    return n;
++  };
++  auto s1 = generate(e1, "PETScLinearSolver", parameters);
++  const auto r1 = solve(e1, *(s1.linear_solver));
++  check(solved(r1) && (number_of_fields(s1) == 3),
++        "CG, field split by component: resolution (byVDIM)");
++  auto s2 = generate(e2, "PETScLinearSolver", parameters);
++  const auto r2 = solve(e2, *(s2.linear_solver));
++  check(solved(r2) && (number_of_fields(s2) == 3),
++        "CG, field split by component: resolution (byNODES)");
++  check(
++      std::abs(r1.iterations - r2.iterations) <= std::max(3, r1.iterations / 5),
++      "CG, field split by component: the ordering of the unknowns changes "
++      "the number of iterations");
++  // the preconditioner of PETSc with the Krylov solver of MFEM
++  auto cg = generate(
++      e2, "CGSolver",
++      Parameters{
++          {"RelativeTolerance", 1e-8},
++          {"MaximumNumberOfIterations", 1000},
++          {"Preconditioner",
++           Parameters{{"Name", "PETScPreconditioner"},
++                      {"Options", Parameters{{"Options", options},
++                                             {"Fields", "Components"}}}}}});
++  const auto r3 = solve(e2, *(cg.linear_solver));
++  check(solved(r3), "CGSolver, PETScPreconditioner (field split): resolution");
++}  // end of checkFieldSplit
++
+ /*!
+  * \brief checks that invalid options are refused
+  * \param[in] s: system
+@@ -581,6 +646,9 @@ static void checkInvalidOptions(LaplaceSystem<true>& s) {
+                             Parameters{{"Name", "HypreBoomerAMG"}}}},
+                 "can't be given to a solver with a preconditioner"),
+         "option of the preconditioner of PETSc not refused");
++  check(refused(Parameters{{"Fields", "Rows"}},
++                "invalid value 'Rows' of the option 'Fields'"),
++        "invalid value of the option 'Fields' not refused");
+ }  // end of checkInvalidOptions
+ 
+ int main(int argc, char** argv) {
+@@ -609,6 +677,7 @@ int main(int argc, char** argv) {
+     auto e1 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byVDIM);
+     auto e2 = ElasticitySystem<true>(beam, fec, mfem::Ordering::byNODES);
+     checkRigidBodyModes(e1, e2);
++    checkFieldSplit(e1, e2);
+     checkMatrixCopy(s, "Laplace equation");
+     checkMatrixCopy(e1, "linear elasticity");
+     // the solvers of PETSc compute on the host: when MFEM does too, they
+-- 
+2.43.0
+

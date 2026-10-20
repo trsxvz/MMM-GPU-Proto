@@ -6,7 +6,7 @@
 # usage: scripts/sync-mgis.sh
 set -eu
 PROTO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-BASE=e8ef4b4
+BASE=a30dbf5
 cd "$PROTO"
 if [ -n "$(git -C mgis status --porcelain --untracked-files=no)" ]; then
   echo "mgis/ has uncommitted changes" >&2

@@ -148,7 +148,13 @@ nvcc and clang sweeps 541 OK; matrix in
 of 09 and 12/10, the complete suite of TFEL was run again on 12/10
 (6970 tests, all green), not the matrix. After the rebase of 13/10 on
 `ff0959ece`, only TDLS and the `generic-parallel` tests of `cuda-nvcc`
-were run again.
+were run again. After the rebase of 20/10 of all the repositories on the
+official masters (TFEL `d24a5cfe8`, MGIS `a30dbf5`, mfem-mgis
+`5bbd5a6981`, mfem-mgis-examples `f256bd8`, mm-opera-hpc `f3fc124`): 6980
+tests of TFEL, 57 of MGIS, 360 of mfem-mgis, 25 of the examples, 9 of
+mm-opera-hpc and 143 of `cases/`, all green; the `-O3` matrix
+(`results/generic-parallel-tests-2026-10-20-rebase-O3.txt`), the sweeps
+and the suite of mfem-mgis on the GPU are run afterwards.
 
 The tracked sweeps in `results/compile-sweep-*-2026-10-06.tsv` give
 the state of the morning of 06/10: 504 OK, 36 blocking user codes, 1 call

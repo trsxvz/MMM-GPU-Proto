@@ -1,4 +1,4 @@
-From 1e379f96e3e19c8ecb27b437162ad85a50fc3525 Mon Sep 17 00:00:00 2001
+From 2ec289b1d826fa251a669c3aecdac13a3562a016 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 04:53:55 +0200
 Subject: [PATCH] Boundary conditions independent of the unknowns added to the
@@ -41,11 +41,11 @@ transient.
  ...niformImposedPressureBoundaryCondition.hxx |  21 ++
  src/AbstractBoundaryCondition.cxx             |  11 +
  ...onLinearEvolutionProblemImplementation.cxx |  72 ++++--
- src/UniformHeatSourceBoundaryCondition.cxx    |  52 ++++-
- ...niformImposedPressureBoundaryCondition.cxx |  52 ++++-
+ src/UniformHeatSourceBoundaryCondition.cxx    |  54 ++++-
+ ...niformImposedPressureBoundaryCondition.cxx |  54 ++++-
  tests/BatchIntegrationTest.cxx                | 211 ++++++++++++++++--
  tests/HeatTransferKernelsTest.cxx             |  33 ++-
- 11 files changed, 487 insertions(+), 43 deletions(-)
+ 11 files changed, 491 insertions(+), 43 deletions(-)
 
 diff --git a/docs/source/user_guide/boundary_conditions.rst b/docs/source/user_guide/boundary_conditions.rst
 index 64be10a304..ddf2b1120a 100644
@@ -110,10 +110,10 @@ index 826507b0fb..5b1cc14c3d 100644
      virtual ~AbstractBoundaryCondition();
    };
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index 7c2ede7b80..2613124f81 100644
+index 43ecd61e58..95942f4c93 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -121,7 +121,11 @@ namespace mfem_mgis {
+@@ -122,7 +122,11 @@ namespace mfem_mgis {
       * `OperatorJacobiSmoother` preconditioner, or with the
       * `AssembledOperator` preconditioner, built on the assembled tangent
       * operator; the non linear form must only contain the integrator of
@@ -126,7 +126,7 @@ index 7c2ede7b80..2613124f81 100644
       * behaviour integrators and meshes as for `GradientsComputation`, not
       * with PETSc; with the FBar formulation, whose stiffness matrices depend
       * on the current estimate of the solution, they require the gradients
-@@ -350,6 +354,14 @@ namespace mfem_mgis {
+@@ -347,6 +351,14 @@ namespace mfem_mgis {
      MultiMaterialNonLinearIntegrator* const mgis_integrator = nullptr;
      //! \brief registered boundary conditions
      std::vector<std::unique_ptr<AbstractBoundaryCondition>> boundary_conditions;
@@ -142,10 +142,10 @@ index 7c2ede7b80..2613124f81 100644
      PredictionPolicy prediction_policy;
      //! \brief modelling hypothesis
 diff --git a/include/MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx b/include/MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx
-index 31ca5bff7c..09d9202ee4 100644
+index 8e908bb46e..387e5a2276 100644
 --- a/include/MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx
 +++ b/include/MFEMMGIS/UniformHeatSourceBoundaryCondition.hxx
-@@ -133,6 +133,17 @@ namespace mfem_mgis {
+@@ -134,6 +134,17 @@ namespace mfem_mgis {
      [[nodiscard]] bool setup(Context& ctx,
                               const real t,
                               const real dt) noexcept override;
@@ -163,7 +163,7 @@ index 31ca5bff7c..09d9202ee4 100644
      //! \brief destructor
      ~UniformHeatSourceBoundaryCondition() override;
  
-@@ -151,6 +162,16 @@ namespace mfem_mgis {
+@@ -152,6 +163,16 @@ namespace mfem_mgis {
      mfem::Array<mfem_mgis::size_type> materials_markers;
      //! \brief function returning the value of the heat source
      std::function<real(const real)> qfct;
@@ -181,10 +181,10 @@ index 31ca5bff7c..09d9202ee4 100644
      UniformHeatSourceNonlinearFormIntegrator* const nfi = nullptr;
      //! \brief if the integrator must be freed by the destructor
 diff --git a/include/MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx b/include/MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx
-index f3a5c2df3e..27d3754461 100644
+index e449989f6a..f900cc7f2c 100644
 --- a/include/MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx
 +++ b/include/MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx
-@@ -136,6 +136,17 @@ namespace mfem_mgis {
+@@ -137,6 +137,17 @@ namespace mfem_mgis {
      [[nodiscard]] bool setup(Context& ctx,
                               const real t,
                               const real dt) noexcept override;
@@ -202,7 +202,7 @@ index f3a5c2df3e..27d3754461 100644
      //! \brief destructor
      ~UniformImposedPressureBoundaryCondition() override;
  
-@@ -154,6 +165,16 @@ namespace mfem_mgis {
+@@ -155,6 +166,16 @@ namespace mfem_mgis {
      mfem::Array<mfem_mgis::size_type> boundaries_markers;
      //! \brief function returning the value of the imposed pressure
      std::function<real(const real)> prfct;
@@ -242,7 +242,7 @@ index cc0412deb9..9c2c7c69d4 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 64a29f0dea..3cf99eb278 100644
+index a536ba5ab3..a2bd6650a9 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
 @@ -96,24 +96,32 @@ namespace mfem_mgis {
@@ -297,7 +297,7 @@ index 64a29f0dea..3cf99eb278 100644
      } catch (...) {
        std::ignore = registerExceptionInErrorBacktrace(ctx);
      }
-@@ -486,7 +497,8 @@ namespace mfem_mgis {
+@@ -489,7 +500,8 @@ namespace mfem_mgis {
          } else {
            B = b;
          }
@@ -307,7 +307,7 @@ index 64a29f0dea..3cf99eb278 100644
                                          *(kernels.inner_forces), B);
          // elimination in the local matrix, without prolongation
          const auto eliminateInLocalMatrix = [&X, &B, &edofs_list, &op, m] {
-@@ -730,7 +742,9 @@ namespace mfem_mgis {
+@@ -732,7 +744,9 @@ namespace mfem_mgis {
  
    void NonLinearEvolutionProblemImplementation<true>::Mult(
        const mfem::Vector& u, mfem::Vector& r) const {
@@ -318,7 +318,7 @@ index 64a29f0dea..3cf99eb278 100644
        mfem_mgis::NonlinearForm<true>::Mult(u, r);
        return;
      }
-@@ -738,16 +752,17 @@ namespace mfem_mgis {
+@@ -740,16 +754,17 @@ namespace mfem_mgis {
      // gives null contributions to the residual assembled by MFEM: the
      // assembly of MFEM is skipped if the form has no other integrator
      const auto only_mfem_mgis =
@@ -340,7 +340,7 @@ index 64a29f0dea..3cf99eb278 100644
    }  // end of Mult
  
    mfem::Operator& NonLinearEvolutionProblemImplementation<
-@@ -819,7 +834,13 @@ namespace mfem_mgis {
+@@ -821,7 +836,13 @@ namespace mfem_mgis {
      if (f.get() == nullptr) {
        return ctx.registerErrorMessage("invalid boundary condition");
      }
@@ -355,7 +355,7 @@ index 64a29f0dea..3cf99eb278 100644
        return false;
      }
      this->boundary_conditions.push_back(std::move(f));
-@@ -1091,21 +1112,24 @@ namespace mfem_mgis {
+@@ -1092,21 +1113,24 @@ namespace mfem_mgis {
  
    void NonLinearEvolutionProblemImplementation<false>::Mult(
        const mfem::Vector& u, mfem::Vector& r) const {
@@ -385,7 +385,7 @@ index 64a29f0dea..3cf99eb278 100644
    }  // end of Mult
  
    mfem::Operator& NonLinearEvolutionProblemImplementation<
-@@ -1173,7 +1197,13 @@ namespace mfem_mgis {
+@@ -1174,7 +1198,13 @@ namespace mfem_mgis {
      if (f.get() == nullptr) {
        return ctx.registerErrorMessage("invalid boundary condition");
      }
@@ -401,7 +401,7 @@ index 64a29f0dea..3cf99eb278 100644
      }
      this->boundary_conditions.push_back(std::move(f));
 diff --git a/src/UniformHeatSourceBoundaryCondition.cxx b/src/UniformHeatSourceBoundaryCondition.cxx
-index c3eb816166..ff31934ba4 100644
+index 471a9e17c7..21c6f9b405 100644
 --- a/src/UniformHeatSourceBoundaryCondition.cxx
 +++ b/src/UniformHeatSourceBoundaryCondition.cxx
 @@ -187,7 +187,8 @@ namespace mfem_mgis {
@@ -414,7 +414,7 @@ index c3eb816166..ff31934ba4 100644
      } catch (...) {
        std::ignore = registerExceptionInErrorBacktrace(ctx);
        success = false;
-@@ -267,6 +268,55 @@ namespace mfem_mgis {
+@@ -267,6 +268,57 @@ namespace mfem_mgis {
      return true;
    }  // end of addLinearFormIntegrators
  
@@ -430,7 +430,9 @@ index c3eb816166..ff31934ba4 100644
 +      if (!this->unit_heat_source_contribution_assembled) {
 +        // the linear form integrator of the prediction, for a unit heat
 +        // source, assembled on the host once
-+        auto &fed = *(this->finiteElementDiscretization);
++        // copy of the handle, which shares the discretization and gives
++        // access to its (non constant) finite element space
++        auto fed = this->finiteElementDiscretization;
 +        auto *const fes = [&fed]() -> mfem::FiniteElementSpace * {
 +#ifdef MFEM_USE_MPI
 +          if (fed.describesAParallelComputation()) {
@@ -471,7 +473,7 @@ index c3eb816166..ff31934ba4 100644
      if (this->shallFreeIntegrator) {
        delete this->nfi;
 diff --git a/src/UniformImposedPressureBoundaryCondition.cxx b/src/UniformImposedPressureBoundaryCondition.cxx
-index 55205803ce..86b8c9718a 100644
+index f4ea526aa6..b34854d907 100644
 --- a/src/UniformImposedPressureBoundaryCondition.cxx
 +++ b/src/UniformImposedPressureBoundaryCondition.cxx
 @@ -203,7 +203,8 @@ namespace mfem_mgis {
@@ -484,7 +486,7 @@ index 55205803ce..86b8c9718a 100644
      } catch (...) {
        std::ignore = registerExceptionInErrorBacktrace(ctx);
        success = false;
-@@ -283,6 +284,55 @@ namespace mfem_mgis {
+@@ -283,6 +284,57 @@ namespace mfem_mgis {
      return true;
    }  // end of addLinearFormIntegrators
  
@@ -500,7 +502,9 @@ index 55205803ce..86b8c9718a 100644
 +      if (!this->unit_pressure_contribution_assembled) {
 +        // the linear form integrator of the prediction, for a unit
 +        // pressure, assembled on the host once
-+        auto &fed = *(this->finiteElementDiscretization);
++        // copy of the handle, which shares the discretization and gives
++        // access to its (non constant) finite element space
++        auto fed = this->finiteElementDiscretization;
 +        auto *const fes = [&fed]() -> mfem::FiniteElementSpace * {
 +#ifdef MFEM_USE_MPI
 +          if (fed.describesAParallelComputation()) {
@@ -541,7 +545,7 @@ index 55205803ce..86b8c9718a 100644
        ~UniformImposedPressureBoundaryCondition() {
      if (this->shallFreeIntegrator) {
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 20d54c74e8..21cf370418 100644
+index 68688aad68..8630fea10d 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -13,9 +13,11 @@
@@ -665,7 +669,7 @@ index 20d54c74e8..21cf370418 100644
  /*!
   * \brief set the material axes of an orthotropic behaviour, rotated around
   * the z axis by an angle varying from one point to another
-@@ -437,6 +524,11 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -442,6 +529,11 @@ static Results compute(mfem_mgis::Context& ctx,
            or_die;
      }
    }
@@ -677,7 +681,7 @@ index 20d54c74e8..21cf370418 100644
    if (opts.prediction) {
      problem.setPredictionPolicy(
          {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
-@@ -1038,8 +1130,8 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -1043,8 +1135,8 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
  
  /*!
   * \brief a tangent operator applied without assembly is refused when the
@@ -688,7 +692,7 @@ index 20d54c74e8..21cf370418 100644
   * \param[in, out] ctx: execution context
   * \param[in] mesh: mesh
   * \param[in] library: behaviour library
-@@ -1082,10 +1174,17 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+@@ -1087,10 +1179,17 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
          ctx, {{"Boundary", boundary}, {"Component", component}}) |
          or_die;
    }
@@ -709,7 +713,7 @@ index 20d54c74e8..21cf370418 100644
        or_die;
    problem.setLinearSolver(
        ctx, "CGSolver",
-@@ -1107,7 +1206,7 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+@@ -1112,7 +1211,7 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
              (msg.find("requires that the non linear form only contains the "
                        "integrator of mfem-mgis") != std::string::npos),
          "a tangent operator applied without assembly with a boundary "
@@ -718,7 +722,7 @@ index 20d54c74e8..21cf370418 100644
              msg + ")");
  }  // end of testMatrixFreeRefusal
  
-@@ -1266,6 +1365,10 @@ int main(int argc, char** argv) {
+@@ -1271,6 +1370,10 @@ int main(int argc, char** argv) {
      }
      for (const auto* const b :
           {"IsotropicLinearHardeningPlasticity", "OrthotropicElasticity"}) {
@@ -729,7 +733,7 @@ index 20d54c74e8..21cf370418 100644
        cases.push_back({b,
                         {.prediction = true,
                          .pressure = true,
-@@ -1273,7 +1376,36 @@ int main(int argc, char** argv) {
+@@ -1278,7 +1381,36 @@ int main(int argc, char** argv) {
                          .inner_forces_kernels = true,
                          .tangent_operator_kernels = true},
                         ", pressure and prediction"});
@@ -766,7 +770,7 @@ index 20d54c74e8..21cf370418 100644
      cases.push_back({"IsotropicLinearHardeningPlasticity",
                       {.prediction = true,
                        .gradients_kernels = true,
-@@ -1366,24 +1498,60 @@ int main(int argc, char** argv) {
+@@ -1371,24 +1503,60 @@ int main(int argc, char** argv) {
                          .inner_forces_kernels = true,
                          .tangent_operator_kernels = true},
                         ", FBar, plane strain"});
@@ -834,7 +838,7 @@ index 20d54c74e8..21cf370418 100644
      cases.push_back({"SaintVenantKirchhoffElasticity",
                       {.fbar = true,
                        .prediction = true,
-@@ -1397,11 +1565,20 @@ int main(int argc, char** argv) {
+@@ -1402,11 +1570,20 @@ int main(int argc, char** argv) {
                        .prediction = true,
                        .pressure = true,
                        .gradients_kernels = true,
@@ -857,7 +861,7 @@ index 20d54c74e8..21cf370418 100644
                       {.fbar = true,
                        .prediction = true,
 diff --git a/tests/HeatTransferKernelsTest.cxx b/tests/HeatTransferKernelsTest.cxx
-index 59d9085cd4..8744a02b9a 100644
+index 59d9085cd4..9e6c8269f4 100644
 --- a/tests/HeatTransferKernelsTest.cxx
 +++ b/tests/HeatTransferKernelsTest.cxx
 @@ -13,12 +13,14 @@
@@ -907,7 +911,7 @@ index 59d9085cd4..8744a02b9a 100644
 +  if (c.heat_source) {
 +    problem.addBoundaryCondition(
 +        ctx, std::make_unique<UniformHeatSourceBoundaryCondition>(
-+                 problem.getFiniteElementDiscretizationPointer(), "M1",
++                 problem.getFiniteElementDiscretization(), "M1",
 +                 [](const real t) noexcept { return 1e4 * t; })) |
 +        or_die;
 +  }

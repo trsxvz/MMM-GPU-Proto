@@ -1,4 +1,4 @@
-From 0498312fc6aafc0c52ad270e9245245fd1756f7e Mon Sep 17 00:00:00 2001
+From c1b909a4649f23eb97f504556ebdc7bc18a90923 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 19:41:23 +0200
 Subject: [PATCH] Memory types: documentation, stricter test
@@ -85,10 +85,10 @@ index 9570462b11..f034217a5d 100644
     * (Umpire if MFEM is compiled with it). MFEM compiled with Umpire
     * otherwise allocates the memory of the host with Umpire too, which
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index ffa1406426..e2bc83ec46 100644
+index 3834246735..0c7dd25a99 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1304,7 +1304,8 @@ add_test(NAME DeviceOptionTest-debug-short
+@@ -1307,7 +1307,8 @@ add_test(NAME DeviceOptionTest-debug-short
           COMMAND DeviceOptionTest -dev debug --expected debug)
  # a device on the host or on a GPU, with the standard memory of the host
  # (MFEM compiled with Umpire allocates it with Umpire by default), unless

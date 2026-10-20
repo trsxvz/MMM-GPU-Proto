@@ -1,4 +1,4 @@
-From b7f31442c1fd3d8e3a4e7618371942f0405009e0 Mon Sep 17 00:00:00 2001
+From b412007bf3e5ba3d8ecd3fd0a1af8a6429ee0c6c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:40:45 +0200
 Subject: [PATCH] SNES on a GPU
@@ -376,10 +376,10 @@ index a3a326ea40..2e0fe424e1 100644
      auto new_options = this->options;
      if (contains(params, "Options")) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 7fe3662e38..9f4fe1a600 100644
+index a5e7815df5..10ce2d5f78 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1204,6 +1204,22 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1207,6 +1207,22 @@ if(MFEM_MGIS_HAVE_TFEL)
                       --library $<TARGET_FILE:BehaviourTest>)
      set_tests_properties(SNESSolverTestP PROPERTIES
        ENVIRONMENT OMP_NUM_THREADS=1 FAIL_REGULAR_EXPRESSION "check failed")
@@ -403,7 +403,7 @@ index 7fe3662e38..9f4fe1a600 100644
  
    # FixedPointSolverTest executable: fixed point solver (methods,
 diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
-index 97872c0f7d..0901d58822 100644
+index 46a6f9b276..6d1520d1b2 100644
 --- a/tests/SNESSolverTest.cxx
 +++ b/tests/SNESSolverTest.cxx
 @@ -8,7 +8,9 @@

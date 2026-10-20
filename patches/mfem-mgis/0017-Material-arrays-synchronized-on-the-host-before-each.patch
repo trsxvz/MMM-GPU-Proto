@@ -1,4 +1,4 @@
-From 75765bef8b15e689ec1dfd826c2365fae630c1dd Mon Sep 17 00:00:00 2001
+From 99f72d2880cba96ed9e1117728acc7f9f1a34cf7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:58:37 +0200
 Subject: [PATCH] Material: arrays synchronized on the host before each access
@@ -24,15 +24,15 @@ without the synchronization in `update`).
  include/MFEMMGIS/Material.hxx                 | 15 +++
  include/MFEMMGIS/MaterialArrays.hxx           |  6 ++
  .../MultiMaterialNonLinearIntegrator.hxx      |  5 +
- src/Material.cxx                              | 24 +++--
+ src/Material.cxx                              | 10 ++
  src/MaterialArrays.cxx                        | 16 ++++
  src/MultiMaterialNonLinearIntegrator.cxx      | 17 ++++
  ...onLinearEvolutionProblemImplementation.cxx | 20 ++++
  tests/MaterialArraysTest.cxx                  | 95 +++++++++++++++++++
- 8 files changed, 191 insertions(+), 7 deletions(-)
+ 8 files changed, 184 insertions(+)
 
 diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
-index 84d8b04c7b..b760e22ffa 100644
+index a8807c2fcd..96fe21ed6a 100644
 --- a/include/MFEMMGIS/Material.hxx
 +++ b/include/MFEMMGIS/Material.hxx
 @@ -78,6 +78,21 @@ namespace mfem_mgis {
@@ -75,10 +75,10 @@ index 6775ef0480..bb0c443172 100644
      ~MaterialArrays();
      //! \brief gradients, at the beginning and at the end of the time step
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index fe17b02657..ef7f0912e0 100644
+index c4b8f02839..c3b68efc50 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -182,6 +182,11 @@ namespace mfem_mgis {
+@@ -181,6 +181,11 @@ namespace mfem_mgis {
       * the time step.
       */
      void update();
@@ -91,79 +91,58 @@ index fe17b02657..ef7f0912e0 100644
       * \brief set the macroscopic gradients
       * \param[in] g: macroscopic gradients
 diff --git a/src/Material.cxx b/src/Material.cxx
-index f89c8555a2..5484ff5fbc 100644
+index 7047cefa74..855c40c3a8 100644
 --- a/src/Material.cxx
 +++ b/src/Material.cxx
-@@ -47,13 +47,13 @@ namespace mfem_mgis {
- 
-   Material::Material(std::shared_ptr<const PartialQuadratureSpace> s,
-                      std::unique_ptr<const Behaviour> b_ptr)
--      : MaterialArrays(
--            Material_dereferenceBehaviour(b_ptr),
--            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints()),
--        MaterialDataManager(
--            Material_dereferenceBehaviour(b_ptr),
--            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints(),
--            this->getInitializer()),
-+      : MaterialArrays(Material_dereferenceBehaviour(b_ptr),
-+                       Material_dereferenceQuadratureSpace(s)
-+                           .getNumberOfIntegrationPoints()),
-+        MaterialDataManager(Material_dereferenceBehaviour(b_ptr),
-+                            Material_dereferenceQuadratureSpace(s)
-+                                .getNumberOfIntegrationPoints(),
-+                            this->getInitializer()),
-         quadrature_space(s),
-         macroscopic_gradients(this->s1.gradients_stride, real(0)),
-         get_rotation_fct_ptr(this->b.symmetry ==
-@@ -283,6 +283,7 @@ namespace mfem_mgis {
+@@ -267,6 +267,7 @@ namespace mfem_mgis {
        Material &m,
        const std::string_view n,
        const Material::StateSelection s) noexcept {
 +    m.synchronizeOnHost();
-     return buildPartialQuadratureFunction(
-         ctx, m.getPartialQuadratureSpacePointer(),
-         getStateManager(m, s).gradients, m.b.gradients, n, m.b.hypothesis);
-@@ -293,6 +294,7 @@ namespace mfem_mgis {
+     return buildPartialQuadratureFunction(ctx, m.getPartialQuadratureSpace(),
+                                           getStateManager(m, s).gradients,
+                                           m.b.gradients, n, m.b.hypothesis);
+@@ -277,6 +278,7 @@ namespace mfem_mgis {
        const Material &m,
        const std::string_view n,
        const Material::StateSelection s) noexcept {
 +    m.synchronizeOnHostForReading();
      return buildImmutablePartialQuadratureFunctionView(
-         ctx, m.getPartialQuadratureSpacePointer(),
-         getStateManager(m, s).gradients, m.b.gradients, n, m.b.hypothesis);
-@@ -303,6 +305,7 @@ namespace mfem_mgis {
+         ctx, m.getPartialQuadratureSpace(), getStateManager(m, s).gradients,
+         m.b.gradients, n, m.b.hypothesis);
+@@ -287,6 +289,7 @@ namespace mfem_mgis {
        Material &m,
        const std::string_view n,
        const Material::StateSelection s) noexcept {
 +    m.synchronizeOnHost();
      return buildPartialQuadratureFunction(
-         ctx, m.getPartialQuadratureSpacePointer(),
+         ctx, m.getPartialQuadratureSpace(),
          getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
-@@ -314,6 +317,7 @@ namespace mfem_mgis {
+@@ -298,6 +301,7 @@ namespace mfem_mgis {
        const Material &m,
        const std::string_view n,
        const Material::StateSelection s) noexcept {
 +    m.synchronizeOnHostForReading();
      return buildImmutablePartialQuadratureFunctionView(
-         ctx, m.getPartialQuadratureSpacePointer(),
+         ctx, m.getPartialQuadratureSpace(),
          getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
-@@ -325,6 +329,7 @@ namespace mfem_mgis {
+@@ -309,6 +313,7 @@ namespace mfem_mgis {
        Material &m,
        const std::string_view n,
        const Material::StateSelection s) noexcept {
 +    m.synchronizeOnHost();
      return buildPartialQuadratureFunction(
-         ctx, m.getPartialQuadratureSpacePointer(),
+         ctx, m.getPartialQuadratureSpace(),
          getStateManager(m, s).internal_state_variables, m.b.isvs, n,
-@@ -336,6 +341,7 @@ namespace mfem_mgis {
+@@ -320,6 +325,7 @@ namespace mfem_mgis {
                             const Material &m,
                             const std::string_view n,
                             const Material::StateSelection s) noexcept {
 +    m.synchronizeOnHostForReading();
      return buildImmutablePartialQuadratureFunctionView(
-         ctx, m.getPartialQuadratureSpacePointer(),
+         ctx, m.getPartialQuadratureSpace(),
          getStateManager(m, s).internal_state_variables, m.b.isvs, n,
-@@ -344,6 +350,7 @@ namespace mfem_mgis {
+@@ -328,6 +334,7 @@ namespace mfem_mgis {
  
    std::optional<PartialQuadratureFunction> getStoredEnergy(
        Context &ctx, Material &m, const Material::StateSelection s) noexcept {
@@ -171,7 +150,7 @@ index f89c8555a2..5484ff5fbc 100644
      const auto &sm = getStateManager(m, s);
      if (!sm.b.computesStoredEnergy) {
        return ctx.registerErrorMessage(
-@@ -358,6 +365,7 @@ namespace mfem_mgis {
+@@ -342,6 +349,7 @@ namespace mfem_mgis {
        Context &ctx,
        const Material &m,
        const Material::StateSelection s) noexcept {
@@ -179,7 +158,7 @@ index f89c8555a2..5484ff5fbc 100644
      const auto &sm = getStateManager(m, s);
      if (!sm.b.computesStoredEnergy) {
        return ctx.registerErrorMessage(
-@@ -370,6 +378,7 @@ namespace mfem_mgis {
+@@ -354,6 +362,7 @@ namespace mfem_mgis {
  
    std::optional<PartialQuadratureFunction> getDissipatedEnergy(
        Context &ctx, Material &m, const Material::StateSelection s) noexcept {
@@ -187,7 +166,7 @@ index f89c8555a2..5484ff5fbc 100644
      const auto &sm = getStateManager(m, s);
      if (!sm.b.computesDissipatedEnergy) {
        return ctx.registerErrorMessage(
-@@ -384,6 +393,7 @@ namespace mfem_mgis {
+@@ -368,6 +377,7 @@ namespace mfem_mgis {
        Context &ctx,
        const Material &m,
        const Material::StateSelection s) noexcept {
@@ -223,10 +202,10 @@ index 63fd02b930..5ff090bf78 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 4f6b1403a3..4023224fd7 100644
+index dbc78e3be2..a179f5975e 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -491,7 +491,23 @@ namespace mfem_mgis {
+@@ -490,7 +490,23 @@ namespace mfem_mgis {
      return true;
    }  // end of setup
  
@@ -250,7 +229,7 @@ index 4f6b1403a3..4023224fd7 100644
      for (auto& bis : this->behaviour_integrators) {
        for (auto& bi : bis) {
          bi->revert();
-@@ -500,6 +516,7 @@ namespace mfem_mgis {
+@@ -499,6 +515,7 @@ namespace mfem_mgis {
    }  // end of revert
  
    void MultiMaterialNonLinearIntegrator::update() {
@@ -259,10 +238,10 @@ index 4f6b1403a3..4023224fd7 100644
        for (auto& bi : bis) {
          bi->update();
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 7c25ed4872..1e0dac7c98 100644
+index 6e21c7f71a..1749871da8 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -442,6 +442,10 @@ namespace mfem_mgis {
+@@ -444,6 +444,10 @@ namespace mfem_mgis {
    bool
    NonLinearEvolutionProblemImplementation<true>::executeInitialPostProcessings(
        Context& ctx, const real t) noexcept {
@@ -273,7 +252,7 @@ index 7c25ed4872..1e0dac7c98 100644
      for (auto& p : this->postprocessings) {
        if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
          if (!p->executeInitialPostProcessing(ctx, *this, t)) {
-@@ -454,6 +458,10 @@ namespace mfem_mgis {
+@@ -456,6 +460,10 @@ namespace mfem_mgis {
  
    bool NonLinearEvolutionProblemImplementation<true>::executePostProcessings(
        Context& ctx, const real t, const real dt) noexcept {
@@ -284,7 +263,7 @@ index 7c25ed4872..1e0dac7c98 100644
      auto success = true;
      for (auto& p : this->postprocessings) {
        if (!p->execute(ctx, *this, t, dt)) {
-@@ -489,6 +497,8 @@ namespace mfem_mgis {
+@@ -491,6 +499,8 @@ namespace mfem_mgis {
      if (this->mgis_integrator == nullptr) {
        return true;
      }
@@ -293,7 +272,7 @@ index 7c25ed4872..1e0dac7c98 100644
      const auto dt = this->mgis_integrator->getTimeIncrement();
      if (odt.has_value()) {
        this->mgis_integrator->setTimeIncrement(*odt);
-@@ -650,6 +660,10 @@ namespace mfem_mgis {
+@@ -651,6 +661,10 @@ namespace mfem_mgis {
    bool
    NonLinearEvolutionProblemImplementation<false>::executeInitialPostProcessings(
        Context& ctx, const real t) noexcept {
@@ -304,7 +283,7 @@ index 7c25ed4872..1e0dac7c98 100644
      for (auto& p : this->postprocessings) {
        if (!p->hasExecuteInitialPostProcessingAlreadyBeenCalled()) {
          if (!p->executeInitialPostProcessing(ctx, *this, t)) {
-@@ -662,6 +676,10 @@ namespace mfem_mgis {
+@@ -663,6 +677,10 @@ namespace mfem_mgis {
  
    bool NonLinearEvolutionProblemImplementation<false>::executePostProcessings(
        Context& ctx, const real t, const real dt) noexcept {
@@ -315,7 +294,7 @@ index 7c25ed4872..1e0dac7c98 100644
      auto success = true;
      for (auto& p : this->postprocessings) {
        if (!p->execute(ctx, *this, t, dt)) {
-@@ -719,6 +737,8 @@ namespace mfem_mgis {
+@@ -720,6 +738,8 @@ namespace mfem_mgis {
      if (this->mgis_integrator == nullptr) {
        return true;
      }
@@ -325,7 +304,7 @@ index 7c25ed4872..1e0dac7c98 100644
      if (odt.has_value()) {
        this->mgis_integrator->setTimeIncrement(*odt);
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 368282ecbd..f0ae52ace7 100644
+index cf203a4d33..4ce42c2a22 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -18,6 +18,7 @@

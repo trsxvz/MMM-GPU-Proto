@@ -1,4 +1,4 @@
-From b81e65443c539e23aa3da0a37b58d947861ffa97 Mon Sep 17 00:00:00 2001
+From 377fe82ecca0f3cf680d2d7558daef262a051de9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 19:08:55 +0200
 Subject: [PATCH] Rigid body modes of PETSc: remarks of the review
@@ -81,7 +81,7 @@ index cf927833a0..e0fe5a66b3 100644
  With a GPU, SNES and the solvers of :code:`PETSc` compute on the host: the
  functions called by :code:`PETSc` copy its vectors from and to the vectors
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index f5271d5378..b555735006 100644
+index 5bd9ffae66..ffb2cecc21 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -146,8 +146,9 @@ parameter, and give access to the Krylov solvers and to most
@@ -444,7 +444,7 @@ index de68211eb5..79f193bdcd 100644
  
  /*!
 diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
-index 54ba7d29b5..1b676437af 100644
+index 67ca0ea6db..7676e65d3d 100644
 --- a/tests/SNESSolverTest.cxx
 +++ b/tests/SNESSolverTest.cxx
 @@ -9,7 +9,9 @@

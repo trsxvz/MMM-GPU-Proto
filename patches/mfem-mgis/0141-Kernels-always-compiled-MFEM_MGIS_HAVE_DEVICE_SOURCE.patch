@@ -1,4 +1,4 @@
-From 6efaf38e0c2157247a17954cea133a83a834edb8 Mon Sep 17 00:00:00 2001
+From 9320d7a4930b71d8e2998b07e5ff264deed609a8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 15:49:58 +0200
 Subject: [PATCH] Kernels always compiled: MFEM_MGIS_HAVE_DEVICE_SOURCES and
@@ -40,10 +40,10 @@ index 4f28470cf0..e7a9899556 100644
     * \brief computes the derivatives of the unknowns at the points of an
     * integration rule, for all the elements of the mesh: element
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-index 40216300cf..ff65f2031a 100644
+index 625f6ac89b..c1e545e662 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-@@ -543,9 +543,6 @@ namespace mfem_mgis {
+@@ -542,9 +542,6 @@ namespace mfem_mgis {
        const noexcept {
      // deformation gradient in 3D or in plane strain, computed by the
      // kernels as by the FBar behaviour integrator
@@ -72,7 +72,7 @@ index 7ca8339f75..10eff5ce17 100644
      [[nodiscard]] bool supportsKernels() const noexcept override;
      //! \return the integration rule of the center of the elements
 diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
-index 89578579fe..9f941d356d 100644
+index 162262ef0b..f86bc4599f 100644
 --- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
 +++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
 @@ -237,9 +237,6 @@ namespace mfem_mgis {
@@ -86,7 +86,7 @@ index 89578579fe..9f941d356d 100644
        const auto k = batch::getGradientsKind(this->b);
        constexpr auto expected =
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index 1fe0eb46c2..96e30354d3 100644
+index 0e5e357a12..755ffe26a0 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -234,9 +234,6 @@ namespace mfem_mgis {

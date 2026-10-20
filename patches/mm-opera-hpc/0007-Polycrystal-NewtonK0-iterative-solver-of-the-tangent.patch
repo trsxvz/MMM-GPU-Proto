@@ -1,4 +1,4 @@
-From caebab6ff3103379fb2a6e5db35bfa42a28d38fc Mon Sep 17 00:00:00 2001
+From 953f8bc8fcfa1ac67fafefb50da5ba51d184afa5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:54:07 +0200
 Subject: [PATCH] Polycrystal: NewtonK0, iterative solver of the tangent
@@ -11,10 +11,10 @@ names an iterative solver of the factory of the linear solvers (CGSolver).
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 037c653..7bf5780 100644
+index cefab60..6f4e9b8 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
-@@ -176,7 +176,7 @@ int main(int argc, char *argv[]) {
+@@ -177,7 +177,7 @@ int main(int argc, char *argv[]) {
    if (std::string_view{p.non_linear_solver} == "NewtonK0") {
      // the behaviour does not provide its prediction operator: the elastic
      // operator is given by an integration
@@ -23,7 +23,7 @@ index 037c653..7bf5780 100644
          {"RelativeTolerance", p.linear_solver_tolerance},
          {"MaximumNumberOfIterations", 2000}};
      const auto options = mfem_mgis::Parameters{
-@@ -184,7 +184,8 @@ int main(int argc, char *argv[]) {
+@@ -185,7 +185,8 @@ int main(int argc, char *argv[]) {
          {"ElasticOperatorComputation", "Integration"},
          {"ElasticOperatorUpdate", "Once"},
          {"ElasticOperatorLinearSolver", "HypreBoomerAMG"},

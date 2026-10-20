@@ -1,4 +1,4 @@
-From eb64f4ed476f4d6287076bccdb6396936294cc87 Mon Sep 17 00:00:00 2001
+From d591b18bf9c446cd635d6404c20835f0bedfb368 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] BatchIntegrationTest: FBar refusal test, order of the
@@ -20,7 +20,7 @@ Subject: [PATCH] BatchIntegrationTest: FBar refusal test, order of the
  1 file changed, 37 insertions(+), 12 deletions(-)
 
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 6838717aee..c5e2c0d51a 100644
+index 64aad8f130..25b46afadf 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -157,13 +157,18 @@ struct ComputationOptions {
@@ -44,7 +44,7 @@ index 6838717aee..c5e2c0d51a 100644
  };
  
  /*!
-@@ -297,10 +302,10 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -302,10 +307,10 @@ static Results compute(mfem_mgis::Context& ctx,
        opts.matrix_free
            ? "MatrixFree"
            : (opts.tangent_operator_kernels ? "Kernels" : "ElementByElement");
@@ -57,7 +57,7 @@ index 6838717aee..c5e2c0d51a 100644
                               : Parameters{{"Cube", 1}};
    // plane strain: the mesh of the unit square, boundaries x = 0 (2), y = 0
    // (5) and x = 1 (4)
-@@ -482,12 +487,13 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -487,12 +492,13 @@ static Results compute(mfem_mgis::Context& ctx,
                              {}) |
          or_die;
    }
@@ -76,7 +76,7 @@ index 6838717aee..c5e2c0d51a 100644
          or_die;
    };
    setMaximumNumberOfIterations(20);
-@@ -620,6 +626,17 @@ static void compare(const Results& r1,
+@@ -625,6 +631,17 @@ static void compare(const Results& r1,
      }
      check(close, name + ": numbers of iterations");
    }
@@ -94,7 +94,7 @@ index 6838717aee..c5e2c0d51a 100644
  }  // end of compare
  
  /*!
-@@ -957,7 +974,7 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -962,7 +979,7 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
                {"FiniteElementFamily", "H1"},
                {"FiniteElementOrder", 1},
                {"UnknownsSize", 3},
@@ -103,7 +103,7 @@ index 6838717aee..c5e2c0d51a 100644
                {"Materials", Parameters{{"Cube", 1}}},
                {"Boundaries",
                 Parameters{{"Ymin", 1}, {"Zmin", 2}, {"Xmax", 3}, {"Xmin", 5}}},
-@@ -971,6 +988,11 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -976,6 +993,11 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
        ctx, "Mechanics", "Cube", library, "SaintVenantKirchhoffElasticity",
        {{"Regularization", Parameters{{"FBar", Parameters{}}}}}) |
        or_die;
@@ -115,7 +115,7 @@ index 6838717aee..c5e2c0d51a 100644
    for (const auto& [boundary, component] :
         {std::pair{"Xmin", 0}, std::pair{"Ymin", 1}, std::pair{"Zmin", 2}}) {
      problem.addUniformDirichletBoundaryCondition(
-@@ -1323,14 +1345,17 @@ int main(int argc, char** argv) {
+@@ -1328,14 +1350,17 @@ int main(int argc, char** argv) {
                          .tangent_operator_kernels = true},
                         ", FBar, plane strain"});
        // imposed pressure: the boundary integrator requires the stiffness

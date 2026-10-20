@@ -1,4 +1,4 @@
-From 911fc7d49f563b1e67aa8511fb42046553ed508c Mon Sep 17 00:00:00 2001
+From 0a4a58c353aacb96ea94247f934a6febee833159 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 14:53:35 +0200
 Subject: [PATCH] Execution settings: fixes of a second independent review
@@ -211,10 +211,10 @@ index 652453d31c..1092af2f76 100644
     */
    struct ExecutionSettings {
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index 5bb76bf27d..3c251b9154 100644
+index 402e11699b..2177356937 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -409,14 +409,22 @@ namespace mfem_mgis {
+@@ -406,14 +406,22 @@ namespace mfem_mgis {
      //! \brief modelling hypothesis
      const Hypothesis hypothesis;
      /*!
@@ -331,10 +331,10 @@ index d63b055725..f96c4eb8ed 100644
    }  // end of isNoPreconditioner
  
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index d3f20910fd..78f5061462 100644
+index 507c12d8c0..b6ff8a51d5 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -220,6 +220,11 @@ namespace mfem_mgis {
+@@ -219,6 +219,11 @@ namespace mfem_mgis {
              buildMultiMaterialNonLinearIntegrator(throwing, fed, h, p)),
          hypothesis(h),
          batch_integration(useBatchIntegration(throwing, p)),
@@ -346,7 +346,7 @@ index d3f20910fd..78f5061462 100644
          gradients_kernels(useKernels(
              throwing,
              p,
-@@ -543,7 +548,20 @@ namespace mfem_mgis {
+@@ -532,7 +537,20 @@ namespace mfem_mgis {
    }  // end of getBoundaryConditions
  
    void NonLinearEvolutionProblemImplementationBase::
@@ -360,7 +360,7 @@ index d3f20910fd..78f5061462 100644
 +        const auto supported =
 +            (this->mgis_integrator == nullptr) ||
 +            (this->mgis_integrator->checkBatchIntegrationSupport(ctx));
-+        if (!isTrueOnAllProcesses(*(this->fe_discretization), supported)) {
++        if (!isTrueOnAllProcesses(this->fe_discretization, supported)) {
 +          this->batch_integration = false;
 +        }
 +      }
@@ -368,7 +368,7 @@ index d3f20910fd..78f5061462 100644
      if (!this->optional_finite_elements_kernels) {
        return;
      }
-@@ -568,13 +586,13 @@ namespace mfem_mgis {
+@@ -557,13 +575,13 @@ namespace mfem_mgis {
        this->mgis_integrator->setInnerForcesComputedByKernels(false);
        this->mgis_integrator->setStiffnessMatricesComputedByKernels(false);
      }
@@ -385,10 +385,10 @@ index d3f20910fd..78f5061462 100644
        if (this->initialization_phase) {
          if (!this->dirichlet_boundary_conditions.empty()) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9f428e7d84..bf26a703a2 100644
+index 4d2273e40e..5bf77c1b77 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1235,9 +1235,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1238,9 +1238,14 @@ if(MFEM_MGIS_HAVE_TFEL)
        # behaviour libraries for the CPU and, if MFEM uses a GPU, for the
        # GPU, chosen by getBehavioursLibrary
        include(${PROJECT_SOURCE_DIR}/cmake/modules/MFEMMGISBehaviours.cmake)
@@ -404,7 +404,7 @@ index 9f428e7d84..bf26a703a2 100644
        add_dependencies(build-tests ExecutionSettingsBehaviours)
        set(execution_settings_test_arguments
            --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
-@@ -1290,6 +1295,12 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1293,6 +1298,12 @@ if(MFEM_MGIS_HAVE_TFEL)
        add_execution_settings_refusal_test(
          cpu-device "the device 'cuda' uses a GPU, which contradicts"
          --execution cpu --device cuda)
@@ -418,7 +418,7 @@ index 9f428e7d84..bf26a703a2 100644
          # refused before any use of the GPU
          add_execution_settings_refusal_test(
 diff --git a/tests/ExecutionSettingsTest.cxx b/tests/ExecutionSettingsTest.cxx
-index cdbc105b05..129a9a1130 100644
+index cdbc105b05..aaa30cf05b 100644
 --- a/tests/ExecutionSettingsTest.cxx
 +++ b/tests/ExecutionSettingsTest.cxx
 @@ -12,6 +12,7 @@
@@ -492,7 +492,7 @@ index cdbc105b05..129a9a1130 100644
 +      const mfem_mgis::size_type m,
 +      std::unique_ptr<const mfem_mgis::Behaviour> behaviour)
 +      : mfem_mgis::BehaviourIntegratorBase(
-+            std::make_shared<mfem_mgis::PartialQuadratureSpace>(
++            mfem_mgis::PartialQuadratureSpace(
 +                fed,
 +                mfem_mgis::MaterialIdentifier{.id = m},
 +                selectIntegrationRule),

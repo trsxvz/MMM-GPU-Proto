@@ -1,4 +1,4 @@
-From 89c9680e9a8f21c3fc4420ce096a430ef0028457 Mon Sep 17 00:00:00 2001
+From a59bb63222c3a42df5851257bb177a7f31924c8a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:04:36 +0200
 Subject: [PATCH] Fixed point solver with acceleration algorithms (FixedPoint)
@@ -1214,10 +1214,10 @@ index 0000000000..3bf93a00fb
 +
 +}  // end of namespace mfem_mgis
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index d502561eb0..a0f8d9ab99 100644
+index daa89de46f..54cdd7005b 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -529,6 +529,25 @@ namespace mfem_mgis {
+@@ -542,6 +542,25 @@ namespace mfem_mgis {
  
  #ifdef MFEM_USE_MPI
  
@@ -1243,7 +1243,7 @@ index d502561eb0..a0f8d9ab99 100644
    [[nodiscard]] static std::function<LinearSolverHandler(
        Context&, FiniteElementSpace<true>&, const Parameters&)>
    buildHyprePCGSolverGenerator() {
-@@ -877,6 +896,7 @@ namespace mfem_mgis {
+@@ -890,6 +909,7 @@ namespace mfem_mgis {
        check(f.add(ctx, "MUMPSSolver", buildMUMPSSolverGenerator()));
  #endif
        check(f.add(ctx, "HyprePCG", buildHyprePCGSolverGenerator()));
@@ -1356,10 +1356,10 @@ index 3c88090d56..ad6b73d56b 100644
  
    bool NonLinearSolverFactory::add(
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 470eba8005..e4f387d01f 100644
+index 98810b7131..2281f2cca4 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -868,6 +868,23 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -871,6 +871,23 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endif()
  

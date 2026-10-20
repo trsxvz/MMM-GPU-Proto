@@ -2,7 +2,7 @@
  * \file   tfel-check/include/TFEL/Check/Configuration.hxx
  * \brief
  * \author Thomas Helfer
- * \date   13/09/2017
+ * \date 13/09/2017
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -36,6 +36,18 @@ namespace tfel::check {
     Configuration& operator=(Configuration&&) noexcept;
     //! \brief standard assignement
     Configuration& operator=(const Configuration&);
+    /*!
+     * \brief boolean stating if the generated files and directories listed by
+     * the @CleanFiles and @CleanDirectories keywords shall not be removed in
+     * case of the failure
+     */
+    bool discard_clean_up_on_failure = true;
+    /*!
+     * \brief boolean stating if the generated files and directories listed by
+     * the @CleanFiles and @CleanDirectories keywords must be removed.
+     * This option is only considered in case of success.
+     */
+    bool clean_up = true;
     /*!
      * \brief discard command's failure if comparisons are ok.
      * \note If no comparisons is declared, command's failure is never ignored.

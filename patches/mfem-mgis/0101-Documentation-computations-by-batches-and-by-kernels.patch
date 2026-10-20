@@ -1,4 +1,4 @@
-From 7130c9f5219210915fa5119537c7c4f13e680804 Mon Sep 17 00:00:00 2001
+From b1439f1a19f30d854b8b8dd24024062d16109f3a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 12:09:10 +0200
 Subject: [PATCH] Documentation: computations by batches and by kernels, fixed
@@ -662,7 +662,7 @@ index 0000000000..d3ad43b085
 +- :code:`AmgX` requires :code:`MFEM` compiled with :code:`CUDA`; the matrix
 +  is uploaded from the host at each setup of its solvers.
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index 3bab8993e3..4574b59c7f 100644
+index 98d7ad1253..155ef58149 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
 @@ -418,8 +418,9 @@ Setup Your Preconditioner
@@ -677,7 +677,7 @@ index 3bab8993e3..4574b59c7f 100644
  
  Algebraic MultiGrid (AMG) 
  -------------------------
-@@ -613,6 +614,48 @@ essential degrees of freedom shall be eliminated with a diagonal set to one.
+@@ -618,6 +619,48 @@ essential degrees of freedom shall be eliminated with a diagonal set to one.
          {"Name", "OperatorChebyshevSmoother"},
          {"Options", mfem_mgis::Parameters{{"Order", 3}}}};
  

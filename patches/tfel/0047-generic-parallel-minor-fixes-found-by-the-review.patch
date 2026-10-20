@@ -1,0 +1,333 @@
+From 8ff39b1305c8902e3d313422ff06630a43048ed3 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 16:03:50 +0200
+Subject: [PATCH] generic-parallel: minor fixes found by the review
+
+- The output status is initialized before reporting a null batch.
+- Models pass their default out of bounds policy, which they apply
+  themselves, instead of a misleading `None` policy.
+- `GenTypeBase` is restored: it is not used in device code since the
+  tangent operators of finite strain behaviours rely on
+  `TrivialGenTypeBase`.
+- `callAndReportExceptions` gets an overload without exception handler.
+- The Runge-Kutta DSLs use `makeHostAndDeviceCode`.
+- Removal of an orphan comment and of an empty list in `tfel.cmake`. The
+  prefixes of the generated names are explained.
+---
+ cmake/modules/tfel.cmake                      |  9 +--
+ include/TFEL/Utilities/GenTypeBase.hxx        | 56 +++++--------------
+ .../MFront/GenericBehaviour/Integrate.hxx     | 18 +++++-
+ .../ModelIntegrator.hxx                       | 10 ++--
+ .../src/GenericParallelBehaviourInterface.cxx | 15 ++---
+ mfront/src/GenericParallelModelInterface.cxx  |  8 ++-
+ mfront/src/RungeKuttaDSLBase.cxx              | 16 +++---
+ 7 files changed, 55 insertions(+), 77 deletions(-)
+
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index 301611a9a..957699c6f 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -550,9 +550,6 @@ set(_tfel-generic-parallel_supported_configurations
+     "openmp-host-gcc"
+     "openmp-offload-nvhpc-gpu")
+ 
+-# configurations only supported by the behaviours
+-set(_tfel-generic-parallel_behaviours_only_configurations)
+-
+ foreach(conf ${generic-parallel-configurations})
+   if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
+     message(FATAL_ERROR "unsupported configuration '${conf}' for the tests of the generic-parallel interface. "
+@@ -560,10 +557,8 @@ foreach(conf ${generic-parallel-configurations})
+   endif()
+   set(_tfel-enable-generic-parallel-${conf}-configuration ON)
+   if(NOT ${conf} STREQUAL "hip-clang")
+-    if(NOT "${conf}" IN_LIST _tfel-generic-parallel_behaviours_only_configurations)
+-      list(APPEND tfel-check-components
+-           "mfront::material_property::generic-parallel_interface::supported_configuration::${conf}")
+-    endif()
++    list(APPEND tfel-check-components
++         "mfront::material_property::generic-parallel_interface::supported_configuration::${conf}")
+     list(APPEND tfel-check-components
+          "mfront::behaviour::generic-parallel_interface::supported_configuration::${conf}")
+   endif()
+diff --git a/include/TFEL/Utilities/GenTypeBase.hxx b/include/TFEL/Utilities/GenTypeBase.hxx
+index d794c260c..7fd464155 100644
+--- a/include/TFEL/Utilities/GenTypeBase.hxx
++++ b/include/TFEL/Utilities/GenTypeBase.hxx
+@@ -133,8 +133,7 @@ namespace tfel::utilities {
+     GenTypeBase(const GenTypeBase&) = default;
+     //! \brief constructor from a value
+     template <typename T1>
+-    TFEL_HOST_DEVICE explicit(false) GenTypeBase(T1&& value)
+-      requires(isValidType<T1>)
++    explicit(false) GenTypeBase(T1&& value) requires(isValidType<T1>)
+         : variant(std::forward<T1>(value)) {}
+     // \brief assignement operator
+     GenTypeBase& operator=(GenTypeBase&&) = default;
+@@ -142,14 +141,12 @@ namespace tfel::utilities {
+     GenTypeBase& operator=(const GenTypeBase&) = default;
+     // \brief assignement operator from a value
+     template <typename T1>
+-    TFEL_HOST_DEVICE GenTypeBase& operator=(T1&& value)
+-      requires(isValidType<T1>)
+-    {
++    GenTypeBase& operator=(T1&& value) requires(isValidType<T1>) {
+       variant::operator=(std::forward<T1>(value));
+       return *this;
+     }
+     //! \return true if empty
+-    [[nodiscard]] TFEL_HOST_DEVICE bool empty() const {
++    [[nodiscard]] bool empty() const {
+       return std::holds_alternative<std::monostate>(*this);
+     }
+     /*!
+@@ -166,62 +163,37 @@ namespace tfel::utilities {
+      * \pre   T1 must be a type that the GenType can hold.
+      */
+     template <typename T1>
+-    TFEL_HOST_DEVICE TFEL_INLINE void set(T1&& src)
+-      requires(isValidType<T1>)
+-    {
++    TFEL_INLINE void set(T1&& src) requires(isValidType<T1>) {
+       this->operator=(std::forward<T1>(src));
+     }
+     //
+     template <typename T1>
+-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_INLINE bool is() const
+-      requires(isValidType<T1>)
+-    {
++    [[nodiscard]] TFEL_INLINE bool is() const requires(isValidType<T1>) {
+       return std::holds_alternative<T1>(*this);
+     }
+-    /*!
+-     * \return the value hold by the `GenTypeBase`.
+-     * \note the type of the value is only checked on the host (an exception
+-     * is thrown if the value is not of the given type).
+-     */
++    //! \return the value hold by the `GenTypeBase`.
+     template <typename T1>
+-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_INLINE const T1& get() const
+-      requires(isValidType<T1>)
+-    {
+-#ifndef TFEL_DEVICE_CODE
++    [[nodiscard]] TFEL_INLINE const T1& get() const requires(isValidType<T1>) {
+       tfel::raise_if<GenTypeCastError>(!this->template is<T1>());
+-#endif /* TFEL_DEVICE_CODE */
+-      return *(std::get_if<T1>(static_cast<const variant*>(this)));
++      return std::get<T1>(*this);
+     }
+-    /*!
+-     * \return the value hold by the `GenTypeBase`.
+-     * \note the type of the value is only checked on the host (an exception
+-     * is thrown if the value is not of the given type).
+-     */
++    //! \return the value hold by the `GenTypeBase`.
+     template <typename T1>
+-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_INLINE T1& get()
+-      requires(isValidType<T1>)
+-    {
+-#ifndef TFEL_DEVICE_CODE
++    [[nodiscard]] TFEL_INLINE T1& get() requires(isValidType<T1>) {
+       tfel::raise_if<GenTypeCastError>(!this->template is<T1>());
+-#endif /* TFEL_DEVICE_CODE */
+-      return *(std::get_if<T1>(static_cast<variant*>(this)));
++      return std::get<T1>(*this);
+     }
+     //! \return the type index of the object
+-    [[nodiscard]] TFEL_HOST_DEVICE TFEL_INLINE unsigned short getTypeIndex()
+-        const {
++    [[nodiscard]] TFEL_INLINE unsigned short getTypeIndex() const {
+       return this->index();
+     }
+ 
+    protected:
+     //! \brief clear the GenType
+-    TFEL_HOST_DEVICE TFEL_INLINE void clear() {
+-      variant::operator=(std::monostate());
+-    }
++    TFEL_INLINE void clear() { variant::operator=(std::monostate()); }
+     //! \brief set the value of the GenType.
+     template <typename T1>
+-    TFEL_HOST_DEVICE TFEL_INLINE void set_uninitialised()
+-      requires(isValidType<T1>)
+-    {
++    TFEL_INLINE void set_uninitialised() requires(isValidType<T1>) {
+       this->operator=(T1());
+     }
+   };
+diff --git a/mfront/include/MFront/GenericBehaviour/Integrate.hxx b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+index 061515086..293b628b7 100644
+--- a/mfront/include/MFront/GenericBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+@@ -371,6 +371,20 @@ namespace mfront::gb {
+ #endif /* TFEL_DEVICE_CODE */
+   }  // end of callAndReportExceptions
+ 
++  /*!
++   * \brief call the given function. On the host, the exceptions thrown by the
++   * function are reported as errors.
++   * \return the value returned by the function, or -1 if an exception has
++   * been thrown
++   * \param[in,out] d: behaviour data
++   * \param[in] f: function
++   */
++  template <typename Function>
++  TFEL_HOST_DEVICE int callAndReportExceptions(mfront_gb_BehaviourData& d,
++                                               const Function& f) {
++    return callAndReportExceptions(d, f, [] {});
++  }  // end of callAndReportExceptions
++
+   /*!
+    * \brief compute the prediction operator
+    * \tparam Behaviour: class implementing the behaviour
+@@ -620,7 +634,7 @@ namespace mfront::gb {
+       b.exportStateData(d.s1);
+       return EXIT_SUCCESS;
+     };
+-    return callAndReportExceptions(d, execute, [] {});
++    return callAndReportExceptions(d, execute);
+   }  // end of executeInitializeFunction
+ 
+   /*!
+@@ -705,7 +719,7 @@ namespace mfront::gb {
+       }
+       return EXIT_SUCCESS;
+     };
+-    return callAndReportExceptions(d, execute, [] {});
++    return callAndReportExceptions(d, execute);
+   }  // end of executePostProcessing
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx b/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
+index 77df8834b..33e7fba8c 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
+@@ -50,6 +50,8 @@ namespace mfront::gpb {
+      * \tparam ParametersType: type of the structure holding the parameters
+      * \param[in,out] d: behaviour data
+      * \param[in] o: computation options
++     * \param[in] p: out of bounds policy, which is the default policy of the
++     * model, applied by the model itself
+      * \param[in] parameters: values of the parameters
+      */
+     template <typename Model, typename ParametersType>
+@@ -63,13 +65,11 @@ namespace mfront::gpb {
+       }
+       // on the host, the exceptions thrown by the model (bounds checks,
+       // material laws) are reported as failures
+-      const auto status = mfront::gb::callAndReportExceptions(
+-          d,
+-          [&d, &parameters] {
++      const auto status =
++          mfront::gb::callAndReportExceptions(d, [&d, &parameters] {
+             const auto m = Model(d, parameters);
+             return m.execute(d) ? 1 : -1;
+-          },
+-          [] {});
++          });
+       if (status == -1) {
+         *(d.rdt) = real{0.1};
+       }
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index 36f834081..f48d70176 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -101,16 +101,6 @@ namespace mfront {
+     return "mfront::gpb::StandardIntegrator";
+   }  // end of getIntegrator
+ 
+-  /*!
+-   * \return the sizes of the data of an integration point, as seen by the
+-   * `generic` interface. For finite strain behaviours, the sizes of the
+-   * thermodynamic forces and of the tangent operator are the maximal sizes
+-   * (first Piola-Kirchhoff stress, derivative of the first Piola-Kirchhoff
+-   * stress with respect to the deformation gradient)
+-   * \param[in] i: interface
+-   * \param[in] bd: behaviour description
+-   * \param[in] h: modelling hypothesis
+-   */
+   /*!
+    * \brief write the declaration of an array giving the number of
+    * components of the variables of a group
+@@ -548,6 +538,10 @@ namespace mfront {
+ 
+   std::string
+   GenericParallelBehaviourInterface::getBehaviourConstructorArguments() const {
++    // as in the `generic` interface, the names of the arguments start with
++    // the `mgb_` prefix (`mgpb_` for the arguments specific to this
++    // interface), whereas the local variables of the generated functions
++    // start with the `mfront_` prefix
+     return "const mfront::gb::BehaviourData& mgb_d, "
+            "[[maybe_unused]] const ParametersType& mgpb_parameters";
+   }  // end of getBehaviourConstructorArguments
+@@ -807,6 +801,7 @@ namespace mfront {
+          << "return mfront::gpb::handleExceptions(mfront_output_status, "
+          << "[mfront_output_status" << captures << "] {\n"
+          << "if (mfront_batch_data == nullptr) {\n"
++         << "mfront::gpb::initialize(*mfront_output_status, 1);\n"
+          << "return mfront::gpb::report(*mfront_output_status, -2, "
+          << "\"no batch data given\");\n"
+          << "}\n"
+diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
+index 98c65c358..05804552d 100644
+--- a/mfront/src/GenericParallelModelInterface.cxx
++++ b/mfront/src/GenericParallelModelInterface.cxx
+@@ -315,6 +315,7 @@ namespace mfront {
+          << "return mfront::gpb::handleExceptions(mfront_output_status, "
+          << "[mfront_output_status, mfront_batch_data] {\n"
+          << "if (mfront_batch_data == nullptr) {\n"
++         << "mfront::gpb::initialize(*mfront_output_status, 1);\n"
+          << "return mfront::gpb::report(*mfront_output_status, -2, "
+          << "\"no batch data given\");\n"
+          << "}\n"
+@@ -338,9 +339,10 @@ namespace mfront {
+       } else {
+         os << "const auto mfront_parameters = " << parameters << "{};\n";
+       }
+-      // unused: the bounds are checked with the default out of bounds policy
+-      // of the model, as in the `generic` interface
+-      os << "const auto mfront_policy = tfel::material::None;\n";
++      // the bounds are checked by the model with its default out of bounds
++      // policy, as in the `generic` interface
++      os << "const auto mfront_policy = tfel::material::"
++         << getDefaultOutOfBoundsPolicyAsString(md) << ";\n";
+       this->backend->writeCall(
+           os, "integrateBatch",
+           "mfront::gm::" + md.className + ", mfront_point_traits",
+diff --git a/mfront/src/RungeKuttaDSLBase.cxx b/mfront/src/RungeKuttaDSLBase.cxx
+index 8a549899b..6d1bfb8df 100644
+--- a/mfront/src/RungeKuttaDSLBase.cxx
++++ b/mfront/src/RungeKuttaDSLBase.cxx
+@@ -19,6 +19,7 @@
+ #include "TFEL/Glossary/GlossaryEntry.hxx"
+ #include "TFEL/Utilities/StringAlgorithms.hxx"
+ #include "MFront/DSLFactory.hxx"
++#include "MFront/CodeGeneratorUtilities.hxx"
+ #include "MFront/PedanticMode.hxx"
+ #include "MFront/MFrontDebugMode.hxx"
+ #include "MFront/MFrontLogStream.hxx"
+@@ -750,14 +751,13 @@ namespace mfront {
+       // this code is inserted in the `initialize` method. Exceptions are not
+       // supported in device code, where `false` is returned
+       ib.code += "if(this->dt < 100 * std::numeric_limits<time>::min()){\n";
+-      ib.code += "#ifdef TFEL_DEVICE_CODE\n";
+-      ib.code += "return false;\n";
+-      ib.code += "#else /* TFEL_DEVICE_CODE */\n";
+-      ib.code += "string msg(\"" + this->mb.getClassName() +
+-                 "::" + this->mb.getClassName() + "\");\n";
+-      ib.code += "msg += \"time step too small.\";\n";
+-      ib.code += "throw(runtime_error(msg));\n";
+-      ib.code += "#endif /* TFEL_DEVICE_CODE */\n";
++      ib.code += makeHostAndDeviceCode(
++          "string msg(\"" + this->mb.getClassName() +
++              "::" + this->mb.getClassName() +
++              "\");\n"
++              "msg += \"time step too small.\";\n"
++              "throw(runtime_error(msg));",
++          "return false;");
+       ib.code += "}\n";
+     }
+     this->mb.setCode(uh, BehaviourData::BeforeInitializeLocalVariables, ib,
+-- 
+2.43.0
+

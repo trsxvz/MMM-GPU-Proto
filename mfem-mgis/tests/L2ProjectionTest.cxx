@@ -62,7 +62,7 @@ bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
        {"UnknownsSize", 1},
        {"NumberOfUniformRefinements", parallel ? 1 : 0},
        {"Parallel", parallel}}};
-  auto space = std::make_shared<PartialQuadratureSpace>(
+  auto space = PartialQuadratureSpace(
       fed, MaterialIdentifier{.id = 5},
       [](const mfem::FiniteElement& e,
          const mfem::ElementTransformation& tr) noexcept
@@ -111,7 +111,7 @@ bool test2(mfem_mgis::Context& ctx, const TestParameters& params) {
        {"UnknownsSize", 1},
        {"NumberOfUniformRefinements", parallel ? 1 : 0},
        {"Parallel", parallel}}};
-  auto space = std::make_shared<PartialQuadratureSpace>(
+  auto space = PartialQuadratureSpace(
       fed, MaterialIdentifier{.id = 5},
       [](const mfem::FiniteElement& e,
          const mfem::ElementTransformation& tr) noexcept
@@ -128,7 +128,7 @@ bool test2(mfem_mgis::Context& ctx, const TestParameters& params) {
   auto f1_values = f1->getValues();
   auto f2_values = f2->getValues();
   auto fct_values = fct->getValues();
-  for (size_type idx = 0; idx != space->getNumberOfIntegrationPoints(); ++idx) {
+  for (size_type idx = 0; idx != space.getNumberOfIntegrationPoints(); ++idx) {
     fct_values[2 * idx] = f1_values[idx];
     fct_values[2 * idx + 1] = f2_values[idx];
   }
@@ -171,7 +171,7 @@ bool test3(mfem_mgis::Context& ctx, const TestParameters& params) {
        {"UnknownsSize", 1},
        {"NumberOfUniformRefinements", parallel ? 1 : 0},
        {"Parallel", parallel}}};
-  auto space = std::make_shared<PartialQuadratureSpace>(
+  auto space = PartialQuadratureSpace(
       fed, BoundaryIdentifier{.id = 6},
       [](const mfem::FiniteElement& e,
          const mfem::ElementTransformation& tr) noexcept
@@ -221,7 +221,7 @@ bool test4(mfem_mgis::Context& ctx, const TestParameters& params) {
        {"UnknownsSize", 1},
        {"NumberOfUniformRefinements", parallel ? 1 : 0},
        {"Parallel", parallel}}};
-  auto space = std::make_shared<PartialQuadratureSpace>(
+  auto space = PartialQuadratureSpace(
       fed, MaterialIdentifier{.id = 5},
       [](const mfem::FiniteElement& e,
          const mfem::ElementTransformation& tr) noexcept
@@ -242,7 +242,7 @@ bool test4(mfem_mgis::Context& ctx, const TestParameters& params) {
             return a + b * x + d * y;
           });
       const auto f_values = f->getValues();
-      for (size_type idx = 0; idx != space->getNumberOfIntegrationPoints();
+      for (size_type idx = 0; idx != space.getNumberOfIntegrationPoints();
            ++idx) {
         values[n * idx + c] = f_values[idx];
       }

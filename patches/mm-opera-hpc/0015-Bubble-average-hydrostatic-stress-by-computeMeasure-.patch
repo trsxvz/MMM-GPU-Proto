@@ -1,4 +1,4 @@
-From 4f0ad92070e6f0893bddc14836675b8783bf1a2a Mon Sep 17 00:00:00 2001
+From 8bbee224a0145a768ca87e75f4fdd25b99b2b96d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:12:38 +0200
 Subject: [PATCH] Bubble: average hydrostatic stress by computeMeasure and
@@ -11,11 +11,11 @@ the computeMeasure and computeIntegral functions of mfem-mgis, summed
 over all the processes, which may compute them by kernels (environment
 variable MFEM_MGIS_POST_PROCESSINGS_COMPUTATION). Same outputs.
 ---
- bubble/src/Bubble.cxx | 57 ++++++++++---------------------------------
- 1 file changed, 13 insertions(+), 44 deletions(-)
+ bubble/src/Bubble.cxx | 56 ++++++++++---------------------------------
+ 1 file changed, 13 insertions(+), 43 deletions(-)
 
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 3a22ba0..203c9ae 100644
+index ddaba00..a9e3617 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -15,6 +15,7 @@
@@ -39,7 +39,7 @@ index 3a22ba0..203c9ae 100644
   *
   * \tparam parallel Whether running in parallel mode
   * \param os Output stream for results
-@@ -284,52 +287,18 @@ static void calculateAverageHydrostaticStress(
+@@ -284,51 +287,18 @@ static void calculateAverageHydrostaticStress(
      const mfem_mgis::NonLinearEvolutionProblemImplementation<parallel>& prob,
      const mfem_mgis::ImmutablePartialQuadratureFunctionView& f) {
    auto or_die = ctx.getFatalFailureHandler();
@@ -47,7 +47,6 @@ index 3a22ba0..203c9ae 100644
 -  const auto& fed = s.getFiniteElementDiscretization();
 -  const auto& fespace = fed.getFiniteElementSpace<parallel>();
 -  const auto l = s.getLocation();
--
 -  if(isInvalid(l.material_identifier)){
 -    mfem_mgis::abort("calculateAverageHydrostaticStress only works on materials");
 +  const auto l = f.getPartialQuadratureSpace().getLocation();

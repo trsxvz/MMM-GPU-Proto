@@ -1,4 +1,4 @@
-From 5a3d4ffa8dbff14e33718b1af8ff6b020db9f262 Mon Sep 17 00:00:00 2001
+From f3beb951275a0c2e0aaeedbcd3da529fd395dca0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 20:54:09 +0200
 Subject: [PATCH] Relative tolerances of the solvers bounded for float

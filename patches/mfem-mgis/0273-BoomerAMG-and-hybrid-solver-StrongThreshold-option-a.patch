@@ -1,0 +1,159 @@
+From cbe9be05296ecbeaaf43cada1f07070215164b81 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 20 Oct 2026 18:05:53 +0200
+Subject: [PATCH] BoomerAMG and hybrid solver: StrongThreshold option, as in
+ the official repository
+
+The official repository added the StrongThreshold option of BoomerAMG
+(#495), which the prototype named StrengthThreshold. The option of the
+official repository is kept: StrengthThreshold is renamed StrongThreshold
+for BoomerAMG and for the hybrid solver of hypre, in the sources, the
+tests and the documentation. The description of the glossary is the one
+of the official repository.
+---
+ CHANGELOG.md                                           |  2 +-
+ docs/source/user_guide/glossary.rst                    |  7 ++++++-
+ docs/source/user_guide/linear_solvers.rst              |  4 ++--
+ .../user_guide/release_notes/release_notes-1.1.0.rst   |  2 +-
+ src/HypreLinearSolvers.cxx                             | 10 +++++-----
+ tests/FixedPointSolverTest.cxx                         |  2 +-
+ 6 files changed, 16 insertions(+), 11 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 7ccb35c90f..2dbe7cce66 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -63,7 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+ - solvers of AmgX (`AmgX`, `AmgXPCG`, CMake option `enable-amgx`) and of
+   cuDSS (`CuDSSSolver`); parameter `ReuseAnalysis` of `MUMPSSolver`;
+   `AbsoluteTolerance` of the Krylov solvers of hypre; options of
+-  `HypreBoomerAMG` (`StrengthThreshold`, `CoarseningType`,
++  `HypreBoomerAMG` (`StrongThreshold`, `CoarseningType`,
+   `AggressiveCoarseningLevels`, `InterpolationType`, `RelaxationType`...);
+   preconditioners `OperatorJacobiSmoother` and `OperatorChebyshevSmoother`
+ - options `--device`, `--hypre-device-pool-size`, `--hypre-on-host` and
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 7d1638905c..55c50f8bb8 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -562,7 +562,11 @@ Algebraic MultiGrid (AMG)
+ +--------------------------------+---------------------------------------------------------------------------------------------------------------+
+ | ``VerbosityLevel``             | Define the verbosity of the solver. [int: 0,1]                                                                |
+ +--------------------------------+---------------------------------------------------------------------------------------------------------------+
+-| ``StrengthThreshold``          | Strength threshold of ``hypre``. [double]                                                                     |
++| ``StrongThreshold``            | Controls how much of the matrix is ignored. Higher means more values ignored, ie. faster but less powerful    |
++|                                | preconditioning. The default is 0.25. For 2D Laplace operators, 0.25 is a good value, for 3D Laplace          |
++|                                | operators, 0.5 or 0.6 is a better value. For elasticity problems, a large strength threshold, such as 0.9, is |
++|                                | often better. [double] 0 <= StrongThreshold <= 1. For more details this the "Strong Threshold" section on     |
++|                                | `this page`_.                                                                                                 |
+ +--------------------------------+---------------------------------------------------------------------------------------------------------------+
+ | ``CoarseningType``             | Coarsening type of ``hypre``. [int]                                                                           |
+ +--------------------------------+---------------------------------------------------------------------------------------------------------------+
+@@ -584,6 +588,7 @@ Algebraic MultiGrid (AMG)
+ The values of the options of ``hypre`` are the ones of ``hypre`` (see its
+ documentation).
+ 
++.. _this page: https://mooseframework.inl.gov/application_usage/hypre.html
+ - website: https://hypre.readthedocs.io/en/latest/solvers-boomeramg.html
+ 
+ **Example:**
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 43b458e78e..e8047bda34 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -166,7 +166,7 @@ The solvers marked as parallel are only available in parallel.
+        default), :cxx:`SolverType` (:cxx:`PCG`, by default, :cxx:`GMRES`,
+        :cxx:`BiCGSTAB`), :cxx:`KDim` (50 by default),
+        :cxx:`ConvergenceRate` (0.9 by default), options of BoomerAMG
+-       (:cxx:`StrengthThreshold`, :cxx:`CoarseningType`,
++       (:cxx:`StrongThreshold`, :cxx:`CoarseningType`,
+        :cxx:`InterpolationType`, :cxx:`RelaxationType`,
+        :cxx:`AggressiveCoarseningLevels`, :cxx:`MaximumNumberOfLevels`); no
+        absolute tolerance
+@@ -374,7 +374,7 @@ Preconditioners
+    * - :cxx:`HypreBoomerAMG` (parallel)
+      - hypre
+      - as hypre
+-     - :cxx:`Strategy`, :cxx:`StrengthThreshold`, :cxx:`CoarseningType`,
++     - :cxx:`Strategy`, :cxx:`StrongThreshold`, :cxx:`CoarseningType`,
+        :cxx:`AggressiveCoarseningLevels`, :cxx:`InterpolationType`,
+        :cxx:`RelaxationType`, :cxx:`RelaxationSweeps`, :cxx:`CycleType`,
+        :cxx:`NumberOfCycles`, :cxx:`MaximumNumberOfLevels`,
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 17402eee42..d6b2a75fa4 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -235,7 +235,7 @@ smoothers) are available. The BoomerAMG preconditioner has new
+ options: truncation of the interpolation, aggressive coarsening, size of
+ the coarsest level, relaxation weight, order of the Chebyshev smoothers
+ and transposed interpolations kept. The values of the
+-:cxx:`StrengthThreshold` option of BoomerAMG out of :math:`[0, 1]` and the
++:cxx:`StrongThreshold` option of BoomerAMG out of :math:`[0, 1]` and the
+ Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused, as
+ well as the :cxx:`Elasticity` strategy of BoomerAMG for unknowns whose
+ number of components is not the dimension of the mesh, or a mesh whose
+diff --git a/src/HypreLinearSolvers.cxx b/src/HypreLinearSolvers.cxx
+index 0c262b3075..c892718f85 100644
+--- a/src/HypreLinearSolvers.cxx
++++ b/src/HypreLinearSolvers.cxx
+@@ -149,7 +149,7 @@ namespace mfem_mgis {
+     using AMG = mfem::HypreBoomerAMG;
+     constexpr auto large = 1e30;
+     static const auto options = std::vector<HypreBoomerAMGOption>{
+-        {"StrengthThreshold", 0, 1, false,
++        {"StrongThreshold", 0, 1, false,
+          [](AMG& amg, const double v) { amg.SetStrengthThresh(v); }},
+         {"CoarseningType", 0, large, true,
+          [](AMG& amg, const double v) {
+@@ -240,7 +240,7 @@ namespace mfem_mgis {
+    *   scalar unknowns);
+    * - `VerbosityLevel`: print level of hypre;
+    * - options of hypre, whose values are the ones of hypre (see its
+-   *   documentation): `StrengthThreshold`, `CoarseningType`,
++   *   documentation): `StrongThreshold`, `CoarseningType`,
+    *   `AggressiveCoarseningLevels`, `InterpolationType`, `RelaxationType`,
+    *   `RelaxationSweeps` (sweeps before and after the coarse levels),
+    *   `CycleType` (1: V-cycle, 2: W-cycle), `NumberOfCycles` (cycles per
+@@ -1197,7 +1197,7 @@ namespace mfem_mgis {
+    * `PCG`, by default, `GMRES` or `BiCGSTAB`), the dimension of the Krylov
+    * space of the GMRES solver (`KDim`), the convergence rate below which
+    * the diagonal scaling is replaced by BoomerAMG (`ConvergenceRate`, 0.9
+-   * by default) and options of BoomerAMG (`StrengthThreshold`,
++   * by default) and options of BoomerAMG (`StrongThreshold`,
+    * `CoarseningType`, `InterpolationType`, `RelaxationType`,
+    * `AggressiveCoarseningLevels`, `MaximumNumberOfLevels`)
+    * \param[in] d: description of the solver
+@@ -1258,7 +1258,7 @@ namespace mfem_mgis {
+            {"MaximumNumberOfLevels", 1, m, HYPRE_ParCSRHybridSetMaxLevels}}};
+       const auto reals = std::array<HypreOption<HYPRE_Real>, 2>{
+           {{"ConvergenceRate", 0, 1, HYPRE_ParCSRHybridSetConvergenceTol},
+-           {"StrengthThreshold", 0, 1, HYPRE_ParCSRHybridSetStrongThreshold}}};
++           {"StrongThreshold", 0, 1, HYPRE_ParCSRHybridSetStrongThreshold}}};
+ 
+       const auto n = "the hybrid solver of hypre";
+       if ((!addHypreSettings(ctx, settings, params, integers, n)) ||
+@@ -1355,7 +1355,7 @@ namespace mfem_mgis::internals {
+         // is checked on the relative residual (see `HypreHybridSolver`)
+         .options = {Problem::SolverVerbosityLevel, "Tolerance",
+                     Problem::SolverMaximumNumberOfIterations, "SolverType",
+-                    "KDim", "ConvergenceRate", "StrengthThreshold",
++                    "KDim", "ConvergenceRate", "StrongThreshold",
+                     "CoarseningType", "InterpolationType", "RelaxationType",
+                     "AggressiveCoarseningLevels", "MaximumNumberOfLevels"},
+         .description =
+diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
+index 7abeb92f22..089edf5dfa 100644
+--- a/tests/FixedPointSolverTest.cxx
++++ b/tests/FixedPointSolverTest.cxx
+@@ -777,7 +777,7 @@ int main(int argc, char** argv) {
+                {"HypreBoomerAMG", Parameters{{"VerbosityLevel", 0},
+                                              {"NumberOfCycles", 2},
+                                              {"RelaxationSweeps", 1},
+-                                             {"StrengthThreshold", 0.25}}}}}},
++                                             {"StrongThreshold", 0.25}}}}}},
+          true});
+     cases.push_back(
+         {"fixed point, Anderson, conjugate gradient and BoomerAMG",
+-- 
+2.43.0
+

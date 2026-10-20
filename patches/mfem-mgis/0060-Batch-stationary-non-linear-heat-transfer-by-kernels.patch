@@ -1,4 +1,4 @@
-From b9b38a0b957f8bbfe07bda949ff4fb37420f2a0b Mon Sep 17 00:00:00 2001
+From b43239569d392a838ee30285d8225fc2826c06b6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 05:31:53 +0200
 Subject: [PATCH] Batch: stationary non linear heat transfer by kernels
@@ -73,7 +73,7 @@ micromorphic behaviours remain refused).
  create mode 100644 tests/HeatTransferKernelsTest.cxx
 
 diff --git a/code-generation/behaviour-integrator.cxx b/code-generation/behaviour-integrator.cxx
-index 3e38b9058a..047bf6b087 100644
+index 347604dd89..0a2b8e8bb2 100644
 --- a/code-generation/behaviour-integrator.cxx
 +++ b/code-generation/behaviour-integrator.cxx
 @@ -449,6 +449,9 @@ void generateHeaderFile(std::ostream &os,
@@ -105,7 +105,7 @@ index 3e38b9058a..047bf6b087 100644
    }
    os << "/*!\n"
       << " * \\brief get the rotation matrix at the given integration point\n"
-@@ -905,7 +918,12 @@ void generateSourceFile(std::ostream &os,
+@@ -904,7 +917,12 @@ void generateSourceFile(std::ostream &os,
            "unsupport case: multicomponents unknowns as external state "
            "variables is not supported");
      }
@@ -120,10 +120,10 @@ index 3e38b9058a..047bf6b087 100644
    if (d.isotropic) {
      os << d.name << "::RotationMatrix\n"
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 44e718c887..bd277dc41a 100644
+index 09b727824b..c54d5541f8 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -152,6 +152,15 @@ namespace mfem_mgis {
+@@ -149,6 +149,15 @@ namespace mfem_mgis {
       * false.
       */
      [[nodiscard]] virtual bool supportsKernels() const noexcept;
@@ -289,7 +289,7 @@ index c9fe8121bd..a5b39148d3 100644
     * \brief computes the gradients at the end of the time step of a material
     * at all its integration points, by a kernel: macroscopic gradients plus
 diff --git a/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
-index c969635284..f3e7a08068 100644
+index d06a25cba2..0daea054a3 100644
 --- a/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 @@ -8,6 +8,7 @@
@@ -316,7 +316,7 @@ index c969635284..f3e7a08068 100644
       * \brief get the rotation matrix at the given integration point
       * \return the rotation matrix associated with the given integration
 diff --git a/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
-index 1b24da67ec..aef3581b20 100644
+index 73204cc22b..22fd6c3b12 100644
 --- a/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 @@ -8,6 +8,7 @@
@@ -343,7 +343,7 @@ index 1b24da67ec..aef3581b20 100644
       * \brief get the rotation matrix at the given integration point
       * \return the rotation matrix associated with the given integration
 diff --git a/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
-index 7ff3f7e87d..aa65b55bad 100644
+index 6c06eedcc0..668242f705 100644
 --- a/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 @@ -8,6 +8,7 @@
@@ -370,7 +370,7 @@ index 7ff3f7e87d..aa65b55bad 100644
      /*!
       * \brief get the rotation matrix at the given integration point
 diff --git a/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
-index 9e66afa0e8..5c0c1d9aac 100644
+index a1a40734dc..ffb4e2811c 100644
 --- a/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 @@ -8,6 +8,7 @@
@@ -397,7 +397,7 @@ index 9e66afa0e8..5c0c1d9aac 100644
      /*!
       * \brief get the rotation matrix at the given integration point
 diff --git a/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
-index 3f782175e9..5b7687c722 100644
+index a22f0d598c..44cae45727 100644
 --- a/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 @@ -8,6 +8,7 @@
@@ -424,7 +424,7 @@ index 3f782175e9..5b7687c722 100644
      /*!
       * \brief get the rotation matrix at the given integration point
 diff --git a/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
-index d827b98d1e..61b50b0b3f 100644
+index df63c3f01b..0528a39809 100644
 --- a/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
 @@ -8,6 +8,7 @@
@@ -451,7 +451,7 @@ index d827b98d1e..61b50b0b3f 100644
      /*!
       * \brief get the rotation matrix at the given integration point
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
-index ff489f0c28..31802c92a8 100644
+index c75731e88a..0e04626d37 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 @@ -30,6 +30,10 @@ namespace mfem_mgis {
@@ -488,7 +488,7 @@ index ff489f0c28..31802c92a8 100644
      struct KernelsData {
        //! \brief kind of the gradients
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index ada2546354..8f1a87a706 100644
+index 1d92954e39..70d8aeaadd 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -225,14 +225,20 @@ namespace mfem_mgis {
@@ -549,7 +549,7 @@ index ada2546354..8f1a87a706 100644
 +      // behaviours integrated on the device read the copies of the external
 +      // state variables, see `BehaviourIntegratorBase`)
 +      if (!batch::getUnknownsValues(ctx, this->unknowns_values,
-+                                    *(this->quadrature_space), p->second)) {
++                                    this->quadrature_space, p->second)) {
 +        return false;
 +      }
 +      try {
@@ -566,7 +566,7 @@ index ada2546354..8f1a87a706 100644
  
    template <typename Child>
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index e2df5fb5b5..563c5d8f7f 100644
+index 7be39e0498..c0d333162c 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -46,6 +46,11 @@ namespace mfem_mgis {
@@ -1584,10 +1584,10 @@ index a0a14163a0..87de424085 100644
     * \param[in] a: arguments (`matrices` is not used)
     * \param[in] x: values element by element
 diff --git a/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index d50f819ccd..706e225052 100644
+index b178fabf9a..68f19c5129 100644
 --- a/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-@@ -113,6 +113,12 @@ namespace mfem_mgis {
+@@ -112,6 +112,12 @@ namespace mfem_mgis {
      }
    }
  
@@ -1601,10 +1601,10 @@ index d50f819ccd..706e225052 100644
        RotationMatrix
        IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
 diff --git a/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index b28eeea40b..9f8b0b5b0d 100644
+index ae14ffd7df..1c3293b93a 100644
 --- a/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-@@ -113,6 +113,12 @@ namespace mfem_mgis {
+@@ -112,6 +112,12 @@ namespace mfem_mgis {
      }
    }
  
@@ -1618,10 +1618,10 @@ index b28eeea40b..9f8b0b5b0d 100644
        RotationMatrix
        IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
 diff --git a/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index c5f884fef8..e5b7c66db2 100644
+index 17bd618f89..4143aab3c0 100644
 --- a/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-@@ -115,6 +115,13 @@ namespace mfem_mgis {
+@@ -114,6 +114,13 @@ namespace mfem_mgis {
      }
    }
  
@@ -1636,10 +1636,10 @@ index c5f884fef8..e5b7c66db2 100644
        RotationMatrix
        IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index c3d62c9537..68c0c5dc62 100644
+index 40670d4e52..7b9d315e59 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -387,10 +387,10 @@ namespace mfem_mgis {
+@@ -386,10 +386,10 @@ namespace mfem_mgis {
                "the behaviour integrator of material '" +
                std::to_string(m) +
                "' can't be computed by kernels (supported: standard "
@@ -1654,7 +1654,7 @@ index c3d62c9537..68c0c5dc62 100644
          }
        }
      }
-@@ -467,8 +467,20 @@ namespace mfem_mgis {
+@@ -466,8 +466,20 @@ namespace mfem_mgis {
        return std::find(rules.begin(), rules.end(), d.first) == rules.end();
      });
      for (const auto* const r : rules) {
@@ -1677,10 +1677,10 @@ index c3d62c9537..68c0c5dc62 100644
        }
      }
 diff --git a/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index 9259e6fde6..fa4307336d 100644
+index b615e398dd..3c7a7240e3 100644
 --- a/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-@@ -115,6 +115,13 @@ namespace mfem_mgis {
+@@ -114,6 +114,13 @@ namespace mfem_mgis {
      }
    }
  
@@ -1695,10 +1695,10 @@ index 9259e6fde6..fa4307336d 100644
        RotationMatrix
        OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
 diff --git a/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index 94b6a09043..adfbabccef 100644
+index 82eceb66e7..f15c9c0fcc 100644
 --- a/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-@@ -115,6 +115,13 @@ namespace mfem_mgis {
+@@ -114,6 +114,13 @@ namespace mfem_mgis {
      }
    }
  
@@ -1713,10 +1713,10 @@ index 94b6a09043..adfbabccef 100644
        RotationMatrix
        OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator::
 diff --git a/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-index 25cf1b4f19..90a902ce54 100644
+index 6fb887ff8a..47b9f7faec 100644
 --- a/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
 +++ b/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
-@@ -115,6 +115,13 @@ namespace mfem_mgis {
+@@ -114,6 +114,13 @@ namespace mfem_mgis {
      }
    }
  
@@ -1731,10 +1731,10 @@ index 25cf1b4f19..90a902ce54 100644
        RotationMatrix
        OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator::
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 7e7feaadd9..8826013fff 100644
+index ca732f0b3b..ee4b21b0ff 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -783,7 +783,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -786,7 +786,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                       IsotropicLinearElasticity
                       FailingIsotropicLinearElasticity
                       OrthotropicElasticity
@@ -1744,7 +1744,7 @@ index 7e7feaadd9..8826013fff 100644
      list(APPEND batch_integration_test_behaviours
           "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
    endforeach()
-@@ -868,6 +869,39 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -871,6 +872,39 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endif()
  

@@ -1,0 +1,260 @@
+From 4af2a0752e19e29ddca57139287069670f4bbb2c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 00:46:10 +0200
+Subject: [PATCH] Views on the variables of a state view, extraction
+
+- getGradientView, getThermodynamicForceView and
+  getInternalStateVariableView on a MaterialStateView, as on a material
+  state manager.
+- extractInternalStateVariable on a MaterialStateView, with the given
+  operations: the extraction also works on a device.
+- the extraction of a material state manager in a view checks the output
+  as the field operations (distinct values).
+---
+ include/MGIS/Behaviour/MaterialDataView.hxx | 37 +++++++++
+ src/MaterialDataView.cxx                    | 59 +++++++++++++++
+ src/MaterialStateManager.cxx                |  7 +-
+ tests/MaterialDataViewTest.cxx              | 84 +++++++++++++++++++++
+ 4 files changed, 182 insertions(+), 5 deletions(-)
+
+diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
+index ec3e602..070fb98 100644
+--- a/include/MGIS/Behaviour/MaterialDataView.hxx
++++ b/include/MGIS/Behaviour/MaterialDataView.hxx
+@@ -247,6 +247,43 @@ namespace mgis::behaviour {
+   MGIS_EXPORT MaterialDataView
+   make_view(MaterialDataManager&, std::pmr::memory_resource* const = nullptr);
+ 
++  /*!
++   * \return a view on the values of a gradient of a state, extracted from the
++   * view of the gradients (see `getComponents`)
++   * \param[in] s: state
++   * \param[in] n: name of the gradient
++   */
++  MGIS_EXPORT FieldView<real> getGradientView(const MaterialStateView&,
++                                              const std::string_view);
++  /*!
++   * \return a view on the values of a thermodynamic force of a state,
++   * extracted from the view of the thermodynamic forces
++   * \param[in] s: state
++   * \param[in] n: name of the thermodynamic force
++   */
++  MGIS_EXPORT FieldView<real> getThermodynamicForceView(
++      const MaterialStateView&, const std::string_view);
++  /*!
++   * \return a view on the values of an internal state variable of a state,
++   * extracted from the view of the internal state variables
++   * \param[in] s: state
++   * \param[in] n: name of the internal state variable
++   */
++  MGIS_EXPORT FieldView<real> getInternalStateVariableView(
++      const MaterialStateView&, const std::string_view);
++  /*!
++   * \brief copy the values of an internal state variable of a state, with
++   * the given operations
++   * \param[out] o: values of the internal state variable
++   * \param[in] s: state
++   * \param[in] n: name of the internal state variable
++   * \param[in] ops: operations
++   */
++  MGIS_EXPORT void extractInternalStateVariable(const FieldView<real>&,
++                                                const MaterialStateView&,
++                                                const std::string_view,
++                                                FieldOperations&);
++
+   /*!
+    * \brief copy the arrays of a state (gradients, thermodynamic forces,
+    * internal state variables, energies) in the arrays of another state, with
+diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
+index 12c9d02..680b9d8 100644
+--- a/src/MaterialDataView.cxx
++++ b/src/MaterialDataView.cxx
+@@ -329,6 +329,65 @@ namespace mgis::behaviour {
+     return v;
+   }  // end of make_view
+ 
++  /*!
++   * \return a view on the values of a variable of a state, extracted from
++   * the view of its group of variables
++   * \param[in] f: calling function
++   * \param[in] d: description of the group of variables
++   * \param[in] s: state
++   * \param[in] values: view of the group of variables
++   * \param[in] variables: variables of the group
++   * \param[in] n: name of the variable
++   */
++  static FieldView<real> getVariableView(const std::string_view f,
++                                         const std::string_view d,
++                                         const MaterialStateView& s,
++                                         const FieldView<real>& values,
++                                         const std::vector<Variable>& variables,
++                                         const std::string_view n) {
++    const auto h = s.b->hypothesis;
++    const auto vs = getVariableSize(getVariable(variables, n), h);
++    if (s.n == 0) {
++      // no point: the view only gives the number of components
++      return FieldView<real>(std::span<real>{}, 0, vs, vs, 1);
++    }
++    const auto nc = getArraySize(variables, h);
++    if ((values.getNumberOfPoints() != s.n) ||
++        (values.getNumberOfComponents() != nc)) {
++      mgis::raise(std::string{f} + ": invalid view of the " + std::string{d} +
++                  " (" + std::to_string(s.n) + " points and " +
++                  std::to_string(nc) + " components expected)");
++    }
++    return getComponents(values, getVariableOffset(variables, n, h), vs);
++  }  // end of getVariableView
++
++  FieldView<real> getGradientView(const MaterialStateView& s,
++                                  const std::string_view n) {
++    return getVariableView("getGradientView", "gradients", s, s.gradients,
++                           s.b->gradients, n);
++  }  // end of getGradientView
++
++  FieldView<real> getThermodynamicForceView(const MaterialStateView& s,
++                                            const std::string_view n) {
++    return getVariableView("getThermodynamicForceView", "thermodynamic forces",
++                           s, s.thermodynamic_forces, s.b->thermodynamic_forces,
++                           n);
++  }  // end of getThermodynamicForceView
++
++  FieldView<real> getInternalStateVariableView(const MaterialStateView& s,
++                                               const std::string_view n) {
++    return getVariableView("getInternalStateVariableView",
++                           "internal state variables", s,
++                           s.internal_state_variables, s.b->isvs, n);
++  }  // end of getInternalStateVariableView
++
++  void extractInternalStateVariable(const FieldView<real>& o,
++                                    const MaterialStateView& s,
++                                    const std::string_view n,
++                                    FieldOperations& ops) {
++    ops.copy(o, getInternalStateVariableView(s, n));
++  }  // end of extractInternalStateVariable
++
+   void updateValues(const MaterialStateView& o,
+                     const MaterialStateView& i,
+                     FieldOperations& ops) {
+diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
+index fbf2927..867b483 100644
+--- a/src/MaterialStateManager.cxx
++++ b/src/MaterialStateManager.cxx
+@@ -946,11 +946,8 @@ namespace mgis::behaviour {
+           "extractInternalStateVariable: "
+           "unmatched number of integration points or of components");
+     }
+-    for (size_type i = 0; i != s.n; ++i) {
+-      for (size_type j = 0; j != v.getNumberOfComponents(); ++j) {
+-        o(i, j) = v(i, j);
+-      }
+-    }
++    auto ops = HostFieldOperations{};
++    ops.copy(o, v);
+   }  // end of extractInternalStateVariable
+ 
+   template <typename ValueType, typename MaterialStateManagerType>
+diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
+index 9c9a9f5..1ecfbf4 100644
+--- a/tests/MaterialDataViewTest.cxx
++++ b/tests/MaterialDataViewTest.cxx
+@@ -891,6 +891,89 @@ static void testUpdateAndRevert(const std::string& library) {
+   }
+ }  // end of testUpdateAndRevert
+ 
++/*!
++ * \brief views on the variables of a state view and extraction of the
++ * internal state variables, compared to the material data manager, in all
++ * the arrangements
++ */
++static void testVariablesOfStateViews(const std::string& library) {
++  using namespace mgis::behaviour;
++  constexpr auto n = size_type{6};
++  const auto b = load(library, "Norton", Hypothesis::TRIDIMENSIONAL);
++  auto m = MaterialDataManager(b, n);
++  auto k = 0;
++  for (auto v :
++       std::array<std::span<real>, 3>{m.s1.gradients, m.s1.thermodynamic_forces,
++                                      m.s1.internal_state_variables}) {
++    for (auto& x : v) {
++      x = std::sin(static_cast<real>(++k));
++    }
++  }
++  const auto& s1 = m.s1;
++  const auto compare = [](const FieldView<const real>& v,
++                          const FieldView<const real>& r) {
++    if ((v.getNumberOfPoints() != r.getNumberOfPoints()) ||
++        (v.getNumberOfComponents() != r.getNumberOfComponents())) {
++      return false;
++    }
++    for (size_type i = 0; i != v.getNumberOfPoints(); ++i) {
++      for (size_type j = 0; j != v.getNumberOfComponents(); ++j) {
++        if (!same(v(i, j), r(i, j))) {
++          return false;
++        }
++      }
++    }
++    return true;
++  };
++  auto ops = mgis::HostFieldOperations{};
++  for (const auto a : arrangements) {
++    const auto msg =
++        "variables of a state view, " + library + ", " + getName(a) + ": ";
++    auto d = ViewData(b, n, a);
++    d.copyFrom(m);
++    for (const auto& g : b.gradients) {
++      check(
++          compare(getGradientView(d.v.s1, g.name), getGradientView(s1, g.name)),
++          msg + "invalid view of the gradient " + g.name);
++    }
++    for (const auto& f : b.thermodynamic_forces) {
++      check(compare(getThermodynamicForceView(d.v.s1, f.name),
++                    getThermodynamicForceView(s1, f.name)),
++            msg + "invalid view of the thermodynamic force " + f.name);
++    }
++    for (const auto& iv : b.isvs) {
++      check(compare(getInternalStateVariableView(d.v.s1, iv.name),
++                    getInternalStateVariableView(s1, iv.name)),
++            msg + "invalid view of the internal state variable " + iv.name);
++      const auto vs = getVariableSize(iv, b.hypothesis);
++      auto o = Array(n, vs, a);
++      extractInternalStateVariable(o.view, d.v.s1, iv.name, ops);
++      auto ref = std::vector<real>(n * vs);
++      extractInternalStateVariable(ref, s1, iv.name);
++      check(o.equals(ref) && o.hasUnusedValuesUnchanged(),
++            msg + "invalid extraction of " + iv.name);
++    }
++  }
++  // no point
++  const auto& iv = b.isvs.front();
++  const auto vs = getVariableSize(iv, b.hypothesis);
++  auto d0 = ViewData(b, 0, Arrangement::POINT_BY_POINT);
++  const auto v0 = getInternalStateVariableView(d0.v.s1, iv.name);
++  check((v0.getNumberOfPoints() == 0) && (v0.getNumberOfComponents() == vs),
++        "variables of a state view, no point: invalid view");
++  extractInternalStateVariable(FieldView<real>(std::span<real>{}, 0, vs, vs, 1),
++                               d0.v.s1, iv.name, ops);
++  // errors
++  auto d = ViewData(b, n, Arrangement::POINT_BY_POINT);
++  check(throws([&d] { getInternalStateVariableView(d.v.s1, "Unknown"); },
++               "Unknown"),
++        "variables of a state view: an unknown variable must be refused");
++  d.v.s1.internal_state_variables = FieldView<real>{};
++  check(throws([&d, &iv] { getInternalStateVariableView(d.v.s1, iv.name); },
++               "invalid view of the internal state variables"),
++        "variables of a state view: a missing view must be refused");
++}  // end of testVariablesOfStateViews
++
+ int main(const int argc, const char* const* const argv) {
+   if (argc != 3) {
+     std::cerr << "usage: " << argv[0]
+@@ -902,6 +985,7 @@ int main(const int argc, const char* const* const argv) {
+     testHostFieldOperations();
+     for (const auto* const library : {argv[2], argv[1]}) {
+       testUpdateAndRevert(library);
++      testVariablesOfStateViews(library);
+       testNorton(library);
+       testElasticity(library);
+       testTensorialVariables(library);
+-- 
+2.43.0
+

@@ -13,7 +13,7 @@ compilation_options : {
   },
   hip : {
     compiler: "@TFEL_CLANGXX_COMPILER@",
-    compilation_flags: {"-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native",
+    compilation_flags: {"-O3 -std=c++@TFEL_CXX_STANDARD@ -march=native",
       "-x cuda -I@TFEL_HIP_INCLUDE_DIR@",
       "--cuda-compile-host-device --cuda-gpu-arch=native",
       "-D__HIP_PLATFORM_NVIDIA__", "--cuda-path=@TFEL_CLANG_CUDA_PATH@ -fPIC -DPIC"}

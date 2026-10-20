@@ -1,0 +1,81 @@
+From e8a0d421c6b6d618a3a882943d7516674a813233 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 23:06:55 +0200
+Subject: [PATCH] TFEL: device code selected in the whole translation unit with
+ nvc++ -mp=gpu
+
+nvc++ -mp=gpu translates host and device code in a single pass and may
+offload any function called in a target region: TFEL_DEVICE_CODE is
+defined, and getConstantObject returns a copy, as with nvc++ -stdpar=gpu.
+---
+ include/TFEL/Config/TFELConfig.hxx        |  8 +++++---
+ include/TFEL/Utilities/ConstantObject.hxx | 13 +++++++------
+ 2 files changed, 12 insertions(+), 9 deletions(-)
+
+diff --git a/include/TFEL/Config/TFELConfig.hxx b/include/TFEL/Config/TFELConfig.hxx
+index ff7b883de..fcdecec89 100644
+--- a/include/TFEL/Config/TFELConfig.hxx
++++ b/include/TFEL/Config/TFELConfig.hxx
+@@ -375,12 +375,14 @@
+  *
+  * Some compilers translate host and device code in a single pass: in this
+  * case, the device code is selected in the whole translation unit. This is
+- * the case of `nvc++ -stdpar=gpu`, which may offload any function called by
+- * a parallel algorithm of the standard library, and of the generic compiler
+- * of AdaptiveCpp (`SSCP`), which generates device code at runtime.
++ * the case of `nvc++ -stdpar=gpu` and `nvc++ -mp=gpu`, which may offload any
++ * function called by a parallel algorithm of the standard library or in an
++ * OpenMP `target` region, and of the generic compiler of AdaptiveCpp
++ * (`SSCP`), which generates device code at runtime.
+  */
+ #if (defined __CUDA_ARCH__) || (defined __HIP_DEVICE_COMPILE__) ||         \
+     (defined __SYCL_DEVICE_ONLY__) || (defined __NVCOMPILER_STDPAR_GPU) || \
++    (defined __NVCOMPILER_OPENMP_GPU) ||                                   \
+     (defined __ACPP_ENABLE_LLVM_SSCP_TARGET__)
+ #ifndef TFEL_DEVICE_CODE
+ #define TFEL_DEVICE_CODE 1
+diff --git a/include/TFEL/Utilities/ConstantObject.hxx b/include/TFEL/Utilities/ConstantObject.hxx
+index 1f836af09..54a41dc52 100644
+--- a/include/TFEL/Utilities/ConstantObject.hxx
++++ b/include/TFEL/Utilities/ConstantObject.hxx
+@@ -41,9 +41,10 @@ namespace tfel::utilities {
+    * its default constructor, which can be used in host and device code.
+    *
+    * This function returns a copy of this object when compiling for GPUs
+-   * with `nvc++ -stdpar=gpu`, which does not allow device code to access
+-   * global variables (unless the unified memory mode is used). The returned
+-   * value shall thus be bound to a constant reference, for instance:
++   * with `nvc++ -stdpar=gpu` or `nvc++ -mp=gpu`, which do not allow device
++   * code to access global variables (unless the unified memory mode is
++   * used). The returned value shall thus be bound to a constant reference,
++   * for instance:
+    *
+    * \code{.cpp}
+    * const auto& o = getConstantObject<T>();
+@@ -52,12 +53,12 @@ namespace tfel::utilities {
+    * \tparam T: type of the object, which must be default constructible at
+    * compile time
+    */
+-#ifdef __NVCOMPILER_STDPAR_GPU
++#if (defined __NVCOMPILER_STDPAR_GPU) || (defined __NVCOMPILER_OPENMP_GPU)
+   template <typename T>
+   TFEL_HOST_DEVICE constexpr T getConstantObject() noexcept {
+     return T{};
+   }  // end of getConstantObject
+-#else  /* __NVCOMPILER_STDPAR_GPU */
++#else /* (defined __NVCOMPILER_STDPAR_GPU) || ... */
+   template <typename T>
+   TFEL_HOST_DEVICE constexpr const T& getConstantObject() noexcept {
+ #if (defined __CUDA_ARCH__) || (defined __HIP_DEVICE_COMPILE__)
+@@ -66,7 +67,7 @@ namespace tfel::utilities {
+     return internals::constant_object<T>;
+ #endif
+   }  // end of getConstantObject
+-#endif /* __NVCOMPILER_STDPAR_GPU */
++#endif /* (defined __NVCOMPILER_STDPAR_GPU) || ... */
+ 
+ }  // end of namespace tfel::utilities
+ 
+-- 
+2.43.0
+

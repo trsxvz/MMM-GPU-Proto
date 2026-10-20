@@ -1,4 +1,4 @@
-From b3cd39119e578b9cd6a0dd145b512e8e63af24af Mon Sep 17 00:00:00 2001
+From 360981d8fb9b18e09c03b55b5817a98ecb65937d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:12:03 +0200
 Subject: [PATCH] Test and document the nodal blocks of the operator applied
@@ -94,7 +94,7 @@ index ae379a0621..d39845b52c 100644
    applied by batched products, by default) or :cxx:`LU` (the LU factors are
    applied by batched solves);
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index ebc4198d9e..da9258d994 100644
+index ce4a08f2cc..0dabdc084b 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -203,7 +203,8 @@ Jacobi preconditioner by nodal blocks
@@ -108,7 +108,7 @@ index ebc4198d9e..da9258d994 100644
  Nonlinear solver of KINSOL
  --------------------------
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 06e4fc33a6..cb54e6cdae 100644
+index 5c5afaa48f..f9389ff8b4 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -9,8 +9,9 @@
@@ -136,7 +136,7 @@ index 06e4fc33a6..cb54e6cdae 100644
    /*!
     * \brief if not null, the mesh has two materials (1 and 2), the first one
     * being an isotropic elastic material whose behaviour is taken from this
-@@ -753,6 +760,63 @@ static void checkMatrixFreeOperator(
+@@ -758,6 +765,63 @@ static void checkMatrixFreeOperator(
    // in float, the relative difference of the actions reaches 2.8e-7
    check(diff_action <= mfem_mgis::unit_tests::tolerance(1e-12, 3e-6),
          name + ": action of the tangent operator applied without assembly");
@@ -200,7 +200,7 @@ index 06e4fc33a6..cb54e6cdae 100644
  }  // end of checkMatrixFreeOperator
  
  /*!
-@@ -1073,6 +1137,8 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -1078,6 +1142,8 @@ static Results compute(mfem_mgis::Context& ctx,
            : opts.chebyshev_preconditioner
                ? Parameters{{"Name", "OperatorChebyshevSmoother"},
                             {"Options", Parameters{{"Order", 3}}}}
@@ -209,7 +209,7 @@ index 06e4fc33a6..cb54e6cdae 100644
                : Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
          or_die;
    } else {
-@@ -2123,6 +2189,22 @@ int main(int argc, char** argv) {
+@@ -2128,6 +2194,22 @@ int main(int argc, char** argv) {
                        .matrix_free = true,
                        .chebyshev_preconditioner = true},
                       ", matrix free, Chebyshev preconditioner"});
@@ -232,7 +232,7 @@ index 06e4fc33a6..cb54e6cdae 100644
      // without prediction, the preconditioner is kept between time steps:
      // its assembled operator, assembled again by the check of the diagonal
      // (see `checkMatrixFreeDiagonal`), must be set up again
-@@ -2166,6 +2248,14 @@ int main(int argc, char** argv) {
+@@ -2171,6 +2253,14 @@ int main(int argc, char** argv) {
                          .inner_forces_kernels = true,
                          .matrix_free = true},
                         ", FBar, matrix free"});
@@ -247,7 +247,7 @@ index 06e4fc33a6..cb54e6cdae 100644
        cases.push_back({b,
                         {.fbar = true,
                          .plane_strain = true,
-@@ -2316,6 +2406,16 @@ int main(int argc, char** argv) {
+@@ -2321,6 +2411,16 @@ int main(int argc, char** argv) {
                          .matrix_free = true,
                          .distorted_mesh = true},
                         ", Faltus and prediction, matrix free"});

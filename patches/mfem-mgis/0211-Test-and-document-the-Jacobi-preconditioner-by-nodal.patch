@@ -1,4 +1,4 @@
-From f72276abb3020f0b27fcef7f52d4832aa193422d Mon Sep 17 00:00:00 2001
+From 535a2725963d6028a94aec401eee2a92bd8dcd15 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:11:44 +0200
 Subject: [PATCH] Test and document the Jacobi preconditioner by nodal blocks
@@ -115,7 +115,7 @@ index 172748ef62..ae379a0621 100644
  
  Linear solvers and preconditioners of PETSc
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 2491197443..ebc4198d9e 100644
+index ffbe17d869..ce4a08f2cc 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -197,6 +197,14 @@ GPU, are available when :code:`MFEM` is built with MAGMA in double
@@ -134,10 +134,10 @@ index 2491197443..ebc4198d9e 100644
  --------------------------
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 32f1ec6369..c9f8444736 100644
+index 2aca1021e3..1ab5b2a60f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1754,6 +1754,39 @@ if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
+@@ -1757,6 +1757,39 @@ if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
      FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
  endif()
  

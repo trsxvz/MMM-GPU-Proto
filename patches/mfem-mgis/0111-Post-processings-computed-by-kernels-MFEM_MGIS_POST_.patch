@@ -1,4 +1,4 @@
-From 8553019879ec5fa56c3dad8f6ed39a7337ae1fa5 Mon Sep 17 00:00:00 2001
+From fc6a6e30bee9dc8320acf70a881bf22c815159f8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:05:56 +0200
 Subject: [PATCH] Post-processings computed by kernels
@@ -257,7 +257,7 @@ index 0000000000..8f901dd3a5
 +
 +#endif /* LIB_MFEM_MGIS_POSTPROCESSINGSCOMPUTATION_HXX */
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index 195eeddcd0..9c017403a5 100644
+index e79fad4519..0d2dfdf50d 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -7,6 +7,7 @@
@@ -925,7 +925,7 @@ index effa8e4d37..5592cf6a2a 100644
    Batch/FBar.cxx
    Batch/Faltus.cxx
 diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
-index 6caaea79df..5367cee749 100644
+index 162670c93b..e95f3dae7c 100644
 --- a/src/L2Projection.cxx
 +++ b/src/L2Projection.cxx
 @@ -6,8 +6,11 @@
@@ -1147,8 +1147,8 @@ index 6caaea79df..5367cee749 100644
 +      l.linear_solver->SetOperator(*A);
        l.linear_solver->Mult(B, X);
        clearHypreErrors();
-       auto* const isolver =
-@@ -704,6 +843,9 @@ namespace mfem_mgis {
+       if (!hasConverged(*(l.linear_solver))) {
+@@ -700,6 +839,9 @@ namespace mfem_mgis {
          }
        }
      }
@@ -1159,7 +1159,7 @@ index 6caaea79df..5367cee749 100644
    }  // end of updatePartialQuadratureRegularization_impl
  
 diff --git a/src/PartialQuadratureFunction.cxx b/src/PartialQuadratureFunction.cxx
-index 0f95d45b98..5745ccce36 100644
+index 7b949cb882..67d8f493ef 100644
 --- a/src/PartialQuadratureFunction.cxx
 +++ b/src/PartialQuadratureFunction.cxx
 @@ -18,12 +18,17 @@
@@ -1180,7 +1180,7 @@ index 0f95d45b98..5745ccce36 100644
  
  namespace mfem_mgis {
  
-@@ -1376,6 +1381,147 @@ namespace mfem_mgis {
+@@ -1337,6 +1342,147 @@ namespace mfem_mgis {
      return makeGridFunction_impl<false>(ctx, fcts, mesh);
    }
  
@@ -1328,7 +1328,7 @@ index 0f95d45b98..5745ccce36 100644
    template <bool parallel>
    [[nodiscard]] static bool updateGridFunction_impl(
        Context& ctx,
-@@ -1453,6 +1599,13 @@ namespace mfem_mgis {
+@@ -1414,6 +1560,13 @@ namespace mfem_mgis {
          f.ProjectDiscCoefficient(c, mfem::GridFunction::ARITHMETIC);
        }
      } else {
@@ -1438,10 +1438,10 @@ index 0000000000..0c641cde52
 +
 +#endif /* LIB_MFEM_MGIS_SRC_POSTPROCESSINGSCOMPUTATION_HXX */
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index e2bc83ec46..a95b94d527 100644
+index 0c7dd25a99..72458aace2 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -611,6 +611,45 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -614,6 +614,45 @@ if(MFEM_MGIS_HAVE_TFEL)
    add_assign_values_test(AssignValuesTest beam-tet.mesh)
    add_assign_values_test(AssignValuesTest2D quad-2-materials.mesh)
  
@@ -1489,7 +1489,7 @@ index e2bc83ec46..a95b94d527 100644
  
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
 new file mode 100644
-index 0000000000..2257aceee8
+index 0000000000..33667a8483
 --- /dev/null
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -0,0 +1,341 @@
@@ -1726,7 +1726,7 @@ index 0000000000..2257aceee8
 +    if (isInvalid(omaterial)) {
 +      return false;
 +    }
-+    const auto qs = omaterial->getPartialQuadratureSpacePointer();
++    const auto qs = omaterial->getPartialQuadratureSpace();
 +    // the functions differ from one material to another
 +    const auto c = static_cast<real>(m);
 +    auto evaluate = [&qs](const auto f) {
@@ -1748,7 +1748,7 @@ index 0000000000..2257aceee8
 +    const auto f2 = evaluate([](const real x, const real y, const real z) {
 +      return std::exp(-x) * y * y + std::sin(z);
 +    });
-+    for (size_type o = 0; o != qs->getNumberOfIntegrationPoints(); ++o) {
++    for (size_type o = 0; o != qs.getNumberOfIntegrationPoints(); ++o) {
 +      auto values = fct->getIntegrationPointValues(o);
 +      values[0] = f0->getIntegrationPointValue(o);
 +      values[1] = scalar_functions.back()->getIntegrationPointValue(o);

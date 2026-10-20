@@ -1,0 +1,710 @@
+From abe085054f6ceb6e8cb73f788e2429e6aa99dbc8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 19:55:44 +0200
+Subject: [PATCH] LogarithmicStrainHandler: divided differences without
+ cancellation
+
+The divided differences of the logarithm are now always computed with
+log1p from the eigenvalues of C - I, also when the handler is built
+from the deformation gradient. The special cases for equal eigenvalues
+are removed.
+
+The former formulas divided differences of rounded values by
+differences of eigenvalues, which are of the order of the rounding
+errors when two eigenvalues are close. In single precision, for a
+rotated uniaxial strain of 10 % and a dual stress not coaxial with the
+strain, the error was 1e-1 on the second Piola-Kirchhoff stress and
+4.6e2 on its derivative. It is now below 4e-6.
+
+The former special case of two equal eigenvalues was also inaccurate
+in any precision: with two equal stretches and an anisotropic tangent
+operator, the material tangent operator departed from a finite
+difference by 1.4e-4 in long double (9e-8 now).
+
+The test checks these cases, and the handlers built from the
+deformation gradient in single precision.
+---
+ docs/web/release-notes/release-notes-5.2.md   |  24 ++
+ .../Material/LogarithmicStrainHandler.hxx     |  69 ++---
+ .../Material/LogarithmicStrainHandler.ixx     | 283 +++---------------
+ tests/Material/DisplacementGradientTest.cxx   |  99 +++++-
+ 4 files changed, 182 insertions(+), 293 deletions(-)
+
+diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
+index 6714fdf71..80f2d78fa 100644
+--- a/docs/web/release-notes/release-notes-5.2.md
++++ b/docs/web/release-notes/release-notes-5.2.md
+@@ -367,6 +367,30 @@ supported (see [this page](tfel-math.html)).
+ 
+ # New `TFEL/Material` features
+ 
++## Logarithmic strain handler
++
++The `LogarithmicStrainHandler` class can be built from the deformation
++gradient and the Green-Lagrange strain, computed by the caller without
++cancellation (for instance from the displacement gradient).
++
++The divided differences of the logarithm used by the conversions of the
++stresses and of the tangent operators are computed with `log1p` from the
++eigenvalues of $C - I$, without cancellation when two eigenvalues
++are close, whatever the constructor: the special cases for equal
++eigenvalues are removed. This changes the results of the behaviours
++written in the Hencky strain framework at the level of the rounding
++errors in double precision. In single precision, the former formulas
++lost all precision when two eigenvalues were close (for a rotated
++uniaxial strain of 10 % and a stress not coaxial with the strain, the
++relative error reached $10^{-1}$ on the second Piola-Kirchhoff
++stress and $4.6\,10^{2}$ on its derivative); it is now below
++$4\,10^{-6}$. The former special case of two equal eigenvalues was also
++inaccurate in any precision: for a diagonal deformation gradient with
++two equal stretches and an anisotropic tangent operator, the material
++tangent operator departed from a finite difference by $1.4\,10^{-4}$
++in long double ($9\,10^{-8}$ now, the precision of the finite
++difference).
++
+ ## Description of the behaviours
+ 
+ The `MechanicalBehaviourConcept` concept describes the methods expected
+diff --git a/include/TFEL/Material/LogarithmicStrainHandler.hxx b/include/TFEL/Material/LogarithmicStrainHandler.hxx
+index 901746fc4..8d81c7d98 100644
+--- a/include/TFEL/Material/LogarithmicStrainHandler.hxx
++++ b/include/TFEL/Material/LogarithmicStrainHandler.hxx
+@@ -248,7 +248,11 @@ namespace tfel::material {
+     using TangentOperator = tfel::math::st2tost2<2u, stress>;
+     //! a simple alias
+     using size_type = unsigned short;
+-    //! criterion used to check if eigenvalues are equal.
++    /*!
++     * \brief criterion formerly used to check if eigenvalues are equal,
++     * unused since the divided differences of the logarithm are computed
++     * without cancellation, kept for compatibility
++     */
+     static constexpr real eps = 1.e-14;
+     /*!
+      * \brief constructor
+@@ -467,12 +471,10 @@ namespace tfel::material {
+       tfel::math::tmatrix<3u, 3u, real> m;
+       //! eigenvalues of the right Cauchy-Green tensor
+       tfel::math::tvector<3u, real> vp;
+-      //! shifted eigenvalues (see the `svp` member of the handler)
++      //! eigenvalues of \(C - I\) (see the `svp` member of the handler)
+       tfel::math::tvector<3u, real> svp;
+       //! half the logarithm of the eigenvalues
+       tfel::math::tvector<3u, real> e;
+-      //! see the `from_green_lagrange_strain` member of the handler
+-      bool from_green_lagrange_strain = false;
+     };
+     /*!
+      * \brief build from the `LogarithmicStrainHandlerBuilder`.
+@@ -510,24 +512,16 @@ namespace tfel::material {
+     //! eigenvalues of the right Cauchy-Green tensor
+     const tfel::math::tvector<3u, real> vp;
+     /*!
+-     * \brief eigenvalues of the right Cauchy-Green tensor shifted by a
+-     * constant, used for their differences: the eigenvalues themselves, or,
+-     * when the handler is built from the Green-Lagrange strain, the
+-     * eigenvalues of \(C - I\), whose differences are computed without
+-     * cancellation
++     * \brief eigenvalues of \(C - I\), computed from the Green-Lagrange
++     * strain when the handler is built from it. The divided differences of
++     * the logarithm, used by the derivatives, are computed from them with
++     * `std::log1p`, without cancellation: this matters when two eigenvalues
++     * are close, their differences being then of the order of the rounding
++     * errors
+      */
+     const tfel::math::tvector<3u, real> svp;
+     //! half the logarithm of the eigenvalues
+     const tfel::math::tvector<3u, real> e;
+-    /*!
+-     * \brief true if the handler is built from the Green-Lagrange strain:
+-     * the divided differences of the logarithm, used by the derivatives,
+-     * are then computed from the eigenvalues of \(C - I\) without
+-     * cancellation, which matters when two eigenvalues are close (their
+-     * differences are then of the order of the rounding errors, which are
+-     * no longer negligible compared to the eigenvalues of \(C - I\))
+-     */
+-    const bool from_green_lagrange_strain;
+   };
+ 
+   /*!
+@@ -551,7 +545,11 @@ namespace tfel::material {
+     using TangentOperator = tfel::math::st2tost2<3u, stress>;
+     //! a simple alias
+     using size_type = unsigned short;
+-    //! numerical parameter used to distinguish egal eigenvalues.
++    /*!
++     * \brief criterion formerly used to check if eigenvalues are equal,
++     * unused since the divided differences of the logarithm are computed
++     * without cancellation, kept for compatibility
++     */
+     static constexpr real eps = 1.e-14;
+     /*!
+      * \brief constructor
+@@ -693,15 +691,6 @@ namespace tfel::material {
+     const DeformationGradient F;
+ 
+    private:
+-    //! \return true if all eigenvalues are equal
+-    [[nodiscard]] TFEL_HOST_DEVICE static bool areEigenValuesEqual(
+-        const tfel::math::tvector<3u, real>&);
+-    /*!
+-     * \return the index of the single value if two eigenvalues are
+-     * equal, 3 otherwise.
+-     */
+-    [[nodiscard]] TFEL_HOST_DEVICE static size_type findSingleEigenValue(
+-        const tfel::math::tvector<3u, real>&);
+     /*!
+      * \brief compute the N tensors
+      * \param[in] m: eigenvectors of the right Cauchy-Green tensor
+@@ -757,12 +746,10 @@ namespace tfel::material {
+       tfel::math::tmatrix<3u, 3u, real> m;
+       //! eigenvalues of the right Cauchy-Green tensor
+       tfel::math::tvector<3u, real> vp;
+-      //! shifted eigenvalues (see the `svp` member of the handler)
++      //! eigenvalues of \(C - I\) (see the `svp` member of the handler)
+       tfel::math::tvector<3u, real> svp;
+       //! half the logarithm of the eigenvalues
+       tfel::math::tvector<3u, real> e;
+-      //! see the `from_green_lagrange_strain` member of the handler
+-      bool from_green_lagrange_strain = false;
+     };
+     /*!
+      * \brief build from the `LogarithmicStrainHandlerBuilder`.
+@@ -801,24 +788,16 @@ namespace tfel::material {
+     //! eigenvalues of the right Cauchy-Green tensor
+     const tfel::math::tvector<3u, real> vp;
+     /*!
+-     * \brief eigenvalues of the right Cauchy-Green tensor shifted by a
+-     * constant, used for their differences: the eigenvalues themselves, or,
+-     * when the handler is built from the Green-Lagrange strain, the
+-     * eigenvalues of \(C - I\), whose differences are computed without
+-     * cancellation
++     * \brief eigenvalues of \(C - I\), computed from the Green-Lagrange
++     * strain when the handler is built from it. The divided differences of
++     * the logarithm, used by the derivatives, are computed from them with
++     * `std::log1p`, without cancellation: this matters when two eigenvalues
++     * are close, their differences being then of the order of the rounding
++     * errors
+      */
+     const tfel::math::tvector<3u, real> svp;
+     //! half the logarithm of the eigenvalues
+     const tfel::math::tvector<3u, real> e;
+-    /*!
+-     * \brief true if the handler is built from the Green-Lagrange strain:
+-     * the divided differences of the logarithm, used by the derivatives,
+-     * are then computed from the eigenvalues of \(C - I\) without
+-     * cancellation, which matters when two eigenvalues are close (their
+-     * differences are then of the order of the rounding errors, which are
+-     * no longer negligible compared to the eigenvalues of \(C - I\))
+-     */
+-    const bool from_green_lagrange_strain;
+   };
+ 
+ }  // end of namespace tfel::material
+diff --git a/include/TFEL/Material/LogarithmicStrainHandler.ixx b/include/TFEL/Material/LogarithmicStrainHandler.ixx
+index 20bea9599..c74a1f9dc 100644
+--- a/include/TFEL/Material/LogarithmicStrainHandler.ixx
++++ b/include/TFEL/Material/LogarithmicStrainHandler.ixx
+@@ -380,7 +380,7 @@ namespace tfel::material {
+     const auto C = computeRightCauchyGreenTensor(F1);
+     std::tie(this->vp, this->m) =
+         C.template computeEigenVectors<stensor::FSESJACOBIEIGENSOLVER>();
+-    this->svp = this->vp;
++    this->svp = map([](const real x) { return x - 1; }, this->vp);
+     if (b) {
+       this->e = map(fl, this->vp);
+     } else {
+@@ -406,7 +406,6 @@ namespace tfel::material {
+         stensor{2 * E1}
+             .template computeEigenVectors<stensor::FSESJACOBIEIGENSOLVER>();
+     this->vp = map([](const real x) { return 1 + x; }, this->svp);
+-    this->from_green_lagrange_strain = true;
+     if (b) {
+       this->e = map(fl, this->svp);
+     } else {
+@@ -422,39 +421,20 @@ namespace tfel::material {
+   LogarithmicStrainHandler<2u, StressType>::Builder::computeDerivative(
+       const Setting c, const DeformationGradient& F1) {
+     using namespace tfel::math;
+-    using stensor = stensor<2u, real>;
+     const auto dfl = [](const real x) { return 1 / (2 * x); };
+     const auto d = map(dfl, this->vp);
+-    if (this->from_green_lagrange_strain) {
+-      // the divided difference of the logarithm is computed without
+-      // cancellation from the eigenvalues of C - I, whose differences are
+-      // of the order of the rounding errors when two eigenvalues are close
+-      const auto theta =
+-          internals::halfLog1pDividedDifference(this->svp[0], this->svp[1]);
+-      const auto N = getNTensors(m);
+-      const auto M = (c == LAGRANGIAN) ? N : getEulerianMTensors(m, F1);
+-      this->p = (d[0] * (N(0) ^ M(0)) + d[1] * (N(1) ^ M(1))) / 4;
+-      this->p(2, 2) = (d[2] / 4) * ((N(2))(2)) * ((M(2))(2));
+-      this->p += (theta / 2) * (N(3) ^ M(3));
+-      return;
+-    }
+-    if (c == LAGRANGIAN) {
+-      // p is one half of the tensor defined by Miehe
+-      this->p = stensor::computeIsotropicFunctionDerivative(
+-          this->e, d, this->svp, this->m, eps);
+-    } else {
+-      const auto theta = [this, &d] {
+-        if (tfel::math::abs(this->svp[0] - this->svp[1]) < eps) {
+-          return (d[0] + d[1]) / 2;
+-        }
+-        return (this->e[0] - this->e[1]) / (this->svp[0] - this->svp[1]);
+-      }();
+-      const auto N = getNTensors(m);
+-      const auto M = getEulerianMTensors(m, F1);
+-      this->p = (d[0] * (N(0) ^ M(0)) + d[1] * (N(1) ^ M(1))) / 4;
+-      this->p(2, 2) = (d[2] / 4) * ((N(2))(2)) * ((M(2))(2));
+-      this->p += (theta / 2) * (N(3) ^ M(3));
+-    }
++    // p is one half of the tensor defined by Miehe. The divided difference
++    // of the logarithm is computed without cancellation from the
++    // eigenvalues of C - I, whose differences are of the order of the
++    // rounding errors when two eigenvalues are close: no special case is
++    // needed for equal eigenvalues
++    const auto theta =
++        internals::halfLog1pDividedDifference(this->svp[0], this->svp[1]);
++    const auto N = getNTensors(m);
++    const auto M = (c == LAGRANGIAN) ? N : getEulerianMTensors(m, F1);
++    this->p = (d[0] * (N(0) ^ M(0)) + d[1] * (N(1) ^ M(1))) / 4;
++    this->p(2, 2) = (d[2] / 4) * ((N(2))(2)) * ((M(2))(2));
++    this->p += (theta / 2) * (N(3) ^ M(3));
+   }
+ 
+   template <typename StressType>
+@@ -467,9 +447,7 @@ namespace tfel::material {
+         m(src.m),
+         vp(src.vp),
+         svp(src.svp),
+-        e(src.e),
+-        from_green_lagrange_strain(src.from_green_lagrange_strain) {
+-  }  // end of LogarithmicStrainHandler
++        e(src.e) {}  // end of LogarithmicStrainHandler
+ 
+   template <typename StressType>
+   TFEL_HOST_DEVICE
+@@ -592,26 +570,14 @@ namespace tfel::material {
+       const tfel::math::tvector<4u, tfel::math::stensor<2u, real>>& N,
+       const tfel::math::tvector<4u, tfel::math::stensor<2u, real>>& M) const {
+     using namespace tfel::math;
+-    // half compared to Miehe definition
+-    const auto d = map([](const real x) { return 1 / (2 * x); }, this->vp);
+     // compute the derivative of the Hencky strain with respect to C
+     const auto f = map([](const real x) { return -2 / (x * x); }, this->vp);
+-    const auto xsi = [this, &d, &f]() -> tvector<2u, real> {
+-      if (this->from_green_lagrange_strain) {
+-        // second order divided differences, without cancellation
+-        return {internals::halfLog1pSecondDividedDifference(
+-                    this->svp[0], this->svp[1], this->svp[1]),
+-                internals::halfLog1pSecondDividedDifference(
+-                    this->svp[1], this->svp[0], this->svp[0])};
+-      }
+-      if (tfel::math::abs(this->svp[0] - this->svp[1]) < eps) {
+-        const auto rv = (f[0] + f[1]) / 16;
+-        return {rv, rv};
+-      }
+-      const auto idvp = 1 / (this->svp[0] - this->svp[1]);
+-      return {((this->e[0] - this->e[1]) * idvp - d[1]) * idvp,
+-              -((this->e[0] - this->e[1]) * idvp - d[0]) * idvp};
+-    }();
++    // second order divided differences, without cancellation
++    const tvector<2u, real> xsi = {
++        internals::halfLog1pSecondDividedDifference(this->svp[0], this->svp[1],
++                                                    this->svp[1]),
++        internals::halfLog1pSecondDividedDifference(this->svp[1], this->svp[0],
++                                                    this->svp[0])};
+     const tvector<4u, real> dzeta = {(T | N(0)) / 2, (T | N(1)) / 2, T[2],
+                                      (T | N(3)) / 2};
+ #if (!defined __INTEL_COMPILER) && (!defined __PGI)
+@@ -876,7 +842,7 @@ namespace tfel::material {
+     const auto C = computeRightCauchyGreenTensor(F1);
+     std::tie(this->vp, this->m) =
+         C.template computeEigenVectors<stensor::FSESJACOBIEIGENSOLVER>();
+-    this->svp = this->vp;
++    this->svp = map([](const real x) { return x - 1; }, this->vp);
+     this->e = map(fl, this->vp);
+     this->computeDerivative(c, F1);
+   }
+@@ -892,7 +858,6 @@ namespace tfel::material {
+         stensor{2 * E1}
+             .template computeEigenVectors<stensor::FSESJACOBIEIGENSOLVER>();
+     this->vp = map([](const real x) { return 1 + x; }, this->svp);
+-    this->from_green_lagrange_strain = true;
+     this->e = map([](const real x) { return std::log1p(x) / 2; }, this->svp);
+     this->computeDerivative(c, F1);
+   }
+@@ -902,84 +867,26 @@ namespace tfel::material {
+   LogarithmicStrainHandler<3u, StressType>::Builder::computeDerivative(
+       const Setting c, const DeformationGradient& F1) {
+     using namespace tfel::math;
+-    using stensor = stensor<3u, real>;
+     const auto dfl = [](const real x) { return 1 / (2 * x); };
+     const auto d = map(dfl, this->vp);
+-    if (this->from_green_lagrange_strain) {
+-      // the divided differences of the logarithm are computed without
+-      // cancellation from the eigenvalues of C - I, whose differences are
+-      // of the order of the rounding errors when two eigenvalues are close:
+-      // no special case is needed for equal eigenvalues
+-      const auto N = getNTensors(m);
+-      const auto M = (c == LAGRANGIAN) ? N : getEulerianMTensors(m, F1);
+-      this->p = (d[0] * (N(0, 0) ^ M(0, 0)) + d[1] * (N(1, 1) ^ M(1, 1)) +
+-                 d[2] * (N(2, 2) ^ M(2, 2))) /
+-                4;
+-      for (size_type i = 0; i != 3; ++i) {
+-        for (size_type j = 0; j != 3; ++j) {
+-          if (i == j) {
+-            continue;
+-          }
+-          const auto theta =
+-              internals::halfLog1pDividedDifference(this->svp[i], this->svp[j]);
+-          this->p += (theta / 4) * (N(i, j) ^ M(i, j));
+-        }
+-      }
+-      return;
+-    }
+-    // p is one half of the tensor defined by Miehe
+-    if (c == LAGRANGIAN) {
+-      this->p = stensor::computeIsotropicFunctionDerivative(
+-          this->e, d, this->svp, this->m, eps);
+-    } else {
+-      const auto theta = [this, &d] {
+-        constexpr auto zero = real{0};
+-        if (areEigenValuesEqual(this->svp)) {
+-          const auto rv = (d[0] + d[1] + d[2]) / 3;
+-          return tmatrix<3u, 3u, real>{zero, rv, rv, rv,  zero,
+-                                       rv,   rv, rv, zero};
+-        }
+-        auto r = tmatrix<3u, 3u, real>{};
+-        const auto k = findSingleEigenValue(this->svp);
+-        if (k != 3) {
+-          for (size_type i = 0; i != 3; ++i) {
+-            for (size_type j = 0; j != 3; ++j) {
+-              if (i == j) {
+-                r(i, j) = zero;
+-              } else if ((i == k) || (j == k)) {
+-                r(i, j) =
+-                    (this->e[i] - this->e[j]) / (this->svp[i] - this->svp[j]);
+-              } else {
+-                r(i, j) = (d[i] + d[j]) / 2;
+-              }
+-            }
+-          }
+-          return r;
+-        }
+-        for (size_type i = 0; i != 3; ++i) {
+-          for (size_type j = 0; j != 3; ++j) {
+-            if (i == j) {
+-              r(i, j) = real{};
+-            } else {
+-              r(i, j) =
+-                  (this->e[i] - this->e[j]) / (this->svp[i] - this->svp[j]);
+-            }
+-          }
+-        }
+-        return r;
+-      }();
+-      const auto N = getNTensors(m);
+-      const auto M = getEulerianMTensors(m, F1);
+-      this->p = (d[0] * (N(0, 0) ^ M(0, 0)) + d[1] * (N(1, 1) ^ M(1, 1)) +
+-                 d[2] * (N(2, 2) ^ M(2, 2))) /
+-                4;
+-      for (size_type i = 0; i != 3; ++i) {
+-        for (size_type j = 0; j != 3; ++j) {
+-          if (i == j) {
+-            continue;
+-          }
+-          this->p += (theta(i, j) / 4) * (N(i, j) ^ M(i, j));
++    // p is one half of the tensor defined by Miehe. The divided differences
++    // of the logarithm are computed without cancellation from the
++    // eigenvalues of C - I, whose differences are of the order of the
++    // rounding errors when two eigenvalues are close: no special case is
++    // needed for equal eigenvalues
++    const auto N = getNTensors(m);
++    const auto M = (c == LAGRANGIAN) ? N : getEulerianMTensors(m, F1);
++    this->p = (d[0] * (N(0, 0) ^ M(0, 0)) + d[1] * (N(1, 1) ^ M(1, 1)) +
++               d[2] * (N(2, 2) ^ M(2, 2))) /
++              4;
++    for (size_type i = 0; i != 3; ++i) {
++      for (size_type j = 0; j != 3; ++j) {
++        if (i == j) {
++          continue;
+         }
++        const auto theta =
++            internals::halfLog1pDividedDifference(this->svp[i], this->svp[j]);
++        this->p += (theta / 4) * (N(i, j) ^ M(i, j));
+       }
+     }
+   }
+@@ -994,9 +901,7 @@ namespace tfel::material {
+         m(src.m),
+         vp(src.vp),
+         svp(src.svp),
+-        e(src.e),
+-        from_green_lagrange_strain(src.from_green_lagrange_strain) {
+-  }  // end of LogarithmicStrainHandler
++        e(src.e) {}  // end of LogarithmicStrainHandler
+ 
+   template <typename StressType>
+   TFEL_HOST_DEVICE
+@@ -1159,39 +1064,6 @@ namespace tfel::material {
+     return M;
+   }  // end of getEulerianMTensors
+ 
+-  template <typename StressType>
+-  TFEL_HOST_DEVICE bool
+-  LogarithmicStrainHandler<3u, StressType>::areEigenValuesEqual(
+-      const tfel::math::tvector<3u, real>& vp) {
+-    return ((tfel::math::abs(vp(1) - vp(0)) < eps) &&
+-            (tfel::math::abs(vp(1) - vp(2)) < eps) &&
+-            (tfel::math::abs(vp(2) - vp(0)) < eps));
+-  }  // end of areEigenValuesEqual
+-
+-  template <typename StressType>
+-  TFEL_HOST_DEVICE typename LogarithmicStrainHandler<3u, StressType>::size_type
+-  LogarithmicStrainHandler<3u, StressType>::findSingleEigenValue(
+-      const tfel::math::tvector<3u, real>& vp) {
+-    if (areEigenValuesEqual(vp)) {
+-      tfel::reportContractViolation(
+-          "LogarithmicStrainHandler<3u,StressType>::findSingleEigenValue: "
+-          "this method shall not be called if all eigen values are equal.");
+-    }
+-    if ((tfel::math::abs(vp(1) - vp(0)) > eps) &&
+-        (tfel::math::abs(vp(1) - vp(2)) > eps) &&
+-        (tfel::math::abs(vp(2) - vp(0)) > eps)) {
+-      // all eigenvalues are different
+-      return 3;
+-    }
+-    if ((tfel::math::abs(vp(1) - vp(0)) < eps)) {
+-      return 2;
+-    }
+-    if ((tfel::math::abs(vp(2) - vp(0)) < eps)) {
+-      return 1;
+-    }
+-    return 0;
+-  }
+-
+   template <typename StressType>
+   TFEL_HOST_DEVICE void
+   LogarithmicStrainHandler<3u, StressType>::convertTangentModuli(
+@@ -1211,84 +1083,21 @@ namespace tfel::material {
+       }
+       return (j == 0) ? 1 : 0;
+     };
+-    const auto dfl = [](const real x) { return 1 / (2 * x); };
+-    const auto d = map(dfl, this->vp);  // half compared to Miehe definition
+     const auto f = map([](const real x) { return -2 / (x * x); }, this->vp);
+-    const auto xsi = [this, &d, &f]() -> tmatrix<3u, 3u, real> {
+-      if (this->from_green_lagrange_strain) {
+-        // second order divided differences, without cancellation
+-        auto r = tmatrix<3u, 3u, real>{};
+-        for (size_type i = 0; i != 3; ++i) {
+-          for (size_type j = 0; j != 3; ++j) {
+-            r(i, j) = (i == j) ? real{}
+-                               : internals::halfLog1pSecondDividedDifference(
+-                                     this->svp[i], this->svp[j], this->svp[j]);
+-          }
+-        }
+-        return r;
+-      }
+-      if (areEigenValuesEqual(this->svp)) {
+-        constexpr auto zero = real{0};
+-        const auto rv = (f[0] + f[1] + f[2]) / 24;
+-        return {zero, rv, rv, rv, zero, rv, rv, rv, zero};
+-      }
++    // second order divided differences, without cancellation
++    const auto xsi = [this] {
+       auto r = tmatrix<3u, 3u, real>{};
+-      const auto k = findSingleEigenValue(this->svp);
+-      if (k != 3) {
+-        for (size_type i = 0; i != 3; ++i) {
+-          for (size_type j = 0; j != 3; ++j) {
+-            if (i == j) {
+-              r(i, j) = real{};
+-            } else if ((i == k) || (j == k)) {
+-              const auto idvp = 1 / (this->svp[i] - this->svp[j]);
+-              r(i, j) = ((this->e[i] - this->e[j]) * idvp - d[j]) * idvp;
+-            } else {
+-              r(i, j) = (f[i] + f[j]) / 16;
+-            }
+-          }
+-        }
+-        return r;
+-      }
+-      for (size_type i = 0; i != 3; ++i) {
+-        for (size_type j = 0; j != 3; ++j) {
+-          if (i == j) {
+-            r(i, j) = real{};
+-          } else {
+-            const auto idvp = 1 / (this->svp[i] - this->svp[j]);
+-            r(i, j) = ((this->e[i] - this->e[j]) * idvp - d[j]) * idvp;
+-          }
+-        }
+-      }
+-      return r;
+-    }();
+-    const auto eta = [this, &lk, &f, &d] {
+-      if (this->from_green_lagrange_strain) {
+-        // second order divided difference, without cancellation
+-        return internals::halfLog1pSecondDividedDifference(
+-            this->svp[0], this->svp[1], this->svp[2]);
+-      }
+-      if (areEigenValuesEqual(this->svp)) {
+-        return (f[0] + f[1] + f[2]) / 24;
+-      }
+-      const auto u = findSingleEigenValue(this->svp);
+-      if (u != 3) {
+-        const auto i = (u == 2) ? 0 : 2;
+-        const auto idvp = 1 / (this->svp[i] - this->svp[u]);
+-        return ((this->e[i] - this->e[u]) * idvp - d[u]) * idvp;
+-      }
+-      auto r = real{};
+       for (size_type i = 0; i != 3; ++i) {
+         for (size_type j = 0; j != 3; ++j) {
+-          if (i == j) {
+-            continue;
+-          }
+-          const auto k = lk(i, j);
+-          r += this->e[i] / (2 * (this->svp[i] - this->svp[j]) *
+-                             (this->svp[i] - this->svp[k]));
++          r(i, j) = (i == j) ? real{}
++                             : internals::halfLog1pSecondDividedDifference(
++                                   this->svp[i], this->svp[j], this->svp[j]);
+         }
+       }
+       return r;
+     }();
++    const auto eta = internals::halfLog1pSecondDividedDifference(
++        this->svp[0], this->svp[1], this->svp[2]);
+     const auto dzeta = [&N, &T] {
+       auto r = tmatrix<3u, 3u, real>{};
+       for (size_type i = 0; i != 3; ++i) {
+diff --git a/tests/Material/DisplacementGradientTest.cxx b/tests/Material/DisplacementGradientTest.cxx
+index c6d8a5281..0dd379064 100644
+--- a/tests/Material/DisplacementGradientTest.cxx
++++ b/tests/Material/DisplacementGradientTest.cxx
+@@ -14,7 +14,9 @@
+  * deformation gradient only know it within about 6e-8 in absolute value.
+  * The stresses and the tangent operators are also checked in single
+  * precision when two or three principal values of the displacement
+- * gradient are equal, against a reference computed in long double.
++ * gradient are equal, against a reference computed in long double, and
++ * the material tangent operator, for two equal stretches and an
++ * anisotropic tangent operator, against a finite difference.
+  * \date   14/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+@@ -57,6 +59,7 @@ struct DisplacementGradientTest final : public tfel::tests::TestCase {
+     this->checkFloat<3u>();
+     this->checkFloatEqualPrincipalValues<2u>();
+     this->checkFloatEqualPrincipalValues<3u>();
++    this->checkTangentOperatorWithEqualStretches();
+     return this->result;
+   }
+ 
+@@ -255,17 +258,91 @@ struct DisplacementGradientTest final : public tfel::tests::TestCase {
+     // a few times the precision of float
+     constexpr auto eps = 2e-5;
+     const auto lL = LSHl(LSHl::LAGRANGIAN, Fl, El);
+-    const auto fL = LSHf(LSHf::LAGRANGIAN, Ff, Ef);
+-    TFEL_TESTS_ASSERT(gap(fL.convertToSecondPiolaKirchhoffStress(Tf),
+-                          lL.convertToSecondPiolaKirchhoffStress(Tl)) < eps);
+-    TFEL_TESTS_ASSERT(gap(fL.convertToMaterialTangentModuli(Kf, Tf),
+-                          lL.convertToMaterialTangentModuli(Kl, Tl)) < eps);
+     const auto lE = LSHl(LSHl::EULERIAN, Fl, El);
+-    const auto fE = LSHf(LSHf::EULERIAN, Ff, Ef);
+-    TFEL_TESTS_ASSERT(
+-        gap(fE.convertToCauchyStress(Tf), lE.convertToCauchyStress(Tl)) < eps);
+-    TFEL_TESTS_ASSERT(gap(fE.convertToSpatialTangentModuli(Kf, Tf),
+-                          lE.convertToSpatialTangentModuli(Kl, Tl)) < eps);
++    // handlers built from the deformation gradient and the Green-Lagrange
++    // strain, and from the deformation gradient only: the conversions only
++    // depend on the eigenvalues of C, known with the precision of float in
++    // both cases
++    for (const auto from_strain : {true, false}) {
++      const auto fL = from_strain ? LSHf(LSHf::LAGRANGIAN, Ff, Ef)
++                                  : LSHf(LSHf::LAGRANGIAN, Ff);
++      TFEL_TESTS_ASSERT(gap(fL.convertToSecondPiolaKirchhoffStress(Tf),
++                            lL.convertToSecondPiolaKirchhoffStress(Tl)) < eps);
++      TFEL_TESTS_ASSERT(gap(fL.convertToMaterialTangentModuli(Kf, Tf),
++                            lL.convertToMaterialTangentModuli(Kl, Tl)) < eps);
++      const auto fE =
++          from_strain ? LSHf(LSHf::EULERIAN, Ff, Ef) : LSHf(LSHf::EULERIAN, Ff);
++      TFEL_TESTS_ASSERT(gap(fE.convertToCauchyStress(Tf),
++                            lE.convertToCauchyStress(Tl)) < eps);
++      TFEL_TESTS_ASSERT(gap(fE.convertToSpatialTangentModuli(Kf, Tf),
++                            lE.convertToSpatialTangentModuli(Kl, Tl)) < eps);
++    }
++  }
++  /*!
++   * \brief material tangent operator of the handler built from the
++   * deformation gradient, for two equal stretches, an anisotropic tangent
++   * operator and a stress not coaxial with the strain, compared with a
++   * centered finite difference of the second Piola-Kirchhoff stress with
++   * respect to the Green-Lagrange strain, in long double
++   */
++  void checkTangentOperatorWithEqualStretches() {
++    using namespace tfel::math;
++    using LSH = tfel::material::LogarithmicStrainHandler<3u, long double>;
++    auto K = st2tost2<3u, long double>{};
++    for (unsigned short i = 0; i != 6; ++i) {
++      for (unsigned short j = 0; j != 6; ++j) {
++        K(i, j) = (i == j ? 2e11L : 0.L) +
++                  1e10L * std::cos(static_cast<long double>(i + 2 * j));
++      }
++    }
++    const auto T0 =
++        stensor<3u, long double>{3e8L, -1e8L, 2e8L, 1.5e8L, -0.5e8L, 0.7e8L};
++    // dual stress of the strain, not coaxial with it
++    const auto dual = [&K, &T0](const LSH& l) {
++      return eval(T0 + K * l.getHenckyLogarithmicStrain());
++    };
++    // handler associated with the right stretch tensor U = (I + 2 E)^(1/2)
++    const auto handler = [](const stensor<3u, long double>& E) {
++      const auto C = eval(stensor<3u, long double>::Id() + 2 * E);
++      const auto U = C.computeIsotropicFunction(
++          [](const long double x) { return std::sqrt(x); });
++      constexpr auto icste = Cste<long double>::isqrt2;
++      auto F = tensor<3u, long double>{};
++      F[0] = U[0];
++      F[1] = U[1];
++      F[2] = U[2];
++      F[3] = F[4] = U[3] * icste;
++      F[5] = F[6] = U[4] * icste;
++      F[7] = F[8] = U[5] * icste;
++      return LSH(LSH::LAGRANGIAN, F);
++    };
++    // two equal stretches
++    auto F = tensor<3u, long double>::Id();
++    F[0] = 1.05L;
++    F[1] = 0.98L;
++    F[2] = 0.98L;
++    const auto l = LSH(LSH::LAGRANGIAN, F);
++    const auto Kr = l.convertToMaterialTangentModuli(K, dual(l));
++    const auto E0 = computeGreenLagrangeTensor(F);
++    constexpr auto h = 1e-7L;
++    auto Kn = st2tost2<3u, long double>{};
++    for (unsigned short j = 0; j != 6; ++j) {
++      auto Ep = E0;
++      auto Em = E0;
++      Ep[j] += h;
++      Em[j] -= h;
++      const auto lp = handler(Ep);
++      const auto lm = handler(Em);
++      const auto dS = eval((lp.convertToSecondPiolaKirchhoffStress(dual(lp)) -
++                            lm.convertToSecondPiolaKirchhoffStress(dual(lm))) /
++                           (2 * h));
++      for (unsigned short i = 0; i != 6; ++i) {
++        Kn(i, j) = dS[i];
++      }
++    }
++    // 9e-8 measured, the precision of the finite difference; 1.4e-4 with
++    // the former special case of two equal eigenvalues
++    TFEL_TESTS_ASSERT(gap(Kr, Kn) < 1e-6);
+   }
+ };
+ 
+-- 
+2.43.0
+

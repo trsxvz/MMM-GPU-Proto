@@ -1,4 +1,4 @@
-From 0739e3bcf56ef9b0d270602cd34da655e66957fd Mon Sep 17 00:00:00 2001
+From 9621e58b6300c76ffa15e8f41aa76a7ba212ec04 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 22:07:25 +0200
 Subject: [PATCH] ParaSails preconditioner: new operators after the destruction
@@ -29,10 +29,10 @@ by MALLOC_PERTURB_), refusal when hypre computes on a GPU.
  create mode 100644 tests/HypreParaSailsTest.cxx
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index 86513f52ce..fe21c1001b 100644
+index 2dfc088fe6..f88988a66d 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
-@@ -520,6 +520,8 @@ Sparse Approximate Inverse (HypreParaSails)
+@@ -525,6 +525,8 @@ Sparse Approximate Inverse (HypreParaSails)
  
  - Description: ParaSails is a parallel implementation of a sparse approximate inverse preconditioner, using a priori sparsity patterns and least-squares (Frobenius norm) minimization.
  - Preconditioner name: ``HypreParaSails``
@@ -90,10 +90,10 @@ index a45f9d56ab..a028c4665c 100644
  
    [[nodiscard]] static std::unique_ptr<LinearSolverPreconditioner>
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 1657cd0bb1..acdffd71e7 100644
+index 412cd81085..d708327802 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1183,6 +1183,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1186,6 +1186,15 @@ if(MFEM_MGIS_HAVE_TFEL)
      add_test_executable(HypreILUTest)
      add_test(NAME HypreILUTest COMMAND HypreILUTest)
      add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)

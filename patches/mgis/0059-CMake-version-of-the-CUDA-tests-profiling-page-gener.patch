@@ -1,0 +1,89 @@
+From e69737536ccc59f0fde3b73ab03d1a57a6cf009d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 18:01:16 +0200
+Subject: [PATCH] CMake version of the CUDA tests, profiling page generated,
+ zero byte allocation tested
+
+- enable-generic-parallel-cuda-tests uses the architecture native of CUDA_ARCHITECTURES, which requires CMake 3.24: older versions are refused with a message.
+- docs/web/profiling.md is generated and listed in the menu of the site.
+- FieldOperationsCUDATest checks that the managed memory resource of CUDA allocates zero bytes (cudaMallocManaged accepts a size of zero).
+---
+ docs/web/CMakeLists.txt          |  1 +
+ docs/web/mgis-template.html      |  1 +
+ tests/CMakeLists.txt             |  5 +++++
+ tests/FieldOperationsCUDATest.cu | 12 ++++++++++++
+ 4 files changed, 19 insertions(+)
+
+diff --git a/docs/web/CMakeLists.txt b/docs/web/CMakeLists.txt
+index 561e160..af6793c 100644
+--- a/docs/web/CMakeLists.txt
++++ b/docs/web/CMakeLists.txt
+@@ -93,6 +93,7 @@ if(MGIS_HAVE_PANDOC)
+   mgis_pandoc_generate_html_page(orthotropic-behaviours "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(generic-parallel "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(views "--toc" "--toc-depth=3")
++  mgis_pandoc_generate_html_page(profiling "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(behaviour-integration-failure-analysis "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(functions "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(profiling "--toc" "--toc-depth=3")
+diff --git a/docs/web/mgis-template.html b/docs/web/mgis-template.html
+index 5cc00c8..ef517b7 100644
+--- a/docs/web/mgis-template.html
++++ b/docs/web/mgis-template.html
+@@ -145,6 +145,7 @@
+ 		<li><a href="behaviour-integration-failure-analysis.html">Analysing failure of behaviour integration</a></li>
+ 		<li><a href="generic-parallel.html">Batches of integration points (generic-parallel interface)</a></li>
+ 		<li><a href="views.html">Views on the data of a material</a></li>
++		<li><a href="profiling.html">Profiling</a></li>
+ 		<li><a href="functions.html">Functions</a></li>
+ 		<li><a href="profiling.html">Profiling</a></li>
+ 	      </ul>
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 9ad3fc4..304faac 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -254,6 +254,11 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+     # backend. The test allocates the data in managed memory with the runtime
+     # API of CUDA, from code compiled by the C++ compiler.
+     if(enable-generic-parallel-cuda-tests)
++      # the architecture `native` of CUDA_ARCHITECTURES requires CMake 3.24
++      if(CMAKE_VERSION VERSION_LESS 3.24)
++        message(FATAL_ERROR "enable-generic-parallel-cuda-tests requires "
++                "CMake 3.24 or later")
++      endif()
+       enable_language(CUDA)
+       find_package(CUDAToolkit REQUIRED)
+       mfront_generic_parallel_behaviours_check_library(
+diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
+index dadcd76..0babe60 100644
+--- a/tests/FieldOperationsCUDATest.cu
++++ b/tests/FieldOperationsCUDATest.cu
+@@ -788,6 +788,17 @@ static void testFunctionsOnDeviceViews(const std::string& gp_library,
+   checkCUDA(cudaStreamDestroy(stream), "cudaStreamDestroy");
+ }  // end of testFunctionsOnDeviceViews
+ 
++//! \brief allocation of zero bytes by the managed memory resource
++static void testZeroByteAllocation() {
++  auto managed = mgis::memory_resources::CUDAManagedMemoryResource{};
++  try {
++    auto* const p = managed.allocate(0, alignof(double));
++    managed.deallocate(p, 0, alignof(double));
++  } catch (...) {
++    check(false, "allocation of zero bytes refused");
++  }
++}  // end of testZeroByteAllocation
++
+ int main(const int argc, const char* const* const argv) {
+   if (argc != 5) {
+     std::cerr << "usage: " << argv[0]
+@@ -797,6 +808,7 @@ int main(const int argc, const char* const* const argv) {
+     return EXIT_FAILURE;
+   }
+   try {
++    testZeroByteAllocation();
+     testFieldOperations();
+     testIntegrationCycle(argv[1], argv[2]);
+     testAsynchronousComputationsWithPool(argv[1]);
+-- 
+2.43.0
+

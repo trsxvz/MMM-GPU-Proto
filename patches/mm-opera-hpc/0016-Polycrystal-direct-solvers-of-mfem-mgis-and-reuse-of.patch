@@ -1,4 +1,4 @@
-From 4fcfcb7ec3e2e0cd6d326f7a178c7d5f816b85f8 Mon Sep 17 00:00:00 2001
+From aa32e5949f448275506e3d4388fce2e8886868e6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 07:39:45 +0200
 Subject: [PATCH] Polycrystal: direct solvers of mfem-mgis and reuse of their
@@ -15,7 +15,7 @@ it); it is ignored, with a warning, by the iterative solvers.
  1 file changed, 31 insertions(+), 1 deletion(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 2ea4a70..8b7bd2d 100644
+index 8494709..e747f8b 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -91,6 +91,9 @@ struct NumericalParameters {
@@ -28,7 +28,7 @@ index 2ea4a70..8b7bd2d 100644
  };
  
  /*!
-@@ -334,7 +337,16 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -326,7 +329,16 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
    args.AddOption(&p.library, "-l", "--library", "Material library.");
    args.AddOption(&p.behaviour, "-b", "--behaviour", "Mechanical behaviour.");
    args.AddOption(&p.linear_solver, "", "--linear-solver",
@@ -46,7 +46,7 @@ index 2ea4a70..8b7bd2d 100644
    args.AddOption(&p.linear_solver_preconditioner, "",
                   "--linear-solver-preconditioner",
                   "preconditioner of the linear solver to be used");
-@@ -562,6 +574,24 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+@@ -554,6 +566,24 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
                              const TestParameters &params) {
    CatchTimeSection(ctx, "set_linear_solver");
    auto or_die = ctx.getFatalFailureHandler();

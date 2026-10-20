@@ -1,4 +1,4 @@
-From 69db501920ecf7b03f9608c4904072a5aff952f8 Mon Sep 17 00:00:00 2001
+From 04df66e712d8ec28da14a81d225386075a157751 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 20:23:14 +0200
 Subject: [PATCH] PETSc: copy the matrices of hypre on the host without
@@ -56,7 +56,7 @@ index 8d16fa8980..759ddfb40a 100644
  placed in the vectors of PETSc (whose internal offload mask :code:`MFEM`
  sets) were seen as null by the Krylov solvers of PETSc and by the shell
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index b88d45413e..9ce00e6b76 100644
+index 98984368f0..e0dff3a4e9 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -147,8 +147,9 @@ preconditioners of PETSc, among which its algebraic multigrid (GAMG). A precondi
@@ -425,7 +425,7 @@ index 79f193bdcd..f8ddb1828c 100644
      std::cerr << "error: " << e.what() << '\n';
      return EXIT_FAILURE;
 diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
-index 1b676437af..7a6d75fdeb 100644
+index 7676e65d3d..3b6e9f3bbf 100644
 --- a/tests/SNESSolverTest.cxx
 +++ b/tests/SNESSolverTest.cxx
 @@ -29,7 +29,9 @@

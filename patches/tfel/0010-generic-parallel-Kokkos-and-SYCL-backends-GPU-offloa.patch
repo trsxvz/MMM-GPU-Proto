@@ -1,0 +1,2136 @@
+From 613db4ef1fc817e3f5ae0626fd4f1c530e61db0b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 17:28:41 +0200
+Subject: [PATCH] generic-parallel: Kokkos and SYCL backends, GPU offloading
+ with nvc++
+
+Backends of the `generic-parallel` interface for behaviours:
+
+- the integration at one point is a trivially copyable function object
+  (`PointIntegrator`), selected according to the storage of the fields
+  (`dispatch`), and used by the `stlpar`, `kokkos` and `sycl` backends;
+- `kokkos` backend: `Kokkos::parallel_reduce` with a reduction functor, in
+  the execution space given by the `execution_space` option; the stack size
+  of GPU threads is computed from a probe kernel;
+- `sycl` backend: `parallel_for` with atomic updates of the statistics of
+  the batch, automatic transfers of the fields which are not accessible by
+  the device (`data_transfer_policy` option, as for material properties);
+- `stlpar` backend: offloading to NVIDIA GPUs with `nvc++ -stdpar=gpu`
+  (`-gpu=mem:managed` in the `stlpar-parunseq-nvhpc-gpu` configuration);
+- `device_stack_size` option of the `stlpar` and `sycl` backends, for
+  behaviours and material properties: the stack size of the threads is set
+  through the CUDA runtime loaded by the process
+  (`MFront/GenericParallel/DeviceStackSize.hxx`), since `nvc++` and
+  AdaptiveCpp give no access to it.
+
+Tests and configurations:
+
+- tests `kokkos`, `kokkos-host`, `sycl-default-acpp`,
+  `sycl-default-acpp-omp` and `stlpar-parunseq-nvhpc-gpu`;
+- `kokkos` configuration: compiler and flags extracted from the imported
+  targets of Kokkos;
+- the substitution of a compiler is also defined when the compiler is given
+  by the user, and `HIP_PLATFORM` is cached.
+---
+ cmake/modules/tfel.cmake                      |  67 +++-
+ .../generic-parallel-behaviour-interface.md   |  71 +++-
+ mfront/configuration-files/CMakeLists.txt     |   5 +
+ .../config-kokkos-host.json                   |  20 ++
+ mfront/configuration-files/config-kokkos.json |  20 ++
+ .../config-stlpar-parunseq-nvhpc-gpu.json     |   9 +-
+ .../config-sycl-default-acpp.json             |   3 +-
+ mfront/include/CMakeLists.txt                 |   5 +
+ .../Behaviour/KokkosBackend.hxx               |  56 ++++
+ .../Behaviour/ParallelSTLBackend.hxx          |   6 +
+ .../GenericParallel/Behaviour/SYCLBackend.hxx |  61 ++++
+ .../GenericParallel/DeviceStackSize.hxx       |  90 +++++
+ .../MaterialProperty/ParallelSTLBackend.hxx   |   5 +
+ .../MaterialProperty/SYCLBackend.hxx          |   6 +
+ .../MFront/GenericParallelBehaviour/GPU.hxx   |  56 +---
+ .../GenericParallelBehaviour/Integrate.hxx    | 114 +++++++
+ .../GenericParallelBehaviour/Kokkos.hxx       | 157 +++++++++
+ .../GenericParallelBehaviour/ParallelSTL.hxx  |  44 ++-
+ .../MFront/GenericParallelBehaviour/SYCL.hxx  | 309 ++++++++++++++++++
+ mfront/src/CMakeLists.txt                     |   2 +
+ .../Behaviour/BackendFactory.cxx              |   8 +
+ .../Behaviour/KokkosBackend.cxx               |  44 +++
+ .../Behaviour/ParallelSTLBackend.cxx          |  10 +-
+ .../GenericParallel/Behaviour/SYCLBackend.cxx |  63 ++++
+ .../MaterialProperty/ParallelSTLBackend.cxx   |  18 +-
+ .../MaterialProperty/SYCLBackend.cxx          |  18 +-
+ .../behaviours/generic-parallel/compare.cxx   | 118 ++++++-
+ .../generic-parallel/kokkos-host/test.check   |  24 ++
+ .../generic-parallel/kokkos/test.check        |  24 ++
+ .../stlpar-parunseq-nvhpc-gpu/test.check      |  24 ++
+ .../sycl-default-acpp-omp/test.check          |  31 ++
+ .../sycl-default-acpp/test.check              |  29 ++
+ .../stlpar-parunseq-nvhpc-gpu/test.check      |   2 +-
+ 33 files changed, 1425 insertions(+), 94 deletions(-)
+ create mode 100644 mfront/configuration-files/config-kokkos-host.json
+ create mode 100644 mfront/configuration-files/config-kokkos.json
+ create mode 100644 mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
+ create mode 100644 mfront/include/MFront/GenericParallel/DeviceStackSize.hxx
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+ create mode 100644 mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
+ create mode 100644 mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
+ create mode 100644 test-suite/behaviours/generic-parallel/kokkos-host/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/kokkos/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
+
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index 4ba83bb15..eb5d84ccd 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -545,7 +545,11 @@ set(_tfel-generic-parallel_supported_configurations
+ #    "stlpar-parunseq-acpp-generic"
+     "sycl-default-icpx"
+     "sycl-default-acpp"
+-    "sycl-gpu-acpp")
++    "sycl-gpu-acpp"
++    "kokkos")
++
++# configurations only supported by the behaviours
++set(_tfel-generic-parallel_behaviours_only_configurations "kokkos")
+ 
+ foreach(conf ${generic-parallel-configurations})
+   if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
+@@ -554,8 +558,10 @@ foreach(conf ${generic-parallel-configurations})
+   endif()
+   set(_tfel-enable-generic-parallel-${conf}-configuration ON)
+   if(NOT ${conf} STREQUAL "hip-clang")
+-    list(APPEND tfel-check-components
+-         "mfront::material_property::generic-parallel_interface::supported_configuration::${conf}")
++    if(NOT "${conf}" IN_LIST _tfel-generic-parallel_behaviours_only_configurations)
++      list(APPEND tfel-check-components
++           "mfront::material_property::generic-parallel_interface::supported_configuration::${conf}")
++    endif()
+     list(APPEND tfel-check-components
+          "mfront::behaviour::generic-parallel_interface::supported_configuration::${conf}")
+   endif()
+@@ -667,3 +673,58 @@ if((_tfel-enable-generic-parallel-stlpar-parunseq-acpp-generic-configuration) OR
+    (_tfel-enable-generic-parallel-sycl-gpu-acpp-configuration))
+   define_tfel_cxx_compiler("acpp")
+ endif()
++
++if(_tfel-enable-generic-parallel-kokkos-configuration)
++  # the generated libraries are compiled with the compiler and the flags
++  # used to build Kokkos, extracted from the imported targets. Kokkos
++  # must be built as a shared library, without relocatable device code.
++  # The `separable_compilation` component prevents Kokkos from redirecting
++  # the compilation of TFEL to its compiler.
++  find_package(Kokkos REQUIRED COMPONENTS separable_compilation)
++  get_target_property(_kokkos_compile_options Kokkos::kokkoscore
++                      INTERFACE_COMPILE_OPTIONS)
++  get_target_property(_kokkos_link_options Kokkos::kokkoscore
++                      INTERFACE_LINK_OPTIONS)
++  get_target_property(_kokkos_include_directories Kokkos::kokkoscore
++                      INTERFACE_INCLUDE_DIRECTORIES)
++  get_target_property(_kokkos_library Kokkos::kokkoscore LOCATION)
++  # the options are given by generator expressions selecting the C++
++  # language, which may contain several options separated by semicolons
++  string(REGEX REPLACE "\\$<\\$<COMPILE_LANGUAGE:CXX>:([^>]*)>" "\\1"
++         _kokkos_flags "${_kokkos_compile_options}")
++  string(REGEX REPLACE "\\$<\\$<LINK_LANGUAGE:CXX>:([^>]*)>" "\\1"
++         _kokkos_linker_flags "${_kokkos_link_options}")
++  list(REMOVE_ITEM _kokkos_flags "")
++  list(REMOVE_ITEM _kokkos_linker_flags "")
++  foreach(_directory IN LISTS _kokkos_include_directories)
++    list(APPEND _kokkos_flags "-I${_directory}")
++  endforeach()
++  if(Kokkos_ENABLE_OPENMP)
++    find_package(OpenMP REQUIRED COMPONENTS CXX)
++    list(APPEND _kokkos_flags ${OpenMP_CXX_FLAGS})
++    list(APPEND _kokkos_linker_flags ${OpenMP_CXX_FLAGS})
++  endif()
++  if(Kokkos_CXX_COMPILER MATCHES "nvcc_wrapper$")
++    # same host compiler as TFEL
++    list(APPEND _kokkos_flags "-ccbin" "${CMAKE_CXX_COMPILER}")
++    list(APPEND _kokkos_linker_flags "-ccbin" "${CMAKE_CXX_COMPILER}")
++  endif()
++  if(Kokkos_ENABLE_CUDA)
++    # Kokkos uses the shared CUDA runtime: the generated libraries and the
++    # calling code must use the same one
++    list(APPEND _kokkos_linker_flags "-cudart" "shared"
++         "-L${CUDAToolkit_LIBRARY_DIR}" "-Wl,-rpath,${CUDAToolkit_LIBRARY_DIR}")
++  endif()
++  get_filename_component(_kokkos_library_directory "${_kokkos_library}" DIRECTORY)
++  list(APPEND _kokkos_linker_flags
++       "-L${_kokkos_library_directory}" "-Wl,-rpath,${_kokkos_library_directory}"
++       "-lkokkoscore")
++  list(JOIN _kokkos_flags " " TFEL_KOKKOS_CXX_FLAGS)
++  list(JOIN _kokkos_linker_flags " " TFEL_KOKKOS_LINKER_FLAGS)
++  add_tfel_substitution(TFEL_KOKKOS_CXX_COMPILER "${Kokkos_CXX_COMPILER}")
++  add_tfel_substitution(TFEL_KOKKOS_CXX_FLAGS "${TFEL_KOKKOS_CXX_FLAGS}")
++  add_tfel_substitution(TFEL_KOKKOS_LINKER_FLAGS "${TFEL_KOKKOS_LINKER_FLAGS}")
++  message(STATUS "Kokkos compiler: ${Kokkos_CXX_COMPILER}")
++  message(STATUS "Kokkos flags: ${TFEL_KOKKOS_CXX_FLAGS}")
++  message(STATUS "Kokkos linker flags: ${TFEL_KOKKOS_LINKER_FLAGS}")
++endif()
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index cecccdead..67d2529ad 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -92,7 +92,7 @@ typedef struct {
+   int* statuses;               // optional
+   mfront_gpb_InitialState s0;
+   mfront_gpb_State s1;
+-  void* queue;                 // cudaStream_t or hipStream_t, may be null
++  void* queue;                 // backend specific queue, see below
+ } mfront_gpb_BatchData;
+ ~~~~
+ 
+@@ -173,6 +173,10 @@ Options:
+ - `number_of_threads_per_block` (128 by default), rounded up to a multiple
+   of the warp size.
+ 
++The `queue` member of the batch data is a `cudaStream_t` or a
++`hipStream_t` (the default stream if null). The fields must be accessible by
++the device (device or managed memory).
++
+ ## Parallel STL backend (`stlpar`)
+ 
+ The behaviour is integrated by `std::transform_reduce` with the given
+@@ -181,18 +185,77 @@ iterator: with `libstdc++`, iterators of `std::views::iota` are not random
+ access iterators in the sense of the C++17 iterator categories and the
+ parallel algorithms run sequentially.
+ 
++With `nvc++ -stdpar=gpu`, the computations are offloaded to an NVIDIA GPU.
++The memory mode shall be given explicitly by `-gpu=mem:managed` (see the
++`stlpar-parunseq-nvhpc-gpu` configuration): this mode does not depend on
++the support of heterogeneous memory management by the system, and the
++`unified` mode, selected by default on such systems by `nvc++` 25.11,
++miscompiles some behaviours.
++
+ Options:
+ 
+ - `execution_policy`: `sequenced_policy` (or `seq`), `unsequenced_policy`
+   (or `unseq`), `parallel_policy` (or `par`), `parallel_unsequenced_policy`
+   (or `par_unseq`, default).
++- `device_stack_size`: minimal stack size, in bytes, of the threads of the
++  GPU when the computations are offloaded by `nvc++`. The stack required by
++  `nvc++` is larger than with `nvcc`: 16384 bytes are used in the
++  `stlpar-parunseq-nvhpc-gpu` configuration.
++
++## Kokkos backend (`kokkos`)
++
++The behaviour is integrated by `Kokkos::parallel_reduce` in the given
++execution space. Kokkos must be initialized by the calling code. The
++`queue` member of the batch data may point to an instance of the execution
++space. The fields must be accessible from this execution space.
++
++The generated libraries are compiled with the compiler and the options of
++Kokkos (for instance `nvcc_wrapper`) and are linked with Kokkos, which must
++be a shared library, built without relocatable device code, so that the
++calling code and the generated libraries share the same instance of Kokkos.
++On GPUs, the stack size of the threads is increased if needed, as for the
++`CUDA` and `HIP` backends.
++
++Options:
++
++- `execution_space`: `Kokkos::DefaultExecutionSpace` by default, for
++  instance `Kokkos::DefaultHostExecutionSpace`.
++
++## SYCL backend (`sycl`)
++
++The behaviour is integrated by a `parallel_for` on the queue given by the
++batch data (`queue` must point to a `sycl::queue`). The statistics of the
++batch are updated by atomic operations (a parallel reduction would require
++synchronisation barriers, which are not supported by AdaptiveCpp on CPUs
++for large kernels).
++
++Options:
++
++- `data_transfer_policy`: `automatic` (or `auto`, default): the fields
++  which are not accessible by the device associated with the queue (host
++  memory not allocated by SYCL) are copied in device memory and the outputs
++  are copied back; `none`: all the fields are assumed to be accessible by
++  the device. This option has the same meaning as for material properties.
++- `device_stack_size`: minimal stack size, in bytes, of the threads of the
++  GPU when the computations are performed on an NVIDIA GPU through the CUDA
++  runtime (AdaptiveCpp).
++
++With AdaptiveCpp, the generic compiler (default) translates host and device
++code in a single pass: device code is then selected in the whole
++translation unit (see the `TFEL_DEVICE_CODE` macro below).
+ 
+ # Writing behaviours compatible with GPUs
+ 
+ The code generated by `MFront` is compatible with GPUs. Device specific
+-code is selected by the `TFEL_DEVICE_CODE` macro, which is only defined when
++code is selected by the `TFEL_DEVICE_CODE` macro, which is defined when
+ device code is compiled: the behaviour of the other interfaces on CPUs is
+-not changed.
++not changed. With compilers translating host and device code in a single
++pass (`nvc++ -stdpar=gpu`, generic compiler of AdaptiveCpp), this macro is
++defined in the whole translation unit.
++
++Behaviours are not polymorphic: the methods expected from a behaviour are
++described by the `tfel::material::MechanicalBehaviourConcept` concept, and
++virtual functions are not supported in device code by SYCL.
+ 
+ The following rules apply to the code blocks written by the user:
+ 
+@@ -227,6 +290,8 @@ The following points are specific to device code:
+   and the post-processings of the `generic` interface are not generated.
+ - the slip systems of single crystals are not available in device code.
+ - the `HIP` backend has not been tested on AMD GPUs.
++- the SYCL backend has been tested with AdaptiveCpp (CPU and NVIDIA GPU),
++  not with Intel's DPC++.
+ 
+ # Tests
+ 
+diff --git a/mfront/configuration-files/CMakeLists.txt b/mfront/configuration-files/CMakeLists.txt
+index cf2134e5b..9492d32c6 100644
+--- a/mfront/configuration-files/CMakeLists.txt
++++ b/mfront/configuration-files/CMakeLists.txt
+@@ -56,3 +56,8 @@ endif()
+ # if(_tfel-enable-generic-parallel-stlpar-parunseq-acpp-generic-configuration)
+ #   install_configuration_file(config-stlpar-parunseq-acpp-generic.json)
+ # endif(_tfel-enable-generic-parallel-stlpar-parunseq-acpp-generic-configuration)
++
++if(_tfel-enable-generic-parallel-kokkos-configuration)
++  install_configuration_file(config-kokkos.json)
++  install_configuration_file(config-kokkos-host.json)
++endif(_tfel-enable-generic-parallel-kokkos-configuration)
+diff --git a/mfront/configuration-files/config-kokkos-host.json b/mfront/configuration-files/config-kokkos-host.json
+new file mode 100644
+index 000000000..6e6615b93
+--- /dev/null
++++ b/mfront/configuration-files/config-kokkos-host.json
+@@ -0,0 +1,20 @@
++dsl_options: {
++  disable_runtime_checks: false
++},
++interfaces_options: {
++  generic-parallel: {
++    backend: {kokkos: {
++        execution_space: "Kokkos::DefaultHostExecutionSpace"
++      }
++    }
++  }
++},
++compilation_options : {
++  cxx : {
++    compiler: "@TFEL_KOKKOS_CXX_COMPILER@",
++    compilation_flags: "-O2 -fPIC @TFEL_KOKKOS_CXX_FLAGS@"
++  }
++},
++linking_options : {
++  linker_flags: "@TFEL_KOKKOS_LINKER_FLAGS@"
++}
+diff --git a/mfront/configuration-files/config-kokkos.json b/mfront/configuration-files/config-kokkos.json
+new file mode 100644
+index 000000000..a569194de
+--- /dev/null
++++ b/mfront/configuration-files/config-kokkos.json
+@@ -0,0 +1,20 @@
++dsl_options: {
++  disable_runtime_checks: false
++},
++interfaces_options: {
++  generic-parallel: {
++    backend: {kokkos: {
++        execution_space: "Kokkos::DefaultExecutionSpace"
++      }
++    }
++  }
++},
++compilation_options : {
++  cxx : {
++    compiler: "@TFEL_KOKKOS_CXX_COMPILER@",
++    compilation_flags: "-O2 -fPIC @TFEL_KOKKOS_CXX_FLAGS@"
++  }
++},
++linking_options : {
++  linker_flags: "@TFEL_KOKKOS_LINKER_FLAGS@"
++}
+diff --git a/mfront/configuration-files/config-stlpar-parunseq-nvhpc-gpu.json b/mfront/configuration-files/config-stlpar-parunseq-nvhpc-gpu.json
+index 3ea57de87..992c0bddd 100644
+--- a/mfront/configuration-files/config-stlpar-parunseq-nvhpc-gpu.json
++++ b/mfront/configuration-files/config-stlpar-parunseq-nvhpc-gpu.json
+@@ -4,7 +4,8 @@ dsl_options: {
+ interfaces_options: {
+   generic-parallel: {
+     backend: {stlpar: {
+-        execution_policy: "parallel_unsequenced_policy"
++        execution_policy: "parallel_unsequenced_policy",
++        device_stack_size: 16384
+       }
+     }
+   }
+@@ -12,9 +13,9 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_NVHPC_COMPILER@",
+-    compilation_flags: "-O2 -stdpar=gpu -std=c++@TFEL_CXX_STANDARD@ -march=native" 
++    compilation_flags: "-O2 -stdpar=gpu -gpu=mem:managed -std=c++@TFEL_CXX_STANDARD@ -march=native" 
+   }
+ },
+ linking_options : {
+-  linker_flags: "-stdpar=gpu"
+-}
+\ No newline at end of file
++  linker_flags: "-stdpar=gpu -gpu=mem:managed"
++}
+diff --git a/mfront/configuration-files/config-sycl-default-acpp.json b/mfront/configuration-files/config-sycl-default-acpp.json
+index 96e4cf211..68a6c5475 100644
+--- a/mfront/configuration-files/config-sycl-default-acpp.json
++++ b/mfront/configuration-files/config-sycl-default-acpp.json
+@@ -1,7 +1,8 @@
+ interfaces_options: {
+   generic-parallel: {
+     backend: sycl {
+-     data_transfer_policy: "auto"
++     data_transfer_policy: "auto",
++     device_stack_size: 8192
+     }
+   }
+ },
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index 1811b8816..c44646eb9 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -128,10 +128,13 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty SYCLBackend.hxx)
+ install_mfront_header(MFront GenericBehaviourInterface.hxx)
+ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
+ install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
++install_mfront_header(MFront/GenericParallel DeviceStackSize.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour AbstractBackend.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour BackendFactory.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour GPUBackend.hxx)
++install_mfront_header(MFront/GenericParallel/Behaviour KokkosBackend.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour ParallelSTLBackend.hxx)
++install_mfront_header(MFront/GenericParallel/Behaviour SYCLBackend.hxx)
+ install_mfront_header(MFront GenericModelInterface.hxx)
+ install_mfront_header(MFront CastemModelInterface.hxx)
+ install_mfront_header(MFront Castem21ModelInterface.hxx)
+@@ -251,7 +254,9 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
+ install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)
+ install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)
++install_mfront_header(MFront/GenericParallelBehaviour Kokkos.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour ParallelSTL.hxx)
++install_mfront_header(MFront/GenericParallelBehaviour SYCL.hxx)
+ 
+ if(HAVE_CASTEM)
+ install_mfront_header(MFront/Castem Castem.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
+new file mode 100644
+index 000000000..fe3f7a47a
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
+@@ -0,0 +1,56 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
++ * \brief  This file declares the Kokkos backend of the `generic-parallel`
++ * behaviour interface
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_KOKKOSBACKEND_HXX
++#define LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_KOKKOSBACKEND_HXX
++
++#include "TFEL/Utilities/Data.hxx"
++#include "MFront/MFrontConfig.hxx"
++#include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  /*!
++   * \brief backend based on Kokkos.
++   *
++   * The generated library must be compiled with the compiler used to build
++   * Kokkos (for instance `nvcc_wrapper`) and linked with a shared build of
++   * Kokkos, which is shared with the calling code.
++   *
++   * Options:
++   *
++   * - `execution_space`: execution space (`Kokkos::DefaultExecutionSpace` by
++   *   default), for instance `Kokkos::DefaultHostExecutionSpace`.
++   */
++  struct MFRONT_VISIBILITY_EXPORT KokkosBackend final : AbstractBackend {
++    /*!
++     * \brief constructor
++     * \param[in] opts: options
++     */
++    KokkosBackend(const tfel::utilities::DataMap&);
++    //
++    [[nodiscard]] std::string getName() const override;
++    [[nodiscard]] std::string getSourceFileExtension() const override;
++    void writeSpecificIncludes(std::ostream&) const override;
++    void writeIntegrationCall(std::ostream&) const override;
++    //! \brief destructor
++    ~KokkosBackend() noexcept override;
++
++   private:
++    //! \brief execution space
++    std::string execution_space = "Kokkos::DefaultExecutionSpace";
++  };  // end of KokkosBackend
++
++}  // end of namespace mfront::generic_parallel::behaviour
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_KOKKOSBACKEND_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+index 56505a3f0..14193ab38 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+@@ -29,6 +29,10 @@ namespace mfront::generic_parallel::behaviour {
+    * - `execution_policy`: `sequenced_policy` (or `seq`),
+    *   `unsequenced_policy` (or `unseq`), `parallel_policy` (or `par`) or
+    *   `parallel_unsequenced_policy` (or `par_unseq`, default).
++   * - `device_stack_size`: stack size, in bytes, of the threads of the
++   *   device when the parallel algorithms are offloaded to a GPU by
++   *   `nvc++ -stdpar=gpu` (ignored otherwise). The default stack size of
++   *   CUDA threads (1024 bytes) is too small for many behaviours.
+    */
+   struct MFRONT_VISIBILITY_EXPORT ParallelSTLBackend final : AbstractBackend {
+     //! \brief default constructor
+@@ -49,6 +53,8 @@ namespace mfront::generic_parallel::behaviour {
+    private:
+     //! \brief execution policy
+     std::string execution_policy = "std::execution::par_unseq";
++    //! \brief stack size of the threads of the device (0 if not specified)
++    int device_stack_size = 0;
+   };  // end of ParallelSTLBackend
+ 
+ }  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
+new file mode 100644
+index 000000000..495a9116b
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
+@@ -0,0 +1,61 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
++ * \brief  This file declares the SYCL backend of the `generic-parallel`
++ * behaviour interface
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_SYCLBACKEND_HXX
++#define LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_SYCLBACKEND_HXX
++
++#include "TFEL/Utilities/Data.hxx"
++#include "MFront/MFrontConfig.hxx"
++#include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  /*!
++   * \brief backend based on SYCL. The points are integrated on the device
++   * associated with the queue given by the batch data.
++   *
++   * Options:
++   *
++   * - `data_transfer_policy`: `automatic` (or `auto`, default), the fields
++   *   which are not accessible by the device are copied in device memory and
++   *   the outputs are copied back, or `none`, all the fields are assumed to
++   *   be accessible by the device. This option has the same meaning as for
++   *   material properties.
++   * - `device_stack_size`: minimal stack size, in bytes, of the threads of
++   *   the device when the computations are performed on an NVIDIA GPU
++   *   through the CUDA runtime (AdaptiveCpp).
++   */
++  struct MFRONT_VISIBILITY_EXPORT SYCLBackend final : AbstractBackend {
++    /*!
++     * \brief constructor
++     * \param[in] opts: options
++     */
++    SYCLBackend(const tfel::utilities::DataMap&);
++    //
++    [[nodiscard]] std::string getName() const override;
++    [[nodiscard]] std::string getSourceFileExtension() const override;
++    void writeSpecificIncludes(std::ostream&) const override;
++    void writeIntegrationCall(std::ostream&) const override;
++    //! \brief destructor
++    ~SYCLBackend() noexcept override;
++
++   private:
++    //! \brief if true, the fields not accessible by the device are copied
++    bool automatic_data_transfers = true;
++    //! \brief stack size of the threads of the device (0 if not specified)
++    int device_stack_size = 0;
++  };  // end of SYCLBackend
++
++}  // end of namespace mfront::generic_parallel::behaviour
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_BEHAVIOUR_SYCLBACKEND_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/DeviceStackSize.hxx b/mfront/include/MFront/GenericParallel/DeviceStackSize.hxx
+new file mode 100644
+index 000000000..65b6cc9ee
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/DeviceStackSize.hxx
+@@ -0,0 +1,90 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/DeviceStackSize.hxx
++ * \brief  This file declares a function setting the stack size of the
++ * threads of NVIDIA GPUs for the parallel programming models which do not
++ * give access to this setting.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_DEVICESTACKSIZE_HXX
++#define LIB_MFRONT_GENERICPARALLEL_DEVICESTACKSIZE_HXX
++
++#include <mutex>
++#include <cstddef>
++#if !defined(_WIN32)
++#include <dlfcn.h>
++#endif
++
++namespace mfront::generic_parallel {
++
++  /*!
++   * \brief increase the stack size of the threads of the current CUDA
++   * device, if the CUDA runtime is loaded by the process. Otherwise, the
++   * computations are not performed on an NVIDIA GPU through the CUDA runtime
++   * and nothing is done.
++   *
++   * Some parallel programming models execute the computations on NVIDIA GPUs
++   * through the CUDA runtime but give no access to the stack size of the
++   * threads: the C++ standard parallelism with `nvc++ -stdpar=gpu` and SYCL
++   * with AdaptiveCpp. The default stack size (1024 bytes) and the automatic
++   * increase performed by the CUDA driver at kernel launch, which does not
++   * take into account the internal routines of the compilers (such as the
++   * division of double precision numbers), are not sufficient for some
++   * behaviours.
++   *
++   * The CUDA runtime is looked up among the loaded libraries, so that this
++   * function does not require the CUDA headers nor the CUDA runtime.
++   *
++   * \return true on success, false if the stack size could not be set
++   * \param[in] stack_size: minimal stack size, in bytes
++   */
++  inline bool setMinimalCUDAStackSize(const std::size_t stack_size) noexcept {
++#if defined(_WIN32)
++    static_cast<void>(stack_size);
++    return true;
++#else
++    // `cudaLimitStackSize` in `cudaLimit` and `cudaSuccess` in `cudaError_t`
++    constexpr int stack_size_limit = 0;
++    constexpr int success = 0;
++    using GetLimit = int (*)(std::size_t*, int);
++    using SetLimit = int (*)(int, std::size_t);
++    if (stack_size == 0) {
++      return true;
++    }
++    for (const auto* const library :
++         {"libcudart.so.13", "libcudart.so.12", "libcudart.so"}) {
++      auto* const h = ::dlopen(library, RTLD_LAZY | RTLD_NOLOAD);
++      if (h == nullptr) {
++        continue;
++      }
++      const auto get_limit =
++          reinterpret_cast<GetLimit>(::dlsym(h, "cudaDeviceGetLimit"));
++      const auto set_limit =
++          reinterpret_cast<SetLimit>(::dlsym(h, "cudaDeviceSetLimit"));
++      auto r = (get_limit != nullptr) && (set_limit != nullptr);
++      if (r) {
++        // the stack size is a property of the context, shared by all threads
++        static std::mutex m;
++        auto lock = std::lock_guard<std::mutex>{m};
++        auto current = std::size_t{};
++        r = get_limit(&current, stack_size_limit) == success;
++        if ((r) && (current < stack_size)) {
++          r = set_limit(stack_size_limit, stack_size) == success;
++        }
++      }
++      ::dlclose(h);
++      return r;
++    }
++    return true;
++#endif
++  }  // end of setMinimalCUDAStackSize
++
++}  // end of namespace mfront::generic_parallel
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_DEVICESTACKSIZE_HXX */
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+index 69dfb3249..981486b80 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+@@ -52,6 +52,11 @@ namespace mfront::generic_parallel::material_property {
+                          const bool) const override;
+     //! \brief execution policy
+     std::string execution_policy;
++    /*!
++     * \brief minimal stack size of the threads of the device when the
++     * parallel algorithms are offloaded to an NVIDIA GPU (0 if not specified)
++     */
++    int device_stack_size = 0;
+   };  // end of ParallelSTLBackend
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+index e6b0fa359..9111de7dc 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+@@ -70,6 +70,12 @@ namespace mfront::generic_parallel::material_property {
+     enum struct DataTransferPolicy { AUTOMATIC, NONE };
+     //
+     DataTransferPolicy data_transfer_policy = DataTransferPolicy::AUTOMATIC;
++    /*!
++     * \brief minimal stack size of the threads of the device when the
++     * computations are performed on an NVIDIA GPU through the CUDA runtime
++     * (0 if not specified)
++     */
++    int device_stack_size = 0;
+   };  // end of SYCLBackend
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+index 9980e21d4..89e6751e9 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+@@ -19,7 +19,6 @@
+ #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_GPU_HXX
+ 
+ #include <mutex>
+-#include <cstring>
+ #if defined(__HIPCC__) || defined(__HIP__)
+ #include <hip/hip_runtime.h>
+ #define MFRONT_GPB_GPU_API(f) hip##f
+@@ -40,42 +39,6 @@ namespace mfront::gpb::gpu {
+     inline constexpr auto warp_size_attribute = cudaDevAttrWarpSize;
+ #endif
+ 
+-    /*!
+-     * \brief statistics on the integration of a batch, stored on the
+-     * device. The time step scaling factor is stored as an ordered key (see
+-     * `toOrderedKey`) so that its minimum can be computed with an integer
+-     * atomic operation.
+-     */
+-    struct DeviceStatistics {
+-      unsigned long long number_of_failures;
+-      unsigned long long number_of_unreliable_results;
+-      unsigned long long rdt;
+-    };
+-
+-    /*!
+-     * \return an unsigned integer whose ordering is the same as the
+-     * ordering of the given floating point values
+-     */
+-    TFEL_HOST_DEVICE inline unsigned long long toOrderedKey(const double v) {
+-#ifdef TFEL_DEVICE_CODE
+-      const auto b = static_cast<unsigned long long>(__double_as_longlong(v));
+-#else
+-      auto b = (unsigned long long){};
+-      std::memcpy(&b, &v, sizeof(b));
+-#endif
+-      constexpr auto sign = 0x8000000000000000ull;
+-      return (b & sign) ? ~b : (b | sign);
+-    }  // end of toOrderedKey
+-
+-    //! \brief inverse of `toOrderedKey` (host only)
+-    inline double fromOrderedKey(const unsigned long long k) {
+-      constexpr auto sign = 0x8000000000000000ull;
+-      const auto b = (k & sign) ? (k & ~sign) : ~k;
+-      auto v = double{};
+-      std::memcpy(&v, &b, sizeof(v));
+-      return v;
+-    }  // end of fromOrderedKey
+-
+     /*!
+      * \brief increase the stack size of the threads if the given kernel
+      * requires it. The default stack size (1024 bytes with CUDA) is too
+@@ -162,7 +125,7 @@ namespace mfront::gpb::gpu {
+     __global__ void integrate(const BatchData d,
+                               const ParametersType parameters,
+                               const tfel::material::OutOfBoundsPolicy p,
+-                              DeviceStatistics* const s,
++                              AtomicBatchStatistics* const s,
+                               const unsigned long long rdt0) {
+       const auto i = static_cast<size_type>(blockIdx.x) * blockDim.x +
+                      static_cast<size_type>(threadIdx.x);
+@@ -250,15 +213,12 @@ namespace mfront::gpb::gpu {
+     const auto nthreads = ((threads_per_block + ws - 1) / ws) * ws;
+     const auto nblocks = (d.number_of_points + nthreads - 1) / nthreads;
+     const auto stream = static_cast<Stream>(d.queue);
+-    const auto rdt0 = internals::toOrderedKey(d.rdt);
+-    auto statistics =
+-        internals::DeviceStatistics{.number_of_failures = 0,
+-                                    .number_of_unreliable_results = 0,
+-                                    .rdt = rdt0};
+-    internals::DeviceStatistics* device_statistics = nullptr;
++    auto statistics = AtomicBatchStatistics::initial(d.rdt);
++    const auto rdt0 = statistics.rdt;
++    AtomicBatchStatistics* device_statistics = nullptr;
+     if (failed(MFRONT_GPB_GPU_API(MallocAsync)(
+             reinterpret_cast<void**>(&device_statistics),
+-            sizeof(internals::DeviceStatistics), stream))) {
++            sizeof(AtomicBatchStatistics), stream))) {
+       return s.status;
+     }
+     const auto launched = [&] {
+@@ -298,11 +258,7 @@ namespace mfront::gpb::gpu {
+     if (!(launched && freed && synchronized)) {
+       return s.status;
+     }
+-    return report(
+-        s, BatchStatistics{.number_of_failures = statistics.number_of_failures,
+-                           .number_of_unreliable_results =
+-                               statistics.number_of_unreliable_results,
+-                           .rdt = internals::fromOrderedKey(statistics.rdt)});
++    return report(s, statistics.get());
+   }  // end of integrate
+ 
+ }  // end of namespace mfront::gpb::gpu
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index 5dccade5b..10219f50d 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -15,6 +15,7 @@
+ #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_INTEGRATE_HXX
+ #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_INTEGRATE_HXX
+ 
++#include <bit>
+ #include <cstring>
+ #include <exception>
+ #include <string_view>
+@@ -22,6 +23,7 @@
+ #include "TFEL/Math/General/MathObjectTraits.hxx"
+ #include "TFEL/Math/Array/View.hxx"
+ #include "TFEL/Material/OutOfBoundsPolicy.hxx"
++#include "TFEL/Material/MechanicalBehaviour.hxx"
+ #include "TFEL/Material/MechanicalBehaviourTraits.hxx"
+ #include "MFront/GenericBehaviour/Types.hxx"
+ #include "MFront/GenericBehaviour/State.hxx"
+@@ -190,6 +192,7 @@ namespace mfront::gpb {
+                                  const ComputationOptions& o,
+                                  const ParametersType& parameters,
+                                  const tfel::material::OutOfBoundsPolicy p) {
++    static_assert(tfel::material::MechanicalBehaviourConcept<Behaviour>);
+     using MTraits = tfel::material::MechanicalBehaviourTraits<Behaviour>;
+     using speed = typename Behaviour::speed;
+     using massdensity = typename Behaviour::massdensity;
+@@ -433,6 +436,60 @@ namespace mfront::gpb {
+     real rdt = 1;
+   };
+ 
++  /*!
++   * \return an unsigned integer whose ordering is the same as the ordering
++   * of the given floating point values. This allows to compute the minimum
++   * of floating point values with an integer atomic operation.
++   */
++  TFEL_HOST_DEVICE constexpr unsigned long long toOrderedKey(
++      const double v) noexcept {
++    const auto b = std::bit_cast<unsigned long long>(v);
++    constexpr auto sign = 0x8000000000000000ull;
++    return (b & sign) ? ~b : (b | sign);
++  }  // end of toOrderedKey
++
++  //! \brief inverse of `toOrderedKey`
++  TFEL_HOST_DEVICE constexpr double fromOrderedKey(
++      const unsigned long long k) noexcept {
++    constexpr auto sign = 0x8000000000000000ull;
++    return std::bit_cast<double>((k & sign) ? (k & ~sign) : ~k);
++  }  // end of fromOrderedKey
++
++  /*!
++   * \brief statistics on the integration of a batch, updated by atomic
++   * operations by the backends which do not rely on parallel reductions. The
++   * time step scaling factor is stored as an ordered key (see
++   * `toOrderedKey`) so that its minimum can be computed with an integer
++   * atomic operation.
++   */
++  struct AtomicBatchStatistics {
++    //! \return the initial statistics
++    static constexpr AtomicBatchStatistics initial(const real rdt) noexcept {
++      return {.number_of_failures = 0,
++              .number_of_unreliable_results = 0,
++              .rdt = toOrderedKey(rdt)};
++    }
++    //! \return the statistics
++    constexpr BatchStatistics get() const noexcept {
++      return {.number_of_failures =
++                  static_cast<size_type>(this->number_of_failures),
++              .number_of_unreliable_results =
++                  static_cast<size_type>(this->number_of_unreliable_results),
++              .rdt = fromOrderedKey(this->rdt)};
++    }
++    unsigned long long number_of_failures;
++    unsigned long long number_of_unreliable_results;
++    unsigned long long rdt;
++  };
++
++  //! \brief function object combining two statistics
++  struct CombineStatistics {
++    TFEL_HOST_DEVICE constexpr BatchStatistics operator()(
++        const BatchStatistics& a, const BatchStatistics& b) const noexcept {
++      return combine(a, b);
++    }
++  };
++
+   /*!
+    * \brief set the status and the error message of an output status
+    * \param[out] s: output status
+@@ -590,6 +647,63 @@ namespace mfront::gpb {
+            is_contiguous(d.tangent_operators, sizes.tangent_operator);
+   }  // end of areAllFieldsStoredPointByPoint
+ 
++  /*!
++   * \brief function object integrating the behaviour at one point of a batch
++   * and returning the associated statistics. This class is trivially
++   * copyable (if the parameters are), so it can be passed by value to the
++   * kernels of all the backends, which do not need to support extended
++   * lambdas.
++   *
++   * \tparam Behaviour: class implementing the behaviour
++   * \tparam Sizes: sizes of the data of an integration point
++   * \tparam direct: if true, all the fields are stored point by point
++   * \tparam ParametersType: type of the structure holding the parameters
++   */
++  template <typename Behaviour,
++            typename Sizes,
++            bool direct,
++            typename ParametersType>
++  struct PointIntegrator {
++    //! \return the statistics of the integration at the `i`-th point
++    TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
++      return BatchStatistics::from(integrate<Behaviour, Sizes, direct>(
++          this->data, i, this->parameters, this->policy));
++    }
++    //! \brief batch data
++    BatchData data;
++    //! \brief values of the parameters
++    ParametersType parameters;
++    //! \brief out of bounds policy
++    tfel::material::OutOfBoundsPolicy policy;
++  };
++
++  /*!
++   * \brief call the given function with the point integrator adapted to the
++   * storage of the fields of the batch.
++   *
++   * \tparam Behaviour: class implementing the behaviour
++   * \tparam Sizes: sizes of the data of an integration point
++   * \param[in] d: batch data
++   * \param[in] parameters: values of the parameters
++   * \param[in] p: out of bounds policy
++   * \param[in] f: function taking a point integrator
++   */
++  template <typename Behaviour,
++            typename Sizes,
++            typename ParametersType,
++            typename Function>
++  decltype(auto) dispatch(const BatchData& d,
++                          const ParametersType& parameters,
++                          const tfel::material::OutOfBoundsPolicy p,
++                          Function&& f) {
++    if (areAllFieldsStoredPointByPoint<Sizes>(d)) {
++      return f(PointIntegrator<Behaviour, Sizes, true, ParametersType>{
++          d, parameters, p});
++    }
++    return f(PointIntegrator<Behaviour, Sizes, false, ParametersType>{
++        d, parameters, p});
++  }  // end of dispatch
++
+   /*!
+    * \brief call the given function and convert exceptions to an error
+    * status. This is meant for the host part of the generated functions.
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+new file mode 100644
+index 000000000..cc3d28ffb
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+@@ -0,0 +1,157 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
++ * \brief  This file implements the integration of a batch of integration
++ * points with Kokkos.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_KOKKOS_HXX
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_KOKKOS_HXX
++
++#include <type_traits>
++#include <Kokkos_Core.hpp>
++#include "MFront/GenericParallelBehaviour/Integrate.hxx"
++#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
++#include "MFront/GenericParallelBehaviour/GPU.hxx"
++#endif
++
++namespace mfront::gpb::kokkos {
++
++  namespace internals {
++
++    /*!
++     * \brief functor computing the statistics of a batch with
++     * `Kokkos::parallel_reduce`.
++     * \tparam PointIntegrator: function object integrating the behaviour at
++     * one point
++     */
++    template <typename PointIntegrator>
++    struct Reduction {
++      //! \brief type of the reduced value
++      using value_type = BatchStatistics;
++      //! \brief integrate the behaviour at the `i`-th point
++      KOKKOS_FUNCTION void operator()(const size_type i, value_type& s) const {
++        s = combine(s, this->integrator(i));
++      }
++      //! \brief combine two partial results
++      KOKKOS_FUNCTION void join(value_type& s, const value_type& s2) const {
++        s = combine(s, s2);
++      }
++      //! \brief initialize a partial result
++      KOKKOS_FUNCTION void init(value_type& s) const {
++        s = value_type{.rdt = this->initial_rdt};
++      }
++      //! \brief function object integrating the behaviour at one point
++      PointIntegrator integrator;
++      //! \brief initial value of the time step scaling factor
++      real initial_rdt;
++    };
++
++#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
++
++    /*!
++     * \brief kernel which is never launched: its attributes give the stack
++     * size required to integrate the behaviour at one point. Kokkos does not
++     * increase the stack size of the threads, which is too small by default
++     * for some behaviours.
++     */
++    template <typename PointIntegrator>
++    __global__ void stackSizeProbe(const PointIntegrator f) {
++      f(0);
++    }  // end of stackSizeProbe
++
++#endif /* defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP) */
++
++    /*!
++     * \brief prepare the execution of the given point integrator in the given
++     * execution space.
++     * \return true on success
++     * \param[out] s: output status
++     */
++    template <typename ExecutionSpace, typename PointIntegrator>
++    bool prepare(OutputStatus& s) {
++#if defined(KOKKOS_ENABLE_CUDA)
++      constexpr auto device = std::is_same_v<ExecutionSpace, Kokkos::Cuda>;
++#elif defined(KOKKOS_ENABLE_HIP)
++      constexpr auto device = std::is_same_v<ExecutionSpace, Kokkos::HIP>;
++#else
++      constexpr auto device = false;
++#endif
++      if constexpr (device) {
++        const auto e =
++            gpu::internals::ensureStackSize(stackSizeProbe<PointIntegrator>);
++        if (e != decltype(e){}) {
++          report(s, -3, "unable to set the stack size of the threads");
++          return false;
++        }
++      }
++      static_cast<void>(s);
++      return true;
++    }  // end of prepare
++
++  }  // end of namespace internals
++
++  /*!
++   * \brief integrate the behaviour at the points of a batch.
++   *
++   * Kokkos must have been initialized by the calling code. The `queue`
++   * member of the batch data may point to an instance of the execution
++   * space. This function waits for the completion of the computations.
++   *
++   * \tparam Behaviour: class implementing the behaviour
++   * \tparam Sizes: sizes of the data of an integration point
++   * \tparam ExecutionSpace: execution space
++   * \tparam ParametersType: type of the structure holding the parameters
++   * \param[out] s: output status
++   * \param[in] d: batch data
++   * \param[in] parameters: values of the parameters
++   * \param[in] p: out of bounds policy
++   * \return the status
++   */
++  template <typename Behaviour,
++            typename Sizes,
++            typename ExecutionSpace,
++            typename ParametersType>
++  int integrate(OutputStatus& s,
++                const BatchData& d,
++                const ParametersType& parameters,
++                const tfel::material::OutOfBoundsPolicy p) {
++    if (!check<Sizes>(s, d)) {
++      return s.status;
++    }
++    if (!Kokkos::is_initialized()) {
++      return report(s, -3, "Kokkos is not initialized");
++    }
++    if (d.number_of_points == 0) {
++      return s.status;
++    }
++    const auto space = d.queue == nullptr
++                           ? ExecutionSpace{}
++                           : *static_cast<const ExecutionSpace*>(d.queue);
++    const auto range =
++        Kokkos::RangePolicy<ExecutionSpace, Kokkos::IndexType<size_type>>(
++            space, 0, d.number_of_points);
++    return dispatch<Behaviour, Sizes>(
++        d, parameters, p, [&s, &d, &range](const auto& integrator) {
++          using PointIntegrator = std::decay_t<decltype(integrator)>;
++          if (!internals::prepare<ExecutionSpace, PointIntegrator>(s)) {
++            return s.status;
++          }
++          // the reduction in a scalar is synchronous
++          auto r = BatchStatistics{};
++          Kokkos::parallel_reduce(
++              "mfront::gpb::kokkos::integrate", range,
++              internals::Reduction<PointIntegrator>{integrator, d.rdt}, r);
++          return report(s, r);
++        });
++  }  // end of integrate
++
++}  // end of namespace mfront::gpb::kokkos
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_KOKKOS_HXX */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+index 372658f18..9765cd299 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+@@ -14,10 +14,12 @@
+ #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_PARALLELSTL_HXX
+ #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_PARALLELSTL_HXX
+ 
++#include <cstddef>
+ #include <iterator>
+ #include <numeric>
+ #include <execution>
+ #include "MFront/GenericParallel/CountingIterator.hxx"
++#include "MFront/GenericParallel/DeviceStackSize.hxx"
+ #include "MFront/GenericParallelBehaviour/Integrate.hxx"
+ 
+ namespace mfront::gpb::stlpar {
+@@ -40,6 +42,11 @@ namespace mfront::gpb::stlpar {
+    * \param[in] parameters: values of the parameters
+    * \param[in] p: out of bounds policy
+    * \param[in] policy: execution policy
++   * \param[in] device_stack_size: minimal stack size, in bytes, of the
++   * threads of the device when the parallel algorithms are offloaded to an
++   * NVIDIA GPU by `nvc++ -stdpar=gpu` (see
++   * `mfront::generic_parallel::setMinimalCUDAStackSize`). The stack size is
++   * not modified if this value is null.
+    * \return the status
+    */
+   template <typename Behaviour,
+@@ -50,34 +57,21 @@ namespace mfront::gpb::stlpar {
+                 const BatchData& d,
+                 const ParametersType& parameters,
+                 const tfel::material::OutOfBoundsPolicy p,
+-                ExecutionPolicy&& policy) {
++                ExecutionPolicy&& policy,
++                const std::size_t device_stack_size = 0) {
+     if (!check<Sizes>(s, d)) {
+       return s.status;
+     }
+-    const auto first = CountingIterator{0};
+-    const auto last = CountingIterator{d.number_of_points};
+-    const auto initial_statistics = BatchStatistics{.rdt = d.rdt};
+-    auto reduce = [](const BatchStatistics& a, const BatchStatistics& b) {
+-      return combine(a, b);
+-    };
+-    const auto r = [&] {
+-      if (areAllFieldsStoredPointByPoint<Sizes>(d)) {
+-        return std::transform_reduce(
+-            policy, first, last, initial_statistics, reduce,
+-            [d, parameters, p](const size_type i) {
+-              return BatchStatistics::from(
+-                  mfront::gpb::integrate<Behaviour, Sizes, true>(
+-                      d, i, parameters, p));
+-            });
+-      }
+-      return std::transform_reduce(
+-          policy, first, last, initial_statistics, reduce,
+-          [d, parameters, p](const size_type i) {
+-            return BatchStatistics::from(
+-                mfront::gpb::integrate<Behaviour, Sizes, false>(d, i,
+-                                                                parameters, p));
+-          });
+-    }();
++    if (!mfront::generic_parallel::setMinimalCUDAStackSize(
++            device_stack_size)) {
++      return report(s, -3, "unable to set the stack size of the threads");
++    }
++    const auto r = dispatch<Behaviour, Sizes>(
++        d, parameters, p, [&policy, &d](const auto& integrator) {
++          return std::transform_reduce(
++              policy, CountingIterator{0}, CountingIterator{d.number_of_points},
++              BatchStatistics{.rdt = d.rdt}, CombineStatistics{}, integrator);
++        });
+     return report(s, r);
+   }  // end of integrate
+ 
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+new file mode 100644
+index 000000000..b700b4596
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+@@ -0,0 +1,309 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
++ * \brief  This file implements the integration of a batch of integration
++ * points with SYCL.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_SYCL_HXX
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_SYCL_HXX
++
++#include <memory>
++#include <stdexcept>
++#include <type_traits>
++#include <vector>
++#include <sycl/sycl.hpp>
++#include "MFront/GenericParallel/DeviceStackSize.hxx"
++#include "MFront/GenericParallelBehaviour/Integrate.hxx"
++
++namespace mfront::gpb::sycl {
++
++  //! \brief policy for the transfer of the fields of a batch
++  enum struct DataTransferPolicy {
++    /*!
++     * \brief the fields which are not accessible by the device associated
++     * with the queue (host memory not allocated by SYCL) are copied in
++     * device memory, and the outputs are copied back
++     */
++    AUTOMATIC,
++    //! \brief all the fields are assumed to be accessible by the device
++    NONE
++  };
++
++  namespace internals {
++
++    /*!
++     * \brief batch data whose fields are accessible by the device
++     * associated with a queue. The fields which are not accessible are
++     * copied in device memory. The outputs must be copied back by calling
++     * the `copyOutputs` method.
++     * \tparam Sizes: sizes of the data of an integration point
++     */
++    template <typename Sizes>
++    struct DeviceBatchData {
++      /*!
++       * \brief constructor
++       * \param[in] q: queue
++       * \param[in] d: batch data
++       */
++      DeviceBatchData(::sycl::queue& q, const BatchData& d)
++          : data(d), queue(q) {
++        constexpr auto sizes = PointDataSizes{Sizes::value};
++        auto& s0 = this->data.s0;
++        auto& s1 = this->data.s1;
++        this->transfer(s0.gradients, sizes.gradients, false);
++        this->transfer(s1.gradients, sizes.gradients, false);
++        this->transfer(s0.thermodynamic_forces, sizes.thermodynamic_forces,
++                       false);
++        this->transfer(s1.thermodynamic_forces, sizes.thermodynamic_forces,
++                       true);
++        this->transfer(s0.mass_density, 1, false);
++        this->transfer(s1.mass_density, 1, false);
++        this->transfer(s0.material_properties, sizes.material_properties,
++                       false);
++        this->transfer(s1.material_properties, sizes.material_properties,
++                       false);
++        this->transfer(s0.internal_state_variables,
++                       sizes.internal_state_variables, false);
++        this->transfer(s1.internal_state_variables,
++                       sizes.internal_state_variables, true);
++        this->transfer(s0.stored_energy, 1, false);
++        this->transfer(s1.stored_energy, 1, true);
++        this->transfer(s0.dissipated_energy, 1, false);
++        this->transfer(s1.dissipated_energy, 1, true);
++        this->transfer(s0.external_state_variables,
++                       sizes.external_state_variables, false);
++        this->transfer(s1.external_state_variables,
++                       sizes.external_state_variables, false);
++        this->transfer(this->data.tangent_operators, sizes.tangent_operator,
++                       true);
++        this->transfer(this->data.rdts, 1, true);
++        this->transfer(this->data.speed_of_sound, 1, true);
++        if ((this->data.statuses != nullptr) &&
++            (!this->isAccessible(this->data.statuses))) {
++          this->data.statuses = static_cast<int*>(this->copy(
++              this->data.statuses, this->data.number_of_points * sizeof(int),
++              true));
++        }
++        this->queue.wait_and_throw();
++      }
++      //! \brief copy the outputs back to their original locations
++      void copyOutputs() {
++        for (const auto& c : this->copies) {
++          if (c.output) {
++            this->queue.memcpy(c.host, c.device, c.size);
++          }
++        }
++        this->queue.wait_and_throw();
++      }
++      //! \brief destructor
++      ~DeviceBatchData() {
++        for (const auto& c : this->copies) {
++          ::sycl::free(c.device, this->queue);
++        }
++      }
++      //! \brief batch data whose fields are accessible by the device
++      BatchData data;
++
++     private:
++      //! \brief description of a copy in device memory
++      struct Copy {
++        //! \brief original location
++        void* host;
++        //! \brief copy
++        void* device;
++        //! \brief size in bytes
++        std::size_t size;
++        //! \brief if true, the copy must be copied back
++        bool output;
++      };
++      //! \return if the given pointer is accessible by the device
++      bool isAccessible(const void* const p) const {
++        if (this->queue.get_device().is_cpu()) {
++          return true;
++        }
++        return ::sycl::get_pointer_type(p, this->queue.get_context()) !=
++               ::sycl::usm::alloc::unknown;
++      }
++      /*!
++       * \brief copy an array in device memory
++       * \return the copy
++       * \param[in] p: array
++       * \param[in] size: size in bytes
++       * \param[in] output: if true, the copy must be copied back
++       */
++      void* copy(const void* const p, const std::size_t size, const bool output) {
++        auto* const c = ::sycl::malloc_device(size, this->queue);
++        if (c == nullptr) {
++          throw std::runtime_error(
++              "memory allocation failed on the SYCL device");
++        }
++        this->copies.push_back(
++            Copy{const_cast<void*>(p), c, size, output});
++        this->queue.memcpy(c, p, size);
++        return c;
++      }
++      /*!
++       * \brief copy a field in device memory if it is not accessible by the
++       * device. All the values covered by the strides of the field are
++       * copied, so that the values of an output not written by the behaviour
++       * are preserved.
++       * \param[in] f: field
++       * \param[in] size: number of components
++       * \param[in] output: if true, the field is an output
++       */
++      template <typename FieldType>
++      void transfer(FieldType& f, const size_type size, const bool output) {
++        const auto n = this->data.number_of_points;
++        if ((f.values == nullptr) || (size == 0) || (n == 0) ||
++            (this->isAccessible(f.values))) {
++          return;
++        }
++        const auto extent =
++            (n - 1) * f.point_stride + (size - 1) * f.component_stride + 1;
++        using value_type = std::remove_const_t<
++            std::remove_pointer_t<decltype(f.values)>>;
++        f.values = static_cast<value_type*>(
++            this->copy(f.values, extent * sizeof(value_type), output));
++      }
++      //! \brief copies
++      std::vector<Copy> copies;
++      //! \brief queue
++      ::sycl::queue& queue;
++    };
++
++    //! \brief a simple alias
++    using AtomicCounter =
++        ::sycl::atomic_ref<unsigned long long,
++                           ::sycl::memory_order::relaxed,
++                           ::sycl::memory_scope::device,
++                           ::sycl::access::address_space::global_space>;
++
++    /*!
++     * \brief kernel integrating the behaviour at one point and updating the
++     * statistics of the batch.
++     *
++     * The statistics are updated by atomic operations, which are only
++     * performed if the point failed, gave an unreliable result or decreased
++     * the time step scaling factor. Parallel reductions are not used since
++     * their synchronisation barriers make the compilation of the large
++     * kernels of some behaviours fail with AdaptiveCpp on CPUs.
++     *
++     * \tparam PointIntegrator: function object integrating the behaviour at
++     * one point
++     */
++    template <typename PointIntegrator>
++    struct Kernel {
++      void operator()(const ::sycl::id<1> i) const {
++        const auto r = this->integrator(i[0]);
++        if (r.number_of_failures != 0) {
++          AtomicCounter{this->statistics->number_of_failures}.fetch_add(1);
++        }
++        if (r.number_of_unreliable_results != 0) {
++          AtomicCounter{this->statistics->number_of_unreliable_results}
++              .fetch_add(1);
++        }
++        const auto rdt = toOrderedKey(r.rdt);
++        if (rdt < this->initial_rdt) {
++          AtomicCounter{this->statistics->rdt}.fetch_min(rdt);
++        }
++      }
++      //! \brief function object integrating the behaviour at one point
++      PointIntegrator integrator;
++      //! \brief statistics, allocated on the device
++      AtomicBatchStatistics* statistics;
++      //! \brief ordered key of the initial time step scaling factor
++      unsigned long long initial_rdt;
++    };
++
++  }  // end of namespace internals
++
++  /*!
++   * \brief integrate the behaviour at the points of a batch.
++   *
++   * The `queue` member of the batch data must point to a `sycl::queue`. With
++   * the `NONE` data transfer policy, the fields must be accessible by the
++   * device associated with this queue (shared, device or host USM
++   * allocations, or any memory if the device is the host). This function
++   * waits for the completion of the computations.
++   *
++   * \tparam Behaviour: class implementing the behaviour
++   * \tparam Sizes: sizes of the data of an integration point
++   * \tparam ParametersType: type of the structure holding the parameters
++   * \param[out] s: output status
++   * \param[in] d: batch data
++   * \param[in] parameters: values of the parameters
++   * \param[in] p: out of bounds policy
++   * \param[in] transfers: policy for the transfer of the fields
++   * \param[in] device_stack_size: minimal stack size, in bytes, of the
++   * threads of the device when the computations are performed on an NVIDIA
++   * GPU through the CUDA runtime (see
++   * `mfront::generic_parallel::setMinimalCUDAStackSize`). The stack size is
++   * not modified if this value is null.
++   * \return the status
++   */
++  template <typename Behaviour, typename Sizes, typename ParametersType>
++  int integrate(OutputStatus& s,
++                const BatchData& d,
++                const ParametersType& parameters,
++                const tfel::material::OutOfBoundsPolicy p,
++                const DataTransferPolicy transfers =
++                    DataTransferPolicy::AUTOMATIC,
++                const std::size_t device_stack_size = 0) {
++    if (!check<Sizes>(s, d)) {
++      return s.status;
++    }
++    if (d.queue == nullptr) {
++      return report(s, -2, "no SYCL queue given");
++    }
++    if (d.number_of_points == 0) {
++      return s.status;
++    }
++    if (!mfront::generic_parallel::setMinimalCUDAStackSize(
++            device_stack_size)) {
++      return report(s, -3, "unable to set the stack size of the threads");
++    }
++    auto& q = *static_cast<::sycl::queue*>(d.queue);
++    auto transferred = std::unique_ptr<internals::DeviceBatchData<Sizes>>{};
++    if (transfers == DataTransferPolicy::AUTOMATIC) {
++      transferred =
++          std::make_unique<internals::DeviceBatchData<Sizes>>(q, d);
++    }
++    const auto& dd = transferred == nullptr ? d : transferred->data;
++    auto statistics = AtomicBatchStatistics::initial(d.rdt);
++    const auto deleter = [&q](AtomicBatchStatistics* const ptr) {
++      ::sycl::free(ptr, q);
++    };
++    const auto device_statistics =
++        std::unique_ptr<AtomicBatchStatistics, decltype(deleter)>(
++            ::sycl::malloc_device<AtomicBatchStatistics>(1, q), deleter);
++    if (device_statistics == nullptr) {
++      return report(s, -3, "memory allocation failed on the SYCL device");
++    }
++    q.copy(&statistics, device_statistics.get(), 1).wait_and_throw();
++    dispatch<Behaviour, Sizes>(
++        dd, parameters, p, [&q, &dd, &device_statistics,
++                            &statistics](const auto& integrator) {
++          using PointIntegrator = std::decay_t<decltype(integrator)>;
++          q.parallel_for(::sycl::range<1>{dd.number_of_points},
++                         internals::Kernel<PointIntegrator>{
++                             integrator, device_statistics.get(),
++                             statistics.rdt})
++              .wait_and_throw();
++        });
++    q.copy(device_statistics.get(), &statistics, 1).wait_and_throw();
++    if (transferred != nullptr) {
++      transferred->copyOutputs();
++    }
++    return report(s, statistics.get());
++  }  // end of integrate
++
++}  // end of namespace mfront::gpb::sycl
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_SYCL_HXX */
+diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
+index 7aded7eef..66d83c06e 100644
+--- a/mfront/src/CMakeLists.txt
++++ b/mfront/src/CMakeLists.txt
+@@ -222,7 +222,9 @@ set(TFELMFront_SOURCES
+     GenericParallel/Behaviour/AbstractBackend.cxx
+     GenericParallel/Behaviour/BackendFactory.cxx
+     GenericParallel/Behaviour/GPUBackend.cxx
++    GenericParallel/Behaviour/KokkosBackend.cxx
+     GenericParallel/Behaviour/ParallelSTLBackend.cxx
++    GenericParallel/Behaviour/SYCLBackend.cxx
+     GenericBehaviourSymbolsGenerator.cxx
+     GenericModelInterface.cxx
+     OptionDescription.cxx
+diff --git a/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx b/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
+index ac21be721..595262bf5 100644
+--- a/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
++++ b/mfront/src/GenericParallel/Behaviour/BackendFactory.cxx
+@@ -12,7 +12,9 @@
+ 
+ #include "TFEL/Raise.hxx"
+ #include "MFront/GenericParallel/Behaviour/GPUBackend.hxx"
++#include "MFront/GenericParallel/Behaviour/KokkosBackend.hxx"
+ #include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
++#include "MFront/GenericParallel/Behaviour/SYCLBackend.hxx"
+ #include "MFront/GenericParallel/Behaviour/BackendFactory.hxx"
+ 
+ namespace mfront::generic_parallel::behaviour {
+@@ -29,9 +31,15 @@ namespace mfront::generic_parallel::behaviour {
+     this->add("hip", [](const DataMap& opts) {
+       return std::make_unique<HIPBackend>(opts);
+     });
++    this->add("kokkos", [](const DataMap& opts) {
++      return std::make_unique<KokkosBackend>(opts);
++    });
+     this->add("stlpar", [](const DataMap& opts) {
+       return std::make_unique<ParallelSTLBackend>(opts);
+     });
++    this->add("sycl", [](const DataMap& opts) {
++      return std::make_unique<SYCLBackend>(opts);
++    });
+   }  // end of BackendFactory
+ 
+   void BackendFactory::add(std::string_view n, Generator g) {
+diff --git a/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx b/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
+new file mode 100644
+index 000000000..6ace0e2de
+--- /dev/null
++++ b/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
+@@ -0,0 +1,44 @@
++/*!
++ * \file   mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
++ * \brief  This file implements the Kokkos backend of the `generic-parallel`
++ * behaviour interface
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <ostream>
++#include "MFront/GenericParallel/Behaviour/KokkosBackend.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  KokkosBackend::KokkosBackend(const tfel::utilities::DataMap& opts) {
++    auto validator = tfel::utilities::DataMapValidator{};
++    validator.addDataTypeValidator<std::string>("execution_space");
++    validator.validate(opts);
++    if (contains(opts, "execution_space")) {
++      this->execution_space = get<std::string>(opts, "execution_space");
++    }
++  }  // end of KokkosBackend
++
++  std::string KokkosBackend::getName() const { return "kokkos"; }
++
++  std::string KokkosBackend::getSourceFileExtension() const { return "cxx"; }
++
++  void KokkosBackend::writeSpecificIncludes(std::ostream& os) const {
++    os << "#include \"MFront/GenericParallelBehaviour/Kokkos.hxx\"\n";
++  }  // end of writeSpecificIncludes
++
++  void KokkosBackend::writeIntegrationCall(std::ostream& os) const {
++    os << "return mfront::gpb::kokkos::integrate<Behaviour, mfront_sizes, "
++       << this->execution_space << ">("
++       << "mfront_status, mfront_data, mfront_parameters, mfront_policy);\n";
++  }  // end of writeIntegrationCall
++
++  KokkosBackend::~KokkosBackend() noexcept = default;
++
++}  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+index cf803fdd2..874c3d8e2 100644
+--- a/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+@@ -21,7 +21,11 @@ namespace mfront::generic_parallel::behaviour {
+   ParallelSTLBackend::ParallelSTLBackend(const tfel::utilities::DataMap& opts) {
+     auto validator = tfel::utilities::DataMapValidator{};
+     validator.addDataTypeValidator<std::string>("execution_policy");
++    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
+     validator.validate(opts);
++    if (contains(opts, "device_stack_size")) {
++      this->device_stack_size = get<int>(opts, "device_stack_size");
++    }
+     if (!contains(opts, "execution_policy")) {
+       return;
+     }
+@@ -59,7 +63,11 @@ namespace mfront::generic_parallel::behaviour {
+   void ParallelSTLBackend::writeIntegrationCall(std::ostream& os) const {
+     os << "return mfront::gpb::stlpar::integrate<Behaviour, mfront_sizes>("
+        << "mfront_status, mfront_data, mfront_parameters, mfront_policy, "
+-       << this->execution_policy << ");\n";
++       << this->execution_policy;
++    if (this->device_stack_size != 0) {
++      os << ", " << this->device_stack_size;
++    }
++    os << ");\n";
+   }  // end of writeIntegrationCall
+ 
+   ParallelSTLBackend::~ParallelSTLBackend() noexcept = default;
+diff --git a/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx b/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
+new file mode 100644
+index 000000000..600f3c4ff
+--- /dev/null
++++ b/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
+@@ -0,0 +1,63 @@
++/*!
++ * \file   mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
++ * \brief  This file implements the SYCL backend of the `generic-parallel`
++ * behaviour interface
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <ostream>
++#include "TFEL/Raise.hxx"
++#include "MFront/GenericParallel/Behaviour/SYCLBackend.hxx"
++
++namespace mfront::generic_parallel::behaviour {
++
++  SYCLBackend::SYCLBackend(const tfel::utilities::DataMap& opts) {
++    auto validator = tfel::utilities::DataMapValidator{};
++    validator.addDataTypeValidator<std::string>("data_transfer_policy");
++    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
++    validator.validate(opts);
++    if (contains(opts, "device_stack_size")) {
++      this->device_stack_size = get<int>(opts, "device_stack_size");
++    }
++    if (contains(opts, "data_transfer_policy")) {
++      const auto p = get<std::string>(opts, "data_transfer_policy");
++      if ((p == "auto") || (p == "automatic")) {
++        this->automatic_data_transfers = true;
++      } else if (p == "none") {
++        this->automatic_data_transfers = false;
++      } else {
++        tfel::raise("SYCLBackend::SYCLBackend: invalid data transfer policy '" +
++                    p + "'. Valid policies are 'automatic' (or 'auto') and "
++                    "'none'");
++      }
++    }
++  }  // end of SYCLBackend
++
++  std::string SYCLBackend::getName() const { return "sycl"; }
++
++  std::string SYCLBackend::getSourceFileExtension() const { return "cxx"; }
++
++  void SYCLBackend::writeSpecificIncludes(std::ostream& os) const {
++    os << "#include \"MFront/GenericParallelBehaviour/SYCL.hxx\"\n";
++  }  // end of writeSpecificIncludes
++
++  void SYCLBackend::writeIntegrationCall(std::ostream& os) const {
++    os << "return mfront::gpb::sycl::integrate<Behaviour, mfront_sizes>("
++       << "mfront_status, mfront_data, mfront_parameters, mfront_policy, "
++       << "mfront::gpb::sycl::DataTransferPolicy::"
++       << (this->automatic_data_transfers ? "AUTOMATIC" : "NONE");
++    if (this->device_stack_size != 0) {
++      os << ", " << this->device_stack_size;
++    }
++    os << ");\n";
++  }  // end of writeIntegrationCall
++
++  SYCLBackend::~SYCLBackend() noexcept = default;
++
++}  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+index 4139a391a..2767c936c 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+@@ -27,7 +27,11 @@ namespace mfront::generic_parallel::material_property {
+       : execution_policy("std::execution::par_unseq") {
+     auto validator = tfel::utilities::DataMapValidator{};
+     validator.addDataTypeValidator<std::string>("execution_policy");
++    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
+     validator.validate(opts);
++    if (contains(opts, "device_stack_size")) {
++      this->device_stack_size = get<int>(opts, "device_stack_size");
++    }
+     if (contains(opts, "execution_policy")) {
+       const auto p = get<std::string>(opts, "execution_policy");
+       if ((p == "par") || (p == "parallel_policy")) {
+@@ -61,7 +65,11 @@ namespace mfront::generic_parallel::material_property {
+        << "#include<execution>\n"
+        << "#include<type_traits>\n"
+        << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n"
+-       << "#include\"MFront/GenericParallel/CountingIterator.hxx\"\n\n";
++       << "#include\"MFront/GenericParallel/CountingIterator.hxx\"\n";
++    if (this->device_stack_size != 0) {
++      os << "#include\"MFront/GenericParallel/DeviceStackSize.hxx\"\n";
++    }
++    os << "\n";
+   }  // end of writeSpecificIncludesInSourceFile
+ 
+   void ParallelSTLBackend::writeKernelCall(
+@@ -72,6 +80,14 @@ namespace mfront::generic_parallel::material_property {
+       const bool treatStrides) const {
+     const auto types = i.getTypesDescription();
+     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
++    if (this->device_stack_size != 0) {
++      os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
++         << this->device_stack_size << ")) {\n"
++         << "mfront_output_status->status = -6;\n"
++         << "mfront_report(\"unable to set the stack size of the threads\");\n"
++         << "return;\n"
++         << "}\n";
++    }
+     if (requiresBoundsCheck) {
+       // we do need to use heap allocations as nvc++ would automatically use
+       // managed memory
+diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+index fb3e84131..70523c6e5 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+@@ -24,7 +24,11 @@ namespace mfront::generic_parallel::material_property {
+   SYCLBackend::SYCLBackend(const tfel::utilities::DataMap& opts) {
+     auto validator = tfel::utilities::DataMapValidator{};
+     validator.addDataTypeValidator<std::string>("data_transfer_policy");
++    validator.addStrictlyPositiveIntegerCheck("device_stack_size");
+     validator.validate(opts);
++    if (contains(opts, "device_stack_size")) {
++      this->device_stack_size = get<int>(opts, "device_stack_size");
++    }
+     if (contains(opts, "data_transfer_policy")) {
+       const auto dl = get<std::string>(opts, "data_transfer_policy");
+       if ((dl == "auto") || (dl == "automatic")) {
+@@ -65,7 +69,11 @@ namespace mfront::generic_parallel::material_property {
+                                                                       mpd);
+     os << "#include<concepts>\n"
+        << "#include<type_traits>\n"
+-       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n\n";
++       << "#include\"TFEL/FSAlgorithm/copy.hxx\"\n";
++    if (this->device_stack_size != 0) {
++      os << "#include\"MFront/GenericParallel/DeviceStackSize.hxx\"\n";
++    }
++    os << "\n";
+ 
+     if (this->handlesDataTransfer()) {
+       os << "namespace mfront::gpmp::sycl{\n\n"
+@@ -146,6 +154,14 @@ namespace mfront::generic_parallel::material_property {
+       const bool treatStrides) const {
+     const auto types = i.getTypesDescription();
+     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
++    if (this->device_stack_size != 0) {
++      os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
++         << this->device_stack_size << ")) {\n"
++         << "mfront_output_status->status = -6;\n"
++         << "mfront_report(\"unable to set the stack size of the threads\");\n"
++         << "return;\n"
++         << "}\n";
++    }
+     if (requiresBoundsCheck) {
+       os << "using mfront_shared_allocator_type = "
+          << "sycl::usm_allocator<int, sycl::usm::alloc::shared>;\n"
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index daf5b2ed1..aaacafdd6 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -16,6 +16,13 @@
+  * HIP compiler. In the two last cases, the data are allocated in managed
+  * memory. The HIP runtime is used if the HIP language is enabled or if the
+  * `MFRONT_GPB_COMPARE_USE_HIP` macro is defined (required on NVIDIA GPUs).
++ * If the `MFRONT_GPB_COMPARE_USE_KOKKOS` macro is defined, Kokkos is
++ * initialized and the data are allocated in its shared memory space (if any).
++ * If the `MFRONT_GPB_COMPARE_USE_SYCL` macro is defined, the data are
++ * allocated in shared USM memory (or in host memory if the
++ * `MFRONT_GPB_COMPARE_USE_HOST_MEMORY` macro is defined) and the
++ * computations are performed on the device selected by the default SYCL
++ * selector.
+  *
+  * \date   05/10/2026
+  */
+@@ -29,8 +36,13 @@
+ #include <string>
+ #include <vector>
+ #include <utility>
++#include <type_traits>
+ #include <algorithm>
+-#if defined(__HIP__) || defined(MFRONT_GPB_COMPARE_USE_HIP)
++#if defined(MFRONT_GPB_COMPARE_USE_KOKKOS)
++#include <Kokkos_Core.hpp>
++#elif defined(MFRONT_GPB_COMPARE_USE_SYCL)
++#include <sycl/sycl.hpp>
++#elif defined(__HIP__) || defined(MFRONT_GPB_COMPARE_USE_HIP)
+ #include <hip/hip_runtime.h>
+ #define GPU_API(f) hip##f
+ #elif defined(__CUDACC__)
+@@ -73,7 +85,94 @@ struct States {
+   std::exit(EXIT_FAILURE);
+ }
+ 
+-#ifdef GPU_API
++#if defined(MFRONT_GPB_COMPARE_USE_KOKKOS)
++
++//! \brief initialization of Kokkos
++struct Runtime {
++  Kokkos::ScopeGuard guard;
++};
++
++//! \brief memory space of the data
++using MemorySpace = std::conditional_t<Kokkos::has_shared_space,
++                                       Kokkos::SharedSpace,
++                                       Kokkos::HostSpace>;
++
++template <typename T>
++static T* allocate(const std::size_t n) {
++  return static_cast<T*>(Kokkos::kokkos_malloc<MemorySpace>(
++      std::max<std::size_t>(n, 1) * sizeof(T)));
++}
++
++static void deallocate(void* const p) { Kokkos::kokkos_free<MemorySpace>(p); }
++
++template <typename T>
++static void prefetch(T* const, const std::size_t) {}
++
++static void synchronize() { Kokkos::fence(); }
++
++//! \return the queue passed to the behaviour (default execution space)
++static void* queue() { return nullptr; }
++
++#elif defined(MFRONT_GPB_COMPARE_USE_SYCL)
++
++//! \brief nothing to initialize
++struct Runtime {};
++
++//! \return the SYCL queue used by all the computations
++static ::sycl::queue& getQueue() {
++  static auto q = ::sycl::queue{};
++  return q;
++}
++
++#if defined(MFRONT_GPB_COMPARE_USE_HOST_MEMORY)
++
++template <typename T>
++static T* allocate(const std::size_t n) {
++  auto* const p =
++      static_cast<T*>(std::malloc(std::max<std::size_t>(n, 1) * sizeof(T)));
++  if (p == nullptr) {
++    fail("allocation failed");
++  }
++  return p;
++}
++
++static void deallocate(void* const p) { std::free(p); }
++
++template <typename T>
++static void prefetch(T* const, const std::size_t) {}
++
++#else /* defined(MFRONT_GPB_COMPARE_USE_HOST_MEMORY) */
++
++template <typename T>
++static T* allocate(const std::size_t n) {
++  auto* const p =
++      ::sycl::malloc_shared<T>(std::max<std::size_t>(n, 1), getQueue());
++  if (p == nullptr) {
++    fail("allocation failed");
++  }
++  return p;
++}
++
++static void deallocate(void* const p) { ::sycl::free(p, getQueue()); }
++
++template <typename T>
++static void prefetch(T* const p, const std::size_t n) {
++  if (n != 0) {
++    getQueue().prefetch(p, n * sizeof(T));
++  }
++}
++
++#endif /* defined(MFRONT_GPB_COMPARE_USE_HOST_MEMORY) */
++
++static void synchronize() { getQueue().wait_and_throw(); }
++
++//! \return the queue passed to the behaviour
++static void* queue() { return &getQueue(); }
++
++#elif defined(GPU_API)
++
++//! \brief nothing to initialize
++struct Runtime {};
+ 
+ static void check(const GPU_API(Error_t) e) {
+   if (e != GPU_API(Success)) {
+@@ -110,7 +209,13 @@ static void prefetch(T* const p, const std::size_t n) {
+ 
+ static void synchronize() { check(GPU_API(DeviceSynchronize)()); }
+ 
+-#else /* GPU_API */
++//! \return the queue passed to the behaviour (default stream)
++static void* queue() { return nullptr; }
++
++#else
++
++//! \brief nothing to initialize
++struct Runtime {};
+ 
+ template <typename T>
+ static T* allocate(const std::size_t n) {
+@@ -129,7 +234,10 @@ static void prefetch(T* const, const std::size_t) {}
+ 
+ static void synchronize() {}
+ 
+-#endif /* GPU_API */
++//! \return the queue passed to the behaviour (not used)
++static void* queue() { return nullptr; }
++
++#endif
+ 
+ static void* load(const std::string& lib, const std::string& f) {
+   auto* const l = dlopen(lib.c_str(), RTLD_NOW | RTLD_LOCAL);
+@@ -249,6 +357,7 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
+   prefetch(status, n);
+   synchronize();
+   auto d = mfront_gpb_BatchData{};
++  d.queue = queue();
+   d.number_of_points = n;
+   d.dt = dt;
+   d.options[0] = K0;
+@@ -338,6 +447,7 @@ int main(const int argc, const char* const* const argv) {
+          "tangent_operator_size strain_amplitude material_properties "
+          "temperature");
+   }
++  [[maybe_unused]] const auto runtime = Runtime{};
+   const auto fg = reinterpret_cast<GenericFunction>(load(argv[1], argv[3]));
+   const auto fb = reinterpret_cast<BatchFunction>(load(argv[2], argv[3]));
+   const auto s =
+diff --git a/test-suite/behaviours/generic-parallel/kokkos-host/test.check b/test-suite/behaviours/generic-parallel/kokkos-host/test.check
+new file mode 100644
+index 000000000..a7333f137
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/kokkos-host/test.check
+@@ -0,0 +1,24 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// the generic interface gives the reference results. Using both interfaces
++// in the same call also checks that they can be used together.
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos-host.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront";
++@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
++// arguments: libraries, function, sizes of the gradients, thermodynamic
++// forces, material properties, internal state variables, external state
++// variables and tangent operator, strain amplitude, material properties,
++// temperature
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so IsotropicLinearHardeningPlasticity_PlaneStrain 4 4 0 5 1 16 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so ImplicitNorton_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++// Hosford criterion: eigen values, local memory larger than the default
++// stack size of CUDA threads
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so HosfordPerfectPlasticity_Tridimensional 6 6 0 7 1 36 5e-4 - 293.15";
++// elastic properties given by a material law evaluated on the device, and
++// quantities
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so StrainHardeningCreep3_Tridimensional 6 6 0 11 1 36 1e-3 - 600";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/kokkos/test.check b/test-suite/behaviours/generic-parallel/kokkos/test.check
+new file mode 100644
+index 000000000..2993ab592
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/kokkos/test.check
+@@ -0,0 +1,24 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// the generic interface gives the reference results. Using both interfaces
++// in the same call also checks that they can be used together.
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront";
++@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
++// arguments: libraries, function, sizes of the gradients, thermodynamic
++// forces, material properties, internal state variables, external state
++// variables and tangent operator, strain amplitude, material properties,
++// temperature
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so IsotropicLinearHardeningPlasticity_PlaneStrain 4 4 0 5 1 16 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so ImplicitNorton_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++// Hosford criterion: eigen values, local memory larger than the default
++// stack size of CUDA threads
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so HosfordPerfectPlasticity_Tridimensional 6 6 0 7 1 36 5e-4 - 293.15";
++// elastic properties given by a material law evaluated on the device, and
++// quantities
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-kokkos.so StrainHardeningCreep3_Tridimensional 6 6 0 11 1 36 1e-3 - 600";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+new file mode 100644
+index 000000000..6e9b06360
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+@@ -0,0 +1,24 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-nvhpc-gpu"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// the generic interface gives the reference results. Using both interfaces
++// in the same call also checks that they can be used together.
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront";
++@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -stdpar=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
++// arguments: libraries, function, sizes of the gradients, thermodynamic
++// forces, material properties, internal state variables, external state
++// variables and tangent operator, strain amplitude, material properties,
++// temperature
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-stlpar.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-stlpar.so IsotropicLinearHardeningPlasticity_PlaneStrain 4 4 0 5 1 16 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-stlpar.so ImplicitNorton_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-stlpar.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++// Hosford criterion: eigen values, local memory larger than the default
++// stack size of CUDA threads
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-stlpar.so HosfordPerfectPlasticity_Tridimensional 6 6 0 7 1 36 5e-4 - 293.15";
++// elastic properties given by a material law evaluated on the device, and
++// quantities
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-stlpar.so StrainHardeningCreep3_Tridimensional 6 6 0 11 1 36 1e-3 - 600";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
+new file mode 100644
+index 000000000..f7885966f
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
+@@ -0,0 +1,31 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// computations on the CPU (OpenMP backend of AdaptiveCpp)
++@Environment {"ACPP_VISIBILITY_MASK": "omp"};
++// the generic interface gives the reference results. Using both interfaces
++// in the same call also checks that they can be used together.
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront";
++@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
++// arguments: libraries, function, sizes of the gradients, thermodynamic
++// forces, material properties, internal state variables, external state
++// variables and tangent operator, strain amplitude, material properties,
++// temperature
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_PlaneStrain 4 4 0 5 1 16 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++// Hosford criterion: eigen values, local memory larger than the default
++// stack size of CUDA threads
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so HosfordPerfectPlasticity_Tridimensional 6 6 0 7 1 36 5e-4 - 293.15";
++// elastic properties given by a material law evaluated on the device, and
++// quantities
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so StrainHardeningCreep3_Tridimensional 6 6 0 11 1 36 1e-3 - 600";
++
++// automatic transfers of the fields allocated in host memory
++@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
++@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++
++@CleanFiles {"compare", "compare-host"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
+new file mode 100644
+index 000000000..17556e664
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
+@@ -0,0 +1,29 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// the generic interface gives the reference results. Using both interfaces
++// in the same call also checks that they can be used together.
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront";
++@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
++// arguments: libraries, function, sizes of the gradients, thermodynamic
++// forces, material properties, internal state variables, external state
++// variables and tangent operator, strain amplitude, material properties,
++// temperature
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_PlaneStrain 4 4 0 5 1 16 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++// Hosford criterion: eigen values, local memory larger than the default
++// stack size of CUDA threads
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so HosfordPerfectPlasticity_Tridimensional 6 6 0 7 1 36 5e-4 - 293.15";
++// elastic properties given by a material law evaluated on the device, and
++// quantities
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so StrainHardeningCreep3_Tridimensional 6 6 0 11 1 36 1e-3 - 600";
++
++// automatic transfers of the fields allocated in host memory
++@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
++@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare-host src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++
++@CleanFiles {"compare", "compare-host"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/material-properties/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check b/test-suite/material-properties/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+index ccb87a9ee..9e0ddf446 100644
+--- a/test-suite/material-properties/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
++++ b/test-suite/material-properties/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+@@ -7,7 +7,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../LinearDataInterpolationTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json";
+-@Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -stdpar=gpu --std=c++@TFEL_CXX_STANDARD@ ../test-stlpar.cxx -o test-stlpar -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-stlpar -lGenericParallelInconel600-stlpar -lGenericParallelMaterialLaw-stlpar";
++@Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -stdpar=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ ../test-stlpar.cxx -o test-stlpar -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-stlpar -lGenericParallelInconel600-stlpar -lGenericParallelMaterialLaw-stlpar";
+ @Command "./test-stlpar test-stlpar-parunseq-nvhpc";
+ 
+ @CleanFiles {"test-stlpar"};
+-- 
+2.43.0
+

@@ -1,0 +1,518 @@
+From 4f28d9b35346bccda7a172b34e50c38755d18400 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 00:48:03 +0200
+Subject: [PATCH] Documentation of the layouts, of the views and of the field
+ operations
+
+- new page views.md: FieldView, layout of the material data managers,
+  material data views, functions on views, FieldOperations, example.
+- generic-parallel.md: views, layouts, end of time step on the device,
+  pools of memory for the asynchronous computations, limitations.
+- release notes 3.2: layouts and views.
+---
+ docs/web/CMakeLists.txt       |   1 +
+ docs/web/generic-parallel.md  |  76 +++++++---
+ docs/web/index.md             |   5 +
+ docs/web/mgis-template.html   |   1 +
+ docs/web/release-notes-3.2.md |  35 +++++
+ docs/web/views.md             | 264 ++++++++++++++++++++++++++++++++++
+ 6 files changed, 363 insertions(+), 19 deletions(-)
+ create mode 100644 docs/web/views.md
+
+diff --git a/docs/web/CMakeLists.txt b/docs/web/CMakeLists.txt
+index 804def2..561e160 100644
+--- a/docs/web/CMakeLists.txt
++++ b/docs/web/CMakeLists.txt
+@@ -92,6 +92,7 @@ if(MGIS_HAVE_PANDOC)
+   mgis_pandoc_generate_html_page(release-notes-3.2 "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(orthotropic-behaviours "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(generic-parallel "--toc" "--toc-depth=3")
++  mgis_pandoc_generate_html_page(views "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(behaviour-integration-failure-analysis "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(functions "--toc" "--toc-depth=3")
+   mgis_pandoc_generate_html_page(profiling "--toc" "--toc-depth=3")
+diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
+index 45acdd7..7ef8066 100644
+--- a/docs/web/generic-parallel.md
++++ b/docs/web/generic-parallel.md
+@@ -39,7 +39,10 @@ through its usual objects (`Behaviour`, `MaterialDataManager`,
+   computations are synchronous by default, or asynchronous with an
+   asynchronous execution policy.
+ - No data is copied: the batch is described by views on the arrays of the
+-  material data manager.
++  material data manager. The arrays may also be owned by the calling code
++  and described by views with arbitrary strides (see [this
++  page](views.html)): the batch functions also act on a
++  `MaterialDataView`.
+ - The calling code declares where its arrays are located. `MGIS` checks
+   that the computations of the library can access them.
+ - `MGIS` does not depend on any GPU toolkit. The arrays are given by the
+@@ -81,7 +84,9 @@ backend.
+ The data of the material data manager are mapped as follows:
+ 
+ - the gradients, the thermodynamic forces, the internal state variables
+-  and the energies are fields stored point by point;
++  and the energies are fields stored in the layout of the material data
++  manager, point by point or component by component (see [this
++  page](views.html));
+ - the material properties and the external state variables are given
+   variable by variable: each one is uniform or given point by point, as in
+   the `MaterialStateManager`. The elements of an array of variables are
+@@ -118,7 +123,9 @@ same array.
+ The inputs of the initialize functions and the outputs of the
+ post-processings must be located as the arrays of the material data
+ manager. The location of the arrays given to a rotation is an argument,
+-`HOST` by default, as for the evaluation of a material property.
++`HOST` by default, as for the evaluation of a material property. The
++rotations also take views with arbitrary strides (see [this
++page](views.html)).
+ 
+ # Models
+ 
+@@ -144,7 +151,10 @@ member). `isGenericParallelMaterialProperty` tells if a material property
+ evaluates sets of points.
+ 
+ The `evaluate` function evaluates a material property on a set of points.
+-Each input is uniform (one value) or given point by point. As
++Each input is uniform (one value) or given point by point. The values and
++the inputs can also be given by views with arbitrary strides (see [this
++page](views.html)), an uniform input being described by a view with a null
++point stride. As
+ `integrate`, it makes one call for a `generic-parallel` material property,
+ and evaluates the other material properties point by point on the host.
+ The result (`MaterialPropertyEvaluationResult`) is the same for all the
+@@ -202,11 +212,14 @@ requires no change in `MGIS`.
+ 
+ ## Functions working on the host
+ 
+-Some functions of `MGIS` read the arrays on the host: `update`, `revert`,
+-`updateValues`, `extractInternalStateVariable`, `save`, `restore`,
+-`convertFiniteStrainStress`, `convertFiniteStrainTangentOperator` and the
+-integration point by point. They report an error if the arrays are located
+-on a device. `allocatePostProcessingVariables` allocates the outputs of a
++Some functions of `MGIS` read the arrays on the host:
++`extractInternalStateVariable` (on a material state manager), `save`,
++`restore`, `convertFiniteStrainStress`,
++`convertFiniteStrainTangentOperator` and the integration point by point.
++They report an error if the arrays are located on a device. `update`,
++`revert` and `updateValues` copy the arrays on the host, unless they are
++given operations working in the memory of the calling code (see
++`FieldOperations` on [this page](views.html)). `allocatePostProcessingVariables` allocates the outputs of a
+ post-processing on the host, or with a memory resource given by the
+ calling code.
+ 
+@@ -236,6 +249,11 @@ code with its own GPU toolkit (`MGIS/MemoryResources/`):
+ | `SYCLSharedMemoryResource.hxx` | shared memory of `SYCL`, for a given queue |
+ | `KokkosSharedSpaceMemoryResource.hxx` | `Kokkos::SharedSpace` |
+ 
++Those resources satisfy any alignment, as required by the pools of the
++standard library (`std::pmr::synchronized_pool_resource`), which request
++blocks aligned on their size: an alignment stricter than the one of the
++memory of the runtime is obtained by over-allocation.
++
+ # Execution policy
+ 
+ `mgis::BatchExecutionPolicy` is shared by the behaviours, the models and
+@@ -292,6 +310,26 @@ written by the device: it must be accessible by both. The memory of the
+ host suits the backends computing on the host. Shared memory, allocated by
+ a memory resource, suits all the backends.
+ 
++Each asynchronous call allocates its status with this resource. With a
++resource allocating managed memory, each call then allocates and frees
++managed memory, which is slow. A pool of the standard library over this
++resource avoids it:
++
++~~~~{.cxx}
++auto managed = mgis::memory_resources::CUDAManagedMemoryResource{};
++auto pool = std::pmr::synchronized_pool_resource(&managed);
++auto p = AsynchronousBatchExecutionPolicy{};
++p.resource = &pool;
++p.location = MemoryLocation::SHARED;
++~~~~
++
++With a pool, a pending computation destroyed before the computations are
++completed corrupts the next call instead of only being slow: the
++precondition below is all the more important. The rotation matrices built
++from material axes by an asynchronous rotation are also allocated by this
++resource: for repeated rotations, they shall rather be built once by
++`buildRotationMatrices`.
++
+ The functions return a pending computation:
+ 
+ - `PendingBatchComputation` for the behaviours and the models
+@@ -338,18 +376,18 @@ execution context.
+ 
+ # Current limitations
+ 
+-- The batch functions work on a material data manager, whose arrays are
+-  stored point by point. `TFEL` supports other layouts (component by
+-  component, arbitrary strides), better suited to coalesced accesses on
+-  GPUs: they are not exposed yet. The material properties are evaluated
+-  on contiguous or uniform values.
+-- `update` and `revert` copy the states on the host.
+-- `MaterialFunctionManager` builds its material data manager on the host.
++- The layouts of `TFEL` grouping the points by element (as the `byNODES`
++  ordering of the quadrature interpolators of `MFEM`) are not supported:
++  the points of a group of variables are described by two strides.
++- `MaterialFunctionManager` builds its material data manager with the
++  arrays allocated on the host, unless its initializer gives a memory
++  resource or the arrays.
+ - The optional arrays giving the status and the time step scaling factor
+   of each point are not exposed.
+-- The `C`, `Fortran` and `Python` bindings do not expose the new
+-  functions. The `C` and `Fortran` functions acting on a single point
+-  report a failure for a `generic-parallel` library.
++- The `C`, `Fortran` and `Python` bindings expose the layout of the
++  material data managers, but not the batch functions nor the views. The
++  `C` and `Fortran` functions acting on a single point report a failure
++  for a `generic-parallel` library.
+ 
+ # Example
+ 
+diff --git a/docs/web/index.md b/docs/web/index.md
+index 2ae353d..85fe371 100644
+--- a/docs/web/index.md
++++ b/docs/web/index.md
+@@ -65,6 +65,11 @@ integration points, on CPUs or on GPUs. The functions acting on a
+ evaluated on a set of points by the `mgis::material_property::evaluate`
+ function. Their use by `MGIS` is described [here](generic-parallel.html).
+ 
++The arrays of a material can be stored point by point or component by
++component, or be owned by the calling code and described by views with
++arbitrary strides, for instance in the memory of a GPU (see
++[this page](views.html)).
++
+ An introduction to the `C++` library may be found [here](bindings-cxx.html)
+ 
+ # Projects using `MGIS` or in which `MGIS` can be coupled
+diff --git a/docs/web/mgis-template.html b/docs/web/mgis-template.html
+index e8b4645..5cc00c8 100644
+--- a/docs/web/mgis-template.html
++++ b/docs/web/mgis-template.html
+@@ -144,6 +144,7 @@
+ 		<li><a href="orthotropic-behaviours.html">Support for orthotropic behaviours</a></li>
+ 		<li><a href="behaviour-integration-failure-analysis.html">Analysing failure of behaviour integration</a></li>
+ 		<li><a href="generic-parallel.html">Batches of integration points (generic-parallel interface)</a></li>
++		<li><a href="views.html">Views on the data of a material</a></li>
+ 		<li><a href="functions.html">Functions</a></li>
+ 		<li><a href="profiling.html">Profiling</a></li>
+ 	      </ul>
+diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
+index 1bf790e..9b43d69 100644
+--- a/docs/web/release-notes-3.2.md
++++ b/docs/web/release-notes-3.2.md
+@@ -159,6 +159,41 @@ properties). In short:
+ - the functions acting on a single point report an error for a
+   `generic-parallel` library instead of calling a null pointer.
+ 
++# Layouts and views
++
++The arrays of a material can be stored component by component, or be
++owned by the calling code and described by views with arbitrary strides.
++This is described in a dedicated [page](views.html). In short:
++
++- `mgis::FieldView` describes the values of a group of variables at a set
++  of points, with a stride between two points and a stride between two
++  components. A null point stride describes uniform values;
++- the `layout` member of `MaterialDataManagerInitializer` selects the
++  layout of the arrays of a material data manager (`POINT_BY_POINT` by
++  default, or `COMPONENT_BY_COMPONENT`). Everything given point by point to
++  the manager follows this layout. `save` and `restore` always use the
++  point by point layout;
++- `MaterialDataView` describes the data of a material stored in arrays of
++  the calling code. The functions of the material data managers
++  (integration, initialize functions, post-processings, end of time step,
++  extraction of internal state variables, conversions of the finite strain
++  stresses and tangent operators) also act on a material data view.
++  Without execution policy, they take a workspace
++  (`BehaviourIntegrationWorkSpace`), one per thread;
++- the rotations and the evaluation of the material properties also take
++  views;
++- `update`, `revert` and `updateValues` take operations copying and
++  filling views in the memory of the calling code (`FieldOperations`),
++  for instance on a device. Implementations are provided as headers for
++  `CUDA`, `HIP`, `SYCL`, `Kokkos` and `OpenMP` (`MGIS/FieldOperations/`);
++- `MaterialFunctionManager` takes an initializer, and gives strided
++  coalesced views of `mgis::function` for the managers stored component
++  by component;
++- the layout is exposed by the `C`, `Fortran` and `Python` bindings.
++
++The functions of the material data managers no longer allocate memory on
++the heap at each call in the usual cases, nor `evaluate`.
++
+ # New features of the `MGIS/Behaviour` library
+ 
+ ## Save/restore operations in `MaterialStateManager` and `MaterialDataManager`
+diff --git a/docs/web/views.md b/docs/web/views.md
+new file mode 100644
+index 0000000..a181dd0
+--- /dev/null
++++ b/docs/web/views.md
+@@ -0,0 +1,264 @@
++---
++title: Views on the data of a material
++date: 2026
++lang: en-EN
++numbersections: true
++documentclass: article
++from: markdown+tex_math_single_backslash
++geometry:
++  - margin=2cm
++papersize: a4
++link-citations: true
++colorlinks: true
++figPrefixTemplate: "$$i$$"
++tabPrefixTemplate: "$$i$$"
++secPrefixTemplate: "$$i$$"
++eqnPrefixTemplate: "($$i$$)"
++---
++
++A material data manager owns the arrays of a material, stored point by
++point by default. A calling code may own its arrays: a finite element
++solver storing quadrature functions, or a code storing its arrays in the
++memory of a GPU, in a layout giving coalesced memory accesses. Those arrays
++can be described by views, with arbitrary strides, and given to the
++functions of `MGIS` without any copy.
++
++Views work with the libraries generated by the `generic` and the
++`generic-parallel` interfaces of `MFront` (see [this
++page](generic-parallel.html) for the latter).
++
++# Views on a field: `FieldView`
++
++`mgis::FieldView<ValueType>` (`MGIS/FieldView.hxx`) describes the values
++of a group of variables (or of a single variable) at a set of points. The
++value type is `real` or `const real`. The `j`-th component of the `i`-th
++point is stored at:
++
++~~~~{.cxx}
++v.data()[i * v.getPointStride() + j * v.getComponentStride()]
++~~~~
++
++This is the two-dimensional counterpart of `std::span`, with the meaning
++of a `std::mdspan` using the `layout_stride` mapping. A view does not own
++its values: copying a view copies a descriptor. A default constructed view
++is empty.
++
++Views are built by:
++
++| Function | Layout |
++|---|---|
++| `makeFieldView(values, layout, n, nc)` | dense, in the given `FieldLayout` |
++| `makePointByPointFieldView(values, n, nc, ps)` | components of a point contiguous, stride `ps` between two points |
++| `makeComponentByComponentFieldView(values, n, nc, ld)` | values of a component contiguous, stride `ld` between two components |
++| `makeUniformFieldView(values, n)` | the same values at each point (null point stride) |
++| `getComponents(view, offset, count)` | some components of a view, for instance a variable of a group |
++
++The `mgis::FieldLayout` enumeration has two values:
++
++- `POINT_BY_POINT`: the `j`-th component of the `i`-th point is stored at
++  `values[i * nc + j]`;
++- `COMPONENT_BY_COMPONENT`: it is stored at `values[j * n + i]`. This
++  layout gives coalesced memory accesses on GPUs. It is the layout of the
++  "strided coalesced" views of `mgis::function`.
++
++The values must cover all the points and all the components. As for the
++views of `mgis::function`, a violation of this precondition is a contract
++violation (see `contract_violation_policy`): the program is aborted by
++default. The static function `FieldView::checkPreconditions` checks it
++beforehand.
++
++A uniform view (null point stride) can only be read. The values of an
++output must be distinct: `MGIS` checks it (`hasDistinctValues`).
++
++# Layout of a material data manager
++
++The arrays of a material data manager can be stored component by
++component:
++
++~~~~{.cxx}
++auto i = MaterialDataManagerInitializer{};
++i.layout = FieldLayout::COMPONENT_BY_COMPONENT;  // POINT_BY_POINT by default
++auto m = MaterialDataManager(b, n, i);
++~~~~
++
++The layout is stored in the `layout` member of the material data manager
++and of its material state managers. Everything given point by point to the
++manager follows this layout:
++
++- the arrays of the states, the tangent operator blocks and the speed of
++  sound;
++- the external state variables with several components given by a
++  `std::span` (the material properties are scalars);
++- the inputs of the initialize functions and the outputs of the
++  post-processings given by a `std::span`;
++- the outputs of `extractInternalStateVariable` and of the conversions of
++  the finite strain stresses and tangent operators given by a `std::span`.
++
++The arrays are accessed through views in the layout of the manager:
++`getGradientsView(s)`, `getGradientView(s, name)`, and likewise for the
++thermodynamic forces and the internal state variables, and
++`getTangentOperatorBlocksView(m)`. `updateValues` refuses states of
++different layouts. `save` and `restore` always write and read the values
++point by point: a file does not depend on the layout.
++
++`MaterialFunctionManager` takes an initializer. With the
++`COMPONENT_BY_COMPONENT` layout, its usual accessors refuse the variables
++with several components, and `getStridedCoalescedGradient<N>`,
++`getStridedCoalescedThermodynamicForce<N>` and
++`getStridedCoalescedInternalStateVariable<N>` return strided coalesced
++views of `mgis::function`.
++
++The layout is exposed by the `C`, `Fortran` and `Python` bindings. The
++`Python` bindings return `numpy` arrays with the strides of the layout.
++The two-dimensional accessors of the `Fortran` bindings refuse the
++`COMPONENT_BY_COMPONENT` layout.
++
++# Material data views
++
++`MaterialDataView` (`MGIS/Behaviour/MaterialDataView.hxx`) is the
++counterpart of `MaterialDataManager` for arrays owned by the calling code.
++It holds no value:
++
++- `s0` and `s1` (`MaterialStateView`): views of the gradients, the
++  thermodynamic forces, the internal state variables and the energies,
++  and the views of the material properties, of the mass density and of the
++  external state variables;
++- `K`: tangent operator blocks, only used if a tangent or a prediction
++  operator is requested;
++- `speed_of_sound`: only used if the speed of sound is requested;
++- `batch_execution_policy`: policy used by the functions which do not take
++  one;
++- `memory_location`: location of all the arrays, checked against the
++  memory space of the behaviour.
++
++The material properties and the external state variables are given
++variable by variable, in the order of the behaviour, by
++`setMaterialProperty`, `setExternalStateVariable` and `setMassDensity`.
++Each one is uniform or given at each point. The vectors holding those
++views use a memory resource given to the constructor.
++
++`make_view(m)` returns a view on the arrays of a material data manager,
++with its layout, its execution policy and its memory location. The values
++held by the manager on the host are checked to be accessible by the
++computations of the behaviour.
++
++The functions check the consistency of a view at each call: behaviour and
++number of points of the states, number of views of the material
++properties and of the external state variables, extent of each view.
++
++# Functions on views
++
++| Function | Notes |
++|---|---|
++| `integrate`, `integrate_debug` | range of points `[b, e)` or all the points |
++| `executeInitializeFunction` | inputs given by a `FieldView` |
++| `executePostProcessing` | outputs given by a `FieldView` |
++| `rotateGradients`, `rotateThermodynamicForces`, `rotateTangentOperatorBlocks` | matrices given by a view or built from material axes, in place or not |
++| `evaluate` | values and inputs of a material property given by views |
++| `update`, `revert`, `updateValues` | with field operations (see below) |
++| `getGradientView`, `getThermodynamicForceView`, `getInternalStateVariableView`, `extractInternalStateVariable` | variables of a state view |
++| `convertFiniteStrainStress`, `convertFiniteStrainTangentOperator` | outputs given by a `FieldView`, on the host |
++
++The number of points is given by the views. The functions processing
++points have three forms:
++
++~~~~{.cxx}
++auto ws = BehaviourIntegrationWorkSpace(b);  // one per thread
++const auto r1 = integrate(ws, v, opts, dt);
++const auto r2 = integrate(policy, v, opts, dt);
++const auto pending = integrate(asynchronous_policy, v, opts, dt);
++~~~~
++
++- With a workspace, any library is accepted: a `generic-parallel` library
++  processes the batch with the policy of the view, a `generic` library is
++  integrated point by point on the host. If the components of a group of
++  variables are not contiguous, the values of a point are gathered in the
++  workspace, whose buffers are allocated once by its constructor.
++- With a synchronous or an asynchronous execution policy, the library must
++  be generated by the `generic-parallel` interface.
++- `integrate_debug` only takes a workspace.
++
++The rotations and the evaluations of material properties take no
++workspace: without policy, the `generic-parallel` libraries use a default
++policy, and the other ones compute point by point on the host. The
++overloads of the rotations taking arrays expect values stored point by
++point. They call the same functions on views.
++
++There is no form taking a `ThreadPool`: on the host, the parallelism is
++given by the `openmp` and `stlpar` backends, or by the calling code with
++one workspace per thread. The overloads taking an `IntegrationType` are
++only provided for the material data managers.
++
++The functions of the material data managers call the functions on views
++on a view of their arrays.
++
++# End of a time step: `FieldOperations`
++
++`update` and `revert` copy the arrays of a state in the arrays of the
++other state, and set the tangent operator blocks to zero. When the arrays
++are owned by the calling code, possibly in the memory of a device, the
++copies are delegated to an object implementing the `mgis::FieldOperations`
++interface (`MGIS/FieldOperations.hxx`), as the allocations are delegated
++to a `std::pmr::memory_resource`:
++
++~~~~{.cxx}
++auto ops = mgis::field_operations::CUDAFieldOperations{stream};
++update(v, ops);  // material data view
++update(m, ops);  // material data manager
++cudaStreamSynchronize(stream);
++~~~~
++
++- `HostFieldOperations` works in the memory of the host. It is used by the
++  overloads without operations.
++- Header-only implementations, compiled by the calling code with its own
++  GPU toolkit, are provided for `CUDA`, `HIP`, `SYCL`, `Kokkos` and
++  `OpenMP` (`MGIS/FieldOperations/`). With `CUDA`, `HIP` and `SYCL`, a
++  copy between two arrays with the same dense layout is performed by the
++  copy function of the runtime. The other copies, for instance a
++  transposition between the two layouts, use a kernel.
++- The operations may be asynchronous: the queue must be synchronized
++  before reading the values on the host.
++- `update` and `revert` of a material data view copy the gradients, the
++  thermodynamic forces, the internal state variables and the energies. The
++  material properties and the external state variables of a view belong to
++  the calling code.
++- For a material data manager, the values held by `MGIS` on the host
++  (uniform values, values stored with the `LOCAL_STORAGE` mode) are
++  updated on the host, the arrays of the calling code by the operations. A
++  copy between a value held on the host and an array of the calling code
++  is refused if the location of the arrays is not accessible by the host.
++
++# Example
++
++The arrays of a behaviour compiled for `CUDA` are stored component by
++component in the memory of the device, by the calling code. The end of the
++time step is performed on the device.
++
++~~~~{.cxx}
++#include "MGIS/FieldView.hxx"
++#include "MGIS/FieldOperations/CUDAFieldOperations.hxx"
++#include "MGIS/Behaviour/Behaviour.hxx"
++#include "MGIS/Behaviour/MaterialDataView.hxx"
++#include "MGIS/Behaviour/Integrate.hxx"
++
++using namespace mgis::behaviour;
++const auto b =
++    load("libBehaviour-cuda.so", "Norton", Hypothesis::TRIDIMENSIONAL);
++const auto gs = getArraySize(b.gradients, b.hypothesis);
++auto v = MaterialDataView(b, n, mgis::MemoryLocation::DEVICE);
++// g0 and g1 point to arrays of gs * n values allocated by cudaMalloc
++v.s0.gradients = mgis::makeFieldView(
++    std::span(g0, gs * n), mgis::FieldLayout::COMPONENT_BY_COMPONENT, n, gs);
++v.s1.gradients = mgis::makeFieldView(
++    std::span(g1, gs * n), mgis::FieldLayout::COMPONENT_BY_COMPONENT, n, gs);
++// ... thermodynamic forces, internal state variables, tangent operator
++// temperature: one value in the memory of the device, uniform
++const auto T = mgis::makeUniformFieldView(std::span<const mgis::real>(t, 1), n);
++setExternalStateVariable(v.s0, "Temperature", T);
++setExternalStateVariable(v.s1, "Temperature", T);
++auto policy = mgis::BatchExecutionPolicy{};
++policy.queue = stream;
++const auto r = integrate(policy, v, BehaviourIntegrationOptions{}, dt);
++auto ops = mgis::field_operations::CUDAFieldOperations{stream};
++update(v, ops);
++~~~~
+-- 
+2.43.0
+

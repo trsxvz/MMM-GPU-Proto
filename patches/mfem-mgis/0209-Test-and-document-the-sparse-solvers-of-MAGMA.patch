@@ -1,4 +1,4 @@
-From 545eeea09b08a6a2fe9ba823a40f97b43123dcd0 Mon Sep 17 00:00:00 2001
+From 75dc892880359d7eb0696e1fb1212a8e7d2e7288 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:11:29 +0200
 Subject: [PATCH] Test and document the sparse solvers of MAGMA
@@ -172,7 +172,7 @@ index 579ead6789..172748ef62 100644
  
  Linear solvers and preconditioners of Ginkgo
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 84505ee600..2491197443 100644
+index 8c69423688..ffbe17d869 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -187,6 +187,16 @@ its Cluster Sparse Solver (:cxx:`MKLClusterSparseSolver`, parallel) are
@@ -193,10 +193,10 @@ index 84505ee600..2491197443 100644
  --------------------------
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index cebf2cf46d..32f1ec6369 100644
+index 35b015659b..2aca1021e3 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1754,6 +1754,33 @@ if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
+@@ -1757,6 +1757,33 @@ if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
      FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
  endif()
  

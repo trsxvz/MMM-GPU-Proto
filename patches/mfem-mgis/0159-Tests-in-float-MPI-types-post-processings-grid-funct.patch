@@ -1,4 +1,4 @@
-From e4c1916ba1fec2cdf3e61cdb2a9f1f7991b33a83 Mon Sep 17 00:00:00 2001
+From 4b7eb4e8fd38c570ad101ae1beecd6d8f3d891a6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:13:45 +0200
 Subject: [PATCH] Tests in float: MPI types, post-processings, grid functions,
@@ -50,7 +50,7 @@ index 55bcdd20cc..c6f7ed31e8 100644
    const auto f = (m > 0) ? std::ldexp(1., -std::ilogb(m)) : 1.;
    auto sv = mfem::Vector(v.Size());
 diff --git a/tests/GridFunctionOnSubMeshTest.cxx b/tests/GridFunctionOnSubMeshTest.cxx
-index 72e1576286..2039c17081 100644
+index fa86fb0881..b82e298133 100644
 --- a/tests/GridFunctionOnSubMeshTest.cxx
 +++ b/tests/GridFunctionOnSubMeshTest.cxx
 @@ -27,6 +27,7 @@
@@ -92,7 +92,7 @@ index 72e1576286..2039c17081 100644
      auto fed = makeFiniteElementDiscretization(ctx);
      auto& fespace = fed.getFiniteElementSpace<parallel>();
 diff --git a/tests/GridFunctionTest.cxx b/tests/GridFunctionTest.cxx
-index ab9069329f..52f5996aed 100644
+index 7b24906c2a..ff90a0e5b3 100644
 --- a/tests/GridFunctionTest.cxx
 +++ b/tests/GridFunctionTest.cxx
 @@ -16,6 +16,7 @@
@@ -114,7 +114,7 @@ index ab9069329f..52f5996aed 100644
                                      std::to_string(e) + ")");
    }
 diff --git a/tests/L2ProjectionTest.cxx b/tests/L2ProjectionTest.cxx
-index 75e32e746a..66d4624747 100644
+index 15084a38f7..c0369aec0b 100644
 --- a/tests/L2ProjectionTest.cxx
 +++ b/tests/L2ProjectionTest.cxx
 @@ -19,7 +19,9 @@
@@ -146,7 +146,7 @@ index 75e32e746a..66d4624747 100644
        msg << "test4: invalid projection of a linear function with " << n
            << " component(s) (largest difference " << e[0] << ", largest value "
 diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
-index 6018905b45..61e23c0f52 100644
+index 6842d87ee8..4df05d9eb1 100644
 --- a/tests/MicromorphicKernelsTest.cxx
 +++ b/tests/MicromorphicKernelsTest.cxx
 @@ -35,6 +35,7 @@
@@ -173,7 +173,7 @@ index 6018905b45..61e23c0f52 100644
  #endif /* MFEM_USE_MPI */
        check(dmax - dmin > 1e-2, suffix + ": uniform damage");
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index 2301541b26..1d31a25cfa 100644
+index 1e86eefdac..fa35be9be1 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -31,6 +31,8 @@

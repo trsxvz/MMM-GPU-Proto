@@ -1,4 +1,4 @@
-From 5b94d7d7f874195f4de7867b886d3af0ecd6b968 Mon Sep 17 00:00:00 2001
+From a355977665f38e29522092d2675fc110fb0159f0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 22:57:20 +0200
 Subject: [PATCH] AmgX: solvers built on the C interface of AmgX
@@ -1605,10 +1605,10 @@ index 12925526c4..c9be08b373 100644
    if (rank == 0) {
      std::cout << (failures == 0 ? "success" : "failure") << '\n';
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index c9e9699b6f..aaa12285ef 100644
+index e411d1913e..30a481f75f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1103,21 +1103,21 @@ endif(MFEM_USE_MPI)
+@@ -1106,21 +1106,21 @@ endif(MFEM_USE_MPI)
  
  # AmgXSolverTest executable: solvers of AmgX built by the factory of linear
  # solvers. AmgX computes on the GPU whatever the device of MFEM: the tests

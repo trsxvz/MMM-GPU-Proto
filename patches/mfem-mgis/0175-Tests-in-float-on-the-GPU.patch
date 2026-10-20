@@ -1,4 +1,4 @@
-From b88866f2f929cc6753bf3f20be571f15c5018908 Mon Sep 17 00:00:00 2001
+From 88b528715b589651c2c9b9f675a4c7b97b8a579a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 06:32:24 +0200
 Subject: [PATCH] Tests in float on the GPU
@@ -26,10 +26,10 @@ Double and float on the CPU: unchanged results for these tests.
  4 files changed, 24 insertions(+), 12 deletions(-)
 
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 0a84c8ccbd..10c79c0e29 100644
+index 102f196950..838924fb2c 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
-@@ -2383,7 +2383,14 @@ int main(int argc, char** argv) {
+@@ -2388,7 +2388,14 @@ int main(int argc, char** argv) {
        const auto results = compute(ctx, m, library, b, "Batch", opts);
        compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
                b + " (kernels" + name + ")", getComparisonTolerance(opts));
@@ -64,7 +64,7 @@ index 42a079bc53..267dddbae5 100644
          name + ": inverses of the jacobians");
    check(ddet < geometry_tolerance, name + ": determinants");
 diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
-index fc7ebe22bf..29a81e2b40 100644
+index e58a76f995..62a729d73f 100644
 --- a/tests/GradientsKernelsTest.cxx
 +++ b/tests/GradientsKernelsTest.cxx
 @@ -940,7 +940,8 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
@@ -88,7 +88,7 @@ index fc7ebe22bf..29a81e2b40 100644
      check(close, "integrator positions: ordered assembly, assembled values");
      mi.setOrderedStiffnessMatricesAssembly(false);
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index 3dc1b5021f..1f1ece55b9 100644
+index d0f064c692..765aa0b4f7 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -384,17 +384,18 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {

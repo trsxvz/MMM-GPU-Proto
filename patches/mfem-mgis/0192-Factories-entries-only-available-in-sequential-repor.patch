@@ -1,4 +1,4 @@
-From fc1b0a582992f6f61fe8bda013e122f179ebe44b Mon Sep 17 00:00:00 2001
+From b27708afa6f9e43fe5822a781f123bf68751e70a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 04:37:56 +0200
 Subject: [PATCH] Factories: entries only available in sequential reported in

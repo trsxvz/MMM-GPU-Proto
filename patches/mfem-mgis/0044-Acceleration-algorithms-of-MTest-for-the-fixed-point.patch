@@ -1,4 +1,4 @@
-From 5a38552fbcdb6e7b7d31500732a97cb5573e6e1d Mon Sep 17 00:00:00 2001
+From 3d6d933e0cf1b2773f471eaa27ca3631cbd44e21 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:35:34 +0200
 Subject: [PATCH] Acceleration algorithms of MTest for the fixed point solver

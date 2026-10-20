@@ -235,7 +235,7 @@ smoothers) are available. The BoomerAMG preconditioner has new
 options: truncation of the interpolation, aggressive coarsening, size of
 the coarsest level, relaxation weight, order of the Chebyshev smoothers
 and transposed interpolations kept. The values of the
-:cxx:`StrengthThreshold` option of BoomerAMG out of :math:`[0, 1]` and the
+:cxx:`StrongThreshold` option of BoomerAMG out of :math:`[0, 1]` and the
 Krylov dimensions of :cxx:`HypreFGMRES` lower than one are now refused, as
 well as the :cxx:`Elasticity` strategy of BoomerAMG for unknowns whose
 number of components is not the dimension of the mesh, or a mesh whose
@@ -663,6 +663,8 @@ Messages with several lines are preceded by a ``# Error on rank r`` title.
 Issues fixed
 ============
 
+- Issue 491: Simulation: the message of a failed time step describes
+  its first sub-step
 - Issue 482: MPI functions on a MeshDiscretization and
   updateGridFunction with no function
 - Issue 477: synchronize `Context` to merge error messages on MPI

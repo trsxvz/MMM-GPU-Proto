@@ -1,4 +1,4 @@
-From 4c39b7c951de7a0360d8172774f6783eb7b18e2d Mon Sep 17 00:00:00 2001
+From 245539fc31a5d9d342759bd428dbdacebb7b4738 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 22:51:13 +0200
 Subject: [PATCH] Tests: orthotropic finite strain behaviour given the
@@ -21,10 +21,10 @@ internal state variable).
  create mode 100644 tests/references/OrthotropicSaintVenantKirchhoffElasticity.ref
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index ebc5d1da48..4fff8c3b33 100644
+index ade4fc8fbd..2efdd2f1b9 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -122,7 +122,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -125,7 +125,9 @@ if(MFEM_MGIS_HAVE_TFEL)
  
    # Helper function for UniaxialTensileTest cases. The optional arguments are
    # a suffix of the name of the test and additional options of the test, the
@@ -35,7 +35,7 @@ index ebc5d1da48..4fff8c3b33 100644
    function(add_uniaxial_tensile_test behaviour internal_state_variable)
      set(test "UniaxialTensileTest-${behaviour}")
      set(options)
-@@ -139,16 +141,17 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -142,16 +144,17 @@ if(MFEM_MGIS_HAVE_TFEL)
          "${behaviour}"
          "--reference-file"
          "${CMAKE_CURRENT_SOURCE_DIR}/references/${behaviour}.ref"
@@ -56,7 +56,7 @@ index ebc5d1da48..4fff8c3b33 100644
      endif(MFEM_USE_MPI)
      set_property(TEST ${test} PROPERTY DEPENDS BehaviourTest)
    endfunction()
-@@ -170,6 +173,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -173,6 +176,15 @@ if(MFEM_MGIS_HAVE_TFEL)
                              DisplacementGradient --displacement-gradient)
    add_uniaxial_tensile_test(LogarithmicStrainElasticity EquivalentStrain
                              DisplacementGradient --displacement-gradient)

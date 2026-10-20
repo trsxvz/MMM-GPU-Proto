@@ -1,0 +1,270 @@
+From 396e845981ee7fc10d2012b2e7e54c6ab00cd4a9 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 14:50:55 +0200
+Subject: [PATCH] generic-parallel: HIP backend tested on NVIDIA GPUs
+
+- the HIP backend of the behaviours includes the HIP runtime header before
+  `GPU.hxx`, so that the HIP runtime is also used on NVIDIA GPUs, where
+  `hipcc` calls `nvcc` and does not define the HIP language macros;
+- `GPU.hxx`: the warp size attribute has different names in CUDA and HIP,
+  and HIP only provides the untyped overload of `hipFuncGetAttributes`;
+- the comparison program can be compiled with the HIP runtime;
+- new `hip-hipcc` test for the behaviours;
+- `hip-hipcc` configuration: the `nvcc` specific flags are only used on the
+  NVIDIA platform, and the HIP include directory is no longer added since
+  `hipcc` already knows it (`-isystem /usr/include` breaks the standard
+  library headers when HIP is installed in `/usr`).
+---
+ cmake/modules/tfel.cmake                      |  3 +-
+ .../configuration-files/config-hip-hipcc.json |  2 +-
+ .../GenericParallel/Behaviour/GPUBackend.hxx  |  1 +
+ .../MFront/GenericParallelBehaviour/GPU.hxx   | 20 ++++++++--
+ .../GenericParallel/Behaviour/GPUBackend.cxx  |  6 +++
+ .../behaviours/generic-parallel/compare.cxx   | 38 ++++++++++++-------
+ .../generic-parallel/hip-hipcc/test.check     | 24 ++++++++++++
+ 7 files changed, 73 insertions(+), 21 deletions(-)
+ create mode 100644 test-suite/behaviours/generic-parallel/hip-hipcc/test.check
+
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index 136fd6dde..4ba83bb15 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -591,8 +591,7 @@ if(TFEL_REQUIRES_HIP)
+  if(HIP_PLATFORM STREQUAL "nvidia")
+    set(TFEL_REQUIRES_CUDA ON)
+    # hipcc calls nvcc
+-   set(TFEL_HIPCC_FLAGS
+-       "-x cu --compiler-options=-fPIC --expt-relaxed-constexpr -diag-suppress 20012")
++   set(TFEL_HIPCC_FLAGS "-x cu -arch=native --compiler-options=-fPIC --expt-relaxed-constexpr -diag-suppress 20012,20208,2810,3189")
+    if("hip-clang" IN_LIST generic-parallel-configurations)
+     list(APPEND tfel-check-components
+          "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
+diff --git a/mfront/configuration-files/config-hip-hipcc.json b/mfront/configuration-files/config-hip-hipcc.json
+index e71798328..973c7c913 100644
+--- a/mfront/configuration-files/config-hip-hipcc.json
++++ b/mfront/configuration-files/config-hip-hipcc.json
+@@ -12,6 +12,6 @@ interfaces_options: {
+ compilation_options : {
+   hip: {
+     compiler: "@TFEL_HIPCC_COMPILER@",
+-    compilation_flags: "@TFEL_HIPCC_FLAGS@ --std=c++@TFEL_CXX_STANDARD@"
++    compilation_flags: "@TFEL_HIPCC_FLAGS@ -O2 --std=c++@TFEL_CXX_STANDARD@"
+   }
+ }
+\ No newline at end of file
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
+index 37a7c5d74..0960673a3 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
+@@ -60,6 +60,7 @@ namespace mfront::generic_parallel::behaviour {
+     using GPUBackend::GPUBackend;
+     [[nodiscard]] std::string getName() const override;
+     [[nodiscard]] std::string getSourceFileExtension() const override;
++    void writeSpecificIncludes(std::ostream&) const override;
+     //! \brief destructor
+     ~HIPBackend() noexcept override;
+   };  // end of HIPBackend
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+index e27270200..9980e21d4 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+@@ -2,7 +2,10 @@
+  * \file   mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+  * \brief  This file implements the integration of a batch of integration
+  * points with CUDA or HIP. This file must be compiled by a CUDA or a HIP
+- * compiler.
++ * compiler. The HIP runtime is used if the `hip/hip_runtime.h` header has
++ * been included before this file or if the HIP language is enabled, the
++ * CUDA runtime otherwise. Including the HIP runtime header first is required
++ * to use HIP on NVIDIA GPUs, since `hipcc` then calls `nvcc`.
+  * \date   05/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+@@ -17,7 +20,7 @@
+ 
+ #include <mutex>
+ #include <cstring>
+-#if defined(__HIPCC__)
++#if defined(__HIPCC__) || defined(__HIP__)
+ #include <hip/hip_runtime.h>
+ #define MFRONT_GPB_GPU_API(f) hip##f
+ #else
+@@ -30,6 +33,13 @@ namespace mfront::gpb::gpu {
+ 
+   namespace internals {
+ 
++    //! \brief device attribute giving the warp size
++#if defined(__HIPCC__) || defined(__HIP__)
++    inline constexpr auto warp_size_attribute = hipDeviceAttributeWarpSize;
++#else
++    inline constexpr auto warp_size_attribute = cudaDevAttrWarpSize;
++#endif
++
+     /*!
+      * \brief statistics on the integration of a batch, stored on the
+      * device. The time step scaling factor is stored as an ordered key (see
+@@ -79,7 +89,9 @@ namespace mfront::gpb::gpu {
+       // the stack size is a property of the context, shared by all threads
+       static std::mutex m;
+       auto a = MFRONT_GPB_GPU_API(FuncAttributes){};
+-      if (const auto e = MFRONT_GPB_GPU_API(FuncGetAttributes)(&a, k);
++      // the HIP runtime only provides the untyped overload
++      if (const auto e = MFRONT_GPB_GPU_API(FuncGetAttributes)(
++              &a, reinterpret_cast<const void*>(k));
+           e != MFRONT_GPB_GPU_API(Success)) {
+         return e;
+       }
+@@ -231,7 +243,7 @@ namespace mfront::gpb::gpu {
+     auto warp_size = 0;
+     if (failed(MFRONT_GPB_GPU_API(GetDevice)(&device)) ||
+         failed(MFRONT_GPB_GPU_API(DeviceGetAttribute)(
+-            &warp_size, MFRONT_GPB_GPU_API(DevAttrWarpSize), device))) {
++            &warp_size, internals::warp_size_attribute, device))) {
+       return s.status;
+     }
+     const auto ws = static_cast<unsigned int>(warp_size);
+diff --git a/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+index 5cf92925a..085db618b 100644
+--- a/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+@@ -47,6 +47,12 @@ namespace mfront::generic_parallel::behaviour {
+ 
+   std::string HIPBackend::getSourceFileExtension() const { return "hip"; }
+ 
++  void HIPBackend::writeSpecificIncludes(std::ostream& os) const {
++    // selects the HIP runtime, even on NVIDIA GPUs
++    os << "#include \"hip/hip_runtime.h\"\n";
++    GPUBackend::writeSpecificIncludes(os);
++  }  // end of writeSpecificIncludes
++
+   HIPBackend::~HIPBackend() noexcept = default;
+ 
+ }  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index ffe311bb9..daf5b2ed1 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -12,8 +12,10 @@
+  *   operator, no tangent operator;
+  * - storage of the fields: point by point, component by component.
+  *
+- * This file can be compiled by a C++ compiler or by a CUDA compiler. In the
+- * latter case, the data are allocated in managed memory.
++ * This file can be compiled by a C++ compiler, by a CUDA compiler or by a
++ * HIP compiler. In the two last cases, the data are allocated in managed
++ * memory. The HIP runtime is used if the HIP language is enabled or if the
++ * `MFRONT_GPB_COMPARE_USE_HIP` macro is defined (required on NVIDIA GPUs).
+  *
+  * \date   05/10/2026
+  */
+@@ -28,9 +30,13 @@
+ #include <vector>
+ #include <utility>
+ #include <algorithm>
+-#ifdef __CUDACC__
++#if defined(__HIP__) || defined(MFRONT_GPB_COMPARE_USE_HIP)
++#include <hip/hip_runtime.h>
++#define GPU_API(f) hip##f
++#elif defined(__CUDACC__)
+ #include <cuda_runtime.h>
+-#endif /* __CUDACC__ */
++#define GPU_API(f) cuda##f
++#endif
+ #include "MFront/GenericBehaviour/BehaviourData.h"
+ #include "MFront/GenericParallelBehaviour/BatchData.h"
+ 
+@@ -67,22 +73,22 @@ struct States {
+   std::exit(EXIT_FAILURE);
+ }
+ 
+-#ifdef __CUDACC__
++#ifdef GPU_API
+ 
+-static void check(const cudaError_t e) {
+-  if (e != cudaSuccess) {
+-    fail(std::string{"CUDA error: "} + cudaGetErrorString(e));
++static void check(const GPU_API(Error_t) e) {
++  if (e != GPU_API(Success)) {
++    fail(std::string{"GPU error: "} + GPU_API(GetErrorString)(e));
+   }
+ }
+ 
+ template <typename T>
+ static T* allocate(const std::size_t n) {
+   T* p = nullptr;
+-  check(cudaMallocManaged(&p, std::max<std::size_t>(n, 1) * sizeof(T)));
++  check(GPU_API(MallocManaged)(&p, std::max<std::size_t>(n, 1) * sizeof(T)));
+   return p;
+ }
+ 
+-static void deallocate(void* const p) { check(cudaFree(p)); }
++static void deallocate(void* const p) { check(GPU_API(Free)(p)); }
+ 
+ //! \brief move the data to the device before the computation
+ template <typename T>
+@@ -91,16 +97,20 @@ static void prefetch(T* const p, const std::size_t n) {
+     return;
+   }
+   int device = 0;
+-  check(cudaGetDevice(&device));
++  check(GPU_API(GetDevice)(&device));
++#if defined(__HIPCC__) || defined(__HIP__)
++  check(hipMemPrefetchAsync(p, n * sizeof(T), device, 0));
++#else
+   auto location = cudaMemLocation{};
+   location.type = cudaMemLocationTypeDevice;
+   location.id = device;
+   check(cudaMemPrefetchAsync(p, n * sizeof(T), location, 0, 0));
++#endif
+ }
+ 
+-static void synchronize() { check(cudaDeviceSynchronize()); }
++static void synchronize() { check(GPU_API(DeviceSynchronize)()); }
+ 
+-#else /* __CUDACC__ */
++#else /* GPU_API */
+ 
+ template <typename T>
+ static T* allocate(const std::size_t n) {
+@@ -119,7 +129,7 @@ static void prefetch(T* const, const std::size_t) {}
+ 
+ static void synchronize() {}
+ 
+-#endif /* __CUDACC__ */
++#endif /* GPU_API */
+ 
+ static void* load(const std::string& lib, const std::string& f) {
+   auto* const l = dlopen(lib.c_str(), RTLD_NOW | RTLD_LOCAL);
+diff --git a/test-suite/behaviours/generic-parallel/hip-hipcc/test.check b/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
+new file mode 100644
+index 000000000..1e5228326
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
+@@ -0,0 +1,24 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::hip-hipcc"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// the generic interface gives the reference results. Using both interfaces
++// in the same call also checks that they can be used together.
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront";
++@Command "@TFEL_HIPCC_COMPILER@ @TFEL_HIPCC_FLAGS@ -O2 --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
++// arguments: libraries, function, sizes of the gradients, thermodynamic
++// forces, material properties, internal state variables, external state
++// variables and tangent operator, strain amplitude, material properties,
++// temperature
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-hip.so IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-hip.so IsotropicLinearHardeningPlasticity_PlaneStrain 4 4 0 5 1 16 3e-3 - 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-hip.so ImplicitNorton_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15";
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-hip.so ImplicitNorton_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15";
++// Hosford criterion: eigen values, local memory larger than the default
++// stack size of CUDA threads
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-hip.so HosfordPerfectPlasticity_Tridimensional 6 6 0 7 1 36 5e-4 - 293.15";
++// elastic properties given by a material law evaluated on the device, and
++// quantities
++@Command "./compare src/libBehaviour.so src/libGenericParallelBehaviour-hip.so StrainHardeningCreep3_Tridimensional 6 6 0 11 1 36 1e-3 - 600";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+-- 
+2.43.0
+

@@ -1,4 +1,4 @@
-From 52d7ba126afbe56a736f58a3bd8ec8d49effb0cf Mon Sep 17 00:00:00 2001
+From 1ba7636eb208a0bca04b84a62f9c360a51987eb1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 16:26:27 +0200
 Subject: [PATCH] Help option (-h) exits with success again
@@ -11,7 +11,7 @@ Since the invalid options exit with EXIT_FAILURE, the help, which MFEM reports a
  3 files changed, 9 insertions(+), 6 deletions(-)
 
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 2b00cfe..3be825d 100644
+index 851bfe3..63a4b2f 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -237,8 +237,9 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -27,7 +27,7 @@ index 2b00cfe..3be825d 100644
    if (p.mesh_file == nullptr) {
      if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
 diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
-index 20518b2..bfa02a9 100644
+index 77cad5e..427f41a 100644
 --- a/cermet/cermet.cxx
 +++ b/cermet/cermet.cxx
 @@ -100,8 +100,9 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
@@ -43,10 +43,10 @@ index 20518b2..bfa02a9 100644
    if (p.mesh_file == nullptr) {
      if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index dcb8fec..c3fe689 100644
+index 787822a..db30c1e 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
-@@ -444,8 +444,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -436,8 +436,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
    if (!args.Good()) {
      if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
      mfem_mgis::finalize();

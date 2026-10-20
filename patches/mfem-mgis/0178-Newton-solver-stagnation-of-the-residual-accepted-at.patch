@@ -1,4 +1,4 @@
-From 2f66edf0e5c6f709075842b6f3f0c64bb026aeb2 Mon Sep 17 00:00:00 2001
+From fbc90617593fe01dfa67dd990b1b3d5fbc86f117 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 15:31:56 +0200
 Subject: [PATCH] Newton solver: stagnation of the residual accepted at its
@@ -218,10 +218,10 @@ index af082fe790..4213143a4f 100644
    }  // end of setSolverParameters
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index c70d8ff11a..dfc283df6d 100644
+index 7857eeb93a..eed9372f2f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -150,6 +150,47 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -153,6 +153,47 @@ if(MFEM_MGIS_HAVE_TFEL)
                              EquivalentPlasticStrain)
    add_uniaxial_tensile_test(Mazars Damage)
    add_uniaxial_tensile_test(SaintVenantKirchhoffElasticity EquivalentStrain)

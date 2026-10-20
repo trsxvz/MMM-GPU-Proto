@@ -1,4 +1,4 @@
-From 60dabd553aaf952ce5ef520d978dcf6b74d2dd6a Mon Sep 17 00:00:00 2001
+From c9d5bf8499d2cebbd16e2ab9ac642d74b5dfa731 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:21:03 +0200
 Subject: [PATCH] Imposed pressure and heat source: misspelled parameters
@@ -12,7 +12,7 @@ Built from parameters, UniformImposedPressureBoundaryCondition and UniformHeatSo
  3 files changed, 49 insertions(+)
 
 diff --git a/src/UniformHeatSourceBoundaryCondition.cxx b/src/UniformHeatSourceBoundaryCondition.cxx
-index ff31934ba4..dd0b152910 100644
+index 21c6f9b405..22e6d35215 100644
 --- a/src/UniformHeatSourceBoundaryCondition.cxx
 +++ b/src/UniformHeatSourceBoundaryCondition.cxx
 @@ -151,6 +151,11 @@ namespace mfem_mgis {
@@ -28,7 +28,7 @@ index ff31934ba4..dd0b152910 100644
        raise("invalid evolution of the heat source");
      }
 diff --git a/src/UniformImposedPressureBoundaryCondition.cxx b/src/UniformImposedPressureBoundaryCondition.cxx
-index 86b8c9718a..0b38fe2b92 100644
+index b34854d907..af2e224cb4 100644
 --- a/src/UniformImposedPressureBoundaryCondition.cxx
 +++ b/src/UniformImposedPressureBoundaryCondition.cxx
 @@ -166,6 +166,11 @@ namespace mfem_mgis {
@@ -44,7 +44,7 @@ index 86b8c9718a..0b38fe2b92 100644
        raise("invalid evolution of the imposed pressure");
      }
 diff --git a/tests/ImposedPressureTest.cxx b/tests/ImposedPressureTest.cxx
-index 2d190fc902..2ea11a4312 100644
+index 37218934f3..a4301afab7 100644
 --- a/tests/ImposedPressureTest.cxx
 +++ b/tests/ImposedPressureTest.cxx
 @@ -17,9 +17,37 @@

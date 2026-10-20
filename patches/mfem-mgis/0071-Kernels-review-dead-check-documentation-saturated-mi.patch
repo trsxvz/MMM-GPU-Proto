@@ -1,4 +1,4 @@
-From 008f4cab0fe9bb30e69699142384ac6fb6d9e1e3 Mon Sep 17 00:00:00 2001
+From b6ecd62398d98f10ab2432816182f777b784ef6c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:31:36 +0200
 Subject: [PATCH] Kernels: review (dead check, documentation, saturated
@@ -26,10 +26,10 @@ Subject: [PATCH] Kernels: review (dead check, documentation, saturated
  5 files changed, 43 insertions(+), 22 deletions(-)
 
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index d4e5a9bec2..feac52186e 100644
+index c696f5f88c..f0b1e571df 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -79,14 +79,17 @@ namespace mfem_mgis {
+@@ -80,14 +80,17 @@ namespace mfem_mgis {
       * \brief name of the parameter selecting the computation of the
       * gradients in the integration by batches: `ElementByElement` (default:
       * the behaviour integrators compute the gradients element by element)
@@ -84,10 +84,10 @@ index 0632b347ba..72b000b159 100644
              "computeUnknownsDerivatives: the values of the shape functions "
              "cached by the finite element do not match the integration rule");
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index ffe374c6ff..9aa1f998fb 100644
+index 3f34d633b5..18a18a9c38 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -844,9 +844,12 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -847,9 +847,12 @@ if(MFEM_MGIS_HAVE_TFEL)
             COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
                     ${batch_integration_test_libraries})
    # the variants of the longest tests on the debug device of MFEM, which
@@ -104,7 +104,7 @@ index ffe374c6ff..9aa1f998fb 100644
    if((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
       (CMAKE_BUILD_TYPE STREQUAL "Coverage"))
 diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
-index 498ce2248e..3fd8c63e00 100644
+index ebb832d58b..e3431677fb 100644
 --- a/tests/MicromorphicKernelsTest.cxx
 +++ b/tests/MicromorphicKernelsTest.cxx
 @@ -20,6 +20,7 @@

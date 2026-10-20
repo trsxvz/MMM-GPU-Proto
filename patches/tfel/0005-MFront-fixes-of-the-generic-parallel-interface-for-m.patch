@@ -1,0 +1,262 @@
+From fe983c5e416dbef5f19d0404ed1add9da26d752e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 14:35:40 +0200
+Subject: [PATCH] MFront: fixes of the generic-parallel interface for material
+ properties
+
+- stlpar backend: the points are traversed by a counting iterator. With
+  libstdc++, the parallel algorithms ran sequentially on the iterators of
+  std::views::iota, whose C++17 category is not random access. The
+  iterator is shared with the generic-parallel interface for behaviours.
+- Errors: errno is no longer checked after the parallel execution. It is
+  thread-local, does not exist on GPUs and is modified by the runtimes
+  (for instance at the initialisation of TBB or CUDA, which made the first
+  call fail). The kernels now report invalid results (nan, infinite) in
+  the array of statuses (status -4, as documented).
+- The bounds of the output were written past the end of the array of
+  statuses and never analysed.
+- Headers of the backends installed in their sub-directories: they were
+  installed in MFront/, where the AbstractBackend.hxx files of the two
+  interfaces overwrote each other.
+---
+ mfront/include/CMakeLists.txt                 |  8 +--
+ .../MaterialProperty/BackendBase.hxx          | 31 ++++----
+ .../GenericParallelBehaviour/ParallelSTL.hxx  | 72 ++-----------------
+ .../MaterialProperty/BackendBase.cxx          | 14 ++--
+ .../MaterialProperty/CUDABackendBase.cxx      |  8 +--
+ .../CxxProgrammingModelBackendBase.cxx        |  6 +-
+ 6 files changed, 41 insertions(+), 98 deletions(-)
+
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index 26f1ca258..1811b8816 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -128,10 +128,10 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty SYCLBackend.hxx)
+ install_mfront_header(MFront GenericBehaviourInterface.hxx)
+ install_mfront_header(MFront GenericBehaviourSymbolsGenerator.hxx)
+ install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
+-install_mfront_header(MFront GenericParallel/Behaviour/AbstractBackend.hxx)
+-install_mfront_header(MFront GenericParallel/Behaviour/BackendFactory.hxx)
+-install_mfront_header(MFront GenericParallel/Behaviour/GPUBackend.hxx)
+-install_mfront_header(MFront GenericParallel/Behaviour/ParallelSTLBackend.hxx)
++install_mfront_header(MFront/GenericParallel/Behaviour AbstractBackend.hxx)
++install_mfront_header(MFront/GenericParallel/Behaviour BackendFactory.hxx)
++install_mfront_header(MFront/GenericParallel/Behaviour GPUBackend.hxx)
++install_mfront_header(MFront/GenericParallel/Behaviour ParallelSTLBackend.hxx)
+ install_mfront_header(MFront GenericModelInterface.hxx)
+ install_mfront_header(MFront CastemModelInterface.hxx)
+ install_mfront_header(MFront Castem21ModelInterface.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+index 71a194b13..13cf8b406 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+@@ -85,24 +85,31 @@ namespace mfront::generic_parallel::material_property {
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const;
+     /*!
+-     * \return the size of the array `mfront_bounds_statuses`
+-     *
+-     * This array contains the statuses of the physical bounds and of the
+-     * standard bounds of the inputs and of the output, followed by a status
+-     * reporting that the result is not finite at one point at least.
+-     *
++     * \return the size of the array of statuses filled by the kernels. For
++     * each argument and for the output, the array contains a status for the
++     * physical bounds and a status for the standard bounds. The last status
++     * states if the result is invalid (`nan` or infinite) at one point
++     * at least.
+      * \param[in] mpd: material property description
+      */
+-    static std::size_t getStatusesArraySize(const MaterialPropertyDescription&);
++    [[nodiscard]] static std::size_t getStatusesArraySize(
++        const MaterialPropertyDescription&);
+     /*!
+-     * \brief write the code reporting, in the array
+-     * `mfront_bounds_statuses`, that the result is not finite
+-     *
++     * \return the index of the status stating that the result is invalid at
++     * one point at least.
++     * \param[in] mpd: material property description
++     */
++    [[nodiscard]] static std::size_t getInvalidResultStatusIndex(
++        const MaterialPropertyDescription&);
++    /*!
++     * \brief write the code marking the result as invalid if it is not
++     * finite. This code is written in the kernel, after the evaluation of
++     * the material property.
+      * \param[in] os: output stream
+      * \param[in] mpd: material property description
+      */
+-    void writeInvalidResultCheck(std::ostream&,
+-                                 const MaterialPropertyDescription&) const;
++    virtual void writeInvalidResultCheck(
++        std::ostream&, const MaterialPropertyDescription&) const;
+     /*!
+      * \brief return if the backend shall handle the data transfer from a host
+      * to a device
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+index 956ef7ab7..372658f18 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+@@ -14,81 +14,17 @@
+ #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_PARALLELSTL_HXX
+ #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_PARALLELSTL_HXX
+ 
+-#include <compare>
+-#include <cstddef>
+ #include <iterator>
+ #include <numeric>
+ #include <execution>
++#include "MFront/GenericParallel/CountingIterator.hxx"
+ #include "MFront/GenericParallelBehaviour/Integrate.hxx"
+ 
+ namespace mfront::gpb::stlpar {
+ 
+-  /*!
+-   * \brief a random access iterator over the indices of the integration
+-   * points.
+-   *
+-   * `std::views::iota` can't be used: the category of its iterators is not
+-   * `std::random_access_iterator_tag`, and some implementations of the
+-   * parallel algorithms (libstdc++) then run sequentially.
+-   */
+-  struct CountingIterator {
+-    using iterator_category = std::random_access_iterator_tag;
+-    using value_type = size_type;
+-    using difference_type = std::ptrdiff_t;
+-    using pointer = void;
+-    using reference = size_type;
+-    constexpr reference operator*() const noexcept { return this->i; }
+-    constexpr reference operator[](const difference_type n) const noexcept {
+-      return this->i + n;
+-    }
+-    constexpr CountingIterator& operator++() noexcept {
+-      ++(this->i);
+-      return *this;
+-    }
+-    constexpr CountingIterator operator++(int) noexcept {
+-      auto r = *this;
+-      ++(this->i);
+-      return r;
+-    }
+-    constexpr CountingIterator& operator--() noexcept {
+-      --(this->i);
+-      return *this;
+-    }
+-    constexpr CountingIterator operator--(int) noexcept {
+-      auto r = *this;
+-      --(this->i);
+-      return r;
+-    }
+-    constexpr CountingIterator& operator+=(const difference_type n) noexcept {
+-      this->i += n;
+-      return *this;
+-    }
+-    constexpr CountingIterator& operator-=(const difference_type n) noexcept {
+-      this->i -= n;
+-      return *this;
+-    }
+-    friend constexpr CountingIterator operator+(
+-        const CountingIterator a, const difference_type n) noexcept {
+-      return {a.i + n};
+-    }
+-    friend constexpr CountingIterator operator+(
+-        const difference_type n, const CountingIterator a) noexcept {
+-      return {a.i + n};
+-    }
+-    friend constexpr CountingIterator operator-(
+-        const CountingIterator a, const difference_type n) noexcept {
+-      return {a.i - n};
+-    }
+-    friend constexpr difference_type operator-(
+-        const CountingIterator a, const CountingIterator b) noexcept {
+-      return static_cast<difference_type>(a.i) -
+-             static_cast<difference_type>(b.i);
+-    }
+-    friend constexpr auto operator<=>(const CountingIterator&,
+-                                      const CountingIterator&) = default;
+-    //! \brief current index
+-    size_type i;
+-  };
++  //! \brief a simple alias
++  using CountingIterator =
++      mfront::generic_parallel::CountingIterator<size_type>;
+ 
+   static_assert(std::random_access_iterator<CountingIterator>);
+ 
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+index 7f058dfbe..afb167b03 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+@@ -25,17 +25,16 @@ namespace mfront::generic_parallel::material_property {
+     return false;
+   }  // end of handlesDataTransfer
+ 
+-  //! \return the index of the status reporting an invalid result
+-  static std::size_t getInvalidResultStatusIndex(
+-      const MaterialPropertyDescription& mpd) {
+-    return 2 * (mpd.inputs.size() + 1);
+-  }  // end of getInvalidResultStatusIndex
+-
+   std::size_t BackendBase::getStatusesArraySize(
+       const MaterialPropertyDescription& mpd) {
+     return getInvalidResultStatusIndex(mpd) + 1;
+   }  // end of getStatusesArraySize
+ 
++  std::size_t BackendBase::getInvalidResultStatusIndex(
++      const MaterialPropertyDescription& mpd) {
++    return 2 * (mpd.inputs.size() + 1);
++  }  // end of getInvalidResultStatusIndex
++
+   void BackendBase::writeInvalidResultCheck(
+       std::ostream& os, const MaterialPropertyDescription& mpd) const {
+     const auto v =
+@@ -233,6 +232,9 @@ namespace mfront::generic_parallel::material_property {
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd) const {
++    if (areRuntimeChecksDisabled(mpd)) {
++      return;
++    }
+     os << "if(mfront_bounds_statuses[" << getInvalidResultStatusIndex(mpd)
+        << "] != 0){\n"
+        << "mfront_report(\"invalid result at at least one point\");\n"
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+index fdb1c73bd..1e9b24d03 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+@@ -281,10 +281,10 @@ namespace mfront::generic_parallel::material_property {
+     }
+     os << ",\nconst " << types.integer_type << " mfront_nargs"
+        << ",\nconst " << types.integer_type << " mfront_npoints";
+-    os << ",\nconst " << types.out_of_bounds_policy_type;
+-    if ((hasBounds(mpd.inputs)) || (hasBounds(mpd.output))) {
+-      os << " mfront_out_of_bounds_policy";
+-    }
++    // the policy is passed to the kernels with the array of statuses, even
++    // if the material property has no bounds
++    os << ",\n[[maybe_unused]] const " << types.out_of_bounds_policy_type
++       << " mfront_out_of_bounds_policy";
+     os << ")\n{\n";
+     os << "[[maybe_unused]] auto mfront_report = "
+        << "[&mfront_output_status](const std::string& "
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+index cf3349d28..068da8df5 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+@@ -139,10 +139,8 @@ namespace mfront::generic_parallel::material_property {
+     }
+     os << ",\nconst " << types.integer_type << " mfront_nargs"
+        << ",\nconst " << types.integer_type << " mfront_npoints"
+-       << ",\nconst " << types.out_of_bounds_policy_type;
+-    if ((hasBounds(mpd.inputs)) || (hasBounds(mpd.output))) {
+-      os << " mfront_out_of_bounds_policy";
+-    }
++       << ",\n[[maybe_unused]] const " << types.out_of_bounds_policy_type
++       << " mfront_out_of_bounds_policy";
+     os << ")\n{\n";
+     os << "[[maybe_unused]] auto mfront_report = "
+        << "[&mfront_output_status](const std::string& "
+-- 
+2.43.0
+

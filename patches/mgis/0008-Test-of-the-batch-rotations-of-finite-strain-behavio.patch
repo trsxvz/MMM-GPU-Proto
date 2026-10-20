@@ -1,0 +1,139 @@
+From e389d39ab7f7450c483f14f87a9e4f0d0da34064 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 06:21:18 +0200
+Subject: [PATCH] Test of the batch rotations of finite strain behaviours
+
+An orthotropic finite strain behaviour is added to the test libraries:
+GenericParallelIntegrateTest compares the batch rotations of the
+thermodynamic forces and of the tangent operator blocks, for a given stress
+measure and a given tangent operator, with the ones of the generic
+interface.
+---
+ tests/CMakeLists.txt                          |  2 +
+ tests/GenericParallelIntegrateTest.cxx        | 49 +++++++++++++++++++
+ .../OrthotropicFiniteStrainElasticity.mfront  | 26 ++++++++++
+ 3 files changed, 77 insertions(+)
+ create mode 100644 tests/OrthotropicFiniteStrainElasticity.mfront
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index ee218ab..e2f13d4 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -122,6 +122,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+     BehaviourTest
+     Elasticity
+     OrthotropicElasticity
++    OrthotropicFiniteStrainElasticity
+     Norton
+     NortonFailure
+     Plasticity
+@@ -143,6 +144,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+   mfront_generic_parallel_behaviours_check_library(
+     GenericParallelBehaviourTest stlpar
+     Elasticity
++    OrthotropicFiniteStrainElasticity
+     Norton
+     NortonFailure
+     Plasticity
+diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
+index b031b94..18ce6c9 100644
+--- a/tests/GenericParallelIntegrateTest.cxx
++++ b/tests/GenericParallelIntegrateTest.cxx
+@@ -376,6 +376,54 @@ static void testRotations(const std::string& library,
+   test("rotateTangentOperatorBlocks, 3D", Ksize, rotate_blocks, r3d);
+ }  // end of testRotations
+ 
++/*!
++ * \brief rotations of the thermodynamic forces and of the tangent operator
++ * blocks of an orthotropic finite strain behaviour, for a given stress
++ * measure and a given tangent operator
++ */
++static void testFiniteStrainRotations(const std::string& library,
++                                      const std::string& gp_library) {
++  using namespace mgis::behaviour;
++  constexpr auto h = Hypothesis::TRIDIMENSIONAL;
++  constexpr auto n = mgis::size_type{4};
++  auto o = FiniteStrainBehaviourOptions{};
++  o.stress_measure = FiniteStrainBehaviourOptions::PK1;
++  o.tangent_operator = FiniteStrainBehaviourOptions::DPK1_DF;
++  const auto b = load(o, library, "OrthotropicFiniteStrainElasticity", h);
++  const auto gp_b = load(o, gp_library, "OrthotropicFiniteStrainElasticity", h);
++  auto matrices = std::vector<mgis::real>(9 * n);
++  for (mgis::size_type i = 0; i != n; ++i) {
++    const auto t = 0.3 * static_cast<double>(i + 1);
++    const auto m = std::array<mgis::real, 9>{
++        std::cos(t), -std::sin(t), 0, std::sin(t), std::cos(t), 0, 0, 0, 1};
++    std::copy(m.begin(), m.end(), matrices.begin() + 9 * i);
++  }
++  const auto r = std::span<const mgis::real>(matrices);
++  auto values = [](const mgis::size_type size) {
++    auto v = std::vector<mgis::real>(size);
++    for (mgis::size_type i = 0; i != size; ++i) {
++      v[i] = std::cos(1 + static_cast<double>(i));
++    }
++    return v;
++  };
++  const auto tfsize = getArraySize(b.thermodynamic_forces, h);
++  const auto tf = values(tfsize * n);
++  auto rtf = std::vector<mgis::real>(tf.size());
++  auto gp_rtf = std::vector<mgis::real>(tf.size());
++  rotateThermodynamicForces(rtf, b, tf, r);
++  rotateThermodynamicForces(gp_rtf, gp_b, tf, r);
++  check(compare(rtf, gp_rtf, 1) < 1e-14,
++        "rotateThermodynamicForces, PK1: invalid rotated values");
++  const auto Ksize = getTangentOperatorArraySize(b);
++  const auto K = values(Ksize * n);
++  auto rK = std::vector<mgis::real>(K.size());
++  auto gp_rK = std::vector<mgis::real>(K.size());
++  rotateTangentOperatorBlocks(rK, b, K, r);
++  rotateTangentOperatorBlocks(gp_rK, gp_b, K, r);
++  check(compare(rK, gp_rK, 1) < 1e-14,
++        "rotateTangentOperatorBlocks, dPK1_dF: invalid rotated values");
++}  // end of testFiniteStrainRotations
++
+ //! \brief failure at all points
+ static void testFailure(const std::string& library,
+                         const std::string& gp_library) {
+@@ -415,6 +463,7 @@ int main(const int argc, const char* const* const argv) {
+     testInitializeFunctions(argv[2], argv[1]);
+     testPostProcessing(argv[2], argv[1]);
+     testRotations(argv[2], argv[1]);
++    testFiniteStrainRotations(argv[2], argv[1]);
+     testFailure(argv[2], argv[1]);
+   } catch (std::exception& e) {
+     std::cerr << e.what() << '\n';
+diff --git a/tests/OrthotropicFiniteStrainElasticity.mfront b/tests/OrthotropicFiniteStrainElasticity.mfront
+new file mode 100644
+index 0000000..602fe73
+--- /dev/null
++++ b/tests/OrthotropicFiniteStrainElasticity.mfront
+@@ -0,0 +1,26 @@
++@DSL DefaultFiniteStrainDSL;
++@Behaviour OrthotropicFiniteStrainElasticity;
++@Description {
++  "Orthotropic Saint-Venant Kirchhoff hyperelastic behaviour, used to test "
++  "the rotation functions of finite strain behaviours."
++}
++@OrthotropicBehaviour<Pipe>;
++@ComputeStiffnessTensor{7.8e+10, 2.64233e+11, 3.32e+11,  //
++                        0.13,    0.24,        0.18,      //
++                        4.8e+10, 1.16418e+11, 7.8e+10};
++
++@PredictionOperator<DS_DEGL> {
++  static_cast<void>(smt);
++  Dt = D;
++}
++
++@Integrator {
++  const auto e = computeGreenLagrangeTensor(F1);
++  const auto s = D * e;
++  sig = convertSecondPiolaKirchhoffStressToCauchyStress(s, F1);
++}
++
++@TangentOperator<DS_DEGL> {
++  static_cast<void>(smt);
++  Dt = D;
++}
+-- 
+2.43.0
+

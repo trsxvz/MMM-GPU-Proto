@@ -1,4 +1,4 @@
-From 532430c96b9f2412e12fc702b0acaaff7700ed74 Mon Sep 17 00:00:00 2001
+From 6849574b8bbb88b03b9b67bff701172ecf154d68 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:18:35 +0200
 Subject: [PATCH] Mass matrices of simplices by kernels, profiling of the L2
@@ -224,7 +224,7 @@ index 36ef12e374..bac23db85f 100644
  
  #endif /* LIB_MFEM_MGIS_SRC_BATCH_INTEGRATIONPOINTSFUNCTIONSKERNELS_HXX */
 diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
-index 5367cee749..8319650fcc 100644
+index e95f3dae7c..514a6069cf 100644
 --- a/src/L2Projection.cxx
 +++ b/src/L2Projection.cxx
 @@ -30,6 +30,7 @@
@@ -368,7 +368,7 @@ index 5367cee749..8319650fcc 100644
        mfem::Array<int> boundary_dofs;
        // the operator handle owns the matrix built by the full assembly
        auto A = mfem::OperatorHandle{};
-@@ -855,10 +921,8 @@ namespace mfem_mgis {
+@@ -851,10 +917,8 @@ namespace mfem_mgis {
        L2ProjectionResult<parallel>& r,
        LinearSolverHandler& l,
        const std::vector<ImmutablePartialQuadratureFunctionView>& fcts) {
@@ -381,7 +381,7 @@ index 5367cee749..8319650fcc 100644
    }  // end of updateL2Projection_impl
  
    template <>
-@@ -931,12 +995,8 @@ namespace mfem_mgis {
+@@ -927,12 +991,8 @@ namespace mfem_mgis {
        LinearSolverHandler& l,
        const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
        const real lc) noexcept {
@@ -397,7 +397,7 @@ index 5367cee749..8319650fcc 100644
  
    template <>
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index 2257aceee8..77af6731cb 100644
+index 33667a8483..d8d9db5f8a 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -4,8 +4,8 @@

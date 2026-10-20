@@ -149,7 +149,7 @@ namespace mfem_mgis {
     using AMG = mfem::HypreBoomerAMG;
     constexpr auto large = 1e30;
     static const auto options = std::vector<HypreBoomerAMGOption>{
-        {"StrengthThreshold", 0, 1, false,
+        {"StrongThreshold", 0, 1, false,
          [](AMG& amg, const double v) { amg.SetStrengthThresh(v); }},
         {"CoarseningType", 0, large, true,
          [](AMG& amg, const double v) {
@@ -240,7 +240,7 @@ namespace mfem_mgis {
    *   scalar unknowns);
    * - `VerbosityLevel`: print level of hypre;
    * - options of hypre, whose values are the ones of hypre (see its
-   *   documentation): `StrengthThreshold`, `CoarseningType`,
+   *   documentation): `StrongThreshold`, `CoarseningType`,
    *   `AggressiveCoarseningLevels`, `InterpolationType`, `RelaxationType`,
    *   `RelaxationSweeps` (sweeps before and after the coarse levels),
    *   `CycleType` (1: V-cycle, 2: W-cycle), `NumberOfCycles` (cycles per
@@ -1197,7 +1197,7 @@ namespace mfem_mgis {
    * `PCG`, by default, `GMRES` or `BiCGSTAB`), the dimension of the Krylov
    * space of the GMRES solver (`KDim`), the convergence rate below which
    * the diagonal scaling is replaced by BoomerAMG (`ConvergenceRate`, 0.9
-   * by default) and options of BoomerAMG (`StrengthThreshold`,
+   * by default) and options of BoomerAMG (`StrongThreshold`,
    * `CoarseningType`, `InterpolationType`, `RelaxationType`,
    * `AggressiveCoarseningLevels`, `MaximumNumberOfLevels`)
    * \param[in] d: description of the solver
@@ -1258,7 +1258,7 @@ namespace mfem_mgis {
            {"MaximumNumberOfLevels", 1, m, HYPRE_ParCSRHybridSetMaxLevels}}};
       const auto reals = std::array<HypreOption<HYPRE_Real>, 2>{
           {{"ConvergenceRate", 0, 1, HYPRE_ParCSRHybridSetConvergenceTol},
-           {"StrengthThreshold", 0, 1, HYPRE_ParCSRHybridSetStrongThreshold}}};
+           {"StrongThreshold", 0, 1, HYPRE_ParCSRHybridSetStrongThreshold}}};
 
       const auto n = "the hybrid solver of hypre";
       if ((!addHypreSettings(ctx, settings, params, integers, n)) ||
@@ -1355,7 +1355,7 @@ namespace mfem_mgis::internals {
         // is checked on the relative residual (see `HypreHybridSolver`)
         .options = {Problem::SolverVerbosityLevel, "Tolerance",
                     Problem::SolverMaximumNumberOfIterations, "SolverType",
-                    "KDim", "ConvergenceRate", "StrengthThreshold",
+                    "KDim", "ConvergenceRate", "StrongThreshold",
                     "CoarseningType", "InterpolationType", "RelaxationType",
                     "AggressiveCoarseningLevels", "MaximumNumberOfLevels"},
         .description =

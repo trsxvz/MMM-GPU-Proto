@@ -1,0 +1,136 @@
+From 31e8bfe524bda6453435a7fdaf57c0c5a4fd0c1e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 17 Oct 2026 00:51:27 +0200
+Subject: [PATCH] Tangent operator applied without assembly with --execution
+
+With --execution, the environment variables placing the computations are
+ignored, MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION included: the tangent
+operator applied without assembly could not be chosen from the
+environment with the execution settings, for instance to combine the
+Newton-K0 method of the fixed point solver with an unassembled tangent
+operator in the computations on the GPU of an existing program. Its value
+MatrixFree chooses an algorithm rather than a placement: it is now kept
+with --execution, the tangent operator being applied without assembly
+where the finite elements are computed. The other values are still
+ignored, with the warning.
+---
+ docs/source/user_guide/batch_computations.rst | 10 ++++--
+ ...nearEvolutionProblemImplementationBase.cxx | 17 +++++++---
+ tests/CMakeLists.txt                          | 31 +++++++++++++++++++
+ 3 files changed, 50 insertions(+), 8 deletions(-)
+
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index b7066733d6..cacd28a9bd 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -75,8 +75,9 @@ A parameter given to the problem takes precedence over the environment
+ variable, which only replaces the default value. The default values given
+ in this table are the ones without the option :code:`--execution`, which
+ gives other default values and makes the environment variables (except
+-:code:`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`) ignored (see
+-:ref:`mfem_mgis_batch_computations_execution`). The environment variables
++:code:`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`, and the value
++:code:`MatrixFree` of :code:`MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`)
++ignored (see :ref:`mfem_mgis_batch_computations_execution`). The environment variables
+ are read when the problem is built. An invalid value is reported with the
+ name of the parameter, or of the environment variable, which gave it.
+ 
+@@ -522,7 +523,10 @@ built). The settings give:
+ With :code:`--execution`, the environment variables placing the
+ computations (:code:`MFEM_MGIS_DEVICE`, :code:`MFEM_MGIS_HYPRE_ON_HOST`,
+ :code:`MFEM_MGIS_BEHAVIOUR_INTEGRATION` and the variables
+-:code:`MFEM_MGIS_*_COMPUTATION`) are ignored, with a warning.
++:code:`MFEM_MGIS_*_COMPUTATION`) are ignored, with a warning. The value
++:code:`MatrixFree` of :code:`MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` is
++kept: it chooses an algorithm, the tangent operator applied without
++assembly where the finite elements are computed, rather than a placement.
+ 
+ The behaviour libraries and the linear solvers are checked against the
+ settings, since they decide where they compute:
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 11799735e6..1589d78ec2 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -9,6 +9,7 @@
+ #include <algorithm>
+ #include <cstdlib>
+ #include <iostream>
++#include <string_view>
+ #include <utility>
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/MPI.hxx"
+@@ -142,10 +143,12 @@ namespace mfem_mgis {
+   /*!
+    * \return the computation of the tangent operator given by the
+    * `TangentOperatorComputation` parameter, or by the
+-   * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable (ignored
+-   * with `--execution`), or else by the execution settings (see
+-   * `getDefaultFiniteElementsComputation`): `ElementByElement`, `Kernels`
+-   * or `MatrixFree`
++   * `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION` environment variable, or else
++   * by the execution settings (see `getDefaultFiniteElementsComputation`):
++   * `ElementByElement`, `Kernels` or `MatrixFree`. With `--execution`, the
++   * environment variable is ignored, except its value `MatrixFree`, which
++   * chooses an algorithm rather than a placement: the tangent operator is
++   * then applied without assembly where the finite elements are computed
+    * \param[in] p: parameters
+    */
+   [[nodiscard]] static NonLinearEvolutionProblemImplementationBase::
+@@ -158,7 +161,11 @@ namespace mfem_mgis {
+     const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
+     // default value given by the environment, or else by the execution
+     // settings
+-    const auto* const e = internals::getPlacementEnvironmentVariable(v);
++    const auto* const raw = std::getenv(v);
++    const auto* const e =
++        ((raw != nullptr) && (std::string_view{raw} == "MatrixFree"))
++            ? raw
++            : internals::getPlacementEnvironmentVariable(v);
+     const auto d =
+         e != nullptr
+             ? std::string{e}
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 83b393a683..f8e21603dd 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -236,6 +236,37 @@ if(MFEM_MGIS_HAVE_TFEL)
+     endif(MFEM_USE_MPI)
+   endif(MFEM_MGIS_HAVE_TFEL_UTILITIES)
+ 
++  # the value MatrixFree of MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION chooses
++  # an algorithm, not a placement: it is kept with --execution, without the
++  # warning of the ignored placement variables. The conjugate gradient
++  # without preconditioner converges with the tangent operator applied
++  # without assembly, while UMFPack, which requires an assembled matrix,
++  # fails, which shows that the operator is not assembled
++  add_test(NAME TwoLayerCube-1-MatrixFreeExecution
++           COMMAND ./TwoLayerCube
++                   --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
++                   --library $<TARGET_FILE:BehaviourTest> --test-case 1
++                   --no-parallel --execution cpu)
++  set_tests_properties(TwoLayerCube-1-MatrixFreeExecution PROPERTIES
++    DEPENDS BehaviourTest
++    ENVIRONMENT "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree"
++    PASS_REGULAR_EXPRESSION "Error is lower than threshold"
++    FAIL_REGULAR_EXPRESSION
++    "is ignored;Error is greater than threshold;Process received signal;terminate called")
++  if(MFEM_MGIS_HAVE_SUITESPARSE)
++    add_test(NAME TwoLayerCube-1-MatrixFreeExecution-UMFPack
++             COMMAND ./TwoLayerCube
++                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
++                     --library $<TARGET_FILE:BehaviourTest> --test-case 1
++                     --no-parallel --execution cpu
++                     --linearsolver UMFPackSolver)
++    set_tests_properties(TwoLayerCube-1-MatrixFreeExecution-UMFPack
++      PROPERTIES
++      DEPENDS BehaviourTest
++      ENVIRONMENT "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree"
++      PASS_REGULAR_EXPRESSION "not a SparseMatrix")
++  endif(MFEM_MGIS_HAVE_SUITESPARSE)
++
+   # UniaxialTensileTest executable
+   add_test_executable(UniaxialTensileTest)
+ 
+-- 
+2.43.0
+

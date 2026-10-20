@@ -1,4 +1,4 @@
-From 5a306b64ad6209c237d05dfe2ce9d4c8b1f66529 Mon Sep 17 00:00:00 2001
+From a6324072693aa47160053dd676b84e80b1976059 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 11:16:41 +0200
 Subject: [PATCH] Ordered assembly of the stiffness matrices computed by
@@ -115,7 +115,7 @@ index 9b4c3dae14..c75a03226a 100644
     * \brief adds the stiffness matrices of the elements of a material to an
     * assembled sparse matrix, on the device if a device is enabled, without
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 382b0e7b74..d94ca5e552 100644
+index bfcd145f27..fa635167cc 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 @@ -18,6 +18,7 @@
@@ -126,7 +126,7 @@ index 382b0e7b74..d94ca5e552 100644
  #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
  
  namespace mfem_mgis {
-@@ -228,6 +229,19 @@ namespace mfem_mgis {
+@@ -227,6 +228,19 @@ namespace mfem_mgis {
       * \param[in] b: boolean
       */
      void setStiffnessMatricesComputedByKernels(const bool) noexcept;
@@ -146,7 +146,7 @@ index 382b0e7b74..d94ca5e552 100644
      /*!
       * \brief add the action of the tangent operator, assembled from the
       * stiffness matrices of the elements computed by kernels from the
-@@ -287,7 +301,8 @@ namespace mfem_mgis {
+@@ -286,7 +300,8 @@ namespace mfem_mgis {
       * rows, then abandoned (the entries are searched). If their computation
       * fails, they are abandoned. They take about as much memory as the
       * matrix for linear elements. With a GPU, the entries are always
@@ -156,7 +156,7 @@ index 382b0e7b74..d94ca5e552 100644
       * \return true on success
       * \param[in, out] ctx: execution context
       * \param[in] fes: finite element space
-@@ -481,6 +496,15 @@ namespace mfem_mgis {
+@@ -480,6 +495,15 @@ namespace mfem_mgis {
      mfem::Vector stiffness_matrices;
      //! \brief see `setStiffnessMatricesComputedByKernels`
      bool stiffness_matrices_computed_by_kernels = false;
@@ -173,10 +173,10 @@ index 382b0e7b74..d94ca5e552 100644
       * \brief degrees of freedom of all the elements (see
       * `batch::computeElementsDegreesOfFreedom`), computed once by
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index c74cf64225..4cadc22e5d 100644
+index aceab47fff..959751f8c5 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -134,6 +134,22 @@ namespace mfem_mgis {
+@@ -135,6 +135,22 @@ namespace mfem_mgis {
       * variable `MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`, if defined.
       */
      static const char* const TangentOperatorComputation;
@@ -199,7 +199,7 @@ index c74cf64225..4cadc22e5d 100644
      //! \brief computations of the tangent operator
      enum struct TangentOperatorComputationMode {
        //! \brief stiffness matrices computed element by element, assembled
-@@ -393,6 +409,11 @@ namespace mfem_mgis {
+@@ -390,6 +406,11 @@ namespace mfem_mgis {
      const bool inner_forces_kernels;
      //! \brief computation of the tangent operator
      const TangentOperatorComputationMode tangent_operator_computation;
@@ -391,10 +391,10 @@ index 2effba4ecb..55d6660ecf 100644
     * \brief launches the kernel adding the stiffness matrices of the
     * elements of a material to an assembled sparse matrix
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 6712c0d1ba..a239882e4f 100644
+index d10cb9678f..2dc80b3c1c 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -651,6 +651,11 @@ namespace mfem_mgis {
+@@ -650,6 +650,11 @@ namespace mfem_mgis {
      this->stiffness_matrices_computed_by_kernels = b;
    }  // end of setStiffnessMatricesComputedByKernels
  
@@ -406,7 +406,7 @@ index 6712c0d1ba..a239882e4f 100644
    bool MultiMaterialNonLinearIntegrator::addTangentOperatorActionByKernels(
        Context& ctx,
        const mfem::FiniteElementSpace& fes,
-@@ -753,6 +758,28 @@ namespace mfem_mgis {
+@@ -752,6 +757,28 @@ namespace mfem_mgis {
      if (!batch::zeroSparseMatrixValues(ctx, m)) {
        return false;
      }
@@ -436,7 +436,7 @@ index 6712c0d1ba..a239882e4f 100644
      // layout of the rows (columns sorted, for example by a direct solver, or
      // diagonal first, see `batch::makeAssembledStiffnessMatrix`): computed
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index df3903dfcb..eda18f73a1 100644
+index 7a560998e1..6c01eec993 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
 @@ -45,17 +45,21 @@ namespace mfem_mgis {
@@ -469,7 +469,7 @@ index df3903dfcb..eda18f73a1 100644
    }  // end of getParametersList
  
    [[nodiscard]] static MultiMaterialNonLinearIntegrator*
-@@ -159,6 +163,35 @@ namespace mfem_mgis {
+@@ -158,6 +162,35 @@ namespace mfem_mgis {
            " (expected 'ElementByElement', 'Kernels' or 'MatrixFree')");
    }  // end of getTangentOperatorComputation
  
@@ -505,7 +505,7 @@ index df3903dfcb..eda18f73a1 100644
    NonLinearEvolutionProblemImplementationBase::
        NonLinearEvolutionProblemImplementationBase(
            Context&,
-@@ -183,12 +216,16 @@ namespace mfem_mgis {
+@@ -182,12 +215,16 @@ namespace mfem_mgis {
              NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
              "MFEM_MGIS_INNER_FORCES_COMPUTATION")),
          tangent_operator_computation(
@@ -524,7 +524,7 @@ index df3903dfcb..eda18f73a1 100644
      this->u0 = real{0};
      this->u1 = real{0};
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index dcfd9bc5da..631b565835 100644
+index 6bb14d9d77..f718fc0db7 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -13,7 +13,8 @@
@@ -550,7 +550,7 @@ index dcfd9bc5da..631b565835 100644
    /*!
     * \brief if true, the tangent operator is applied without assembly
     * (parameter `TangentOperatorComputation` set to `MatrixFree`), the
-@@ -787,41 +794,42 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -792,41 +799,42 @@ static Results compute(mfem_mgis::Context& ctx,
                               : Parameters{{"Cube", 1}};
    // plane strain: the mesh of the unit square, boundaries x = 0 (2), y = 0
    // (5) and x = 1 (4)
@@ -628,7 +628,7 @@ index dcfd9bc5da..631b565835 100644
    if (opts.distorted_mesh) {
  #ifdef MFEM_USE_MPI
      if (parallel) {
-@@ -1914,6 +1922,15 @@ int main(int argc, char** argv) {
+@@ -1919,6 +1927,15 @@ int main(int argc, char** argv) {
                        .inner_forces_kernels = true,
                        .tangent_operator_kernels = true},
                       ", pressure, springs and prediction"});
@@ -644,7 +644,7 @@ index dcfd9bc5da..631b565835 100644
      cases.push_back({"IsotropicLinearHardeningPlasticity",
                       {.prediction = true,
                        .pressure = true,
-@@ -1957,6 +1974,14 @@ int main(int argc, char** argv) {
+@@ -1962,6 +1979,14 @@ int main(int argc, char** argv) {
                        .tangent_operator_kernels = true,
                        .second_material_library = library},
                       ", two materials"});
@@ -659,7 +659,7 @@ index dcfd9bc5da..631b565835 100644
      // tangent operator applied without assembly
      for (const auto* const b :
           {"IsotropicLinearHardeningPlasticity",
-@@ -2027,6 +2052,14 @@ int main(int argc, char** argv) {
+@@ -2032,6 +2057,14 @@ int main(int argc, char** argv) {
                          .inner_forces_kernels = true,
                          .tangent_operator_kernels = true},
                         ", FBar and prediction"});
@@ -674,7 +674,7 @@ index dcfd9bc5da..631b565835 100644
        cases.push_back({b,
                         {.fbar = true,
                          .prediction = true,
-@@ -2164,6 +2197,15 @@ int main(int argc, char** argv) {
+@@ -2169,6 +2202,15 @@ int main(int argc, char** argv) {
                          .tangent_operator_kernels = true,
                          .distorted_mesh = true},
                         ", Faltus and prediction"});
@@ -690,7 +690,7 @@ index dcfd9bc5da..631b565835 100644
        cases.push_back({svk,
                         {.faltus = true,
                          .prediction = true,
-@@ -2243,9 +2285,20 @@ int main(int argc, char** argv) {
+@@ -2248,9 +2290,20 @@ int main(int argc, char** argv) {
        reference.matrix_free = false;
        reference.assembled_preconditioner = false;
        reference.chebyshev_preconditioner = false;
@@ -713,7 +713,7 @@ index dcfd9bc5da..631b565835 100644
      }
    }
    // behaviours generated by the generic-parallel interface: same results as
-@@ -2398,6 +2451,15 @@ int main(int argc, char** argv) {
+@@ -2403,6 +2456,15 @@ int main(int argc, char** argv) {
                        {"BehaviourIntegration", "ByBatches"},
                        {"Parallel", false}});
      check(isInvalid(o), "invalid value of BehaviourIntegration accepted");
@@ -730,10 +730,10 @@ index dcfd9bc5da..631b565835 100644
    testRefusal(ctx, mesh_2d, library);
    for (const auto* const mode : {"PointByPoint", "Batch"}) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index d55080c378..24c679ae70 100644
+index 1b50ab0474..7c0003b7ed 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1063,6 +1063,28 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1066,6 +1066,28 @@ if(MFEM_MGIS_HAVE_TFEL)
                           PROPERTIES ENVIRONMENT
                           "${fixed_point_solver_test_kernels}")
    endforeach()
@@ -763,7 +763,7 @@ index d55080c378..24c679ae70 100644
    # MaterialArraysTest executable: arrays of the materials in the memory of
    # MFEM, on the host, on the debug device of MFEM and on the GPU. The
 diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
-index 21085f3e30..589bde9377 100644
+index e5ca31ea2c..d227963fb6 100644
 --- a/tests/GradientsKernelsTest.cxx
 +++ b/tests/GradientsKernelsTest.cxx
 @@ -10,7 +10,9 @@

@@ -1,4 +1,4 @@
-From e681e0db48f381279d0298065282ca3378ce7642 Mon Sep 17 00:00:00 2001
+From 6ec0a655d7f6c19aadf908343a2ec60bc2a225d0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:08:59 +0200
 Subject: [PATCH] FBar: kernels refused if the external state variables follow
@@ -11,7 +11,7 @@ The computations by kernels of the FBar integrators do not update the external s
  2 files changed, 8 insertions(+), 2 deletions(-)
 
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
-index 89ddf322d3..339d044182 100644
+index 7b9997457d..32afbea540 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 @@ -35,8 +35,8 @@ namespace mfem_mgis {
@@ -26,10 +26,10 @@ index 89ddf322d3..339d044182 100644
     * The thermodynamic forces of an orthotropic behaviour without functions
     * rotating the values of one point (`generic-parallel` interface) are
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-index ff65f2031a..daa842a5bc 100644
+index c1e545e662..7301177720 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-@@ -541,6 +541,12 @@ namespace mfem_mgis {
+@@ -540,6 +540,12 @@ namespace mfem_mgis {
    template <typename Child, Hypothesis H>
    bool FBarBehaviourIntegratorCRTPBase<Child, H>::supportsKernels()
        const noexcept {

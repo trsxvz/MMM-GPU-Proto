@@ -1,4 +1,4 @@
-From 663bb687b2fa9771af4f46a7611ff9aa29ee448d Mon Sep 17 00:00:00 2001
+From 39077dff02c008de5f171a7214f2c6ae1524b58f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:25:40 +0200
 Subject: [PATCH] Output files opened by the main process only, after the
@@ -21,7 +21,7 @@ Subject: [PATCH] Output files opened by the main process only, after the
  5 files changed, 47 insertions(+), 33 deletions(-)
 
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 42058fb..24bd591 100644
+index 5ac0b84..1800ce1 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -343,28 +343,33 @@ int main(int argc, char** argv) {
@@ -75,7 +75,7 @@ index 42058fb..24bd591 100644
  
    // Physical parameters
 diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
-index 74f6ea8..a4d6eda 100644
+index 76b0648..d4d26ee 100644
 --- a/cermet/cermet.cxx
 +++ b/cermet/cermet.cxx
 @@ -304,13 +304,16 @@ int main(int argc, char **argv) {
@@ -115,10 +115,10 @@ index 6ee9374..b0ecb66 100644
       * temporal sequences.
       * \pre the times must be sorted in ascending order
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 967bff7..23ebc15 100644
+index 44e7f90..8f41b86 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
-@@ -340,13 +340,16 @@ int main(int argc, char *argv[]) {
+@@ -332,13 +332,16 @@ int main(int argc, char *argv[]) {
    const auto Fzz = [&p](const mfem_mgis::real ets) {
      return 1 + p.linear_strain_rate * ets;
    };

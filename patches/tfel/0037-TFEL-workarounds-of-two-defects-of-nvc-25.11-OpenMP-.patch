@@ -1,0 +1,107 @@
+From 6b3c88cd0b29843e5a809790734ab78f221b888b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 08:25:38 +0200
+Subject: [PATCH] TFEL: workarounds of two defects of nvc++ 25.11 OpenMP
+ offloading
+
+Both defects appear at -O2 and -O3 with -mp=gpu, in a behaviour
+multiplying a tensor by a symmetric tensor.
+
+- The tensor view of a symmetric tensor no longer uses a switch
+  statement: inlined in the switch statement of the product of tensors,
+  it made nvc++ fail with an internal compiler error ("Computed goto
+  control expression must be a 32-bit integer"). The view uses a table
+  of indices and a comparison.
+- The default constructor of GenericFixedSizeArray sets the values to
+  zero by a loop. nvc++ implements the value-initialization of the
+  array in device code by the copy of an uninitialized global array,
+  after which the optimizer removed the code of the kernel.
+
+The reproducers are given in the results/nvhpc-bugs directory of the
+prototype.
+---
+ .../TFEL/Math/Array/GenericFixedSizeArray.ixx | 11 ++++-
+ .../Math/Tensor/TensorViewFromStensor.hxx     | 44 +++++--------------
+ 2 files changed, 20 insertions(+), 35 deletions(-)
+
+diff --git a/include/TFEL/Math/Array/GenericFixedSizeArray.ixx b/include/TFEL/Math/Array/GenericFixedSizeArray.ixx
+index 6926c269f..8f9676269 100644
+--- a/include/TFEL/Math/Array/GenericFixedSizeArray.ixx
++++ b/include/TFEL/Math/Array/GenericFixedSizeArray.ixx
+@@ -31,8 +31,15 @@ namespace tfel::math {
+             typename ArrayPolicy,
+             typename ArrayPolicy::IndexingPolicy::size_type N>
+   TFEL_HOST_DEVICE constexpr GenericFixedSizeArray<Child, ArrayPolicy, N>::
+-      GenericFixedSizeArray() noexcept
+-      : v() {}  // end of GenericFixedSizeArray
++      GenericFixedSizeArray() noexcept {
++    // The values are set to zero by a loop rather than by the
++    // value-initialization of the array: nvc++ 25.11 (-mp=gpu, -O2) implements
++    // the latter in device code by the copy of an uninitialized global array,
++    // after which the optimizer may remove the code of the kernel.
++    for (auto& value : this->v) {
++      value = value_type{};
++    }
++  }  // end of GenericFixedSizeArray
+ 
+   template <typename Child,
+             typename ArrayPolicy,
+diff --git a/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx b/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx
+index 740ad6b46..9c95d1efa 100644
+--- a/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx
++++ b/include/TFEL/Math/Tensor/TensorViewFromStensor.hxx
+@@ -52,40 +52,18 @@ namespace tfel::math {
+ 
+     [[nodiscard]] TFEL_HOST_DEVICE constexpr ValueType operator()(
+         const unsigned short i) const {
+-      constexpr auto icste = Cste<ValueType>::isqrt2;
+-      switch (i) {
+-        case 0:
+-          return this->s(0);
+-        case 1:
+-          return this->s(1);
+-        case 2:
+-          return this->s(2);
+-        case 3:
+-        case 4:
+-          if (traits::dime < 2) {
+-            return internals::reportInvalidTensorIndex<
+-                TensorInvalidIndexException, ValueType>();
+-          }
+-          return this->s(3) * icste;
+-        case 5:
+-        case 6:
+-          if (traits::dime < 3) {
+-            return internals::reportInvalidTensorIndex<
+-                TensorInvalidIndexException, ValueType>();
+-          }
+-          return this->s(4) * icste;
+-        case 7:
+-        case 8:
+-          if (traits::dime < 3) {
+-            return internals::reportInvalidTensorIndex<
+-                TensorInvalidIndexException, ValueType>();
+-          }
+-          return this->s(5) * icste;
+-        default:
+-          break;
++      // component of the symmetric tensor associated with each component of
++      // the tensor, the off-diagonal components being divided by the square
++      // root of two. A switch statement is avoided: nvc++ 25.11 (-mp=gpu,
++      // -O2 and above) fails on it when this operator is inlined in a product
++      // of tensors (internal compiler error).
++      constexpr unsigned short indices[9] = {0, 1, 2, 3, 3, 4, 4, 5, 5};
++      if (i >= TensorDimeToSize<N>::value) {
++        return internals::reportInvalidTensorIndex<TensorInvalidIndexException,
++                                                   ValueType>();
+       }
+-      return internals::reportInvalidTensorIndex<TensorInvalidIndexException,
+-                                                 ValueType>();
++      const auto v = this->s(indices[i]);
++      return (i < 3) ? v : v * Cste<ValueType>::isqrt2;
+     }  // end of operator() const
+ 
+    protected:
+-- 
+2.43.0
+

@@ -1,4 +1,4 @@
-From 7c39ab5e28bd98af86d1d8f449d9d9006041b2a4 Mon Sep 17 00:00:00 2001
+From 30e9b095c79730bb0f3545ecc48aa3f9a1ffe8c8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 12:58:54 +0200
 Subject: [PATCH] Profiling: setup of the linear solver, prediction and end of
@@ -40,10 +40,10 @@ index 4ec24fd37f..9b384512a0 100644
        auto profiler_mfem =
            this->ctx_ptr != nullptr
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index d2913c24ff..f337aec71b 100644
+index 540f11d8f9..fe5d384f2f 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -101,7 +101,9 @@ namespace mfem_mgis {
+@@ -89,7 +89,9 @@ namespace mfem_mgis {
      return this->u1;
    }  // end of getUnknowns
  
@@ -52,9 +52,9 @@ index d2913c24ff..f337aec71b 100644
 +      Context& ctx) noexcept {
 +    CatchTimeSection(ctx, "NLEPIB::revert");
      this->u1 = this->u0;
+     this->hasStiffnessOperatorsBeenComputed = false;
      if (this->mgis_integrator != nullptr) {
-       this->mgis_integrator->revert();
-@@ -109,7 +111,9 @@ namespace mfem_mgis {
+@@ -98,7 +100,9 @@ namespace mfem_mgis {
      return true;
    }  // end of revert
  
@@ -65,7 +65,7 @@ index d2913c24ff..f337aec71b 100644
      this->u0 = this->u1;
      if (this->mgis_integrator != nullptr) {
        this->mgis_integrator->update();
-@@ -449,7 +453,10 @@ namespace mfem_mgis {
+@@ -438,7 +442,10 @@ namespace mfem_mgis {
      NonLinearResolutionOutput output;
      if (this->prediction_policy.strategy !=
          PredictionStrategy::DEFAULT_PREDICTION) {

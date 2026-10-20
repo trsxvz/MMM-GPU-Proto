@@ -777,7 +777,7 @@ int main(int argc, char** argv) {
                {"HypreBoomerAMG", Parameters{{"VerbosityLevel", 0},
                                              {"NumberOfCycles", 2},
                                              {"RelaxationSweeps", 1},
-                                             {"StrengthThreshold", 0.25}}}}}},
+                                             {"StrongThreshold", 0.25}}}}}},
          true});
     cases.push_back(
         {"fixed point, Anderson, conjugate gradient and BoomerAMG",

@@ -1,4 +1,4 @@
-From 87a3549c514d9968cf363531545d4241e3c767fd Mon Sep 17 00:00:00 2001
+From 06253f2682eecb9c18bd69e12d666446803ee327 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 09:00:33 +0200
 Subject: [PATCH] Kernels: positions of the entries of the stiffness matrices
@@ -104,7 +104,7 @@ index 6cd5350237..9b4c3dae14 100644
     * rows, linearly otherwise), and the additions are atomic (several
     * materials may share degrees of freedom)
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index a0f473b3d1..382b0e7b74 100644
+index 9300b0a215..bfcd145f27 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 @@ -8,8 +8,10 @@
@@ -118,7 +118,7 @@ index a0f473b3d1..382b0e7b74 100644
  #include "mfem/fem/nonlininteg.hpp"
  #include "MFEMMGIS/Config.hxx"
  #include "MFEMMGIS/Material.hxx"
-@@ -272,7 +274,20 @@ namespace mfem_mgis {
+@@ -271,7 +273,20 @@ namespace mfem_mgis {
       * by kernels, in a sparse matrix on the local vector of the finite
       * element space, without storing them (see
       * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`). The
@@ -140,7 +140,7 @@ index a0f473b3d1..382b0e7b74 100644
       * \return true on success
       * \param[in, out] ctx: execution context
       * \param[in] fes: finite element space
-@@ -284,6 +299,22 @@ namespace mfem_mgis {
+@@ -283,6 +298,22 @@ namespace mfem_mgis {
          Context& ctx,
          const mfem::FiniteElementSpace& fes,
          mfem::SparseMatrix& m) noexcept;
@@ -163,7 +163,7 @@ index a0f473b3d1..382b0e7b74 100644
      //! \return the current time increment
      [[nodiscard]] real getTimeIncrement() const noexcept;
      /*!
-@@ -456,6 +487,16 @@ namespace mfem_mgis {
+@@ -455,6 +486,16 @@ namespace mfem_mgis {
       * `computeElementsDegreesOfFreedom`
       */
      mfem::Array<int> element_dofs;
@@ -709,7 +709,7 @@ index c05c73af5d..b6e584def4 100644
     * \brief launches the kernel adding the stiffness matrices of the
     * elements of a material to an assembled sparse matrix
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 8f2aea5181..6712c0d1ba 100644
+index f4f4d82655..d10cb9678f 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
 @@ -12,6 +12,7 @@
@@ -720,7 +720,7 @@ index 8f2aea5181..6712c0d1ba 100644
  #include "mfem/fem/linearform.hpp"
  #include "mfem/fem/restriction.hpp"
  #include "mfem/fem/bilinearform.hpp"
-@@ -730,6 +731,17 @@ namespace mfem_mgis {
+@@ -729,6 +730,17 @@ namespace mfem_mgis {
      return batch::makeAssembledStiffnessMatrix(ctx, fes, this->element_dofs);
    }  // end of makeAssembledStiffnessMatrix
  
@@ -738,7 +738,7 @@ index 8f2aea5181..6712c0d1ba 100644
    bool MultiMaterialNonLinearIntegrator::assembleStiffnessMatrixByKernels(
        Context& ctx,
        const mfem::FiniteElementSpace& fes,
-@@ -741,8 +753,38 @@ namespace mfem_mgis {
+@@ -740,8 +752,38 @@ namespace mfem_mgis {
      if (!batch::zeroSparseMatrixValues(ctx, m)) {
        return false;
      }
@@ -778,7 +778,7 @@ index 8f2aea5181..6712c0d1ba 100644
      for (auto& bis : this->behaviour_integrators) {
        for (auto& bi : bis) {
          if (!bi->addStiffnessMatricesByKernels(ctx, a,
-@@ -751,6 +793,15 @@ namespace mfem_mgis {
+@@ -750,6 +792,15 @@ namespace mfem_mgis {
          }
        }
      }
@@ -795,7 +795,7 @@ index 8f2aea5181..6712c0d1ba 100644
    }  // end of assembleStiffnessMatrixByKernels
  
 diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
-index 80208d6416..21085f3e30 100644
+index 80208d6416..e5ca31ea2c 100644
 --- a/tests/GradientsKernelsTest.cxx
 +++ b/tests/GradientsKernelsTest.cxx
 @@ -7,7 +7,10 @@
@@ -1046,7 +1046,7 @@ index 80208d6416..21085f3e30 100644
 +                                     {"Parallel", false}}) |
 +                 or_die;
 +  auto mi = MultiMaterialNonLinearIntegrator(
-+      problem.getFiniteElementDiscretizationPointer(),
++      problem.getFiniteElementDiscretization(),
 +      Hypothesis::TRIDIMENSIONAL);
 +  mi.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
 +                            "IsotropicLinearHardeningPlasticity") |

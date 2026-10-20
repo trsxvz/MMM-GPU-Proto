@@ -1,4 +1,4 @@
-From 398ca77de269ebdf23913b5bcde426719632c196 Mon Sep 17 00:00:00 2001
+From 4e9c9ddf7dfb51e4eccc8ca818b54ff620f24cdc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:53:01 +0200
 Subject: [PATCH] Tests in float: kernels, batch integration, fixed point,
@@ -26,7 +26,7 @@ unchanged.
  create mode 100644 tests/SequentialLinearSolver.hxx
 
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 6f75a9a3b0..52f7168901 100644
+index a302ea09ab..9634f115b5 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -63,6 +63,8 @@
@@ -76,7 +76,7 @@ index 6f75a9a3b0..52f7168901 100644
  };
  
  /*!
-@@ -703,7 +727,8 @@ static void checkMatrixFreeOperator(
+@@ -708,7 +732,8 @@ static void checkMatrixFreeOperator(
                                            std::vector<real>(pd, pd + d.Size()));
    std::cout << name << ": relative difference of the diagonals " << diff
              << '\n';
@@ -86,7 +86,7 @@ index 6f75a9a3b0..52f7168901 100644
          name + ": diagonal of the tangent operator applied without assembly");
    // action on a vector whose components all differ
    auto x = mfem::Vector(op.Width());
-@@ -724,7 +749,8 @@ static void checkMatrixFreeOperator(
+@@ -729,7 +754,8 @@ static void checkMatrixFreeOperator(
                              std::vector<real>(py, py + y.Size()));
    std::cout << name << ": relative difference of the actions " << diff_action
              << '\n';
@@ -96,7 +96,7 @@ index 6f75a9a3b0..52f7168901 100644
          name + ": action of the tangent operator applied without assembly");
  }  // end of checkMatrixFreeOperator
  
-@@ -1049,8 +1075,13 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -1054,8 +1080,13 @@ static Results compute(mfem_mgis::Context& ctx,
                : Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
          or_die;
    } else {
@@ -112,7 +112,7 @@ index 6f75a9a3b0..52f7168901 100644
          or_die;
    }
    const auto setMaximumNumberOfIterations = [&ctx, &problem, &opts,
-@@ -1191,6 +1222,23 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -1196,6 +1227,23 @@ static Results compute(mfem_mgis::Context& ctx,
    return r;
  }  // end of compute
  
@@ -136,7 +136,7 @@ index 6f75a9a3b0..52f7168901 100644
  /*!
   * \brief compare the results of two computations
   * \param[in] r1: reference results
-@@ -1452,7 +1500,8 @@ static void testFailure(mfem_mgis::Context& ctx,
+@@ -1457,7 +1505,8 @@ static void testFailure(mfem_mgis::Context& ctx,
      }
      ++nsuccess;
      const auto sxx = 1.2e11 * tr + 2 * 8e10 * e[0];
@@ -146,7 +146,7 @@ index 6f75a9a3b0..52f7168901 100644
    }
    check((nsuccess != 0) && (nfailure != 0),
          name + ": the integration shall fail at some points only");
-@@ -1642,8 +1691,13 @@ static void testRegularizationRefusal(mfem_mgis::Context& ctx,
+@@ -1647,8 +1696,13 @@ static void testRegularizationRefusal(mfem_mgis::Context& ctx,
              Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
            or_die;
      } else {
@@ -162,7 +162,7 @@ index 6f75a9a3b0..52f7168901 100644
            or_die;
      }
      problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
-@@ -1802,8 +1856,12 @@ int main(int argc, char** argv) {
+@@ -1807,8 +1861,12 @@ int main(int argc, char** argv) {
    // tolerance of the comparisons between the integrations point by point
    // and by batches: same results to the last bit, except in parallel, where
    // MUMPS (dynamic scheduling between the processes) and the operations of
@@ -177,7 +177,7 @@ index 6f75a9a3b0..52f7168901 100644
    // integration point by point and by batches of the behaviours generated
    // by the generic interface
    for (const auto* const b :
-@@ -2107,26 +2165,28 @@ int main(int argc, char** argv) {
+@@ -2112,26 +2170,28 @@ int main(int argc, char** argv) {
        // the local matrix assembled by kernels. The residual stagnates
        // at about 1e-12 times its reference value in parallel, the numbers of
        // iterations differing by two with a tolerance of 1e-12
@@ -223,7 +223,7 @@ index 6f75a9a3b0..52f7168901 100644
        cases.push_back({b,
                         {.fbar = true,
                          .prediction = true,
-@@ -2134,7 +2194,8 @@ int main(int argc, char** argv) {
+@@ -2139,7 +2199,8 @@ int main(int argc, char** argv) {
                          .gradients_kernels = true,
                          .inner_forces_kernels = true,
                          .tangent_operator_kernels = true,
@@ -233,7 +233,7 @@ index 6f75a9a3b0..52f7168901 100644
                         ", FBar, springs and prediction"});
      }
      // imposed pressure with the inner forces computed by kernels, the
-@@ -2149,7 +2210,7 @@ int main(int argc, char** argv) {
+@@ -2154,7 +2215,7 @@ int main(int argc, char** argv) {
                        .gradients_kernels = true,
                        .inner_forces_kernels = true,
                        .matrix_free = true,
@@ -242,7 +242,7 @@ index 6f75a9a3b0..52f7168901 100644
                       ", FBar, pressure and prediction, matrix free"});
      // a material using the FBar formulation and an elastic one, the
      // tangent operator being assembled by kernels (with the imposed
-@@ -2170,7 +2231,7 @@ int main(int argc, char** argv) {
+@@ -2175,7 +2236,7 @@ int main(int argc, char** argv) {
                        .gradients_kernels = true,
                        .tangent_operator_kernels = true,
                        .second_material_library = library,
@@ -251,7 +251,7 @@ index 6f75a9a3b0..52f7168901 100644
                       ", FBar, two materials and pressure"});
      cases.push_back({"SaintVenantKirchhoffElasticity",
                       {.fbar = true,
-@@ -2180,7 +2241,7 @@ int main(int argc, char** argv) {
+@@ -2185,7 +2246,7 @@ int main(int argc, char** argv) {
                        .inner_forces_kernels = true,
                        .tangent_operator_kernels = true,
                        .second_material_library = library,
@@ -260,7 +260,7 @@ index 6f75a9a3b0..52f7168901 100644
                       ", FBar, two materials and pressure, kernels"});
      cases.push_back({"SaintVenantKirchhoffElasticity",
                       {.fbar = true,
-@@ -2315,7 +2376,7 @@ int main(int argc, char** argv) {
+@@ -2320,7 +2381,7 @@ int main(int argc, char** argv) {
        reference.ordered_assembly = false;
        const auto results = compute(ctx, m, library, b, "Batch", opts);
        compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
@@ -269,7 +269,7 @@ index 6f75a9a3b0..52f7168901 100644
        if ((opts.ordered_assembly) && (!parallel)) {
          // the same results, bit for bit, at each run, also on a GPU, where
          // the atomic additions give other roundings at each run. Not checked
-@@ -2454,7 +2515,8 @@ int main(int argc, char** argv) {
+@@ -2459,7 +2520,8 @@ int main(int argc, char** argv) {
        reference.matrix_free = false;
        compare(compute(ctx, m, library, b, "PointByPoint", reference),
                compute(ctx, m, l, b, "Batch", opts),
@@ -548,7 +548,7 @@ index aac3bc7c44..e97041952e 100644
          2.,         2.2320018,  2.55317371, 2.99778834, 3.613291, 4.46536267,
          5.64492887, 7.27786241, 9.53841545, 12.6678141, 17};
 diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
-index afb450a6f2..fc7ebe22bf 100644
+index b8af63aabf..e58a76f995 100644
 --- a/tests/GradientsKernelsTest.cxx
 +++ b/tests/GradientsKernelsTest.cxx
 @@ -48,10 +48,20 @@
@@ -647,7 +647,7 @@ index afb450a6f2..fc7ebe22bf 100644
      }
      // entries outside of the pattern of the matrix are detected
 diff --git a/tests/HeatTransferKernelsTest.cxx b/tests/HeatTransferKernelsTest.cxx
-index 1935a868e7..8c6c31c9b2 100644
+index c5827fbc04..4e891a92ac 100644
 --- a/tests/HeatTransferKernelsTest.cxx
 +++ b/tests/HeatTransferKernelsTest.cxx
 @@ -39,6 +39,8 @@
@@ -704,7 +704,7 @@ index 1935a868e7..8c6c31c9b2 100644
        std::minmax_element(a.temperature.begin(), a.temperature.end());
    check((Tmin != a.temperature.end()) && (*Tmax - *Tmin > 1),
 diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
-index 61e23c0f52..7c9eff38ab 100644
+index 4df05d9eb1..5307c7fd3b 100644
 --- a/tests/MicromorphicKernelsTest.cxx
 +++ b/tests/MicromorphicKernelsTest.cxx
 @@ -36,6 +36,8 @@
@@ -776,7 +776,7 @@ index 61e23c0f52..7c9eff38ab 100644
  
  /*!
 diff --git a/tests/PredictionTest.cxx b/tests/PredictionTest.cxx
-index d57f873cdd..71333212de 100644
+index b09edd57ac..3a367b3a77 100644
 --- a/tests/PredictionTest.cxx
 +++ b/tests/PredictionTest.cxx
 @@ -125,7 +125,17 @@ template <bool parallel>

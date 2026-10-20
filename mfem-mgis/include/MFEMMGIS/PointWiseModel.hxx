@@ -31,7 +31,7 @@ namespace mfem_mgis {
      * otherwise
      */
     PointWiseModel(Context &ctx,
-                   std::shared_ptr<const PartialQuadratureSpace> qspace,
+                   const PartialQuadratureSpace &qspace,
                    const Parameters &parameters);
     //! \return the underlying material
     Material &getMaterial() noexcept;

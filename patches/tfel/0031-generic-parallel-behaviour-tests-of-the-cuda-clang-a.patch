@@ -1,0 +1,230 @@
+From 8b975f58dd1ac373a2682651536ada12bc3a9454 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 06:03:41 +0200
+Subject: [PATCH] generic-parallel: behaviour tests of the cuda-clang and
+ hip-clang configurations
+
+- The behaviours are now tested with the cuda-clang and hip-clang
+  (NVIDIA platform) configurations, which were only tested with
+  material properties.
+- clang only supports the versions of CUDA released before it. The
+  TFEL_CLANG_CUDA_PATH variable of cmake selects the CUDA toolkit used by
+  clang (by default, the one of nvcc). It defines the TFEL_CLANG_CUDA_PATH
+  and TFEL_CLANG_CUDA_LIBRARY_DIR substitutions.
+- The include directory of HIP is given to clang with -I, not -isystem.
+  When HIP is installed in /usr, -isystem /usr/include places it before
+  the headers of the C++ standard library and breaks their #include_next
+  directives. Compilers ignore -I for a standard system directory.
+- The configuration files use -O2, as the other configurations.
+---
+ cmake/modules/tfel.cmake                         | 16 +++++++++++++++-
+ docs/web/generic-parallel-behaviour-interface.md | 13 +++++++++++--
+ docs/web/tfel-config.md                          |  6 ++++++
+ .../configuration-files/config-cuda-clang.json   |  8 ++++----
+ .../config-hip-clang-nvidia-platform.json        |  6 +++---
+ .../generic-parallel/cuda-clang/test.check       | 13 +++++++++++++
+ .../hip-clang-nvidia-platform/test.check         | 13 +++++++++++++
+ .../generic-parallel/cuda-clang/test.check       |  2 +-
+ .../hip-clang-nvidia-platform/test.check         |  2 +-
+ 9 files changed, 67 insertions(+), 12 deletions(-)
+ create mode 100644 test-suite/behaviours/generic-parallel/cuda-clang/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
+
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index 72d33e423..301611a9a 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -602,7 +602,8 @@ if(TFEL_REQUIRES_HIP)
+    set(TFEL_HIPCC_FLAGS "-x cu -arch=native --compiler-options=-fPIC --expt-relaxed-constexpr -diag-suppress 20012,20208,2810,3189 -diag-error 20011,20014")
+    if("hip-clang" IN_LIST generic-parallel-configurations)
+     list(APPEND tfel-check-components
+-         "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
++         "mfront::material_property::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform"
++         "mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
+    endif("hip-clang" IN_LIST generic-parallel-configurations)
+  elseif(HIP_PLATFORM STREQUAL "amd")
+    # hipcc calls clang
+@@ -632,6 +633,19 @@ if(TFEL_REQUIRES_CUDA)
+   endif(CUDAToolkit_LIBRARY_ROOT)  
+   add_tfel_substitution(TFEL_CUDA_PATH "${TFEL_CUDA_PATH}")
+   add_tfel_substitution(TFEL_CUDA_LIBRARY_DIR "${CUDAToolkit_LIBRARY_DIR}")
++  # CUDA used by clang (`cuda-clang` and `hip-clang` configurations): clang
++  # only supports the versions of CUDA released before it, so that another
++  # CUDA than the one of nvcc may be required.
++  set(TFEL_CLANG_CUDA_PATH "${TFEL_CUDA_PATH}" CACHE PATH
++      "CUDA used by clang in the cuda-clang and hip-clang configurations")
++  if(TFEL_CLANG_CUDA_PATH STREQUAL TFEL_CUDA_PATH)
++    set(_tfel_clang_cuda_library_dir "${CUDAToolkit_LIBRARY_DIR}")
++  else()
++    set(_tfel_clang_cuda_library_dir "${TFEL_CLANG_CUDA_PATH}/lib64")
++  endif()
++  add_tfel_substitution(TFEL_CLANG_CUDA_PATH "${TFEL_CLANG_CUDA_PATH}")
++  add_tfel_substitution(TFEL_CLANG_CUDA_LIBRARY_DIR
++                        "${_tfel_clang_cuda_library_dir}")
+ endif()
+ 
+ if(TFEL_REQUIRES_HIP)
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index ca5322be4..06f33cd8e 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -303,7 +303,14 @@ the kernel.
+ `nvcc` only emits a warning (numbers 20011 and 20014) when device code calls a host
+ function, and the resulting library gives wrong results or crashes. The
+ configuration files using `nvcc` (`cuda-nvcc`, and `hip-hipcc` on NVIDIA
+-GPUs) turn this warning into an error.
++GPUs) turn this warning into an error. `clang` always reports an error,
++including for the `constexpr` host functions that `nvcc` accepts with the
++`--expt-relaxed-constexpr` option.
++
++The configurations using `clang` (`cuda-clang`, and `hip-clang` on NVIDIA
++GPUs) use the `CUDA` toolkit given by the `TFEL_CLANG_CUDA_PATH` variable
++of `cmake`, by default the one of `nvcc`. A version of `clang` only
++supports the versions of `CUDA` released before it.
+ 
+ Options:
+ 
+@@ -493,7 +500,9 @@ The tests are installed in
+ the behaviours are generated with the `generic` and `generic-parallel`
+ interfaces and the results of the batch integration are compared to the
+ results of the `generic` interface on two time steps of a random loading,
+-for the two layouts of the fields and three types of computation, including
++for three layouts of the fields (point by point, component by component,
++and component by component with the material properties and the external
++state variables given variable by variable) and three types of computation, including
+ the energies, the speed of sound and the statuses of batches where the
+ integration fails at some points. The initialize functions, the
+ post-processings, the rotation functions and the standalone models are
+diff --git a/docs/web/tfel-config.md b/docs/web/tfel-config.md
+index ada59b361..e1e547024 100644
+--- a/docs/web/tfel-config.md
++++ b/docs/web/tfel-config.md
+@@ -91,3 +91,9 @@ substitutions used by `MFront` when reading configuration files and
+   `CMake`'s `FindCUDAToolkit` module.
+ - `TFEL_CUDA_LIBRARY_DIR`: path to the libraries of the NVIDIA's `CUDA`
+   toolkit as found by `CMake`'s `FindCUDAToolkit` module.
++- `TFEL_CLANG_CUDA_PATH`: path to the `CUDA` toolkit used by `clang`
++  (`cuda-clang` and `hip-clang` configurations), given by the
++  `TFEL_CLANG_CUDA_PATH` variable of `cmake`. By default, the toolkit of
++  `nvcc` is used. A version of `clang` only supports the versions of
++  `CUDA` released before it.
++- `TFEL_CLANG_CUDA_LIBRARY_DIR`: path to the libraries of this toolkit.
+diff --git a/mfront/configuration-files/config-cuda-clang.json b/mfront/configuration-files/config-cuda-clang.json
+index 427fd48c4..eb868ba0b 100644
+--- a/mfront/configuration-files/config-cuda-clang.json
++++ b/mfront/configuration-files/config-cuda-clang.json
+@@ -9,15 +9,15 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_CLANGXX_COMPILER@",
+-    compilation_flags: "-std=c++@TFEL_CXX_STANDARD@ -O3 -march=native" 
++    compilation_flags: "-std=c++@TFEL_CXX_STANDARD@ -O2 -march=native" 
+   },
+   cuda : {
+     compiler: "@TFEL_CLANGXX_COMPILER@",
+-    compilation_flags: {"-O3 -std=c++@TFEL_CXX_STANDARD@ -march=native",
++    compilation_flags: {"-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native",
+       "-x cuda --cuda-compile-host-device --cuda-gpu-arch=native",
+-      "--cuda-path=@TFEL_CUDA_PATH@ -fPIC -DPIC"}
++      "--cuda-path=@TFEL_CLANG_CUDA_PATH@ -fPIC -DPIC"}
+   }
+ },
+ linking_options: {
+-  linker_flags: "-L@TFEL_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread"
++  linker_flags: "-L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread"
+ }
+\ No newline at end of file
+diff --git a/mfront/configuration-files/config-hip-clang-nvidia-platform.json b/mfront/configuration-files/config-hip-clang-nvidia-platform.json
+index f35c8d944..9cc137f11 100644
+--- a/mfront/configuration-files/config-hip-clang-nvidia-platform.json
++++ b/mfront/configuration-files/config-hip-clang-nvidia-platform.json
+@@ -9,16 +9,16 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_CLANGXX_COMPILER@",
+-    compilation_flags: "-std=c++@TFEL_CXX_STANDARD@ -O3 -march=native" 
++    compilation_flags: "-std=c++@TFEL_CXX_STANDARD@ -O2 -march=native" 
+   },
+   hip : {
+     compiler: "@TFEL_CLANGXX_COMPILER@",
+     compilation_flags: {"-O3 -std=c++@TFEL_CXX_STANDARD@ -march=native",
+       "-x cuda -I@TFEL_HIP_INCLUDE_DIR@",
+       "--cuda-compile-host-device --cuda-gpu-arch=native",
+-      "-D__HIP_PLATFORM_NVIDIA__", "--cuda-path=@TFEL_CUDA_PATH@ -fPIC -DPIC"}
++      "-D__HIP_PLATFORM_NVIDIA__", "--cuda-path=@TFEL_CLANG_CUDA_PATH@ -fPIC -DPIC"}
+   }
+ },
+ linking_options: {
+-  linker_flags: "-L@TFEL_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread"
++  linker_flags: "-L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread"
+ }
+\ No newline at end of file
+diff --git a/test-suite/behaviours/generic-parallel/cuda-clang/test.check b/test-suite/behaviours/generic-parallel/cuda-clang/test.check
+new file mode 100644
+index 000000000..9b59895d9
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/cuda-clang/test.check
+@@ -0,0 +1,13 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::cuda-clang"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// the generic interface gives the reference results. Using both interfaces
++// in the same call also checks that they can be used together.
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-cuda-clang.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
++// comparisons with the `generic` interface, which gives the reference
++// results (see compare-all.sh)
++@Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-cuda.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check b/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
+new file mode 100644
+index 000000000..1b2071444
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
+@@ -0,0 +1,13 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// the generic interface gives the reference results. Using both interfaces
++// in the same call also checks that they can be used together.
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
++@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I@TFEL_HIP_INCLUDE_DIR@ -D__HIP_PLATFORM_NVIDIA__ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
++// comparisons with the `generic` interface, which gives the reference
++// results (see compare-all.sh)
++@Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-hip.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/material-properties/generic-parallel/cuda-clang/test.check b/test-suite/material-properties/generic-parallel/cuda-clang/test.check
+index 3068f9f18..af731b269 100644
+--- a/test-suite/material-properties/generic-parallel/cuda-clang/test.check
++++ b/test-suite/material-properties/generic-parallel/cuda-clang/test.check
+@@ -7,7 +7,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-cuda-clang.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-cuda-clang.json ../LinearDataInterpolationTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-cuda-clang.json";
+-@Command "@TFEL_CLANGXX_COMPILER@ -O3 --std=c++@TFEL_CXX_STANDARD@ -march=native -x cuda --cuda-compile-host-device --cuda-gpu-arch=native --cuda-path=@TFEL_CUDA_PATH@ -I @TFEL_INCLUDE_DIR@ -I include ../test-cuda.cu -o test-cuda -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-cuda -lGenericParallelInconel600-cuda -lGenericParallelMaterialLaw-cuda -L@TFEL_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread";
++@Command "@TFEL_CLANGXX_COMPILER@ -O2 --std=c++@TFEL_CXX_STANDARD@ -march=native -x cuda --cuda-compile-host-device --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I @TFEL_INCLUDE_DIR@ -I include ../test-cuda.cu -o test-cuda -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-cuda -lGenericParallelInconel600-cuda -lGenericParallelMaterialLaw-cuda -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread";
+ @Command "./test-cuda test-cuda-clang";
+ 
+ @CleanDirectories {"include", "src"};
+\ No newline at end of file
+diff --git a/test-suite/material-properties/generic-parallel/hip-clang-nvidia-platform/test.check b/test-suite/material-properties/generic-parallel/hip-clang-nvidia-platform/test.check
+index cd47f4825..302f5f7a1 100644
+--- a/test-suite/material-properties/generic-parallel/hip-clang-nvidia-platform/test.check
++++ b/test-suite/material-properties/generic-parallel/hip-clang-nvidia-platform/test.check
+@@ -8,7 +8,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../LinearDataInterpolationTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-hip-clang-nvidia-platform.json";
+-@Command "@TFEL_CLANGXX_COMPILER@ -D__HIP_PLATFORM_NVIDIA__ -O3 --std=c++@TFEL_CXX_STANDARD@ -march=native -x cuda --cuda-path=@TFEL_CUDA_PATH@ --cuda-compile-host-device --cuda-gpu-arch=native -I @TFEL_HIP_INCLUDE_DIR@ -I @TFEL_INCLUDE_DIR@ -I include ../test-hip.hip -o test-hip -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-hip -lGenericParallelInconel600-hip -lGenericParallelMaterialLaw-hip -L@TFEL_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread";
++@Command "@TFEL_CLANGXX_COMPILER@ -D__HIP_PLATFORM_NVIDIA__ -O3 --std=c++@TFEL_CXX_STANDARD@ -march=native -x cuda --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version --cuda-compile-host-device --cuda-gpu-arch=native -I@TFEL_HIP_INCLUDE_DIR@ -I @TFEL_INCLUDE_DIR@ -I include ../test-hip.hip -o test-hip -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-hip -lGenericParallelInconel600-hip -lGenericParallelMaterialLaw-hip -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread";
+ @Command "./test-hip test-hip-hipcc";
+ 
+ @CleanDirectories {"include", "src"};
+\ No newline at end of file
+-- 
+2.43.0
+

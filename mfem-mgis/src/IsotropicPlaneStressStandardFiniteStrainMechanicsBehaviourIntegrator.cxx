@@ -20,7 +20,7 @@ namespace mfem_mgis {
     return mfem::IntRules.Get(e.GetGeomType(), order);
   }
 
-  std::shared_ptr<const PartialQuadratureSpace>
+  PartialQuadratureSpace
   IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
       buildQuadratureSpace(attributes::Throwing,
                            const FiniteElementDiscretization &fed,
@@ -30,8 +30,7 @@ namespace mfem_mgis {
         -> const mfem::IntegrationRule & {
       return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
     };  // end of selector
-    return std::make_shared<PartialQuadratureSpace>(
-        fed, LocationIdentifier{MaterialIdentifier{m}}, selector);
+    return {fed, LocationIdentifier{MaterialIdentifier{m}}, selector};
   }  // end of buildQuadratureSpace
 
   IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
@@ -58,7 +57,7 @@ namespace mfem_mgis {
   IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
       getIntegrationRule(const mfem::FiniteElement &e,
                          const mfem::ElementTransformation &t) const {
-    return this->quadrature_space->getIntegrationRule(e, t);
+    return this->quadrature_space.getIntegrationRule(e, t);
   }
   IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator::
       RotationMatrix

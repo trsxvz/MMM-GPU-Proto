@@ -1,4 +1,4 @@
-From 74e0ae3ebf81bec8997ea626c26ff840113e3791 Mon Sep 17 00:00:00 2001
+From 9eabf1977451f236a1ee4a6cbad4c36f35282873 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 02:58:58 +0200
 Subject: [PATCH] Config: size of the pool of memory of hypre on the GPU
@@ -183,10 +183,10 @@ index 241f224610..a4d53b3ca9 100644
      static bool use_petsc = false;
      static const char* petscrc_file = "";
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index d7dfde18bd..54be8d6120 100644
+index b88e308d01..7b912bbfb5 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1125,6 +1125,32 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
+@@ -1128,6 +1128,32 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
    set_tests_properties(${amgx_tests} PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)
  endif()
  

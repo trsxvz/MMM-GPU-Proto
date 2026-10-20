@@ -193,6 +193,7 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
 
 int main(int argc, char *argv[]) {
   auto ctx = mfem_mgis::Context{};
+  auto or_die = ctx.getFatalFailureHandler();
   ctx.enableProfiling(true);
   // mpi initialization here
   mfem_mgis::initialize(argc, argv);
@@ -203,15 +204,14 @@ int main(int argc, char *argv[]) {
   parseCommandLineArguments(args, p);
 
   // creating the finite element workspace
-  auto fed = std::make_shared<mfem_mgis::FiniteElementDiscretization>(
+  auto fed = mfem_mgis::construct<mfem_mgis::FiniteElementDiscretization>(
       ctx, mfem_mgis::Parameters{{"MeshFileName", p.mesh_file},
                                  {"MeshReadMode", p.mesh_mode},
                                  {"FiniteElementFamily", "H1"},
                                  {"FiniteElementOrder", p.order},
                                  {"UnknownsSize", mfem_mgis::size_type{3}},
                                  {"NumberOfUniformRefinements", p.refinement},
-                                 {"Parallel", true}});
-  auto or_die = ctx.getFatalFailureHandler();
+                                 {"Parallel", true}})|or_die;
   auto problem_parameters = mfem_mgis::Parameters{};
   // options of the non linear solver: adaptive tolerance of its linear
   // solver, if required
@@ -301,18 +301,10 @@ int main(int argc, char *argv[]) {
         "error: invalid non linear solver (expected Newton or NewtonK0)");
     std::exit(EXIT_FAILURE);
   }
-  // the constructor of the problem throws on invalid options (of the non
-  // linear solver for instance)
-  auto problem_ptr = [&ctx, &fed, &problem_parameters] {
-    try {
-      return std::make_unique<mfem_mgis::PeriodicNonLinearEvolutionProblem>(
-          ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters);
-    } catch (std::exception &e) {
-      mfem_mgis::Profiler::Utils::Message(std::string{"error: "} + e.what());
-      std::exit(EXIT_FAILURE);
-    }
-  }();
-  auto &problem = *problem_ptr;
+  auto problem =
+      mfem_mgis::construct<mfem_mgis::PeriodicNonLinearEvolutionProblem>(
+          ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters) |
+      or_die;
   mm_opera_hpc::printMeshInformation(ctx, problem);
 
   // set problem
@@ -492,7 +484,7 @@ static void setupMaterials(
 
   // const int nMat = 8;
   const int nMat =
-      getMaterialsAttributes(*(problem.getFiniteElementDiscretizationPointer()))
+      getMaterialsAttributes(problem.getFiniteElementDiscretization())
           .Max();
   mfem_mgis::Profiler::Utils::Message("Nombre de matériaux : ", nMat);
 
@@ -709,7 +701,7 @@ static void addOptionalPostProcessings(
       // the fields are the ones of the end of the time step
       exporter->SetTime(t + dt);
       const int nMat =
-          getMaterialsAttributes(*(p.getFiniteElementDiscretizationPointer()))
+          getMaterialsAttributes(p.getFiniteElementDiscretization())
               .Max();
       // fes = FirstEigenStress
       // vmes = VonMisesEquivalentStress
@@ -726,13 +718,13 @@ static void addOptionalPostProcessings(
         auto &m = p.getMaterial(ctx, i, 0) | or_die;
         if (params.export_first_eigen_stress) {
           auto &fes_pqf =
-              fes_pqfs.emplace_back(m.getPartialQuadratureSpacePointer(), 1);
+              fes_pqfs.emplace_back(m.getPartialQuadratureSpace(), 1);
           mfem_mgis::computeFirstEigenStress(ctx, fes_pqf, m, ets);
           fesView.push_back(fes_pqf);
         }
         if (params.export_von_Mises_stress) {
           auto &vmes_pqf =
-              vmes_pqfs.emplace_back(m.getPartialQuadratureSpacePointer(), 1);
+              vmes_pqfs.emplace_back(m.getPartialQuadratureSpace(), 1);
           bool success =
               mfem_mgis::computeVonMisesEquivalentStress(ctx, vmes_pqf, m, ets);
           if (!success) {

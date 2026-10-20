@@ -48,7 +48,7 @@ jobs:
       run: |
         git clone --quiet --filter=blob:none \
           https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
-        git -C mgis checkout --quiet e8ef4b4
+        git -C mgis checkout --quiet a30dbf5
         git -C mgis -c user.name=ci -c user.email=ci@localhost \
           am --quiet --keep-cr $PWD/patches/mgis/*.patch
 

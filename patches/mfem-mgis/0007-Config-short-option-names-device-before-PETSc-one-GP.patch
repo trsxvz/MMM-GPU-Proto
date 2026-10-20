@@ -1,4 +1,4 @@
-From a159c56311120ef2f4272375557fc92bd010f545 Mon Sep 17 00:00:00 2001
+From 535822019e0be4f7c0385c404916a13e5f6f1cba Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:58:04 +0200
 Subject: [PATCH] Config: short option names, device before PETSc, one GPU per
@@ -200,10 +200,10 @@ index 9db26a9f41..6705a413d5 100644
      static bool use_petsc = false;
      static const char* petscrc_file = "";
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 79f8454285..e285d578fd 100644
+index b7f9b6b9e3..069ff51c03 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -784,6 +784,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -787,6 +787,8 @@ if(MFEM_MGIS_HAVE_TFEL)
             COMMAND DeviceOptionTest --expected none)
    add_test(NAME DeviceOptionTest-debug
             COMMAND DeviceOptionTest --device debug --expected debug)

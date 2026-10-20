@@ -1,4 +1,4 @@
-From c9f4fca96de2c29af5e396a237649538219b31df Mon Sep 17 00:00:00 2001
+From 505bef70defbf2e019800fecfd8ffbffe3e1ee3b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 01:47:22 +0200
 Subject: [PATCH] Kernels: derivatives of the unknowns and fused action of the
@@ -42,10 +42,10 @@ Subject: [PATCH] Kernels: derivatives of the unknowns and fused action of the
  17 files changed, 329 insertions(+), 279 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index bd4ebef6eb..44e718c887 100644
+index 7300080603..09b727824b 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -216,21 +216,21 @@ namespace mfem_mgis {
+@@ -213,21 +213,21 @@ namespace mfem_mgis {
      /*!
       * \brief add the action of the stiffness matrices of all the elements,
       * computed by kernels from the tangent operator blocks without
@@ -188,10 +188,10 @@ index f3517fceae..237670575f 100644
  
    /*!
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 8292b37789..0961cc96b1 100644
+index 5550fad3df..3368aa5158 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -348,17 +348,6 @@ namespace mfem_mgis {
+@@ -346,17 +346,6 @@ namespace mfem_mgis {
         * `integrateBatch` (integration on the device)
         */
        std::vector<mfem::Vector> device_inputs;
@@ -210,10 +210,10 @@ index 8292b37789..0961cc96b1 100644
        mfem::Vector rotated_thermodynamic_forces;
        /*!
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 06bb9e8b4f..e3c47a81c0 100644
+index ddba1e8637..f991821e85 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -426,10 +426,10 @@ namespace mfem_mgis {
+@@ -425,10 +425,10 @@ namespace mfem_mgis {
       */
      mfem::Array<int> element_dofs;
      /*!
@@ -228,7 +228,7 @@ index 06bb9e8b4f..e3c47a81c0 100644
       * \brief values element by element of the action or of the diagonal of
       * the tangent operator
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
-index 57e2c4dd4f..ff489f0c28 100644
+index 3d5a2a10f4..c75731e88a 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 @@ -63,7 +63,7 @@ namespace mfem_mgis {
@@ -241,7 +241,7 @@ index 57e2c4dd4f..ff489f0c28 100644
      [[nodiscard]] bool addTangentOperatorDiagonalByKernels(
          Context&,
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index f806b9971d..ada2546354 100644
+index c32cea6a54..1d92954e39 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -397,7 +397,7 @@ namespace mfem_mgis {
@@ -271,7 +271,7 @@ index f806b9971d..ada2546354 100644
 -      auto &dg = this->wks.gradients_increments;
 -      auto &ds = this->wks.thermodynamic_forces_increments;
 -      if ((!batch::computeGradientsIncrements(
--              ctx, dg, *(this->quadrature_space), p->second, *(data.geometry),
+-              ctx, dg, this->quadrature_space, p->second, *(data.geometry),
 -              data.kind)) ||
 -          (!batch::multiplyByTangentOperatorBlocks(
 -              ctx, ds, this->readTangentOperatorBlocks(use_device), dg,
@@ -284,14 +284,14 @@ index f806b9971d..ada2546354 100644
 -                                           static_cast<std::size_t>(ds.Size()));
 -      return batch::addInnerForces(
 +      return batch::addTangentOperatorAction(
-           ctx, y, *(this->quadrature_space),
+           ctx, y, this->quadrature_space,
 -          mgis::makePointByPointFieldView(s, np, gs, gs), *(data.geometry),
 +          this->readTangentOperatorBlocks(use_device), x, *(data.geometry),
            data.kind);
      } catch (std::exception &e) {
        return ctx.registerErrorMessage(
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index 6c656e0e15..e2df5fb5b5 100644
+index 2915cc227a..7be39e0498 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -74,7 +74,7 @@ namespace mfem_mgis {
@@ -891,7 +891,7 @@ index ebd51ae6fc..a0a14163a0 100644
     * \brief sets values to zero
     * \param[out] v: values
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 0e386d8c8e..d0a0cedca4 100644
+index 2bf1f87bc0..d98b3d8c81 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
 @@ -14,7 +14,6 @@
@@ -902,7 +902,7 @@ index 0e386d8c8e..d0a0cedca4 100644
  #include "mfem/fem/bilinearform.hpp"
  #ifdef MFEM_USE_MPI
  #include "mfem/mesh/pmesh.hpp"
-@@ -408,10 +407,17 @@ namespace mfem_mgis {
+@@ -407,10 +406,17 @@ namespace mfem_mgis {
              "the computations by kernels require the dimension of the space "
              "to be the dimension of the mesh");
        }
@@ -923,7 +923,7 @@ index 0e386d8c8e..d0a0cedca4 100644
        }
        // all the elements must have a behaviour integrator (with the
        // computations element by element, `AssembleElementVector` reports an
-@@ -588,23 +594,20 @@ namespace mfem_mgis {
+@@ -587,23 +593,20 @@ namespace mfem_mgis {
        return false;
      }
      try {

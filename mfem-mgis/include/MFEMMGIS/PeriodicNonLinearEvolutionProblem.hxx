@@ -118,7 +118,7 @@ namespace mfem_mgis {
      */
     PeriodicNonLinearEvolutionProblem(
         mgis::Context& ctx,
-        std::shared_ptr<FiniteElementDiscretization> fed,
+        const FiniteElementDiscretization& fed,
         const std::span<const real>& corner1,
         const std::span<const real>& corner2,
         const Parameters& p = Parameters());
@@ -134,7 +134,7 @@ namespace mfem_mgis {
      */
     PeriodicNonLinearEvolutionProblem(
         mgis::Context& ctx,
-        std::shared_ptr<FiniteElementDiscretization> fed,
+        const FiniteElementDiscretization& fed,
         const mfem_mgis::BoundaryConditionType bct = mfem_mgis::FIX_XMIN,
         const Parameters& p = Parameters());
     //! \brief move constructor

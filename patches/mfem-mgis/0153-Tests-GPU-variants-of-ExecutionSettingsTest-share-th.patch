@@ -1,4 +1,4 @@
-From 9c5bae0072ccf1b5c36014f1266686e2fc47d4f2 Mon Sep 17 00:00:00 2001
+From 7e7109d081e5a1c1120ff89621a232382bb712b0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:47:59 +0200
 Subject: [PATCH] Tests: GPU variants of ExecutionSettingsTest share the GPU
@@ -14,10 +14,10 @@ allocation failed (out of memory).
  1 file changed, 10 insertions(+)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index bc041fc9d3..0d7d0ee074 100644
+index a0cbf1399e..7b51f403a6 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1330,8 +1330,12 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1333,8 +1333,12 @@ if(MFEM_MGIS_HAVE_TFEL)
        # the variants placing the behaviours on the GPU require their
        # library for the GPU
        set(_bh_locations cpu)
@@ -30,7 +30,7 @@ index bc041fc9d3..0d7d0ee074 100644
          add_test(NAME ExecutionSettingsTest-gpu
                   COMMAND ExecutionSettingsTest --execution gpu
                           --expected-settings gpu,gpu,gpu,gpu,gpu
-@@ -1363,10 +1367,16 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1366,10 +1370,16 @@ if(MFEM_MGIS_HAVE_TFEL)
                                 --expected-settings
                                 mixed,${_fe},${_bh},${_lsd},${_ppd}
                                 ${execution_settings_test_gpu_arguments})

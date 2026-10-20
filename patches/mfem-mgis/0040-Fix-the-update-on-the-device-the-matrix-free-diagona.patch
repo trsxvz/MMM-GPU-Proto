@@ -1,4 +1,4 @@
-From fccc2e16afa3632044564d70881633347b640752 Mon Sep 17 00:00:00 2001
+From 7270bc2f3bdf23a6708f1c7defe196ef85f80839 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 01:21:34 +0200
 Subject: [PATCH] Fix the update on the device, the matrix-free diagonal and
@@ -47,17 +47,17 @@ Subject: [PATCH] Fix the update on the device, the matrix-free diagonal and
  src/NewtonSolver.cxx                          |  50 ++--
  ...onLinearEvolutionProblemImplementation.cxx |  35 +--
  ...nearEvolutionProblemImplementationBase.cxx |  84 ++++--
- tests/BatchIntegrationTest.cxx                | 250 ++++++++++++++++--
+ tests/BatchIntegrationTest.cxx                | 255 ++++++++++++++++--
  tests/CMakeLists.txt                          |   2 +
  ...opicLinearHardeningThermoPlasticity.mfront |  79 ++++++
- 20 files changed, 600 insertions(+), 189 deletions(-)
+ 20 files changed, 605 insertions(+), 189 deletions(-)
  create mode 100644 tests/IsotropicLinearHardeningThermoPlasticity.mfront
 
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index a1d4ceabd3..8292b37789 100644
+index 58cdd2b1d4..5550fad3df 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -37,12 +37,16 @@ namespace mfem_mgis {
+@@ -35,12 +35,16 @@ namespace mfem_mgis {
      [[nodiscard]] bool cleanup(Context& ctx) noexcept override;
      /*!
       * \brief revert the state of the material; for a behaviour integrated on
@@ -76,7 +76,7 @@ index a1d4ceabd3..8292b37789 100644
       */
      void update() override;
      [[nodiscard]] bool hasMaterial() const noexcept override;
-@@ -377,7 +381,15 @@ namespace mfem_mgis {
+@@ -375,7 +379,15 @@ namespace mfem_mgis {
       * \brief copies, on the device, the state at the end of the time step
       * in the state at the beginning of the time step (update), or
       * conversely (revert), and sets the tangent operator blocks to zero,
@@ -147,7 +147,7 @@ index bf80f2d675..62fc075124 100644
  }  // end of namespace mfem_mgis
  
 diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
-index 51f321feb3..ba1a2d4776 100644
+index 01b2ca1c47..29501d49b7 100644
 --- a/include/MFEMMGIS/Material.hxx
 +++ b/include/MFEMMGIS/Material.hxx
 @@ -95,9 +95,18 @@ namespace mfem_mgis {
@@ -222,7 +222,7 @@ index 54c5f650c4..3686ac1d3c 100644
     * The essential degrees of freedom are not taken into account: see
     * `mfem::ConstrainedOperator`. The tangent operator blocks are the ones
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index 0c5ffa8d5a..6937c1a8b9 100644
+index 6def9da321..4e53e7bfee 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 @@ -12,6 +12,7 @@
@@ -233,7 +233,7 @@ index 0c5ffa8d5a..6937c1a8b9 100644
  #include "mfem/linalg/vector.hpp"
  #include "mfem/linalg/sparsemat.hpp"
  #ifdef MFEM_USE_PETSC
-@@ -105,19 +106,30 @@ namespace mfem_mgis {
+@@ -106,19 +107,30 @@ namespace mfem_mgis {
       * stiffness matrices of the elements of the behaviour integrators of
       * mfem-mgis in the tangent operator: `ElementByElement` (default) or
       * `Kernels` (computed for all the elements by kernels from the tangent
@@ -272,7 +272,7 @@ index 0c5ffa8d5a..6937c1a8b9 100644
      //! \return the list of valid parameters
      static std::vector<std::string> getParametersList();
      /*!
-@@ -343,20 +355,24 @@ namespace mfem_mgis {
+@@ -340,20 +352,24 @@ namespace mfem_mgis {
      const bool gradients_kernels;
      //! \brief if true, the inner forces are computed by kernels
      const bool inner_forces_kernels;
@@ -303,7 +303,7 @@ index 0c5ffa8d5a..6937c1a8b9 100644
       * its assembled version (see `AssembledOperatorProvider`)
       * \param[in] essential_dofs: essential true degrees of freedom
       * \param[in] f: function assembling the tangent operator, the essential
-@@ -382,8 +398,11 @@ namespace mfem_mgis {
+@@ -379,8 +395,11 @@ namespace mfem_mgis {
      //! \brief tangent operator with constrained essential degrees of freedom
      mutable std::unique_ptr<ConstrainedMatrixFreeTangentOperator>
          constrained_tangent_operator;
@@ -415,7 +415,7 @@ index 7dda821727..f3912126cb 100644
        }
        auto missing = mfem::Array<int>(1);
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index d91823f05c..333527371b 100644
+index bffcfde7fa..b01a151908 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -16,6 +16,7 @@
@@ -426,7 +426,7 @@ index d91823f05c..333527371b 100644
  #include "MFEMMGIS/Batch/MFEMFieldOperations.hxx"
  #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/IntegrationType.hxx"
-@@ -1232,6 +1233,23 @@ namespace mfem_mgis {
+@@ -1231,6 +1232,23 @@ namespace mfem_mgis {
      } else {
        mgis::behaviour::revert(v, ops);
      }
@@ -474,10 +474,10 @@ index 223aaf6db5..cdf58dede3 100644
    bool getInformation<FiniteElementDiscretization>(
        Context& ctx,
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index 4707a49372..d502561eb0 100644
+index ce62233bb1..daa89de46f 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -230,7 +230,9 @@ namespace mfem_mgis {
+@@ -243,7 +243,9 @@ namespace mfem_mgis {
       * diagonal is computed by the operator (`AssembleDiagonal`), or by
       * `GetDiag` for a sparse matrix of MFEM, which does not implement
       * `AssembleDiagonal`. The diagonal entries of the essential degrees of
@@ -488,7 +488,7 @@ index 4707a49372..d502561eb0 100644
       */
      struct JacobiSmoother final : mfem::Solver {
        //! \param[in] d: damping factor
-@@ -246,8 +248,13 @@ namespace mfem_mgis {
+@@ -259,8 +261,13 @@ namespace mfem_mgis {
            this->diagonal.SetSize(op.Height());
            op.AssembleDiagonal(this->diagonal);
          }
@@ -504,7 +504,7 @@ index 4707a49372..d502561eb0 100644
        }
        void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
          if (this->smoother == nullptr) {
-@@ -261,6 +268,11 @@ namespace mfem_mgis {
+@@ -274,6 +281,11 @@ namespace mfem_mgis {
        const real damping;
        //! \brief diagonal of the operator
        mfem::Vector diagonal;
@@ -632,10 +632,10 @@ index 8ad00c0107..9ba7ab99bf 100644
    }  // end of AssembleDiagonal
  
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index bdfab85c62..0e386d8c8e 100644
+index 601a483371..2bf1f87bc0 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -396,14 +396,7 @@ namespace mfem_mgis {
+@@ -395,14 +395,7 @@ namespace mfem_mgis {
        }
      }
      try {
@@ -647,7 +647,7 @@ index bdfab85c62..0e386d8c8e 100644
 -#endif /* MFEM_USE_MPI */
 -        return this->fe_discretization->getFiniteElementSpace<false>();
 -      }();
-+      const auto& fes = getFiniteElementSpace(*(this->fe_discretization));
++      const auto& fes = getFiniteElementSpace(this->fe_discretization);
        const auto& mesh = *(fes.GetMesh());
        if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
          return ctx.registerErrorMessage(
@@ -723,7 +723,7 @@ index 9b384512a0..b561ba948e 100644
      clearHypreErrors();
      if (this->discardLinearSolverFailure) {
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 16915bd78c..8b57bb7075 100644
+index ee3cab42e3..32052e1455 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
 @@ -97,29 +97,6 @@ namespace mfem_mgis {
@@ -756,7 +756,7 @@ index 16915bd78c..8b57bb7075 100644
    /*!
     * \brief adds the inner forces computed by kernels to the residual (true
     * degrees of freedom), and cancels the residual at the essential degrees
-@@ -705,7 +682,7 @@ namespace mfem_mgis {
+@@ -707,7 +684,7 @@ namespace mfem_mgis {
      }();
      auto kernels = PredictionKernels{};
      if ((this->batch_integration) && (this->inner_forces_kernels) &&
@@ -765,7 +765,7 @@ index 16915bd78c..8b57bb7075 100644
          (this->mgis_integrator != nullptr)) {
        kernels =
            PredictionKernels{.integrator = this->mgis_integrator,
-@@ -778,14 +755,14 @@ namespace mfem_mgis {
+@@ -780,14 +757,14 @@ namespace mfem_mgis {
  
    mfem::Operator& NonLinearEvolutionProblemImplementation<true>::GetGradient(
        const mfem::Vector& u) const {
@@ -782,7 +782,7 @@ index 16915bd78c..8b57bb7075 100644
          (this->mgis_integrator == nullptr)) {
        return mfem_mgis::NonlinearForm<true>::GetGradient(u);
      }
-@@ -1056,7 +1033,7 @@ namespace mfem_mgis {
+@@ -1057,7 +1034,7 @@ namespace mfem_mgis {
      }();
      auto kernels = PredictionKernels{};
      if ((this->batch_integration) && (this->inner_forces_kernels) &&
@@ -791,7 +791,7 @@ index 16915bd78c..8b57bb7075 100644
          (this->mgis_integrator != nullptr)) {
        kernels =
            PredictionKernels{.integrator = this->mgis_integrator,
-@@ -1123,14 +1100,14 @@ namespace mfem_mgis {
+@@ -1124,14 +1101,14 @@ namespace mfem_mgis {
  
    mfem::Operator& NonLinearEvolutionProblemImplementation<false>::GetGradient(
        const mfem::Vector& u) const {
@@ -809,7 +809,7 @@ index 16915bd78c..8b57bb7075 100644
        return mfem_mgis::NonlinearForm<false>::GetGradient(u);
      }
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index 57bad4a0d6..2b66082569 100644
+index 30eb575f66..3ca56a0026 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
 @@ -6,6 +6,7 @@
@@ -820,7 +820,7 @@ index 57bad4a0d6..2b66082569 100644
  #include <cstdlib>
  #include <iostream>
  #include <utility>
-@@ -125,28 +126,37 @@ namespace mfem_mgis {
+@@ -124,28 +125,37 @@ namespace mfem_mgis {
    }  // end of useKernels
  
    /*!
@@ -870,7 +870,7 @@ index 57bad4a0d6..2b66082569 100644
    }  // end of getTangentOperatorComputation
  
    NonLinearEvolutionProblemImplementationBase::
-@@ -172,15 +182,13 @@ namespace mfem_mgis {
+@@ -171,15 +181,13 @@ namespace mfem_mgis {
              p,
              NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
              "MFEM_MGIS_INNER_FORCES_COMPUTATION")),
@@ -889,7 +889,7 @@ index 57bad4a0d6..2b66082569 100644
      }
      this->u0 = real{0};
      this->u1 = real{0};
-@@ -509,7 +517,7 @@ namespace mfem_mgis {
+@@ -498,7 +506,7 @@ namespace mfem_mgis {
            return false;
          }
          if (((this->gradients_kernels) || (this->inner_forces_kernels) ||
@@ -898,7 +898,7 @@ index 57bad4a0d6..2b66082569 100644
              (!this->mgis_integrator->checkKernelsSupport(ctx))) {
            return false;
          }
-@@ -517,7 +525,8 @@ namespace mfem_mgis {
+@@ -506,7 +514,8 @@ namespace mfem_mgis {
            return false;
          }
        }
@@ -908,7 +908,7 @@ index 57bad4a0d6..2b66082569 100644
            (usePETSc())) {
          std::ignore = ctx.registerErrorMessage(
              "the computation of the inner forces or of the stiffness matrices "
-@@ -699,20 +708,45 @@ namespace mfem_mgis {
+@@ -688,20 +697,45 @@ namespace mfem_mgis {
      if (this->mgis_integrator == nullptr) {
        raise("no multiple material integrator defined");
      }
@@ -931,7 +931,7 @@ index 57bad4a0d6..2b66082569 100644
 +    };
 +    if (this->tangent_operator == nullptr) {
        this->tangent_operator = std::make_unique<MatrixFreeTangentOperator>(
-           *(this->fe_discretization), *(this->mgis_integrator));
+           this->fe_discretization, *(this->mgis_integrator));
 +    }
 +    if ((this->constrained_tangent_operator == nullptr) || changed()) {
 +      this->constrained_tangent_operator.reset();
@@ -961,7 +961,7 @@ index 57bad4a0d6..2b66082569 100644
        ~NonLinearEvolutionProblemImplementationBase() = default;
  
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 11ccb25367..d0643dc3e3 100644
+index c9855fcd28..f6f320183e 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -6,9 +6,13 @@
@@ -1020,7 +1020,7 @@ index 11ccb25367..d0643dc3e3 100644
    /*!
     * \brief if true, the gradients of the integration by batches are computed
     * by kernels (parameter `GradientsComputation`)
-@@ -152,6 +168,88 @@ static void setVaryingMaterialAxes(mfem_mgis::Material& m) {
+@@ -152,6 +168,93 @@ static void setVaryingMaterialAxes(mfem_mgis::Material& m) {
    m.setRotationMatrix(RotationMatrix3D{std::array<MaterialAxis3D, 2u>{a1, a2}});
  }  // end of setVaryingMaterialAxes
  
@@ -1047,24 +1047,29 @@ index 11ccb25367..d0643dc3e3 100644
 +/*!
 + * \brief checks the states of a material after an update or a revert,
 + * through the copies of its arrays on the host, read without
-+ * synchronization: the states are equal and the tangent operator blocks are
-+ * null, for a behaviour integrated on the host or on the device
++ * synchronization: the states are equal, for a behaviour integrated on the
++ * host or on the device. The tangent operator blocks are null after a
++ * revert. They are kept by an update, since the prediction of the next time
++ * step may use the operators of the last iteration.
 + * \param[in] m: material
 + * \param[in] name: name of the computation
++ * \param[in] revert: true after a revert, false after an update
 + */
 +static void checkStatesAfterUpdateOrRevert(const mfem_mgis::Material& m,
-+                                           const std::string& name) {
++                                           const std::string& name,
++                                           const bool revert) {
 +  const auto same_states = std::ranges::equal(m.s0.gradients, m.s1.gradients) &&
 +                           std::ranges::equal(m.s0.thermodynamic_forces,
 +                                              m.s1.thermodynamic_forces) &&
 +                           std::ranges::equal(m.s0.internal_state_variables,
 +                                              m.s1.internal_state_variables);
 +  check(same_states, name + ": different states after an update or a revert");
++  if (!revert) {
++    return;
++  }
 +  check(
 +      std::ranges::all_of(m.K, [](const mfem_mgis::real v) { return v == 0; }),
-+      name +
-+          ": tangent operator blocks not null after an update or a "
-+          "revert");
++      name + ": tangent operator blocks not null after a revert");
 +}  // end of checkStatesAfterUpdateOrRevert
 +
 +/*!
@@ -1109,7 +1114,7 @@ index 11ccb25367..d0643dc3e3 100644
  /*!
   * \return the results of a uniaxial loading of a cube
   * \param[in, out] ctx: execution context
-@@ -360,7 +458,18 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -360,7 +463,18 @@ static Results compute(mfem_mgis::Context& ctx,
    constexpr int nsteps = 4;
    const auto dt = real{1} / nsteps;
    auto t = real{0};
@@ -1128,7 +1133,7 @@ index 11ccb25367..d0643dc3e3 100644
      if (opts.prediction) {
        // prediction alone: resolution without iteration (which fails), then
        // revert
-@@ -373,19 +482,35 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -373,19 +487,35 @@ static Results compute(mfem_mgis::Context& ctx,
        // are not reverted by the failed resolution
        check((i != 0) || std::any_of(pv, pv + p.Size(),
                                      [](const real v) { return v != 0; }),
@@ -1162,11 +1167,11 @@ index 11ccb25367..d0643dc3e3 100644
 +#endif /* MFEM_USE_MPI */
 +    }
      problem.update(ctx) | or_die;
-+    checkStatesAfterUpdateOrRevert(m, name);
++    checkStatesAfterUpdateOrRevert(m, name, false);
      t += dt;
    }
    const auto& u = problem.getUnknowns(ets);
-@@ -401,26 +526,6 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -401,26 +531,6 @@ static Results compute(mfem_mgis::Context& ctx,
    return r;
  }  // end of compute
  
@@ -1193,7 +1198,7 @@ index 11ccb25367..d0643dc3e3 100644
  /*!
   * \brief compare the results of two computations
   * \param[in] r1: reference results
-@@ -708,6 +813,78 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
+@@ -708,6 +818,78 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
    }
  }  // end of testElementByElementSequence
  
@@ -1272,7 +1277,7 @@ index 11ccb25367..d0643dc3e3 100644
  int main(int argc, char** argv) {
    using namespace mfem_mgis;
    initialize(argc, argv);
-@@ -770,6 +947,16 @@ int main(int argc, char** argv) {
+@@ -770,6 +952,16 @@ int main(int argc, char** argv) {
      compare(compute(ctx, mesh, library, b, "PointByPoint"),
              compute(ctx, mesh, library, b, "Batch"), b, last_bit);
    }
@@ -1289,7 +1294,7 @@ index 11ccb25367..d0643dc3e3 100644
    for (const auto* const b :
         {"OrthotropicElasticity", "OrthotropicSaintVenantKirchhoffElasticity"}) {
      const auto opts = ComputationOptions{.varying_material_axes = true};
-@@ -951,6 +1138,18 @@ int main(int argc, char** argv) {
+@@ -951,6 +1143,18 @@ int main(int argc, char** argv) {
                       ", FBar"});
      // material properties given at each point (copied to the device)
      cases.push_back({"IsotropicLinearElasticity", {}, ""});
@@ -1308,7 +1313,7 @@ index 11ccb25367..d0643dc3e3 100644
      // all the computations by kernels, with and without prediction
      for (const auto* const b :
           {"IsotropicLinearHardeningPlasticity", "OrthotropicElasticity",
-@@ -1012,6 +1211,7 @@ int main(int argc, char** argv) {
+@@ -1012,6 +1216,7 @@ int main(int argc, char** argv) {
        testPointByPointRefusal(ctx, mesh, l);
      }
    }
@@ -1317,10 +1322,10 @@ index 11ccb25367..d0643dc3e3 100644
      std::cout << (failures == 0 ? "success" : "failure") << '\n';
      return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9458e399ac..470eba8005 100644
+index 1f96654f62..98810b7131 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -61,6 +61,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -64,6 +64,7 @@ if(MFEM_MGIS_HAVE_TFEL)
      IsotropicLinearElasticity
      OrthotropicElasticity
      IsotropicLinearHardeningPlasticity
@@ -1328,7 +1333,7 @@ index 9458e399ac..470eba8005 100644
      Mazars
      SaintVenantKirchhoffElasticity
      SaintVenantKirchhoffElasticityV2
-@@ -778,6 +779,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -781,6 +782,7 @@ if(MFEM_MGIS_HAVE_TFEL)
    set(batch_integration_test_libraries)
    set(batch_integration_test_behaviours)
    foreach(_behaviour IsotropicLinearHardeningPlasticity

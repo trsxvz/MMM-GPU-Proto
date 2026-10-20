@@ -1,4 +1,4 @@
-From e4e1801a10d184aaff25c83555ede02360763a37 Mon Sep 17 00:00:00 2001
+From 8ca4a8cd55016d1dc13d70cea36c2a93720e2008 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:58:34 +0200
 Subject: [PATCH] Synchronize the columns of the nodal blocks of the matrix
@@ -85,7 +85,7 @@ index d5b7bdcc60..30252b9582 100644
    }  // end of AssembleNodalBlocks
  
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 8c3fa0dd4f..77e9c9c03f 100644
+index a01303f438..b049ba142d 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
 @@ -9,6 +9,7 @@
@@ -96,7 +96,7 @@ index 8c3fa0dd4f..77e9c9c03f 100644
  #include <utility>
  #include <algorithm>
  #include <exception>
-@@ -757,11 +758,15 @@ namespace mfem_mgis {
+@@ -756,11 +757,15 @@ namespace mfem_mgis {
            }
          }
        }
@@ -114,10 +114,10 @@ index 8c3fa0dd4f..77e9c9c03f 100644
      } catch (...) {
        return registerExceptionInErrorBacktrace(ctx);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index c9f8444736..816bc2fea9 100644
+index 1ab5b2a60f..069ff1e027 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1056,6 +1056,17 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1059,6 +1059,17 @@ if(MFEM_MGIS_HAVE_TFEL)
                       ${batch_integration_test_libraries})
      set_tests_properties(BatchIntegrationTestP
                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)

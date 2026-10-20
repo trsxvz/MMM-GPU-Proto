@@ -1,4 +1,4 @@
-From 99276270eb2e7cb72dba71b2f449bf835df30645 Mon Sep 17 00:00:00 2001
+From 4839f082a0a96896faf028254f77cb9a1a71e2eb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 03:04:28 +0200
 Subject: [PATCH] ex4: options of mfem-mgis, behaviour library and ParaView
@@ -14,7 +14,7 @@ measurements on the GPU.
  1 file changed, 15 insertions(+), 5 deletions(-)
 
 diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
-index 10d921c..d1eb834 100644
+index cfe211e..d5dcba0 100644
 --- a/ex4/ssna303_hypre.cxx
 +++ b/ex4/ssna303_hypre.cxx
 @@ -41,9 +41,12 @@ int main(int argc, char** argv) {

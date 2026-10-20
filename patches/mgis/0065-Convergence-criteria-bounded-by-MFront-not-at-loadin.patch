@@ -1,0 +1,86 @@
+From 6a3b815d088384f7d3544888eb008d731047d034 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 21:40:29 +0200
+Subject: [PATCH] Convergence criteria bounded by MFront, not at loading
+
+The bound of the convergence criteria of the behaviours for float, applied
+by load with setParameter, overwrote the values given before at run time
+(setParameter, file of parameters) and its message cited the compiled
+default value. MFront now bounds the default values at the generation with
+the float numerical type (real_type option): load does not change the
+parameters anymore. The libraries of the tests are generated again when
+mfront changes.
+---
+ src/Behaviour.cxx | 40 ----------------------------------------
+ 1 file changed, 40 deletions(-)
+
+diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
+index 3dc713d..6a5e153 100644
+--- a/src/Behaviour.cxx
++++ b/src/Behaviour.cxx
+@@ -22,11 +22,8 @@
+ #include <algorithm>
+ #include <cstddef>
+ #include <cstdlib>
+-#include <limits>
+ #include <iterator>
+-#include <type_traits>
+ #include "MGIS/Raise.hxx"
+-#include "MGIS/LogStream.hxx"
+ #include "MGIS/Context.hxx"
+ #include "MGIS/LibrariesManager.hxx"
+ #ifdef MGIS_HAVE_TFEL
+@@ -76,40 +73,6 @@ namespace mgis::behaviour {
+   Behaviour &Behaviour::operator=(const Behaviour &) = default;
+   Behaviour::~Behaviour() = default;
+ 
+-  /*!
+-   * \brief bound the convergence criterion of an implicit behaviour (the
+-   * `epsilon` parameter) to 10 times the machine epsilon of the numerical
+-   * type of MGIS, and the perturbation of the numerical jacobian (the
+-   * `numerical_jacobian_epsilon` parameter) to a tenth of this bound, the
+-   * ratio used by MFront. The criteria written for double (1e-14 or less)
+-   * could not be reached with float. The bound must stay small compared to
+-   * the increments of the unknowns: with a criterion of 1e-5, an increment
+-   * of strain of 5e-5 of the Norton behaviour of the tests is considered as
+-   * converged before the first iteration, giving a null stress. A message
+-   * is written in the default log stream when a parameter is changed.
+-   * \param[in] b: behaviour
+-   */
+-  static void boundConvergenceCriteria(const Behaviour& b) {
+-    constexpr auto emin =
+-        10 * static_cast<double>(std::numeric_limits<real>::epsilon());
+-    const auto bound = [&b](const char* const n, const double vmin) {
+-      if (std::find(b.params.begin(), b.params.end(), n) == b.params.end()) {
+-        return;
+-      }
+-      const auto v = getParameterDefaultValue<double>(b, n);
+-      if (v >= vmin) {
+-        return;
+-      }
+-      setParameter(b, n, vmin);
+-      getDefaultLogStream()
+-          << "mgis::behaviour::load: parameter '" << n << "' of behaviour '"
+-          << b.behaviour << "' raised from " << v << " to " << vmin
+-          << " for the numerical type of MGIS\n";
+-    };
+-    bound("epsilon", emin);
+-    bound("numerical_jacobian_epsilon", emin / 10);
+-  }  // end of boundConvergenceCriteria
+-
+   static Behaviour load_behaviour(const std::string &l,
+                                   const std::string &b,
+                                   const Hypothesis h) {
+@@ -149,9 +112,6 @@ namespace mgis::behaviour {
+       pfct.outputs = getBehaviourPostProcessingOutputs(l, b, i, h);
+       d.postprocessings.insert({i, pfct});
+     }
+-    if constexpr (!std::is_same_v<real, double>) {
+-      boundConvergenceCriteria(d);
+-    }
+     return d;
+   }  // end of load_behaviour
+ 
+-- 
+2.43.0
+

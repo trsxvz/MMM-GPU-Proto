@@ -1,0 +1,446 @@
+From a8f15cb8f25191eb532ea3e11e578bb656a33efe Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 18:34:00 +0200
+Subject: [PATCH] generic-parallel: local copies of the values of a point for
+ all layouts
+
+The function objects applied at each point were instantiated twice: with
+direct accesses to the fields when all of them are stored point by point,
+and with local copies otherwise. Measured on fields stored point by point
+(SingleCrystal_DD_FCC and ImplicitNorton, nvcc on a RTX 5080 and gcc with
+OpenMP), the direct accesses give no gain at run time and increase the
+compilation time by 25 to 40% with nvcc. Only the local copies are kept.
+---
+ .../generic-parallel-behaviour-interface.md   |   9 +-
+ .../GenericParallelBehaviour/Integrate.hxx    | 229 +++++-------------
+ 2 files changed, 65 insertions(+), 173 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index c12dae1af..33552035a 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -371,10 +371,11 @@ the queue given by the execution options. The summary of the batch is
+ reduced by warp: atomic operations are only used by the warps where a point
+ failed or decreased the time step scaling factor.
+ 
+-Two kernels are generated for each hypothesis: if all fields are stored
+-point by point, the behaviour directly reads and writes them. Otherwise,
+-the values of a point are copied in local arrays and the results are copied
+-back after the integration.
++The values of a point are copied in local arrays and the results are
++copied back after the integration, whatever the layout of the fields.
++Reading and writing the fields directly when they are stored point by point
++gave no measurable gain, on GPUs and CPUs, and increased the compilation
++time by 25 to 40% with `nvcc`.
+ 
+ The default stack size of `CUDA` threads (1024 bytes) is too small for some
+ behaviours. The generated function increases it, if needed, before launching
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index 352195cff..bead17b59 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -411,30 +411,17 @@ namespace mfront::gpb {
+   namespace internals {
+ 
+     /*!
+-     * \brief local copies of the material properties and of the external
+-     * state variables of a point, which are always gathered (they are read
+-     * variable by variable, see `VariableFields`)
++     * \brief local copies of the values of a point
+      * \tparam PointTraits: description of the data of an integration point
+      */
+     template <typename PointTraits>
+-    struct InputCopies {
++    struct LocalCopies {
+       //! \brief maximal sizes of the data of a point
+       static constexpr auto capacities = PointDataSizes{PointTraits::value};
+       LocalValues<capacities.material_properties> mp0;
+       LocalValues<capacities.material_properties> mp1;
+       LocalValues<capacities.external_state_variables> esvs0;
+       LocalValues<capacities.external_state_variables> esvs1;
+-    };
+-
+-    /*!
+-     * \brief local copies of the other values of a point, used when some
+-     * fields are not stored point by point
+-     * \tparam PointTraits: description of the data of an integration point
+-     */
+-    template <typename PointTraits>
+-    struct LocalCopies {
+-      //! \brief maximal sizes of the data of a point
+-      static constexpr auto capacities = PointDataSizes{PointTraits::value};
+       LocalValues<capacities.tangent_operator> K;
+       LocalValues<capacities.gradients> g0;
+       LocalValues<capacities.gradients> g1;
+@@ -444,20 +431,16 @@ namespace mfront::gpb {
+       LocalValues<capacities.internal_state_variables> isvs1;
+     };
+ 
+-    //! \brief no local copies, used when all fields are stored point by point
+-    struct NoLocalCopies {};
+-
+   }  // end of namespace internals
+ 
+   /*!
+    * \brief view of the data of the `i`-th point of a batch, as seen by the
+    * `generic` interface.
+    *
+-   * If all the fields are stored point by point (`direct` is true), the
+-   * behaviour data point to the fields of the batch. Otherwise, the values
+-   * of the point are copied in local arrays, and the outputs must be copied
+-   * back by the `scatter` methods. The material properties and the external
+-   * state variables are always copied.
++   * The values of the point are copied in local arrays, and the outputs must
++   * be copied back by the `scatter` methods. Reading and writing the fields
++   * directly when they are stored point by point gives no measurable gain
++   * and doubles the number of kernels.
+    *
+    * The behaviour data point to the members of this object, which can't be
+    * copied.
+@@ -473,9 +456,8 @@ namespace mfront::gpb {
+    * `nvcc -G` do not).
+    *
+    * \tparam PointTraits: description of the data of an integration point
+-   * \tparam direct: if true, all the fields are stored point by point
+    */
+-  template <typename PointTraits, bool direct>
++  template <typename PointTraits>
+   struct PointView {
+     /*!
+      * \brief constructor
+@@ -518,45 +500,32 @@ namespace mfront::gpb {
+       // only exported if requested
+       bd.s1.stored_energy = this->energies1.data();
+       bd.s1.dissipated_energy = this->energies1.data() + 1;
+-      auto& ic = this->input_copies;
+-      gather(ic.mp0, inputs.mp0, i);
+-      gather(ic.mp1, inputs.mp1, i);
+-      gather(ic.esvs0, inputs.esv0, i);
+-      gather(ic.esvs1, inputs.esv1, i);
+-      bd.s0.material_properties = ic.mp0.data();
+-      bd.s1.material_properties = ic.mp1.data();
+-      bd.s0.external_state_variables = ic.esvs0.data();
+-      bd.s1.external_state_variables = ic.esvs1.data();
+-      if constexpr (direct) {
+-        bd.K = pointer(d.tangent_operators, i);
+-        bd.s0.gradients = pointer(d.s0.gradients, i);
+-        bd.s1.gradients = pointer(d.s1.gradients, i);
+-        bd.s0.thermodynamic_forces = pointer(d.s0.thermodynamic_forces, i);
+-        bd.s1.thermodynamic_forces = pointer(d.s1.thermodynamic_forces, i);
+-        bd.s0.internal_state_variables =
+-            pointer(d.s0.internal_state_variables, i);
+-        bd.s1.internal_state_variables =
+-            pointer(d.s1.internal_state_variables, i);
+-      } else {
+-        auto& c = this->copies;
+-        gather(c.g0, d.s0.gradients, i, s.gradients);
+-        gather(c.g1, d.s1.gradients, i, s.gradients);
+-        gather(c.th0, d.s0.thermodynamic_forces, i, s.thermodynamic_forces);
+-        gather(c.isvs0, d.s0.internal_state_variables, i,
++      auto& c = this->copies;
++      gather(c.mp0, inputs.mp0, i);
++      gather(c.mp1, inputs.mp1, i);
++      gather(c.esvs0, inputs.esv0, i);
++      gather(c.esvs1, inputs.esv1, i);
++      gather(c.g0, d.s0.gradients, i, s.gradients);
++      gather(c.g1, d.s1.gradients, i, s.gradients);
++      gather(c.th0, d.s0.thermodynamic_forces, i, s.thermodynamic_forces);
++      gather(c.isvs0, d.s0.internal_state_variables, i,
++             s.internal_state_variables);
++      if (gather_end_of_step_state) {
++        gather(c.th1, d.s1.thermodynamic_forces, i, s.thermodynamic_forces);
++        gather(c.isvs1, d.s1.internal_state_variables, i,
+                s.internal_state_variables);
+-        if (gather_end_of_step_state) {
+-          gather(c.th1, d.s1.thermodynamic_forces, i, s.thermodynamic_forces);
+-          gather(c.isvs1, d.s1.internal_state_variables, i,
+-                 s.internal_state_variables);
+-        }
+-        bd.K = c.K.data();
+-        bd.s0.gradients = c.g0.data();
+-        bd.s1.gradients = c.g1.data();
+-        bd.s0.thermodynamic_forces = c.th0.data();
+-        bd.s1.thermodynamic_forces = c.th1.data();
+-        bd.s0.internal_state_variables = c.isvs0.data();
+-        bd.s1.internal_state_variables = c.isvs1.data();
+       }
++      bd.s0.material_properties = c.mp0.data();
++      bd.s1.material_properties = c.mp1.data();
++      bd.s0.external_state_variables = c.esvs0.data();
++      bd.s1.external_state_variables = c.esvs1.data();
++      bd.K = c.K.data();
++      bd.s0.gradients = c.g0.data();
++      bd.s1.gradients = c.g1.data();
++      bd.s0.thermodynamic_forces = c.th0.data();
++      bd.s1.thermodynamic_forces = c.th1.data();
++      bd.s0.internal_state_variables = c.isvs0.data();
++      bd.s1.internal_state_variables = c.isvs1.data();
+     }  // end of PointView
+     //! \brief copy constructor (deleted)
+     PointView(const PointView&) = delete;
+@@ -571,23 +540,19 @@ namespace mfront::gpb {
+      * variables at the end of the time step
+      */
+     TFEL_HOST_DEVICE void scatterState() const noexcept {
+-      if constexpr (!direct) {
+-        const auto& d = this->batch;
+-        const auto i = this->index;
+-        internals::scatterValues(d.s1.thermodynamic_forces, i,
+-                                 this->data.s1.thermodynamic_forces,
+-                                 this->sizes.thermodynamic_forces);
+-        internals::scatterValues(d.s1.internal_state_variables, i,
+-                                 this->data.s1.internal_state_variables,
+-                                 this->sizes.internal_state_variables);
+-      }
++      const auto& d = this->batch;
++      const auto i = this->index;
++      internals::scatterValues(d.s1.thermodynamic_forces, i,
++                               this->data.s1.thermodynamic_forces,
++                               this->sizes.thermodynamic_forces);
++      internals::scatterValues(d.s1.internal_state_variables, i,
++                               this->data.s1.internal_state_variables,
++                               this->sizes.internal_state_variables);
+     }  // end of scatterState
+     //! \brief copy back the tangent operator
+     TFEL_HOST_DEVICE void scatterTangentOperator() const noexcept {
+-      if constexpr (!direct) {
+-        internals::scatterValues(this->batch.tangent_operators, this->index,
+-                                 this->data.K, this->sizes.tangent_operator);
+-      }
++      internals::scatterValues(this->batch.tangent_operators, this->index,
++                               this->data.K, this->sizes.tangent_operator);
+     }  // end of scatterTangentOperator
+     //! \brief copy the energies at the end of the time step, if requested
+     TFEL_HOST_DEVICE void scatterEnergies() const noexcept {
+@@ -630,14 +595,8 @@ namespace mfront::gpb {
+      * value-initializing an array.
+      */
+     LocalValues<2> energies1;
+-    //! \brief local copies of the material properties and of the external
+-    //! state variables
+-    internals::InputCopies<PointTraits> input_copies;
+     //! \brief local copies of the values of the point
+-    [[no_unique_address]] std::conditional_t<
+-        direct,
+-        internals::NoLocalCopies,
+-        internals::LocalCopies<PointTraits>> copies;
++    internals::LocalCopies<PointTraits> copies;
+   };
+ 
+   /*!
+@@ -661,10 +620,6 @@ namespace mfront::gpb {
+    *
+    * \tparam Behaviour: class implementing the behaviour
+    * \tparam PointTraits: description of the data of an integration point
+-   * \tparam direct: if true, all the fields are stored point by point and
+-   * the behaviour directly reads and writes them. Otherwise, the values of
+-   * the point are gathered in local arrays and the results are scattered
+-   * after the integration.
+    * \tparam ParametersType: type of the structure holding the parameters
+    * \param[in] d: batch data
+    * \param[in] inputs: fields of the material properties and of the
+@@ -673,10 +628,7 @@ namespace mfront::gpb {
+    * \param[in] parameters: values of the parameters
+    * \param[in] p: out of bounds policy
+    */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            bool direct,
+-            typename ParametersType>
++  template <typename Behaviour, typename PointTraits, typename ParametersType>
+   TFEL_HOST_DEVICE PointResult
+   integrate(const BatchData& d,
+             const InputFields<PointTraits>& inputs,
+@@ -687,7 +639,7 @@ namespace mfront::gpb {
+     const auto o = getComputationOptions(d);
+     auto r = PointResult{.status = -1, .rdt = d.rdt};
+     {
+-      auto v = PointView<PointTraits, direct>(
++      auto v = PointView<PointTraits>(
+           d, inputs, i, Integrator::template getPointDataSizes<PointTraits>(o),
+           d.rdt);
+       r.status =
+@@ -1009,33 +961,6 @@ namespace mfront::gpb {
+     return true;
+   }  // end of checkValues
+ 
+-  /*!
+-   * \return true if all the fields are stored point by point, i.e. if the
+-   * behaviour can directly read and write the values of a point. The
+-   * material properties and the external state variables are not
+-   * considered, since they are always copied.
+-   * \tparam PointTraits: description of the data of an integration point
+-   * \param[in] d: batch data
+-   */
+-  template <typename PointTraits>
+-  constexpr bool areAllFieldsStoredPointByPoint(const BatchData& d) noexcept {
+-    constexpr auto sizes = PointDataSizes{PointTraits::value};
+-    auto is_contiguous = [](const auto& f, const size_type size) {
+-      return (size <= 1) || (f.values == nullptr) || (f.component_stride == 1);
+-    };
+-    return is_contiguous(d.s0.gradients, sizes.gradients) &&
+-           is_contiguous(d.s1.gradients, sizes.gradients) &&
+-           is_contiguous(d.s0.thermodynamic_forces,
+-                         sizes.thermodynamic_forces) &&
+-           is_contiguous(d.s1.thermodynamic_forces,
+-                         sizes.thermodynamic_forces) &&
+-           is_contiguous(d.s0.internal_state_variables,
+-                         sizes.internal_state_variables) &&
+-           is_contiguous(d.s1.internal_state_variables,
+-                         sizes.internal_state_variables) &&
+-           is_contiguous(d.tangent_operators, sizes.tangent_operator);
+-  }  // end of areAllFieldsStoredPointByPoint
+-
+   /*!
+    * \brief data shared by the function objects applied at the points of a
+    * batch (see `PointIntegrator`, `InitializeFunctionExecutor`,
+@@ -1063,37 +988,17 @@ namespace mfront::gpb {
+    *
+    * \tparam Behaviour: class implementing the behaviour
+    * \tparam PointTraits: description of the data of an integration point
+-   * \tparam direct: if true, all the fields are stored point by point
+    * \tparam ParametersType: type of the structure holding the parameters
+    */
+-  template <typename Behaviour,
+-            typename PointTraits,
+-            bool direct,
+-            typename ParametersType>
++  template <typename Behaviour, typename PointTraits, typename ParametersType>
+   struct PointIntegrator : PointFunctionData<PointTraits, ParametersType> {
+     //! \return the statistics of the integration at the `i`-th point
+     TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
+-      return BatchStatistics::from(integrate<Behaviour, PointTraits, direct>(
++      return BatchStatistics::from(integrate<Behaviour, PointTraits>(
+           this->data, this->input_fields, i, this->parameters, this->policy));
+     }
+   };
+ 
+-  /*!
+-   * \brief call the given function with `std::true_type` if all the fields
+-   * of the batch are stored point by point, `std::false_type` otherwise. The
+-   * function objects applied at each point are specialised for both cases
+-   * (see `PointView`).
+-   * \param[in] d: batch data
+-   * \param[in] f: function
+-   */
+-  template <typename PointTraits, typename Function>
+-  decltype(auto) dispatchStorage(const BatchData& d, Function&& f) {
+-    if (areAllFieldsStoredPointByPoint<PointTraits>(d)) {
+-      return f(std::true_type{});
+-    }
+-    return f(std::false_type{});
+-  }  // end of dispatchStorage
+-
+   /*!
+    * \return the data shared by the function objects applied at the points of
+    * a batch
+@@ -1121,14 +1026,12 @@ namespace mfront::gpb {
+    * implementing the initialize function
+    * \tparam number_of_inputs: number of values of the inputs of the
+    * initialize function
+-   * \tparam direct: if true, all the fields are stored point by point
+    * \tparam ParametersType: type of the structure holding the parameters
+    */
+   template <typename Behaviour,
+             typename PointTraits,
+             typename InitializeFunction,
+             size_type number_of_inputs,
+-            bool direct,
+             typename ParametersType>
+   struct InitializeFunctionExecutor
+       : PointFunctionData<PointTraits, ParametersType> {
+@@ -1140,7 +1043,7 @@ namespace mfront::gpb {
+       auto r = PointResult{.status = -1, .rdt = d.rdt};
+       {
+         // the initialize function may only update a part of the state
+-        auto v = PointView<PointTraits, direct>(
++        auto v = PointView<PointTraits>(
+             d, this->input_fields, i,
+             Integrator::template getPointDataSizes<PointTraits>(o), d.rdt,
+             true);
+@@ -1174,7 +1077,6 @@ namespace mfront::gpb {
+    * the initial state of the material
+    * \tparam number_of_outputs: number of values of the outputs of the
+    * post-processing
+-   * \tparam direct: if true, all the fields are stored point by point
+    * \tparam ParametersType: type of the structure holding the parameters
+    */
+   template <typename Behaviour,
+@@ -1182,7 +1084,6 @@ namespace mfront::gpb {
+             typename PostProcessing,
+             bool use_initial_state,
+             size_type number_of_outputs,
+-            bool direct,
+             typename ParametersType>
+   struct PostProcessingExecutor
+       : PointFunctionData<PointTraits, ParametersType> {
+@@ -1194,7 +1095,7 @@ namespace mfront::gpb {
+       auto r = PointResult{.status = -1, .rdt = d.rdt};
+       {
+         // the post-processing uses the state at the end of the time step
+-        auto v = PointView<PointTraits, direct>(
++        auto v = PointView<PointTraits>(
+             d, this->input_fields, i,
+             Integrator::template getPointDataSizes<PointTraits>(o), d.rdt,
+             true);
+@@ -1297,13 +1198,9 @@ namespace mfront::gpb {
+     if (!check<PointTraits>(s, d)) {
+       return s.status;
+     }
++    using Integrator = PointIntegrator<Behaviour, PointTraits, ParametersType>;
+     const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
+-    return dispatchStorage<PointTraits>(d, [&](const auto direct) {
+-      using Integrator =
+-          PointIntegrator<Behaviour, PointTraits, decltype(direct)::value,
+-                          ParametersType>;
+-      return apply(d.number_of_points, d.execution, d.rdt, Integrator{data});
+-    });
++    return apply(d.number_of_points, d.execution, d.rdt, Integrator{data});
+   }  // end of integrateBatch
+ 
+   /*!
+@@ -1340,15 +1237,12 @@ namespace mfront::gpb {
+         (!checkValues(s, inputs, number_of_inputs, "invalid inputs"))) {
+       return s.status;
+     }
++    using Executor =
++        InitializeFunctionExecutor<Behaviour, PointTraits, InitializeFunction,
++                                   number_of_inputs, ParametersType>;
+     const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
+-    return dispatchStorage<PointTraits>(d, [&](const auto direct) {
+-      using Executor =
+-          InitializeFunctionExecutor<Behaviour, PointTraits, InitializeFunction,
+-                                     number_of_inputs, decltype(direct)::value,
+-                                     ParametersType>;
+-      return apply(d.number_of_points, d.execution, d.rdt,
+-                   Executor{data, inputs});
+-    });
++    return apply(d.number_of_points, d.execution, d.rdt,
++                 Executor{data, inputs});
+   }  // end of executeInitializeFunctionOnBatch
+ 
+   /*!
+@@ -1387,15 +1281,12 @@ namespace mfront::gpb {
+         (!checkValues(s, outputs, number_of_outputs, "invalid outputs"))) {
+       return s.status;
+     }
++    using Executor = PostProcessingExecutor<Behaviour, PointTraits,
++                                            PostProcessing, use_initial_state,
++                                            number_of_outputs, ParametersType>;
+     const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
+-    return dispatchStorage<PointTraits>(d, [&](const auto direct) {
+-      using Executor =
+-          PostProcessingExecutor<Behaviour, PointTraits, PostProcessing,
+-                                 use_initial_state, number_of_outputs,
+-                                 decltype(direct)::value, ParametersType>;
+-      return apply(d.number_of_points, d.execution, d.rdt,
+-                   Executor{data, outputs});
+-    });
++    return apply(d.number_of_points, d.execution, d.rdt,
++                 Executor{data, outputs});
+   }  // end of executePostProcessingOnBatch
+ 
+   /*!
+-- 
+2.43.0
+

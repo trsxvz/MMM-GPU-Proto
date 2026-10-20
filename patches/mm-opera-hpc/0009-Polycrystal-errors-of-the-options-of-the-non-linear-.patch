@@ -1,4 +1,4 @@
-From 781d7b5c0260e2d89ccdff823e029b843f1f34ec Mon Sep 17 00:00:00 2001
+From 369f7fe871c1f97d876bb75cd2119b8683679076 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 05:36:45 +0200
 Subject: [PATCH] Polycrystal: errors of the options of the non linear solver
@@ -7,11 +7,11 @@ An initial adaptive tolerance given without adaptive tolerance is refused,
 and the errors thrown by the constructor of the problem (invalid options
 of the non linear solver) are reported before exiting.
 ---
- polycrystal/UniaxialPolycrystal.cxx | 28 ++++++++++++++++++++++++----
- 1 file changed, 24 insertions(+), 4 deletions(-)
+ polycrystal/UniaxialPolycrystal.cxx | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 97eee07..b1bc82d 100644
+index 755b0f6..aeb93c4 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -7,6 +7,8 @@
@@ -51,27 +51,6 @@ index 97eee07..b1bc82d 100644
        adaptive_options.insert(ctx, "InitialTolerance",
                                p.adaptive_linear_solver_initial_tolerance) |
            or_die;
-@@ -229,8 +239,18 @@ int main(int argc, char *argv[]) {
-         "error: invalid non linear solver (expected Newton or NewtonK0)");
-     std::exit(EXIT_FAILURE);
-   }
--  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(
--      ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters);
-+  // the constructor of the problem throws on invalid options (of the non
-+  // linear solver for instance)
-+  auto problem_ptr = [&ctx, &fed, &problem_parameters] {
-+    try {
-+      return std::make_unique<mfem_mgis::PeriodicNonLinearEvolutionProblem>(
-+          ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters);
-+    } catch (std::exception &e) {
-+      mfem_mgis::Profiler::Utils::Message(std::string{"error: "} + e.what());
-+      std::exit(EXIT_FAILURE);
-+    }
-+  }();
-+  auto &problem = *problem_ptr;
-   mm_opera_hpc::printMeshInformation(ctx, problem);
- 
-   // set problem
 -- 
 2.43.0
 

@@ -1,4 +1,4 @@
-From c8b178d71af211b94aa6af8d500c951f0e3968a3 Mon Sep 17 00:00:00 2001
+From f908d94105fba9656e3db9d6fa8b6f5bf14ab28a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 20:54:09 +0200
 Subject: [PATCH] Tests compiled with the float numerical type
@@ -61,7 +61,7 @@ index 6cc67ad671..3f2fc630c5 100644
        check(areClose(v, eta), "second choice: tolerance of iteration " +
                                    std::to_string(i) + " (" + std::to_string(v) +
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index b66fddf4f1..6f75a9a3b0 100644
+index 3fc5cabb9f..a302ea09ab 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -635,8 +635,8 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
@@ -76,10 +76,10 @@ index b66fddf4f1..6f75a9a3b0 100644
      d = std::max(d, std::abs(a[i] - b[i]));
      m = std::max(m, std::abs(a[i]));
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 72e5b6b1d0..00049af92b 100644
+index 1ae26b8d0a..63477fe951 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -900,6 +900,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -903,6 +903,7 @@ if(MFEM_MGIS_HAVE_TFEL)
        add_custom_command(
          OUTPUT "${_library}" "${_uo2_library}"
          COMMAND "${MFRONT}" --obuild --interface=generic-parallel
@@ -127,7 +127,7 @@ index d9aa0a59d1..77bda9aff6 100644
        check(std::abs(v - eta) <= 1e-12 * eta,
              name + ": relative tolerance of a linear solve (" +
 diff --git a/tests/HeatTransferKernelsTest.cxx b/tests/HeatTransferKernelsTest.cxx
-index 8744a02b9a..1935a868e7 100644
+index 9e6c8269f4..c5827fbc04 100644
 --- a/tests/HeatTransferKernelsTest.cxx
 +++ b/tests/HeatTransferKernelsTest.cxx
 @@ -174,7 +174,7 @@ static void checkMatrixFreeDiagonal(
@@ -164,7 +164,7 @@ index 225d7d9608..13dc1974a3 100755
        Dt = (1. - d) * Hooke - COEF * (s0 ^ eplus);
      }
 diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
-index 3fd8c63e00..6018905b45 100644
+index e3431677fb..6842d87ee8 100644
 --- a/tests/MicromorphicKernelsTest.cxx
 +++ b/tests/MicromorphicKernelsTest.cxx
 @@ -140,7 +140,7 @@ static void checkMatrixFreeDiagonal(
@@ -188,7 +188,7 @@ index 3fd8c63e00..6018905b45 100644
      d = std::max(d, std::abs(a[i] - b[i]));
      m = std::max(m, std::abs(a[i]));
 diff --git a/tests/TwoLayerCube.cxx b/tests/TwoLayerCube.cxx
-index ac6c9a7b16..0f23ab5f20 100644
+index f992c4d82c..84b4f74723 100644
 --- a/tests/TwoLayerCube.cxx
 +++ b/tests/TwoLayerCube.cxx
 @@ -207,9 +207,9 @@ struct TestParameters {

@@ -1,4 +1,4 @@
-From f89d2ef6dbe9050b1910cf6062d4ea08f3c55d92 Mon Sep 17 00:00:00 2001
+From cf55c49198e08b48881c0c83d2d742af41dd43ca Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 07:09:05 +0200
 Subject: [PATCH] ex4: reason of the failure of a resolution printed with the
@@ -11,7 +11,7 @@ Subject: [PATCH] ex4: reason of the failure of a resolution printed with the
  3 files changed, 21 insertions(+), 3 deletions(-)
 
 diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
-index 4f57622..4b6400f 100644
+index 503c3e4..7c6b9de 100644
 --- a/ex4/ssna303_hypre.cxx
 +++ b/ex4/ssna303_hypre.cxx
 @@ -250,7 +250,13 @@ int main(int argc, char** argv) {
@@ -30,7 +30,7 @@ index 4f57622..4b6400f 100644
            dt2 /= 2;
            ++niter;
 diff --git a/ex4/ssna303_mumps.cxx b/ex4/ssna303_mumps.cxx
-index d3e53e3..4cbf93c 100644
+index a85d13b..71204e7 100644
 --- a/ex4/ssna303_mumps.cxx
 +++ b/ex4/ssna303_mumps.cxx
 @@ -210,7 +210,13 @@ int main(int argc, char** argv) {
@@ -49,7 +49,7 @@ index d3e53e3..4cbf93c 100644
          dt2 /= 2;
          ++niter;
 diff --git a/ex4/ssna303_petsc.cxx b/ex4/ssna303_petsc.cxx
-index cd21e7e..215eb00 100644
+index da69367..55faeae 100644
 --- a/ex4/ssna303_petsc.cxx
 +++ b/ex4/ssna303_petsc.cxx
 @@ -173,7 +173,13 @@ int main(int argc, char** argv) {

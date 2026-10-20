@@ -1,4 +1,4 @@
-From 0134abbc0f7b2fc4929407be01c79a8da46ec5a6 Mon Sep 17 00:00:00 2001
+From 094ec7503af4146001c82ab7bb3a4d725edbcdd3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:29:33 +0200
 Subject: [PATCH] PostProcessingsKernelsTest: shorter regularization length
@@ -12,7 +12,7 @@ term.
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index 77af6731cb..768d355d23 100644
+index d8d9db5f8a..ab1d915373 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -197,7 +197,7 @@ static std::optional<Results<parallel>> compute(

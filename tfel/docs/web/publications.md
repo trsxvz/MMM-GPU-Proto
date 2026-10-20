@@ -1,18 +1,19 @@
 ---
 title: Publications
 author: Thomas Helfer
-date: 1/10/2020
+date: 01/10/2020
 lang: en-EN
 link-citations: true
 colorlinks: true
 figPrefixTemplate: "$$i$$"
 tblPrefixTemplate: "$$i$$"
 secPrefixTemplate: "$$i$$"
-eqnPrefixTemplate: "($$i$$)"
+eeqnPrefixTemplate: "($$i$$)"
 ---
 
 ---
 nocite: |
+    @mohanan_accuracy_2026
     @bourceret_lattice_2026
     @chenaille_accelerating_2026
     @larsen_open-source_2026

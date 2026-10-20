@@ -1,4 +1,4 @@
-From 6182b9f9b9dab40d38204f234b02acba8e39e8e7 Mon Sep 17 00:00:00 2001
+From 3051abdeec3d9dfb16c9d7fd443555ac713b4bf1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 04:09:29 +0200
 Subject: [PATCH] Review of the float cases: Kroener loop, bubble, row matching
@@ -18,7 +18,7 @@ Float: 6/6.
  3 files changed, 18 insertions(+), 6 deletions(-)
 
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 4b9921c..f00c582 100644
+index 2c78ab2..747b5c7 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -454,7 +454,7 @@ int main(int argc, char** argv) {

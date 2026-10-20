@@ -166,7 +166,7 @@ The solvers marked as parallel are only available in parallel.
        default), :cxx:`SolverType` (:cxx:`PCG`, by default, :cxx:`GMRES`,
        :cxx:`BiCGSTAB`), :cxx:`KDim` (50 by default),
        :cxx:`ConvergenceRate` (0.9 by default), options of BoomerAMG
-       (:cxx:`StrengthThreshold`, :cxx:`CoarseningType`,
+       (:cxx:`StrongThreshold`, :cxx:`CoarseningType`,
        :cxx:`InterpolationType`, :cxx:`RelaxationType`,
        :cxx:`AggressiveCoarseningLevels`, :cxx:`MaximumNumberOfLevels`); no
        absolute tolerance
@@ -374,7 +374,7 @@ Preconditioners
    * - :cxx:`HypreBoomerAMG` (parallel)
      - hypre
      - as hypre
-     - :cxx:`Strategy`, :cxx:`StrengthThreshold`, :cxx:`CoarseningType`,
+     - :cxx:`Strategy`, :cxx:`StrongThreshold`, :cxx:`CoarseningType`,
        :cxx:`AggressiveCoarseningLevels`, :cxx:`InterpolationType`,
        :cxx:`RelaxationType`, :cxx:`RelaxationSweeps`, :cxx:`CycleType`,
        :cxx:`NumberOfCycles`, :cxx:`MaximumNumberOfLevels`,

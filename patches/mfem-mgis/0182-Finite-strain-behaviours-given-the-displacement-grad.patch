@@ -1,4 +1,4 @@
-From 481866b60f6d3dda52dc63a1fc7efeed1632835c Mon Sep 17 00:00:00 2001
+From 79e60257da24b8923798ded59c355b88ec3d991e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:39:37 +0200
 Subject: [PATCH] Finite strain behaviours given the displacement gradient
@@ -224,7 +224,7 @@ index d8c4c3659d..1695a3ab96 100644
  }  // end of namespace mfem_mgis
  
 diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
-index fd19161135..93baff4870 100644
+index 957da5f238..c4937914f5 100644
 --- a/include/MFEMMGIS/Material.hxx
 +++ b/include/MFEMMGIS/Material.hxx
 @@ -74,6 +74,14 @@ namespace mfem_mgis {
@@ -243,10 +243,10 @@ index fd19161135..93baff4870 100644
       */
      void setMacroscopicGradients(std::span<const real> g);
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 9e8974956d..2dfc717526 100644
+index c1dc9b2edd..732b098790 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -494,8 +494,11 @@ namespace mfem_mgis {
+@@ -493,8 +493,11 @@ namespace mfem_mgis {
       */
      void synchronizeOnHostForReading() const;
      /*!
@@ -260,7 +260,7 @@ index 9e8974956d..2dfc717526 100644
      void setMacroscopicGradients(std::span<const real> g);
      /*!
 diff --git a/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx b/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx
-index df98a8d5f8..4f7d58c3f4 100644
+index 7859b90378..244384d988 100644
 --- a/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx
 +++ b/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx
 @@ -157,7 +157,11 @@ namespace mfem_mgis {
@@ -309,10 +309,10 @@ index 1da8820026..1c2741fd1f 100644
      } catch (...) {
        std::ignore = registerExceptionInErrorBacktrace(ctx);
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 4b973042b1..fbcee3a819 100644
+index 28d5ad8bdf..636bc49222 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -83,8 +83,14 @@ namespace mfem_mgis {
+@@ -82,8 +82,14 @@ namespace mfem_mgis {
  
    void BehaviourIntegratorBase::checkIfAFiniteStrainBehaviourIsDeclared(
        attributes::Throwing) const {
@@ -329,7 +329,7 @@ index 4b973042b1..fbcee3a819 100644
          return false;
        }
        if (g.type != mgis::behaviour::Variable::TENSOR) {
-@@ -114,12 +120,12 @@ namespace mfem_mgis {
+@@ -113,12 +119,12 @@ namespace mfem_mgis {
        }
      }
      if ((this->b.gradients.size() != 1) ||
@@ -345,7 +345,7 @@ index 4b973042b1..fbcee3a819 100644
      }
      if ((this->b.thermodynamic_forces.size() != 1) ||
          (!isPK1(this->b.thermodynamic_forces.at(0)))) {
-@@ -131,13 +137,13 @@ namespace mfem_mgis {
+@@ -130,13 +136,13 @@ namespace mfem_mgis {
      }
      if ((this->b.to_blocks.size() != 1) ||
          (!isPK1(this->b.to_blocks.at(0).first)) ||
@@ -585,7 +585,7 @@ index cf0a849aeb..6696fbb0fa 100644
        const auto ps = pbp ? gs : std::size_t{1};
        const auto cs = pbp ? std::size_t{1} : np;
 diff --git a/src/MechanicalPostProcessings.cxx b/src/MechanicalPostProcessings.cxx
-index 59a658ec36..4105062ddf 100644
+index 648b0338d9..197f343c75 100644
 --- a/src/MechanicalPostProcessings.cxx
 +++ b/src/MechanicalPostProcessings.cxx
 @@ -6,11 +6,57 @@
@@ -628,7 +628,7 @@ index 59a658ec36..4105062ddf 100644
 +    if (isInvalid(oH)) {
 +      return false;
 +    }
-+    auto F = PartialQuadratureFunction(m.getPartialQuadratureSpacePointer(),
++    auto F = PartialQuadratureFunction(m.getPartialQuadratureSpace(),
 +                                       oH->getNumberOfComponents());
 +    const auto n = m.getPartialQuadratureSpace().getNumberOfIntegrationPoints();
 +    for (size_type i = 0; i != n; ++i) {
@@ -678,7 +678,7 @@ index 59a658ec36..4105062ddf 100644
    }  // end of computeVonMisesEquivalentStressForFiniteStrainBehaviours
  
    static bool computeVonMisesEquivalentStressForFiniteStrainBehaviours(
-@@ -166,21 +213,22 @@ namespace mfem_mgis {
+@@ -165,21 +212,22 @@ namespace mfem_mgis {
        const Material& m,
        const Material::StateSelection s) {
      using namespace mgis::function;
@@ -712,7 +712,7 @@ index 59a658ec36..4105062ddf 100644
    }  // end of computeEigenStressesForFiniteStrainBehaviours
  
    static bool computeEigenStressesForFiniteStrainBehaviours(
-@@ -278,21 +326,22 @@ namespace mfem_mgis {
+@@ -276,21 +324,22 @@ namespace mfem_mgis {
        const Material& m,
        const Material::StateSelection s) {
      using namespace mgis::function;
@@ -746,7 +746,7 @@ index 59a658ec36..4105062ddf 100644
    }  // end of computeFirstEigenStressForFiniteStrainBehaviours
  
    static bool computeFirstEigenStressForFiniteStrainBehaviours(
-@@ -488,23 +537,24 @@ namespace mfem_mgis {
+@@ -483,23 +532,24 @@ namespace mfem_mgis {
        const Material& m,
        const Material::StateSelection s) {
      using namespace mgis::function;
@@ -783,7 +783,7 @@ index 59a658ec36..4105062ddf 100644
    }  // end of computeCauchyStressInGlobalFrame_impl
  
    bool computeCauchyStressInGlobalFrame(Context& ctx,
-@@ -572,21 +622,22 @@ namespace mfem_mgis {
+@@ -565,21 +615,22 @@ namespace mfem_mgis {
                                         const Material& m,
                                         const Material::StateSelection s) {
      using namespace mgis::function;
@@ -818,7 +818,7 @@ index 59a658ec36..4105062ddf 100644
  
    bool computeCauchyStress(Context& ctx,
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 274ee5de78..611ad81dcf 100644
+index e0981503be..99f1a648db 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
 @@ -5,6 +5,7 @@
@@ -829,7 +829,7 @@ index 274ee5de78..611ad81dcf 100644
  #include <limits>
  #include <string>
  #include <cstdint>
-@@ -995,14 +996,25 @@ namespace mfem_mgis {
+@@ -994,14 +995,25 @@ namespace mfem_mgis {
      }
      auto& bis = this->behaviour_integrators[m];
      const auto s = static_cast<size_type>(bis.size());
@@ -858,7 +858,7 @@ index 274ee5de78..611ad81dcf 100644
      if (isInvalid(olocation)) {
        return {};
      }
-@@ -1110,6 +1122,32 @@ namespace mfem_mgis {
+@@ -1109,6 +1121,32 @@ namespace mfem_mgis {
  
    void MultiMaterialNonLinearIntegrator::setMacroscopicGradients(
        std::span<const real> g) {
@@ -984,10 +984,10 @@ index f54ef86dbd..7f8da993ad 100644
      mfem_mgis::abort(EXIT_FAILURE);
    }
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 54a5808ebc..1ab3295fb8 100644
+index 782742ae62..39dcf04cc4 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -74,7 +74,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -77,7 +77,8 @@ if(MFEM_MGIS_HAVE_TFEL)
      OrthotropicMicromorphicDamage
      UO2Shrinkage_RAPHAEL2008
      FailingIsotropicLinearElasticity
@@ -997,7 +997,7 @@ index 54a5808ebc..1ab3295fb8 100644
  
    # TwoLayerCube executable
    add_test_executable(TwoLayerCube)
-@@ -119,9 +120,16 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -122,9 +123,16 @@ if(MFEM_MGIS_HAVE_TFEL)
    # UniaxialTensileTest executable
    add_test_executable(UniaxialTensileTest)
  
@@ -1015,7 +1015,7 @@ index 54a5808ebc..1ab3295fb8 100644
      set(UniaxialTensileTestParameters
          "--mesh"
          "${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh"
-@@ -132,7 +140,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -135,7 +143,8 @@ if(MFEM_MGIS_HAVE_TFEL)
          "--reference-file"
          "${CMAKE_CURRENT_SOURCE_DIR}/references/${behaviour}.ref"
          "--internal-state-variable"
@@ -1025,7 +1025,7 @@ index 54a5808ebc..1ab3295fb8 100644
      add_test(NAME ${test}
               COMMAND ./UniaxialTensileTest ${UniaxialTensileTestParameters}
                       "--no-parallel")
-@@ -150,6 +159,17 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -153,6 +162,17 @@ if(MFEM_MGIS_HAVE_TFEL)
                              EquivalentPlasticStrain)
    add_uniaxial_tensile_test(Mazars Damage)
    add_uniaxial_tensile_test(SaintVenantKirchhoffElasticity EquivalentStrain)
@@ -1043,7 +1043,7 @@ index 54a5808ebc..1ab3295fb8 100644
    # convergence of the Newton solver at the floor of the residual, in float
    # only: with an unreachable relative tolerance, a stagnation of the
    # residual is accepted as convergence (option StagnationRelativeTolerance
-@@ -181,6 +201,25 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -184,6 +204,25 @@ if(MFEM_MGIS_HAVE_TFEL)
      set_tests_properties(
        UniaxialTensileTest-NoStagnation-SaintVenantKirchhoffElasticity
        PROPERTIES PASS_REGULAR_EXPRESSION "the resolution failed")
@@ -1069,7 +1069,7 @@ index 54a5808ebc..1ab3295fb8 100644
    endif()
  
    # ImposedPressureTest executable
-@@ -344,12 +383,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -347,12 +386,15 @@ if(MFEM_MGIS_HAVE_TFEL)
    # Helper function for AddBehaviourIntegratorTest cases
    function(add_add_behaviour_integrator_test)
      set(test "AddBehaviourIntegratorTest")

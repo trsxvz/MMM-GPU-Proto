@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
                           {"Hypothesis", "Tridimensional"},
                           {"Parallel", parallel}}) |
       or_die;
-  auto& fed = problem.getFiniteElementDiscretization();
+  auto fed = problem.getFiniteElementDiscretization();
   const auto& fes =
       parallel ? static_cast<const mfem::FiniteElementSpace&>(
                      fed.getFiniteElementSpace<true>())

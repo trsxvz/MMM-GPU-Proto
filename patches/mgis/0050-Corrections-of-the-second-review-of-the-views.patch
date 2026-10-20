@@ -1,0 +1,877 @@
+From 90143ad251b6bdb6c8c7f907339d4fef4d5ad271 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 01:58:08 +0200
+Subject: [PATCH] Corrections of the second review of the views
+
+- updateValues: the message of an exception thrown by the operations is
+  copied (the error backtrace kept a pointer to the message of a
+  destroyed exception).
+- Fortran: the tangent operator getters of a material data manager and
+  of a behaviour data return the transpose of the tangent operator, of
+  shape [gs, ths] at each point (the shape [ths, gs] scrambled the values
+  of a non square operator), and refuse a tangent operator which is not a
+  single block. C and Fortran getters of the number of values of the
+  tangent operator blocks of a material data manager.
+- no field view on the values of a temporary function, which owns them.
+- OpenMP: one thread per point, without division per value.
+- a tangent operator block of a material data manager without point is an
+  empty view, as for a material data view.
+- the move constructor of RotationMatrix3D, which copies its constant
+  axes, is not noexcept; a moved-from material axis must not be used.
+- the missing material properties and external state variables are
+  reported with the stage of the time step.
+- documentation: outputs of a failing point unspecified (integration and
+  post-processings, managers and views), synchronization of the field
+  operations, fills of the CUDA and HIP operations, use of views in
+  device code, release notes.
+- tests: tangent operator blocks of a failing point not written, error
+  of the operations reported, no allocation by the initialize functions
+  and the post-processings (aligned allocations counted), no view on a
+  temporary function, non square and refused tangent operators in
+  Fortran.
+---
+ .../MGIS/Behaviour/MaterialDataManager.h      |  8 ++
+ bindings/c/src/MaterialDataManager.cxx        | 11 +++
+ bindings/fortran/src/mgis_behaviour.f90       | 44 +++++++--
+ bindings/fortran/tests/LayoutTest-f.f90       | 43 ++++++++-
+ docs/web/release-notes-3.2.md                 | 19 ++--
+ include/MGIS/Behaviour/Integrate.hxx          | 12 ++-
+ .../MGIS/Behaviour/MaterialDataManager.hxx    | 10 ++-
+ include/MGIS/Behaviour/MaterialDataView.hxx   |  3 +
+ .../MGIS/Behaviour/MaterialStateManager.hxx   |  5 +-
+ include/MGIS/Behaviour/RotationMatrix.hxx     | 12 ++-
+ .../FieldOperations/CUDAFieldOperations.hxx   |  5 +-
+ .../FieldOperations/HIPFieldOperations.hxx    |  5 +-
+ .../FieldOperations/OpenMPFieldOperations.hxx | 16 ++--
+ include/MGIS/FieldView.hxx                    | 10 ++-
+ include/MGIS/Function/FieldViewSupport.hxx    | 10 +++
+ src/Integrate.cxx                             | 17 ++--
+ src/MaterialDataManager.cxx                   |  4 +
+ src/MaterialStateManager.cxx                  |  4 +-
+ src/RotationMatrix.cxx                        |  2 +-
+ tests/AllocationTest.cxx                      | 90 +++++++++++++++++++
+ tests/MaterialDataManagerLayoutTest.cxx       | 16 +++-
+ tests/MaterialDataViewTest.cxx                | 54 +++++++++++
+ 22 files changed, 348 insertions(+), 52 deletions(-)
+
+diff --git a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
+index b67e777..f36587a 100644
+--- a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
++++ b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
+@@ -194,6 +194,14 @@ mgis_bv_material_data_manager_get_time_step_scaling_factor(
+  */
+ MGIS_C_EXPORT mgis_status mgis_bv_material_data_manager_get_tangent_operator(
+     mgis_real * *const, mgis_bv_MaterialDataManager* const);
++/*!
++ * \param[out] s: a pointer where the number of values of the tangent
++ * operator blocks at a point will be written
++ * \param[in]  d: material data manager
++ */
++MGIS_C_EXPORT mgis_status
++mgis_bv_material_data_manager_get_tangent_operator_stride(
++    mgis_size_type* const, mgis_bv_MaterialDataManager* const);
+ /*!
+  * \param[out] l: a pointer where the layout of the arrays will be written
+  * \param[in]  d: material data manager
+diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
+index bd11061..1285764 100644
+--- a/bindings/c/src/MaterialDataManager.cxx
++++ b/bindings/c/src/MaterialDataManager.cxx
+@@ -326,6 +326,17 @@ mgis_status mgis_bv_material_data_manager_get_tangent_operator(
+   return mgis_report_success();
+ }  // end of mgis_bv_material_data_manager_get_tangent_operator
+ 
++mgis_status mgis_bv_material_data_manager_get_tangent_operator_stride(
++    mgis_size_type* const ts, mgis_bv_MaterialDataManager* const d) {
++  if (d == nullptr) {
++    *ts = 0;
++    return mgis_report_failure(
++        "invalid argument (material data manager is null)");
++  }
++  *ts = mgis::behaviour::getTangentOperatorArraySize(d->b);
++  return mgis_report_success();
++}  // end of mgis_bv_material_data_manager_get_tangent_operator_stride
++
+ mgis_status mgis_bv_material_data_manager_get_layout(
+     mgis_bv_FieldLayout* const l, mgis_bv_MaterialDataManager* const d) {
+   if (d == nullptr) {
+diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
+index 12340b3..d643bb1 100644
+--- a/bindings/fortran/src/mgis_behaviour.f90
++++ b/bindings/fortran/src/mgis_behaviour.f90
+@@ -2136,7 +2136,7 @@ contains
+   ! \brief return the transpose of the tangent operator
+   function behaviour_data_get_tangent_operator(K, d) result(s)
+     use, intrinsic :: iso_c_binding, only: c_ptr, c_f_pointer
+-    use mgis, only: mgis_status, MGIS_SUCCESS
++    use mgis, only: mgis_status, MGIS_SUCCESS, report_failure
+     implicit none
+     interface
+        function behaviour_data_get_tangent_operator_wrapper(K, d) &
+@@ -2157,6 +2157,7 @@ contains
+     type(Behaviour) :: b
+     integer gs
+     integer ths
++    integer nK
+     nullify(K)
+     s = behaviour_data_get_behaviour(b, d)
+     if( s%exit_status .ne. MGIS_SUCCESS) then
+@@ -2170,9 +2171,20 @@ contains
+     if( s%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
++    s = behaviour_get_tangent_operator_array_size(nK, b)
++    if( s%exit_status .ne. MGIS_SUCCESS) then
++       return
++    end if
++    if (nK .ne. ths * gs) then
++       s = report_failure("behaviour_data_get_tangent_operator: " // &
++            "the tangent operator is not made of a single block")
++       return
++    end if
+     s = behaviour_data_get_tangent_operator_wrapper(p, d%ptr)
+     if( s%exit_status .eq. MGIS_SUCCESS) then
+-       call c_f_pointer(p,K,[ths,gs])
++       ! the blocks are stored row by row: the Fortran array, stored column
++       ! by column, is the transpose of the tangent operator
++       call c_f_pointer(p,K,[gs,ths])
+     end if
+   end function behaviour_data_get_tangent_operator
+   !
+@@ -3699,8 +3711,8 @@ contains
+   end function material_state_manager_is_external_state_variable_uniform
+   ! \brief return the transpose of the tangent operator
+   function material_data_manager_get_tangent_operator(K, m) result(r)
+-    use, intrinsic :: iso_c_binding, only: c_ptr, c_f_pointer
+-    use mgis, only: mgis_status, MGIS_SUCCESS
++    use, intrinsic :: iso_c_binding, only: c_ptr, c_f_pointer, c_size_t
++    use mgis, only: mgis_status, MGIS_SUCCESS, report_failure
+     implicit none
+     interface
+        function material_data_manager_get_tangent_operator_wrapper(K, m) &
+@@ -3713,6 +3725,16 @@ contains
+          type(c_ptr), intent(in), value :: m
+          type(mgis_status) :: r
+        end function material_data_manager_get_tangent_operator_wrapper
++       function material_data_manager_get_tangent_operator_stride_wrapper(s, m) &
++            bind(c,name = 'mgis_bv_material_data_manager_get_tangent_operator_stride')&
++            result(r)
++         use, intrinsic :: iso_c_binding, only: c_ptr, c_size_t
++         use mgis, only: mgis_status
++         implicit none
++         integer(kind=c_size_t), intent(out) :: s
++         type(c_ptr), intent(in), value :: m
++         type(mgis_status) :: r
++       end function material_data_manager_get_tangent_operator_stride_wrapper
+     end interface
+     real(kind=8), dimension(:,:,:), pointer, intent(out) :: K
+     type(MaterialDataManager), intent(in) :: m
+@@ -3722,6 +3744,7 @@ contains
+     integer n
+     integer gs
+     integer ths
++    integer(kind=c_size_t) nK
+     nullify(K)
+     r = material_data_manager_get_state_0(s0, m)
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+@@ -3748,9 +3771,18 @@ contains
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+-    if( r%exit_status .eq. MGIS_SUCCESS) then
+-       call c_f_pointer(p,K,[ths,gs, n])
++    r = material_data_manager_get_tangent_operator_stride_wrapper(nK, m %ptr)
++    if( r%exit_status .ne. MGIS_SUCCESS) then
++       return
++    end if
++    if (nK .ne. ths * gs) then
++       r = report_failure("material_data_manager_get_tangent_operator: " // &
++            "the tangent operator is not made of a single block")
++       return
+     end if
++    ! the blocks are stored row by row: the Fortran array, stored column by
++    ! column, is the transpose of the tangent operator at each point
++    call c_f_pointer(p,K,[gs, ths, n])
+   end function material_data_manager_get_tangent_operator
+   !
+   function free_material_data_manager(ptr) result(r)
+diff --git a/bindings/fortran/tests/LayoutTest-f.f90 b/bindings/fortran/tests/LayoutTest-f.f90
+index 2d2fbd3..aeedc42 100644
+--- a/bindings/fortran/tests/LayoutTest-f.f90
++++ b/bindings/fortran/tests/LayoutTest-f.f90
+@@ -21,6 +21,10 @@ subroutine test()
+   type(mgis_status) st
+   real(kind=8), dimension (:,:), pointer :: g => null()
+   real(kind=8), dimension (:,:,:), pointer :: K => null()
++  real(kind=8), dimension (:,:), pointer :: K2 => null()
++  type(Behaviour) bf
++  type(BehaviourData) d
++  type(FiniteStrainBehaviourOptions) o
+   integer(kind=c_int) :: l
+   integer :: n = 10
+   integer :: ri
+@@ -67,8 +71,45 @@ subroutine test()
+   r = check((size(K, 1) == 6) .and. (size(K, 2) == 6) .and. &
+        (size(K, 3) == n), 'invalid shape of the tangent operator')
+   r = check(abs(K(1, 1, 1)) > 0, 'invalid tangent operator')
+-  ! free ressources
+   call check_status(free_material_data_manager(m))
++  ! tangent operator which is not square: derivative of the Cauchy stress
++  ! with respect to the deformation gradient (6 x 9), returned transposed
++  call check_status(create_finite_strain_behaviour_options(o))
++  call check_status(load_finite_strain_behaviour(bf, o, &
++       get_mfront_behaviour_test_library_path(), &
++       'OrthotropicFiniteStrainElasticity', 'Tridimensional'))
++  call check_status(create_material_data_manager(m, bf, n))
++  call check_status(material_data_manager_get_state_1(s1, m))
++  call check_status(material_state_manager_set_us_external_state_variable( &
++       s1, "Temperature", 293.15d0))
++  call check_status(update_material_data_manager(m))
++  call check_status(integrate_material_data_manager( &
++       ri, p, m, INTEGRATION_CONSISTENT_TANGENT_OPERATOR, 1d0))
++  call check_status(material_data_manager_get_tangent_operator(K, m))
++  r = check((size(K, 1) == 9) .and. (size(K, 2) == 6) .and. &
++       (size(K, 3) == n), 'invalid shape of a non square tangent operator')
++  call check_status(free_material_data_manager(m))
++  call check_status(allocate_behaviour_data(d, bf))
++  call check_status(behaviour_data_get_tangent_operator(K2, d))
++  r = check((size(K2, 1) == 9) .and. (size(K2, 2) == 6), &
++       'invalid shape of a non square tangent operator (point)')
++  call check_status(free_behaviour_data(d))
++  call check_status(free_behaviour(bf))
++  ! the tangent operator dS/dEGL (6 x 6) is not a block of the derivatives
++  ! of the thermodynamic forces with respect to the gradients: refused
++  call check_status(finite_strain_behaviour_options_set_tangent_operator( &
++       o, DS_DEGL))
++  call check_status(load_finite_strain_behaviour(bf, o, &
++       get_mfront_behaviour_test_library_path(), &
++       'OrthotropicFiniteStrainElasticity', 'Tridimensional'))
++  call check_status(allocate_behaviour_data(d, bf))
++  st = behaviour_data_get_tangent_operator(K2, d)
++  r = check(st%exit_status .ne. MGIS_SUCCESS, &
++       'a tangent operator which is not a single block must be refused')
++  call check_status(free_behaviour_data(d))
++  call check_status(free_behaviour(bf))
++  call check_status(free_finite_strain_behaviour_options(o))
++  ! free ressources
+   call check_status(free_material_data_manager_initializer(i))
+   call check_status(free_behaviour(b))
+   call check_status(free_thread_pool(p))
+diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
+index 405ad6b..aa8e27b 100644
+--- a/docs/web/release-notes-3.2.md
++++ b/docs/web/release-notes-3.2.md
+@@ -192,10 +192,12 @@ This is described in a dedicated [page](views.html). In short:
+ - the layout is exposed by the `C`, `Fortran` and `Python` bindings.
+ 
+ Once the arrays are allocated, the synchronous functions processing
+-points (integration, initialize functions, post-processings, rotations,
+-`evaluate`) and `update` and `revert` no longer allocate memory on the
+-heap in the calling thread, for the material data managers and for the
+-views. This is checked by a test.
++points without thread pool (integration, initialize functions,
++post-processings, rotations, `evaluate`) and `update` and `revert` no
++longer allocate memory on the heap in the calling thread, for the material
++data managers and for the views. This is checked by a test. The threads of
++the backends of the `generic-parallel` interface may allocate their own
++memory.
+ 
+ # Bug fixes
+ 
+@@ -203,8 +205,13 @@ views. This is checked by a test.
+   failed to link (`MaterialAxisStorage` was not exported), and the copy
+   of a material axis stored locally referred to the values of the
+   original.
+-- The `Fortran` function `material_data_manager_get_tangent_operator`
+-  returned an array whose first extent was not set.
++- The `Fortran` functions `material_data_manager_get_tangent_operator`
++  and `behaviour_data_get_tangent_operator` returned an array whose shape
++  was only valid for a square tangent operator (and whose first extent was
++  not set for a material data manager). They now return the transpose of
++  the tangent operator (shape `[gs, ths]` at each point), and refuse a
++  tangent operator which is not a single block of the derivatives of the
++  thermodynamic forces with respect to the gradients.
+ - The `Python` bindings read a strided `numpy` array given as an array of
+   values (for instance `a[::2]`) as a contiguous one: it is now refused.
+ 
+diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
+index 79c24b5..2def39e 100644
+--- a/include/MGIS/Behaviour/Integrate.hxx
++++ b/include/MGIS/Behaviour/Integrate.hxx
+@@ -497,7 +497,8 @@ namespace mgis::behaviour {
+    * \param[in] dt: time step
+    *
+    * \note if required, the memory associated with the tangent operator blocks
+-   * is automatically allocated.
++   * is automatically allocated. The tangent operator blocks of a point where
++   * the integration failed are unspecified.
+    * \note for a behaviour generated by the `generic-parallel` interface, the
+    * points are processed as a batch with the execution policy of the
+    * material data manager (see the overload taking an execution policy).
+@@ -614,7 +615,8 @@ namespace mgis::behaviour {
+    * \param[in] e: last index of the range
+    *
+    * \note if required, the memory associated with the tangent operator blocks
+-   * is automatically allocated.
++   * is automatically allocated. The tangent operator blocks of a point where
++   * the integration failed are unspecified.
+    * \note for a behaviour generated by the `generic-parallel` interface, the
+    * points are processed as a batch with the execution policy of the
+    * material data manager (see the overload taking an execution policy).
+@@ -798,7 +800,8 @@ namespace mgis::behaviour {
+   /*!
+    * \brief execute the given post-processing over a range of integration points
+    * \param[out] outputs: post-processing results, in the layout of the material
+-   * data manager
++   * data manager. The outputs of a point where the post-processing failed
++   * are unspecified.
+    * \param[in,out] d: material data manager
+    * \param[in] n: name of the post-processing
+    * \param[in] b: first index of the range
+@@ -1164,7 +1167,8 @@ namespace mgis::behaviour {
+   /*!
+    * \brief execute the given post-processing over the points `[b, e)` of a
+    * material data view
+-   * \param[out] outputs: post-processing results, given at each point
++   * \param[out] outputs: post-processing results, given at each point. The
++   * outputs of a point where the post-processing failed are unspecified.
+    * \param[in,out] ws: workspace
+    * \param[in] v: material data view
+    * \param[in] n: name of the post-processing
+diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
+index b323e9e..3609a3d 100644
+--- a/include/MGIS/Behaviour/MaterialDataManager.hxx
++++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
+@@ -323,8 +323,9 @@ namespace mgis::behaviour {
+   /*!
+    * \brief update the behaviour data, as the previous overload, the arrays
+    * given by the calling code being copied and filled by the given
+-   * operations (see `updateValues`). This is meant for arrays located in the
+-   * memory of a device.
++   * operations (see `updateValues`, which gives the preconditions on the
++   * synchronization of the operations). This is meant for arrays located in
++   * the memory of a device.
+    * \param[in,out] m: material data manager
+    * \param[in] ops: operations
+    */
+@@ -343,8 +344,9 @@ namespace mgis::behaviour {
+   /*!
+    * \brief revert the behaviour data, as the previous overload, the arrays
+    * given by the calling code being copied and filled by the given
+-   * operations (see `updateValues`). This is meant for arrays located in the
+-   * memory of a device.
++   * operations (see `updateValues`, which gives the preconditions on the
++   * synchronization of the operations). This is meant for arrays located in
++   * the memory of a device.
+    * \param[in,out] m: material data manager
+    * \param[in] ops: operations
+    */
+diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
+index 75a6e7e..bae9d58 100644
+--- a/include/MGIS/Behaviour/MaterialDataView.hxx
++++ b/include/MGIS/Behaviour/MaterialDataView.hxx
+@@ -320,6 +320,9 @@ namespace mgis::behaviour {
+    * \param[out] o: output state
+    * \param[in] i: input state
+    * \param[in] ops: operations
++   * \note the operations may be asynchronous: the calling code must
++   * synchronize them before reading the values on the host, and no
++   * computation using the states may be pending.
+    */
+   MGIS_EXPORT void updateValues(const MaterialStateView&,
+                                 const MaterialStateView&,
+diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
+index 8cfc943..47f9058 100644
+--- a/include/MGIS/Behaviour/MaterialStateManager.hxx
++++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
+@@ -627,7 +627,10 @@ namespace mgis::behaviour {
+    *
+    * The operations may be asynchronous: the calling code must synchronize
+    * them before reading the values on the host, and no computation using the
+-   * states may be pending.
++   * states may be pending. If the states are located in shared memory, a
++   * copy made by the host may follow a copy made by the operations: the
++   * calling code must also synchronize the operations before another update
++   * of the same values.
+    *
+    * \param[out] o: output state
+    * \param[in] i: input state
+diff --git a/include/MGIS/Behaviour/RotationMatrix.hxx b/include/MGIS/Behaviour/RotationMatrix.hxx
+index fecc3c2..5e7f52c 100644
+--- a/include/MGIS/Behaviour/RotationMatrix.hxx
++++ b/include/MGIS/Behaviour/RotationMatrix.hxx
+@@ -44,7 +44,10 @@ namespace mgis::behaviour {
+      * external array.
+      */
+     MaterialAxisStorage(const MaterialAxisStorage &);
+-    //! \brief move constructor (see the copy constructor)
++    /*!
++     * \brief move constructor (see the copy constructor). A moved-from
++     * material axis must not be used.
++     */
+     MaterialAxisStorage(MaterialAxisStorage &&) noexcept;
+     //! \brief destructor
+     ~MaterialAxisStorage();
+@@ -104,8 +107,11 @@ namespace mgis::behaviour {
+                      const mgis::StorageMode &);
+     //! \brief copy constructor (see `MaterialAxisStorage`)
+     RotationMatrix3D(const RotationMatrix3D &);
+-    //! \brief move constructor (see `MaterialAxisStorage`)
+-    RotationMatrix3D(RotationMatrix3D &&) noexcept;
++    /*!
++     * \brief move constructor (see `MaterialAxisStorage`). The axes, which
++     * are constant members, are copied.
++     */
++    RotationMatrix3D(RotationMatrix3D &&);
+     //! \brief first material axis
+     const MaterialAxisStorage a1;
+     //! \brief second material axis
+diff --git a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
+index db5a65c..419907c 100644
+--- a/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
++++ b/include/MGIS/FieldOperations/CUDAFieldOperations.hxx
+@@ -108,8 +108,9 @@ namespace mgis::field_operations {
+    * The operations are asynchronous: they are submitted to the given stream,
+    * which the calling code must synchronize before reading the values on the
+    * host. A copy between two views with the same dense layout is a copy of a
+-   * contiguous memory region; the other copies, and the fills by a non null
+-   * value, launch a kernel.
++   * contiguous memory region, and the fill of a dense view by a positive
++   * zero sets its bytes to zero; the other copies and fills launch a
++   * kernel.
+    *
+    * This header is not compiled by `MGIS`: it is compiled by the calling
+    * code with nvcc or clang (CUDA).
+diff --git a/include/MGIS/FieldOperations/HIPFieldOperations.hxx b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
+index 74751c0..78da154 100644
+--- a/include/MGIS/FieldOperations/HIPFieldOperations.hxx
++++ b/include/MGIS/FieldOperations/HIPFieldOperations.hxx
+@@ -108,8 +108,9 @@ namespace mgis::field_operations {
+    * The operations are asynchronous: they are submitted to the given stream,
+    * which the calling code must synchronize before reading the values on the
+    * host. A copy between two views with the same dense layout is a copy of a
+-   * contiguous memory region; the other copies, and the fills by a non null
+-   * value, launch a kernel.
++   * contiguous memory region, and the fill of a dense view by a positive
++   * zero sets its bytes to zero; the other copies and fills launch a
++   * kernel.
+    *
+    * This header is not compiled by `MGIS`: it is compiled by the calling
+    * code with hipcc or clang (HIP).
+diff --git a/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
+index 19a759a..36cdc57 100644
+--- a/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
++++ b/include/MGIS/FieldOperations/OpenMPFieldOperations.hxx
+@@ -59,11 +59,12 @@ namespace mgis::field_operations {
+       const auto dcs = d.getComponentStride();
+       const auto sps = s.getPointStride();
+       const auto scs = s.getComponentStride();
+-      // consecutive threads process consecutive points of a component
+-#pragma omp target teams distribute parallel for collapse(2) device(dev) \
++      // one thread per point: consecutive threads process consecutive
++      // points of a component, without computing a division per value
++#pragma omp target teams distribute parallel for device(dev) \
+     is_device_ptr(dv, sv)
+-      for (size_type j = 0; j < nc; ++j) {
+-        for (size_type i = 0; i < n; ++i) {
++      for (size_type i = 0; i < n; ++i) {
++        for (size_type j = 0; j < nc; ++j) {
+           dv[i * dps + j * dcs] = sv[i * sps + j * scs];
+         }
+       }
+@@ -75,10 +76,9 @@ namespace mgis::field_operations {
+       const auto ps = d.getPointStride();
+       const auto cs = d.getComponentStride();
+       const auto dev = this->device;
+-#pragma omp target teams distribute parallel for collapse(2) device(dev) \
+-    is_device_ptr(dv)
+-      for (size_type j = 0; j < nc; ++j) {
+-        for (size_type i = 0; i < n; ++i) {
++#pragma omp target teams distribute parallel for device(dev) is_device_ptr(dv)
++      for (size_type i = 0; i < n; ++i) {
++        for (size_type j = 0; j < nc; ++j) {
+           dv[i * ps + j * cs] = v;
+         }
+       }
+diff --git a/include/MGIS/FieldView.hxx b/include/MGIS/FieldView.hxx
+index 10164bf..be04436 100644
+--- a/include/MGIS/FieldView.hxx
++++ b/include/MGIS/FieldView.hxx
+@@ -63,9 +63,13 @@ namespace mgis {
+    * uniform values.
+    *
+    * A view is trivially copyable: it can be copied to the memory of a
+-   * device and used by the kernels of the calling code. Its member functions
+-   * are `constexpr`: with `nvcc`, they can be called in device code with the
+-   * `--expt-relaxed-constexpr` option.
++   * device and used by the kernels of the calling code. Its accessors are
++   * `constexpr`: with `nvcc`, they can be called in device code with the
++   * `--expt-relaxed-constexpr` option (the constructor, which checks its
++   * preconditions on the host, can't). The assertions of the standard
++   * library (`_GLIBCXX_ASSERTIONS`), which check the accesses to the
++   * `std::span` holding the values on the host only, must not be enabled in
++   * device code.
+    *
+    * \tparam ValueType: type of the values, `real` or `const real`
+    */
+diff --git a/include/MGIS/Function/FieldViewSupport.hxx b/include/MGIS/Function/FieldViewSupport.hxx
+index 8867c67..b2279f9 100644
+--- a/include/MGIS/Function/FieldViewSupport.hxx
++++ b/include/MGIS/Function/FieldViewSupport.hxx
+@@ -63,6 +63,16 @@ namespace mgis::function {
+     return makeFieldView(f);
+   }  // end of makeFieldView
+ 
++  /*!
++   * \brief a temporary function owns its values, which are destroyed at the
++   * end of the expression: no view on them can be built (as `view`)
++   */
++  template <LinearFunctionalSpaceConcept Space, size_type N>
++  void makeFieldView(Function<Space, N>&&) = delete;
++  //! \brief see the previous overload
++  template <LinearFunctionalSpaceConcept Space, size_type N>
++  void makeFieldView(const Function<Space, N>&&) = delete;
++
+   /*!
+    * \return a constant view on the values of a function stored point by
+    * point
+diff --git a/src/Integrate.cxx b/src/Integrate.cxx
+index 74f66b6..ae8a24c 100644
+--- a/src/Integrate.cxx
++++ b/src/Integrate.cxx
+@@ -199,6 +199,7 @@ namespace mgis::behaviour::internals {
+    * property"
+    * \param[in] ds: description of the variables, for instance "material
+    * properties"
++   * \param[in] stage: stage of the time step"
+    * \param[in] values: views
+    * \param[in] variables: variables
+    * \param[in] h: modelling hypothesis
+@@ -208,19 +209,21 @@ namespace mgis::behaviour::internals {
+       const std::string_view f,
+       const std::string_view d,
+       const std::string_view ds,
++      const std::string_view stage,
+       const std::pmr::vector<FieldView<const real>>& values,
+       const std::vector<Variable>& variables,
+       const Hypothesis h,
+       const size_type n) {
+     if (values.size() != variables.size()) {
+       mgis::raise(std::string{f} + ": invalid number of views of the " +
+-                  std::string{ds} + " (" + std::to_string(values.size()) +
+-                  " given, " + std::to_string(variables.size()) + " expected)");
++                  std::string{ds} + std::string{stage} + " (" +
++                  std::to_string(values.size()) + " given, " +
++                  std::to_string(variables.size()) + " expected)");
+     }
+     for (size_type i = 0; i != variables.size(); ++i) {
+       const auto& v = variables[i];
+-      checkFieldView(f, {.what = d, .name = v.name}, values[i], n,
+-                     getVariableSize(v, h), false);
++      checkFieldView(f, {.what = d, .name = v.name, .stage = stage}, values[i],
++                     n, getVariableSize(v, h), false);
+     }
+   }  // end of checkVariablesViews
+ 
+@@ -269,10 +272,10 @@ namespace mgis::behaviour::internals {
+                      s.dissipated_energies, v.n, 1, final_state);
+     }
+     checkVariablesViews(f, "the material property", "material properties",
+-                        s.material_properties, b.mps, h, v.n);
++                        stage, s.material_properties, b.mps, h, v.n);
+     checkVariablesViews(f, "the external state variable",
+-                        "external state variables", s.external_state_variables,
+-                        b.esvs, h, v.n);
++                        "external state variables", stage,
++                        s.external_state_variables, b.esvs, h, v.n);
+   }  // end of checkMaterialStateView
+ 
+   /*!
+diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
+index ff8e086..6300c05 100644
+--- a/src/MaterialDataManager.cxx
++++ b/src/MaterialDataManager.cxx
+@@ -402,6 +402,10 @@ namespace mgis::behaviour {
+     for (const auto& [b1, b2] : m.b.to_blocks) {
+       const auto s = getVariableSize(b1, h) * getVariableSize(b2, h);
+       if ((b1.name == v1) && (b2.name == v2)) {
++        if (m.n == 0) {
++          // no point: the view only gives the number of components
++          return FieldView<ValueType>(std::span<ValueType>{}, 0, s, s, 1);
++        }
+         const auto K = getTangentOperatorBlocksView<ValueType>(m);
+         if (K.empty()) {
+           mgis::raise(
+diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
+index 3ec70c5..8db4d68 100644
+--- a/src/MaterialStateManager.cxx
++++ b/src/MaterialStateManager.cxx
+@@ -610,7 +610,7 @@ namespace mgis::behaviour {
+         u.ops.copy(FieldView<real>(to, 1, nv, nv, 1),
+                    FieldView<const real>(from, 1, nv, nv, 1));
+       } catch (std::exception& e) {
+-        return u.ctx.registerErrorMessage(e.what());
++        return u.ctx.registerErrorMessage(std::string{e.what()});
+       } catch (...) {
+         return u.ctx.registerErrorMessage("unknown exception");
+       }
+@@ -757,7 +757,7 @@ namespace mgis::behaviour {
+     try {
+       u.ops.copy(view(o), view(i));
+     } catch (std::exception& e) {
+-      return u.ctx.registerErrorMessage(e.what());
++      return u.ctx.registerErrorMessage(std::string{e.what()});
+     } catch (...) {
+       return u.ctx.registerErrorMessage("unknown exception");
+     }
+diff --git a/src/RotationMatrix.cxx b/src/RotationMatrix.cxx
+index e000321..6a327d5 100644
+--- a/src/RotationMatrix.cxx
++++ b/src/RotationMatrix.cxx
+@@ -113,7 +113,7 @@ namespace mgis::behaviour {
+       : a1(checkMaterialAxis3D(v1), s), a2(checkMaterialAxis3D(v2), s) {}
+ 
+   RotationMatrix3D::RotationMatrix3D(const RotationMatrix3D&) = default;
+-  RotationMatrix3D::RotationMatrix3D(RotationMatrix3D&&) noexcept = default;
++  RotationMatrix3D::RotationMatrix3D(RotationMatrix3D&&) = default;
+   RotationMatrix3D::~RotationMatrix3D() = default;
+ 
+ }  // end of namespace mgis::behaviour
+diff --git a/tests/AllocationTest.cxx b/tests/AllocationTest.cxx
+index 215779c..93167fd 100644
+--- a/tests/AllocationTest.cxx
++++ b/tests/AllocationTest.cxx
+@@ -49,6 +49,19 @@ void* operator new(const std::size_t s) {
+ 
+ void* operator new[](const std::size_t s) { return ::operator new(s); }
+ 
++void* operator new(const std::size_t s, const std::align_val_t a) {
++  ++number_of_allocations;
++  const auto al = static_cast<std::size_t>(a);
++  if (auto* const p = std::aligned_alloc(al, ((s + al - 1) / al) * al)) {
++    return p;
++  }
++  throw std::bad_alloc();
++}
++
++void* operator new[](const std::size_t s, const std::align_val_t a) {
++  return ::operator new(s, a);
++}
++
+ // the replaced operator new allocates with std::malloc
+ #if defined(__GNUC__) && !defined(__clang__)
+ #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+@@ -66,6 +79,26 @@ void operator delete[](void* const p, const std::size_t) noexcept {
+   std::free(p);
+ }
+ 
++void operator delete(void* const p, const std::align_val_t) noexcept {
++  std::free(p);
++}
++
++void operator delete[](void* const p, const std::align_val_t) noexcept {
++  std::free(p);
++}
++
++void operator delete(void* const p,
++                     const std::size_t,
++                     const std::align_val_t) noexcept {
++  std::free(p);
++}
++
++void operator delete[](void* const p,
++                       const std::size_t,
++                       const std::align_val_t) noexcept {
++  std::free(p);
++}
++
+ static bool success = true;
+ 
+ /*!
+@@ -124,6 +157,61 @@ static void test(const std::string& library) {
+   }
+ }
+ 
++static void testInitializeFunctionsAndPostProcessings(
++    const std::string& library) {
++  using namespace mgis::behaviour;
++  using mgis::real;
++  constexpr auto n = mgis::size_type{10};
++  {
++    const auto b =
++        load(library, "InitializeFunctionTest", Hypothesis::TRIDIMENSIONAL);
++    const auto gp = std::string{
++        isGenericParallelBehaviour(b) ? ", generic-parallel" : ", generic"};
++    auto m = MaterialDataManager(b, n);
++    setExternalStateVariable(m.s0, "Temperature", 293.15);
++    setExternalStateVariable(m.s1, "Temperature", 293.15);
++    const auto pressures = std::vector<real>(n, -1e5);
++    checkNoAllocation("initialize function" + gp, [&] {
++      static_cast<void>(
++          executeInitializeFunction(m, "StressFromInitialPressure", pressures));
++    });
++    checkNoAllocation("initialize function without input" + gp, [&] {
++      static_cast<void>(
++          executeInitializeFunction(m, "ElasticStrainFromInitialStress"));
++    });
++    auto v = make_view(m);
++    auto ws = BehaviourIntegrationWorkSpace(b);
++    checkNoAllocation("initialize function on a view" + gp, [&] {
++      static_cast<void>(executeInitializeFunction(
++          ws, v, "StressFromInitialPressure",
++          mgis::makeFieldView(std::span<const real>(pressures),
++                              mgis::FieldLayout::POINT_BY_POINT, n, 1)));
++    });
++  }
++  const auto b =
++      load(library, "PostProcessingTest", Hypothesis::TRIDIMENSIONAL);
++  const auto gp = std::string{
++      isGenericParallelBehaviour(b) ? ", generic-parallel" : ", generic"};
++  auto m = MaterialDataManager(b, n);
++  for (auto* const s : {&m.s0, &m.s1}) {
++    setMaterialProperty(*s, "YoungModulus", 150e9);
++    setMaterialProperty(*s, "PoissonRatio", 0.3);
++    setExternalStateVariable(*s, "Temperature", 293.15);
++  }
++  auto outputs = std::vector<real>(3 * n);
++  checkNoAllocation("post-processing" + gp, [&] {
++    static_cast<void>(executePostProcessing(outputs, m, "PrincipalStrain"));
++  });
++  auto v = make_view(m);
++  auto ws = BehaviourIntegrationWorkSpace(b);
++  checkNoAllocation("post-processing on a view" + gp, [&] {
++    static_cast<void>(executePostProcessing(
++        mgis::makeFieldView(std::span(outputs),
++                            mgis::FieldLayout::COMPONENT_BY_COMPONENT, n, 3),
++        ws, v, "PrincipalStrain"));
++  });
++}
++
+ static void testRotations(const std::string& library) {
+   using namespace mgis::behaviour;
+   using mgis::real;
+@@ -184,6 +272,8 @@ int main(const int argc, const char* const* const argv) {
+     test(argv[1]);
+     testRotations(argv[2]);
+     testRotations(argv[1]);
++    testInitializeFunctionsAndPostProcessings(argv[2]);
++    testInitializeFunctionsAndPostProcessings(argv[1]);
+     testMaterialProperty(argv[4]);
+     testMaterialProperty(argv[3]);
+   } catch (std::exception& e) {
+diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
+index e945d98..3f11315 100644
+--- a/tests/MaterialDataManagerLayoutTest.cxx
++++ b/tests/MaterialDataManagerLayoutTest.cxx
+@@ -35,6 +35,7 @@
+ #include "MGIS/Context.hxx"
+ #include "MGIS/FieldView.hxx"
+ #include "MGIS/Function/BasicLinearSpace.hxx"
++#include "MGIS/Function/Function.hxx"
+ #include "MGIS/Function/FieldViewSupport.hxx"
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+@@ -380,6 +381,17 @@ static void testExternalStateVariables(const std::string& library) {
+         "external state variables: layouts not checked by updateValues");
+ }  // end of testExternalStateVariables
+ 
++//! \brief true if a view can be built on the values of an object
++template <typename T>
++concept ConvertibleToFieldView =
++    requires(T&& t) { mgis::function::makeFieldView(std::forward<T>(t)); };
++
++// no view can be built on the values of a temporary function
++static_assert(ConvertibleToFieldView<
++              mgis::function::Function<mgis::function::BasicLinearSpace, 6>&>);
++static_assert(!ConvertibleToFieldView<
++              mgis::function::Function<mgis::function::BasicLinearSpace, 6>>);
++
+ //! \brief material function managers
+ static void testMaterialFunctionManager(const std::string& library) {
+   using namespace mgis::behaviour;
+@@ -509,8 +521,8 @@ static void testExecutionForms(const std::string& library) {
+           .exit_status;
+     });
+   }
+-  // an error reported by the tasks of a thread pool: no external state
+-  // variable
++  // an error detected by the calling thread before the tasks of a thread
++  // pool are started: no external state variable
+   {
+     auto me = makeManager(b, n, FieldLayout::COMPONENT_BY_COMPONENT);
+     auto thrown = false;
+diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
+index da867fa..afb0f4e 100644
+--- a/tests/MaterialDataViewTest.cxx
++++ b/tests/MaterialDataViewTest.cxx
+@@ -1609,6 +1609,58 @@ static void testWithoutTangentOperator(const std::string& library) {
+   }
+ }  // end of testWithoutTangentOperator
+ 
++/*!
++ * \brief point where the integration fails, with the values of a point
++ * gathered in the workspace (tangent operator blocks stored component by
++ * component): the tangent operator blocks are not written
++ */
++static void testFailingPoint(const std::string& library) {
++  using namespace mgis::behaviour;
++  const auto b = load(library, "NortonFailure", Hypothesis::TRIDIMENSIONAL);
++  constexpr auto n = size_type{4};
++  auto d = ViewData(b, n, Arrangement::COMPONENT_BY_COMPONENT);
++  auto m = MaterialDataManager(b, n);
++  setupTemperature(m, d.v);
++  d.copyFrom(m);
++  // the copy of the manager set the tangent operator blocks to zero
++  std::fill(d.K.values.begin(), d.K.values.end(), sentinel);
++  auto ws = BehaviourIntegrationWorkSpace(b);
++  auto opts = BehaviourIntegrationOptions{};
++  opts.integration_type =
++      IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
++  const auto r = integrate(ws, d.v, opts, 1);
++  check(r.exit_status == -1, "NortonFailure: the integration must fail");
++  check(std::all_of(d.K.values.begin(), d.K.values.end(),
++                    [](const real x) { return same(x, sentinel); }),
++        "NortonFailure: the tangent operator blocks of a failing point "
++        "must not be written");
++}  // end of testFailingPoint
++
++/*!
++ * \brief error reported by the operations of the end of a time step: the
++ * message of the exception is kept
++ */
++static void testFailingOperations(const std::string& library) {
++  using namespace mgis::behaviour;
++  struct ThrowingOperations final : mgis::FieldOperations {
++   private:
++    void do_copy(const FieldView<real>&,
++                 const FieldView<const real>&) override {
++      throw std::runtime_error(std::string(200, '-') + " copy failed");
++    }
++    void do_fill(const FieldView<real>&, const real) override {}
++  };
++  const auto b = load(library, "Norton", Hypothesis::TRIDIMENSIONAL);
++  auto m = MaterialDataManager(b, 3);
++  auto ops = ThrowingOperations{};
++  check(throws([&] { update(m, ops); }, "copy failed"),
++        "the error of a copy must be reported by update");
++  auto ctx = mgis::Context{};
++  check(!updateValues(ctx, m.s0, m.s1, ops) &&
++            (ctx.getErrorMessage().find("copy failed") != std::string::npos),
++        "the error of a copy must be reported by the context");
++}  // end of testFailingOperations
++
+ int main(const int argc, const char* const* const argv) {
+   if (argc != 4) {
+     std::cerr << "usage: " << argv[0]
+@@ -1637,6 +1689,8 @@ int main(const int argc, const char* const* const argv) {
+     }
+     testModel(argv[3]);
+     testModel(argv[1]);
++    testFailingPoint(argv[2]);
++    testFailingOperations(argv[2]);
+     testErrors(argv[2], argv[1]);
+   } catch (std::exception& e) {
+     std::cerr << e.what() << '\n';
+-- 
+2.43.0
+

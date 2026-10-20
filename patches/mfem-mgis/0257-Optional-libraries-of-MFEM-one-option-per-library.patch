@@ -1,0 +1,2238 @@
+From 09dd1aee293ac7d4b33a139736a6d0f37cce84f3 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 16:00:36 +0200
+Subject: [PATCH] Optional libraries of MFEM: one option per library
+
+Each library of MFEM which mfem-mgis uses for its solvers and
+preconditioners has its own option, enable-<name>: AUTO by default (the
+library is used if MFEM is built with it), ON (the library is required,
+the configuration fails if MFEM is not built with it) or OFF (the library
+is not used, even if MFEM is built with it). Libraries: petsc, ginkgo,
+mumps, superlu, strumpack, suitesparse, sundials, mkl-pardiso,
+mkl-cpardiso, cudss, magma (cmake/modules/MFEMMGISOptionalLibraries.cmake).
+
+The sources, the headers and the tests use the macros
+MFEM_MGIS_HAVE_<NAME>, public compile definitions of the target MFEMMGIS,
+instead of the macros MFEM_USE_<NAME> of MFEM; the installed CMake
+configuration gives the variables MFEMMGIS_HAVE_<NAME>. A package manager
+can map each library to one switch, for instance the variants +petsc and
+~petsc of a Spack package.
+
+The messages refusing a solver or a preconditioner of an unavailable
+library name its option (enable-<name>), and so do the messages refusing
+the nonlinear solvers KINSOL and SNES. The option enable-magma selects the
+sparse solvers of MAGMA only: the batched dense algebra of MFEM uses MAGMA
+whenever MFEM is built with it.
+
+Checked: the usual configuration (AUTO) builds the library and the tests;
+with all the libraries OFF (MFEM of mmm-solvers, which has them all), the
+library and the tests build, and the 238 tests pass.
+---
+ CMakeLists.txt                                |   6 +-
+ Doxyfile.in                                   |  20 +--
+ .../MFEMMGISLinearElasticityBenchmark.cxx     |   8 +-
+ cmake/modules/MFEMMGISOptionalLibraries.cmake |  78 ++++++++++++
+ .../installation_guide/installation_guide.rst |  66 +++++++++-
+ docs/source/user_guide/glossary.rst           |  10 +-
+ docs/source/user_guide/linear_solvers.rst     |   4 +-
+ .../release_notes/release_notes-1.1.0.rst     |  16 +++
+ docs/source/user_guide/tutorial.rst           |   2 +-
+ include/MFEMMGIS/MFEMForward.hxx              |   4 +-
+ ...nearEvolutionProblemImplementationBase.hxx |   8 +-
+ .../MFEMMGIS/Utilities/SolverUtilities.hxx    |   8 +-
+ src/CMakeLists.txt                            |  10 ++
+ src/Config.cxx                                |  42 +++----
+ src/CuDSSSolvers.cxx                          |   4 +-
+ src/CuDSSSolvers.hxx                          |   4 +-
+ src/GinkgoLinearSolvers.cxx                   |   4 +-
+ src/KINSOLSolver.cxx                          |   4 +-
+ src/KINSOLSolver.hxx                          |   4 +-
+ src/LinearSolverModules.cxx                   | 117 ++++++++++--------
+ src/LinearSolverModules.hxx                   |  32 ++---
+ src/MFEMLinearSolvers.cxx                     |  12 +-
+ src/MFEMMGISConfig.cmake.in                   |  12 ++
+ src/MKLSparseSolvers.cxx                      |  28 ++---
+ src/MKLSparseSolvers.hxx                      |   8 +-
+ src/MUMPSSolvers.cxx                          |   4 +-
+ src/MUMPSSolvers.hxx                          |   4 +-
+ ...onLinearEvolutionProblemImplementation.cxx |  10 +-
+ ...nearEvolutionProblemImplementationBase.cxx |  12 +-
+ src/NonLinearSolverFactory.cxx                |  39 +++++-
+ src/PETScLinearSolvers.cxx                    |   4 +-
+ src/PETScSNESSolver.cxx                       |   4 +-
+ src/PETScSNESSolver.hxx                       |   4 +-
+ src/PETScSupport.cxx                          |   4 +-
+ src/PETScSupport.hxx                          |   8 +-
+ src/STRUMPACKSolvers.cxx                      |   4 +-
+ src/SolverUtilities.cxx                       |  28 ++---
+ src/SuperLUSolvers.cxx                        |   4 +-
+ tests/AdaptiveLinearSolverToleranceTest.cxx   |   4 +-
+ tests/CMakeLists.txt                          |  50 ++++----
+ tests/ExecutionSettingsTest.cxx               |   4 +-
+ tests/MFEMSolversTest.cxx                     |   4 +-
+ tests/MKLSolversTest.cxx                      |   4 +-
+ tests/MicromorphicDamage3DTest.cxx            |   4 +-
+ tests/ParallelReadMode.cxx                    |   4 +-
+ tests/SequentialLinearSolver.hxx              |  18 +--
+ tests/SparseDirectSolversTest.cxx             |  24 ++--
+ tests/TwoLayerCube.cxx                        |   4 +-
+ tests/UniaxialTensileTest.cxx                 |   4 +-
+ tests/UnitTestingUtilities.hxx                |   8 +-
+ 50 files changed, 496 insertions(+), 276 deletions(-)
+ create mode 100644 cmake/modules/MFEMMGISOptionalLibraries.cmake
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4486dc0174..8de036d4b8 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -255,6 +255,10 @@ else()
+       "--dsl-option=real_type:${MFEM_MGIS_REAL_TYPE}")
+ endif()
+ 
++# optional libraries of MFEM used by mfem-mgis: options enable-<name>
++# (AUTO, ON or OFF), variables and macros MFEM_MGIS_HAVE_<NAME>
++include(MFEMMGISOptionalLibraries)
++
+ # sparse part of MAGMA (library magma_sparse and header magmasparse.h),
+ # searched next to the library of MAGMA which MFEM uses for its batched
+ # dense algebra (given by its full path, or by a -L flag followed by
+@@ -263,7 +267,7 @@ endif()
+ # MFEM_MGIS_MAGMA_SPARSE_INCLUDE_DIR may be given to use other locations;
+ # they are searched again when the library of MAGMA of MFEM changes.
+ set(MFEM_MGIS_HAVE_MAGMA_SPARSE OFF)
+-if(MFEM_USE_MAGMA STREQUAL "YES")
++if(MFEM_MGIS_HAVE_MAGMA)
+   if(MFEM_MGIS_REAL_TYPE STREQUAL "double")
+     separate_arguments(_mfem_ext_libs UNIX_COMMAND "${MFEM_EXT_LIBS}")
+     set(_mfem_library_directories)
+diff --git a/Doxyfile.in b/Doxyfile.in
+index 4dd0dd9231..71785050f3 100644
+--- a/Doxyfile.in
++++ b/Doxyfile.in
+@@ -1931,17 +1931,17 @@ INCLUDE_FILE_PATTERNS  =
+ # This tag requires that the tag ENABLE_PREPROCESSING is set to YES.
+ 
+ PREDEFINED             = MFEM_USE_MPI \
+-                         MFEM_USE_PETSC \
+-                         MFEM_USE_MUMPS \
+-                         MFEM_USE_SUITESPARSE \
++                         MFEM_MGIS_HAVE_PETSC \
++                         MFEM_MGIS_HAVE_MUMPS \
++                         MFEM_MGIS_HAVE_SUITESPARSE \
+                          MFEM_USE_GSLIB \
+-                         MFEM_USE_CUDSS \
+-                         MFEM_USE_SUPERLU \
+-                         MFEM_USE_STRUMPACK \
+-                         MFEM_USE_GINKGO \
+-                         MFEM_USE_SUNDIALS \
+-                         MFEM_USE_MKL_PARDISO \
+-                         MFEM_USE_MKL_CPARDISO \
++                         MFEM_MGIS_HAVE_CUDSS \
++                         MFEM_MGIS_HAVE_SUPERLU \
++                         MFEM_MGIS_HAVE_STRUMPACK \
++                         MFEM_MGIS_HAVE_GINKGO \
++                         MFEM_MGIS_HAVE_SUNDIALS \
++                         MFEM_MGIS_HAVE_MKL_PARDISO \
++                         MFEM_MGIS_HAVE_MKL_CPARDISO \
+                          MFEMMGIS_HAVE_GSLIBGRIDFUNCTIONINTERPOLATOR \
+                          MFEM_MGIS_HAVE_AMGX \
+                          MFEM_MGIS_HAVE_MAGMA_SPARSE \
+diff --git a/benchmarks/MFEMMGISLinearElasticityBenchmark.cxx b/benchmarks/MFEMMGISLinearElasticityBenchmark.cxx
+index 65f5a4188f..2ee7bc5d93 100644
+--- a/benchmarks/MFEMMGISLinearElasticityBenchmark.cxx
++++ b/benchmarks/MFEMMGISLinearElasticityBenchmark.cxx
+@@ -23,13 +23,13 @@
+ #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ 
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+ #include "mfem/linalg/petsc.hpp"
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ 
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_MUMPS
+ #include "mfem/linalg/mumps.hpp"
+-#endif /* MFEM_USE_MUMPS */
++#endif /* MFEM_MGIS_HAVE_MUMPS */
+ 
+ #include <MFEMMGIS/Profiler.hxx>
+ #include <functional>
+diff --git a/cmake/modules/MFEMMGISOptionalLibraries.cmake b/cmake/modules/MFEMMGISOptionalLibraries.cmake
+new file mode 100644
+index 0000000000..880137a565
+--- /dev/null
++++ b/cmake/modules/MFEMMGISOptionalLibraries.cmake
+@@ -0,0 +1,78 @@
++# Optional libraries of MFEM used by mfem-mgis (solvers and preconditioners).
++#
++# For each library, the cache variable `enable-<name>` selects its use:
++#
++# - `AUTO` (default): the library is used if MFEM is built with it;
++# - `ON`: the library is required, an error is reported if MFEM is not built
++#   with it;
++# - `OFF`: the library is not used, even if MFEM is built with it.
++#
++# The variable `MFEM_MGIS_HAVE_<NAME>` (`ON` or `OFF`) gives the result, and
++# the target `MFEMMGIS` defines the macro of the same name (see
++# `src/CMakeLists.txt`), which the sources use instead of the macros
++# `MFEM_USE_<NAME>` of MFEM. A package manager maps each library to one
++# switch (for instance the variants `+petsc` and `~petsc` of spack to
++# `-Denable-petsc=ON` and `-Denable-petsc=OFF`).
++
++# names of the options, variables of MFEM and descriptions
++set(MFEM_MGIS_OPTIONAL_MFEM_LIBRARIES
++  "petsc:PETSC:Krylov solvers, preconditioners and nonlinear solvers of PETSc"
++  "ginkgo:GINKGO:solvers and preconditioners of Ginkgo"
++  "mumps:MUMPS:direct solver MUMPS"
++  "superlu:SUPERLU:direct solver SuperLU_DIST"
++  "strumpack:STRUMPACK:direct solver and preconditioner STRUMPACK"
++  "suitesparse:SUITESPARSE:direct solvers UMFPACK and KLU of SuiteSparse"
++  "sundials:SUNDIALS:nonlinear solver KINSOL of SUNDIALS"
++  "mkl-pardiso:MKL_PARDISO:direct solver PARDISO of oneMKL"
++  "mkl-cpardiso:MKL_CPARDISO:direct solver Cluster Sparse Solver of oneMKL"
++  "cudss:CUDSS:direct solver cuDSS"
++  "magma:MAGMA:sparse solvers of MAGMA")
++
++#! \brief selects the use of an optional library of MFEM
++#! \param name: name of the option (`enable-<name>`)
++#! \param variable: suffix of the variables of MFEM (`MFEM_USE_<variable>`)
++#! and of mfem-mgis (`MFEM_MGIS_HAVE_<variable>`)
++#! \param description: description of the option
++function(mfem_mgis_select_optional_mfem_library name variable description)
++  set(enable-${name} "AUTO" CACHE STRING
++      "${description}: AUTO (if MFEM is built with it), ON or OFF")
++  set_property(CACHE enable-${name} PROPERTY STRINGS AUTO ON OFF)
++  string(TOUPPER "${enable-${name}}" _choice)
++  # the variables of MFEM are YES or NO (config.mk), or ON or OFF
++  if(MFEM_USE_${variable})
++    set(_mfem ON)
++  else()
++    set(_mfem OFF)
++  endif()
++  if(_choice STREQUAL "AUTO")
++    set(_have ${_mfem})
++  elseif(_choice STREQUAL "ON")
++    if(NOT _mfem)
++      message(FATAL_ERROR "mfem-mgis: enable-${name} is ON, but MFEM is "
++              "not built with it (MFEM_USE_${variable})")
++    endif()
++    set(_have ON)
++  elseif(_choice STREQUAL "OFF")
++    set(_have OFF)
++  else()
++    message(FATAL_ERROR "mfem-mgis: invalid value '${enable-${name}}' of "
++            "enable-${name} (expected AUTO, ON or OFF)")
++  endif()
++  set(MFEM_MGIS_HAVE_${variable} ${_have} PARENT_SCOPE)
++endfunction(mfem_mgis_select_optional_mfem_library)
++
++set(_mfem_mgis_optional_libraries_summary)
++foreach(_library ${MFEM_MGIS_OPTIONAL_MFEM_LIBRARIES})
++  string(REPLACE ":" ";" _fields "${_library}")
++  list(GET _fields 0 _name)
++  list(GET _fields 1 _variable)
++  list(GET _fields 2 _description)
++  mfem_mgis_select_optional_mfem_library(${_name} ${_variable}
++                                         "${_description}")
++  list(APPEND _mfem_mgis_optional_libraries_summary
++       "${_name}=${MFEM_MGIS_HAVE_${_variable}}")
++endforeach(_library)
++string(REPLACE ";" " " _mfem_mgis_optional_libraries_summary
++       "${_mfem_mgis_optional_libraries_summary}")
++message(STATUS "mfem-mgis optional libraries of MFEM: "
++        "${_mfem_mgis_optional_libraries_summary}")
+diff --git a/docs/source/installation_guide/installation_guide.rst b/docs/source/installation_guide/installation_guide.rst
+index 84319ca391..7b6772e053 100644
+--- a/docs/source/installation_guide/installation_guide.rst
++++ b/docs/source/installation_guide/installation_guide.rst
+@@ -188,8 +188,70 @@ CMake options
+   ``TFEL`` (found with the hint ``TFEL_DIR``), already enabled when the
+   ``TFEL`` used by ``MGIS`` provides this framework.
+ 
+-The direct solver ``CuDSSSolver`` is available when ``MFEM`` is built
+-with ``cuDSS`` (see :doc:`../user_guide/glossary`).
++.. _mfem_mgis_optional_libraries:
++
++Optional libraries of MFEM
++^^^^^^^^^^^^^^^^^^^^^^^^^^
++
++The solvers and preconditioners of the libraries which ``MFEM`` may be
++built with are selected, library by library, by the following options,
++whose value is ``AUTO`` (default: the library is used if ``MFEM`` is
++built with it), ``ON`` (the library is required: the configuration fails
++if ``MFEM`` is not built with it) or ``OFF`` (the library is not used,
++even if ``MFEM`` is built with it):
++
++.. list-table::
++   :header-rows: 1
++
++   * - Option
++     - Library (variable of ``MFEM``)
++     - Solvers and preconditioners of ``mfem-mgis``
++   * - ``enable-petsc``
++     - ``PETSc`` (``MFEM_USE_PETSC``)
++     - ``PETScLinearSolver``, ``PETScPreconditioner``, ``SNES``
++   * - ``enable-ginkgo``
++     - ``Ginkgo`` (``MFEM_USE_GINKGO``)
++     - solvers and preconditioners of ``Ginkgo``
++   * - ``enable-mumps``
++     - ``MUMPS`` (``MFEM_USE_MUMPS``)
++     - ``MUMPSSolver``, ``MUMPSPreconditioner``
++   * - ``enable-superlu``
++     - ``SuperLU_DIST`` (``MFEM_USE_SUPERLU``)
++     - ``SuperLUSolver``
++   * - ``enable-strumpack``
++     - ``STRUMPACK`` (``MFEM_USE_STRUMPACK``)
++     - ``STRUMPACKSolver``, ``STRUMPACKMixedPrecisionSolver``,
++       ``STRUMPACKPreconditioner``
++   * - ``enable-suitesparse``
++     - ``SuiteSparse`` (``MFEM_USE_SUITESPARSE``)
++     - ``UMFPackSolver``, ``KLUSolver`` and the preconditioners using them
++   * - ``enable-sundials``
++     - ``SUNDIALS`` (``MFEM_USE_SUNDIALS``)
++     - nonlinear solver ``KINSOL``
++   * - ``enable-mkl-pardiso``
++     - ``PARDISO`` of oneMKL (``MFEM_USE_MKL_PARDISO``)
++     - ``MKLPardisoSolver``
++   * - ``enable-mkl-cpardiso``
++     - Cluster Sparse Solver of oneMKL (``MFEM_USE_MKL_CPARDISO``)
++     - ``MKLClusterSparseSolver``
++   * - ``enable-cudss``
++     - ``cuDSS`` (``MFEM_USE_CUDSS``)
++     - ``CuDSSSolver``
++   * - ``enable-magma``
++     - ``MAGMA`` (``MFEM_USE_MAGMA``)
++     - sparse solvers of ``MAGMA`` (the batched dense algebra of ``MFEM``,
++       used by ``NodalBlockJacobi``, uses ``MAGMA`` whenever ``MFEM`` is
++       built with it)
++
++The result is given by the variables ``MFEMMGIS_HAVE_<LIBRARY>`` of the
++installed CMake configuration (for instance ``MFEMMGIS_HAVE_PETSC``) and
++by the macros ``MFEM_MGIS_HAVE_<LIBRARY>``, defined for the programs
++linked to ``mfem-mgis``. The libraries which ``MFEM`` does not provide,
++``AmgX`` and ``Trilinos``, have their own options (``enable-amgx``,
++``enable-trilinos``, ``OFF`` by default). A package manager maps each
++library to one switch: for instance, a variant ``+petsc`` of a Spack
++package of ``mfem-mgis`` requires ``mfem+petsc`` and gives
++``-Denable-petsc=ON``, and ``~petsc`` gives ``-Denable-petsc=OFF``.
+ 
+ MFEM compiled with CUDA or HIP
+ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index babb102ea6..7d1638905c 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -18,7 +18,7 @@ the problem to be solved.
+ .. note:: 
+ 
+   The list of default parameters is adapted according to compilation
+-  flags. For example, if ``MFEM_USE_MUMPS`` is not active, ``MUMPS`` will
++  flags. For example, if ``MFEM_MGIS_HAVE_MUMPS`` is not active, ``MUMPS`` will
+   not appear in the list. So if one of the options listed below doesn't
+   appear, ``MFEM-MGIS`` may not have been compiled with all the options.
+ 
+@@ -53,7 +53,7 @@ MUMPS Solver
+   matrix shall be declared ``Symmetric`` and ``PositiveDefinite``)
+ - Dependencies:
+  
+-  - ``MFEM_USE_MUMPS``
++  - ``MFEM_MGIS_HAVE_MUMPS``
+   - parallel
+ 
+ - Parameters:
+@@ -109,7 +109,7 @@ MFEM.
+ - Solver name: ``CuDSSSolver``
+ - Dependencies:
+ 
+-  - ``MFEM_USE_CUDSS``
++  - ``MFEM_MGIS_HAVE_CUDSS``
+   - parallel
+   - a device on a CUDA GPU (option ``--execution gpu``, or
+     ``--device cuda``, of ``mfem_mgis::initialize``): the solver is refused
+@@ -170,7 +170,7 @@ UMFPack Solver
+ - Solver name: ``UMFPackSolver``
+ - Dependencies: 
+ 
+-  - ``MFEM_USE_SUITESPARSE``
++  - ``MFEM_MGIS_HAVE_SUITESPARSE``
+   - not parallel
+ 
+ - Parameters: None
+@@ -187,7 +187,7 @@ KLU Solver
+ - Solver name: ``KLUSolver``
+ - Dependencies:
+ 
+-  - ``MFEM_USE_SUITESPARSE``
++  - ``MFEM_MGIS_HAVE_SUITESPARSE``
+   - not parallel
+ 
+ - Parameters: None
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index ad6763fa74..3058b9f5f9 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -983,7 +983,9 @@ Sparse direct solvers of oneMKL
+ ===============================
+ 
+ When :code:`MFEM` is built with them (:code:`MFEM_USE_MKL_PARDISO`,
+-:code:`MFEM_USE_MKL_CPARDISO`), the PARDISO solver of oneMKL
++:code:`MFEM_USE_MKL_CPARDISO`) and mfem-mgis uses them (options
++:code:`enable-mkl-pardiso` and :code:`enable-mkl-cpardiso`, see
++:ref:`mfem_mgis_optional_libraries`), the PARDISO solver of oneMKL
+ (:cxx:`MKLPardisoSolver`, sequential) and its Cluster Sparse Solver
+ (:cxx:`MKLClusterSparseSolver`, parallel, the rows of the matrix being
+ distributed as the ones of the matrix of hypre) are available. They are
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index bb33cc9824..3f6168a2a2 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -135,6 +135,22 @@ message. The available linear solvers and preconditioners are listed in
+ :ref:`linear_solvers`; the solvers of each library are registered by a
+ module (see :ref:`linear_solver_modules`).
+ 
++One option per optional library of MFEM
++---------------------------------------
++
++Each library of |MFEM| which mfem-mgis uses for its solvers and
++preconditioners (PETSc, Ginkgo, MUMPS, SuperLU_DIST, STRUMPACK,
++SuiteSparse, SUNDIALS, the sparse direct solvers of oneMKL, cuDSS and
++MAGMA) has its own CMake option, :code:`enable-<library>`: :code:`AUTO` by
++default (the library is used if |MFEM| is built with it), :code:`ON` (the
++library is required, the configuration fails if |MFEM| is not built with
++it) or :code:`OFF` (the library is not used, even if |MFEM| is built with
++it). The result is given by the macros :code:`MFEM_MGIS_HAVE_<LIBRARY>`
++and by the variables :code:`MFEMMGIS_HAVE_<LIBRARY>` of the installed
++CMake configuration. A package manager can map each library to one switch,
++for instance a variant of a Spack package. See
++:ref:`mfem_mgis_optional_libraries`.
++
+ Linear solvers and preconditioners of PETSc
+ -------------------------------------------
+ 
+diff --git a/docs/source/user_guide/tutorial.rst b/docs/source/user_guide/tutorial.rst
+index 0aa6704493..8fcf320b46 100644
+--- a/docs/source/user_guide/tutorial.rst
++++ b/docs/source/user_guide/tutorial.rst
+@@ -263,7 +263,7 @@ default initialized as follows:
+      bool use_fbar = false;
+      const char* reference_file = "";
+      const char* standard_reference_file = "";
+-   #if defined(MFEM_USE_MUMPS) && defined(MFEM_USE_MPI)
++   #if defined(MFEM_MGIS_HAVE_MUMPS) && defined(MFEM_USE_MPI)
+      bool parallel = true;
+    #else
+      bool parallel = false;
+diff --git a/include/MFEMMGIS/MFEMForward.hxx b/include/MFEMMGIS/MFEMForward.hxx
+index 5695ea632d..678d928423 100644
+--- a/include/MFEMMGIS/MFEMForward.hxx
++++ b/include/MFEMMGIS/MFEMForward.hxx
+@@ -49,9 +49,9 @@ namespace mfem {
+   class SparseMatrix;
+   class HypreParMatrix;
+   //
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+   class PetscNonlinearSolver;
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ 
+ }  // end of namespace mfem
+ 
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index fa233026b9..61b9c8e158 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -15,9 +15,9 @@
+ #include "mfem/general/array.hpp"
+ #include "mfem/linalg/vector.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+ #include "mfem/linalg/petsc.hpp"
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ 
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+@@ -396,10 +396,10 @@ namespace mfem_mgis {
+     mfem::Vector u1;
+     //! \brief nonlinear solver
+     std::unique_ptr<AbstractNonLinearSolver> solver;
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+     //! \brief newton solver
+     std::unique_ptr<mfem::PetscNonlinearSolver> petsc_solver;
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+     //! \brief linear solver
+     std::unique_ptr<LinearSolver> linear_solver;
+     //! \brief linear solver preconditioner
+diff --git a/include/MFEMMGIS/Utilities/SolverUtilities.hxx b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+index 4ab51a036b..e441ff7ca1 100644
+--- a/include/MFEMMGIS/Utilities/SolverUtilities.hxx
++++ b/include/MFEMMGIS/Utilities/SolverUtilities.hxx
+@@ -43,7 +43,7 @@ namespace mfem_mgis {
+   MFEM_MGIS_EXPORT [[nodiscard]] bool setSolverParameters(
+       Context& ctx, IterativeSolver& s, const Parameters& params) noexcept;
+ 
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+   /*!
+    * \brief set the parameters of a PETSc solver
+    *
+@@ -56,7 +56,7 @@ namespace mfem_mgis {
+       Context& ctx,
+       mfem::PetscNonlinearSolver& s,
+       const Parameters& params) noexcept;
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ 
+   /*!
+    * \brief set the parameters of an iterative solver
+@@ -71,7 +71,7 @@ namespace mfem_mgis {
+       IterativeSolver& s,
+       const Parameters& params);
+ 
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+   /*!
+    * \brief set the parameters of a PETSc solver
+    *
+@@ -84,7 +84,7 @@ namespace mfem_mgis {
+       attributes::Throwing throwing,
+       mfem::PetscNonlinearSolver& s,
+       const Parameters& params);
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ 
+   /*!
+    * \brief clear the errors raised by hypre during the last linear solve
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index d1513b6fe3..788352cbca 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -230,6 +230,16 @@ endif()
+ if(MFEM_USE_HIP STREQUAL "YES")
+   target_link_libraries(MFEMMGIS PUBLIC hip::host)
+ endif()
++# optional libraries of MFEM (see cmake/modules/MFEMMGISOptionalLibraries.cmake):
++# public macros, also read by the headers and by the programs using
++# mfem-mgis
++foreach(_library ${MFEM_MGIS_OPTIONAL_MFEM_LIBRARIES})
++  string(REPLACE ":" ";" _fields "${_library}")
++  list(GET _fields 1 _variable)
++  if(MFEM_MGIS_HAVE_${_variable})
++    target_compile_definitions(MFEMMGIS PUBLIC MFEM_MGIS_HAVE_${_variable})
++  endif()
++endforeach(_library)
+ # AmgX precedes MFEM in the link line: a MFEM compiled with AmgX contains
+ # its own copy of AmgX (static library), which the library of AmgX given to
+ # mfem-mgis replaces
+diff --git a/src/Config.cxx b/src/Config.cxx
+index e645eedaf9..21e6de893a 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -29,9 +29,9 @@
+ #include "mfem/general/backends.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "mfem/general/communication.hpp"
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+ #include "mfem/linalg/petsc.hpp"
+-#endif /*MFEM_USE_PETSC */
++#endif /*MFEM_MGIS_HAVE_PETSC */
+ #include "MGIS/Raise.hxx"
+ #ifdef MFEM_MGIS_HAVE_KOKKOS
+ #include "KokkosRuntime.hxx"
+@@ -126,13 +126,13 @@ namespace mfem_mgis {
+    private:
+     //! \brief boolean stating if PETSc shall be used
+     bool use_petsc = false;
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+     /*!
+      * \brief boolean stating if PETSc has been initialized for its solvers
+      * and its preconditioners (see `initializePETScOnDemand`)
+      */
+     bool petsc_initialized_on_demand = false;
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+     /*!
+      * \brief MFEM device, created by `initialize` (option `--device`,
+      * environment variable `MFEM_MGIS_DEVICE`, or device `gpu` by default in
+@@ -410,7 +410,7 @@ namespace mfem_mgis {
+ 
+   Finalizer::Finalizer() = default;
+ 
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+   void Finalizer::setPETSc(const char* petscrc_file) {
+     this->use_petsc = true;
+     mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
+@@ -423,7 +423,7 @@ namespace mfem_mgis {
+     mfem::MFEMInitializePetsc();
+     this->petsc_initialized_on_demand = true;
+   }  // end of initializePETScOnDemand
+-#else  /* MFEM_USE_PETSC */
++#else  /* MFEM_MGIS_HAVE_PETSC */
+   void Finalizer::setPETSc(const char*) {
+     mgis::raise("Finalizer::setPETSc: PETSc is not supported");
+   }
+@@ -431,7 +431,7 @@ namespace mfem_mgis {
+   void Finalizer::initializePETScOnDemand() {
+     mgis::raise("Finalizer::initializePETScOnDemand: PETSc is not supported");
+   }
+-#endif /*MFEM_USE_PETSC*/
++#endif /*MFEM_MGIS_HAVE_PETSC*/
+ 
+   void Finalizer::initializeKokkosOnDemand() {
+ #ifdef MFEM_MGIS_HAVE_KOKKOS
+@@ -456,9 +456,9 @@ namespace mfem_mgis {
+   }  // end of initializeKokkosOnDemand
+ 
+   void Finalizer::initialize(int& argc, MainFunctionArguments& argv) {
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+     const char* petscrc_file = nullptr;
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+     const char* device_configuration = nullptr;
+     const char* hypre_device_pool_size = nullptr;
+     auto hypre_device_pool_size_from_environment = false;
+@@ -503,7 +503,7 @@ namespace mfem_mgis {
+         device_configuration = *a;
+         continue;
+       }
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+       // long and short names, as declared by `declareDefaultOptions`
+       if ((std::strcmp(*a, "--use-petsc") == 0) ||
+           (std::strcmp(*a, "-up") == 0)) {
+@@ -525,7 +525,7 @@ namespace mfem_mgis {
+         }
+         petscrc_file = *a;
+       }
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+     }
+     // size of the pool of memory of hypre on the GPU, given by the option or
+     // by the environment
+@@ -569,7 +569,7 @@ namespace mfem_mgis {
+         device_configuration = e;
+       }
+     }
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+     // PETSc solves the non linear problems on the host
+     if ((this->use_petsc) && (execution.mode != ExecutionMode::UNSPECIFIED) &&
+         (execution.linear_solver == ExecutionLocation::GPU)) {
+@@ -578,7 +578,7 @@ namespace mfem_mgis {
+           "settings place the linear solvers on the GPU (use '--execution "
+           "cpu' or '--execution mixed --linear-solver-device cpu')");
+     }
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+     // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
+     // (CUDA or HIP, as MFEM is built) by default in the gpu and mixed modes
+     if (execution.mode == ExecutionMode::CPU) {
+@@ -683,14 +683,14 @@ namespace mfem_mgis {
+     // reported here rather than at the first post-processing (the variable
+     // is read again at each computation)
+     static_cast<void>(internals::usePostProcessingsKernels(may_throw));
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+     if (this->use_petsc) {
+       if (petscrc_file == nullptr) {
+         mgis::raise("initialize: no PETSc configuration file given");
+       }
+       mfem::MFEMInitializePetsc(nullptr, nullptr, petscrc_file, nullptr);
+     }
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+   }    // end of initialize
+ 
+   Finalizer& Finalizer::get() {
+@@ -712,11 +712,11 @@ namespace mfem_mgis {
+ #endif /* MFEM_MGIS_HAVE_KOKKOS */
+     if (!this->pendingExit) {
+ #ifdef MFEM_USE_MPI
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+       if ((this->use_petsc) || (this->petsc_initialized_on_demand)) {
+         mfem::MFEMFinalizePetsc();
+       }
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+       mfem::Hypre::Finalize();
+       MPI_Finalize();
+       this->pendingExit = true;
+@@ -917,18 +917,18 @@ namespace mfem_mgis {
+         "the generic-parallel interface (requires mfem-mgis "
+         "built with Kokkos). Given by the variable "
+         "MFEM_MGIS_KOKKOS if not given.");
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+     static bool use_petsc = false;
+     static const char* petscrc_file = "";
+-#endif /* MFEM_USE_PETSC */
+-#ifdef MFEM_USE_PETSC
++#endif /* MFEM_MGIS_HAVE_PETSC */
++#ifdef MFEM_MGIS_HAVE_PETSC
+     parser.AddOption(&use_petsc, "-up", "--use-petsc", "-no-up",
+                      "--donot-use-petsc",
+                      "Use or not PETSc to solve the nonlinear system.");
+     parser.AddOption(&petscrc_file, "petscrc_file",
+                      Finalizer::petsc_configuration_file_option,
+                      "Path to the PETSc configuration file.");
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+   }
+ 
+   bool usePETSc() { return Finalizer::get().usePETSc(); }  // end of usePETSc
+diff --git a/src/CuDSSSolvers.cxx b/src/CuDSSSolvers.cxx
+index 055e76a58a..6e9706c851 100644
+--- a/src/CuDSSSolvers.cxx
++++ b/src/CuDSSSolvers.cxx
+@@ -6,7 +6,7 @@
+ 
+ #include "CuDSSSolvers.hxx"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS)
+ 
+ #include <utility>
+ #include <memory>
+@@ -229,4 +229,4 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS) */
+diff --git a/src/CuDSSSolvers.hxx b/src/CuDSSSolvers.hxx
+index 33eeb84b0b..00cddfb0eb 100644
+--- a/src/CuDSSSolvers.hxx
++++ b/src/CuDSSSolvers.hxx
+@@ -11,7 +11,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS)
+ 
+ #include <memory>
+ #include <optional>
+@@ -145,6 +145,6 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS) */
+ 
+ #endif /* LIB_MFEM_MGIS_SRC_CUDSSSOLVERS_HXX */
+diff --git a/src/GinkgoLinearSolvers.cxx b/src/GinkgoLinearSolvers.cxx
+index 93bc78fafb..cae039a52e 100644
+--- a/src/GinkgoLinearSolvers.cxx
++++ b/src/GinkgoLinearSolvers.cxx
+@@ -10,7 +10,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#ifdef MFEM_USE_GINKGO
++#ifdef MFEM_MGIS_HAVE_GINKGO
+ 
+ #include <array>
+ #include <memory>
+@@ -1375,4 +1375,4 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* MFEM_USE_GINKGO */
++#endif /* MFEM_MGIS_HAVE_GINKGO */
+diff --git a/src/KINSOLSolver.cxx b/src/KINSOLSolver.cxx
+index 0c7d8c6cee..33061a6003 100644
+--- a/src/KINSOLSolver.cxx
++++ b/src/KINSOLSolver.cxx
+@@ -6,7 +6,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#ifdef MFEM_USE_SUNDIALS
++#ifdef MFEM_MGIS_HAVE_SUNDIALS
+ 
+ #include <cmath>
+ #include <tuple>
+@@ -740,4 +740,4 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* MFEM_USE_SUNDIALS */
++#endif /* MFEM_MGIS_HAVE_SUNDIALS */
+diff --git a/src/KINSOLSolver.hxx b/src/KINSOLSolver.hxx
+index 71f37824bd..3c64a157b9 100644
+--- a/src/KINSOLSolver.hxx
++++ b/src/KINSOLSolver.hxx
+@@ -10,7 +10,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#ifdef MFEM_USE_SUNDIALS
++#ifdef MFEM_MGIS_HAVE_SUNDIALS
+ 
+ #include <limits>
+ #include <memory>
+@@ -133,6 +133,6 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* MFEM_USE_SUNDIALS */
++#endif /* MFEM_MGIS_HAVE_SUNDIALS */
+ 
+ #endif /* LIB_MFEM_MGIS_KINSOLSOLVER_HXX */
+diff --git a/src/LinearSolverModules.cxx b/src/LinearSolverModules.cxx
+index db91e0889c..612d224b22 100644
+--- a/src/LinearSolverModules.cxx
++++ b/src/LinearSolverModules.cxx
+@@ -63,59 +63,68 @@ namespace mfem_mgis::internals {
+              "enable-trilinos, in parallel)";
+     }
+ #endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_TRILINOS)) */
+-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS))
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS))
+     if ((n == "MUMPSSolver") || (n == "MUMPSPreconditioner")) {
+-      return "MFEM is not compiled with MUMPS";
++      return "mfem-mgis does not use MUMPS (option enable-mumps, MFEM "
++             "compiled with MUMPS and MPI)";
+     }
+-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)) */
+-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS))
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)) */
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS))
+     if (n == "CuDSSSolver") {
+-      return "MFEM is not compiled with cuDSS";
++      return "mfem-mgis does not use cuDSS (option enable-cudss, MFEM "
++             "compiled with cuDSS and MPI)";
+     }
+-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)) */
+-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU))
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS)) */
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU))
+     if (n == "SuperLUSolver") {
+-      return "MFEM is not compiled with SuperLU_DIST";
++      return "mfem-mgis does not use SuperLU_DIST (option enable-superlu, "
++             "MFEM compiled with SuperLU_DIST and MPI)";
+     }
+-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)) */
+-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK))
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU)) */
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK))
+     if (n.starts_with("STRUMPACK")) {
+-      return "MFEM is not compiled with STRUMPACK";
++      return "mfem-mgis does not use STRUMPACK (option enable-strumpack, "
++             "MFEM compiled with STRUMPACK and MPI)";
+     }
+-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK)) */
+-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC))
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK)) */
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC))
+     if ((n == "PETScLinearSolver") || (n == "PETScPreconditioner")) {
+-      return "MFEM is not compiled with PETSc";
++      return "mfem-mgis does not use PETSc (option enable-petsc, MFEM "
++             "compiled with PETSc and MPI)";
+     }
+-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)) */
+-#ifndef MFEM_USE_GINKGO
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)) */
++#ifndef MFEM_MGIS_HAVE_GINKGO
+     if (n.starts_with("Ginkgo")) {
+-      return "MFEM is not compiled with Ginkgo";
++      return "mfem-mgis does not use Ginkgo (option enable-ginkgo, MFEM "
++             "compiled with Ginkgo)";
+     }
+-#endif /* MFEM_USE_GINKGO */
+-#ifndef MFEM_USE_MKL_PARDISO
++#endif /* MFEM_MGIS_HAVE_GINKGO */
++#ifndef MFEM_MGIS_HAVE_MKL_PARDISO
+     if (n == "MKLPardisoSolver") {
+-      return "MFEM is not compiled with the PARDISO solver of oneMKL";
++      return "mfem-mgis does not use the PARDISO solver of oneMKL (option "
++             "enable-mkl-pardiso, MFEM compiled with it)";
+     }
+-#endif /* MFEM_USE_MKL_PARDISO */
+-#if !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
++#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO))
+     if (n == "MKLClusterSparseSolver") {
+-      return "MFEM is not compiled with the Cluster Sparse Solver of oneMKL";
++      return "mfem-mgis does not use the Cluster Sparse Solver of oneMKL "
++             "(option enable-mkl-cpardiso, MFEM compiled with it and MPI)";
+     }
+-#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)) */
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)) */
+ #ifndef MFEM_MGIS_HAVE_MAGMA_SPARSE
+     if (n.starts_with("MAGMA")) {
+-      return "mfem-mgis is not compiled with the sparse part of MAGMA (MFEM "
+-             "compiled with MAGMA in double precision, and the library "
+-             "magma_sparse)";
++      return "mfem-mgis does not use the sparse part of MAGMA (option "
++             "enable-magma, MFEM compiled with MAGMA in double precision, "
++             "and the library magma_sparse)";
+     }
+ #endif /* MFEM_MGIS_HAVE_MAGMA_SPARSE */
+-#ifndef MFEM_USE_SUITESPARSE
++#ifndef MFEM_MGIS_HAVE_SUITESPARSE
+     if ((n == "UMFPackSolver") || (n == "KLUSolver") || (n == "UMFPack") ||
+         (n == "KLU")) {
+-      return "MFEM is not compiled with SuiteSparse";
++      return "mfem-mgis does not use SuiteSparse (option enable-suitesparse, "
++             "MFEM compiled with SuiteSparse)";
+     }
+-#endif /* MFEM_USE_SUITESPARSE */
++#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
+     static_cast<void>(n);
+     return {};
+   }  // end of getUnavailableLibraryHint
+@@ -201,43 +210,43 @@ namespace mfem_mgis::internals {
+   template <bool parallel>
+   void declareLinearSolvers(LinearSolverFactory<parallel>& f) {
+     declareMFEMLinearSolvers(f);
+-#ifdef MFEM_USE_GINKGO
++#ifdef MFEM_MGIS_HAVE_GINKGO
+     declareGinkgoLinearSolvers(f);
+-#endif /* MFEM_USE_GINKGO */
++#endif /* MFEM_MGIS_HAVE_GINKGO */
+ #ifdef MFEM_MGIS_HAVE_AMGX
+     declareAmgXLinearSolvers(f);
+ #endif /* MFEM_MGIS_HAVE_AMGX */
+ #ifdef MFEM_USE_MPI
+     if constexpr (parallel) {
+       declareHypreLinearSolvers(f);
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+       declareMUMPSLinearSolvers(f);
+-#endif /* MFEM_USE_MUMPS */
+-#ifdef MFEM_USE_CUDSS
++#endif /* MFEM_MGIS_HAVE_MUMPS */
++#ifdef MFEM_MGIS_HAVE_CUDSS
+       declareCuDSSLinearSolvers(f);
+-#endif /* MFEM_USE_CUDSS */
+-#ifdef MFEM_USE_SUPERLU
++#endif /* MFEM_MGIS_HAVE_CUDSS */
++#ifdef MFEM_MGIS_HAVE_SUPERLU
+       declareSuperLULinearSolvers(f);
+-#endif /* MFEM_USE_SUPERLU */
+-#ifdef MFEM_USE_STRUMPACK
++#endif /* MFEM_MGIS_HAVE_SUPERLU */
++#ifdef MFEM_MGIS_HAVE_STRUMPACK
+       declareSTRUMPACKLinearSolvers(f);
+-#endif /* MFEM_USE_STRUMPACK */
+-#ifdef MFEM_USE_PETSC
++#endif /* MFEM_MGIS_HAVE_STRUMPACK */
++#ifdef MFEM_MGIS_HAVE_PETSC
+       declarePETScLinearSolvers(f);
+-#endif /* MFEM_USE_PETSC */
+-#ifdef MFEM_USE_MKL_CPARDISO
++#endif /* MFEM_MGIS_HAVE_PETSC */
++#ifdef MFEM_MGIS_HAVE_MKL_CPARDISO
+       declareMKLClusterSparseLinearSolvers(f);
+-#endif /* MFEM_USE_MKL_CPARDISO */
++#endif /* MFEM_MGIS_HAVE_MKL_CPARDISO */
+ #ifdef MFEM_MGIS_HAVE_TRILINOS
+       declareTrilinosLinearSolvers(f);
+ #endif /* MFEM_MGIS_HAVE_TRILINOS */
+     }
+ #endif /* MFEM_USE_MPI */
+-#ifdef MFEM_USE_MKL_PARDISO
++#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
+     if constexpr (!parallel) {
+       declareMKLPardisoLinearSolvers(f);
+     }
+-#endif /* MFEM_USE_MKL_PARDISO */
++#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
+ #ifdef MFEM_MGIS_HAVE_MAGMA_SPARSE
+     if constexpr (!parallel) {
+       declareMAGMALinearSolvers(f);
+@@ -249,9 +258,9 @@ namespace mfem_mgis::internals {
+   void declarePreconditioners(PreconditionerFactory<parallel>& f) {
+     declareMFEMPreconditioners(f);
+     declareNodalBlockJacobiPreconditioner(f);
+-#ifdef MFEM_USE_GINKGO
++#ifdef MFEM_MGIS_HAVE_GINKGO
+     declareGinkgoPreconditioners(f);
+-#endif /* MFEM_USE_GINKGO */
++#endif /* MFEM_MGIS_HAVE_GINKGO */
+ #ifdef MFEM_MGIS_HAVE_AMGX
+     declareAmgXPreconditioners(f);
+ #endif /* MFEM_MGIS_HAVE_AMGX */
+@@ -261,15 +270,15 @@ namespace mfem_mgis::internals {
+ #ifdef MFEM_USE_MPI
+     if constexpr (parallel) {
+       declareHyprePreconditioners(f);
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+       declareMUMPSPreconditioners(f);
+-#endif /* MFEM_USE_MUMPS */
+-#ifdef MFEM_USE_STRUMPACK
++#endif /* MFEM_MGIS_HAVE_MUMPS */
++#ifdef MFEM_MGIS_HAVE_STRUMPACK
+       declareSTRUMPACKPreconditioners(f);
+-#endif /* MFEM_USE_STRUMPACK */
+-#ifdef MFEM_USE_PETSC
++#endif /* MFEM_MGIS_HAVE_STRUMPACK */
++#ifdef MFEM_MGIS_HAVE_PETSC
+       declarePETScPreconditioners(f);
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ #ifdef MFEM_MGIS_HAVE_TRILINOS
+       declareTrilinosPreconditioners(f);
+ #endif /* MFEM_MGIS_HAVE_TRILINOS */
+diff --git a/src/LinearSolverModules.hxx b/src/LinearSolverModules.hxx
+index 0ef7cb392c..b5172736ba 100644
+--- a/src/LinearSolverModules.hxx
++++ b/src/LinearSolverModules.hxx
+@@ -77,7 +77,7 @@ namespace mfem_mgis::internals {
+    */
+   void declareHyprePreconditioners(PreconditionerFactory<true>& f);
+ #endif /* MFEM_USE_MPI */
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)
+   /*!
+    * \brief register the solver of MUMPS
+    * \param[in, out] f: factory
+@@ -88,28 +88,28 @@ namespace mfem_mgis::internals {
+    * \param[in, out] f: factory
+    */
+   void declareMUMPSPreconditioners(PreconditionerFactory<true>& f);
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS) */
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS)
+   /*!
+    * \brief register the solver of cuDSS
+    * \param[in, out] f: factory
+    */
+   void declareCuDSSLinearSolvers(LinearSolverFactory<true>& f);
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+-#ifdef MFEM_USE_MKL_PARDISO
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS) */
++#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
+   /*!
+    * \brief register the PARDISO direct solver of oneMKL (sequential)
+    * \param[in, out] f: factory
+    */
+   void declareMKLPardisoLinearSolvers(LinearSolverFactory<false>& f);
+-#endif /* MFEM_USE_MKL_PARDISO */
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
++#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
+   /*!
+    * \brief register the Cluster Sparse Solver of oneMKL (parallel)
+    * \param[in, out] f: factory
+    */
+   void declareMKLClusterSparseLinearSolvers(LinearSolverFactory<true>& f);
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO) */
+ #ifdef MFEM_MGIS_HAVE_MAGMA_SPARSE
+   /*!
+    * \brief register the Krylov solvers of MAGMA (sequential, one GPU)
+@@ -132,14 +132,14 @@ namespace mfem_mgis::internals {
+   template <bool parallel>
+   void declareNodalBlockJacobiPreconditioner(
+       PreconditionerFactory<parallel>& f);
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU)
+   /*!
+    * \brief register the direct solver of SuperLU_DIST
+    * \param[in, out] f: factory
+    */
+   void declareSuperLULinearSolvers(LinearSolverFactory<true>& f);
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU) */
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK)
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU) */
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK)
+   /*!
+    * \brief register the direct solvers of STRUMPACK
+    * \param[in, out] f: factory
+@@ -150,8 +150,8 @@ namespace mfem_mgis::internals {
+    * \param[in, out] f: factory
+    */
+   void declareSTRUMPACKPreconditioners(PreconditionerFactory<true>& f);
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK) */
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK) */
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
+   /*!
+    * \brief register the Krylov solver of PETSc
+    * \param[in, out] f: factory
+@@ -162,8 +162,8 @@ namespace mfem_mgis::internals {
+    * \param[in, out] f: factory
+    */
+   void declarePETScPreconditioners(PreconditionerFactory<true>& f);
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
+-#ifdef MFEM_USE_GINKGO
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
++#ifdef MFEM_MGIS_HAVE_GINKGO
+   /*!
+    * \brief register the solvers of Ginkgo (the distributed ones in parallel,
+    * if Ginkgo is built with MPI)
+@@ -177,7 +177,7 @@ namespace mfem_mgis::internals {
+    */
+   template <bool parallel>
+   void declareGinkgoPreconditioners(PreconditionerFactory<parallel>& f);
+-#endif /* MFEM_USE_GINKGO */
++#endif /* MFEM_MGIS_HAVE_GINKGO */
+ #ifdef MFEM_MGIS_HAVE_AMGX
+   /*!
+    * \brief register the solvers of AmgX
+diff --git a/src/MFEMLinearSolvers.cxx b/src/MFEMLinearSolvers.cxx
+index db8e081866..3ebdb49b53 100644
+--- a/src/MFEMLinearSolvers.cxx
++++ b/src/MFEMLinearSolvers.cxx
+@@ -299,13 +299,13 @@ namespace mfem_mgis {
+         // the factorization of KLU does not report its failures (a singular
+         // matrix): all the processes fail together
+         auto failed = 0;
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+         if (const auto* const klu =
+                 dynamic_cast<const mfem::KLUSolver*>(this->solver.get());
+             klu != nullptr) {
+           failed = klu->Common.status != KLU_OK ? 1 : 0;
+         }
+-#endif /* MFEM_USE_SUITESPARSE */
++#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
+ #ifdef MFEM_USE_MPI
+         if (a != nullptr) {
+           MPI_Allreduce(MPI_IN_PLACE, &failed, 1, MPI_INT, MPI_MAX,
+@@ -816,7 +816,7 @@ namespace mfem_mgis::internals {
+     add.template operator()<mfem::SLISolver>(
+         "SLISolver", krylov(options, "stationary linear iterations of MFEM"));
+     if constexpr (!parallel) {
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+       declare(f, "UMFPackSolver",
+               LinearSolverDescription{
+                   .library = "SuiteSparse",
+@@ -853,7 +853,7 @@ namespace mfem_mgis::internals {
+                         std::make_unique<mfem::KLUSolver>(), "KLUSolver"),
+                     std::unique_ptr<LinearSolverPreconditioner>{}};
+               });
+-#endif /* MFEM_USE_SUITESPARSE */
++#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
+     }
+   }  // end of declareMFEMLinearSolvers
+ 
+@@ -914,7 +914,7 @@ namespace mfem_mgis::internals {
+                    "block incomplete LU factorization of MFEM, applied to the "
+                    "diagonal block of each process in parallel"),
+             makeBlockILU<parallel>);
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+     const auto direct = [](const char* const n) {
+       return [n](Context& ctx, FiniteElementSpace<parallel>&,
+                  const Parameters& opts)
+@@ -941,7 +941,7 @@ namespace mfem_mgis::internals {
+                    "KLU direct solver of SuiteSparse, applied to the diagonal "
+                    "block of each process in parallel"),
+             direct("KLU"));
+-#endif /* MFEM_USE_SUITESPARSE */
++#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
+     // the orthogonalization computes on the host (the location of the
+     // wrapped preconditioner is checked at its generation)
+     declare(f, "OrthoSolver",
+diff --git a/src/MFEMMGISConfig.cmake.in b/src/MFEMMGISConfig.cmake.in
+index 758f0dc24d..646d8de51a 100644
+--- a/src/MFEMMGISConfig.cmake.in
++++ b/src/MFEMMGISConfig.cmake.in
+@@ -70,6 +70,18 @@ if(("@MFEM_USE_HIP@" STREQUAL "YES") AND (NOT TARGET hip::host))
+   endif()
+ endif()
+ 
++# optional libraries of MFEM used by mfem-mgis (options enable-<name>)
++set(MFEMMGIS_HAVE_PETSC @MFEM_MGIS_HAVE_PETSC@)
++set(MFEMMGIS_HAVE_GINKGO @MFEM_MGIS_HAVE_GINKGO@)
++set(MFEMMGIS_HAVE_MUMPS @MFEM_MGIS_HAVE_MUMPS@)
++set(MFEMMGIS_HAVE_SUPERLU @MFEM_MGIS_HAVE_SUPERLU@)
++set(MFEMMGIS_HAVE_STRUMPACK @MFEM_MGIS_HAVE_STRUMPACK@)
++set(MFEMMGIS_HAVE_SUITESPARSE @MFEM_MGIS_HAVE_SUITESPARSE@)
++set(MFEMMGIS_HAVE_SUNDIALS @MFEM_MGIS_HAVE_SUNDIALS@)
++set(MFEMMGIS_HAVE_MKL_PARDISO @MFEM_MGIS_HAVE_MKL_PARDISO@)
++set(MFEMMGIS_HAVE_MKL_CPARDISO @MFEM_MGIS_HAVE_MKL_CPARDISO@)
++set(MFEMMGIS_HAVE_CUDSS @MFEM_MGIS_HAVE_CUDSS@)
++set(MFEMMGIS_HAVE_MAGMA @MFEM_MGIS_HAVE_MAGMA@)
+ # sparse solvers of MAGMA, if mfem-mgis uses them (linked privately to the
+ # library of mfem-mgis)
+ set(MFEMMGIS_HAVE_MAGMA_SPARSE @MFEM_MGIS_HAVE_MAGMA_SPARSE@)
+diff --git a/src/MKLSparseSolvers.cxx b/src/MKLSparseSolvers.cxx
+index f688b88b8d..1730bebea3 100644
+--- a/src/MKLSparseSolvers.cxx
++++ b/src/MKLSparseSolvers.cxx
+@@ -8,8 +8,8 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MKL_PARDISO) || \
+-    (defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
++#if defined(MFEM_MGIS_HAVE_MKL_PARDISO) || \
++    (defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO))
+ 
+ #include <array>
+ #include <limits>
+@@ -21,9 +21,9 @@
+ #include <algorithm>
+ #include <type_traits>
+ #include "mkl_pardiso.h"
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
+ #include "mkl_cluster_sparse_solver.h"
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO) */
+ #include "mfem/linalg/sparsemat.hpp"
+ #include "mfem/fem/fespace.hpp"
+ #ifdef MFEM_USE_MPI
+@@ -364,21 +364,21 @@ namespace mfem_mgis::internals {
+       const auto* const values =
+           this->matrix.values.empty() ? &dummy : this->matrix.values.data();
+       if constexpr (parallel) {
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
+         const auto comm = static_cast<int>(MPI_Comm_c2f(this->communicator));
+         cluster_sparse_solver(
+             this->pt.data(), &maxfct, &mnum, &(this->settings.matrix_type),
+             &phase, &(this->size), values, this->matrix.rows.data(),
+             this->matrix.columns.data(), &perm, &nrhs, this->iparm.data(),
+             &(this->settings.message_level), pb, px, &comm, &error);
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO) */
+       } else {
+-#ifdef MFEM_USE_MKL_PARDISO
++#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
+         pardiso(this->pt.data(), &maxfct, &mnum, &(this->settings.matrix_type),
+                 &phase, &(this->size), values, this->matrix.rows.data(),
+                 this->matrix.columns.data(), &perm, &nrhs, this->iparm.data(),
+                 &(this->settings.message_level), pb, px, &error);
+-#endif /* MFEM_USE_MKL_PARDISO */
++#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
+       }
+       return error;
+     }
+@@ -514,7 +514,7 @@ namespace mfem_mgis::internals {
+     };
+   }  // end of buildMKLSparseSolverGenerator
+ 
+-#ifdef MFEM_USE_MKL_PARDISO
++#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
+ 
+   void declareMKLPardisoLinearSolvers(LinearSolverFactory<false>& f) {
+     declare(f, "MKLPardisoSolver",
+@@ -528,9 +528,9 @@ namespace mfem_mgis::internals {
+             buildMKLSparseSolverGenerator<false>());
+   }  // end of declareMKLPardisoLinearSolvers
+ 
+-#endif /* MFEM_USE_MKL_PARDISO */
++#endif /* MFEM_MGIS_HAVE_MKL_PARDISO */
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
+ 
+   void declareMKLClusterSparseLinearSolvers(LinearSolverFactory<true>& f) {
+     declare(f, "MKLClusterSparseSolver",
+@@ -545,9 +545,9 @@ namespace mfem_mgis::internals {
+             buildMKLSparseSolverGenerator<true>());
+   }  // end of declareMKLClusterSparseLinearSolvers
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO) */
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
+-          defined(MFEM_USE_MKL_CPARDISO)) */
++#endif /* defined(MFEM_MGIS_HAVE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
++          defined(MFEM_MGIS_HAVE_MKL_CPARDISO)) */
+diff --git a/src/MKLSparseSolvers.hxx b/src/MKLSparseSolvers.hxx
+index cf7c273a84..872341f37b 100644
+--- a/src/MKLSparseSolvers.hxx
++++ b/src/MKLSparseSolvers.hxx
+@@ -10,8 +10,8 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MKL_PARDISO) || \
+-    (defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
++#if defined(MFEM_MGIS_HAVE_MKL_PARDISO) || \
++    (defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO))
+ 
+ #include "MFEMMGIS/Config.hxx"
+ 
+@@ -27,7 +27,7 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
+-          defined(MFEM_USE_MKL_CPARDISO)) */
++#endif /* defined(MFEM_MGIS_HAVE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
++          defined(MFEM_MGIS_HAVE_MKL_CPARDISO)) */
+ 
+ #endif /* LIB_MFEM_MGIS_MKLSPARSESOLVERS_HXX */
+diff --git a/src/MUMPSSolvers.cxx b/src/MUMPSSolvers.cxx
+index 88188c213b..0cc745996b 100644
+--- a/src/MUMPSSolvers.cxx
++++ b/src/MUMPSSolvers.cxx
+@@ -8,7 +8,7 @@
+ 
+ #include "MUMPSSolvers.hxx"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)
+ 
+ #include <array>
+ #include <utility>
+@@ -208,4 +208,4 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS) */
+diff --git a/src/MUMPSSolvers.hxx b/src/MUMPSSolvers.hxx
+index 3f6dc1ece4..61e5eb240b 100644
+--- a/src/MUMPSSolvers.hxx
++++ b/src/MUMPSSolvers.hxx
+@@ -11,7 +11,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)
+ 
+ #include <mpi.h>
+ #include "mfem/linalg/mumps.hpp"
+@@ -55,6 +55,6 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS) */
+ 
+ #endif /* LIB_MFEM_MGIS_SRC_MUMPSSOLVERS_HXX */
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 87aacec411..ff230e325a 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -12,9 +12,9 @@
+ #include <string>
+ #include "mfem/fem/datacollection.hpp"
+ 
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+ #include "mfem/linalg/petsc.hpp"
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ #include "mfem/linalg/sparsemat.hpp"
+ #include "mfem/fem/linearform.hpp"
+ #include "mfem/fem/bilinearform.hpp"
+@@ -958,7 +958,7 @@ namespace mfem_mgis {
+         this->solver = std::make_unique<NewtonSolver>(*this);
+       }
+     };
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+     if (usePETSc()) {
+       this->petsc_solver = std::make_unique<mfem::PetscNonlinearSolver>(
+           this->getFiniteElementSpace().GetComm(), *this);
+@@ -966,9 +966,9 @@ namespace mfem_mgis {
+     } else {
+       set_solver();
+     }
+-#else  /* MFEM_USE_PETSC */
++#else  /* MFEM_MGIS_HAVE_PETSC */
+     set_solver();
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+     if (this->mgis_integrator != nullptr) {
+       this->AddDomainIntegrator(this->mgis_integrator);
+     }
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 758120777f..66023150af 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -504,14 +504,14 @@ namespace mfem_mgis {
+ 
+   bool NonLinearEvolutionProblemImplementationBase::setSolverParameters(
+       Context& ctx, const Parameters& params) noexcept {
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+     if (usePETSc()) {
+       return mfem_mgis::setSolverParameters(ctx, *(this->petsc_solver), params);
+     }
+     return this->solver->setSolverParameters(ctx, params);
+-#else  /* MFEM_USE_PETSC */
++#else  /* MFEM_MGIS_HAVE_PETSC */
+     return this->solver->setSolverParameters(ctx, params);
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+   }    // end of setSolverParameters
+ 
+   std::vector<size_type>
+@@ -777,15 +777,15 @@ namespace mfem_mgis {
+       output.final_residual_norm = s.GetFinalNorm();
+     };
+     if (usePETSc()) {
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+       mfem::Vector zero;
+       // PETSc solver somehow "requires" zero as a first argument of Mult.
+       // If it is not the case, one should take care of memory management.
+       this->petsc_solver->Mult(zero, this->u1);
+       fill_output(*(this->petsc_solver));
+-#else  /* MFEM_USE_PETSC */
++#else  /* MFEM_MGIS_HAVE_PETSC */
+       raise("Support for PETSc is deactivated");
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+     } else {
+       this->solver->setContext(ctx);
+       // the computations of the residual and of the tangent operator report
+diff --git a/src/NonLinearSolverFactory.cxx b/src/NonLinearSolverFactory.cxx
+index 143bf3a137..10537f1c7f 100644
+--- a/src/NonLinearSolverFactory.cxx
++++ b/src/NonLinearSolverFactory.cxx
+@@ -5,6 +5,8 @@
+  * \date   20/09/2026
+  */
+ 
++#include <string>
++#include <string_view>
+ #include "MFEMMGIS/NonLinearSolvers/NewtonSolver.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/FixedPointSolver.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/NonLinearSolverFactory.hxx"
+@@ -21,6 +23,29 @@ namespace mfem_mgis {
+     return f;
+   }
+ 
++  /*!
++   * \return why an optional nonlinear solver is not declared (its library
++   * is not available), or an empty string
++   * \param[in] n: name of the nonlinear solver
++   */
++  static std::string getUnavailableNonLinearSolverHint(
++      const std::string_view n) {
++#ifndef MFEM_MGIS_HAVE_SUNDIALS
++    if (n == "KINSOL") {
++      return " (mfem-mgis does not use SUNDIALS: option enable-sundials, MFEM "
++             "compiled with SUNDIALS)";
++    }
++#endif /* MFEM_MGIS_HAVE_SUNDIALS */
++#if !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC))
++    if (n == "SNES") {
++      return " (mfem-mgis does not use PETSc: option enable-petsc, MFEM "
++             "compiled with PETSc and MPI)";
++    }
++#endif /* !(defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)) */
++    static_cast<void>(n);
++    return {};
++  }  // end of getUnavailableNonLinearSolverHint
++
+   NonLinearSolverFactory::NonLinearSolverFactory() noexcept {
+     auto ctx = Context{};
+     auto or_die = ctx.getFatalFailureHandler();
+@@ -31,20 +56,20 @@ namespace mfem_mgis {
+         make_unique<StandardNonLinearSolverGenerator<FixedPointSolver>>(ctx) |
+         or_die;
+     this->add(ctx, "FixedPoint", std::move(g2)) | or_die;
+-#ifdef MFEM_USE_SUNDIALS
++#ifdef MFEM_MGIS_HAVE_SUNDIALS
+     auto g3 =
+         make_unique<StandardNonLinearSolverGenerator<internals::KINSOLSolver>>(
+             ctx) |
+         or_die;
+     this->add(ctx, "KINSOL", std::move(g3)) | or_die;
+-#endif /* MFEM_USE_SUNDIALS */
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#endif /* MFEM_MGIS_HAVE_SUNDIALS */
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
+     auto g4 = make_unique<
+                   StandardNonLinearSolverGenerator<internals::PETScSNESSolver>>(
+                   ctx) |
+               or_die;
+     this->add(ctx, "SNES", std::move(g4)) | or_die;
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+   }  // end of NonLinearSolverFactory
+ 
+   bool NonLinearSolverFactory::add(
+@@ -73,7 +98,8 @@ namespace mfem_mgis {
+     const auto pg = this->generators.find(n);
+     if (pg == this->generators.end()) {
+       return ctx.registerErrorMessage("no nonlinear solver named '" +
+-                                      std::string{n} + "' declared");
++                                      std::string{n} + "' declared" +
++                                      getUnavailableNonLinearSolverHint(n));
+     }
+     auto ptr = pg->second->operator()(ctx, p, parameters);
+     if (isInvalid(ptr)) {
+@@ -93,7 +119,8 @@ namespace mfem_mgis {
+     const auto pg = this->generators.find(n);
+     if (pg == this->generators.end()) {
+       return ctx.registerErrorMessage("no nonlinear solver named '" +
+-                                      std::string{n} + "' declared");
++                                      std::string{n} + "' declared" +
++                                      getUnavailableNonLinearSolverHint(n));
+     }
+     auto ptr = pg->second->operator()(ctx, p, parameters);
+     if (isInvalid(ptr)) {
+diff --git a/src/PETScLinearSolvers.cxx b/src/PETScLinearSolvers.cxx
+index 109c56fe9d..196f3855de 100644
+--- a/src/PETScLinearSolvers.cxx
++++ b/src/PETScLinearSolvers.cxx
+@@ -20,7 +20,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
+ 
+ #include <memory>
+ #include <algorithm>
+@@ -439,4 +439,4 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+diff --git a/src/PETScSNESSolver.cxx b/src/PETScSNESSolver.cxx
+index 2ad71ffa43..32ea50b1bf 100644
+--- a/src/PETScSNESSolver.cxx
++++ b/src/PETScSNESSolver.cxx
+@@ -6,7 +6,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
+ 
+ #include <cmath>
+ #include <tuple>
+@@ -856,4 +856,4 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+diff --git a/src/PETScSNESSolver.hxx b/src/PETScSNESSolver.hxx
+index e524a60f51..55fbea5a6a 100644
+--- a/src/PETScSNESSolver.hxx
++++ b/src/PETScSNESSolver.hxx
+@@ -10,7 +10,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
+ 
+ #include <limits>
+ #include "MFEMMGIS/Config.hxx"
+@@ -140,6 +140,6 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+ 
+ #endif /* LIB_MFEM_MGIS_PETSCSNESSOLVER_HXX */
+diff --git a/src/PETScSupport.cxx b/src/PETScSupport.cxx
+index f989760dca..8ceb42526d 100644
+--- a/src/PETScSupport.cxx
++++ b/src/PETScSupport.cxx
+@@ -7,7 +7,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
+ 
+ #include <array>
+ #include <vector>
+@@ -399,4 +399,4 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+diff --git a/src/PETScSupport.hxx b/src/PETScSupport.hxx
+index 5230e6d6f7..916555cf9c 100644
+--- a/src/PETScSupport.hxx
++++ b/src/PETScSupport.hxx
+@@ -9,7 +9,7 @@
+ #define LIB_MFEM_MGIS_SRC_PETSCSUPPORT_HXX
+ 
+ #include "mfem/config/config.hpp"
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -21,7 +21,7 @@
+ #include "mfem/linalg/petsc.hpp"
+ #include "MFEMMGIS/MFEMForward.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+ #include "MFEMMGIS/Config.hxx"
+ 
+ namespace mfem_mgis::internals {
+@@ -35,7 +35,7 @@ namespace mfem_mgis::internals {
+    */
+   void initializePETScOnDemand();
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC)
+ 
+   /*!
+    * \brief initialize PETSc, unless it is already initialized (by
+@@ -187,7 +187,7 @@ namespace mfem_mgis::internals {
+     std::vector<PetscScalar> coordinates;
+   };  // end of struct PETScRigidBodyModes
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_PETSC) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_PETSC) */
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+diff --git a/src/STRUMPACKSolvers.cxx b/src/STRUMPACKSolvers.cxx
+index 4e5eba5d73..b89ce2f6d5 100644
+--- a/src/STRUMPACKSolvers.cxx
++++ b/src/STRUMPACKSolvers.cxx
+@@ -10,7 +10,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK)
+ 
+ #include <memory>
+ #include <functional>
+@@ -408,4 +408,4 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_STRUMPACK) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_STRUMPACK) */
+diff --git a/src/SolverUtilities.cxx b/src/SolverUtilities.cxx
+index 7737a2caba..062fdd82c0 100644
+--- a/src/SolverUtilities.cxx
++++ b/src/SolverUtilities.cxx
+@@ -13,9 +13,9 @@
+ #ifdef MFEM_USE_MPI
+ #include "mfem/linalg/hypre.hpp"
+ #endif /* MFEM_USE_MPI */
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+ #include "mfem/linalg/petsc.hpp"
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ #include "MFEMMGIS/Parameters.hxx"
+ #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+@@ -79,7 +79,7 @@ namespace mfem_mgis {
+     return true;
+   }  // end of setSolverParameters
+ 
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+   bool setSolverParameters(Context& ctx,
+                            mfem::PetscNonlinearSolver& s,
+                            const Parameters& params) noexcept {
+@@ -90,7 +90,7 @@ namespace mfem_mgis {
+     }
+     return true;
+   }    // end of setSolverParameters
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ 
+   void setSolverParameters(attributes::Throwing,
+                            IterativeSolver& s,
+@@ -98,13 +98,13 @@ namespace mfem_mgis {
+     setSolverParametersImplementation(throwing, s, params);
+   }  // end of setSolverParameters
+ 
+-#ifdef MFEM_USE_PETSC
++#ifdef MFEM_MGIS_HAVE_PETSC
+   void setSolverParameters(attributes::Throwing,
+                            mfem::PetscNonlinearSolver& s,
+                            const Parameters& params) {
+     setSolverParametersImplementation(throwing, s, params);
+   }    // end of setSolverParameters
+-#endif /* MFEM_USE_PETSC */
++#endif /* MFEM_MGIS_HAVE_PETSC */
+ 
+   template <typename SolverType>
+   inline constexpr auto hasGetMaxIter = requires(const SolverType& l) {
+@@ -205,29 +205,29 @@ namespace mfem_mgis {
+ 
+   std::optional<size_type> getNumberOfAnalyses(
+       [[maybe_unused]] const LinearSolver& ls) noexcept {
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS)
+     if (const auto* const s =
+             dynamic_cast<const internals::MUMPSSolverReusingAnalysis*>(&ls);
+         s != nullptr) {
+       return s->getNumberOfAnalyses();
+     }
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_MUMPS) */
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS)
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MUMPS) */
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS)
+     if (const auto* const s =
+             dynamic_cast<const internals::CuDSSDirectSolver*>(&ls);
+         (s != nullptr) && (s->reusesAnalysis())) {
+       return s->getNumberOfAnalyses();
+     }
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_CUDSS) */
+-#if defined(MFEM_USE_MKL_PARDISO) || \
+-    (defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO))
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_CUDSS) */
++#if defined(MFEM_MGIS_HAVE_MKL_PARDISO) || \
++    (defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO))
+     if (const auto* const s =
+             dynamic_cast<const internals::MKLSparseDirectSolverBase*>(&ls);
+         s != nullptr) {
+       return s->getNumberOfAnalyses();
+     }
+-#endif /* defined(MFEM_USE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
+-          defined(MFEM_USE_MKL_CPARDISO)) */
++#endif /* defined(MFEM_MGIS_HAVE_MKL_PARDISO) || (defined(MFEM_USE_MPI) && \
++          defined(MFEM_MGIS_HAVE_MKL_CPARDISO)) */
+     return {};
+   }  // end of getNumberOfAnalyses
+ 
+diff --git a/src/SuperLUSolvers.cxx b/src/SuperLUSolvers.cxx
+index 3f4c34fe9b..38b18926af 100644
+--- a/src/SuperLUSolvers.cxx
++++ b/src/SuperLUSolvers.cxx
+@@ -7,7 +7,7 @@
+ 
+ #include "mfem/config/config.hpp"
+ 
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU)
+ 
+ #include <array>
+ #include <memory>
+@@ -302,4 +302,4 @@ namespace mfem_mgis::internals {
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+-#endif /* defined(MFEM_USE_MPI) && defined(MFEM_USE_SUPERLU) */
++#endif /* defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_SUPERLU) */
+diff --git a/tests/AdaptiveLinearSolverToleranceTest.cxx b/tests/AdaptiveLinearSolverToleranceTest.cxx
+index 17b53c25c8..c3b0025100 100644
+--- a/tests/AdaptiveLinearSolverToleranceTest.cxx
++++ b/tests/AdaptiveLinearSolverToleranceTest.cxx
+@@ -202,7 +202,7 @@ static void checkFirstChoice() {
+ //! \brief a direct solver is refused
+ static void checkDirectSolver() {
+   using namespace mfem_mgis;
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+   auto s = mfem::UMFPackSolver{};
+   check(!getRelativeTolerance(s).has_value(),
+         "direct solver: relative tolerance");
+@@ -215,7 +215,7 @@ static void checkDirectSolver() {
+     refused = true;
+   }
+   check(refused, "direct solver: accepted");
+-#endif /* MFEM_USE_SUITESPARSE */
++#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
+ }  // end of checkDirectSolver
+ 
+ //! \brief invalid options are refused
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index a811a833bd..c599087a8b 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -112,9 +112,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+   # Generate all TwoLayerCube cases. The hypre solvers and MUMPS are only
+   # tested in parallel.
+   set(TwoLayerCubeSolvers CGSolver GMRESSolver HypreFGMRES HyprePCG HypreGMRES)
+-  if(MFEM_USE_MUMPS)
++  if(MFEM_MGIS_HAVE_MUMPS)
+     list(APPEND TwoLayerCubeSolvers MUMPSSolver)
+-  endif(MFEM_USE_MUMPS)
++  endif(MFEM_MGIS_HAVE_MUMPS)
+   foreach(ncase RANGE 0 5)
+     foreach(solver IN LISTS TwoLayerCubeSolvers)
+       add_two_layer_cube_test(${ncase} ${solver})
+@@ -578,7 +578,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+ 
+   # StationaryNonLinearHeatTransferTest cases
+   add_stationary_non_linear_heat_transfer_test(1)
+-  if(MFEM_USE_SUITESPARSE)
++  if(MFEM_MGIS_HAVE_SUITESPARSE)
+     add_stationary_non_linear_heat_transfer_test(2)
+   endif()
+ 
+@@ -1052,7 +1052,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+   endif()
+   # computations on two processes (the comparisons only), with MUMPS, one
+   # thread per process
+-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
+     add_test(NAME BatchIntegrationTestP
+              COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
+                      ${batch_integration_test_arguments}
+@@ -1119,7 +1119,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+     set_tests_properties(HeatTransferKernelsTest-cuda
+                          PROPERTIES RESOURCE_LOCK gpu)
+   endif()
+-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
+     add_test(NAME HeatTransferKernelsTestP
+              COMMAND mpirun -n 2 ./HeatTransferKernelsTest --parallel
+                      ${heat_transfer_kernels_test_arguments})
+@@ -1156,7 +1156,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+     set_tests_properties(MicromorphicKernelsTest-cuda
+                          PROPERTIES RESOURCE_LOCK gpu)
+   endif()
+-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
+     add_test(NAME MicromorphicKernelsTestP
+              COMMAND mpirun -n 2 ./MicromorphicKernelsTest --parallel
+                      ${micromorphic_kernels_test_arguments})
+@@ -1166,13 +1166,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+ 
+   # KINSOLSolverTest executable: non linear solver based on KINSOL
+   # (SUNDIALS), compared to the Newton solver
+-  if(MFEM_USE_SUNDIALS STREQUAL "YES")
++  if(MFEM_MGIS_HAVE_SUNDIALS)
+     add_test_executable(KINSOLSolverTest)
+     add_test(NAME KINSOLSolverTest
+              COMMAND KINSOLSolverTest
+                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                      --library $<TARGET_FILE:BehaviourTest>)
+-    if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++    if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
+       add_test(NAME KINSOLSolverTestP
+                COMMAND mpirun -n 2 ./KINSOLSolverTest --parallel
+                        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+@@ -1199,7 +1199,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+ 
+   # SNESSolverTest executable: non linear solver based on the SNES of
+   # PETSc, compared to the Newton solver, in parallel
+-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS AND (MFEM_USE_PETSC STREQUAL "YES"))
++  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS AND MFEM_MGIS_HAVE_PETSC)
+     add_test_executable(SNESSolverTest)
+     add_test(NAME SNESSolverTestP
+              COMMAND mpirun -n 2 ./SNESSolverTest
+@@ -1233,7 +1233,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+            COMMAND FixedPointSolverTest
+                    --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+                    --library $<TARGET_FILE:BehaviourTest>)
+-  if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
+     add_test(NAME FixedPointSolverTestP
+              COMMAND mpirun -n 2 ./FixedPointSolverTest --parallel
+                      --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
+@@ -1584,10 +1584,10 @@ endif()
+ # (MUMPS, cuDSS) reused for a new operator only if its pattern is the same
+ # on all processes. A wrong reuse may block the solver: the tests have a
+ # time limit
+-if(MFEM_USE_MPI AND (MFEM_USE_MUMPS OR MFEM_USE_CUDSS))
++if(MFEM_USE_MPI AND (MFEM_MGIS_HAVE_MUMPS OR MFEM_MGIS_HAVE_CUDSS))
+   add_test_executable(DirectSolverReuseAnalysisTest)
+ endif()
+-if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
++if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MUMPS)
+   add_test(NAME DirectSolverReuseAnalysisTest
+            COMMAND DirectSolverReuseAnalysisTest)
+   add_test(NAME DirectSolverReuseAnalysisTestP
+@@ -1609,7 +1609,7 @@ if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
+                                     ENVIRONMENT OMP_NUM_THREADS=1)
+   endif()
+ endif()
+-if(MFEM_USE_MPI AND MFEM_USE_CUDSS)
++if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_CUDSS)
+   # cuDSS refused without a device on a CUDA GPU, even when the test suite
+   # is run on a GPU (variable MFEM_MGIS_DEVICE)
+   add_test(NAME DirectSolverReuseAnalysisTest-cudss-refused
+@@ -1707,7 +1707,7 @@ endif()
+ 
+ # GinkgoSolversTest executable: solvers and preconditioners of Ginkgo, on
+ # the device of MFEM
+-if(MFEM_USE_GINKGO STREQUAL "YES")
++if(MFEM_MGIS_HAVE_GINKGO)
+   add_test_executable(GinkgoSolversTest)
+   add_test(NAME GinkgoSolversTest COMMAND GinkgoSolversTest)
+   set(ginkgo_tests GinkgoSolversTest)
+@@ -1768,14 +1768,14 @@ endif()
+ 
+ # MKLSolversTest executable: sparse direct solvers of oneMKL, PARDISO in
+ # sequential and the Cluster Sparse Solver in parallel
+-if(MFEM_USE_MKL_PARDISO STREQUAL "YES")
++if(MFEM_MGIS_HAVE_MKL_PARDISO)
+   add_test_executable(MKLSolversTest)
+   add_test(NAME MKLSolversTest COMMAND MKLSolversTest)
+   set_tests_properties(MKLSolversTest PROPERTIES
+     FAIL_REGULAR_EXPRESSION "check failed")
+ endif()
+-if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
+-  if(NOT (MFEM_USE_MKL_PARDISO STREQUAL "YES"))
++if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MKL_CPARDISO)
++  if(NOT MFEM_MGIS_HAVE_MKL_PARDISO)
+     add_test_executable(MKLSolversTest)
+   endif()
+   add_test(NAME MKLSolversTestP COMMAND mpirun -n 2 ./MKLSolversTest -p)
+@@ -1783,8 +1783,8 @@ if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
+     FAIL_REGULAR_EXPRESSION "check failed")
+ endif()
+ # on a GPU, the matrices and the vectors are copied on the host
+-if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
+-    (MFEM_USE_MKL_CPARDISO STREQUAL "YES")) AND
++if((MFEM_MGIS_HAVE_MKL_PARDISO OR
++    MFEM_MGIS_HAVE_MKL_CPARDISO) AND
+    ((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
+    enable-gpu-tests)
+   if(MFEM_USE_CUDA STREQUAL "YES")
+@@ -1793,12 +1793,12 @@ if(((MFEM_USE_MKL_PARDISO STREQUAL "YES") OR
+     set(mkl_solvers_test_device hip)
+   endif()
+   set(mkl_solvers_gpu_tests)
+-  if(MFEM_USE_MKL_PARDISO STREQUAL "YES")
++  if(MFEM_MGIS_HAVE_MKL_PARDISO)
+     add_test(NAME MKLSolversTest-gpu
+              COMMAND MKLSolversTest --device ${mkl_solvers_test_device})
+     list(APPEND mkl_solvers_gpu_tests MKLSolversTest-gpu)
+   endif()
+-  if(MFEM_USE_MPI AND (MFEM_USE_MKL_CPARDISO STREQUAL "YES"))
++  if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_MKL_CPARDISO)
+     add_test(NAME MKLSolversTestP-gpu
+              COMMAND mpirun -n 2 ./MKLSolversTest -p
+                      --device ${mkl_solvers_test_device})
+@@ -1904,9 +1904,9 @@ endif(MFEM_USE_MPI)
+ 
+ # SparseDirectSolversTest executable: direct solvers of MUMPS, SuperLU_DIST
+ # and STRUMPACK, preconditioners of MUMPS and STRUMPACK
+-if(MFEM_USE_MPI AND ((MFEM_USE_MUMPS STREQUAL "YES") OR
+-                     (MFEM_USE_SUPERLU STREQUAL "YES") OR
+-                     (MFEM_USE_STRUMPACK STREQUAL "YES")))
++if(MFEM_USE_MPI AND (MFEM_MGIS_HAVE_MUMPS OR
++                     MFEM_MGIS_HAVE_SUPERLU OR
++                     MFEM_MGIS_HAVE_STRUMPACK))
+   add_test_executable(SparseDirectSolversTest)
+   add_test(NAME SparseDirectSolversTest COMMAND SparseDirectSolversTest)
+   add_test(NAME SparseDirectSolversTestP
+@@ -1917,7 +1917,7 @@ endif()
+ 
+ # PETScSolversTest executable: Krylov solver and preconditioner of PETSc
+ # configured by the options of PETSc
+-if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
++if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_PETSC)
+   add_test_executable(PETScSolversTest)
+   add_test(NAME PETScSolversTest COMMAND PETScSolversTest)
+   add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
+diff --git a/tests/ExecutionSettingsTest.cxx b/tests/ExecutionSettingsTest.cxx
+index e5f79414bc..7170fab52c 100644
+--- a/tests/ExecutionSettingsTest.cxx
++++ b/tests/ExecutionSettingsTest.cxx
+@@ -620,10 +620,10 @@ int main(int argc, char** argv) {
+     } else if (has_gpu_library) {
+       checkBehaviourLibraryRefusal(mesh, gpu_library.c_str(), "gpu");
+     }
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+     checkLinearSolver(mesh, "MUMPSSolver",
+                       s.linear_solver == ExecutionLocation::GPU);
+-#endif /* MFEM_USE_MUMPS */
++#endif /* MFEM_MGIS_HAVE_MUMPS */
+     // the solvers of MFEM compute where the device of MFEM computes
+     checkLinearSolver(mesh, "CGSolver",
+                       (s.mode == ExecutionMode::MIXED) &&
+diff --git a/tests/MFEMSolversTest.cxx b/tests/MFEMSolversTest.cxx
+index 52f0f544a3..2238d4c8fe 100644
+--- a/tests/MFEMSolversTest.cxx
++++ b/tests/MFEMSolversTest.cxx
+@@ -250,7 +250,7 @@ static void run(LaplaceSystem<is_parallel>& s,
+                      std::string{"GMRESSolver, BlockILU "} + r),
+           std::string{"BlockILU "} + r);
+   }
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+   // the direct solvers of SuiteSparse
+   for (const auto& n : {"UMFPack", "KLU"}) {
+     auto direct = generate(s, "GMRESSolver", getGMRESParameters(n));
+@@ -286,7 +286,7 @@ static void run(LaplaceSystem<is_parallel>& s,
+                   .find("Verbosity") != std::string::npos,
+           "KLUSolver: unknown option not refused");
+   }
+-#endif /* MFEM_USE_SUITESPARSE */
++#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
+   // the orthogonalizing wrapper, for an operator whose kernel is the
+   // constant vector
+   auto ortho = generate(
+diff --git a/tests/MKLSolversTest.cxx b/tests/MKLSolversTest.cxx
+index 165aa383a7..f3abfd6b44 100644
+--- a/tests/MKLSolversTest.cxx
++++ b/tests/MKLSolversTest.cxx
+@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
+   auto fec = mfem::H1_FECollection(1, 3);
+   try {
+     if (parallel) {
+-#if defined(MFEM_USE_MPI) && defined(MFEM_USE_MKL_CPARDISO)
++#if defined(MFEM_USE_MPI) && defined(MFEM_MGIS_HAVE_MKL_CPARDISO)
+       auto s = LaplaceSystem<true>(mesh, fec);
+       auto s2 = LaplaceSystem<true>(mesh2, fec);
+       run<true>(s, s2);
+@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
+       throw std::runtime_error("the Cluster Sparse Solver is not available");
+ #endif
+     } else {
+-#ifdef MFEM_USE_MKL_PARDISO
++#ifdef MFEM_MGIS_HAVE_MKL_PARDISO
+       auto s = LaplaceSystem<false>(mesh, fec);
+       auto s2 = LaplaceSystem<false>(mesh2, fec);
+       run<false>(s, s2);
+diff --git a/tests/MicromorphicDamage3DTest.cxx b/tests/MicromorphicDamage3DTest.cxx
+index 94e8545d79..1929e29caf 100644
+--- a/tests/MicromorphicDamage3DTest.cxx
++++ b/tests/MicromorphicDamage3DTest.cxx
+@@ -36,11 +36,11 @@
+                                     {"AbsoluteTolerance", 1e-16},
+                                     {"RelativeTolerance", 1e-16},
+                                     {"MaximumNumberOfIterations", 100000}});
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+   } else if (parameters.linearsolver == 2) {
+     return problem.setLinearSolver(ctx, "UMFPackSolver", {});
+ #endif
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+   } else if (parameters.linearsolver == 3) {
+     return problem.setLinearSolver(ctx, "MUMPSSolver", {{"Symmetric", true}});
+ #endif
+diff --git a/tests/ParallelReadMode.cxx b/tests/ParallelReadMode.cxx
+index f493cdad89..e38996c400 100644
+--- a/tests/ParallelReadMode.cxx
++++ b/tests/ParallelReadMode.cxx
+@@ -123,11 +123,11 @@ void (*getSolution(const std::size_t i))(mfem::Vector&, const mfem::Vector&) {
+                               {"AbsoluteTolerance", 1e-12},
+                               {"RelativeTolerance", 1e-12},
+                               {"MaximumNumberOfIterations", 500}});
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+   } else if (i == 2) {
+     return p.setLinearSolver(ctx, "UMFPackSolver", {});
+ #endif
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+   } else if (i == 3) {
+     return p.setLinearSolver(ctx, "MUMPSSolver",
+                              {{"Symmetric", true}, {"PositiveDefinite", true}});
+diff --git a/tests/SequentialLinearSolver.hxx b/tests/SequentialLinearSolver.hxx
+index 7ef4e6a893..2c4865612f 100644
+--- a/tests/SequentialLinearSolver.hxx
++++ b/tests/SequentialLinearSolver.hxx
+@@ -21,30 +21,30 @@ namespace mfem_mgis::unit_tests {
+    * diagonal terms of the eliminated degrees of freedom, equal to one,
+    * being much smaller than the other ones)
+    */
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+   inline constexpr const char* sequential_direct_solver = "UMFPackSolver";
+-#else  /* MFEM_USE_SUITESPARSE */
++#else  /* MFEM_MGIS_HAVE_SUITESPARSE */
+   inline constexpr const char* sequential_direct_solver = "GMRESSolver";
+-#endif /* MFEM_USE_SUITESPARSE */
++#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
+ 
+   //! \brief if true, `sequential_direct_solver` is a direct solver
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+   inline constexpr bool has_sequential_direct_solver = true;
+-#else  /* MFEM_USE_SUITESPARSE */
++#else  /* MFEM_MGIS_HAVE_SUITESPARSE */
+   inline constexpr bool has_sequential_direct_solver = false;
+-#endif /* MFEM_USE_SUITESPARSE */
++#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
+ 
+   //! \return the parameters of the linear solver of the sequential tests
+   [[nodiscard]] inline Parameters getSequentialDirectSolverParameters() {
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+     return {};
+-#else  /* MFEM_USE_SUITESPARSE */
++#else  /* MFEM_MGIS_HAVE_SUITESPARSE */
+     return {{"VerbosityLevel", 0},
+             {"RelativeTolerance", 1e-12},
+             {"AbsoluteTolerance", 0.},
+             {"MaximumNumberOfIterations", 10000},
+             {"Preconditioner", Parameters{{"Name", "OperatorJacobiSmoother"}}}};
+-#endif /* MFEM_USE_SUITESPARSE */
++#endif /* MFEM_MGIS_HAVE_SUITESPARSE */
+   }  // end of getSequentialDirectSolverParameters
+ 
+ }  // end of namespace mfem_mgis::unit_tests
+diff --git a/tests/SparseDirectSolversTest.cxx b/tests/SparseDirectSolversTest.cxx
+index 900033e557..9586a62dc1 100644
+--- a/tests/SparseDirectSolversTest.cxx
++++ b/tests/SparseDirectSolversTest.cxx
+@@ -63,13 +63,13 @@ static constexpr double direct_tolerance =
+ static constexpr double cg_tolerance =
+     std::is_same_v<mfem::real_t, double> ? 1e-12 : 1e-5;
+ 
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+ /*!
+  * \brief number of elements along each edge of the cube on which the block
+  * low-rank factorization of MUMPS compresses fronts
+  */
+ static constexpr int blr_mesh_size = 24;
+-#endif /* MFEM_USE_MUMPS */
++#endif /* MFEM_MGIS_HAVE_MUMPS */
+ 
+ static void check(const bool b, const std::string& msg) {
+   if (!b) {
+@@ -151,7 +151,7 @@ static double solve(LaplaceSystem<true>& s,
+   return solve(s, s.A, ls, name);
+ }  // end of solve
+ 
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+ /*!
+  * \brief checks the factorization of MUMPS as a preconditioner of the
+  * conjugate gradient of MFEM: the exact factorization, with which the
+@@ -190,7 +190,7 @@ static void checkMUMPSPreconditioner(LaplaceSystem<true>& s) {
+           name + ": resolution");
+   }
+ }  // end of checkMUMPSPreconditioner
+-#endif /* MFEM_USE_MUMPS */
++#endif /* MFEM_MGIS_HAVE_MUMPS */
+ 
+ static void run(LaplaceSystem<true>& s,
+                 [[maybe_unused]] LaplaceSystem<true>& s2) {
+@@ -199,7 +199,7 @@ static void run(LaplaceSystem<true>& s,
+   // solver: the matrix of the system times two
+   auto a2 = mfem::HypreParMatrix(s.A);
+   a2 *= 2.;
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+   // MUMPS and its reordering strategies (the ones which are not available
+   // are replaced by MUMPS with a warning)
+   for (const auto& r : {"Automatic", "AMD", "PORD", "METIS"}) {
+@@ -227,8 +227,8 @@ static void run(LaplaceSystem<true>& s,
+   check(getGenerationError(s, "MUMPSSolver", Parameters{{"BLRTolerance", -1.}})
+                 .find("invalid tolerance") != std::string::npos,
+         "MUMPSSolver: negative tolerance not refused");
+-#endif /* MFEM_USE_MUMPS */
+-#ifdef MFEM_USE_SUPERLU
++#endif /* MFEM_MGIS_HAVE_MUMPS */
++#ifdef MFEM_MGIS_HAVE_SUPERLU
+   // SuperLU_DIST, its options, the reuse of its analysis
+   auto superlu = generate(s, "SuperLUSolver",
+                           Parameters{{"ColumnPermutation", "METIS_AT_PLUS_A"},
+@@ -305,8 +305,8 @@ static void run(LaplaceSystem<true>& s,
+                            Parameters{{"ColumnPermutation", "AMD"}})
+                 .find("invalid value") != std::string::npos,
+         "SuperLUSolver: invalid column permutation not refused");
+-#endif /* MFEM_USE_SUPERLU */
+-#ifdef MFEM_USE_STRUMPACK
++#endif /* MFEM_MGIS_HAVE_SUPERLU */
++#ifdef MFEM_MGIS_HAVE_STRUMPACK
+   // STRUMPACK, in double and mixed precisions
+   for (const auto& n : {"STRUMPACKSolver", "STRUMPACKMixedPrecisionSolver"}) {
+     auto strumpack = generate(
+@@ -381,7 +381,7 @@ static void run(LaplaceSystem<true>& s,
+             Parameters{{"Options", Parameters{{"--sp_compression", "blr"}}}})
+                 .find("leading dashes") != std::string::npos,
+         "STRUMPACKSolver: option with leading dashes not refused");
+-#endif /* MFEM_USE_STRUMPACK */
++#endif /* MFEM_MGIS_HAVE_STRUMPACK */
+ }  // end of run
+ 
+ int main(int argc, char** argv) {
+@@ -403,12 +403,12 @@ int main(int argc, char** argv) {
+     auto s = LaplaceSystem<true>(mesh, fec);
+     auto s2 = LaplaceSystem<true>(mesh2, fec);
+     run(s, s2);
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+     auto mesh3 = mfem::Mesh::MakeCartesian3D(
+         blr_mesh_size, blr_mesh_size, blr_mesh_size, mfem::Element::HEXAHEDRON);
+     auto s3 = LaplaceSystem<true>(mesh3, fec);
+     checkMUMPSPreconditioner(s3);
+-#endif /* MFEM_USE_MUMPS */
++#endif /* MFEM_MGIS_HAVE_MUMPS */
+   } catch (std::exception& e) {
+     std::cerr << "error: " << e.what() << '\n';
+     return EXIT_FAILURE;
+diff --git a/tests/TwoLayerCube.cxx b/tests/TwoLayerCube.cxx
+index f62ac56eda..21158b799a 100644
+--- a/tests/TwoLayerCube.cxx
++++ b/tests/TwoLayerCube.cxx
+@@ -125,11 +125,11 @@ void (*getSolution(const std::size_t i))(mfem::Vector&, const mfem::Vector&) {
+                               {"AbsoluteTolerance", 1e-12},
+                               {"RelativeTolerance", 1e-12},
+                               {"MaximumNumberOfIterations", 5000}});
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+   } else if (s == "UMFPackSolver") {
+     return p.setLinearSolver(ctx, "UMFPackSolver", {});
+ #endif
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+   } else if (s == "MUMPSSolver") {
+     return p.setLinearSolver(ctx, "MUMPSSolver",
+                              {{"Symmetric", true}, {"PositiveDefinite", true}});
+diff --git a/tests/UniaxialTensileTest.cxx b/tests/UniaxialTensileTest.cxx
+index 8f74baacca..93104e8522 100644
+--- a/tests/UniaxialTensileTest.cxx
++++ b/tests/UniaxialTensileTest.cxx
+@@ -201,11 +201,11 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
+                               {"AbsoluteTolerance", 1e-12},
+                               {"RelativeTolerance", 1e-12},
+                               {"MaximumNumberOfIterations", 5000}});
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+   } else if (s == "UMFPackSolver") {
+     return p.setLinearSolver(ctx, "UMFPackSolver", {});
+ #endif
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+   } else if (s == "MUMPSSolver") {
+     return p.setLinearSolver(ctx, "MUMPSSolver", {{"Symmetric", true}});
+ #endif
+diff --git a/tests/UnitTestingUtilities.hxx b/tests/UnitTestingUtilities.hxx
+index ac9f743b97..caef154ebd 100644
+--- a/tests/UnitTestingUtilities.hxx
++++ b/tests/UnitTestingUtilities.hxx
+@@ -136,11 +136,11 @@ namespace mfem_mgis::unit_tests {
+         mfem_mgis::Parameters{{"Name", "HypreParaSails"}, {"Options", options}};
+ 
+     bool is_default_test_case = parameters.linearsolver == 0;
+-#ifndef MFEM_USE_SUITESPARSE
++#ifndef MFEM_MGIS_HAVE_SUITESPARSE
+     is_default_test_case |=
+         (parameters.parallel == 0 && parameters.linearsolver == 2);
+ #endif
+-#ifndef MFEM_USE_MUMPS
++#ifndef MFEM_MGIS_HAVE_MUMPS
+     is_default_test_case |=
+         (parameters.parallel == 0 && parameters.linearsolver == 3);
+ #endif
+@@ -159,11 +159,11 @@ namespace mfem_mgis::unit_tests {
+                          {"AbsoluteTolerance", 1e-12},
+                          {"RelativeTolerance", 1e-12},
+                          {"MaximumNumberOfIterations", 100000}});
+-#ifdef MFEM_USE_SUITESPARSE
++#ifdef MFEM_MGIS_HAVE_SUITESPARSE
+     } else if (!parallel && parameters.linearsolver == 2) {
+       return f.generate(ctx, "UMFPackSolver", fespace, {});
+ #endif
+-#ifdef MFEM_USE_MUMPS
++#ifdef MFEM_MGIS_HAVE_MUMPS
+     } else if (parallel && parameters.linearsolver == 3) {
+       return f.generate(ctx, "MUMPSSolver", fespace, {{"Symmetric", true}});
+ #endif
+-- 
+2.43.0
+

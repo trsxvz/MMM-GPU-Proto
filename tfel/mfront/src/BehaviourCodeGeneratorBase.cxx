@@ -2,7 +2,7 @@
  * \file   mfront/src/BehaviourCodeGeneratorBase.cxx
  * \brief
  * \author Thomas Helfer
- * \date   03/08/2022
+ * \date 03/08/2022
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -399,7 +399,7 @@ namespace mfront {
       out << "* \\author " << this->fd.authorName << '\n';
     }
     if (!this->fd.date.empty()) {
-      out << "* \\date   " << this->fd.date << '\n';
+      out << "* \\date " << this->fd.date << '\n';
     }
     out << " */\n\n";
     this->writeHeaderGuardBegin(out, cn, true);
@@ -581,7 +581,7 @@ namespace mfront {
       out << "* \\author " << this->fd.authorName << '\n';
     }
     if (!this->fd.date.empty()) {
-      out << "* \\date   " << this->fd.date << '\n';
+      out << "* \\date " << this->fd.date << '\n';
     }
     out << " */\n\n";
     this->writeHeaderGuardBegin(out, cn, false);
@@ -1122,7 +1122,7 @@ namespace mfront {
       os << "* \\author " << this->fd.authorName << '\n';
     }
     if (!this->fd.date.empty()) {
-      os << "* \\date   " << this->fd.date << '\n';
+      os << "* \\date " << this->fd.date << '\n';
     }
     os << " */\n\n";
   }
@@ -1503,7 +1503,7 @@ namespace mfront {
       os << "* \\author " << this->fd.authorName << '\n';
     }
     if (!this->fd.date.empty()) {
-      os << "* \\date   " << this->fd.date << '\n';
+      os << "* \\date " << this->fd.date << '\n';
     }
     os << "*/\n";
   }
@@ -1827,7 +1827,7 @@ namespace mfront {
       os << "* \\author " << this->fd.authorName << '\n';
     }
     if (!this->fd.date.empty()) {
-      os << "* \\date   " << this->fd.date << '\n';
+      os << "* \\date " << this->fd.date << '\n';
     }
     if (!this->fd.description.empty()) {
       os << this->fd.description << '\n';
@@ -1947,7 +1947,7 @@ namespace mfront {
       os << "* \\author " << this->fd.authorName << '\n';
     }
     if (!this->fd.date.empty()) {
-      os << "* \\date   " << this->fd.date << '\n';
+      os << "* \\date " << this->fd.date << '\n';
     }
     os << " */\n\n";
   }
@@ -5296,7 +5296,7 @@ namespace mfront {
       } else if ((v1.arraySize == 1u) || (v2.arraySize == 1u)) {
         auto ptr = std::string{"this->Dt.data() + "};
         if (!o.isNull()) {
-          ptr += o.asString()+ " + ";
+          ptr += o.asString() + " + ";
         }
         ptr += "mfront_idx * " + block_size.asString();
         os << "/*!\n"
@@ -5742,7 +5742,7 @@ namespace mfront {
       os << "* \\author " << this->fd.authorName << '\n';
     }
     if (!this->fd.date.empty()) {
-      os << "* \\date   " << this->fd.date << '\n';
+      os << "* \\date " << this->fd.date << '\n';
     }
     os << " */\n\n";
   }
@@ -6015,7 +6015,7 @@ namespace mfront {
       os << "* \\author " << this->fd.authorName << '\n';
     }
     if (!this->fd.date.empty()) {
-      os << "* \\date   " << this->fd.date << '\n';
+      os << "* \\date " << this->fd.date << '\n';
     }
     os << "*/\n";
   }
@@ -6266,7 +6266,7 @@ namespace mfront {
       os << "* \\author " << this->fd.authorName << '\n';
     }
     if (!this->fd.date.empty()) {
-      os << "* \\date   " << this->fd.date << '\n';
+      os << "* \\date " << this->fd.date << '\n';
     }
     os << " */\n\n";
     if (this->bd.hasParameters()) {

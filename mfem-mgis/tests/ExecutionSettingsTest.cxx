@@ -263,7 +263,7 @@ struct NoBatchIntegrationBehaviourIntegrator final
       const mfem_mgis::size_type m,
       std::unique_ptr<const mfem_mgis::Behaviour> behaviour)
       : mfem_mgis::BehaviourIntegratorBase(
-            std::make_shared<mfem_mgis::PartialQuadratureSpace>(
+            mfem_mgis::PartialQuadratureSpace(
                 fed,
                 mfem_mgis::MaterialIdentifier{.id = m},
                 selectIntegrationRule),

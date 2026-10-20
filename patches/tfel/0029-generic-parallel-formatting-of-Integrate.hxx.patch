@@ -1,0 +1,63 @@
+From 90944e2c96b1e82458f0c88a006ddc62517d66f8 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 04:21:52 +0200
+Subject: [PATCH] generic-parallel: formatting of Integrate.hxx
+
+---
+ .../GenericParallelBehaviour/Integrate.hxx    | 26 +++++++++----------
+ 1 file changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index 8dcf63eaf..2b714be46 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -51,11 +51,11 @@ namespace mfront::gpb {
+    * members `material_properties_sizes` and `external_state_variables_sizes`
+    * give the number of components of each material property and of each
+    * external state variable, and whose member type `Integrator` gives the
+-   * integration strategy (see `StandardIntegrator`). CUDA compilers don't support class types as
+-   * non-type template parameters of kernels. For finite strain behaviours,
+-   * the sizes of the thermodynamic forces and of the tangent operator depend
+-   * on the stress measure and on the tangent operator requested by the
+-   * computation options.
++   * integration strategy (see `StandardIntegrator`). CUDA compilers don't
++   * support class types as non-type template parameters of kernels. For finite
++   * strain behaviours, the sizes of the thermodynamic forces and of the tangent
++   * operator depend on the stress measure and on the tangent operator requested
++   * by the computation options.
+    */
+   struct PointDataSizes {
+     size_type gradients = 0;
+@@ -332,9 +332,9 @@ namespace mfront::gpb {
+                                   d.s0.material_properties_by_variable, mps),
+         .mp1 = makeVariableFields(d.s1.material_properties,
+                                   d.s1.material_properties_by_variable, mps),
+-        .esv0 = makeVariableFields(d.s0.external_state_variables,
+-                                   d.s0.external_state_variables_by_variable,
+-                                   esvs),
++        .esv0 =
++            makeVariableFields(d.s0.external_state_variables,
++                               d.s0.external_state_variables_by_variable, esvs),
+         .esv1 = makeVariableFields(d.s1.external_state_variables,
+                                    d.s1.external_state_variables_by_variable,
+                                    esvs)};
+@@ -880,11 +880,11 @@ namespace mfront::gpb {
+     };
+     // material properties and external state variables, given as a group
+     // or variable by variable
+-    auto check_inputs = [&s, &check_input](
+-                            const ConstField& f,
+-                            const ConstField* const by_variable,
+-                            const auto& variables_sizes, const size_type size,
+-                            const std::string_view name) {
++    auto check_inputs = [&s, &check_input](const ConstField& f,
++                                           const ConstField* const by_variable,
++                                           const auto& variables_sizes,
++                                           const size_type size,
++                                           const std::string_view name) {
+       if (by_variable == nullptr) {
+         return check_input(f, size, name);
+       }
+-- 
+2.43.0
+

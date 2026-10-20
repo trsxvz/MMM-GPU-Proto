@@ -2,7 +2,7 @@
  * \file   MFrontModelInterface.cxx
  * \brief
  * \author Thomas Helfer
- * \date   03 juin 2016
+ * \date 03/06/2016
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -148,12 +148,13 @@ namespace mfront {
     std::ofstream header("include/" + hname);
     throw_if(!header, "can't open file 'include/" + hname + "'");
     header.exceptions(std::ios::badbit | std::ios::failbit);
+    header.precision(14);
     header << "/*!\n"
            << " * \\file   " << hname << '\n'
            << " * \\brief  This file declares the mfront interface for the "
            << md.className << " model\n"
            << " * \\author " << fd.authorName << '\n'
-           << " * \\date   " << fd.date << '\n'
+           << " * \\date " << fd.date << '\n'
            << " */\n\n"
            << "#ifndef " << getHeaderGuard(md) << "\n"
            << "#define " << getHeaderGuard(md) << "\n\n"

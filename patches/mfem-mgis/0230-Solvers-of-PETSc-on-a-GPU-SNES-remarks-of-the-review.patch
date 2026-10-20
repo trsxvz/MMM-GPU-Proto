@@ -1,4 +1,4 @@
-From 4a300b308100344275f7a6db1809d494c45b5d9f Mon Sep 17 00:00:00 2001
+From 49e84b98d02d6ee40669bf4f61915e069097bef2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:59:13 +0200
 Subject: [PATCH] Solvers of PETSc on a GPU, SNES: remarks of the review
@@ -1023,10 +1023,10 @@ index f5fad4a6e2..13b7e860b3 100644
  
  }  // end of namespace mfem_mgis::internals
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9f4fe1a600..1eed8ced0a 100644
+index 10ce2d5f78..09add0c2f2 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1920,6 +1920,23 @@ if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
+@@ -1923,6 +1923,23 @@ if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
    add_test(NAME PETScSolversTestP COMMAND mpirun -n 2 ./PETScSolversTest)
    set_tests_properties(PETScSolversTest PETScSolversTestP PROPERTIES
      FAIL_REGULAR_EXPRESSION "check failed")
@@ -1051,7 +1051,7 @@ index 9f4fe1a600..1eed8ced0a 100644
  
  # AmgXSolverTest executable: solvers of AmgX built by the factory of linear
 diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
-index 0901d58822..54ba7d29b5 100644
+index 6d1520d1b2..67ca0ea6db 100644
 --- a/tests/SNESSolverTest.cxx
 +++ b/tests/SNESSolverTest.cxx
 @@ -9,14 +9,15 @@

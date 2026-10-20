@@ -63,7 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - solvers of AmgX (`AmgX`, `AmgXPCG`, CMake option `enable-amgx`) and of
   cuDSS (`CuDSSSolver`); parameter `ReuseAnalysis` of `MUMPSSolver`;
   `AbsoluteTolerance` of the Krylov solvers of hypre; options of
-  `HypreBoomerAMG` (`StrengthThreshold`, `CoarseningType`,
+  `HypreBoomerAMG` (`StrongThreshold`, `CoarseningType`,
   `AggressiveCoarseningLevels`, `InterpolationType`, `RelaxationType`...);
   preconditioners `OperatorJacobiSmoother` and `OperatorChebyshevSmoother`
 - options `--device`, `--hypre-device-pool-size`, `--hypre-on-host` and
@@ -104,6 +104,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   boolean
 - `assign_values` requires both views to be defined on the same mesh
   discretization
+- partial quadrature spaces are handled by value: copies share the same
+  data and compare equal. Constructors and functions taking a
+  `std::shared_ptr<const PartialQuadratureSpace>` take a `const
+  PartialQuadratureSpace&`, and the `buildQuadratureSpace` methods of
+  the behaviour integrators return a `PartialQuadratureSpace`
+- partial quadrature function views can no longer be default constructed nor
+  assigned
+- `getPartialQuadratureSpacePointer`, replaced by `getPartialQuadratureSpace`
+
+### Fixed
+
+- the message of a failed time step described its first sub-step instead
+  of the failed time step
 
 ### Removed
 

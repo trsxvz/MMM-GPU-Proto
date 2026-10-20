@@ -1,4 +1,4 @@
-From 2d2671494965b415bf3e65eaac0e8e99f877ffdb Mon Sep 17 00:00:00 2001
+From b4e7893bf8e8b5546a1d449c03ef3c54558569ac Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 13:44:35 +0200
 Subject: [PATCH] ex8: test by batches and by kernels (rjh_plate-kernels),

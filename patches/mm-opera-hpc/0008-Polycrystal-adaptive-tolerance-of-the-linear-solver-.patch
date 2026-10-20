@@ -1,4 +1,4 @@
-From d5b2ccbf1ebb55c8e07173e0871ea6eba630b9e1 Mon Sep 17 00:00:00 2001
+From aaec7a9893b99e7448e28b46c59e89f7abaee7be Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 05:05:42 +0200
 Subject: [PATCH] Polycrystal: adaptive tolerance of the linear solver of the
@@ -11,11 +11,11 @@ mfem-mgis (option AdaptiveLinearSolverTolerance). The parameters of the
 non linear solver are built with the execution context instead of the
 deprecated throwing attribute.
 ---
- polycrystal/UniaxialPolycrystal.cxx | 53 ++++++++++++++++++++++++++---
- 1 file changed, 48 insertions(+), 5 deletions(-)
+ polycrystal/UniaxialPolycrystal.cxx | 52 ++++++++++++++++++++++++++---
+ 1 file changed, 47 insertions(+), 5 deletions(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 7bf5780..97eee07 100644
+index 6f4e9b8..755b0f6 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -67,6 +67,14 @@ struct NumericalParameters {
@@ -33,11 +33,9 @@ index 7bf5780..97eee07 100644
  };
  
  /*!
-@@ -172,24 +180,51 @@ int main(int argc, char *argv[]) {
-                                  {"UnknownsSize", mfem_mgis::size_type{3}},
+@@ -174,23 +182,49 @@ int main(int argc, char *argv[]) {
                                   {"NumberOfUniformRefinements", p.refinement},
-                                  {"Parallel", true}});
-+  auto or_die = ctx.getFatalFailureHandler();
+                                  {"Parallel", true}})|or_die;
    auto problem_parameters = mfem_mgis::Parameters{};
 +  // options of the non linear solver: adaptive tolerance of its linear
 +  // solver, if required
@@ -90,7 +88,7 @@ index 7bf5780..97eee07 100644
      mfem_mgis::Profiler::Utils::Message(
          "error: invalid non linear solver (expected Newton or NewtonK0)");
      std::exit(EXIT_FAILURE);
-@@ -268,6 +303,14 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -271,6 +305,14 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                   "preconditioner of the linear solver to be used");
    args.AddOption(&p.non_linear_solver, "", "--non-linear-solver",
                   "non linear solver: Newton (default) or NewtonK0");

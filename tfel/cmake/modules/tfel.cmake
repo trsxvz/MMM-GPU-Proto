@@ -528,8 +528,7 @@ function(define_tfel_cxx_compiler compiler)
    message(STATUS "TFEL_NVHPC_COMPILER: ${TFEL_NVHPC_COMPILER}")
  else()
    message(FATAL_ERROR "unsupported C++ compiler '${compiler}'. "
-           "Supported compilers are 'g++', 'clang++', 'icpx', 'acpp', "
-           "'nvhpc'")
+           "Supported compilers are 'g++', 'clang++', 'icpx', 'acpp', 'nvhpc'")
  endif()
 endfunction(define_tfel_cxx_compiler)
 
@@ -585,6 +584,7 @@ if(TFEL_REQUIRES_HIP)
  if(NOT TFEL_HIPCC_COMPILER)
    find_program(TFEL_HIPCC_COMPILER NAMES "hipcc" REQUIRED)
  endif(NOT TFEL_HIPCC_COMPILER)
+ # the substitution is also defined if the compiler is given by the user
  add_tfel_substitution(TFEL_HIPCC_COMPILER "${TFEL_HIPCC_COMPILER}")
  if(NOT HIP_PLATFORM)
    if(NOT DEFINED ENV{HIP_PLATFORM})
@@ -604,6 +604,7 @@ if(TFEL_REQUIRES_HIP)
          "mfront::behaviour::generic-parallel_interface::supported_configuration::hip-clang-nvidia-platform")
    endif("hip-clang" IN_LIST generic-parallel-configurations)
  elseif(HIP_PLATFORM STREQUAL "amd")
+   # hipcc calls clang
    set(TFEL_HIPCC_FLAGS "-fPIC")
    if("hip-clang" IN_LIST generic-parallel-configurations)
      message(WARNING "the 'hip-clang' configuration only targets the NVIDIA "

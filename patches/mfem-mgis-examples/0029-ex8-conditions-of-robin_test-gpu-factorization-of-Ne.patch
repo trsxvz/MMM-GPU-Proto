@@ -1,4 +1,4 @@
-From 6a365732c6b07a9740b02ea95fc20ee53dae6464 Mon Sep 17 00:00:00 2001
+From 607240dfa210cab32d00a8d15058c566b04246a6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:48:35 +0200
 Subject: [PATCH] ex8: conditions of robin_test-gpu, factorization of NewtonK0

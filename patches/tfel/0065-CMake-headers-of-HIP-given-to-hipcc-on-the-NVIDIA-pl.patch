@@ -1,0 +1,42 @@
+From 338428a6d0ff9ee0e8cce3d4e2b5e215664a7ec1 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 7 Oct 2026 13:22:32 +0200
+Subject: [PATCH] CMake: headers of HIP given to hipcc on the NVIDIA platform
+
+On the NVIDIA platform, hipcc does not give the headers of HIP to nvcc:
+the hip-hipcc configuration only worked with HIP installed in /usr. The
+include directory of HIP is now added to the flags of hipcc if it is not
+an implicit include directory of the C++ compiler (HIP installed by
+spack, for instance).
+---
+ cmake/modules/tfel.cmake | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
+index 957699c6f..c92458ac0 100644
+--- a/cmake/modules/tfel.cmake
++++ b/cmake/modules/tfel.cmake
+@@ -647,12 +647,15 @@ if(TFEL_REQUIRES_HIP)
+   find_package(hip REQUIRED)
+   set(TFEL_HIP_INCLUDES "${HIP_INCLUDE_DIR}")
+   add_tfel_substitution(TFEL_HIP_INCLUDE_DIR "${TFEL_HIP_INCLUDES}")
+-  # The headers of HIP are given with `-I`, not `-isystem`: when HIP is
+-  # installed in `/usr`, `-isystem /usr/include` would place `/usr/include`
+-  # before the headers of the C++ standard library and break their
+-  # `#include_next` directives.
++  # The configurations based on clang give this directory with `-I`, not
++  # `-isystem`. When HIP is installed in `/usr`, `-isystem /usr/include`
++  # would place `/usr/include` before the headers of the C++ standard
++  # library and break their `#include_next` directives, whereas the
++  # compilers ignore `-I` for a standard system directory.
+   if(HIP_PLATFORM STREQUAL "nvidia")
+-    # hipcc does not give the headers of HIP to nvcc
++    # On the NVIDIA platform, hipcc does not give the headers of HIP to
++    # nvcc: they must be given if they are not in a directory searched by
++    # default (HIP installed by spack, for instance).
+     if(NOT "${HIP_INCLUDE_DIR}" IN_LIST CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES)
+       string(APPEND TFEL_HIPCC_FLAGS " -I${HIP_INCLUDE_DIR}")
+     endif()
+-- 
+2.43.0
+

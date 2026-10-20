@@ -29,7 +29,7 @@ buildMechanicalProblem(
   constexpr auto E = mfem_mgis::real{200};
   constexpr auto nu = mfem_mgis::real{0.};
   constexpr auto umax = mfem_mgis::real{0.2};
-  auto fed = mfem_mgis::make_shared<mfem_mgis::FiniteElementDiscretization>(
+  auto fed = construct<mfem_mgis::FiniteElementDiscretization>(
                  ctx, fespace_manager, mfem_mgis::dict{{"UnknownsSize", 2}}) |
              or_die;
   auto problem = make_shared<mfem_mgis::NonLinearEvolutionProblem>(
@@ -58,24 +58,21 @@ buildMechanicalProblem(
   }
   // boundary conditions
   problem->addBoundaryCondition(
-      ctx,
-      make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
-          ctx, problem->getFiniteElementDiscretizationPointer(), "left", 0)) |
-      or_die;
-  problem->addBoundaryCondition(
-      ctx,
-      make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
-          ctx, problem->getFiniteElementDiscretizationPointer(), "upper", 1)) |
-      or_die;
-  problem->addBoundaryCondition(
-      ctx,
-      make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
-          ctx, problem->getFiniteElementDiscretizationPointer(), "lower", 1)) |
+      ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+               ctx, problem->getFiniteElementDiscretization(), "left", 0)) |
       or_die;
   problem->addBoundaryCondition(
       ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
-               ctx, problem->getFiniteElementDiscretizationPointer(), "right",
-               0, [](const mfem_mgis::real t) noexcept { return umax * t; }) |
+               ctx, problem->getFiniteElementDiscretization(), "upper", 1)) |
+      or_die;
+  problem->addBoundaryCondition(
+      ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+               ctx, problem->getFiniteElementDiscretization(), "lower", 1)) |
+      or_die;
+  problem->addBoundaryCondition(
+      ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+               ctx, problem->getFiniteElementDiscretization(), "right", 0,
+               [](const mfem_mgis::real t) noexcept { return umax * t; }) |
                or_die) |
       or_die;
   // linear solver, convergence critera
@@ -120,7 +117,7 @@ buildMicromorphicProblem(
   constexpr auto Gc = mfem_mgis::real{1};
   constexpr auto l0 = mfem_mgis::real{0.1};
   constexpr auto beta = mfem_mgis::real{300};
-  auto fed = mfem_mgis::make_shared<mfem_mgis::FiniteElementDiscretization>(
+  auto fed = mfem_mgis::construct<mfem_mgis::FiniteElementDiscretization>(
                  ctx, fespace_manager, mfem_mgis::dict{{"UnknownsSize", 1}}) |
              or_die;
   auto problem = make_shared<mfem_mgis::NonLinearEvolutionProblem>(
@@ -159,16 +156,14 @@ buildMicromorphicProblem(
       or_die;
   // boundary conditions
   problem->addBoundaryCondition(
-      ctx,
-      make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
-          ctx, problem->getFiniteElementDiscretizationPointer(), "left", 0) |
-          or_die) |
+      ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+               ctx, problem->getFiniteElementDiscretization(), "left", 0) |
+               or_die) |
       or_die;
   problem->addBoundaryCondition(
-      ctx,
-      make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
-          ctx, problem->getFiniteElementDiscretizationPointer(), "right", 0) |
-          or_die) |
+      ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
+               ctx, problem->getFiniteElementDiscretization(), "right", 0) |
+               or_die) |
       or_die;
   // post-processings
   problem->addPostProcessing(
@@ -223,10 +218,8 @@ int main(int argc, char** argv) {
   // quadrature functions used to transfer information from one problem to the
   // other
   auto& m1 = micromorphic_problem->getMaterial(ctx, "beam", 0) | or_die;
-  mfem_mgis::PartialQuadratureFunction Y(m1.getPartialQuadratureSpacePointer(),
-                                         1u);
-  mfem_mgis::PartialQuadratureFunction d(m1.getPartialQuadratureSpacePointer(),
-                                         1u);
+  mfem_mgis::PartialQuadratureFunction Y(m1.getPartialQuadratureSpace(), 1u);
+  mfem_mgis::PartialQuadratureFunction d(m1.getPartialQuadratureSpace(), 1u);
   // using external storage allows to directly modify the values of the
   // quadrature functions Y and d
   auto& m2 = mechanical_problem->getMaterial(ctx, "beam", 0) | or_die;

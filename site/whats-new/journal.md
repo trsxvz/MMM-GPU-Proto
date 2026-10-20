@@ -212,3 +212,15 @@ GPU.
 - The prototype of mfem-mgis is rebased onto the master branch of
   mfem-mgis (value semantics of the partial quadrature spaces), tested on
   the CPU, with Trilinos and on the GPU.
+
+## 20/10/2026: rebase onto the official masters
+
+- TFEL, MGIS, mfem-mgis, the examples and mm-opera-hpc are rebased onto
+  the last commits of their official branches; the patches already merged
+  are dropped, and each patch series is checked on its new base.
+- Carried over from the official repositories: the update of a material
+  keeps the tangent operator blocks (mfem-mgis #498), partial quadrature
+  spaces and discretizations handled by value, the `StrongThreshold`
+  option of BoomerAMG (mfem-mgis #495).
+- All the test suites pass on the CPU (TFEL, MGIS, mfem-mgis, examples,
+  mm-opera-hpc, cases of the prototype).

@@ -1,0 +1,458 @@
+From efc4d8d185e186252c3376452be6f8713269cf29 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 20:37:08 +0200
+Subject: [PATCH] Execution settings: options named after the phases
+
+The options placing each phase in the mixed mode are renamed after their
+phase, with the same suffix: --finite-elements-execution (-fex),
+--behaviours-execution (-bhx), --linear-solvers-execution (-lsx, formerly
+--linear-solver-device, which suggested a GPU) and
+--post-processings-execution (-ppx). The names do not collide with the
+options of mfem-mgis-examples and mm-opera-hpc; the former names are not
+kept (the options only exist in this branch).
+---
+ CHANGELOG.md                                  |  5 ++--
+ .../source/commented_examples/basic_tests.rst |  5 ++--
+ .../source/commented_examples/polycrystal.rst |  2 +-
+ docs/source/commented_examples/rjh_plate.rst  |  4 +--
+ .../rve_elastic_inclusions.rst                |  2 +-
+ docs/source/commented_examples/rve_mox.rst    |  2 +-
+ docs/source/user_guide/batch_computations.rst | 15 +++++-----
+ docs/source/user_guide/tutorial.rst           | 16 +++++-----
+ include/MFEMMGIS/Config.hxx                   | 14 +++++----
+ include/MFEMMGIS/ExecutionSettings.hxx        |  6 ++--
+ src/Config.cxx                                | 30 ++++++++++---------
+ src/ExecutionSettings.cxx                     | 24 ++++++++++-----
+ src/ExecutionSettings.hxx                     | 29 ++++++++++--------
+ tests/CMakeLists.txt                          | 20 ++++++-------
+ 14 files changed, 96 insertions(+), 78 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f312800434..7ccb35c90f 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -26,8 +26,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+   choose the order of the integration rules of the behaviour integrators (8
+   points instead of 27 on the hexahedra of order 1 with the order 3).
+ - execution settings: option `--execution cpu|gpu|mixed` and, in the mixed
+-  mode, `--finite-elements`, `--behaviours`, `--linear-solver-device` and
+-  `--post-processings` placing each phase on the CPU or on the GPU
++  mode, `--finite-elements-execution`, `--behaviours-execution`,
++  `--linear-solvers-execution` and `--post-processings-execution` placing
++  each phase on the CPU or on the GPU
+   (`getExecutionSettings`); behaviour libraries and linear solvers checked
+   against them; parameter `BehaviourExecutionLocation` of
+   `addBehaviourIntegrator` giving the location expected for the behaviour
+diff --git a/docs/source/commented_examples/basic_tests.rst b/docs/source/commented_examples/basic_tests.rst
+index ad5570bc6f..b0c07d3dfa 100644
+--- a/docs/source/commented_examples/basic_tests.rst
++++ b/docs/source/commented_examples/basic_tests.rst
+@@ -300,7 +300,7 @@ behaviours. It also accepts the options of mfem-mgis, such as ``--execution``
+ Its test ``satoh`` checks the imposed temperature and the reactions of the
+ left and right boundaries. With the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of
+ the examples, the test ``satoh-gpu`` does the same with ``--execution mixed
+---linear-solver-device cpu`` (UMFPack computes on the CPU).
++--linear-solvers-execution cpu`` (UMFPack computes on the CPU).
+ 
+ Ssna303 Example (2D and 3D)
+ ---------------------------
+@@ -451,4 +451,5 @@ With the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of the examples, the test
+ ``ssna303_3d_hypre-gpu`` runs the test of ``ssna303_3d_hypre`` with
+ ``--execution gpu``, and, if MFEM is built with MUMPS, the test
+ ``ssna303_3d_mumps-gpu`` runs the test of ``ssna303_3d_mumps`` with
+-``--execution mixed --linear-solver-device cpu`` (MUMPS computes on the CPU).
++``--execution mixed --linear-solvers-execution cpu`` (MUMPS computes on the
++CPU).
+diff --git a/docs/source/commented_examples/polycrystal.rst b/docs/source/commented_examples/polycrystal.rst
+index cafb2bff87..f5763841af 100644
+--- a/docs/source/commented_examples/polycrystal.rst
++++ b/docs/source/commented_examples/polycrystal.rst
+@@ -301,7 +301,7 @@ option ``MM_OPERA_HPC_GPU_TESTS`` of mm-opera-hpc, and if MFEM is compiled with
+ CUDA or HIP and the behaviour library of the case is built for the GPU,
+ ``UniaxialPolycrystalTest-gpu`` and ``UniaxialPolycrystalTest-mixed-gpu`` run
+ the first test with ``--execution gpu`` and with ``--execution mixed
+---behaviours cpu``. A GPU is then required to run them.
++--behaviours-execution cpu``. A GPU is then required to run them.
+ 
+ References
+ ----------
+diff --git a/docs/source/commented_examples/rjh_plate.rst b/docs/source/commented_examples/rjh_plate.rst
+index 407f54f5d8..14b152d0ba 100644
+--- a/docs/source/commented_examples/rjh_plate.rst
++++ b/docs/source/commented_examples/rjh_plate.rst
+@@ -241,9 +241,9 @@ Tests
+ - ``rjh_plate-newton-k0`` does the same with the mechanical problem solved by
+   the ``NewtonK0`` method (``-nlsMc NewtonK0``).
+ - ``rjh_plate-gpu`` runs the first simulation on the GPU, MUMPS computing on
+-  the CPU (``--execution mixed --linear-solver-device cpu``), and
++  the CPU (``--execution mixed --linear-solvers-execution cpu``), and
+   ``rjh_plate-mixed-gpu`` the same with the finite elements computed on the
+-  CPU too (``--finite-elements cpu``), with the option
++  CPU too (``--finite-elements-execution cpu``), with the option
+   ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` (see :doc:`index`).
+ - ``u3si2_swelling`` compares the swelling model to its exact value under a
+   power ramp.
+diff --git a/docs/source/commented_examples/rve_elastic_inclusions.rst b/docs/source/commented_examples/rve_elastic_inclusions.rst
+index 58d51f4ded..29ed6d7e65 100644
+--- a/docs/source/commented_examples/rve_elastic_inclusions.rst
++++ b/docs/source/commented_examples/rve_elastic_inclusions.rst
+@@ -83,4 +83,4 @@ The example also accepts the options of mfem-mgis, such as ``--execution``
+ Its test ``rve`` runs the default case without post-processing. With the
+ option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` of the examples, the tests ``rve-gpu``
+ and ``rve-mixed-gpu`` do the same with ``--execution gpu`` and with
+-``--execution mixed --behaviours cpu``.
++``--execution mixed --behaviours-execution cpu``.
+diff --git a/docs/source/commented_examples/rve_mox.rst b/docs/source/commented_examples/rve_mox.rst
+index 42d0482122..837ec9fade 100644
+--- a/docs/source/commented_examples/rve_mox.rst
++++ b/docs/source/commented_examples/rve_mox.rst
+@@ -195,7 +195,7 @@ PETSc.
+ 
+ With the option ``MFEM_MGIS_EXAMPLES_GPU_TESTS`` (see :doc:`index`), the tests
+ ``mox2-gpu`` and ``mox2-mixed-gpu`` do the same with ``--execution gpu`` and
+-with ``--execution mixed --behaviours cpu``.
++with ``--execution mixed --behaviours-execution cpu``.
+ 
+ Post-processing of simulation data
+ ----------------------------------
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index 6871740fb0..b7066733d6 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -475,17 +475,18 @@ choice:
+   :code:`HIP`, as :code:`MFEM` is built), all the computations on the GPU;
+ - :code:`mixed`: device :code:`gpu` of :code:`MFEM`, each phase being
+   placed on the CPU or on the GPU (:code:`gpu` by default) by
+-  :code:`--finite-elements` (:code:`-fe`: gradients, inner forces, tangent
+-  operator), :code:`--behaviours` (:code:`-bh`: integration of the
+-  behaviours), :code:`--linear-solver-device` (:code:`-lsd`: linear
+-  solvers and memory of hypre) and :code:`--post-processings`
+-  (:code:`-ppd`). These options are refused in the other modes.
++  :code:`--finite-elements-execution` (:code:`-fex`: gradients, inner
++  forces, tangent operator), :code:`--behaviours-execution` (:code:`-bhx`:
++  integration of the behaviours), :code:`--linear-solvers-execution`
++  (:code:`-lsx`: linear solvers and memory of hypre) and
++  :code:`--post-processings-execution` (:code:`-ppx`). These options are
++  refused in the other modes.
+ 
+ These options are read by :code:`mfem_mgis::initialize` directly from the
+ arguments of the program, before the initialization of :code:`MPI` and of
+ :code:`hypre`, whatever the options declared by the program: a program must
+-not use their long or short names (:code:`-x`, :code:`-fe`, :code:`-bh`,
+-:code:`-lsd`, :code:`-ppd`) for its own options.
++not use their long or short names (:code:`-x`, :code:`-fex`, :code:`-bhx`,
++:code:`-lsx`, :code:`-ppx`) for its own options.
+ 
+ The 16 combinations of the mixed mode are tested
+ (:code:`ExecutionSettingsTest`, when the behaviour library for the GPU is
+diff --git a/docs/source/user_guide/tutorial.rst b/docs/source/user_guide/tutorial.rst
+index 785545813d..5a5bec7b66 100644
+--- a/docs/source/user_guide/tutorial.rst
++++ b/docs/source/user_guide/tutorial.rst
+@@ -188,9 +188,9 @@ This call is mostly useful in parallel and handles:
+    toolkit, if supported and
+    requested.
+ -  The execution settings given by the option ``--execution`` (and the
+-   options ``--finite-elements``, ``--behaviours``,
+-   ``--linear-solver-device`` and ``--post-processings``), which place the
+-   computations on the CPU or on the GPU.
++   options ``--finite-elements-execution``, ``--behaviours-execution``,
++   ``--linear-solvers-execution`` and ``--post-processings-execution``),
++   which place the computations on the CPU or on the GPU.
+ -  The creation of the ``MFEM`` device (option ``--device``), the location
+    of the memory of ``hypre`` (options ``--hypre-on-host`` and
+    ``--hypre-device-pool-size``) and the initialization of ``Kokkos``
+@@ -286,10 +286,10 @@ by ``mfem_mgis::initialize``:
+ 
+ -  ``--execution`` (or ``-x``), which places all the computations:
+    ``cpu``, ``gpu`` or ``mixed``;
+--  with ``--execution mixed``, ``--finite-elements`` (``-fe``),
+-   ``--behaviours`` (``-bh``), ``--linear-solver-device`` (``-lsd``) and
+-   ``--post-processings`` (``-ppd``), which place each phase on the CPU
+-   or on the GPU;
++-  with ``--execution mixed``, ``--finite-elements-execution`` (``-fex``),
++   ``--behaviours-execution`` (``-bhx``), ``--linear-solvers-execution``
++   (``-lsx``) and ``--post-processings-execution`` (``-ppx``), which place
++   each phase on the CPU or on the GPU;
+ -  ``--device`` (or ``-dev``), which selects the configuration of the
+    ``MFEM`` device (for instance ``cuda``). No device is created if the
+    option is not given, unless ``--execution`` selects a GPU. An
+@@ -772,4 +772,4 @@ with the finite elements and the behaviours on the GPU, the linear solver
+ 
+ .. code:: sh
+ 
+-   ./ssna303 --execution mixed --linear-solver-device cpu
++   ./ssna303 --execution mixed --linear-solvers-execution cpu
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index f99930b326..41ec34b5dd 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -129,9 +129,10 @@ namespace mfem_mgis {
+    * It is safe to call this function multiple times.
+    *
+    * The option `--execution <cpu|gpu|mixed>` (or `-x`) and, in the `mixed`
+-   * mode only, the options `--finite-elements` (`-fe`), `--behaviours`
+-   * (`-bh`), `--linear-solver-device` (`-lsd`) and `--post-processings`
+-   * (`-ppd`) are read first, before `MPI_Init` (see `ExecutionSettings`).
++   * mode only, the options `--finite-elements-execution` (`-fex`),
++   * `--behaviours-execution` (`-bhx`), `--linear-solvers-execution` (`-lsx`)
++   * and `--post-processings-execution` (`-ppx`) are read first, before
++   * `MPI_Init` (see `ExecutionSettings`).
+    * In the `gpu` and `mixed` modes, the device `gpu` of MFEM is created
+    * unless `--device` gives another configuration using a GPU or the
+    * device is already configured, which must then use a GPU; with
+@@ -329,9 +330,10 @@ namespace mfem_mgis {
+   MFEM_MGIS_EXPORT void setPETSc(const char* petscrc_file);
+   /*!
+    * \brief declare the default options, read by `initialize`: the execution
+-   * settings (`--execution`, `--finite-elements`, `--behaviours`,
+-   * `--linear-solver-device`, `--post-processings`), the configuration of
+-   * the MFEM device (`--device`), the size of the pool of memory of hypre on
++   * settings (`--execution`, `--finite-elements-execution`,
++   * `--behaviours-execution`, `--linear-solvers-execution`,
++   * `--post-processings-execution`), the configuration of the MFEM device
++   * (`--device`), the size of the pool of memory of hypre on
+    * the GPU (`--hypre-device-pool-size`), the computations of hypre on the
+    * host (`--hypre-on-host`), the initialization of Kokkos (`--kokkos`), the
+    * linear solver and preconditioner overrides (`--linear-solver-override`,
+diff --git a/include/MFEMMGIS/ExecutionSettings.hxx b/include/MFEMMGIS/ExecutionSettings.hxx
+index 1e4c808f8c..2ffefbb5c1 100644
+--- a/include/MFEMMGIS/ExecutionSettings.hxx
++++ b/include/MFEMMGIS/ExecutionSettings.hxx
+@@ -52,9 +52,9 @@ namespace mfem_mgis {
+    *
+    * - `--execution` (`-x`): `cpu`, `gpu` or `mixed`;
+    * - in the `mixed` mode only, the location of each phase, `cpu` or `gpu`
+-   *   (`gpu` by default): `--finite-elements` (`-fe`), `--behaviours`
+-   *   (`-bh`), `--linear-solver-device` (`-lsd`) and `--post-processings`
+-   *   (`-ppd`).
++   *   (`gpu` by default): `--finite-elements-execution` (`-fex`),
++   *   `--behaviours-execution` (`-bhx`), `--linear-solvers-execution`
++   *   (`-lsx`) and `--post-processings-execution` (`-ppx`).
+    *
+    * The execution mode gives the default integration of the behaviours
+    * (`Batch`), and the locations the default computations of the finite
+diff --git a/src/Config.cxx b/src/Config.cxx
+index d8c77d6e0a..0805c8b148 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -577,7 +577,7 @@ namespace mfem_mgis {
+       mgis::raise(
+           "initialize: PETSc computes on the CPU, while the execution "
+           "settings place the linear solvers on the GPU (use '--execution "
+-          "cpu' or '--execution mixed --linear-solver-device cpu')");
++          "cpu' or '--execution mixed --linear-solvers-execution cpu')");
+     }
+ #endif /* MFEM_MGIS_HAVE_PETSC */
+     // execution settings: no GPU in the cpu mode, the `gpu` device of MFEM
+@@ -851,34 +851,36 @@ namespace mfem_mgis {
+         "Execution of the computations: cpu (no GPU, all the "
+         "computations on the host), gpu (device gpu of MFEM, all the "
+         "computations on the GPU) or mixed (device gpu of MFEM, each phase "
+-        "placed by the options --finite-elements, --behaviours, "
+-        "--linear-solver-device and --post-processings, gpu by default). "
+-        "Read by mfem_mgis::initialize. With this option, the environment "
++        "placed by the options --finite-elements-execution, "
++        "--behaviours-execution, --linear-solvers-execution and "
++        "--post-processings-execution, gpu by default). Read by "
++        "mfem_mgis::initialize. With this option, the environment "
+         "variables placing the computations are ignored; without it, the "
+         "computations are placed by the other options, the parameters and "
+         "the environment variables.");
+     static const char* finite_elements = "";
+-    parser.AddOption(&finite_elements, internals::finite_elements_short_option,
+-                     internals::finite_elements_option,
++    parser.AddOption(&finite_elements,
++                     internals::finite_elements_execution_short_option,
++                     internals::finite_elements_execution_option,
+                      "With --execution mixed: location (cpu or gpu) of the "
+                      "computations of the finite elements (gradients, inner "
+                      "forces, tangent operator).");
+     static const char* behaviours = "";
+-    parser.AddOption(&behaviours, internals::behaviours_short_option,
+-                     internals::behaviours_option,
++    parser.AddOption(&behaviours, internals::behaviours_execution_short_option,
++                     internals::behaviours_execution_option,
+                      "With --execution mixed: location (cpu or gpu) of the "
+                      "integration of the behaviours, checked against the "
+                      "libraries of the behaviours.");
+-    static const char* linear_solver_device = "";
+-    parser.AddOption(&linear_solver_device,
+-                     internals::linear_solver_device_short_option,
+-                     internals::linear_solver_device_option,
++    static const char* linear_solvers_execution = "";
++    parser.AddOption(&linear_solvers_execution,
++                     internals::linear_solvers_execution_short_option,
++                     internals::linear_solvers_execution_option,
+                      "With --execution mixed: location (cpu or gpu) of the "
+                      "linear solvers and of the memory of hypre.");
+     static const char* post_processings = "";
+     parser.AddOption(&post_processings,
+-                     internals::post_processings_short_option,
+-                     internals::post_processings_option,
++                     internals::post_processings_execution_short_option,
++                     internals::post_processings_execution_option,
+                      "With --execution mixed: location (cpu or gpu) of the "
+                      "post-processings.");
+     // read by `initialize`: only declared here, as a string, so that the
+diff --git a/src/ExecutionSettings.cxx b/src/ExecutionSettings.cxx
+index 6a0defae4a..38bd09389c 100644
+--- a/src/ExecutionSettings.cxx
++++ b/src/ExecutionSettings.cxx
+@@ -71,14 +71,17 @@ namespace mfem_mgis::internals {
+ 
+   //! \brief options placing the phases of the computations
+   static constexpr auto location_options = std::array<LocationOption, 4>{
+-      LocationOption{finite_elements_option, finite_elements_short_option,
++      LocationOption{finite_elements_execution_option,
++                     finite_elements_execution_short_option,
+                      &ExecutionSettings::finite_elements},
+-      LocationOption{behaviours_option, behaviours_short_option,
++      LocationOption{behaviours_execution_option,
++                     behaviours_execution_short_option,
+                      &ExecutionSettings::behaviours},
+-      LocationOption{linear_solver_device_option,
+-                     linear_solver_device_short_option,
++      LocationOption{linear_solvers_execution_option,
++                     linear_solvers_execution_short_option,
+                      &ExecutionSettings::linear_solver},
+-      LocationOption{post_processings_option, post_processings_short_option,
++      LocationOption{post_processings_execution_option,
++                     post_processings_execution_short_option,
+                      &ExecutionSettings::post_processings}};
+ 
+   /*!
+@@ -323,13 +326,17 @@ namespace mfem_mgis::internals {
+       msg +=
+           "GPU: a library generated by the generic-parallel interface of "
+           "MFront with a GPU backend (cuda or hip) is expected (or use " +
+-          getLocationOptions(behaviours_option, ExecutionLocation::CPU) + ")";
++          getLocationOptions(behaviours_execution_option,
++                             ExecutionLocation::CPU) +
++          ")";
+     } else {
+       msg +=
+           "CPU: a library computing on the host (generic interface, or "
+           "generic-parallel interface with a host backend) is expected (or "
+           "use " +
+-          getLocationOptions(behaviours_option, ExecutionLocation::GPU) + ")";
++          getLocationOptions(behaviours_execution_option,
++                             ExecutionLocation::GPU) +
++          ")";
+     }
+     return ctx.registerErrorMessage(msg);
+   }  // end of checkBehaviourExecutionLocation
+@@ -382,7 +389,8 @@ namespace mfem_mgis::internals {
+           "of MFEM), or place the linear solvers on the GPU";
+     } else {
+       msg += " (use " +
+-             getLocationOptions(linear_solver_device_option, location) + ")";
++             getLocationOptions(linear_solvers_execution_option, location) +
++             ")";
+     }
+     return ctx.registerErrorMessage(msg);
+   }  // end of checkLinearSolverExecutionLocation
+diff --git a/src/ExecutionSettings.hxx b/src/ExecutionSettings.hxx
+index 81d989bf9b..77577b570e 100644
+--- a/src/ExecutionSettings.hxx
++++ b/src/ExecutionSettings.hxx
+@@ -24,22 +24,25 @@ namespace mfem_mgis::internals {
+   //! \brief short name of the option `execution_option`
+   inline constexpr const char* execution_short_option = "-x";
+   //! \brief long name of the option placing the finite elements
+-  inline constexpr const char* finite_elements_option = "--finite-elements";
+-  //! \brief short name of the option `finite_elements_option`
+-  inline constexpr const char* finite_elements_short_option = "-fe";
++  inline constexpr const char* finite_elements_execution_option =
++      "--finite-elements-execution";
++  //! \brief short name of the option `finite_elements_execution_option`
++  inline constexpr const char* finite_elements_execution_short_option = "-fex";
+   //! \brief long name of the option placing the behaviours
+-  inline constexpr const char* behaviours_option = "--behaviours";
+-  //! \brief short name of the option `behaviours_option`
+-  inline constexpr const char* behaviours_short_option = "-bh";
++  inline constexpr const char* behaviours_execution_option =
++      "--behaviours-execution";
++  //! \brief short name of the option `behaviours_execution_option`
++  inline constexpr const char* behaviours_execution_short_option = "-bhx";
+   //! \brief long name of the option placing the linear solvers
+-  inline constexpr const char* linear_solver_device_option =
+-      "--linear-solver-device";
+-  //! \brief short name of the option `linear_solver_device_option`
+-  inline constexpr const char* linear_solver_device_short_option = "-lsd";
++  inline constexpr const char* linear_solvers_execution_option =
++      "--linear-solvers-execution";
++  //! \brief short name of the option `linear_solvers_execution_option`
++  inline constexpr const char* linear_solvers_execution_short_option = "-lsx";
+   //! \brief long name of the option placing the post-processings
+-  inline constexpr const char* post_processings_option = "--post-processings";
+-  //! \brief short name of the option `post_processings_option`
+-  inline constexpr const char* post_processings_short_option = "-ppd";
++  inline constexpr const char* post_processings_execution_option =
++      "--post-processings-execution";
++  //! \brief short name of the option `post_processings_execution_option`
++  inline constexpr const char* post_processings_execution_short_option = "-ppx";
+ 
+   /*!
+    * \brief reads the execution settings given by the options of the command
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index fce837fc96..0c2f50fa69 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1540,8 +1540,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+                            PROPERTIES PASS_REGULAR_EXPRESSION "${message}")
+     endfunction()
+     add_execution_settings_refusal_test(
+-      location "option '--finite-elements' requires '--execution mixed'"
+-      --execution cpu --finite-elements gpu)
++      location "option '--finite-elements-execution' requires '--execution mixed'"
++      --execution cpu --finite-elements-execution gpu)
+     # an invalid linear solver override (or, without the utilities of TFEL,
+     # any linear solver override) is refused by mfem_mgis::initialize
+     add_execution_settings_refusal_test(
+@@ -1568,15 +1568,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+       --execution cpu --device cuda)
+     add_execution_settings_refusal_test(
+       missing-value "no value given to '--execution'"
+-      --execution --behaviours cpu)
++      --execution --behaviours-execution cpu)
+     add_execution_settings_refusal_test(
+       cpu-pool-size "can't be given with '--execution cpu'"
+       --execution cpu --hypre-device-pool-size 1)
+     if((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
+       # refused before any use of the GPU
+       add_execution_settings_refusal_test(
+-        location-value "invalid value 'tpu' for option '--behaviours'"
+-        --execution mixed --behaviours tpu)
++        location-value "invalid value 'tpu' for option '--behaviours-execution'"
++        --execution mixed --behaviours-execution tpu)
+       add_execution_settings_refusal_test(
+         host-device "the device 'debug' does not use a GPU"
+         --execution gpu --device debug)
+@@ -1587,7 +1587,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+       add_execution_settings_refusal_test(
+         no-hypre-on-host
+         "contradicts the location of the linear solvers"
+-        --execution mixed --linear-solver-device cpu --no-hypre-on-host)
++        --execution mixed --linear-solvers-execution cpu --no-hypre-on-host)
+     endif()
+     if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
+        AND enable-gpu-tests)
+@@ -1622,10 +1622,10 @@ if(MFEM_MGIS_HAVE_TFEL)
+               set(_name "${_fe}-${_bh}-${_lsd}-${_ppd}")
+               add_test(NAME ExecutionSettingsTest-mixed-${_name}-gpu
+                        COMMAND ExecutionSettingsTest --execution mixed
+-                               --finite-elements ${_fe}
+-                               --behaviours ${_bh}
+-                               --linear-solver-device ${_lsd}
+-                               --post-processings ${_ppd}
++                               --finite-elements-execution ${_fe}
++                               --behaviours-execution ${_bh}
++                               --linear-solvers-execution ${_lsd}
++                               --post-processings-execution ${_ppd}
+                                --expected-settings
+                                mixed,${_fe},${_bh},${_lsd},${_ppd}
+                                ${execution_settings_test_gpu_arguments})
+-- 
+2.43.0
+

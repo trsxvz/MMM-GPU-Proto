@@ -1,4 +1,4 @@
-From 2c2a1f30ad89831773a19a7f2f7f1f4a9704c615 Mon Sep 17 00:00:00 2001
+From 6d3eea7e38c0dace6cfd9de4876ef236b7fb9d6c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:23:04 +0200
 Subject: [PATCH] FixedPointSolver: review of the iterative solvers of the
@@ -38,7 +38,7 @@ Subject: [PATCH] FixedPointSolver: review of the iterative solvers of the
  9 files changed, 173 insertions(+), 57 deletions(-)
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index 54c91f81ba..bb485a7007 100644
+index 4eda64a650..9ec26c0517 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
 @@ -174,7 +174,8 @@ Flexible Generalized Minimal Residual (FGMRES)
@@ -92,10 +92,10 @@ index e89a591264..f4326f58c6 100644
      if ((*oresiduals != "Unknowns") && (*oresiduals != "Forces")) {
        return ctx.registerErrorMessage(name + ": invalid residuals '" +
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 968f4332aa..64a29f0dea 100644
+index 0c8ff90ea9..a536ba5ab3 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -524,12 +524,16 @@ namespace mfem_mgis {
+@@ -527,12 +527,16 @@ namespace mfem_mgis {
          return registerExceptionInErrorBacktrace(ctx);
        }
      } else {

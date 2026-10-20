@@ -1,4 +1,4 @@
-From 21c65983c44193acb453840ac2809ec8f23d5fd4 Mon Sep 17 00:00:00 2001
+From 9facc968a883962a4ed156b54e3cc7105dc88509 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:00:07 +0200
 Subject: [PATCH] Elastic prediction solved with the elastic operator of the
@@ -234,10 +234,10 @@ index af6206e77c..3961d92a3f 100644
                                     const IntegrationType it) const {
      auto profiler =
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 343e71233d..1584728b8d 100644
+index ffbf218396..f69946afbe 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -689,9 +689,16 @@ namespace mfem_mgis {
+@@ -691,9 +691,16 @@ namespace mfem_mgis {
                              .matrix = &(this->prediction_matrix),
                              .inner_forces = &(this->inner_forces_by_kernels)};
      }
@@ -256,7 +256,7 @@ index 343e71233d..1584728b8d 100644
  #pragma message("required ?")
      this->solver->setLinearSolver(*(this->linear_solver));
      if (isInvalid(oresult)) {
-@@ -1041,9 +1048,16 @@ namespace mfem_mgis {
+@@ -1042,9 +1049,16 @@ namespace mfem_mgis {
                              .matrix = &(this->prediction_matrix),
                              .inner_forces = &(this->inner_forces_by_kernels)};
      }

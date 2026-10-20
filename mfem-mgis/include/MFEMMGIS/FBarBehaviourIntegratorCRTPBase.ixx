@@ -27,12 +27,11 @@ namespace mfem_mgis {
 
   template <typename Child, Hypothesis H>
   FBarBehaviourIntegratorCRTPBase<Child, H>::FBarBehaviourIntegratorCRTPBase(
-      std::shared_ptr<const PartialQuadratureSpace> s,
-      std::unique_ptr<const Behaviour> b_ptr)
+      const PartialQuadratureSpace &s, std::unique_ptr<const Behaviour> b_ptr)
       : BehaviourIntegratorBase(s, std::move(b_ptr)) {
     using Traits = BehaviourIntegratorTraits<Child>;
     constexpr auto usize = static_cast<size_type>(Traits::unknownsSize);
-    const auto &fed = s->getFiniteElementDiscretization();
+    const auto &fed = s.getFiniteElementDiscretization();
     const auto nc = getNumberOfComponents(fed);
     if (nc != usize) {
       raise("the number of components of the finite element space (" +
@@ -69,7 +68,7 @@ namespace mfem_mgis {
     // the tangent operator blocks change
     this->fbar_data.has_tangent_operator = false;
     // element offset
-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
     const auto &ir = child.getIntegrationRule(e, tr);
     if ((it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
         (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
@@ -244,7 +243,7 @@ namespace mfem_mgis {
     // the unknowns
     this->fbar_data.valid = false;
     this->fbar_data.has_tangent_operator = false;
-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
     const auto &ir = child.getIntegrationRule(e, tr);
 #ifdef MFEM_THREAD_SAFE
     mfem::Vector shape0;
@@ -333,7 +332,7 @@ namespace mfem_mgis {
     // once by the integration by batches
     const auto rotated_thforces = this->getRotatedThermodynamicForces();
     // element offset
-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
     Fe.SetSize(e.GetDof() * Traits::unknownsSize);
     Fe = 0.;
     const auto &ir = child.getIntegrationRule(e, tr);
@@ -442,7 +441,7 @@ namespace mfem_mgis {
     }
     const auto J0 = tfel::math::det(F0);
     // element offset
-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
     Ke.SetSize(e.GetDof() * Traits::unknownsSize,
                e.GetDof() * Traits::unknownsSize);
     Ke = 0.;
@@ -565,7 +564,7 @@ namespace mfem_mgis {
       Child,
       H>::getAdditionalIntegrationRulesForKernels() const {
     const auto* const r0 =
-        batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
+        batch::getElementsCenterIntegrationRule(this->quadrature_space);
     if (r0 == nullptr) {
       return {};
     }
@@ -587,7 +586,7 @@ namespace mfem_mgis {
     try {
       const auto p = d.find(data.rule);
       const auto* const r0 =
-          batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
+          batch::getElementsCenterIntegrationRule(this->quadrature_space);
       const auto p0 = d.find(r0);
       const auto g0 = g.find(r0);
       if ((p == d.end()) || (p0 == d.end()) || (g0 == g.end())) {
@@ -651,7 +650,7 @@ namespace mfem_mgis {
         // before the first computation of the gradients (prediction of the
         // first time step): null unknowns
         const auto* const r0 =
-            batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
+            batch::getElementsCenterIntegrationRule(this->quadrature_space);
         const auto g0 = g.find(r0);
         if (g0 == g.end()) {
           return ctx.registerErrorMessage(
@@ -666,7 +665,7 @@ namespace mfem_mgis {
       }
       const auto use_device = mfem::Device::IsEnabled();
       return batch::computeFBarTangentOperator(
-          ctx, this->fbar_data, *(this->quadrature_space),
+          ctx, this->fbar_data, this->quadrature_space,
           this->readTangentOperatorBlocks(use_device), *(data.geometry),
           data.kind);
     } catch (std::exception& e) {
@@ -708,7 +707,7 @@ namespace mfem_mgis {
         ctx, "addStiffnessMatricesByKernels",
         [this, &ctx, &m, &data](const mgis::FieldView<const real>& Kb) {
           return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
-                                                 *(this->quadrature_space), Kb,
+                                                 this->quadrature_space, Kb,
                                                  *(data.geometry), data.kind);
         });
   }  // end of addStiffnessMatricesByKernels
@@ -730,7 +729,7 @@ namespace mfem_mgis {
         ctx, "addStiffnessMatricesByKernels",
         [this, &ctx, &m, &data](const mgis::FieldView<const real>& Kb) {
           return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
-                                                 *(this->quadrature_space), Kb,
+                                                 this->quadrature_space, Kb,
                                                  *(data.geometry), data.kind);
         });
   }  // end of addStiffnessMatricesByKernels
@@ -754,7 +753,7 @@ namespace mfem_mgis {
         ctx, "addTangentOperatorActionByKernels",
         [this, &ctx, &y, &x, &data](const mgis::FieldView<const real>& Kb) {
           return batch::addFBarTangentOperatorAction(
-              ctx, y, this->fbar_data, *(this->quadrature_space), Kb, x,
+              ctx, y, this->fbar_data, this->quadrature_space, Kb, x,
               *(data.geometry), data.kind);
         });
   }  // end of addTangentOperatorActionByKernels
@@ -777,7 +776,7 @@ namespace mfem_mgis {
         ctx, "addTangentOperatorDiagonalByKernels",
         [this, &ctx, &d, &data](const mgis::FieldView<const real>& Kb) {
           return batch::addFBarStiffnessMatricesDiagonals(
-              ctx, d, this->fbar_data, *(this->quadrature_space), Kb,
+              ctx, d, this->fbar_data, this->quadrature_space, Kb,
               *(data.geometry), data.kind);
         });
   }  // end of addTangentOperatorDiagonalByKernels
@@ -800,7 +799,7 @@ namespace mfem_mgis {
         ctx, "addTangentOperatorNodalBlocksByKernels",
         [this, &ctx, &blocks, &data](const mgis::FieldView<const real>& Kb) {
           return batch::addFBarStiffnessMatricesNodalBlocks(
-              ctx, blocks, this->fbar_data, *(this->quadrature_space), Kb,
+              ctx, blocks, this->fbar_data, this->quadrature_space, Kb,
               *(data.geometry), data.kind);
         });
   }  // end of addTangentOperatorNodalBlocksByKernels

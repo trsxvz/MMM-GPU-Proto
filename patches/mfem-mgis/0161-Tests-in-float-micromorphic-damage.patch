@@ -1,4 +1,4 @@
-From 2232c8e9fcaf625148c511457eaa6db2d680de13 Mon Sep 17 00:00:00 2001
+From d1a03fc3f02bb76b3302086d96a7c920ea34f488 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:20:55 +0200
 Subject: [PATCH] Tests in float: micromorphic damage
@@ -18,7 +18,7 @@ Subject: [PATCH] Tests in float: micromorphic damage
  3 files changed, 36 insertions(+), 14 deletions(-)
 
 diff --git a/tests/MicromorphicDamage2DTest.cxx b/tests/MicromorphicDamage2DTest.cxx
-index 462c101c16..911fda9282 100644
+index fca243dadf..2a2f7d4f37 100644
 --- a/tests/MicromorphicDamage2DTest.cxx
 +++ b/tests/MicromorphicDamage2DTest.cxx
 @@ -24,6 +24,7 @@
@@ -47,7 +47,7 @@ index 462c101c16..911fda9282 100644
    // vtk export
    problem.addPostProcessing(
 diff --git a/tests/MicromorphicDamage2DTest2.cxx b/tests/MicromorphicDamage2DTest2.cxx
-index 6015f666ff..d5a7ad6f1f 100644
+index cb228a3420..e0c75ed016 100644
 --- a/tests/MicromorphicDamage2DTest2.cxx
 +++ b/tests/MicromorphicDamage2DTest2.cxx
 @@ -18,6 +18,7 @@
@@ -58,7 +58,7 @@ index 6015f666ff..d5a7ad6f1f 100644
  
  static std::shared_ptr<mfem_mgis::NonLinearEvolutionProblem>
  buildMechanicalProblem(
-@@ -246,24 +247,32 @@ int main(int argc, char** argv) {
+@@ -239,24 +240,32 @@ int main(int argc, char** argv) {
      std::cout << "\ntime step " << i  //
                << " from " << t << " to " << t + dt << "\n";
      // alternate miminisation algorithm
@@ -97,7 +97,7 @@ index 6015f666ff..d5a7ad6f1f 100644
        }
        // solving the mechanical problem
 diff --git a/tests/MicromorphicDamage3DTest.cxx b/tests/MicromorphicDamage3DTest.cxx
-index 98755dd3da..036e685e58 100644
+index 1622063585..a2de9e4cb0 100644
 --- a/tests/MicromorphicDamage3DTest.cxx
 +++ b/tests/MicromorphicDamage3DTest.cxx
 @@ -18,6 +18,7 @@
@@ -108,7 +108,7 @@ index 98755dd3da..036e685e58 100644
  
  [[nodiscard]] static bool setLinearSolverMicromorphicDamage3D(
      mfem_mgis::Context& ctx,
-@@ -291,24 +292,33 @@ int main(int argc, char** argv) {
+@@ -282,24 +283,33 @@ int main(int argc, char** argv) {
      std::cout << "\ntime step " << i  //
                << " from " << t << " to " << t + dt << "\n";
      // alternate miminisation algorithm

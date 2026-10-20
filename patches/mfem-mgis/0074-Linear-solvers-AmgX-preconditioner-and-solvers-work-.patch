@@ -1,4 +1,4 @@
-From af20057601ed5a16cbbf0ffa8f83d5b021245910 Mon Sep 17 00:00:00 2001
+From 15248289408edf236776166fd48621ce51702dfa Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:56:04 +0200
 Subject: [PATCH] Linear solvers: AmgX preconditioner and solvers (work in
@@ -887,10 +887,10 @@ index 0000000000..ce1497065b
 +  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index aa7956d5b7..c9e9699b6f 100644
+index f935f3a778..e411d1913e 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1101,6 +1101,25 @@ if(MFEM_USE_MPI)
+@@ -1104,6 +1104,25 @@ if(MFEM_USE_MPI)
             COMMAND mpirun -n 2 ./HypreKrylovAbsoluteToleranceTest)
  endif(MFEM_USE_MPI)
  

@@ -1,0 +1,44 @@
+From f00afa8750b2603d47e5c15c5fa69f492bf66842 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 13:13:41 +0200
+Subject: [PATCH] PartialQuadratureSpace: documentation of the forwarding
+ methods
+
+The comments of getOffsets and getUniformIntegrationRule of the public
+class are the ones of the implementation, which the rebase on the value
+semantics of PartialQuadratureSpace (pull request 487) had only updated
+in the implementation.
+---
+ include/MFEMMGIS/PartialQuadratureSpace.hxx | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
+index 32aaa19c84..7c819096df 100644
+--- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
++++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
+@@ -464,7 +464,9 @@ namespace mfem_mgis {
+     [[nodiscard]] std::optional<size_type> getNumberOfQuadraturePoints(
+         Context &ctx, const size_type e) const noexcept;
+     /*!
+-     * \return the hash table associating element numbers and local offsets.
++     * \return the hash table associating the element numbers (local
++     * numbering of the finite element space) and the offsets of their
++     * integration points.
+      *
+      * \note element numbers refer to the mesh of the partial quadrature space.
+      * They are boundary element numbers if `shallUseBoundaryElementsAPI`
+@@ -495,8 +497,9 @@ namespace mfem_mgis {
+     [[nodiscard]] const mfem::Array<int> &getElementOffsets() const noexcept;
+     /*!
+      * \return the integration rule used by all the elements of the space, or
+-     * a null pointer if the elements use different integration rules or if
+-     * the space has no element
++     * a null pointer if the elements do not use the same integration rule
++     * (rules compared by address, as the rules returned by `mfem::IntRules`)
++     * or if the space has no element
+      */
+     [[nodiscard]] const mfem::IntegrationRule* getUniformIntegrationRule()
+         const noexcept;
+-- 
+2.43.0
+

@@ -1,4 +1,4 @@
-From d6169f5cf1f5ec64e31869f993ca91fa1b553a98 Mon Sep 17 00:00:00 2001
+From 59076954be0d04860e9f22ce6e0410da595127fe Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 16:33:19 +0200
 Subject: [PATCH] bubble: synchronize the stresses of the materials on the host

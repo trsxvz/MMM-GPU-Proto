@@ -1,4 +1,4 @@
-From 1667cad4581f3a33139c4cbb495348a7274f18bd Mon Sep 17 00:00:00 2001
+From 65c5731ef85b11a269f71066a4e5de9446de3ee5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] FBar kernels: data stored by element of the material
@@ -482,7 +482,7 @@ index 50ec0c660a..b63416edb6 100644
      int number_of_elements = 0;
      //! \brief number of degrees of freedom per element and per component
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 8aa65be4dc..6838717aee 100644
+index 84c24a56ac..64aad8f130 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -9,10 +9,13 @@
@@ -512,7 +512,7 @@ index 8aa65be4dc..6838717aee 100644
  };
  
  /*!
-@@ -305,7 +310,7 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -310,7 +315,7 @@ static Results compute(mfem_mgis::Context& ctx,
            opts.plane_strain
                ? Parameters{{"MeshFileName", mesh},
                             {"FiniteElementFamily", "H1"},
@@ -521,7 +521,7 @@ index 8aa65be4dc..6838717aee 100644
                             {"UnknownsSize", 2},
                             {"NumberOfUniformRefinements", 0},
                             {"Materials", Parameters{{"Cube", 1}}},
-@@ -319,7 +324,7 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -324,7 +329,7 @@ static Results compute(mfem_mgis::Context& ctx,
                             {"Parallel", parallel}}
                : Parameters{{"MeshFileName", mesh},
                             {"FiniteElementFamily", "H1"},
@@ -530,7 +530,7 @@ index 8aa65be4dc..6838717aee 100644
                             {"UnknownsSize", 3},
                             {"NumberOfUniformRefinements", 1},
                             {"Materials", materials},
-@@ -414,6 +419,18 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -419,6 +424,18 @@ static Results compute(mfem_mgis::Context& ctx,
          ctx, {{"Boundary", "Zmin"}, {"Component", 2}}) |
          or_die;
    }
@@ -549,7 +549,7 @@ index 8aa65be4dc..6838717aee 100644
    if (opts.prediction) {
      problem.setPredictionPolicy(
          {.strategy = PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
-@@ -1305,7 +1322,34 @@ int main(int argc, char** argv) {
+@@ -1310,7 +1327,34 @@ int main(int argc, char** argv) {
                          .inner_forces_kernels = true,
                          .tangent_operator_kernels = true},
                         ", FBar, plane strain"});

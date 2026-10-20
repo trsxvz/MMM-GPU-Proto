@@ -2,7 +2,7 @@
  * \file   tfel-check/src/TestLauncher.cxx
  * \brief  Class to manage tfel unit tests.
  * \author Thomas Helfer
- * \date   26 jan 2008
+ * \date 26/01/2008
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -396,6 +396,7 @@ namespace tfel::check {
      *   compares the command output to the expected value.
      * - `shall_fail`: if specified and set to true, the command shall return an
      *   invalid exit status.
+     * - `timeout`: the maximum duration allowed for a test.
      */
     auto parseCommandOptions = [&c](const tfel::utilities::DataMap& options) {
       auto is_output_check_defined = [&c] {
@@ -425,6 +426,19 @@ namespace tfel::check {
                 "for option 'shall_fail'");
           }
           c.shall_fail = o.second.get<bool>();
+        } else if (o.first == "timeout") {
+          if (!o.second.is<int>()) {
+            tfel::raise(
+                "TestLaucher::treatCommand: invalid type "
+                "for option 'timeout'");
+          }
+          const auto d = o.second.get<int>();
+          if (d <= 0) {
+            tfel::raise(
+                "TestLaucher::treatCommand: invalid value for the "
+                "'timeout', expecting a strictly positive integer");
+          }
+          c.timeout = d;
         } else {
           tfel::raise(
               "TestLaucher::treatCommand: "
@@ -740,7 +754,13 @@ namespace tfel::check {
                                "the test file");
         }
       }
-      manager.execute(this->directory, c.command, "", output_file, envs);
+      if (c.timeout.has_value()) {
+        const auto tc =
+            "timeout -v -k 1 " + std::to_string(*(c.timeout)) + " " + c.command;
+        manager.execute(this->directory, tc, "", output_file, envs);
+      } else {
+        manager.execute(this->directory, c.command, "", output_file, envs);
+      }
       this->ClockAction(STOP);
       if (c.output_check) {
         const auto output = getFileContent(output_file);
@@ -771,9 +791,12 @@ namespace tfel::check {
 
   bool TestLauncher::execute(const Configuration& configuration) {
     using namespace tfel::utilities;
-    bool gsuccess = true; /* global success indicator : false only
-                             if comparison fails or when command
-                             fails if no comparison are given*/
+    /* global success indicator:
+     * - false if a comparison failed
+     * - false if a command failed and no comparison is given
+     * - false if a command failed and command failure is not discarded
+     */
+    bool gsuccess = true;
     // checking that the requirements are met
     const auto& components = configuration.available_components;
     for (const auto& r : this->requirements) {
@@ -841,24 +864,32 @@ namespace tfel::check {
           success);
     }
     // files and directories clean-up
-    for (const auto& f : this->cleanfiles) {
-      try {
-        tfel::system::systemCall::unlink(f);
-      } catch (std::exception& e) {
-        this->glog.addMessage("cleaning file '" + f +
-                              "' failed: " + std::string{e.what()});
-      } catch (...) {
-        this->glog.addMessage("cleaning file '" + f + "' failed");
+    const auto do_clean_up = [&configuration, &gsuccess] {
+      if (!gsuccess) {
+        return !configuration.discard_clean_up_on_failure;
       }
-    }
-    for (const auto& d : this->cleandirectories) {
-      try {
-        tfel::system::systemCall::rmdir(d);
-      } catch (std::exception& e) {
-        this->glog.addMessage("cleaning directory '" + d +
-                              "' failed: " + std::string{e.what()});
-      } catch (...) {
-        this->glog.addMessage("cleaning directory '" + d + "' failed");
+      return configuration.clean_up;
+    }();
+    if (do_clean_up) {
+      for (const auto& f : this->cleanfiles) {
+        try {
+          tfel::system::systemCall::unlink(f);
+        } catch (std::exception& e) {
+          this->glog.addMessage("cleaning file '" + f +
+                                "' failed: " + std::string{e.what()});
+        } catch (...) {
+          this->glog.addMessage("cleaning file '" + f + "' failed");
+        }
+      }
+      for (const auto& d : this->cleandirectories) {
+        try {
+          tfel::system::systemCall::rmdir(d);
+        } catch (std::exception& e) {
+          this->glog.addMessage("cleaning directory '" + d +
+                                "' failed: " + std::string{e.what()});
+        } catch (...) {
+          this->glog.addMessage("cleaning directory '" + d + "' failed");
+        }
       }
     }
     return gsuccess;

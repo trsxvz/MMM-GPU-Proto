@@ -1,4 +1,4 @@
-From 54e706ee4e6af43b2f7d4efb58e2221da2d7e754 Mon Sep 17 00:00:00 2001
+From 7d5485a70b915ae0c6a0614d32e677760b2de290 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:28:48 +0200
 Subject: [PATCH] NewtonK0 method of the fixed point solver; findings of the
@@ -468,10 +468,10 @@ index eee47ca0e2..bd3b491755 100644
        if (!integrated) {
          break;
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 08601e8ff3..968f4332aa 100644
+index 9784fdf470..0c8ff90ea9 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -702,10 +702,13 @@ namespace mfem_mgis {
+@@ -704,10 +704,13 @@ namespace mfem_mgis {
                              .inner_forces = &(this->inner_forces_by_kernels)};
      }
      // the non linear solver may provide the linear solver of an elastic
@@ -489,7 +489,7 @@ index 08601e8ff3..968f4332aa 100644
                           ? this->solver->getElasticPredictionLinearSolver()
                           : nullptr;
      const auto oresult = ::mfem_mgis::computePrediction<true>(
-@@ -1061,10 +1064,13 @@ namespace mfem_mgis {
+@@ -1062,10 +1065,13 @@ namespace mfem_mgis {
                              .inner_forces = &(this->inner_forces_by_kernels)};
      }
      // the non linear solver may provide the linear solver of an elastic

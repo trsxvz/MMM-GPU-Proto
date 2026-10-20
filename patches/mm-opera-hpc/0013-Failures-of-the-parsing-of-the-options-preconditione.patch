@@ -1,4 +1,4 @@
-From 20a5bac7f237ab5126603dc504fc9da935bacf31 Mon Sep 17 00:00:00 2001
+From 960af6fa348397b713cc20c5e7cb6c1b132d0a1f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 19:38:34 +0200
 Subject: [PATCH] Failures of the parsing of the options, preconditioner of the
@@ -37,7 +37,7 @@ index 995fe6f..231591a 100644
  The command to execute the test-case is
  
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 254223e..53a1993 100644
+index 1b26907..6adc57e 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -171,7 +171,7 @@ struct TestParameters : PhysicalParameters {
@@ -68,7 +68,7 @@ index 254223e..53a1993 100644
    }
    if (p.mesh_file == nullptr) {
      if (mfem_mgis::isMPIMainProcessForDefaultCommunicator())
-@@ -442,7 +443,8 @@ int main(int argc, char** argv) {
+@@ -441,7 +442,8 @@ int main(int argc, char** argv) {
                            mfem_mgis::Parameters{{"VerbosityLevel", verbosity}});
    solverParameters.insert(mfem_mgis::may_throw,
                            mfem_mgis::Parameters{{"Tolerance", 1e-10}});
@@ -101,7 +101,7 @@ index 545e38f..e3ddb64 100644
  ### Run it
  
 diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
-index 845cbcf..3d3541a 100644
+index 0c5b93d..99bf66e 100644
 --- a/cermet/cermet.cxx
 +++ b/cermet/cermet.cxx
 @@ -89,7 +89,8 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
@@ -123,10 +123,10 @@ index 845cbcf..3d3541a 100644
    out.precision(14);
    //
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 52e8c3b..2ea4a70 100644
+index 066c2ca..8494709 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
-@@ -301,6 +301,7 @@ int main(int argc, char *argv[]) {
+@@ -293,6 +293,7 @@ int main(int argc, char *argv[]) {
    std::ofstream out(p.output_file);
    if (!out) {
      std::cerr << "can't open output file '" << p.output_file << "'\n";
@@ -134,7 +134,7 @@ index 52e8c3b..2ea4a70 100644
    }
    out.precision(14);
    // setting the simulation and running it
-@@ -385,7 +386,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -377,7 +378,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
    if (!args.Good()) {
      if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) args.PrintUsage(std::cout);
      mfem_mgis::finalize();

@@ -1,4 +1,4 @@
-From 28fe9484e73bb0e0bae3f954789a1c0da885bf72 Mon Sep 17 00:00:00 2001
+From 5aa2799ee5bdbb6c33beae92450b9baf95ccd9e0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 07:27:07 +0200
 Subject: [PATCH] Batch: regularization of Faltus et al. by kernels
@@ -405,7 +405,7 @@ index fde40c7ccb..e3fc91117d 100644
      /*!
       * \brief matrix used to store the derivatives of the shape functions at
 diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
-index 54afd279e2..9d971f51bb 100644
+index b29a06e628..256663311a 100644
 --- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
 +++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
 @@ -10,9 +10,13 @@
@@ -492,7 +492,7 @@ index 54afd279e2..9d971f51bb 100644
 +  Faltus2026RegularizedIsotropicBehaviourIntegrator<
 +      H>::getAdditionalIntegrationRulesForKernels() const {
 +    const auto* const r0 =
-+        batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
++        batch::getElementsCenterIntegrationRule(this->quadrature_space);
 +    if (r0 == nullptr) {
 +      return {};
 +    }
@@ -515,7 +515,7 @@ index 54afd279e2..9d971f51bb 100644
 +      return true;
 +    }
 +    const auto p0 = g.find(
-+        batch::getElementsCenterIntegrationRule(*(this->quadrature_space)));
++        batch::getElementsCenterIntegrationRule(this->quadrature_space));
 +    if (p0 == g.end()) {
 +      return ctx.registerErrorMessage(
 +          std::string{name} +
@@ -579,7 +579,7 @@ index 54afd279e2..9d971f51bb 100644
 +    const auto gsize = static_cast<std::int64_t>(this->s1.gradients_stride);
 +    if ((this->faltus_data.valid) &&
 +        (static_cast<std::int64_t>(this->faltus_data.centers.Size()) !=
-+         gsize * this->quadrature_space->getNumberOfElements())) {
++         gsize * this->quadrature_space.getNumberOfElements())) {
 +      // before the first computation of the gradients (prediction of the
 +      // first time step): null unknowns
 +      if (!batch::computeFaltusCenters(ctx, this->faltus_data, *this, nullptr,
@@ -611,7 +611,7 @@ index 54afd279e2..9d971f51bb 100644
 +    if (data.rule == nullptr) {
 +      return true;
 +    }
-+    return batch::addFaltusStiffnessMatrices(ctx, m, *(this->quadrature_space),
++    return batch::addFaltusStiffnessMatrices(ctx, m, this->quadrature_space,
 +                                             this->alpha, *(data.geometry), *g0,
 +                                             data.kind);
 +  }  // end of addStiffnessMatricesByKernels
@@ -635,7 +635,7 @@ index 54afd279e2..9d971f51bb 100644
 +    if (data.rule == nullptr) {
 +      return true;
 +    }
-+    return batch::addFaltusStiffnessMatrices(ctx, m, *(this->quadrature_space),
++    return batch::addFaltusStiffnessMatrices(ctx, m, this->quadrature_space,
 +                                             this->alpha, *(data.geometry), *g0,
 +                                             data.kind);
 +  }  // end of addStiffnessMatricesByKernels
@@ -661,7 +661,7 @@ index 54afd279e2..9d971f51bb 100644
 +      return true;
 +    }
 +    return batch::addFaltusTangentOperatorAction(
-+        ctx, y, *(this->quadrature_space), x, this->alpha, *(data.geometry),
++        ctx, y, this->quadrature_space, x, this->alpha, *(data.geometry),
 +        *g0, data.kind);
 +  }  // end of addTangentOperatorActionByKernels
 +
@@ -685,7 +685,7 @@ index 54afd279e2..9d971f51bb 100644
 +      return true;
 +    }
 +    return batch::addFaltusStiffnessMatricesDiagonals(
-+        ctx, d, *(this->quadrature_space), this->alpha, *(data.geometry), *g0,
++        ctx, d, this->quadrature_space, this->alpha, *(data.geometry), *g0,
 +        data.kind);
 +  }  // end of addTangentOperatorDiagonalByKernels
 +
@@ -693,10 +693,10 @@ index 54afd279e2..9d971f51bb 100644
  
  #endif /* LIB_MFEMMGIS_FALTUS2026REGULARIZEDBEHAVIOURINTEGRATORS_IXX */
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 5f459a78a8..a0f473b3d1 100644
+index 2d9776d547..9300b0a215 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -156,6 +156,21 @@ namespace mfem_mgis {
+@@ -155,6 +155,21 @@ namespace mfem_mgis {
       */
      [[nodiscard]] bool checkStiffnessMatricesKernelsSupport(
          Context& ctx, const bool gradients_kernels) const noexcept;
@@ -719,7 +719,7 @@ index 5f459a78a8..a0f473b3d1 100644
       * \brief compute the gradients of all the behaviour integrators by
       * kernels (first step of the integration by batches, replacing the calls
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index 0976e2341a..066e254725 100644
+index 900abaad80..fe4a9214f3 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -250,7 +250,8 @@ namespace mfem_mgis {
@@ -2016,10 +2016,10 @@ index ea8917e06a..05eb8fc721 100644
  mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
  if(MFEMMGIS_DEVICE_SOURCES)
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 6ee857b9e3..8f2aea5181 100644
+index 76f15dd35b..f4f4d82655 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -322,6 +322,29 @@ namespace mfem_mgis {
+@@ -321,6 +321,29 @@ namespace mfem_mgis {
      return true;
    }  // end of checkStiffnessMatricesKernelsSupport
  
@@ -2049,7 +2049,7 @@ index 6ee857b9e3..8f2aea5181 100644
    bool MultiMaterialNonLinearIntegrator::checkPointByPointIntegrationSupport(
        Context& ctx) const noexcept {
      auto ctx2 = Context{};
-@@ -413,10 +436,9 @@ namespace mfem_mgis {
+@@ -412,10 +435,9 @@ namespace mfem_mgis {
                "mechanical behaviours, small or finite strain, stationary non "
                "linear heat transfer behaviours, transient term of the heat "
                "equation and micromorphic damage behaviours, in 3D, plane "
@@ -2064,10 +2064,10 @@ index 6ee857b9e3..8f2aea5181 100644
        }
      }
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index 5b2995df92..3180ff5f6c 100644
+index baeb16d7b3..b8dcb5cb0d 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -526,6 +526,11 @@ namespace mfem_mgis {
+@@ -515,6 +515,11 @@ namespace mfem_mgis {
                  ctx, this->gradients_kernels))) {
            return false;
          }

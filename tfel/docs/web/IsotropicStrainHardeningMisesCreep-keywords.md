@@ -1,3 +1,17 @@
+---
+title: IsotropicStrainHardeningMisesCreep keywords
+author: TFEL Team
+date: 25/08/2026
+lang: en-EN
+link-citations: true
+colorlinks: true
+figPrefixTemplate: "$$i$$"
+tblPrefixTemplate: "$$i$$"
+secPrefixTemplate: "$$i$$"
+eqnPrefixTemplate: "($$i$$)"
+---
+
+
 % `IsotropicStrainHardeningMisesCreep` keywords
 
 

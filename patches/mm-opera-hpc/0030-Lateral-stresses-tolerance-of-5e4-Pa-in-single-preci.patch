@@ -1,4 +1,4 @@
-From 2e4881c32550354ccbbce10a796a97942a928b23 Mon Sep 17 00:00:00 2001
+From f265fe32e6b17123e720b99d08613f0817612bdc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 13:31:22 +0200
 Subject: [PATCH] Lateral stresses: tolerance of 5e4 Pa in single precision

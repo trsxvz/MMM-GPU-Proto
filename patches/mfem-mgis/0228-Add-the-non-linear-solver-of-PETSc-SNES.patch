@@ -1,4 +1,4 @@
-From 8a338f904d9e77f83ca9a571757f25381b8db32d Mon Sep 17 00:00:00 2001
+From 7a121c3223bb972ea44bad9ed62adef9d3e67681 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:27:34 +0200
 Subject: [PATCH] Add the non linear solver of PETSc (SNES)
@@ -152,7 +152,7 @@ index 3071534bd8..6c1c95b543 100644
 +iterations of the Newton solver of mfem-mgis, with the same norms of the
 +residual.
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 14f50bc555..12bd9978d5 100644
+index ff6191852f..2b17b4d8ef 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -216,6 +216,17 @@ The :cxx:`KINSOL` nonlinear solver uses KINSOL (:code:`SUNDIALS`) when
@@ -927,10 +927,10 @@ index 0000000000..10133a4197
 +
 +#endif /* LIB_MFEM_MGIS_PETSCSNESSOLVER_HXX */
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 42a5c34ee2..7fe3662e38 100644
+index 9abf6b1bc5..a5e7815df5 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1194,6 +1194,18 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1197,6 +1197,18 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endif()
  
@@ -951,7 +951,7 @@ index 42a5c34ee2..7fe3662e38 100644
    # Newton solver
 diff --git a/tests/SNESSolverTest.cxx b/tests/SNESSolverTest.cxx
 new file mode 100644
-index 0000000000..97872c0f7d
+index 0000000000..46a6f9b276
 --- /dev/null
 +++ b/tests/SNESSolverTest.cxx
 @@ -0,0 +1,435 @@
@@ -1180,7 +1180,7 @@ index 0000000000..97872c0f7d
 +  // nu = 0.3, E = 208 GPa
 +  problem.addBoundaryCondition(
 +      ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
-+               problem.getFiniteElementDiscretizationPointer(), "Xmax",
++               problem.getFiniteElementDiscretization(), "Xmax",
 +               [](const real t) noexcept { return -1e9 * t; })) |
 +      or_die;
 +  problem.setLinearSolver(ctx, "MUMPSSolver", Parameters{}) | or_die;

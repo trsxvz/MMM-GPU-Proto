@@ -1,4 +1,4 @@
-From 2cfcc3386c587bbbef1745cdc19f5a1109941932 Mon Sep 17 00:00:00 2001
+From 048c6d25a7adf9ff485c083858ce4a906225e3d0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 04:00:05 +0200
 Subject: [PATCH] Batch: FBar formulation by kernels
@@ -80,7 +80,7 @@ index ffa6c8aa59..f5d43d022a 100644
  mfem_mgis_header(MFEMMGIS MatrixFreeTangentOperator.hxx)
  mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index cfc54de852..d1cd8d3622 100644
+index 4e52b6397e..1afd00fd9b 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 @@ -11,6 +11,7 @@
@@ -91,7 +91,7 @@ index cfc54de852..d1cd8d3622 100644
  #include "MFEMMGIS/Config.hxx"
  #include "MFEMMGIS/TimeStepStage.hxx"
  #include "MFEMMGIS/Batch/Gradients.hxx"
-@@ -163,6 +164,17 @@ namespace mfem_mgis {
+@@ -160,6 +161,17 @@ namespace mfem_mgis {
       */
      [[nodiscard]] virtual bool requiresUnknownsValuesForKernels()
          const noexcept;
@@ -362,12 +362,12 @@ index 0000000000..b8558244ed
 +
 +#endif /* LIB_MFEM_MGIS_BATCH_FBAR_HXX */
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 8bd7e6f1c4..1f244a00f3 100644
+index 5cac1db457..43e295645f 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -135,6 +135,52 @@ namespace mfem_mgis {
+@@ -133,6 +133,52 @@ namespace mfem_mgis {
       */
-     BehaviourIntegratorBase(std::shared_ptr<const PartialQuadratureSpace> s,
+     BehaviourIntegratorBase(const PartialQuadratureSpace& s,
                              std::unique_ptr<const Behaviour> b_ptr);
 +    //! \brief data of the computations by kernels on the material
 +    struct KernelsData {
@@ -419,7 +419,7 @@ index 8bd7e6f1c4..1f244a00f3 100644
       * \brief check that the behaviour is a standard finite strain behaviour
       * or a general behaviour whose only gradient is the deformation
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
-index 7010ff67a6..f02afaceb6 100644
+index dd5bb789c3..c3a6d35320 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 @@ -8,7 +8,9 @@
@@ -505,7 +505,7 @@ index 7010ff67a6..f02afaceb6 100644
       * \brief constructor
       * \param[in] s: quadrature space
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-index eee87925b3..7816bfe0ec 100644
+index 406a891198..5303f6e452 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
 @@ -9,6 +9,9 @@
@@ -518,16 +518,16 @@ index eee87925b3..7816bfe0ec 100644
  #include "mfem/fem/fe.hpp"
  #include "mfem/fem/eltrans.hpp"
  #include "MGIS/Raise.hxx"
-@@ -63,6 +66,8 @@ namespace mfem_mgis {
+@@ -62,6 +65,8 @@ namespace mfem_mgis {
                    "compute the gradients");
      //
      auto &child = static_cast<Child &>(*this);
 +    // the tangent operator blocks change
 +    this->fbar_data.has_tangent_operator = false;
      // element offset
-     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+     const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
      const auto &ir = child.getIntegrationRule(e, tr);
-@@ -502,6 +507,227 @@ namespace mfem_mgis {
+@@ -501,6 +506,227 @@ namespace mfem_mgis {
      }
    }  // end of implementUpdateJacobian
  
@@ -577,7 +577,7 @@ index eee87925b3..7816bfe0ec 100644
 +      Child,
 +      H>::getAdditionalIntegrationRulesForKernels() const {
 +    const auto* const r0 =
-+        batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
++        batch::getElementsCenterIntegrationRule(this->quadrature_space);
 +    if (r0 == nullptr) {
 +      return {};
 +    }
@@ -599,7 +599,7 @@ index eee87925b3..7816bfe0ec 100644
 +    try {
 +      const auto p = d.find(data.rule);
 +      const auto* const r0 =
-+          batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
++          batch::getElementsCenterIntegrationRule(this->quadrature_space);
 +      const auto p0 = d.find(r0);
 +      const auto g0 = g.find(r0);
 +      if ((p == d.end()) || (p0 == d.end()) || (g0 == g.end())) {
@@ -651,7 +651,7 @@ index eee87925b3..7816bfe0ec 100644
 +        // before the first computation of the gradients (prediction of the
 +        // first time step): null unknowns
 +        const auto* const r0 =
-+            batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
++            batch::getElementsCenterIntegrationRule(this->quadrature_space);
 +        const auto g0 = g.find(r0);
 +        if (g0 == g.end()) {
 +          return ctx.registerErrorMessage(
@@ -666,7 +666,7 @@ index eee87925b3..7816bfe0ec 100644
 +      }
 +      const auto use_device = mfem::Device::IsEnabled();
 +      return batch::computeFBarTangentOperator(
-+          ctx, this->fbar_data, *(this->quadrature_space),
++          ctx, this->fbar_data, this->quadrature_space,
 +          this->readTangentOperatorBlocks(use_device), *(data.geometry),
 +          data.kind);
 +    } catch (std::exception& e) {
@@ -756,10 +756,10 @@ index eee87925b3..7816bfe0ec 100644
    FBarBehaviourIntegratorCRTPBase<Child,
                                    H>::~FBarBehaviourIntegratorCRTPBase() =
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index e3c47a81c0..c16f1ba2fa 100644
+index f991821e85..7c38733309 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -437,7 +437,9 @@ namespace mfem_mgis {
+@@ -436,7 +436,9 @@ namespace mfem_mgis {
      mfem::Vector tangent_operator_element_values;
      /*!
       * \return the integration rules of the behaviour integrators (rules
@@ -771,10 +771,10 @@ index e3c47a81c0..c16f1ba2fa 100644
      [[nodiscard]] std::vector<const mfem::IntegrationRule*>
      getIntegrationRules() const;
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index feac52186e..63ff06a779 100644
+index f0b1e571df..a80e238462 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -84,8 +84,9 @@ namespace mfem_mgis {
+@@ -85,8 +85,9 @@ namespace mfem_mgis {
       * behaviour integrator computes its gradients by a kernel, on the device
       * if a device is enabled). `Kernels` requires `BehaviourIntegration` set
       * to `Batch`, and is supported, in 3D, plane strain and plane stress,
@@ -787,7 +787,7 @@ index feac52186e..63ff06a779 100644
       * micromorphic damage behaviours, on meshes with one geometry (NURBS
       * meshes excepted). The default value is given by the environment
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
-index 31802c92a8..c42f3db4ac 100644
+index 0e04626d37..39c27344ea 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 @@ -83,41 +83,6 @@ namespace mfem_mgis {
@@ -833,7 +833,7 @@ index 31802c92a8..c42f3db4ac 100644
       * \brief implementation of `addStiffnessMatricesByKernels`
       * \tparam Destination: matrices element by element (`mfem::Vector`) or
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index 5aea8e8f93..0976e2341a 100644
+index 853f097ab7..900abaad80 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -268,52 +268,6 @@ namespace mfem_mgis {
@@ -937,7 +937,7 @@ index 5aea8e8f93..0976e2341a 100644
  
    template <typename Child>
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index 563c5d8f7f..195eeddcd0 100644
+index c0d333162c..e79fad4519 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -51,6 +51,11 @@ namespace mfem_mgis {
@@ -2227,7 +2227,7 @@ index 15ae871206..4e577423b1 100644
    struct SparseMatrixAssembly {
      //! \brief assembled matrix
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 1a6fc0c79f..ae96c08d4f 100644
+index 2088120356..c89ad9b634 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -23,6 +23,7 @@
@@ -2238,7 +2238,7 @@ index 1a6fc0c79f..ae96c08d4f 100644
  #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
  #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
  
-@@ -1268,6 +1269,94 @@ namespace mfem_mgis {
+@@ -1267,6 +1268,94 @@ namespace mfem_mgis {
      }
    }  // end of copyStatesOnDevice
  
@@ -2248,9 +2248,9 @@ index 1a6fc0c79f..ae96c08d4f 100644
 +      const char* const name,
 +      const batch::ElementsGeometrySet& g) const noexcept {
 +    data = KernelsData{};
-+    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
++    const auto* const r = this->quadrature_space.getUniformIntegrationRule();
 +    if (r == nullptr) {
-+      if (this->quadrature_space->getNumberOfElements() == 0) {
++      if (this->quadrature_space.getNumberOfElements() == 0) {
 +        return true;
 +      }
 +      return ctx.registerErrorMessage(
@@ -2309,7 +2309,7 @@ index 1a6fc0c79f..ae96c08d4f 100644
 +        const auto s = std::span<const real>(
 +            v.Read(use_device), static_cast<std::size_t>(v.Size()));
 +        return batch::addInnerForces(
-+            ctx, f, *(this->quadrature_space),
++            ctx, f, this->quadrature_space,
 +            mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
 +            data.kind);
 +      }
@@ -2318,7 +2318,7 @@ index 1a6fc0c79f..ae96c08d4f 100644
 +      const auto s = std::span<const real>(v.Read(use_device),
 +                                           static_cast<std::size_t>(v.Size()));
 +      return batch::addInnerForces(
-+          ctx, f, *(this->quadrature_space),
++          ctx, f, this->quadrature_space,
 +          mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
 +          *(data.geometry), data.kind);
 +    } catch (std::exception& e) {
@@ -2356,10 +2356,10 @@ index 2a891e1aa8..ea8917e06a 100644
  mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
  if(MFEMMGIS_DEVICE_SOURCES)
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index c0f3a88a0b..8e508d9a56 100644
+index e9ebfc875b..db7d488af3 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -390,7 +390,8 @@ namespace mfem_mgis {
+@@ -389,7 +389,8 @@ namespace mfem_mgis {
                "mechanical behaviours, small or finite strain, stationary non "
                "linear heat transfer behaviours, transient term of the heat "
                "equation and micromorphic damage behaviours, in 3D, plane "
@@ -2369,7 +2369,7 @@ index c0f3a88a0b..8e508d9a56 100644
                "the elements of the material using the same integration "
                "rule)");
          }
-@@ -445,13 +446,18 @@ namespace mfem_mgis {
+@@ -444,13 +445,18 @@ namespace mfem_mgis {
    std::vector<const mfem::IntegrationRule*>
    MultiMaterialNonLinearIntegrator::getIntegrationRules() const {
      auto rules = std::vector<const mfem::IntegrationRule*>{};
@@ -2393,7 +2393,7 @@ index c0f3a88a0b..8e508d9a56 100644
          }
        }
      }
-@@ -540,11 +546,9 @@ namespace mfem_mgis {
+@@ -539,11 +545,9 @@ namespace mfem_mgis {
    bool MultiMaterialNonLinearIntegrator::computeElementsGeometry(
        Context& ctx, const mfem::FiniteElementSpace& fes) noexcept {
      // computed once for each integration rule (the mesh does not change)
@@ -2408,7 +2408,7 @@ index c0f3a88a0b..8e508d9a56 100644
            if (!batch::computeElementsGeometry(ctx, this->elements_geometry[r],
                                                fes, *r)) {
              // no partial entry is kept
-@@ -553,6 +557,8 @@ namespace mfem_mgis {
+@@ -552,6 +556,8 @@ namespace mfem_mgis {
            }
          }
        }
@@ -2418,10 +2418,10 @@ index c0f3a88a0b..8e508d9a56 100644
      return true;
    }  // end of computeElementsGeometry
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 21f960f39a..e53f764b08 100644
+index c6b33305b8..02bb2cc9be 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
-@@ -1205,6 +1205,41 @@ int main(int argc, char** argv) {
+@@ -1210,6 +1210,41 @@ int main(int argc, char** argv) {
                        .matrix_free = true,
                        .assembled_preconditioner = true},
                       ", matrix free, assembled preconditioner"});
@@ -2463,7 +2463,7 @@ index 21f960f39a..e53f764b08 100644
      for (const auto& [b, opts, name] : cases) {
        const auto* const m = getMesh(opts);
        auto reference = opts;
-@@ -1252,6 +1287,20 @@ int main(int argc, char** argv) {
+@@ -1257,6 +1292,20 @@ int main(int argc, char** argv) {
      cases.push_back({"OrthotropicSaintVenantKirchhoffElasticity",
                       {.fbar = true},
                       ", FBar"});

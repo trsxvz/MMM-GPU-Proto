@@ -1,4 +1,4 @@
-From fa562b184f5176950713676a5e6fd411dad0d906 Mon Sep 17 00:00:00 2001
+From cf4a34c4e684b3e655684e0cf709e1045dfbe642 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 00:31:23 +0200
 Subject: [PATCH] AmgX: fixes of the review of the wrapper
@@ -729,10 +729,10 @@ index c9be08b373..1d8fada59a 100644
    if (rank == 0) {
      std::cout << (failures == 0 ? "success" : "failure") << '\n';
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index aaa12285ef..d7dfde18bd 100644
+index 30a481f75f..b88e308d01 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1109,6 +1109,10 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
+@@ -1112,6 +1112,10 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
    add_test_executable(AmgXSolverTest)
    add_test(NAME AmgXSolverTest-gpu COMMAND AmgXSolverTest)
    add_test(NAME AmgXSolverTest-cuda COMMAND AmgXSolverTest --device cuda)
@@ -743,7 +743,7 @@ index aaa12285ef..d7dfde18bd 100644
    set(amgx_tests AmgXSolverTest-gpu AmgXSolverTest-cuda)
    if(MFEM_USE_MPI)
      add_test(NAME AmgXSolverTestP-gpu
-@@ -1117,7 +1121,8 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
+@@ -1120,7 +1124,8 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
               COMMAND mpirun -n 2 ./AmgXSolverTest --parallel --device cuda)
      list(APPEND amgx_tests AmgXSolverTestP-gpu AmgXSolverTestP-cuda)
    endif(MFEM_USE_MPI)

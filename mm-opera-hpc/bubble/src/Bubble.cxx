@@ -398,7 +398,7 @@ int main(int argc, char** argv) {
   // Create finite element discretization
   print_memory_footprint("[Building problem ...]");
   auto fed =
-      mfem_mgis::make_shared<mfem_mgis::FiniteElementDiscretization>(
+      mfem_mgis::construct<mfem_mgis::FiniteElementDiscretization>(
           ctx,
           mfem_mgis::Parameters{
               {"MeshFileName", p.mesh_file},
@@ -422,7 +422,7 @@ int main(int argc, char** argv) {
   // boundaries of the mesh (an identifier out of range would select no
   // surface, or an invalid one)
   {
-    const auto& mesh = fed->getMesh<true>();
+    const auto& mesh = fed.getMesh<true>();
     const auto max_attribute =
         mesh.bdr_attributes.Size() == 0 ? 0 : mesh.bdr_attributes.Max();
     for (const auto& b : bubbles) {
@@ -447,7 +447,7 @@ int main(int argc, char** argv) {
     problem.addBoundaryCondition(
         ctx, mfem_mgis::make_unique<
                  mfem_mgis::UniformImposedPressureBoundaryCondition>(
-                 ctx, problem.getFiniteElementDiscretizationPointer(),
+                 ctx, problem.getFiniteElementDiscretization(),
                  b.boundary_identifier,
                  [&b, pref = p.bubble_pressure](const mfem_mgis::real) {
                    // If bubble is broken, pressure = 0; otherwise pressure =
@@ -525,10 +525,10 @@ int main(int argc, char** argv) {
   // Partial Quadrature functions for post-processing needs
   // eig for the first eigenstress
   auto eig = mfem_mgis::PartialQuadratureFunction{
-      m.getPartialQuadratureSpacePointer(), 1};
+      m.getPartialQuadratureSpace(), 1};
   // hyp for the hydrostatic stress
   auto hyp = mfem_mgis::PartialQuadratureFunction{
-      m.getPartialQuadratureSpacePointer(), 1};
+      m.getPartialQuadratureSpace(), 1};
 
   mfem_mgis::size_type nstep{1};
   // Solve the mechanical equilibrium problem

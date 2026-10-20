@@ -1,0 +1,1475 @@
+From 449335cdc355c6c7a920b4ad629aae343aade90a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 19:53:06 +0200
+Subject: [PATCH] Tests built and run with the float numerical type
+
+- the libraries of the tests are generated with the numerical type of MGIS
+  (real_type option of mfront, MGIS_MFRONT_REAL_TYPE_OPTION).
+- the models, only generated in double, are not built in float: the tests
+  taking their library accept it as an optional argument.
+- RealTypeTest: a behaviour generated with the other numerical type is
+  refused at loading, with a message giving both types.
+- bit for bit comparisons by a function independent of the type
+  (BitwiseEquality.hxx); tolerances written for double adapted to the type
+  (Tolerance.hxx): bounded by 10 times the machine epsilon, or given
+  explicitly for float when the error depends on the computation (the
+  convergence criteria bounded by load, for instance), double unchanged.
+- GenericParallelLoadTest compiles the structures of TFEL with the
+  numerical type of MGIS before comparing their layouts.
+- Norton and NortonFailure: the flow 8e-67 seq^n is written A (seq/K)^n
+  with A = 1 and K = (8e-67)^(-1/8.2) Pa, whose coefficients can be
+  represented in float (8e-67 can't, and seq^n overflows); Gurson: typed
+  literal in a call to min.
+Double: 51/51, float: 47/47.
+---
+ CMakeLists.txt                                |  7 ++
+ cmake/modules/behaviours.cmake                |  2 +-
+ cmake/modules/generic-parallel.cmake          |  2 +-
+ cmake/modules/material-properties.cmake       |  3 +-
+ tests/BitwiseEquality.hxx                     | 39 ++++++++++
+ tests/CMakeLists.txt                          | 77 ++++++++++++++++---
+ .../CoalescedMemoryAccessFunctionViewTest.cxx | 59 +++++++++-----
+ tests/ComputeSpeedOfSoundTest.cxx             |  4 +-
+ tests/ComputeSpeedOfSoundTest2.cxx            |  4 +-
+ tests/EvaluatorsTest.cxx                      | 31 ++++----
+ tests/GenericParallelCUDATest.cxx             | 10 ++-
+ tests/GenericParallelEvaluateTest.cxx         | 10 +--
+ tests/GenericParallelIntegrateTest.cxx        | 26 ++++---
+ tests/GenericParallelLoadTest.cxx             |  4 +
+ tests/Gurson.mfront                           |  2 +-
+ tests/IntegrateTest.cxx                       |  8 +-
+ tests/IntegrateTest2.cxx                      | 10 ++-
+ tests/IntegrateTest2b.cxx                     | 10 ++-
+ tests/IntegrateTest3.cxx                      | 10 ++-
+ tests/IntegrateTest3b.cxx                     | 14 +++-
+ tests/MaterialDataManagerLayoutTest.cxx       | 10 ++-
+ tests/MaterialDataViewTest.cxx                | 17 ++--
+ tests/MechanicalEvaluatorsTest.cxx            |  7 +-
+ tests/Norton.mfront                           |  5 +-
+ tests/NortonFailure.mfront                    |  5 +-
+ tests/ParameterTest.cxx                       |  4 +-
+ tests/RealTypeTest.cxx                        | 61 +++++++++++++++
+ tests/RotationMatrixCopyTest.cxx              | 10 +--
+ ...dCoalescedMemoryAccessFunctionViewTest.cxx | 61 ++++++++++-----
+ tests/Tolerance.hxx                           | 56 ++++++++++++++
+ 30 files changed, 443 insertions(+), 125 deletions(-)
+ create mode 100644 tests/BitwiseEquality.hxx
+ create mode 100644 tests/RealTypeTest.cxx
+ create mode 100644 tests/Tolerance.hxx
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 630b702..eba4ce7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -150,6 +150,13 @@ if((NOT MGIS_REAL_TYPE STREQUAL "double") AND
+                       "require MGIS_REAL_TYPE=double")
+ endif()
+ message(STATUS "numerical type   : ${MGIS_REAL_TYPE}")
++# option of mfront generating the libraries of the tests with the numerical
++# type of MGIS (generic and generic-parallel interfaces only)
++if(MGIS_REAL_TYPE STREQUAL "double")
++  set(MGIS_MFRONT_REAL_TYPE_OPTION)
++else()
++  set(MGIS_MFRONT_REAL_TYPE_OPTION "--dsl-option=real_type:${MGIS_REAL_TYPE}")
++endif()
+ # generated headers (MGIS/RealType.h), before the headers of the sources
+ include_directories(BEFORE ${PROJECT_BINARY_DIR}/include)
+ 
+diff --git a/cmake/modules/behaviours.cmake b/cmake/modules/behaviours.cmake
+index 17cc124..41342af 100644
+--- a/cmake/modules/behaviours.cmake
++++ b/cmake/modules/behaviours.cmake
+@@ -24,7 +24,7 @@ function(add_mfront_behaviour_sources lib  file)
+     OUTPUT  "${mfront_output1}"
+     OUTPUT  "${mfront_output2}"
+     COMMAND "${MFRONT}"
+-    ARGS    "--interface=generic"
++    ARGS    "--interface=generic" ${MGIS_MFRONT_REAL_TYPE_OPTION}
+     ARGS     "${mfront_file}"
+     DEPENDS "${mfront_file}" "${MFRONT}"
+     COMMENT "mfront source ${mfront_file}")
+diff --git a/cmake/modules/generic-parallel.cmake b/cmake/modules/generic-parallel.cmake
+index 700b4e3..f8bf575 100644
+--- a/cmake/modules/generic-parallel.cmake
++++ b/cmake/modules/generic-parallel.cmake
+@@ -39,7 +39,7 @@ function(_mfront_generic_parallel_check_library name kind backend)
+     add_custom_command(
+       OUTPUT ${_outputs}
+       COMMAND "${MFRONT}"
+-      ARGS "--interface=generic-parallel"
++      ARGS "--interface=generic-parallel" ${MGIS_MFRONT_REAL_TYPE_OPTION}
+       ARGS "--configuration-file=${_configuration}"
+       ARGS "${_file}"
+       DEPENDS "${_file}" "${MFRONT}"
+diff --git a/cmake/modules/material-properties.cmake b/cmake/modules/material-properties.cmake
+index 6b25bd3..017493f 100644
+--- a/cmake/modules/material-properties.cmake
++++ b/cmake/modules/material-properties.cmake
+@@ -10,7 +10,8 @@ function(add_mfront_material_properties_generated_source lib file)
+       OUTPUT  "${mfront_output}"
+       COMMAND "${MFRONT}"
+       ARGS    "--search-path=${PROJECT_SOURCE_DIR}/mfront/tests/properties"
+-      ARGS    "${mfront_flags}" "--interface=generic" "${mfront_file}"
++      ARGS    "${mfront_flags}" "--interface=generic"
++              ${MGIS_MFRONT_REAL_TYPE_OPTION} "${mfront_file}"
+       DEPENDS "${mfront_file}" "${MFRONT}"
+       COMMENT "mfront source ${mfront_file}")
+   set(${lib}_SOURCES ${mfront_output} ${${lib}_SOURCES} PARENT_SCOPE)
+diff --git a/tests/BitwiseEquality.hxx b/tests/BitwiseEquality.hxx
+new file mode 100644
+index 0000000..a01b7e8
+--- /dev/null
++++ b/tests/BitwiseEquality.hxx
+@@ -0,0 +1,39 @@
++/*!
++ * \file   tests/BitwiseEquality.hxx
++ * \brief  This file declares a bit for bit comparison of values, whatever
++ * their type (double or float, following the numerical type of MGIS).
++ * \date   13/10/2026
++ * \copyright Use, modification and distribution are subject
++ * to one of the following licences:
++ * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
++ *   file LGPL-3.0.txt)
++ * - CECILL-C,  Version 1.0 (See accompanying files
++ *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
++ */
++
++#ifndef LIB_MGIS_TESTS_BITWISEEQUALITY_HXX
++#define LIB_MGIS_TESTS_BITWISEEQUALITY_HXX
++
++#include <array>
++#include <bit>
++#include <cstddef>
++#include <type_traits>
++
++namespace mgis::tests {
++
++  /*!
++   * \return true if two values are identical, bit for bit: the positive and
++   * negative zeros are distinguished, and a NaN is equal to itself
++   * \param[in] a: first value
++   * \param[in] b: second value
++   */
++  template <typename T>
++    requires(std::is_trivially_copyable_v<T>)
++  [[nodiscard]] bool areBitwiseEqual(const T& a, const T& b) noexcept {
++    using Bytes = std::array<unsigned char, sizeof(T)>;
++    return std::bit_cast<Bytes>(a) == std::bit_cast<Bytes>(b);
++  }  // end of areBitwiseEqual
++
++}  // end of namespace mgis::tests
++
++#endif /* LIB_MGIS_TESTS_BITWISEEQUALITY_HXX */
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 304faac..0eab7d6 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -139,7 +139,56 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+     ComputeSpeedOfSound
+     EnergyTest)
+ 
+-  mfront_behaviours_check_library(ModelTest ode_rk54)
++  # the models are only generated with the double numerical type (real_type
++  # option of mfront): with another type, the tests of the models are not
++  # built, and the tests taking the library of the models as an optional
++  # argument skip them
++  if(MGIS_REAL_TYPE STREQUAL "double")
++    mfront_behaviours_check_library(ModelTest ode_rk54)
++    set(MGIS_TEST_MODELS ode_rk54)
++    set(MGIS_TEST_MODELS_LIBRARY "$<TARGET_FILE:ModelTest>")
++    set(MGIS_TEST_MODELS_TARGET ModelTest)
++  else()
++    set(MGIS_TEST_MODELS)
++    set(MGIS_TEST_MODELS_LIBRARY)
++    set(MGIS_TEST_MODELS_TARGET)
++  endif()
++
++  # behaviour generated with the other numerical type than MGIS (real_type
++  # option of mfront), which must be refused at loading
++  if(MGIS_REAL_TYPE STREQUAL "double")
++    set(_other_real_type float)
++  else()
++    set(_other_real_type double)
++  endif()
++  set(_other_directory "${CMAKE_CURRENT_BINARY_DIR}/other-real-type")
++  file(MAKE_DIRECTORY "${_other_directory}")
++  add_custom_command(
++    OUTPUT "${_other_directory}/src/Elasticity.cxx"
++           "${_other_directory}/src/Elasticity-generic.cxx"
++    COMMAND "${MFRONT}" "--interface=generic"
++            "--dsl-option=real_type:${_other_real_type}"
++            "${CMAKE_CURRENT_SOURCE_DIR}/Elasticity.mfront"
++    WORKING_DIRECTORY "${_other_directory}"
++    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Elasticity.mfront"
++    COMMENT "mfront source Elasticity.mfront (${_other_real_type})")
++  add_library(OtherRealTypeBehaviourTest SHARED EXCLUDE_FROM_ALL
++    "${_other_directory}/src/Elasticity.cxx"
++    "${_other_directory}/src/Elasticity-generic.cxx")
++  target_include_directories(OtherRealTypeBehaviourTest
++    PRIVATE "${_other_directory}/include" "${TFEL_INCLUDE_PATH}")
++  target_link_libraries(OtherRealTypeBehaviourTest
++    PUBLIC ${TFEL_MFRONT_LIBRARIES})
++  add_executable(RealTypeTest EXCLUDE_FROM_ALL RealTypeTest.cxx)
++  target_link_libraries(RealTypeTest PRIVATE MFrontGenericInterface)
++  add_test(NAME RealTypeTest
++    COMMAND RealTypeTest
++    "$<TARGET_FILE:BehaviourTest>"
++    "$<TARGET_FILE:OtherRealTypeBehaviourTest>")
++  add_dependencies(build-tests RealTypeTest OtherRealTypeBehaviourTest)
++  set_property(TEST RealTypeTest
++    PROPERTY DEPENDS BehaviourTest OtherRealTypeBehaviourTest)
++  set_test_environment(RealTypeTest)
+ 
+   # tests of the generic-parallel interface, if TFEL provides it
+   if(EXISTS "${TFEL_INCLUDE_PATH}/MFront/GenericParallelBehaviour/BatchData.h")
+@@ -159,7 +208,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+       TensorialExternalStateVariableTest
+       ComputeSpeedOfSound
+       EnergyTest
+-      ode_rk54)
++      ${MGIS_TEST_MODELS})
+     add_executable(GenericParallelLoadTest EXCLUDE_FROM_ALL
+       GenericParallelLoadTest.cxx)
+     target_link_libraries(GenericParallelLoadTest PRIVATE MFrontGenericInterface)
+@@ -182,10 +231,11 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+       COMMAND GenericParallelIntegrateTest
+       "$<TARGET_FILE:GenericParallelBehaviourTest>"
+       "$<TARGET_FILE:BehaviourTest>"
+-      "$<TARGET_FILE:ModelTest>")
++      ${MGIS_TEST_MODELS_LIBRARY})
+     add_dependencies(build-tests GenericParallelIntegrateTest)
+     set_property(TEST GenericParallelIntegrateTest
+-      PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest ModelTest)
++      PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest
++      ${MGIS_TEST_MODELS_TARGET})
+     set_test_environment(GenericParallelIntegrateTest)
+     # material data views, with behaviours generated by the generic and the
+     # generic-parallel interfaces
+@@ -196,10 +246,11 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+       COMMAND MaterialDataViewTest
+       "$<TARGET_FILE:GenericParallelBehaviourTest>"
+       "$<TARGET_FILE:BehaviourTest>"
+-      "$<TARGET_FILE:ModelTest>")
++      ${MGIS_TEST_MODELS_LIBRARY})
+     add_dependencies(build-tests MaterialDataViewTest)
+     set_property(TEST MaterialDataViewTest
+-      PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest ModelTest)
++      PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest
++      ${MGIS_TEST_MODELS_TARGET})
+     set_test_environment(MaterialDataViewTest)
+     # layouts of the material data managers
+     add_executable(MaterialDataManagerLayoutTest EXCLUDE_FROM_ALL
+@@ -270,7 +321,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+         OrthotropicElasticity
+         InitializeFunctionTest
+         PostProcessingTest
+-        ode_rk54)
++        ${MGIS_TEST_MODELS})
+       mfront_generic_parallel_material_properties_check_library(
+         GenericParallelMaterialPropertyTestCUDA cuda
+         Inconel600_YoungModulus
+@@ -286,11 +337,12 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+         "$<TARGET_FILE:BehaviourTest>"
+         "$<TARGET_FILE:GenericParallelMaterialPropertyTestCUDA>"
+         "$<TARGET_FILE:MaterialPropertyTest>"
+-        "$<TARGET_FILE:ModelTest>")
++        ${MGIS_TEST_MODELS_LIBRARY})
+       add_dependencies(build-tests GenericParallelCUDATest)
+       set_property(TEST GenericParallelCUDATest
+         PROPERTY DEPENDS GenericParallelBehaviourTestCUDA BehaviourTest
+-        GenericParallelMaterialPropertyTestCUDA MaterialPropertyTest ModelTest)
++        GenericParallelMaterialPropertyTestCUDA MaterialPropertyTest
++        ${MGIS_TEST_MODELS_TARGET})
+       set_test_environment(GenericParallelCUDATest)
+       # field operations with the runtime of CUDA, integration and update of
+       # the states on the device
+@@ -334,8 +386,11 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+   add_library_test(IntegrateTest2b IntegrateTest2b.cxx BehaviourTest)
+   add_library_test(IntegrateTest3 IntegrateTest3.cxx BehaviourTest)
+   add_library_test(IntegrateTest3b IntegrateTest3b.cxx BehaviourTest)
+-  add_library_test(IntegrateTest4 IntegrateTest4.cxx ModelTest)
+-  add_library_test(IntegrateTest5 IntegrateTest5.cxx ModelTest)
++  if(MGIS_REAL_TYPE STREQUAL "double")
++    # models
++    add_library_test(IntegrateTest4 IntegrateTest4.cxx ModelTest)
++    add_library_test(IntegrateTest5 IntegrateTest5.cxx ModelTest)
++  endif()
+   add_library_test(RotateFunctionsTest RotateFunctionsTest.cxx BehaviourTest)
+   add_library_test(RotationMatrixCopyTest RotationMatrixCopyTest.cxx BehaviourTest)
+   add_library_test(IntegrateDebugTest IntegrateDebugTest.cxx BehaviourTest)
+diff --git a/tests/CoalescedMemoryAccessFunctionViewTest.cxx b/tests/CoalescedMemoryAccessFunctionViewTest.cxx
+index 70952ba..6e82352 100644
+--- a/tests/CoalescedMemoryAccessFunctionViewTest.cxx
++++ b/tests/CoalescedMemoryAccessFunctionViewTest.cxx
+@@ -18,6 +18,7 @@
+ #include "MGIS/Function/BasicLinearQuadratureSpace.hxx"
+ #include "MGIS/Function/CoalescedMemoryAccessFunctionViewBase.hxx"
+ #include "MGIS/Function/TFEL/Tensors.hxx"
++#include "Tolerance.hxx"
+ 
+ namespace mgis::function {}  // end of namespace mgis::function
+ 
+@@ -56,10 +57,14 @@ struct CoalescedMemoryAccessFunctionViewBaseTest final
+       return {std::array{*ptr0[0], *ptr0[1]},  //
+               std::array{*ptr1[0], *ptr1[1]}};
+     }();
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<0>(r)[0] - 5) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<0>(r)[1] + 2) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<1>(r)[0] - 12) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<1>(r)[1] - 3) < 1e-14);
++    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<0>(r)[0] - 5) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<0>(r)[1] + 2) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<1>(r)[0] - 12) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<1>(r)[1] - 3) <
++                             mgis::tests::tolerance(1e-14));
+ #endif /* MGIS_DISABLE_CONSTEXPR_FUNCTION_TESTS */
+   }
+ };
+@@ -98,9 +103,12 @@ struct CoalescedMemoryAccessTensorViewTest final
+       return std::array{tfel::math::trace(f(0)), tfel::math::trace(f(1)),
+                         tfel::math::trace(f(1) - 3 * f(0))};
+     }();
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 6) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 60) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 42) < 1e-14);
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 6) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 60) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 42) <
++                             mgis::tests::tolerance(1e-14));
+ #endif /* MGIS_DISABLE_CONSTEXPR_FUNCTION_TESTS */
+   }
+ };
+@@ -142,9 +150,12 @@ struct CoalescedMemoryAccessCompositeTensorsViewTest final
+           tfel::math::trace(f.get<0, tfel::math::stensor<2, real>>(1) -
+                             3 * f.get<0, tfel::math::stensor<2, real>>(0))};
+     }();
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 6) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 60) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 42) < 1e-14);
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 6) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 60) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 42) <
++                             mgis::tests::tolerance(1e-14));
+ #endif /* MGIS_DISABLE_CONSTEXPR_FUNCTION_TESTS */
+   }
+   void test2() {
+@@ -170,14 +181,22 @@ struct CoalescedMemoryAccessCompositeTensorsViewTest final
+       }
+       return out_values;
+     }();
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 1) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 10) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 2) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[3] - 20) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[4] - 3) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[5] - 30) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[6] - 4) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[7] - 40) < 1e-14);
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 1) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 10) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 2) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[3] - 20) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[4] - 3) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[5] - 30) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[6] - 4) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[7] - 40) <
++                             mgis::tests::tolerance(1e-14));
+ #endif /* MGIS_DISABLE_CONSTEXPR_FUNCTION_TESTS */
+   }
+   void test3() {
+@@ -220,7 +239,7 @@ struct CoalescedMemoryAccessCompositeTensorsViewTest final
+     constexpr auto mu = tfel::material::computeMu(young, nu);
+     constexpr auto exx = 1e-3;
+     constexpr auto eyy = -real{1e-3} / 3;
+-    constexpr auto seps = young * 1e-14;
++    constexpr auto seps = young * mgis::tests::tolerance(1e-14);
+     auto local_abs = [](const mgis::real r) { return r > 0 ? r : -r; };
+     constexpr auto r = []() -> std::array<real, 12u> {
+       auto ctx = ContractViolationHandler{};
+@@ -275,7 +294,7 @@ struct CoalescedMemoryAccessCompositeTensorsViewTest final
+       return std::array{view.get<0, real>(0), view.get<1, real>(0),
+                         view.get<0, real>(1), view.get<1, real>(1)};
+     }();
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 2) < eps);
+     TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] + 1) < eps);
+     TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 3) < eps);
+diff --git a/tests/ComputeSpeedOfSoundTest.cxx b/tests/ComputeSpeedOfSoundTest.cxx
+index 26e17e6..86aad5c 100644
+--- a/tests/ComputeSpeedOfSoundTest.cxx
++++ b/tests/ComputeSpeedOfSoundTest.cxx
+@@ -20,6 +20,7 @@
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/BehaviourData.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+@@ -48,7 +49,8 @@ int main(const int argc, const char* const* argv) {
+     update(d);
+     const auto yg = 150e9;
+     const auto v_ref = sqrt(yg / d.s1.mass_density);
+-    if (std::abs(d.speed_of_sound - v_ref) > 1.e-12 * v_ref) {
++    if (std::abs(d.speed_of_sound - v_ref) >
++        mgis::tests::tolerance(1.e-12) * v_ref) {
+       std::cerr << "IntegrateTest: invalid value for the speed of sound"
+                 << "(expected '" << v_ref << "', computed '" << d.speed_of_sound
+                 << "')\n";
+diff --git a/tests/ComputeSpeedOfSoundTest2.cxx b/tests/ComputeSpeedOfSoundTest2.cxx
+index 54533fb..b100f10 100644
+--- a/tests/ComputeSpeedOfSoundTest2.cxx
++++ b/tests/ComputeSpeedOfSoundTest2.cxx
+@@ -20,6 +20,7 @@
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+@@ -50,7 +51,8 @@ int main(const int argc, const char* const* argv) {
+     integrate(m, opts, dt, 0, m.n);
+     std::cerr.precision(14);
+     const auto v_ref = std::sqrt(yg / rho);
+-    if (std::abs(m.speed_of_sound[0] - v_ref) > 1.e-12 * v_ref) {
++    if (std::abs(m.speed_of_sound[0] - v_ref) >
++        mgis::tests::tolerance(1.e-12) * v_ref) {
+       std::cerr
+           << "ComputeSpeedOfSoundTest: invalid value for the speed of sound\n";
+       return EXIT_FAILURE;
+diff --git a/tests/EvaluatorsTest.cxx b/tests/EvaluatorsTest.cxx
+index 48e61b7..c841067 100644
+--- a/tests/EvaluatorsTest.cxx
++++ b/tests/EvaluatorsTest.cxx
+@@ -28,6 +28,7 @@
+ #include "MGIS/Function/FixedSizeView.hxx"
+ #include "MGIS/Function/FixedSizeModifier.hxx"
+ #include "MGIS/Function/TFEL/Tensors.hxx"
++#include "Tolerance.hxx"
+ 
+ template <typename T>
+ struct ByValueModifierResult {
+@@ -124,7 +125,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+   void test1() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     Context ctx;
+     auto space = BasicLinearSpace{3};
+     auto values = std::vector<real>{1, 2, 3};
+@@ -156,7 +157,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+   void test3() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     Context ctx;
+     auto space = BasicLinearSpace{1};
+     auto values = std::vector<real>{1, 2, 3};
+@@ -178,7 +179,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+   void test4() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     Context ctx;
+     auto space = BasicLinearSpace{2};
+     auto values = std::vector<real>{1, 2, 3, 4};
+@@ -299,7 +300,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+   void test5() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     Context ctx;
+     auto space = BasicLinearSpace{1};
+     auto values = std::vector<real>{1e-3, 2e-3, -5e-3, 4e-3};
+@@ -331,7 +332,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+     TFEL_TESTS_STATIC_ASSERT(
+         (std::same_as<decltype(stress_view),
+                       TensorView<FunctionView<BasicLinearSpace>,
+-                                 tfel::math::stensor<2, double>>>));
++                                 tfel::math::stensor<2, real>>>));
+     const auto ok = assign(ctx, stress_view, strain | multiply_by_scalar(K));
+     TFEL_TESTS_ASSERT(ok);
+     TFEL_TESTS_ASSERT(std::abs(values2[0] - 150e6) < K * eps);
+@@ -368,15 +369,15 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+     auto values = std::vector<real>{1e-3, 2e-3, -5e-3, 4e-3};
+     static_assert(FunctionConcept<FunctionView<BasicLinearSpace>>);
+     FunctionView<BasicLinearSpace> f(space, values, 4);
+-    TFEL_TESTS_ASSERT(
+-        !(TensorView<FunctionView<BasicLinearSpace>,
+-                     tfel::math::stensor<1>>::checkPreconditions(ctx, f)));
++    TFEL_TESTS_ASSERT(!(
++        TensorView<FunctionView<BasicLinearSpace>,
++                   tfel::math::stensor<1, real>>::checkPreconditions(ctx, f)));
+ #endif /* MGIS_USE_EXCEPTIONS_FOR_ERROR_REPORTING */
+   }
+   void test7() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     Context ctx;
+     auto space = BasicLinearSpace{1};
+     auto values = std::vector<real>{1, -2, -5, 4};
+@@ -405,7 +406,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+   void test8() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     Context ctx;
+     auto space = BasicLinearSpace{1};
+     auto values = std::vector<real>{1, -2, -5, 4};
+@@ -422,7 +423,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+   void test9() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     Context ctx;
+     const auto values = std::vector<real>{1, -2, -5, 4};
+     {
+@@ -451,7 +452,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+   void test10() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     TFEL_TESTS_STATIC_ASSERT(
+         (EvaluatorConcept<FixedSizeView<Function<BasicLinearSpace>, 1>>));
+     Function<BasicLinearSpace> f(BasicLinearSpace{4}, 1);
+@@ -468,7 +469,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+   }
+   static constexpr bool check_value(const mgis::real a,
+                                     const mgis::real b) noexcept {
+-    constexpr auto eps = mgis::real{1e-12};
++    constexpr auto eps = mgis::tests::tolerance(1e-12);
+     auto local_abs = [](const mgis::real r) { return r > 0 ? r : -r; };
+     return local_abs(a - b) < eps;
+   }  // end of check_value
+@@ -593,7 +594,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+     const auto ok = assign(ctx, f2, std::execution::par, e);
+     TFEL_TESTS_ASSERT(ok);
+     for (size_type i = 0; i != space.size(); ++i) {
+-      TFEL_TESTS_ASSERT(std::abs(f2(i) - i) < 1e-12);
++      TFEL_TESTS_ASSERT(std::abs(f2(i) - i) < mgis::tests::tolerance(1e-12));
+     }
+ #endif /* MGIS_HAS_STL_PARALLEL_ALGORITHMS */
+   }
+@@ -614,7 +615,7 @@ struct EvaluatorsTest final : public tfel::tests::TestCase {
+         std::numeric_limits<real>::min());
+     TFEL_TESTS_ASSERT(isValid(ov));
+     if (isValid(ov)) {
+-      TFEL_TESTS_ASSERT(std::abs(*ov - 14) < 1e-13);
++      TFEL_TESTS_ASSERT(std::abs(*ov - 14) < mgis::tests::tolerance(1e-13));
+     }
+ #endif /* MGIS_HAS_STL_PARALLEL_ALGORITHMS */
+   }
+diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
+index f87dcec..7703ebb 100644
+--- a/tests/GenericParallelCUDATest.cxx
++++ b/tests/GenericParallelCUDATest.cxx
+@@ -890,12 +890,14 @@ static void testAsynchronousComputations(const std::string& library,
+ }  // end of testAsynchronousComputations
+ 
+ int main(const int argc, const char* const* const argv) {
+-  if (argc != 6) {
++  // the library of the models is optional: the models are only generated
++  // with the double numerical type
++  if ((argc != 5) && (argc != 6)) {
+     std::cerr << "usage: " << argv[0]
+               << " cuda-library generic-library "
+                  "cuda-material-properties-library "
+                  "generic-material-properties-library "
+-                 "generic-models-library\n";
++                 "[generic-models-library]\n";
+     return EXIT_FAILURE;
+   }
+   try {
+@@ -904,7 +906,9 @@ int main(const int argc, const char* const* const argv) {
+     testMemoryLocations(argv[1]);
+     testMemoryResource(argv[2], argv[1]);
+     testStream(argv[2], argv[1]);
+-    testModel(argv[5], argv[1]);
++    if (argc == 6) {
++      testModel(argv[5], argv[1]);
++    }
+     testMaterialProperties(argv[4], argv[3]);
+     testPartialFailures(argv[1]);
+     testAsynchronousComputations(argv[2], argv[1], argv[4], argv[3]);
+diff --git a/tests/GenericParallelEvaluateTest.cxx b/tests/GenericParallelEvaluateTest.cxx
+index 98d0e56..12abb0f 100644
+--- a/tests/GenericParallelEvaluateTest.cxx
++++ b/tests/GenericParallelEvaluateTest.cxx
+@@ -14,8 +14,6 @@
+  */
+ 
+ #include <array>
+-#include <bit>
+-#include <cstdint>
+ #include <limits>
+ #include <algorithm>
+ #include <cmath>
+@@ -29,6 +27,7 @@
+ #include "MGIS/LibrariesManager.hxx"
+ #include "MGIS/FieldView.hxx"
+ #include "MGIS/MaterialProperty/MaterialProperty.hxx"
++#include "BitwiseEquality.hxx"
+ 
+ static bool success = true;
+ 
+@@ -57,7 +56,7 @@ static bool throws(const Function& f, const std::string_view text) {
+ //! \return the maximum of the relative differences
+ static double compare(const std::span<const mgis::real> a,
+                       const std::span<const mgis::real> b) {
+-  auto d = 0.;
++  auto d = mgis::real{0};
+   for (std::size_t i = 0; i != a.size(); ++i) {
+     d = std::max(d, std::abs(a[i] - b[i]) / std::abs(b[i]));
+   }
+@@ -323,7 +322,7 @@ static void testEvaluationsOnViews(const std::string& library,
+       std::span<const mgis::real>(T2), n, 1, 2)};
+   const auto inputs = std::array{std::span<const mgis::real>(T)};
+   const auto same = [](const mgis::real a, const mgis::real b) {
+-    return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
++    return mgis::tests::areBitwiseEqual(a, b);
+   };
+   // values written with a stride of 3
+   const auto check_values = [&same, &sentinel](
+@@ -483,8 +482,7 @@ static void testOtherEvaluationsOnViews(const std::string& library,
+       check(same_result(r, rv), msg + "invalid result");
+       for (mgis::size_type i = 0; i != n; ++i) {
+         if ((r.status >= 0) || (i < r.n)) {
+-          check(std::bit_cast<std::uint64_t>(E[i]) ==
+-                    std::bit_cast<std::uint64_t>(E2[2 * i]),
++          check(mgis::tests::areBitwiseEqual(E[i], E2[2 * i]),
+                 msg + "invalid values");
+         }
+       }
+diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
+index 0821b1f..8456415 100644
+--- a/tests/GenericParallelIntegrateTest.cxx
++++ b/tests/GenericParallelIntegrateTest.cxx
+@@ -14,10 +14,8 @@
+  */
+ 
+ #include <array>
+-#include <bit>
+ #include <tuple>
+ #include <functional>
+-#include <cstdint>
+ #include <cmath>
+ #include <span>
+ #include <string>
+@@ -36,6 +34,8 @@
+ #include "MGIS/Behaviour/Integrate.hxx"
+ #include "MGIS/Behaviour/FiniteStrainSupport.hxx"
+ #include "MGIS/MaterialProperty/PendingBatchEvaluation.hxx"
++#include "BitwiseEquality.hxx"
++#include "Tolerance.hxx"
+ 
+ static bool success = true;
+ 
+@@ -652,7 +652,7 @@ static void testArraysOfExternalStateVariables(const std::string& library,
+     const auto o = getVariableOffset(managers.b.isvs, isv, h);
+     const auto vs = getVariableSize(esvs[k], h);
+     const auto& esv = values[esvs.size() + k];
+-    auto d = 0.;
++    auto d = mgis::real{0};
+     for (mgis::size_type i = 0; i != n; ++i) {
+       for (mgis::size_type c = 0; c != vs; ++c) {
+         const auto expected = esv.size() == vs ? esv[c] : esv[i * vs + c];
+@@ -662,7 +662,8 @@ static void testArraysOfExternalStateVariables(const std::string& library,
+                         expected));
+       }
+     }
+-    check(d < 1e-14,
++    // the behaviour computes esv + desv: one rounding of the type
++    check(d < mgis::tests::tolerance(1e-14),
+           "TensorialExternalStateVariableTest: invalid value of " + isv);
+   }
+ }  // end of testArraysOfExternalStateVariables
+@@ -735,10 +736,11 @@ static void testSpeedOfSound(const std::string& library,
+   check(std::all_of(managers.gp_m.speed_of_sound.begin(),
+                     managers.gp_m.speed_of_sound.end(),
+                     [expected](const mgis::real v) {
+-                      return std::abs(v - expected) < 1e-10 * expected;
++                      return std::abs(v - expected) <
++                             mgis::tests::tolerance(1e-10, 1e-6) * expected;
+                     }) &&
+             (compare(managers.m.speed_of_sound, managers.gp_m.speed_of_sound,
+-                     expected) < 1e-14),
++                     expected) < mgis::tests::tolerance(1e-14)),
+         "ComputeSpeedOfSound: invalid speed of sound");
+ }  // end of testSpeedOfSound
+ 
+@@ -1262,7 +1264,7 @@ static mgis::FieldView<mgis::real> makeTestView(std::vector<mgis::real>& a,
+ 
+ //! \return true if two values are the same, bit by bit
+ static bool same(const mgis::real a, const mgis::real b) {
+-  return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
++  return mgis::tests::areBitwiseEqual(a, b);
+ }  // end of same
+ 
+ /*!
+@@ -1622,10 +1624,12 @@ static void testRotationsOnViews(const std::string& library,
+ }  // end of testRotationsOnViews
+ 
+ int main(const int argc, const char* const* const argv) {
+-  if (argc != 4) {
++  // the library of the models is optional: the models are only generated
++  // with the double numerical type
++  if ((argc != 3) && (argc != 4)) {
+     std::cerr << "usage: " << argv[0]
+               << " generic-parallel-library generic-library "
+-                 "generic-models-library\n";
++                 "[generic-models-library]\n";
+     return EXIT_FAILURE;
+   }
+   try {
+@@ -1644,7 +1648,9 @@ int main(const int argc, const char* const* const argv) {
+     testExecutionPolicies(argv[2], argv[1]);
+     testMemoryLocations(argv[2], argv[1]);
+     testPartialFailures(argv[2], argv[1]);
+-    testModel(argv[3], argv[1]);
++    if (argc == 4) {
++      testModel(argv[3], argv[1]);
++    }
+     testFailure(argv[2], argv[1]);
+     testAsynchronousComputations(argv[2], argv[1]);
+   } catch (std::exception& e) {
+diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
+index 50f9325..1edf85c 100644
+--- a/tests/GenericParallelLoadTest.cxx
++++ b/tests/GenericParallelLoadTest.cxx
+@@ -18,6 +18,10 @@
+ #include <cstdlib>
+ #include <iostream>
+ #include <string_view>
++// the data structures of TFEL are compiled with the numerical type of MGIS
++#include "MGIS/RealType.h"
++#define MFRONT_GB_REAL_TYPE MGIS_CONFIGURED_REAL_TYPE
++#define MFRONT_GMP_REAL_TYPE MGIS_CONFIGURED_REAL_TYPE
+ #include "MFront/GenericParallelBehaviour/BatchData.h"
+ #include "MFront/GenericParallelMaterialProperty/MaterialProperty.h"
+ #include "MGIS/LibrariesManager.hxx"
+diff --git a/tests/Gurson.mfront b/tests/Gurson.mfront
+index 0cdae3b..11deb7c 100644
+--- a/tests/Gurson.mfront
++++ b/tests/Gurson.mfront
+@@ -65,7 +65,7 @@ q3.setEntryName("ThirdGursonParameter");
+     string msg("gurson : q3 is greater than q1 !");
+     throw(runtime_error(msg));
+   }
+-  flim   = min(fc+delta*(fmax-fc),0.95*(q1-sqrt(q1*q1-q3*q3))/(q3*q3));
++  flim   = min(fc+delta*(fmax-fc),real(0.95)*(q1-sqrt(q1*q1-q3*q3))/(q3*q3));
+   broken = (feq>=flim);
+   if(!broken){
+     //Calcul des coefficients d'élasticité et du tenseur d'élasticité
+diff --git a/tests/IntegrateTest.cxx b/tests/IntegrateTest.cxx
+index f6a61f1..0956867 100644
+--- a/tests/IntegrateTest.cxx
++++ b/tests/IntegrateTest.cxx
+@@ -20,6 +20,7 @@
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/BehaviourData.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+@@ -73,9 +74,14 @@ int main(const int argc, const char* const* argv) {
+                                             0.00049969190397646,
+                                             0.00053302523730979,
+                                             0.00056635857064313};
++    // in float, the error on the equivalent viscoplastic strain is bounded by
++    // the convergence criterion of the behaviour (1.2e-6, raised by
++    // mgis::behaviour::load for this type), accumulated over the first steps
++    // (2.2e-6 at the third step, then less than 1e-9)
++    constexpr auto eps = mgis::tests::tolerance(1e-12, 1e-5);
+     std::cerr.precision(14);
+     for (size_type i = 0; i != 21; ++i) {
+-      if (std::abs(p[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(p[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain "
+                   << "(expected '" << p_ref[i] << "', computed '" << p[i]
+diff --git a/tests/IntegrateTest2.cxx b/tests/IntegrateTest2.cxx
+index 09ac02e..9ef9361 100644
+--- a/tests/IntegrateTest2.cxx
++++ b/tests/IntegrateTest2.cxx
+@@ -20,6 +20,7 @@
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+@@ -85,16 +86,21 @@ int main(const int argc, const char* const* argv) {
+                                             0.00049969190397646,
+                                             0.00053302523730979,
+                                             0.00056635857064313};
++    // in float, the error on the equivalent viscoplastic strain is bounded by
++    // the convergence criterion of the behaviour (1.2e-6, raised by
++    // mgis::behaviour::load for this type), accumulated over the first steps
++    // (2.2e-6 at the third step, then less than 1e-9)
++    constexpr auto eps = mgis::tests::tolerance(1e-12, 1e-5);
+     std::cerr.precision(14);
+     for (size_type i = 0; i != 21; ++i) {
+-      if (std::abs(pi[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pi[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the first integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pi[i]
+                   << "')\n";
+         return EXIT_FAILURE;
+       }
+-      if (std::abs(pe[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pe[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the last integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pe[i]
+diff --git a/tests/IntegrateTest2b.cxx b/tests/IntegrateTest2b.cxx
+index 5ad5232..9c04bad 100644
+--- a/tests/IntegrateTest2b.cxx
++++ b/tests/IntegrateTest2b.cxx
+@@ -20,6 +20,7 @@
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+@@ -90,16 +91,21 @@ int main(const int argc, const char* const* argv) {
+                                             0.00049969190397646,
+                                             0.00053302523730979,
+                                             0.00056635857064313};
++    // in float, the error on the equivalent viscoplastic strain is bounded by
++    // the convergence criterion of the behaviour (1.2e-6, raised by
++    // mgis::behaviour::load for this type), accumulated over the first steps
++    // (2.2e-6 at the third step, then less than 1e-9)
++    constexpr auto eps = mgis::tests::tolerance(1e-12, 1e-5);
+     std::cerr.precision(14);
+     for (size_type i = 0; i != 21; ++i) {
+-      if (std::abs(pi[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pi[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the first integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pi[i]
+                   << "')\n";
+         return EXIT_FAILURE;
+       }
+-      if (std::abs(pe[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pe[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the last integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pe[i]
+diff --git a/tests/IntegrateTest3.cxx b/tests/IntegrateTest3.cxx
+index 984574d..657ac5a 100644
+--- a/tests/IntegrateTest3.cxx
++++ b/tests/IntegrateTest3.cxx
+@@ -21,6 +21,7 @@
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/ThreadPool.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+@@ -86,16 +87,21 @@ int main(const int argc, const char* const* argv) {
+                                             0.00049969190397646,
+                                             0.00053302523730979,
+                                             0.00056635857064313};
++    // in float, the error on the equivalent viscoplastic strain is bounded by
++    // the convergence criterion of the behaviour (1.2e-6, raised by
++    // mgis::behaviour::load for this type), accumulated over the first steps
++    // (2.2e-6 at the third step, then less than 1e-9)
++    constexpr auto eps = mgis::tests::tolerance(1e-12, 1e-5);
+     std::cerr.precision(14);
+     for (size_type i = 0; i != 21; ++i) {
+-      if (std::abs(pi[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pi[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the first integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pi[i]
+                   << "')\n";
+         return EXIT_FAILURE;
+       }
+-      if (std::abs(pe[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pe[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the last integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pe[i]
+diff --git a/tests/IntegrateTest3b.cxx b/tests/IntegrateTest3b.cxx
+index 2f4cc81..b36fc99 100644
+--- a/tests/IntegrateTest3b.cxx
++++ b/tests/IntegrateTest3b.cxx
+@@ -21,6 +21,7 @@
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/ThreadPool.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+@@ -99,16 +100,21 @@ int main(const int argc, const char* const* argv) {
+                                             0.00049969190397646,
+                                             0.00053302523730979,
+                                             0.00056635857064313};
++    // in float, the error on the equivalent viscoplastic strain is bounded by
++    // the convergence criterion of the behaviour (1.2e-6, raised by
++    // mgis::behaviour::load for this type), accumulated over the first steps
++    // (2.2e-6 at the third step, then less than 1e-9)
++    constexpr auto eps = mgis::tests::tolerance(1e-12, 1e-5);
+     std::cerr.precision(14);
+     for (size_type i = 0; i != 20; ++i) {
+-      if (std::abs(pi0[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pi0[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the first integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pi0[i]
+                   << "')\n";
+         return EXIT_FAILURE;
+       }
+-      if (std::abs(pe0[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pe0[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the last integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pe0[i]
+@@ -117,14 +123,14 @@ int main(const int argc, const char* const* argv) {
+       }
+     }
+     for (size_type i = 0; i != 21; ++i) {
+-      if (std::abs(pi[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pi[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the first integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pi[i]
+                   << "')\n";
+         return EXIT_FAILURE;
+       }
+-      if (std::abs(pe[i] - p_ref[i]) > 1.e-12) {
++      if (std::abs(pe[i] - p_ref[i]) > eps) {
+         std::cerr << "IntegrateTest: invalid value for the equivalent "
+                      "viscoplastic strain at the last integration point"
+                   << "(expected '" << p_ref[i] << "', computed '" << pe[i]
+diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
+index 404df00..fb10507 100644
+--- a/tests/MaterialDataManagerLayoutTest.cxx
++++ b/tests/MaterialDataManagerLayoutTest.cxx
+@@ -16,7 +16,6 @@
+  *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
+  */
+ 
+-#include <bit>
+ #include <cmath>
+ #include <span>
+ #include <array>
+@@ -27,7 +26,6 @@
+ #include <string>
+ #include <vector>
+ #include <memory>
+-#include <cstdint>
+ #include <cstdlib>
+ #include <iostream>
+ #include <stdexcept>
+@@ -44,6 +42,8 @@
+ #include "MGIS/ThreadPool.hxx"
+ #include "MGIS/Behaviour/FiniteStrainSupport.hxx"
+ #include "MGIS/Behaviour/MaterialDataView.hxx"
++#include "BitwiseEquality.hxx"
++#include "Tolerance.hxx"
+ #ifdef MGIS_HAVE_HDF5
+ #include "MGIS/Utilities/HDF5Support.hxx"
+ #endif /* MGIS_HAVE_HDF5 */
+@@ -79,7 +79,7 @@ static bool throws(const Function& f, const std::string_view text) {
+ 
+ //! \return true if two values are identical, bit for bit
+ static bool same(const real a, const real b) {
+-  return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
++  return mgis::tests::areBitwiseEqual(a, b);
+ }  // end of same
+ 
+ //! \return true if two views hold the same values, bit for bit
+@@ -934,7 +934,9 @@ static void testFiniteStrainConversionsOnViews(const std::string& library) {
+         for (size_type k = 0; k != gs; ++k) {
+           d = std::max(d, std::abs(pv(i, k) - pc[k]));
+         }
+-        check(d < 1e-8 * std::max(real{1}, std::abs(s(i, 0))),
++        // a few roundings of the products of the cofactors in float
++        check(d < mgis::tests::tolerance(1e-8, 1e-6) *
++                      std::max(real{1}, std::abs(s(i, 0))),
+               t +
+                   ": first Piola-Kirchhoff stress different from its "
+                   "definition (" +
+diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
+index afb0f4e..40d5b6a 100644
+--- a/tests/MaterialDataViewTest.cxx
++++ b/tests/MaterialDataViewTest.cxx
+@@ -15,12 +15,10 @@
+  *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
+  */
+ 
+-#include <bit>
+ #include <array>
+ #include <utility>
+ #include <type_traits>
+ #include <limits>
+-#include <cstdint>
+ #include <cmath>
+ #include <span>
+ #include <string>
+@@ -38,6 +36,7 @@
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/MaterialDataView.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "BitwiseEquality.hxx"
+ 
+ static bool success = true;
+ 
+@@ -70,7 +69,7 @@ using mgis::size_type;
+ 
+ //! \return true if two values are identical, bit for bit
+ static bool same(const real a, const real b) {
+-  return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
++  return mgis::tests::areBitwiseEqual(a, b);
+ }  // end of same
+ 
+ //! \brief arrangements of the values of a group of variables tested
+@@ -1662,10 +1661,12 @@ static void testFailingOperations(const std::string& library) {
+ }  // end of testFailingOperations
+ 
+ int main(const int argc, const char* const* const argv) {
+-  if (argc != 4) {
++  // the library of the models is optional: the models are only generated
++  // with the double numerical type
++  if ((argc != 3) && (argc != 4)) {
+     std::cerr << "usage: " << argv[0]
+               << " generic-parallel-library generic-library "
+-                 "generic-models-library\n";
++                 "[generic-models-library]\n";
+     return EXIT_FAILURE;
+   }
+   try {
+@@ -1687,8 +1688,10 @@ int main(const int argc, const char* const* const argv) {
+       testPostProcessings(library);
+       testMakeView(library);
+     }
+-    testModel(argv[3]);
+-    testModel(argv[1]);
++    if (argc == 4) {
++      testModel(argv[3]);
++      testModel(argv[1]);
++    }
+     testFailingPoint(argv[2]);
+     testFailingOperations(argv[2]);
+     testErrors(argv[2], argv[1]);
+diff --git a/tests/MechanicalEvaluatorsTest.cxx b/tests/MechanicalEvaluatorsTest.cxx
+index 87400b0..8568eb9 100644
+--- a/tests/MechanicalEvaluatorsTest.cxx
++++ b/tests/MechanicalEvaluatorsTest.cxx
+@@ -22,6 +22,7 @@
+ #include "MGIS/Function/FixedSizeView.hxx"
+ #include "MGIS/Function/FixedSizeModifier.hxx"
+ #include "MGIS/Function/TFEL/Mechanics.hxx"
++#include "Tolerance.hxx"
+ 
+ struct MechanicalEvaluatorsTest final : public tfel::tests::TestCase {
+   MechanicalEvaluatorsTest()
+@@ -41,7 +42,7 @@ struct MechanicalEvaluatorsTest final : public tfel::tests::TestCase {
+   void test1() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     auto space = BasicLinearSpace(1);
+     auto values = std::vector<real>{1, 2, 3};
+     const auto f = FunctionEvaluator<BasicLinearSpace>(space, values, 3);
+@@ -56,7 +57,7 @@ struct MechanicalEvaluatorsTest final : public tfel::tests::TestCase {
+   void test2() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     auto space = BasicLinearSpace(1);
+     const auto values = std::vector<real>{1, 2, 3};
+     const auto f = FunctionEvaluator<BasicLinearSpace>(space, values, 3);
+@@ -73,7 +74,7 @@ struct MechanicalEvaluatorsTest final : public tfel::tests::TestCase {
+   void test3() {
+     using namespace mgis;
+     using namespace mgis::function;
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     Context ctx;
+     auto space = BasicLinearSpace(1);
+     Function<BasicLinearSpace> pk1_function(space, 9);
+diff --git a/tests/Norton.mfront b/tests/Norton.mfront
+index 758d655..bec9d44 100644
+--- a/tests/Norton.mfront
++++ b/tests/Norton.mfront
+@@ -12,5 +12,8 @@
+ 
+ @Brick StandardElastoViscoPlasticity{
+   stress_potential : "Hooke" {young_modulus : 150e9, poisson_ratio : 0.3},
+-  inelastic_flow : "Norton" {criterion : "Mises", A : 8.e-67, n : 8.2, K : 1}
++  // A (seq / K)^n, with A = 1 and K = (8e-67)^(-1/8.2) Pa, is the flow
++  // 8e-67 seq^n written so that its coefficients can be represented in
++  // float (8e-67 can't, and seq^n overflows)
++  inelastic_flow : "Norton" {criterion : "Mises", A : 1, n : 8.2, K : 114973772.62769}
+ };
+diff --git a/tests/NortonFailure.mfront b/tests/NortonFailure.mfront
+index 96b75bf..d2adbe4 100644
+--- a/tests/NortonFailure.mfront
++++ b/tests/NortonFailure.mfront
+@@ -12,7 +12,10 @@
+ 
+ @Brick StandardElastoViscoPlasticity{
+   stress_potential : "Hooke" {young_modulus : 150e9, poisson_ratio : 0.3},
+-  inelastic_flow : "Norton" {criterion : "Mises", A : 8.e-67, n : 8.2, K : 1}
++  // A (seq / K)^n, with A = 1 and K = (8e-67)^(-1/8.2) Pa, is the flow
++  // 8e-67 seq^n written so that its coefficients can be represented in
++  // float (8e-67 can't, and seq^n overflows)
++  inelastic_flow : "Norton" {criterion : "Mises", A : 1, n : 8.2, K : 114973772.62769}
+ };
+ 
+ @Integrator{
+diff --git a/tests/ParameterTest.cxx b/tests/ParameterTest.cxx
+index 2a7b736..a31be80 100644
+--- a/tests/ParameterTest.cxx
++++ b/tests/ParameterTest.cxx
+@@ -16,13 +16,15 @@
+ #include <cstdlib>
+ #include <iostream>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis::behaviour;
+   constexpr const auto yg = mgis::real{150e9};
+   constexpr const auto nu = mgis::real{0.3};
+   constexpr const auto A = std::array<mgis::real, 2>{7, 2};
+-  constexpr const auto eps = mgis::real{1.e-14};
++  // the default values are stored with the numerical type of the behaviour
++  constexpr const auto eps = mgis::tests::tolerance(1.e-14);
+   constexpr const auto h = Hypothesis::TRIDIMENSIONAL;
+   bool success = true;
+   auto check = [&success](const bool b, const std::string& msg) {
+diff --git a/tests/RealTypeTest.cxx b/tests/RealTypeTest.cxx
+new file mode 100644
+index 0000000..53a171b
+--- /dev/null
++++ b/tests/RealTypeTest.cxx
+@@ -0,0 +1,61 @@
++/*!
++ * \file   tests/RealTypeTest.cxx
++ * \brief  This test checks that a behaviour generated with the numerical
++ * type of MGIS is loaded, and that a behaviour generated with another
++ * numerical type (real_type option of mfront) is refused.
++ * \date   13/10/2026
++ * \copyright Use, modification and distribution are subject
++ * to one of the following licences:
++ * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
++ *   file LGPL-3.0.txt)
++ * - CECILL-C,  Version 1.0 (See accompanying files
++ *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
++ */
++
++#include <string>
++#include <cstdlib>
++#include <iostream>
++#include <stdexcept>
++#include "MGIS/LibrariesManager.hxx"
++#include "MGIS/Behaviour/Behaviour.hxx"
++
++int main(const int argc, const char* const* const argv) {
++  using namespace mgis::behaviour;
++  auto success = true;
++  auto check = [&success](const bool b, const std::string& msg) {
++    if (!b) {
++      success = false;
++      std::cerr << msg << '\n';
++    }
++    return b;
++  };
++  if (!check(argc == 3, "usage: RealTypeTest library other-type-library")) {
++    return EXIT_FAILURE;
++  }
++  constexpr auto h = Hypothesis::TRIDIMENSIONAL;
++  auto& lm = mgis::LibrariesManager::get();
++  // library generated with the numerical type of MGIS
++  check(lm.getRealSize(argv[1], "Elasticity") == sizeof(mgis::real),
++        "invalid size of the numerical type of the behaviour");
++  try {
++    static_cast<void>(load(argv[1], "Elasticity", h));
++  } catch (std::exception& e) {
++    check(false, std::string{"loading failed: "} + e.what());
++  }
++  // library generated with the other numerical type
++  constexpr auto other_size =
++      sizeof(mgis::real) == sizeof(double) ? sizeof(float) : sizeof(double);
++  check(lm.getRealSize(argv[2], "Elasticity") == other_size,
++        "invalid size of the numerical type of the behaviour generated with "
++        "the other type");
++  auto refused = false;
++  try {
++    static_cast<void>(load(argv[2], "Elasticity", h));
++  } catch (std::exception& e) {
++    refused = true;
++    check(std::string{e.what()}.find("numerical type") != std::string::npos,
++          std::string{"invalid error message: "} + e.what());
++  }
++  check(refused, "a behaviour generated with another type must be refused");
++  return success ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+diff --git a/tests/RotationMatrixCopyTest.cxx b/tests/RotationMatrixCopyTest.cxx
+index 3d79501..a303b59 100644
+--- a/tests/RotationMatrixCopyTest.cxx
++++ b/tests/RotationMatrixCopyTest.cxx
+@@ -13,11 +13,9 @@
+  *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
+  */
+ 
+-#include <bit>
+ #include <cmath>
+ #include <memory>
+ #include <vector>
+-#include <cstdint>
+ #include <cstdlib>
+ #include <utility>
+ #include <iostream>
+@@ -25,6 +23,8 @@
+ #include <stdexcept>
+ #include <string_view>
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "BitwiseEquality.hxx"
++#include "Tolerance.hxx"
+ 
+ static bool success = true;
+ 
+@@ -42,8 +42,7 @@ static bool same(const std::vector<mgis::real>& a,
+     return false;
+   }
+   for (std::size_t i = 0; i != a.size(); ++i) {
+-    if (std::bit_cast<std::uint64_t>(a[i]) !=
+-        std::bit_cast<std::uint64_t>(b[i])) {
++    if (!mgis::tests::areBitwiseEqual(a[i], b[i])) {
+       return false;
+     }
+   }
+@@ -143,7 +142,8 @@ int main(const int argc, const char* const* const argv) {
+     // constructor from a temporary
+     const auto ma = MaterialAxisStorage(std::vector<mgis::real>{0.6, 0.8});
+     check((ma.a.size() == 2) &&
+-              (std::abs(ma.a[0] - 0.6) + std::abs(ma.a[1] - 0.8) < 1e-15),
++              (std::abs(ma.a[0] - 0.6) + std::abs(ma.a[1] - 0.8) <
++               mgis::tests::tolerance(1e-15, 1e-7)),
+           "MaterialAxisStorage: invalid construction from a temporary");
+   } catch (std::exception& e) {
+     std::cerr << e.what() << '\n';
+diff --git a/tests/StridedCoalescedMemoryAccessFunctionViewTest.cxx b/tests/StridedCoalescedMemoryAccessFunctionViewTest.cxx
+index d21c170..41c22e7 100644
+--- a/tests/StridedCoalescedMemoryAccessFunctionViewTest.cxx
++++ b/tests/StridedCoalescedMemoryAccessFunctionViewTest.cxx
+@@ -18,6 +18,7 @@
+ #include "MGIS/Function/BasicLinearQuadratureSpace.hxx"
+ #include "MGIS/Function/StridedCoalescedMemoryAccessFunctionViewBase.hxx"
+ #include "MGIS/Function/TFEL/Tensors.hxx"
++#include "Tolerance.hxx"
+ 
+ namespace mgis::function {}  // end of namespace mgis::function
+ 
+@@ -42,7 +43,7 @@ struct StridedCoalescedMemoryAccessFunctionViewBaseTest final
+     constexpr auto r =
+         []() -> std::tuple<std::array<real, 2>, std::array<real, 2>> {
+       auto space = BasicLinearSpace{2};
+-      auto values = std::vector<double>{5, 12, -2, 3};
++      auto values = std::vector<real>{5, 12, -2, 3};
+       auto coalesced_view =
+           StridedCoalescedMemoryAccessFunctionViewBase<BasicLinearSpace, 2,
+                                                        true>(space, values);
+@@ -51,10 +52,14 @@ struct StridedCoalescedMemoryAccessFunctionViewBaseTest final
+       return {std::array{ptr0[0], ptr0[1]},  //
+               std::array{ptr1[0], ptr1[1]}};
+     }();
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<0>(r)[0] - 5) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<0>(r)[1] + 2) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<1>(r)[0] - 12) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<1>(r)[1] - 3) < 1e-14);
++    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<0>(r)[0] - 5) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<0>(r)[1] + 2) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<1>(r)[0] - 12) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(std::get<1>(r)[1] - 3) <
++                             mgis::tests::tolerance(1e-14));
+ #endif /* MGIS_DISABLE_CONSTEXPR_FUNCTION_TESTS */
+   }
+ };
+@@ -86,9 +91,12 @@ struct StridedCoalescedMemoryAccessTensorViewTest final
+       return std::array{tfel::math::trace(f(0)), tfel::math::trace(f(1)),
+                         tfel::math::trace(f(1) - 3 * f(0))};
+     }();
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 6) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 60) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 42) < 1e-14);
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 6) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 60) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 42) <
++                             mgis::tests::tolerance(1e-14));
+ #endif /* MGIS_DISABLE_CONSTEXPR_FUNCTION_TESTS */
+   }
+ };
+@@ -130,9 +138,12 @@ struct StridedCoalescedMemoryAccessCompositeTensorsViewTest final
+           tfel::math::trace(f.get<0, tfel::math::stensor<2, real>>(1) -
+                             3 * f.get<0, tfel::math::stensor<2, real>>(0))};
+     }();
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 6) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 60) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 42) < 1e-14);
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 6) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 60) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 42) <
++                             mgis::tests::tolerance(1e-14));
+ #endif /* MGIS_DISABLE_CONSTEXPR_FUNCTION_TESTS */
+   }
+   void test2() {
+@@ -160,14 +171,22 @@ struct StridedCoalescedMemoryAccessCompositeTensorsViewTest final
+       }
+       return out_values;
+     }();
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 1) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 10) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 2) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[3] - 20) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[4] - 3) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[5] - 30) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[6] - 4) < 1e-14);
+-    TFEL_TESTS_STATIC_ASSERT(local_abs(r[7] - 40) < 1e-14);
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 1) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] - 10) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 2) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[3] - 20) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[4] - 3) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[5] - 30) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[6] - 4) <
++                             mgis::tests::tolerance(1e-14));
++    TFEL_TESTS_STATIC_ASSERT(local_abs(r[7] - 40) <
++                             mgis::tests::tolerance(1e-14));
+ #endif /* MGIS_DISABLE_CONSTEXPR_FUNCTION_TESTS */
+   }
+   void test3() {
+@@ -212,7 +231,7 @@ struct StridedCoalescedMemoryAccessCompositeTensorsViewTest final
+     constexpr auto mu = tfel::material::computeMu(young, nu);
+     constexpr auto exx = 1e-3;
+     constexpr auto eyy = -real{1e-3} / 3;
+-    constexpr auto seps = young * 1e-14;
++    constexpr auto seps = young * mgis::tests::tolerance(1e-14);
+     auto local_abs = [](const mgis::real r) { return r > 0 ? r : -r; };
+     constexpr auto r = []() -> std::array<real, 12u> {
+       auto ctx = ContractViolationHandler{};
+@@ -268,7 +287,7 @@ struct StridedCoalescedMemoryAccessCompositeTensorsViewTest final
+       return std::array{view.get<0, real>(0), view.get<1, real>(0),
+                         view.get<0, real>(1), view.get<1, real>(1)};
+     }();
+-    constexpr auto eps = real{1e-14};
++    constexpr auto eps = mgis::tests::tolerance(1e-14);
+     TFEL_TESTS_STATIC_ASSERT(local_abs(r[0] - 2) < eps);
+     TFEL_TESTS_STATIC_ASSERT(local_abs(r[1] + 1) < eps);
+     TFEL_TESTS_STATIC_ASSERT(local_abs(r[2] - 3) < eps);
+diff --git a/tests/Tolerance.hxx b/tests/Tolerance.hxx
+new file mode 100644
+index 0000000..8ef9c85
+--- /dev/null
++++ b/tests/Tolerance.hxx
+@@ -0,0 +1,56 @@
++/*!
++ * \file   tests/Tolerance.hxx
++ * \brief  This file declares a function adapting the tolerances of the
++ * tests, written for the double numerical type, to the numerical type of
++ * MGIS.
++ * \date   13/10/2026
++ * \copyright Use, modification and distribution are subject
++ * to one of the following licences:
++ * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
++ *   file LGPL-3.0.txt)
++ * - CECILL-C,  Version 1.0 (See accompanying files
++ *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
++ */
++
++#ifndef LIB_MGIS_TESTS_TOLERANCE_HXX
++#define LIB_MGIS_TESTS_TOLERANCE_HXX
++
++#include <limits>
++#include "MGIS/Config.hxx"
++
++namespace mgis::tests {
++
++  /*!
++   * \return a tolerance written for the double numerical type, bounded below
++   * by ten times the machine epsilon of the numerical type of MGIS: it is
++   * unchanged in double (for a tolerance greater than 2.3e-15), and about
++   * 1.2e-6 in float
++   * \param[in] t: tolerance for the double numerical type
++   */
++  constexpr mgis::real tolerance(const double t) noexcept {
++    constexpr auto e =
++        10 * static_cast<double>(std::numeric_limits<mgis::real>::epsilon());
++    return static_cast<mgis::real>(t > e ? t : e);
++  }  // end of tolerance
++
++  /*!
++   * \return the tolerance of a test for the numerical type of MGIS: the
++   * first argument for double, the second one otherwise. The tolerance for
++   * float is given explicitly when the error depends on the computation
++   * (accumulated roundings, convergence criteria of the behaviours bounded
++   * by MGIS for this type) and not only on the precision of the result.
++   * \param[in] for_double: tolerance for the double numerical type
++   * \param[in] for_float: tolerance for the float numerical type
++   */
++  constexpr mgis::real tolerance(const double for_double,
++                                 const double for_float) noexcept {
++    if constexpr (sizeof(mgis::real) == sizeof(double)) {
++      return static_cast<mgis::real>(for_double);
++    } else {
++      return static_cast<mgis::real>(for_float);
++    }
++  }  // end of tolerance
++
++}  // end of namespace mgis::tests
++
++#endif /* LIB_MGIS_TESTS_TOLERANCE_HXX */
+-- 
+2.43.0
+

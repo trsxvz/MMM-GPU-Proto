@@ -1,4 +1,4 @@
-From 845509a7c014f10bcdc5adbd0b49098b587bdc35 Mon Sep 17 00:00:00 2001
+From 6fe7c96d02aa0f411ac867c99f7360ae75b470de Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 18:54:49 +0200
 Subject: [PATCH] Bubble: option --linear-solver-preconditioner
@@ -16,7 +16,7 @@ converges in 16 iterations of the conjugate gradient solver.
  1 file changed, 18 insertions(+), 6 deletions(-)
 
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 28b1b35..254223e 100644
+index b642da4..1b26907 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -10,6 +10,7 @@
@@ -48,7 +48,7 @@ index 28b1b35..254223e 100644
    args.AddOption(
        &p.d_min, "-dm", "--dmin",
        "Distance to evaluate bubble rupture, in µm, default = 0.950.");
-@@ -432,12 +440,16 @@ int main(int argc, char** argv) {
+@@ -431,12 +439,16 @@ int main(int argc, char** argv) {
    mfem_mgis::Parameters solverParameters;
    solverParameters.insert(mfem_mgis::may_throw,
                            mfem_mgis::Parameters{{"VerbosityLevel", verbosity}});

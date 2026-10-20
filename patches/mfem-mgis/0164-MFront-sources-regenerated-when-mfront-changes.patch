@@ -1,4 +1,4 @@
-From 27543dd160ac41c4518c7db235b68f1dd67cebcb Mon Sep 17 00:00:00 2001
+From 64d29cb28eb3df245b13e77dfe3ec03c030fac18 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:53:26 +0200
 Subject: [PATCH] MFront sources regenerated when mfront changes
@@ -63,10 +63,10 @@ index 453baada62..c0a171fecc 100644
        COMMENT "mfront source ${mfront_file}")
      set(${name}_dependencies_SOURCES
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 00049af92b..4d7083dc02 100644
+index 63477fe951..89f75e5538 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -904,7 +904,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -907,7 +907,7 @@ if(MFEM_MGIS_HAVE_TFEL)
                  "--configuration-file=${_configuration}"
                  ${batch_integration_test_behaviours}
          WORKING_DIRECTORY "${_directory}"
@@ -75,7 +75,7 @@ index 00049af92b..4d7083dc02 100644
          COMMENT "MFront: generic-parallel behaviour (${_backend})")
        add_custom_target(GenericParallelBehaviour-${_backend}
                          DEPENDS "${_library}" "${_uo2_library}")
-@@ -1171,6 +1171,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1174,6 +1174,7 @@ if(MFEM_MGIS_HAVE_TFEL)
                  "${CMAKE_CURRENT_SOURCE_DIR}/UO2Shrinkage_RAPHAEL2008.mfront"
          WORKING_DIRECTORY "${_directory}"
          DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/UO2Shrinkage_RAPHAEL2008.mfront"

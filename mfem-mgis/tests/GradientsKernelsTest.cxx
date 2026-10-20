@@ -859,7 +859,7 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
                                      {"Parallel", false}}) |
                  or_die;
   auto mi = MultiMaterialNonLinearIntegrator(
-      problem.getFiniteElementDiscretizationPointer(),
+      problem.getFiniteElementDiscretization(),
       Hypothesis::TRIDIMENSIONAL);
   mi.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
                             "IsotropicLinearHardeningPlasticity") |

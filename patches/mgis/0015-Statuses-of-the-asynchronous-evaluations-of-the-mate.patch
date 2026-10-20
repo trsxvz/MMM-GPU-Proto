@@ -1,0 +1,64 @@
+From 3a9d8e9bd32168625e4d3431014ca4c4c810e215 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 15:22:02 +0200
+Subject: [PATCH] Statuses of the asynchronous evaluations of the material
+ properties
+
+The copy of the execution options of the material properties follows TFEL, whose functions may evaluate asynchronously when statuses are given. MGIS evaluates synchronously, as it integrates the behaviours. The layout is checked against TFEL.
+---
+ .../MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx  | 6 ++++++
+ src/MaterialProperty.cxx                                   | 7 +++++--
+ tests/GenericParallelLoadTest.cxx                          | 2 ++
+ 3 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
+index 76c8337..20e350a 100644
+--- a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
++++ b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
+@@ -42,6 +42,12 @@ typedef struct mgis_mp_ExecutionOptions {
+    * execution space), or null for the default queue
+    */
+   void* queue;
++  /*!
++   * \brief statuses of an asynchronous evaluation, or null for a
++   * synchronous evaluation (asynchronous evaluations are not used by MGIS
++   * yet)
++   */
++  int* statuses;
+   /*!
+    * \brief if not null, the stack size of the threads of the device is
+    * never modified
+diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
+index 41c7b2f..d96a393 100644
+--- a/src/MaterialProperty.cxx
++++ b/src/MaterialProperty.cxx
+@@ -146,8 +146,11 @@ namespace mgis::material_property {
+       arguments[i] = inputs[i].data();
+       strides[i] = inputs[i].size() == n ? 1 : 0;
+     }
+-    const auto options = ExecutionOptions{
+-        .queue = e.queue, .preserve_stack_size = e.preserve_stack_size ? 1 : 0};
++    // synchronous evaluation
++    const auto options =
++        ExecutionOptions{.queue = e.queue,
++                         .statuses = nullptr,
++                         .preserve_stack_size = e.preserve_stack_size ? 1 : 0};
+     auto s = OutputStatus{};
+     mp.batch_fct(&s, values.data(), 1, arguments.data(), strides.data(),
+                  inputs.size(), n, p, &options);
+diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
+index 787f5d1..487fea8 100644
+--- a/tests/GenericParallelLoadTest.cxx
++++ b/tests/GenericParallelLoadTest.cxx
+@@ -85,6 +85,8 @@ static_assert(offsetof(mgis_mp_OutputStatus, msg) ==
+ static_assert(sizeof(mgis_size_type) == sizeof(mfront_gmp_size_type));
+ static_assert(sizeof(mgis_mp_ExecutionOptions) ==
+               sizeof(mfront_gpmp_ExecutionOptions));
++static_assert(offsetof(mgis_mp_ExecutionOptions, statuses) ==
++              offsetof(mfront_gpmp_ExecutionOptions, statuses));
+ static_assert(offsetof(mgis_mp_ExecutionOptions, preserve_stack_size) ==
+               offsetof(mfront_gpmp_ExecutionOptions, preserve_stack_size));
+ static_assert(static_cast<int>(MGIS_MATERIALPROPERTY_STRICT_POLICY) ==
+-- 
+2.43.0
+

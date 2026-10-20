@@ -20,6 +20,7 @@
 #endif /* MFEM_MGIS_HAVE_PETSC */
 
 #include "MFEMMGIS/Config.hxx"
+#include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx"
 
 namespace mfem {
@@ -190,7 +191,7 @@ namespace mfem_mgis {
      */
     NonLinearEvolutionProblemImplementationBase(
         Context& ctx,
-        std::shared_ptr<FiniteElementDiscretization> fed,
+        const FiniteElementDiscretization& fed,
         const Hypothesis h,
         const Parameters& p);
     /*!
@@ -241,12 +242,8 @@ namespace mfem_mgis {
                                      const real t,
                                      const real dt) noexcept;
     //
-    [[nodiscard]] FiniteElementDiscretization&
-    getFiniteElementDiscretization() noexcept override;
-    [[nodiscard]] const FiniteElementDiscretization&
-    getFiniteElementDiscretization() const noexcept override;
-    [[nodiscard]] std::shared_ptr<FiniteElementDiscretization>
-    getFiniteElementDiscretizationPointer() noexcept override;
+    [[nodiscard]] FiniteElementDiscretization getFiniteElementDiscretization()
+        const noexcept override;
     [[nodiscard]] bool setMaterialsNames(
         Context& ctx,
         const std::map<size_type, std::string>& ids) noexcept override;
@@ -379,7 +376,7 @@ namespace mfem_mgis {
     [[nodiscard]] virtual std::optional<real> computePrediction(
         Context& ctx, const real t, const real dt) noexcept = 0;
     //! \brief underlying finite element discretization
-    const std::shared_ptr<FiniteElementDiscretization> fe_discretization;
+    FiniteElementDiscretization fe_discretization;
     //! \brief list of Dirichlet boundary conditions
     std::vector<std::unique_ptr<AbstractDirichletBoundaryCondition>>
         dirichlet_boundary_conditions;

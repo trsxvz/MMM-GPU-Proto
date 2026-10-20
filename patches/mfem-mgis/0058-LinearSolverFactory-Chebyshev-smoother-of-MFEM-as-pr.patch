@@ -1,4 +1,4 @@
-From 465329417dafe19bf3331c75798d87a12d69c0e5 Mon Sep 17 00:00:00 2001
+From ddb8d64e4095740b8acb490760754936d81010ea Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:44:36 +0200
 Subject: [PATCH] LinearSolverFactory: Chebyshev smoother of MFEM as
@@ -30,7 +30,7 @@ Glossary: Jacobi and Chebyshev smoothers.
  create mode 100644 tests/OperatorSmoothersTest.cxx
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index bb485a7007..c1b1436192 100644
+index 9ec26c0517..bfd441f901 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
 @@ -416,7 +416,10 @@ Flexible GMRES (HypreFGMRES)
@@ -45,7 +45,7 @@ index bb485a7007..c1b1436192 100644
  
  Algebraic MultiGrid (AMG) 
  -------------------------
-@@ -550,6 +553,52 @@ Jacobi (HypreDiagScale)
+@@ -555,6 +558,52 @@ Jacobi (HypreDiagScale)
      auto options = mfem_mgis::Parameters{{"VerbosityLevel", 0}};
      auto diagscale = mfem_mgis::Parameters{{"Name","HypreDiagScale"}, {"Options",options}};
  
@@ -228,7 +228,7 @@ index fbb8c65ceb..261c414006 100644
        if constexpr (parallel) {
          const auto oparams =
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index b50d57dd25..98a0a13101 100644
+index fcd839ccc2..6ffa55066a 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -143,6 +143,12 @@ struct ComputationOptions {
@@ -244,7 +244,7 @@ index b50d57dd25..98a0a13101 100644
    /*!
     * \brief if not null, the mesh has two materials (1 and 2), the second one
     * being an isotropic elastic material whose behaviour is taken from this
-@@ -445,6 +451,9 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -450,6 +456,9 @@ static Results compute(mfem_mgis::Context& ctx,
                                       : Parameters{{"Name",
                                                     "OperatorJacobi"
                                                     "Smoother"}}}}}}
@@ -254,7 +254,7 @@ index b50d57dd25..98a0a13101 100644
                : Parameters{{"Name", "OperatorJacobiSmoother"}}}}) |
          or_die;
    } else {
-@@ -1110,6 +1119,13 @@ int main(int argc, char** argv) {
+@@ -1115,6 +1124,13 @@ int main(int argc, char** argv) {
                        .matrix_free = true,
                        .second_material_library = library},
                       ", matrix free, two materials"});
@@ -268,7 +268,7 @@ index b50d57dd25..98a0a13101 100644
      // without prediction, the preconditioner is kept between time steps:
      // its assembled operator, assembled again by the check of the diagonal
      // (see `checkMatrixFreeDiagonal`), must be set up again
-@@ -1127,6 +1143,7 @@ int main(int argc, char** argv) {
+@@ -1132,6 +1148,7 @@ int main(int argc, char** argv) {
        reference.tangent_operator_kernels = false;
        reference.matrix_free = false;
        reference.assembled_preconditioner = false;
@@ -277,10 +277,10 @@ index b50d57dd25..98a0a13101 100644
                compute(ctx, m, library, b, "Batch", opts),
                b + " (kernels" + name + ")", 1e-10);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 7a33f4e449..7e7feaadd9 100644
+index c9cdf841a2..ca732f0b3b 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -868,6 +868,18 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -871,6 +871,18 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endif()
  

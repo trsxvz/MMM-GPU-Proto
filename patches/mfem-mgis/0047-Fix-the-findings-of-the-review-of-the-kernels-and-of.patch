@@ -1,4 +1,4 @@
-From f0196ec2fb74d850ab671181a07f1a0f66d5d292 Mon Sep 17 00:00:00 2001
+From 755ebd867786977507874c595176c66e10b47c1d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:08:10 +0200
 Subject: [PATCH] Fix the findings of the review of the kernels and of the
@@ -150,10 +150,10 @@ index b6e1ce0302..be979f8930 100644
      if ((*oresiduals != "Unknowns") && (*oresiduals != "Forces")) {
        return ctx.registerErrorMessage(name + ": invalid residuals '" +
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 352637bf9a..48d2666225 100644
+index 7d6bbe5462..6944179102 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -1263,8 +1263,8 @@ namespace mfem_mgis {
+@@ -1262,8 +1262,8 @@ namespace mfem_mgis {
      const auto nK = static_cast<std::size_t>(
          this->getArrays().getTangentOperatorBlocks().Size());
      if (nK != 0) {
@@ -555,7 +555,7 @@ index b91da35766..4a5bb4f3e8 100644
      }
      clearHypreErrors();
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 1584728b8d..390f497f58 100644
+index f69946afbe..d0c6f16858 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
 @@ -89,11 +89,12 @@ namespace mfem_mgis {
@@ -735,10 +735,10 @@ index b50dcd4700..e281682b0a 100644
  
  }  // end of namespace mfem_mgis::internals
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index e4f387d01f..5ced95ef3b 100644
+index 2281f2cca4..4cdab8b522 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -884,6 +884,22 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -887,6 +887,22 @@ if(MFEM_MGIS_HAVE_TFEL)
      set_tests_properties(FixedPointSolverTestP
                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
    endif()

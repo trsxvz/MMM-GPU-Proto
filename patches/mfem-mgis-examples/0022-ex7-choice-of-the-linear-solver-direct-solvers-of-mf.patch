@@ -1,4 +1,4 @@
-From 0eb226fc5f371d81409449ee7c92eb2253c2faa7 Mon Sep 17 00:00:00 2001
+From b81bde5273f65d35cd3540393ada21842ffae66f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 07:11:01 +0200
 Subject: [PATCH] ex7: choice of the linear solver, direct solvers of mfem-mgis
@@ -16,7 +16,7 @@ against 4.3 s with HypreGMRES, with the same results.
  2 files changed, 83 insertions(+), 3 deletions(-)
 
 diff --git a/ex7/MixedOxideFuels.cxx b/ex7/MixedOxideFuels.cxx
-index ba5eb41..07176d0 100644
+index 35b368e..d9a1ba3 100644
 --- a/ex7/MixedOxideFuels.cxx
 +++ b/ex7/MixedOxideFuels.cxx
 @@ -30,8 +30,9 @@ Imposed strain : eps = a * t, with a = 0.012 s^-1

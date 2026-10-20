@@ -1,4 +1,4 @@
-From 3c4e78606f0c231af7885ec3787c050b1f846453 Mon Sep 17 00:00:00 2001
+From 140847936a5e45e2087d01da510fcfc1eb2aa98d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 20:54:09 +0200
 Subject: [PATCH] Numerical type given by MFEM: configuration, parameters, MPI
@@ -343,7 +343,7 @@ index 64c2ff4fe3..8a6d09662b 100644
      const auto oalpha = get_if<double>(ctx, opts, "Alpha", t.alpha);
      const auto othreshold = get_if<double>(ctx, opts, "Threshold", t.threshold);
 diff --git a/src/ComputeResultantForceOnBoundary.cxx b/src/ComputeResultantForceOnBoundary.cxx
-index bfe9d39d06..ba41b1601e 100644
+index 30e5e30bc6..0be82333cd 100644
 --- a/src/ComputeResultantForceOnBoundary.cxx
 +++ b/src/ComputeResultantForceOnBoundary.cxx
 @@ -8,6 +8,7 @@
@@ -354,7 +354,7 @@ index bfe9d39d06..ba41b1601e 100644
  #include "MFEMMGIS/FiniteElementDiscretization.hxx"
  #include "MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx"
  #include "MFEMMGIS/ComputeResultantForceOnBoundary.hxx"
-@@ -94,7 +95,7 @@ namespace mfem_mgis {
+@@ -93,7 +94,7 @@ namespace mfem_mgis {
      MPI_Comm_rank(getMPICommunicator(p), &rank);
      mfem::Vector gF;
      gF.SetSize(F.Size());
@@ -404,10 +404,10 @@ index 35b3cbca10..cf0a849aeb 100644
  
    //! \return the counters of the copies of the arrays of the materials
 diff --git a/src/PartialQuadratureFunction.cxx b/src/PartialQuadratureFunction.cxx
-index 541f5201c5..5552925967 100644
+index d28cc6cf87..f98ed430d8 100644
 --- a/src/PartialQuadratureFunction.cxx
 +++ b/src/PartialQuadratureFunction.cxx
-@@ -771,8 +771,8 @@ namespace mfem_mgis {
+@@ -732,8 +732,8 @@ namespace mfem_mgis {
      PartialQuadratureFunctionsScalarCoefficient& operator=(
          const PartialQuadratureFunctionsScalarCoefficient&) = default;
      //
@@ -418,7 +418,7 @@ index 541f5201c5..5552925967 100644
        const auto mid = tr.Attribute;
        const auto p = this->functions.find(mid);
        if (p == this->functions.end()) {
-@@ -811,8 +811,8 @@ namespace mfem_mgis {
+@@ -772,8 +772,8 @@ namespace mfem_mgis {
      PartialQuadratureFunctionsScalarCoefficientII& operator=(
          const PartialQuadratureFunctionsScalarCoefficientII&) = delete;
      //
@@ -430,7 +430,7 @@ index 541f5201c5..5552925967 100644
        const auto p = this->functions.find(mid);
        if (p == this->functions.end()) {
 diff --git a/src/PeriodicNonLinearEvolutionProblem.cxx b/src/PeriodicNonLinearEvolutionProblem.cxx
-index 88c6563989..6a920b1598 100644
+index 31b092d67f..c1f6cad03c 100644
 --- a/src/PeriodicNonLinearEvolutionProblem.cxx
 +++ b/src/PeriodicNonLinearEvolutionProblem.cxx
 @@ -120,7 +120,7 @@ namespace mfem_mgis {

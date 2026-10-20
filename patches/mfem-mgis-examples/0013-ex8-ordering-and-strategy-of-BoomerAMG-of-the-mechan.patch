@@ -1,4 +1,4 @@
-From 9278db27366cfc2d586affe8290c8f1031c68003 Mon Sep 17 00:00:00 2001
+From 57751239c81d416e4247c68f5209c10dcd085ff2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:46:32 +0200
 Subject: [PATCH] ex8: ordering and strategy of BoomerAMG of the mechanical
@@ -16,7 +16,7 @@ dimension.
  3 files changed, 17 insertions(+)
 
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index ba90d94..1482394 100644
+index ff8f82b..fa57aa7 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -46,6 +46,12 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -41,7 +41,7 @@ index ba90d94..1482394 100644
    const auto nonlinear_solver_meca = std::string_view{p.nonlinear_solver_meca};
    if (nonlinear_solver_meca == "NewtonK0") {
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index 5c4cc0e..36b6d4c 100644
+index 611e2d5..d716610 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -29,6 +29,12 @@ struct TestParameters {

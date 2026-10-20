@@ -1,4 +1,4 @@
-From 044b08f439b231956ac11070b282211bbbfca378 Mon Sep 17 00:00:00 2001
+From f0fd759a1f7c2b65156f8b8b5e53c499fde9fbb3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 07:47:58 +0200
 Subject: [PATCH] Faltus kernels: quadratic tetrahedra in the tests, checks and
@@ -86,7 +86,7 @@ index 4c801baa67..f069b6f7c9 100644
        auto missing = mfem::Array<int>(1);
        missing.HostWrite()[0] = 0;
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 09bbf0236b..fca6e5e1fb 100644
+index cb139662ad..d544e78cd1 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -13,17 +13,16 @@

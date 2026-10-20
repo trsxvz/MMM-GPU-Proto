@@ -1,4 +1,4 @@
-From bc99167ddfc103c7732f78c9a48940b538e70281 Mon Sep 17 00:00:00 2001
+From 4e4a7e31ca597aca2889d8af2b8fe528c1e6245c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 05:13:06 +0200
 Subject: [PATCH] MUMPSSolver: ReuseAnalysis parameter
@@ -35,7 +35,7 @@ reuse, for symmetric and non symmetric matrices.
  create mode 100644 tests/MUMPSReuseAnalysisTest.cxx
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index fe21c1001b..396e1aba0e 100644
+index f88988a66d..39c47c0303 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
 @@ -54,12 +54,24 @@ MUMPS Solver
@@ -204,10 +204,10 @@ index cd149b761d..a9ee439f19 100644
        if (isInvalid(osymmetric)) {
          return {};
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 94a7ffc977..05d36b5137 100644
+index a0c9912b7c..7423708efc 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1207,6 +1207,20 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1210,6 +1210,20 @@ if(MFEM_MGIS_HAVE_TFEL)
      add_test_executable(HypreParaSailsTest)
      add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
      add_test(NAME HypreParaSailsTestP COMMAND mpirun -n 2 ./HypreParaSailsTest)

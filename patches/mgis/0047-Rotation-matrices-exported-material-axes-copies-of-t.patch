@@ -1,0 +1,285 @@
+From 0c75470b1e0e6f10c5edca74b4395a41e07b779d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 01:30:19 +0200
+Subject: [PATCH] Rotation matrices: exported material axes, copies of the
+ local storage
+
+- MaterialAxisStorage is exported: copying a RotationMatrix2D or a
+  RotationMatrix3D outside of MGIS failed to link (destructor not
+  exported).
+- the copy of a material axis stored locally refers to its own values;
+  it referred to the values of the original, which dangled once the
+  original was destroyed. A material axis stored in an external array
+  still refers to this array. Copy and move constructors of the rotation
+  matrices.
+- the constructor of MaterialAxisStorage from a temporary vector, which
+  was declared, is defined.
+---
+ include/MGIS/Behaviour/RotationMatrix.hxx |  16 ++-
+ src/RotationMatrix.cxx                    |  13 ++
+ tests/CMakeLists.txt                      |   1 +
+ tests/RotationMatrixCopyTest.cxx          | 153 ++++++++++++++++++++++
+ 4 files changed, 180 insertions(+), 3 deletions(-)
+ create mode 100644 tests/RotationMatrixCopyTest.cxx
+
+diff --git a/include/MGIS/Behaviour/RotationMatrix.hxx b/include/MGIS/Behaviour/RotationMatrix.hxx
+index cdc0185..fecc3c2 100644
+--- a/include/MGIS/Behaviour/RotationMatrix.hxx
++++ b/include/MGIS/Behaviour/RotationMatrix.hxx
+@@ -39,11 +39,13 @@ namespace mgis::behaviour {
+      */
+     MaterialAxisStorage(std::vector<mgis::real> &&);
+     /*!
+-     * \brief copy constructor
+-     * \note if the values are stored locally, the copy refers to its own
+-     * values
++     * \brief copy constructor. If the values are stored locally, the copy
++     * refers to its own copy of the values. Otherwise, it refers to the same
++     * external array.
+      */
+     MaterialAxisStorage(const MaterialAxisStorage &);
++    //! \brief move constructor (see the copy constructor)
++    MaterialAxisStorage(MaterialAxisStorage &&) noexcept;
+     //! \brief destructor
+     ~MaterialAxisStorage();
+ 
+@@ -70,6 +72,10 @@ namespace mgis::behaviour {
+      */
+     RotationMatrix2D(const std::span<const mgis::real> &,
+                      const mgis::StorageMode &);
++    //! \brief copy constructor (see `MaterialAxisStorage`)
++    RotationMatrix2D(const RotationMatrix2D &);
++    //! \brief move constructor (see `MaterialAxisStorage`)
++    RotationMatrix2D(RotationMatrix2D &&) noexcept;
+     //! \brief destructor
+     ~RotationMatrix2D();
+   };  // end of struct RotationMatrix2D
+@@ -96,6 +102,10 @@ namespace mgis::behaviour {
+     RotationMatrix3D(const std::span<const mgis::real> &,
+                      const std::span<const mgis::real> &,
+                      const mgis::StorageMode &);
++    //! \brief copy constructor (see `MaterialAxisStorage`)
++    RotationMatrix3D(const RotationMatrix3D &);
++    //! \brief move constructor (see `MaterialAxisStorage`)
++    RotationMatrix3D(RotationMatrix3D &&) noexcept;
+     //! \brief first material axis
+     const MaterialAxisStorage a1;
+     //! \brief second material axis
+diff --git a/src/RotationMatrix.cxx b/src/RotationMatrix.cxx
+index d03afef..e000321 100644
+--- a/src/RotationMatrix.cxx
++++ b/src/RotationMatrix.cxx
+@@ -39,12 +39,21 @@ namespace mgis::behaviour {
+       : a_values(std::move(values)), a(this->a_values) {
+   }  // end of MaterialAxisStorage::MaterialAxisStorage
+ 
++  // the values are stored locally if and only if the local array is not
++  // empty (an empty array of values gives an empty material axis anyway)
++
+   MaterialAxisStorage::MaterialAxisStorage(const MaterialAxisStorage& src)
+       : a_values(src.a_values),
+         a(this->a_values.empty() ? src.a
+                                  : std::span<const mgis::real>(this->a_values)) {
+   }  // end of MaterialAxisStorage::MaterialAxisStorage
+ 
++  MaterialAxisStorage::MaterialAxisStorage(MaterialAxisStorage&& src) noexcept
++      : a_values(std::move(src.a_values)),
++        a(this->a_values.empty() ? src.a
++                                 : std::span<const mgis::real>(this->a_values)) {
++  }  // end of MaterialAxisStorage::MaterialAxisStorage
++
+   MaterialAxisStorage::~MaterialAxisStorage() = default;
+ 
+   static std::span<const mgis::real> checkMaterialAxis2D(
+@@ -66,6 +75,8 @@ namespace mgis::behaviour {
+                                      const mgis::StorageMode& s)
+       : MaterialAxisStorage(checkMaterialAxis2D(v), s) {}
+ 
++  RotationMatrix2D::RotationMatrix2D(const RotationMatrix2D&) = default;
++  RotationMatrix2D::RotationMatrix2D(RotationMatrix2D&&) noexcept = default;
+   RotationMatrix2D::~RotationMatrix2D() = default;
+ 
+   static std::span<const mgis::real> checkMaterialAxis3D(
+@@ -101,6 +112,8 @@ namespace mgis::behaviour {
+                                      const mgis::StorageMode& s)
+       : a1(checkMaterialAxis3D(v1), s), a2(checkMaterialAxis3D(v2), s) {}
+ 
++  RotationMatrix3D::RotationMatrix3D(const RotationMatrix3D&) = default;
++  RotationMatrix3D::RotationMatrix3D(RotationMatrix3D&&) noexcept = default;
+   RotationMatrix3D::~RotationMatrix3D() = default;
+ 
+ }  // end of namespace mgis::behaviour
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index c34114a..9ad3fc4 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -332,6 +332,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+   add_library_test(IntegrateTest4 IntegrateTest4.cxx ModelTest)
+   add_library_test(IntegrateTest5 IntegrateTest5.cxx ModelTest)
+   add_library_test(RotateFunctionsTest RotateFunctionsTest.cxx BehaviourTest)
++  add_library_test(RotationMatrixCopyTest RotationMatrixCopyTest.cxx BehaviourTest)
+   add_library_test(IntegrateDebugTest IntegrateDebugTest.cxx BehaviourTest)
+   add_library_test(FiniteStrainPostProcessingTest
+     FiniteStrainPostProcessingTest.cxx BehaviourTest)
+diff --git a/tests/RotationMatrixCopyTest.cxx b/tests/RotationMatrixCopyTest.cxx
+new file mode 100644
+index 0000000..3d79501
+--- /dev/null
++++ b/tests/RotationMatrixCopyTest.cxx
+@@ -0,0 +1,153 @@
++/*!
++ * \file   tests/RotationMatrixCopyTest.cxx
++ * \brief  This test checks the copies and the moves of the rotation
++ * matrices described by material axes, stored locally or in external
++ * arrays: a copy stored locally refers to its own values, and remains
++ * valid after the destruction of the original.
++ * \date   09/10/2026
++ * \copyright Use, modification and distribution are subject
++ * to one of the following licences:
++ * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
++ *   file LGPL-3.0.txt)
++ * - CECILL-C,  Version 1.0 (See accompanying files
++ *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
++ */
++
++#include <bit>
++#include <cmath>
++#include <memory>
++#include <vector>
++#include <cstdint>
++#include <cstdlib>
++#include <utility>
++#include <iostream>
++#include <type_traits>
++#include <stdexcept>
++#include <string_view>
++#include "MGIS/Behaviour/Behaviour.hxx"
++
++static bool success = true;
++
++static void check(const bool b, const std::string_view msg) {
++  if (!b) {
++    success = false;
++    std::cerr << msg << '\n';
++  }
++}
++
++//! \return true if two arrays hold the same values, bit by bit
++static bool same(const std::vector<mgis::real>& a,
++                 const std::vector<mgis::real>& b) {
++  if (a.size() != b.size()) {
++    return false;
++  }
++  for (std::size_t i = 0; i != a.size(); ++i) {
++    if (std::bit_cast<std::uint64_t>(a[i]) !=
++        std::bit_cast<std::uint64_t>(b[i])) {
++      return false;
++    }
++  }
++  return true;
++}
++
++/*!
++ * \brief copies and moves of a rotation matrix: the copy and the moved
++ * object give the rotated values of the original, after its destruction
++ * \param[in] name: name of the test
++ * \param[in] b: behaviour
++ * \param[in] make: function building the rotation matrix
++ * \param[in] local: true if the values are stored locally
++ */
++template <typename RotationMatrixType, typename MakeFunction>
++static void test(const std::string& name,
++                 const mgis::behaviour::Behaviour& b,
++                 const MakeFunction& make,
++                 const bool local) {
++  using namespace mgis::behaviour;
++  constexpr auto n = mgis::size_type{4};
++  const auto gsize = getArraySize(b.gradients, b.hypothesis);
++  auto g = std::vector<mgis::real>(gsize * n);
++  for (std::size_t i = 0; i != g.size(); ++i) {
++    g[i] = std::sin(1 + static_cast<double>(i));
++  }
++  auto ref = std::vector<mgis::real>(g.size());
++  rotateGradients(ref, b, g, make());
++  auto o = std::make_unique<RotationMatrixType>(make());
++  const auto c = RotationMatrixType(*o);
++  const auto first_axis = [](const RotationMatrixType& r) {
++    if constexpr (std::is_same_v<RotationMatrixType, RotationMatrix2D>) {
++      return r.a.data();
++    } else {
++      return r.a1.a.data();
++    }
++  };
++  const auto* const po = first_axis(*o);
++  check(local ? first_axis(c) != po : first_axis(c) == po,
++        name + ": the copy must refer to " +
++            (local ? "its own values" : "the external array"));
++  // the move constructor of RotationMatrix3D copies the axes, which are
++  // constant members
++  const auto m = RotationMatrixType(std::move(*o));
++  if (!local) {
++    check(first_axis(m) == po,
++          name + ": the moved object must refer to the external array");
++  }
++  o.reset();
++  auto rc = std::vector<mgis::real>(g.size());
++  rotateGradients(rc, b, g, c);
++  check(same(rc, ref), name + ": invalid rotation with the copy");
++  auto rm = std::vector<mgis::real>(g.size());
++  rotateGradients(rm, b, g, m);
++  check(same(rm, ref), name + ": invalid rotation with the moved object");
++}
++
++int main(const int argc, const char* const* const argv) {
++  using namespace mgis::behaviour;
++  if (argc != 2) {
++    std::cerr << "usage: " << argv[0] << " library\n";
++    return EXIT_FAILURE;
++  }
++  try {
++    const auto b3 =
++        load(argv[1], "OrthotropicElasticity", Hypothesis::TRIDIMENSIONAL);
++    const auto b2 =
++        load(argv[1], "OrthotropicElasticity", Hypothesis::PLANESTRAIN);
++    // material axes given at each point
++    constexpr auto n = mgis::size_type{4};
++    auto axes = std::vector<mgis::real>(2 * n);
++    auto axes1 = std::vector<mgis::real>(3 * n, 0);
++    auto axes2 = std::vector<mgis::real>(3 * n, 0);
++    for (mgis::size_type i = 0; i != n; ++i) {
++      const auto t = 0.3 * static_cast<double>(i + 1);
++      axes[2 * i] = std::cos(t);
++      axes[2 * i + 1] = std::sin(t);
++      axes1[3 * i] = std::cos(t);
++      axes1[3 * i + 1] = std::sin(t);
++      axes2[3 * i] = -std::sin(t);
++      axes2[3 * i + 1] = std::cos(t);
++    }
++    for (const auto local : {true, false}) {
++      const auto mode = local ? mgis::StorageMode::LOCAL_STORAGE
++                              : mgis::StorageMode::EXTERNAL_STORAGE;
++      const auto s = std::string{local ? "local storage" : "external storage"};
++      test<RotationMatrix2D>(
++          "RotationMatrix2D, " + s, b2,
++          [&axes, mode] { return RotationMatrix2D(axes, mode); }, local);
++      test<RotationMatrix3D>(
++          "RotationMatrix3D, " + s, b3,
++          [&axes1, &axes2, mode] {
++            return RotationMatrix3D(axes1, axes2, mode);
++          },
++          local);
++    }
++    // constructor from a temporary
++    const auto ma = MaterialAxisStorage(std::vector<mgis::real>{0.6, 0.8});
++    check((ma.a.size() == 2) &&
++              (std::abs(ma.a[0] - 0.6) + std::abs(ma.a[1] - 0.8) < 1e-15),
++          "MaterialAxisStorage: invalid construction from a temporary");
++  } catch (std::exception& e) {
++    std::cerr << e.what() << '\n';
++    return EXIT_FAILURE;
++  }
++  return success ? EXIT_SUCCESS : EXIT_FAILURE;
++}
+-- 
+2.43.0
+

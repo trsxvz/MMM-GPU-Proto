@@ -1,4 +1,4 @@
-From 77fe018a71c379dfeeb2bff14ed056d3740314c6 Mon Sep 17 00:00:00 2001
+From 6f1d72c3b93df0279fdb16582cedf8c0e292756d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 05:13:53 +0200
 Subject: [PATCH] ex8: option -mra, reuse of the analysis of MUMPS
@@ -29,7 +29,7 @@ index ec80d71..374a71e 100644
  | `-r` | `--refinement` | Uniform refinement level of the mesh (default: `0`). |
  | `-pp`, `-no-pp` | `--post-processing`, `--no-post-processing` | Enables (default) or disables the export of results for ParaView. |
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index b144378..9d78a5c 100644
+index c39c3d5..07adcb8 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -60,6 +60,13 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -68,7 +68,7 @@ index b144378..9d78a5c 100644
           mfem_mgis::Parameters{
               {"GMRESSolver",
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index 124b45f..7937023 100644
+index e60d766..4b47dcb 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -40,6 +40,9 @@ struct TestParameters {

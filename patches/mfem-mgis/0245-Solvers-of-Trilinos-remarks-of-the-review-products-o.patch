@@ -1,4 +1,4 @@
-From 06a6b1733e54e99a79e37d6fa6a8db0802b03a9c Mon Sep 17 00:00:00 2001
+From 2706f118b9a17dc99a1074e506ed31b8d1a271d5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 05:27:28 +0200
 Subject: [PATCH] Solvers of Trilinos: remarks of the review, products of
@@ -439,10 +439,10 @@ index f9eb187873..664a81ac4d 100644
          const auto get_int = [&ooptions](const std::string& n, const int v) {
            for (const auto& [k, o] : *ooptions) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index af13b307b1..b96e083ff5 100644
+index 559c3a9485..a811a833bd 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1941,13 +1941,18 @@ endif()
+@@ -1944,13 +1944,18 @@ endif()
  
  # TrilinosSolversTest executable: solvers and preconditioners of Trilinos.
  # With MFEM on a GPU, Tpetra computes on the GPU if Trilinos is built with

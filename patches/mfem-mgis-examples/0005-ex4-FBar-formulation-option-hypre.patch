@@ -1,4 +1,4 @@
-From 9fa8b183a18a61913d1f89d9676cb9437f34dcdb Mon Sep 17 00:00:00 2001
+From 322c89063f47a31128fa87f7b6ac459ffa5933a8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 04:01:23 +0200
 Subject: [PATCH] ex4: FBar formulation option (hypre)
@@ -9,7 +9,7 @@ The variant solved by hypre takes the --use-fbar option of the variant solved by
  1 file changed, 16 insertions(+), 2 deletions(-)
 
 diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
-index 122205d..4f57622 100644
+index 87cd721..503c3e4 100644
 --- a/ex4/ssna303_hypre.cxx
 +++ b/ex4/ssna303_hypre.cxx
 @@ -44,6 +44,7 @@ int main(int argc, char** argv) {

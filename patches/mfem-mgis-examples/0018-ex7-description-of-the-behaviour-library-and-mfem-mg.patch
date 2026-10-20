@@ -1,4 +1,4 @@
-From 7085d84e1e0fde8dbfa66893bf7573a5ae06b999 Mon Sep 17 00:00:00 2001
+From 68b1515d05856be38c83484a3e91a00514e67e73 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:47:33 +0200
 Subject: [PATCH] ex7: description of the behaviour library and mfem-mgis
@@ -12,7 +12,7 @@ comment of declareDefaultOptions mentions the device, not only PETSc.
  1 file changed, 5 insertions(+), 2 deletions(-)
 
 diff --git a/ex7/MixedOxideFuels.cxx b/ex7/MixedOxideFuels.cxx
-index df3e337..ba5eb41 100644
+index 9822496..35b368e 100644
 --- a/ex7/MixedOxideFuels.cxx
 +++ b/ex7/MixedOxideFuels.cxx
 @@ -62,7 +62,9 @@ struct TestParameters {

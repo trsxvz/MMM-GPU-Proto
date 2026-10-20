@@ -69,7 +69,7 @@ namespace mfem_mgis {
      * `getInternalStateVariable`...), nor by the behaviour integrators of
      * mfem-mgis, which use the point by point layout.
      */
-    Material(std::shared_ptr<const PartialQuadratureSpace> s,
+    Material(const PartialQuadratureSpace &s,
              std::unique_ptr<const Behaviour> b_ptr,
              const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
     /*!
@@ -148,8 +148,11 @@ namespace mfem_mgis {
      * the beginning of the time step (see `mgis::behaviour::update`), after
      * the synchronization of the arrays on the host, where MGIS uses them.
      * The arrays are copied by `mgis::HostFieldOperations`.
+     * \param[in] args: additional arguments of `mgis::behaviour::update`
+     * (by default, the tangent operator blocks are set to zero)
      */
-    void updateMaterialStates();
+    void updateMaterialStates(
+        const mgis::behaviour::UpdateArguments & = {});
     /*!
      * \brief copies the state at the beginning of the time step on the state
      * at the end of the time step (see `mgis::behaviour::revert` and
@@ -162,9 +165,6 @@ namespace mfem_mgis {
     const MaterialArrays &getArrays() const;
     //! \return the quadrature space
     const PartialQuadratureSpace &getPartialQuadratureSpace() const;
-    //! \return the quadrature space
-    std::shared_ptr<const PartialQuadratureSpace>
-    getPartialQuadratureSpacePointer() const;
     /*!
      * \brief compute the rotation matrix at an integration point
      * \return the rotation matrix for the given integration point
@@ -243,13 +243,9 @@ namespace mfem_mgis {
     ~Material();
 
    protected:
-    /*!
-     * \brief underlying quadrature space
-     */
-    const std::shared_ptr<const PartialQuadratureSpace> quadrature_space;
-    /*!
-     * \brief macroscopic gradients
-     */
+    //! \brief underlying quadrature space
+    const PartialQuadratureSpace quadrature_space;
+    //! \brief macroscopic gradients
     std::vector<real> macroscopic_gradients;
 
    protected:

@@ -1,0 +1,1586 @@
+From ae539552f2daf6a707e65d40b3579b738f2b8a5c Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 5 Oct 2026 21:49:33 +0200
+Subject: [PATCH] generic-parallel: standalone models, tests of TDLS, behaviour
+ variables and the StandardElastoViscoPlasticity brick
+
+- generic-parallel interface for models: same backends and options as
+  for behaviours, models executed by ModelIntegrator
+- tests: standalone models, behaviour variables and external models,
+  StandardElastoViscoPlasticity brick (kinematic hardening, Hill
+  criterion, porous flows), TDLS linear system solver (tdls
+  sub-directories, requires the mfront::linear_system_solver::tdls
+  component declared if TFEL is built with TDLS)
+- comparison script functions shared in compare-functions.sh
+---
+ CMakeLists.txt                                |   2 +
+ .../generic-parallel-behaviour-interface.md   |  59 ++-
+ mfront/include/CMakeLists.txt                 |   2 +
+ .../ModelIntegrator.hxx                       |  82 ++++
+ .../MFront/GenericParallelModelInterface.hxx  |  69 ++++
+ mfront/src/CMakeLists.txt                     |   1 +
+ mfront/src/GenericParallelModelInterface.cxx  | 361 ++++++++++++++++++
+ mfront/src/InitInterfaces.cxx                 |   2 +
+ .../BehaviourVariableTest.mfront              |  34 ++
+ .../BehaviourVariableTestPlasticity.mfront    |  19 +
+ .../ExternalModelCallerTest.mfront            |  20 +
+ .../generic-parallel/ExternalModelTest.mfront |  13 +
+ .../GenericParallelModelTest.mfront           |  41 ++
+ ...ericParallelModelWithQuantitiesTest.mfront |  25 ++
+ .../ImplicitNortonTDLS.mfront                 | 127 ++++++
+ ...icStandardElastoViscoPlasticityTest.mfront |  22 ++
+ ...usStandardElastoViscoPlasticityTest.mfront |  31 ++
+ .../StandardElastoViscoPlasticityTest.mfront  |  23 ++
+ .../generic-parallel/compare-all.sh           |  48 ++-
+ .../generic-parallel/compare-functions.sh     |  28 ++
+ .../generic-parallel/compare-tdls.sh          |  12 +
+ .../behaviours/generic-parallel/compare.cxx   |  16 +-
+ .../cuda-nvcc/tdls/test.check                 |  11 +
+ .../generic-parallel/cuda-nvcc/test.check     |   2 +-
+ .../hip-hipcc/tdls/test.check                 |  11 +
+ .../generic-parallel/hip-hipcc/test.check     |   2 +-
+ .../kokkos-host/tdls/test.check               |  11 +
+ .../generic-parallel/kokkos-host/test.check   |   2 +-
+ .../generic-parallel/kokkos/tdls/test.check   |  11 +
+ .../generic-parallel/kokkos/test.check        |   2 +-
+ .../stlpar-parunseq-gcc/tdls/test.check       |  11 +
+ .../stlpar-parunseq-gcc/test.check            |   2 +-
+ .../stlpar-parunseq-nvhpc-gpu/tdls/test.check |  11 +
+ .../stlpar-parunseq-nvhpc-gpu/test.check      |   2 +-
+ .../sycl-default-acpp-omp/tdls/test.check     |  12 +
+ .../sycl-default-acpp-omp/test.check          |   2 +-
+ .../sycl-default-acpp/tdls/test.check         |  11 +
+ .../sycl-default-acpp/test.check              |   2 +-
+ 38 files changed, 1105 insertions(+), 37 deletions(-)
+ create mode 100644 mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
+ create mode 100644 mfront/include/MFront/GenericParallelModelInterface.hxx
+ create mode 100644 mfront/src/GenericParallelModelInterface.cxx
+ create mode 100644 test-suite/behaviours/generic-parallel/BehaviourVariableTest.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/BehaviourVariableTestPlasticity.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/ExternalModelCallerTest.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/ExternalModelTest.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/GenericParallelModelTest.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/GenericParallelModelWithQuantitiesTest.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/ImplicitNortonTDLS.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/OrthotropicStandardElastoViscoPlasticityTest.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/PorousStandardElastoViscoPlasticityTest.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/StandardElastoViscoPlasticityTest.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/compare-functions.sh
+ create mode 100644 test-suite/behaviours/generic-parallel/compare-tdls.sh
+ create mode 100644 test-suite/behaviours/generic-parallel/cuda-nvcc/tdls/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/hip-hipcc/tdls/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/kokkos-host/tdls/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/kokkos/tdls/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/tdls/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/tdls/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/tdls/test.check
+ create mode 100644 test-suite/behaviours/generic-parallel/sycl-default-acpp/tdls/test.check
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8b448bebe..861539e4f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -389,6 +389,8 @@ if(enable-tdls)
+   find_package(tdls REQUIRED)
+   option(enable-tdls-as-default-linear-system-solver-in-mfront
+          "use TDLS as the default linear system solver in MFront" OFF)
++  # tests of the test-suite requiring the TDLS linear system solver
++  list(APPEND tfel-check-components "mfront::linear_system_solver::tdls")
+ endif(enable-tdls)
+ 
+ # cadna
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 03b2f07aa..5ba3ba164 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -12,9 +12,10 @@ secPrefixTemplate: "$$i$$"
+ eqnPrefixTemplate: "($$i$$)"
+ ---
+ 
+-The `generic-parallel` interface integrates a behaviour over a batch of
+-integration points, on GPUs (`CUDA`, `HIP`) or on CPUs (parallel
+-algorithms of the C++ standard library). It follows the design of the
++The `generic-parallel` interface integrates a behaviour, or executes a
++standalone model, over a batch of integration points, on GPUs (`CUDA`,
++`HIP`) or on CPUs (parallel algorithms of the C++ standard library). It
++follows the design of the
+ [`generic-parallel` interface for material
+ properties](generic-parallel-material-property-interface.html): backends
+ selected by an option, configuration files, libraries suffixed by the name
+@@ -199,6 +200,41 @@ the parameters in a structure filled on the host from the parameters
+ initializers and passed by value to the kernel. The functions changing the
+ values of the parameters can thus be used as with the `generic` interface.
+ 
++# Standalone models
++
++The interface is also available for standalone models (`@DSL Model`). As
++with the `generic` interface for models, a model is treated as a behaviour
++without gradients: its outputs are internal state variables, its inputs are
++external state variables and its constant material properties are material
++properties. For each modelling hypothesis, the interface generates a
++function with the same name as the one generated by the `generic` interface,
++which executes all the functions of the model over a batch:
++
++~~~~{.bash}
++$ mfront --obuild --interface=generic --interface=generic-parallel \
++         --configuration-file=config-cuda-nvcc.json NeutronFluence.mfront
++The following libraries have been built :
++- libModel.so :  NeutronFluence_Tridimensional ...
++- libGenericParallelModel-cuda.so :  NeutronFluence_Tridimensional ...
++~~~~
++
++~~~~{.cxx}
++int NeutronFluence_Tridimensional(mfront_gpb_OutputStatus* const,
++                                  const mfront_gpb_BatchData* const);
++~~~~
++
++The functions are declared in the
++`MFront/GenericParallelModel/<name>-generic-parallel-<backend>.hxx` header.
++The parameters are handled as for behaviours (`<name>_setParameter`
++function).
++
++As with the `generic` interface, the time step scaling factor is set to
++`0.1` at the points where the model fails. A model has no prediction
++operator: if a prediction is requested, the model is not executed and the
++state at the end of the time step is not updated. In device code, a bound
++which is not satisfied makes the model fail and string parameters are not
++supported.
++
+ # Backends
+ 
+ The backend is selected in a configuration file:
+@@ -359,6 +395,14 @@ The following points are specific to device code:
+ - initialize functions and post-processings are called through function
+   objects generated by `MFront`, never through pointers to members, which
+   `nvc++` ignores in device code.
++- behaviour variables (`@BehaviourVariable`, `@BehaviourVariableFactory`,
++  external models declared by `@Model`) can be used in device code. Their
++  parameters take their default values in device code, unless they are
++  treated as static variables, since the parameters initializers of the
++  behaviour variables are only available on the host.
++- the linear system solvers of the implicit DSLs can be used in device
++  code, including the `TDLS` solver (`@LinearSystemSolver TDLS`) when
++  `TFEL` is built with `TDLS` support.
+ 
+ The configurations have been tested with `nvcc` 13.0, `hipcc` 5.7 on top of
+ `nvcc` (NVIDIA platform), `g++` 14, `nvc++` 25.11, Kokkos 5.0.2 and
+@@ -373,7 +417,6 @@ worked around in the generated code and the headers (see the comments of
+   generated function reports an error).
+ - the slip systems of polycrystals read from a file at runtime
+   (`PolyCrystalsSlidingSystems`) are not available in device code.
+-- standalone models (`@DSL Model`) are not supported yet.
+ - the `HIP` backend has not been tested on AMD GPUs.
+ - the SYCL backend has been tested with AdaptiveCpp (CPU and NVIDIA GPU),
+   not with Intel's DPC++.
+@@ -388,6 +431,10 @@ results of the `generic` interface on two time steps of a random loading,
+ for the two layouts of the fields and three types of computation, including
+ the energies, the speed of sound and the statuses of batches where the
+ integration fails at some points. The initialize functions, the
+-post-processings and the rotation functions are compared on random states.
++post-processings, the rotation functions and the standalone models are
++compared on random states.
+ The list of the comparisons, shared by all the configurations, is given by
+-the `compare-all.sh` script; `compare.cxx` documents its options.
++the `compare-all.sh` script; `compare.cxx` documents its options. The
++behaviours using the `TDLS` linear system solver are tested in the `tdls`
++subdirectory of each configuration (`compare-tdls.sh` script) if `TFEL` is
++built with `TDLS` support.
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index 95b36a2b0..9a0656231 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -137,6 +137,7 @@ install_mfront_header(MFront/GenericParallel/Behaviour KokkosBackend.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour ParallelSTLBackend.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour SYCLBackend.hxx)
+ install_mfront_header(MFront GenericModelInterface.hxx)
++install_mfront_header(MFront GenericParallelModelInterface.hxx)
+ install_mfront_header(MFront CastemModelInterface.hxx)
+ install_mfront_header(MFront Castem21ModelInterface.hxx)
+ install_mfront_header(MFront MTestFileGeneratorBase.hxx)
+@@ -257,6 +258,7 @@ install_mfront_header(MFront/GenericParallelBehaviour FiniteStrainIntegrators.hx
+ install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour Kokkos.hxx)
++install_mfront_header(MFront/GenericParallelBehaviour ModelIntegrator.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour ParallelSTL.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour SYCL.hxx)
+ 
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx b/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
+new file mode 100644
+index 000000000..77df8834b
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
+@@ -0,0 +1,82 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelBehaviour/ModelIntegrator.hxx
++ * \brief  This file implements the integration strategy of the standalone
++ * models treated by the `generic-parallel` interface.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_MODELINTEGRATOR_HXX
++#define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_MODELINTEGRATOR_HXX
++
++#include "MFront/GenericBehaviour/Integrate.hxx"
++#include "MFront/GenericParallelBehaviour/Integrate.hxx"
++
++namespace mfront::gpb {
++
++  /*!
++   * \brief integration strategy of the standalone models, which are treated
++   * as behaviours without gradients: the outputs of the model are the
++   * internal state variables and its inputs are the external state
++   * variables. The model is built from the behaviour data of a point and
++   * from the values of its parameters, then its functions are executed.
++   */
++  struct ModelIntegrator {
++    /*!
++     * \return the sizes of the data of a point
++     * \tparam PointTraits: description of the data of a point
++     */
++    template <typename PointTraits>
++    TFEL_HOST_DEVICE static constexpr PointDataSizes getPointDataSizes(
++        const ComputationOptions&) noexcept {
++      return PointDataSizes{PointTraits::value};
++    }  // end of getPointDataSizes
++    /*!
++     * \brief execute the model at one point
++     * \return 1 on success, -1 otherwise. On failure, the time step scaling
++     * factor is set to 0.1, as in the `generic` interface for models. On the
++     * host, the exceptions thrown by the model are reported as failures.
++     *
++     * A model has no prediction operator: if a prediction is requested, the
++     * model is not executed and, as for behaviours, the state is not
++     * updated.
++     *
++     * \tparam Model: class implementing the model
++     * \tparam ParametersType: type of the structure holding the parameters
++     * \param[in,out] d: behaviour data
++     * \param[in] o: computation options
++     * \param[in] parameters: values of the parameters
++     */
++    template <typename Model, typename ParametersType>
++    TFEL_HOST_DEVICE static int integrate(
++        mfront::gb::BehaviourData& d,
++        const ComputationOptions& o,
++        const tfel::material::OutOfBoundsPolicy,
++        const ParametersType& parameters) {
++      if (o.isPredictionRequested()) {
++        return 1;
++      }
++      // on the host, the exceptions thrown by the model (bounds checks,
++      // material laws) are reported as failures
++      const auto status = mfront::gb::callAndReportExceptions(
++          d,
++          [&d, &parameters] {
++            const auto m = Model(d, parameters);
++            return m.execute(d) ? 1 : -1;
++          },
++          [] {});
++      if (status == -1) {
++        *(d.rdt) = real{0.1};
++      }
++      return status;
++    }  // end of integrate
++  };
++
++}  // end of namespace mfront::gpb
++
++#endif /* LIB_MFRONT_GENERICPARALLELBEHAVIOUR_MODELINTEGRATOR_HXX */
+diff --git a/mfront/include/MFront/GenericParallelModelInterface.hxx b/mfront/include/MFront/GenericParallelModelInterface.hxx
+new file mode 100644
+index 000000000..0728e80d9
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelModelInterface.hxx
+@@ -0,0 +1,69 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallelModelInterface.hxx
++ * \brief  This file declares the `generic-parallel` interface for models.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELMODELINTERFACE_HXX
++#define LIB_MFRONT_GENERICPARALLELMODELINTERFACE_HXX
++
++#include <memory>
++#include "MFront/AbstractModelInterface.hxx"
++#include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
++
++namespace mfront {
++
++  /*!
++   * \brief the `generic-parallel` interface for models.
++   *
++   * As with the `generic` interface for models, models are treated as
++   * behaviours without gradients: the outputs of the model are the internal
++   * state variables and its inputs are the external state variables. The
++   * generated functions execute the model over a batch of points, with the
++   * backends and the batch data of the `generic-parallel` interface for
++   * behaviours.
++   */
++  struct GenericParallelModelInterface final : public AbstractModelInterface {
++    //! \return the name of the interface
++    [[nodiscard]] static std::string getName();
++    //! \brief constructor
++    GenericParallelModelInterface();
++    //
++    void setOptions(const DataMap&) override;
++    [[nodiscard]] std::pair<bool, tokens_iterator> treatKeyword(
++        const std::string&,
++        const std::vector<std::string>&,
++        tokens_iterator,
++        const tokens_iterator) override;
++    void declareReservedNames(std::set<std::string>&) override;
++    void writeOutputFiles(const FileDescription&,
++                          const ModelDescription&) override;
++    void getTargetsDescription(TargetsDescription&,
++                               const ModelDescription&) override;
++    //! \brief destructor
++    ~GenericParallelModelInterface() override;
++
++   private:
++    //! \return the name of the generated library
++    [[nodiscard]] std::string getLibraryName(const ModelDescription&) const;
++    //! \return the name of the header file
++    [[nodiscard]] std::string getHeaderFileName(const std::string&) const;
++    //! \return the name of the source file
++    [[nodiscard]] std::string getSourceFileName(const std::string&) const;
++    //! \brief write the header file
++    void writeHeaderFile(const FileDescription&, const ModelDescription&);
++    //! \brief write the source file
++    void writeSourceFile(const FileDescription&, const ModelDescription&);
++    //! \brief backend
++    std::unique_ptr<generic_parallel::behaviour::AbstractBackend> backend;
++  };  // end of struct GenericParallelModelInterface
++
++}  // end of namespace mfront
++
++#endif /* LIB_MFRONT_GENERICPARALLELMODELINTERFACE_HXX */
+diff --git a/mfront/src/CMakeLists.txt b/mfront/src/CMakeLists.txt
+index 595c0d38a..a0d209110 100644
+--- a/mfront/src/CMakeLists.txt
++++ b/mfront/src/CMakeLists.txt
+@@ -228,6 +228,7 @@ set(TFELMFront_SOURCES
+     GenericBehaviourSymbolsGenerator.cxx
+     BehaviourRotationFunctions.cxx
+     GenericModelInterface.cxx
++    GenericParallelModelInterface.cxx
+     OptionDescription.cxx
+     BrickUtilities.cxx
+     StressPotential.cxx
+diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
+new file mode 100644
+index 000000000..3b11141d4
+--- /dev/null
++++ b/mfront/src/GenericParallelModelInterface.cxx
+@@ -0,0 +1,361 @@
++/*!
++ * \file   mfront/src/GenericParallelModelInterface.cxx
++ * \brief  This file implements the `generic-parallel` interface for models.
++ * \date   05/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <fstream>
++#include <algorithm>
++#include "TFEL/Raise.hxx"
++#include "TFEL/Config/GetInstallPath.hxx"
++#include "TFEL/System/System.hxx"
++#include "TFEL/Utilities/Data.hxx"
++#include "TFEL/Material/ModellingHypothesis.hxx"
++#include "MFront/MFrontLogStream.hxx"
++#include "MFront/CodeGeneratorUtilities.hxx"
++#include "MFront/FileDescription.hxx"
++#include "MFront/TargetsDescription.hxx"
++#include "MFront/ModelDescription.hxx"
++#include "MFront/BehaviourDescription.hxx"
++#include "MFront/GenericBehaviourSymbolsGenerator.hxx"
++#include "MFront/GenericBehaviourInterface.hxx"
++#include "MFront/GenericModelInterface.hxx"
++#include "MFront/GenericParallel/Behaviour/BackendFactory.hxx"
++#include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
++#include "MFront/GenericParallelModelInterface.hxx"
++
++namespace mfront {
++
++  /*!
++   * \return the name of the structure holding the values of the parameters,
++   * declared in the `mfront::gm` namespace
++   */
++  static std::string getParametersStructureName(const ModelDescription& md) {
++    if (!hasGenericModelParametersInitializer(md)) {
++      return "mfront::gpb::NoParameters";
++    }
++    return "mfront::gm::" + md.className + "Parameters";
++  }  // end of getParametersStructureName
++
++  std::string GenericParallelModelInterface::getName() {
++    return "generic-parallel";
++  }  // end of getName
++
++  GenericParallelModelInterface::GenericParallelModelInterface()
++      : backend(std::make_unique<
++                generic_parallel::behaviour::ParallelSTLBackend>()) {
++  }  // end of GenericParallelModelInterface
++
++  void GenericParallelModelInterface::setOptions(const DataMap& opts) {
++    using generic_parallel::behaviour::BackendFactory;
++    using tfel::utilities::DataStructure;
++    auto validator = tfel::utilities::DataMapValidator{};
++    validator.addDataTypeValidator<DataStructure>("backend");
++    validator.validate(opts);
++    if (!contains(opts, "backend")) {
++      return;
++    }
++    const auto ds = DataStructure::convert(get(opts, "backend"));
++    if (getVerboseMode() >= VERBOSE_DEBUG) {
++      getLogStream() << "GenericParallelModelInterface::setOptions: "
++                        "creating backend '"
++                     << ds.name << "'\n";
++    }
++    this->backend = BackendFactory::get().generate(ds.name, ds.data);
++  }  // end of setOptions
++
++  std::pair<bool, GenericParallelModelInterface::tokens_iterator>
++  GenericParallelModelInterface::treatKeyword(const std::string& k,
++                                              const std::vector<std::string>& i,
++                                              tokens_iterator current,
++                                              const tokens_iterator) {
++    tfel::raise_if(std::find(i.begin(), i.end(), getName()) != i.end(),
++                   "GenericParallelModelInterface::treatKeyword: "
++                   "unsupported keyword '" +
++                       k + "'");
++    return {false, current};
++  }  // end of treatKeyword
++
++  void GenericParallelModelInterface::declareReservedNames(
++      std::set<std::string>&) {}  // end of declareReservedNames
++
++  std::string GenericParallelModelInterface::getLibraryName(
++      const ModelDescription& md) const {
++    const auto base = [&md]() -> std::string {
++      if (!md.library.empty()) {
++        return md.library;
++      }
++      if (!md.material.empty()) {
++        return md.material;
++      }
++      return "Model";
++    }();
++    return "GenericParallel" + base + '-' + this->backend->getName();
++  }  // end of getLibraryName
++
++  std::string GenericParallelModelInterface::getHeaderFileName(
++      const std::string& name) const {
++    return name + '-' + getName() + '-' + this->backend->getName() + ".hxx";
++  }  // end of getHeaderFileName
++
++  std::string GenericParallelModelInterface::getSourceFileName(
++      const std::string& name) const {
++    return name + '-' + getName() + '-' + this->backend->getName() + '.' +
++           this->backend->getSourceFileExtension();
++  }  // end of getSourceFileName
++
++  void GenericParallelModelInterface::writeOutputFiles(
++      const FileDescription& fd, const ModelDescription& md) {
++    this->writeHeaderFile(fd, md);
++    this->writeSourceFile(fd, md);
++  }  // end of writeOutputFiles
++
++  void GenericParallelModelInterface::writeHeaderFile(
++      const FileDescription& fd, const ModelDescription& md) {
++    using tfel::material::ModellingHypothesis;
++    tfel::system::systemCall::mkdir("include/MFront");
++    tfel::system::systemCall::mkdir("include/MFront/GenericParallelModel");
++    const auto name = md.library + md.className;
++    const auto header = this->getHeaderFileName(name);
++    std::ofstream os("include/MFront/GenericParallelModel/" + header);
++    tfel::raise_if(!os,
++                   "GenericParallelModelInterface::writeHeaderFile: "
++                   "could not open file '" +
++                       header + "'");
++    os.exceptions(std::ios::badbit | std::ios::failbit);
++    os << "/*!\n"
++       << " * \\file   " << header << '\n'
++       << " * \\brief  This file declares the " << getName()
++       << " interface for the " << md.className << " model (backend "
++       << this->backend->getName() << ")\n"
++       << " * \\author " << fd.authorName << '\n'
++       << " * \\date   " << fd.date << '\n'
++       << " */\n\n";
++    const auto hg = "LIB_GENERICPARALLELMODEL_" + makeUpperCase(name) + "_" +
++                    makeUpperCase(this->backend->getName()) + "_HXX";
++    os << "#ifndef " << hg << "\n"
++       << "#define " << hg << "\n\n"
++       << "#include\"TFEL/Config/TFELConfig.hxx\"\n"
++       << "#include\"MFront/GenericParallelBehaviour/BatchData.h\"\n\n";
++    writeExportDirectives(os, false);
++    os << "#ifdef __cplusplus\n"
++       << "extern \"C\"{\n"
++       << "#endif /* __cplusplus */\n\n";
++    if (hasGenericModelParametersInitializer(md)) {
++      os << "/*!\n"
++         << " * \\brief function allowing to modify the parameters of the "
++         << name << " model\n"
++         << " * \\param[in] n: name of the parameter\n"
++         << " * \\param[in] v: value of the parameter\n"
++         << " */\n"
++         << "MFRONT_SHAREDOBJ int\n"
++         << name << "_setParameter(const char *const, const double);\n\n";
++    }
++    for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
++      os << "/*!\n"
++         << " * \\brief execute the " << name
++         << " model over a batch of points for the "
++         << ModellingHypothesis::toString(h) << " modelling hypothesis\n"
++         << " * \\param[out] s: output status\n"
++         << " * \\param[in] d: batch data\n"
++         << " * \\return the status, also stored in the output status\n"
++         << " */\n"
++         << "MFRONT_SHAREDOBJ int " << name << "_"
++         << ModellingHypothesis::toString(h)
++         << "(mfront_gpb_OutputStatus* const,\n"
++         << "const mfront_gpb_BatchData* const);\n\n";
++    }
++    os << "#ifdef __cplusplus\n"
++       << "}\n"
++       << "#endif /* __cplusplus */\n\n"
++       << "#endif /* " << hg << " */\n";
++  }  // end of writeHeaderFile
++
++  void GenericParallelModelInterface::writeSourceFile(
++      const FileDescription& fd, const ModelDescription& md) {
++    using tfel::material::ModellingHypothesis;
++    constexpr auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
++    const auto name = md.library + md.className;
++    const auto src = this->getSourceFileName(name);
++    std::ofstream os("src/" + src);
++    os.precision(14);
++    tfel::raise_if(!os,
++                   "GenericParallelModelInterface::writeSourceFile: "
++                   "could not open file '" +
++                       src + "'");
++    os.exceptions(std::ios::badbit | std::ios::failbit);
++    const auto use_qt = md.use_qt.has_value() ? *(md.use_qt) : false;
++    os << "/*!\n"
++       << " * \\file   " << src << '\n'
++       << " * \\brief  This file implements the " << getName()
++       << " interface for the " << md.className << " model (backend "
++       << this->backend->getName() << ")\n"
++       << " * \\author " << fd.authorName << '\n'
++       << " * \\date   " << fd.date << '\n'
++       << " */\n\n";
++    this->backend->writeSpecificIncludes(os);
++    os << "#include <cmath>\n"
++       << "#include <cstring>\n"
++       << "#include \"TFEL/PhysicalConstants.hxx\"\n"
++       << "#include \"TFEL/Config/TFELTypes.hxx\"\n"
++       << "#include \"TFEL/Math/Array/View.hxx\"\n"
++       << "#include \"TFEL/Math/General/DerivativeType.hxx\"\n";
++    if (use_qt) {
++      os << "#include \"TFEL/Math/qt.hxx\"\n";
++    }
++    os << "#include \"TFEL/Material/BoundsCheck.hxx\"\n"
++       << "#include \"MFront/GenericBehaviour/Integrate.hxx\"\n"
++       << "#include \"MFront/GenericParallelBehaviour/ModelIntegrator.hxx\"\n"
++       << "#include \"MFront/GenericParallelModel/"
++       << this->getHeaderFileName(name) << "\"\n\n";
++    if (!md.includes.empty()) {
++      os << md.includes << "\n\n";
++    }
++    // symbols: the same as the ones of the `generic` interface
++    const auto mhs = ModellingHypothesis::getModellingHypotheses();
++    const auto hypotheses =
++        std::set<ModellingHypothesis::Hypothesis>{mhs.begin(), mhs.end()};
++    const auto bd = convertToBehaviourDescription(md);
++    GenericBehaviourSymbolsGenerator sg;
++    GenericBehaviourInterface bi;
++    sg.generateGeneralSymbols(os, bi, bd, fd, hypotheses, name);
++    os << '\n';
++    sg.generateSymbols(os, bi, bd, fd, name, uh);
++    if (!md.sources.empty()) {
++      os << md.sources << "\n\n";
++    }
++    const auto parameters = getParametersStructureName(md);
++    os << "namespace mfront::gm{\n\n";
++    if (hasGenericModelParametersInitializer(md)) {
++      // structure holding the values of the parameters, filled on the host
++      // and passed by value to the device
++      os << "//! \\brief values of the parameters of the " << md.className
++         << " model\n"
++         << "struct " << md.className << "Parameters {\n";
++      for (const auto& p : md.parameters) {
++        if (isGenericModelRealParameter(p)) {
++          os << "double " << p.name << ";\n";
++        }
++      }
++      os << "};\n\n";
++    }
++    writeGenericModelClass(os, fd, md,
++                           GenericModelClassOptions{
++                               .device = true, .parameters_type = parameters});
++    os << "} // end of namespace mfront::gm\n\n";
++    // description of the data of a point
++    const auto point_traits = md.className + "PointTraits";
++    os << "namespace {\n\n"
++       << "//! \\brief description of the data of a point\n"
++       << "struct " << point_traits << " {\n"
++       << "//! \\brief sizes of the data of a point\n"
++       << "static constexpr auto value = mfront::gpb::PointDataSizes{"
++       << ".gradients = 0, .thermodynamic_forces = 0, "
++       << ".material_properties = " << md.constantMaterialProperties.size()
++       << ", .internal_state_variables = " << md.outputs.size()
++       << ", .external_state_variables = " << md.inputs.size()
++       << ", .tangent_operator = 0};\n"
++       << "//! \\brief integration strategy\n"
++       << "using Integrator = mfront::gpb::ModelIntegrator;\n"
++       << "};\n\n"
++       << "} // end of anonymous namespace\n\n";
++    os << "#ifdef __cplusplus\n"
++       << "extern \"C\"{\n"
++       << "#endif /* __cplusplus */\n\n";
++    const auto initializer = getGenericModelParametersInitializerName(md);
++    if (hasGenericModelParametersInitializer(md)) {
++      os << "MFRONT_SHAREDOBJ int\n"
++         << name << "_setParameter(const char *const n, const double v){\n"
++         << "auto& parameters = mfront::gm::" << initializer << "::get();\n";
++      auto first = true;
++      for (const auto& p : md.parameters) {
++        if (!isGenericModelRealParameter(p)) {
++          continue;
++        }
++        os << (first ? "if" : "} else if")  //
++           << "(std::strcmp(\"" << p.getExternalName() << "\", n) == 0){\n"
++           << "parameters." << p.name << " = "
++           << "decltype(parameters." << p.name << "){v};\n"
++           << "return 1;\n";
++        first = false;
++      }
++      os << "}\n"
++         << "return 0;\n"
++         << "} // end of " << name << "_setParameter\n\n";
++    }
++    for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
++      const auto f = name + "_" + ModellingHypothesis::toString(h);
++      os << "MFRONT_SHAREDOBJ int " << f
++         << "(mfront_gpb_OutputStatus* const mfront_output_status,\n"
++         << "const mfront_gpb_BatchData* const mfront_batch_data){\n"
++         << "return mfront::gpb::handleExceptions(mfront_output_status, "
++         << "[mfront_output_status, mfront_batch_data] {\n"
++         << "if (mfront_batch_data == nullptr) {\n"
++         << "return mfront::gpb::report(*mfront_output_status, -2, "
++         << "\"no batch data given\");\n"
++         << "}\n"
++         << "using mfront_point_traits = " << point_traits << ";\n"
++         << "auto& mfront_status = *mfront_output_status;\n"
++         << "const auto& mfront_data = *mfront_batch_data;\n";
++      if (hasGenericModelParametersInitializer(md)) {
++        os << "const auto& mfront_initializer = mfront::gm::" << initializer
++           << "::get();\n"
++           << "const auto mfront_parameters = " << parameters << "{";
++        auto first = true;
++        for (const auto& p : md.parameters) {
++          if (isGenericModelRealParameter(p)) {
++            os << (first ? "" : ", ")
++               << "tfel::math::base_type_cast(mfront_initializer." << p.name
++               << ")";
++            first = false;
++          }
++        }
++        os << "};\n";
++      } else {
++        os << "const auto mfront_parameters = " << parameters << "{};\n";
++      }
++      // unused: the bounds are checked with the default out of bounds policy
++      // of the model, as in the `generic` interface
++      os << "const auto mfront_policy = tfel::material::None;\n";
++      this->backend->writeCall(
++          os, "integrate",
++          "mfront::gm::" + md.className + ", mfront_point_traits",
++          "mfront_status, mfront_data, "
++          "mfront_parameters, mfront_policy");
++      os << "});\n"
++         << "} // end of " << f << "\n\n";
++    }
++    os << "#ifdef __cplusplus\n"
++       << "}\n"
++       << "#endif /* __cplusplus */\n\n";
++  }  // end of writeSourceFile
++
++  void GenericParallelModelInterface::getTargetsDescription(
++      TargetsDescription& td, const ModelDescription& md) {
++    using tfel::material::ModellingHypothesis;
++    const auto lib = this->getLibraryName(md);
++    const auto name = md.library + md.className;
++    const auto tfel_config = tfel::getTFELConfigExecutableName();
++    auto& l = td.getLibrary(lib);
++    insert_if(l.sources, this->getSourceFileName(name));
++    td.headers.push_back("MFront/GenericParallelModel/" +
++                         this->getHeaderFileName(name));
++    insert_if(l.link_directories,
++              "$(shell " + tfel_config + " --library-path)");
++    insert_if(l.link_libraries, "$(shell " + tfel_config +
++                                    " --library-dependency "
++                                    "--material --mfront-profiling)");
++    for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
++      insert_if(l.epts, name + "_" + ModellingHypothesis::toString(h));
++    }
++  }  // end of getTargetsDescription
++
++  GenericParallelModelInterface::~GenericParallelModelInterface() = default;
++
++}  // end of namespace mfront
+diff --git a/mfront/src/InitInterfaces.cxx b/mfront/src/InitInterfaces.cxx
+index 62c4259d5..b92673d1d 100644
+--- a/mfront/src/InitInterfaces.cxx
++++ b/mfront/src/InitInterfaces.cxx
+@@ -23,6 +23,7 @@
+ #include "MFront/GenericBehaviourInterface.hxx"
+ #include "MFront/GenericParallelBehaviourInterface.hxx"
+ #include "MFront/GenericModelInterface.hxx"
++#include "MFront/GenericParallelModelInterface.hxx"
+ #include "MFront/CMaterialPropertyInterface.hxx"
+ #include "MFront/ExcelMaterialPropertyInterface.hxx"
+ #include "MFront/ExcelMaterialPropertyInternalInterface.hxx"
+@@ -220,6 +221,7 @@ namespace mfront {
+     BehaviourInterfaceProxy<GenericBehaviourInterface> gbProxy;
+     BehaviourInterfaceProxy<GenericParallelBehaviourInterface> gpbProxy;
+     ModelInterfaceProxy<GenericModelInterface> gmProxy;
++    ModelInterfaceProxy<GenericParallelModelInterface> gpmProxy;
+ 
+     ModelInterfaceProxy<MFrontModelInterface> mmi;
+ 
+diff --git a/test-suite/behaviours/generic-parallel/BehaviourVariableTest.mfront b/test-suite/behaviours/generic-parallel/BehaviourVariableTest.mfront
+new file mode 100644
+index 000000000..e367d0e0f
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/BehaviourVariableTest.mfront
+@@ -0,0 +1,34 @@
++@DSL Default;
++@Behaviour BehaviourVariableTest;
++@Description {
++  "A behaviour testing behaviour variable factories: the integration is "
++  "delegated to a behaviour variable created by a factory."
++}
++
++@BehaviourVariableFactory f1 {
++  file: "BehaviourVariableTestPlasticity.mfront",
++  variables_suffix: "1",
++  external_names_prefix: "FirstPhase",
++  store_gradients: true,
++  store_thermodynamic_forces: true,
++  shared_external_state_variables: {".+"}
++};
++
++@ProvidesTangentOperator;
++@Integrator{
++  auto b1 = f1.make();
++  if (!initialize(b1)) {
++    return false;
++  }
++  b1.deto = deto;
++  const auto r = b1.integrate(smflag, smt);
++  if (!r) {
++    return false;
++  }
++  // updating the stress
++  sig = b1.sig;
++  if (computeTangentOperator_) {
++    Dt = b1.getTangentOperator();
++  }
++  updateAuxiliaryStateVariables(b1);
++}
+diff --git a/test-suite/behaviours/generic-parallel/BehaviourVariableTestPlasticity.mfront b/test-suite/behaviours/generic-parallel/BehaviourVariableTestPlasticity.mfront
+new file mode 100644
+index 000000000..d42c7c782
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/BehaviourVariableTestPlasticity.mfront
+@@ -0,0 +1,19 @@
++@DSL IsotropicPlasticMisesFlow;
++@Behaviour BehaviourVariableTestPlasticity;
++@Description {
++  "Behaviour used by the BehaviourVariableTest behaviour. Its parameters "
++  "are not treated as static variables: in device code, the behaviour "
++  "variable uses their default values."
++}
++
++@UseQt true;
++@Epsilon 1e-14;
++
++@MaterialProperty stress H;
++@MaterialProperty stress s0;
++
++@FlowRule {
++  f = seq - H * p - s0;
++  df_dseq = 1;
++  df_dp = -H;
++}
+diff --git a/test-suite/behaviours/generic-parallel/ExternalModelCallerTest.mfront b/test-suite/behaviours/generic-parallel/ExternalModelCallerTest.mfront
+new file mode 100644
+index 000000000..97ca00618
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/ExternalModelCallerTest.mfront
+@@ -0,0 +1,20 @@
++@DSL RungeKuttaModel;
++@Model ExternalModelCallerTest;
++@Description {
++  "A model integrated by a Runge-Kutta algorithm calling an external model "
++  "(behaviour variable factory)."
++}
++
++@Model "ExternalModelTest.mfront" {
++  shared_material_properties : {".+"},
++  shared_external_state_variables : {".+"}
++};
++
++@Algorithm rk54;
++@Epsilon 1e-8;
++
++@StateVariable real x2;
++
++@Derivative {
++  dx2 = -x2;
++}
+diff --git a/test-suite/behaviours/generic-parallel/ExternalModelTest.mfront b/test-suite/behaviours/generic-parallel/ExternalModelTest.mfront
+new file mode 100644
+index 000000000..44606a709
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/ExternalModelTest.mfront
+@@ -0,0 +1,13 @@
++@DSL DefaultModel;
++@Model ExternalModelTest;
++@Description {
++  "Model used by the ExternalModelCallerTest model."
++}
++
++@Parameter real k = 1;
++
++@AuxiliaryStateVariable real x;
++
++@Integrator {
++  x *= (2 - k * dt) / (2 + k * dt);
++}
+diff --git a/test-suite/behaviours/generic-parallel/GenericParallelModelTest.mfront b/test-suite/behaviours/generic-parallel/GenericParallelModelTest.mfront
+new file mode 100644
+index 000000000..9bc9916df
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/GenericParallelModelTest.mfront
+@@ -0,0 +1,41 @@
++@DSL Model;
++@Model GenericParallelModelTest;
++@Description {
++  "A model testing the generic-parallel interface: parameter, constant "
++  "material property, material law, bounds, physical bounds, values at the "
++  "beginning of the time step and functions using the results of other "
++  "functions."
++}
++
++@MaterialLaw "Inconel600_YoungModulus.mfront";
++
++@Parameter real A = 2e-3;
++A.setEntryName("SwellingCoefficient");
++
++@ConstantMaterialProperty real Ta;
++Ta.setEntryName("ActivationTemperature");
++
++@Input T;
++T.setGlossaryName("Temperature");
++T.setDepth(1);
++@Bounds T in [0:*[;
++
++@Output s;
++s.setEntryName("TestSwelling");
++s.setDefaultInitialValue(0.);
++s.setDepth(1);
++// a negative initial value makes the model fail
++@PhysicalBounds s in [0:*[;
++
++@Output r;
++r.setEntryName("TestSwellingRate");
++r.setDefaultInitialValue(0.);
++
++@Function computeSwelling {
++  const auto E = Inconel600_YoungModulus(T);
++  s = s_1 + A * (E / 2e11) * exp(-Ta / T) * dt;
++}
++
++@Function computeSwellingRate {
++  r = (s - s_1) / dt;
++}
+diff --git a/test-suite/behaviours/generic-parallel/GenericParallelModelWithQuantitiesTest.mfront b/test-suite/behaviours/generic-parallel/GenericParallelModelWithQuantitiesTest.mfront
+new file mode 100644
+index 000000000..32e3cbec2
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/GenericParallelModelWithQuantitiesTest.mfront
+@@ -0,0 +1,25 @@
++@DSL Model;
++@Model GenericParallelModelWithQuantitiesTest;
++@Description {
++  "A model testing the generic-parallel interface with quantities."
++}
++@UseQt true;
++
++@Parameter frequency k = 1e-2;
++k.setEntryName("RateCoefficient");
++
++@StaticVariable temperature Tref = 300;
++
++@Input temperature T;
++T.setGlossaryName("Temperature");
++T.setDepth(1);
++
++@Output c;
++c.setEntryName("TestConcentration");
++c.setDefaultInitialValue(1.);
++c.setDepth(1);
++
++@Function compute {
++  const auto Tm = (T + T_1) / 2;
++  c = c_1 * exp(-k * exp(-Tref / Tm) * dt);
++}
+diff --git a/test-suite/behaviours/generic-parallel/ImplicitNortonTDLS.mfront b/test-suite/behaviours/generic-parallel/ImplicitNortonTDLS.mfront
+new file mode 100644
+index 000000000..881fdfc0e
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/ImplicitNortonTDLS.mfront
+@@ -0,0 +1,127 @@
++@DSL Implicit;
++@Behaviour ImplicitNortonTDLS;
++// the TDLS solver is used for the Newton-Raphson iterations and for the
++// partial inverse of the jacobian used by the consistent tangent operator
++@LinearSystemSolver TDLS;
++@Description{
++  This file implements the Norton law with the TDLS linear system solver,
++  described as:
++  "$$"
++  "\left\{"
++  "  \begin{aligned}"
++  "    \tepsilonto   &= \tepsilonel+\tepsilonvis \\"
++  "    \tsigma       &= \tenseurq{D}\,:\,\tepsilonel\\"
++  "    \tdepsilonvis &= \dot{p}\,\tenseur{n} \\"
++  "    \dot{p}       &= A\,\sigmaeq^{m}"
++  "  \end{aligned}"
++  "\right."
++  "$$"
++}
++
++@ModellingHypotheses {".+"};
++@Epsilon 1.e-16;
++
++@AsterCompareToNumericalTangentOperator[aster] true;
++@AsterStrainPerturbationValue[aster] 1.e-6;
++@AsterTangentOperatorComparisonCriterium[aster] 1.e7;
++
++@MaterialProperty stress young;
++young.setGlossaryName("YoungModulus");
++@MaterialProperty real nu;
++nu.setGlossaryName("PoissonRatio");
++
++@LocalVariable real     lambda;
++@LocalVariable real     mu;
++
++// store for the Von Mises stress 
++// for the tangent operator
++@LocalVariable real seq;
++// store the derivative of the creep function
++// for the tangent operator
++@LocalVariable real df_dseq;
++// store the normal tensor
++// for the tangent operator
++@LocalVariable Stensor n;
++
++@StateVariable real    p;
++@PhysicalBounds p in [0:*[;
++
++@StateVariable<PlaneStress> real etozz;
++PlaneStress::etozz.setGlossaryName("AxialStrain");
++
++@StateVariable<AxisymmetricalGeneralisedPlaneStress> real etozz;
++AxisymmetricalGeneralisedPlaneStress::etozz.setGlossaryName("AxialStrain");
++@ExternalStateVariable<AxisymmetricalGeneralisedPlaneStress> stress sigzz;
++AxisymmetricalGeneralisedPlaneStress::sigzz.setGlossaryName("AxialStress");
++
++/* Initialize Lame coefficients */
++@InitLocalVariables{
++  lambda = computeLambda(young,nu);
++  mu = computeMu(young,nu);
++} // end of @InitLocalVariables
++
++@ComputeStress{
++  sig = lambda*trace(eel)*Stensor::Id()+2*mu*eel;
++} // end of @ComputeStresss
++
++@Integrator{
++  const real A = 8.e-67;
++  const real E = 8.2;
++  seq = sigmaeq(sig);
++  const auto tmp = A*pow(seq,E-1.);
++  df_dseq = E*tmp;
++  const auto iseq = 1/(max(seq,real(1.e-12)*young));
++  n = 3*deviator(sig)*(iseq/2);
++  feel += dp*n-deto;
++  fp   -= tmp*seq*dt;
++  // jacobian
++  dfeel_ddeel += 2.*mu*theta*dp*iseq*(Stensor4::M()-(n^n));
++  dfeel_ddp    = n;
++  dfp_ddeel    = -2*mu*theta*df_dseq*dt*n;
++} // end of @Integrator
++
++@Integrator<PlaneStress,Append,AtEnd>{
++  // the plane stress equation is satisfied at the end of the time
++  // step
++  const stress szz = (lambda+2*mu)*(eel(2)+deel(2))+lambda*(eel(0)+deel(0)+eel(1)+deel(1));
++  fetozz   = szz/young;
++  // modification of the partition of strain
++  feel(2) -= detozz;
++  // jacobian
++  dfeel_ddetozz(2)=-1;
++  dfetozz_ddetozz  = real(0);
++  dfetozz_ddeel(2) = (lambda+2*mu)/young;
++  dfetozz_ddeel(0) = lambda/young;
++  dfetozz_ddeel(1) = lambda/young;
++}
++
++@Integrator<AxisymmetricalGeneralisedPlaneStress,Append,AtEnd>{
++  // the plane stress equation is satisfied at the end of the time
++  // step
++  const stress szz = (lambda+2*mu)*(eel(1)+deel(1))+lambda*(eel(0)+deel(0)+eel(2)+deel(2));
++  fetozz   = (szz-sigzz-dsigzz)/young;
++  // modification of the partition of strain
++  feel(1) -= detozz;
++  // jacobian
++  dfeel_ddetozz(1)=-1;
++  dfetozz_ddetozz  = real(0);
++  dfetozz_ddeel(1) = (lambda+2*mu)/young;
++  dfetozz_ddeel(0) = lambda/young;
++  dfetozz_ddeel(2) = lambda/young;
++}
++
++@IsTangentOperatorSymmetric true;
++@TangentOperator{
++  if((smt==ELASTIC)||(smt==SECANTOPERATOR)||
++     (smt==TANGENTOPERATOR)){
++    computeAlteredElasticStiffness<hypothesis,Type>::exe(Dt,lambda,mu);
++  } else if (smt==CONSISTENTTANGENTOPERATOR){
++    StiffnessTensor Hooke;
++    Stensor4 Je;
++    computeElasticStiffness<N,Type>::exe(Hooke,lambda,mu);
++    getPartialJacobianInvert(Je);
++    Dt = Hooke*Je;
++  } else {
++    return false;
++  }
++}
+diff --git a/test-suite/behaviours/generic-parallel/OrthotropicStandardElastoViscoPlasticityTest.mfront b/test-suite/behaviours/generic-parallel/OrthotropicStandardElastoViscoPlasticityTest.mfront
+new file mode 100644
+index 000000000..bf186d0a7
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/OrthotropicStandardElastoViscoPlasticityTest.mfront
+@@ -0,0 +1,22 @@
++@DSL Implicit;
++@Behaviour OrthotropicStandardElastoViscoPlasticityTest;
++@Description {
++  "A behaviour testing the StandardElastoViscoPlasticity brick: Norton "
++  "viscoplastic flow, Hill criterion, Voce and linear isotropic hardening "
++  "rules."
++}
++@ModellingHypotheses {".+"};
++@Epsilon 1.e-14;
++@Theta 1;
++@OrthotropicBehaviour<Pipe>;
++
++@Brick StandardElastoViscoPlasticity{
++  stress_potential : "Hooke" {young_modulus : 150e9, poisson_ratio : 0.3},
++  inelastic_flow : "Norton" {
++    criterion : "Hill" {F : 0.371, G : 0.629, H : 4.052, L : 1.5, M : 1.5, N : 1.5},
++    isotropic_hardening : "Voce" {R0 : 100e6, Rinf : 150e6, b : 20},
++    isotropic_hardening : "Linear" {H : 1e9},
++    K : 250e6,
++    n : 3.2
++  }
++};
+diff --git a/test-suite/behaviours/generic-parallel/PorousStandardElastoViscoPlasticityTest.mfront b/test-suite/behaviours/generic-parallel/PorousStandardElastoViscoPlasticityTest.mfront
+new file mode 100644
+index 000000000..fa04b28b2
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/PorousStandardElastoViscoPlasticityTest.mfront
+@@ -0,0 +1,31 @@
++@DSL Implicit;
++@Behaviour PorousStandardElastoViscoPlasticityTest;
++@Description {
++  "A behaviour testing the porous flows of the StandardElastoViscoPlasticity "
++  "brick: Gurson-Tvergaard-Needleman criterion, porosity growth and "
++  "nucleation (Chu-Needleman), staggered scheme for the porosity."
++}
++@ModellingHypotheses {".+"};
++@Epsilon 1.e-14;
++@Theta 1;
++
++@Brick StandardElastoViscoPlasticity{
++  stress_potential : "Hooke" {young_modulus : 200e3, poisson_ratio : 0.3},
++  inelastic_flow : "Plastic" {
++    criterion : "GursonTvergaardNeedleman1982" {
++      f_c : 0.01,
++      f_r : 0.10,
++      q_1 : 2,
++      q_2 : 1,
++      q_3 : 4
++    },
++    isotropic_hardening : "Linear" {R0 : 200., H : 1000.}
++  },
++  porosity_evolution : {
++    nucleation_model : "Chu-Needleman 1980 (strain)" {
++      fn : 0.01,
++      en : 1e-2,
++      sn : 1e-3
++    }
++  }
++};
+diff --git a/test-suite/behaviours/generic-parallel/StandardElastoViscoPlasticityTest.mfront b/test-suite/behaviours/generic-parallel/StandardElastoViscoPlasticityTest.mfront
+new file mode 100644
+index 000000000..bfd4cfe0d
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/StandardElastoViscoPlasticityTest.mfront
+@@ -0,0 +1,23 @@
++@DSL Implicit;
++@Behaviour StandardElastoViscoPlasticityTest;
++@Description {
++  "A behaviour testing the StandardElastoViscoPlasticity brick: plastic "
++  "flow, Mises criterion, isotropic hardening rule defined by data and "
++  "kinematic hardening rules (Armstrong-Frederick, Chaboche 2012)."
++}
++@ModellingHypotheses {".+"};
++@Epsilon 1.e-14;
++@Theta 1;
++
++@Brick StandardElastoViscoPlasticity{
++  stress_potential : "Hooke" {young_modulus : 150e9, poisson_ratio : 0.3},
++  inelastic_flow : "Plastic" {
++    criterion : "Mises",
++    isotropic_hardening : "Data" {
++      values : {0 : 150e6, 1e-3 : 200e6, 2e-3 : 400e6},
++      interpolation : "linear"
++    },
++    kinematic_hardening : "Armstrong-Frederick" {C : 1.5e9, D : 5},
++    kinematic_hardening : "Chaboche 2012" {C : 250e7, D : 100, m : 2, w : 0.6}
++  }
++};
+diff --git a/test-suite/behaviours/generic-parallel/compare-all.sh b/test-suite/behaviours/generic-parallel/compare-all.sh
+index 471b154a5..281c4c605 100644
+--- a/test-suite/behaviours/generic-parallel/compare-all.sh
++++ b/test-suite/behaviours/generic-parallel/compare-all.sh
+@@ -3,24 +3,9 @@
+ #
+ # usage: sh ../compare-all.sh compare_executable batch_library [pattern]
+ #
+-# The optional pattern (an extended regular expression) selects the tested
+-# functions.
+-#
+-# The arguments of the comparison program are: the libraries, the function,
+-# the sizes of the gradients, thermodynamic forces, material properties,
+-# internal state variables, external state variables and tangent operator,
+-# the strain amplitude, the material properties, the temperature and
+-# options (see compare.cxx). All the comparisons are run, and the exit
+-# status is non-zero if one of them fails.
+-compare=$1
+-library=$2
+-pattern=${3:-.}
+-status=0
+-run() {
+-  echo "$1" | grep -qE "$pattern" || return 0
+-  echo "$*"
+-  "$compare" src/libBehaviour.so "$library" "$@" || status=1
+-}
++# The library of the standalone models is deduced from the library of the
++# behaviours. See compare-functions.sh for the arguments.
++. "$(dirname "$0")/compare-functions.sh"
+ run IsotropicLinearHardeningPlasticity_Tridimensional 6 6 0 7 1 36 3e-3 - 293.15
+ run IsotropicLinearHardeningPlasticity_PlaneStrain 4 4 0 5 1 16 3e-3 - 293.15
+ run ImplicitNorton_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15
+@@ -131,4 +116,31 @@ run ${ohs}_Tridimensional_rotateGradients $r=3
+ run ${ohs}_PlaneStrain_rotateThermodynamicForces $r=2
+ run ${ohs}_Tridimensional_rotateTangentOperatorBlocks $r=9
+ run ${ohs}_Axisymmetrical_rotateTangentOperatorBlocks $r=4
++# StandardElastoViscoPlasticity brick: plastic flow with isotropic hardening
++# defined by data and kinematic hardening rules, Norton flow with the Hill
++# criterion, porous flow (Gurson-Tvergaard-Needleman criterion, nucleation,
++# staggered scheme for the porosity, initial porosity of 0.005)
++run StandardElastoViscoPlasticityTest_Tridimensional 6 6 0 19 1 36 5e-3 - \
++  293.15
++run OrthotropicStandardElastoViscoPlasticityTest_Tridimensional \
++  6 6 0 7 1 36 5e-3 - 293.15
++run PorousStandardElastoViscoPlasticityTest_Tridimensional 6 6 0 9 1 36 \
++  3e-3 - 293.15 --initial-internal-state-variables=0,0,0,0,0,0,0.005,0,0
++# behaviour variables: integration delegated to a behaviour variable created
++# by a factory (whose parameters take their default values in device code),
++# external model integrated by a model using a Runge-Kutta algorithm
++run BehaviourVariableTest_Tridimensional 6 6 4 19 1 36 3e-3 \
++  1e9,300e6,200e9,0.3 293.15
++run ExternalModelCallerTest_Tridimensional 0 0 0 2 1 0 0 - 293.15 \
++  --initial-internal-state-variables=1,2 --tangent-operator=0
++# standalone models, treated as behaviours without gradients: the outputs
++# are internal state variables, the inputs are external state variables.
++# The model fails at the points where the initial value of its first output
++# is negative (physical bound).
++reference=src/libModel.so
++batch=$(echo "$library" | sed 's/GenericParallelBehaviour/GenericParallelModel/')
++run GenericParallelModelTest_Tridimensional 0 0 1 2 1 0 0 500 600
++run GenericParallelModelTest_PlaneStress 0 0 1 2 1 0 0 500 600 \
++  --perturbation-of-internal-state-variables=1e-4
++run GenericParallelModelWithQuantitiesTest_Axisymmetrical 0 0 0 1 1 0 0 - 600
+ exit $status
+diff --git a/test-suite/behaviours/generic-parallel/compare-functions.sh b/test-suite/behaviours/generic-parallel/compare-functions.sh
+new file mode 100644
+index 000000000..4421c39cd
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/compare-functions.sh
+@@ -0,0 +1,28 @@
++# Definitions shared by the scripts comparing the `generic-parallel`
++# interface to the `generic` interface (compare-all.sh, compare-tdls.sh),
++# which are sourced with the following arguments:
++#
++# compare_executable batch_library [pattern]
++#
++# The optional pattern (an extended regular expression) selects the tested
++# functions.
++#
++# The `run` function calls the comparison program with the reference and
++# batch libraries and its arguments: the function, the sizes of the
++# gradients, thermodynamic forces, material properties, internal state
++# variables, external state variables and tangent operator, the strain
++# amplitude, the material properties, the temperature and options (see
++# compare.cxx). All the comparisons are run, and the `status` variable is
++# non-zero if one of them fails.
++compare=$1
++library=$2
++pattern=${3:-.}
++status=0
++# libraries generated by the `generic` and `generic-parallel` interfaces
++reference=src/libBehaviour.so
++batch=$library
++run() {
++  echo "$1" | grep -qE "$pattern" || return 0
++  echo "$*"
++  "$compare" "$reference" "$batch" "$@" || status=1
++}
+diff --git a/test-suite/behaviours/generic-parallel/compare-tdls.sh b/test-suite/behaviours/generic-parallel/compare-tdls.sh
+new file mode 100644
+index 000000000..4e32fefdc
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/compare-tdls.sh
+@@ -0,0 +1,12 @@
++# Comparisons of the `generic-parallel` interface to the `generic` interface
++# for behaviours using the TDLS linear system solver, shared by the tests of
++# all the backends.
++#
++# usage: sh ../../compare-tdls.sh compare_executable batch_library [pattern]
++#
++# See compare-functions.sh for the arguments.
++. "$(dirname "$0")/compare-functions.sh"
++# consistent tangent operator computed from the inverse of the jacobian
++run ImplicitNortonTDLS_Tridimensional 6 6 2 7 1 36 1e-3 150e9,0.3 293.15
++run ImplicitNortonTDLS_PlaneStress 4 4 2 6 1 16 1e-3 150e9,0.3 293.15
++exit $status
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index e5e69d288..ec4033c3f 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -58,6 +58,7 @@
+  */
+ 
+ #include <dlfcn.h>
++#include <array>
+ #include <cmath>
+ #include <chrono>
+ #include <cstdio>
+@@ -327,12 +328,13 @@ static void forEachReferencePoint(States& st,
+     auto d = mfront_gb_BehaviourData{};
+     d.error_message = nullptr;
+     d.dt = dt;
+-    st.K[i * s.K] = K0;
+-    if (fs.finite_strain) {
+-      st.K[i * s.K + 1] = fs.stress_measure;
+-      st.K[i * s.K + 2] = fs.tangent_operator;
++    // the type of computation is stored in the tangent operator, which is
++    // empty for models
++    auto K = std::array<double, 3>{K0, fs.stress_measure, fs.tangent_operator};
++    if (s.K != 0) {
++      std::copy_n(K.begin(), fs.finite_strain ? 3 : 1, st.K.begin() + i * s.K);
+     }
+-    d.K = st.K.data() + i * s.K;
++    d.K = s.K != 0 ? st.K.data() + i * s.K : K.data();
+     st.rdt[i] = 1;
+     d.rdt = st.rdt.data() + i;
+     d.speed_of_sound = st.speed_of_sound.data() + i;
+@@ -778,6 +780,10 @@ static bool testIntegration(const Test& t) {
+   auto ok = true;
+   const auto Kt = t.options.tangent_operator;
+   for (const auto K0 : {Kt, -1., 0.}) {
++    // models have no tangent operator, hence no prediction
++    if ((s.K == 0) && (K0 < -0.25)) {
++      continue;
++    }
+     for (const auto by_component : {false, true}) {
+       // first step from the initial state, second step from its results
+       auto ref = t.initial;
+diff --git a/test-suite/behaviours/generic-parallel/cuda-nvcc/tdls/test.check b/test-suite/behaviours/generic-parallel/cuda-nvcc/tdls/test.check
+new file mode 100644
+index 000000000..9e6ec09bb
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/cuda-nvcc/tdls/test.check
+@@ -0,0 +1,11 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::cuda-nvcc",
++            "mfront::linear_system_solver::tdls"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// behaviours using the TDLS linear system solver
++@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-cuda-nvcc.json ../../ImplicitNortonTDLS.mfront";
++@Command "@TFEL_NVCC_COMPILER@ -O2 --std=c++@TFEL_CXX_STANDARD@ -arch=native -x cu -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
++@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-cuda.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check b/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check
+index 580b6cadb..4e85bc523 100644
+--- a/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check
++++ b/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check
+@@ -3,7 +3,7 @@
+ @Environment {"LD_LIBRARY_PATH": "src"};
+ // the generic interface gives the reference results. Using both interfaces
+ // in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-cuda-nvcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront";
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-cuda-nvcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+ @Command "@TFEL_NVCC_COMPILER@ -O2 --std=c++@TFEL_CXX_STANDARD@ -arch=native -x cu -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+diff --git a/test-suite/behaviours/generic-parallel/hip-hipcc/tdls/test.check b/test-suite/behaviours/generic-parallel/hip-hipcc/tdls/test.check
+new file mode 100644
+index 000000000..11ad6f0ea
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/hip-hipcc/tdls/test.check
+@@ -0,0 +1,11 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::hip-hipcc",
++            "mfront::linear_system_solver::tdls"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// behaviours using the TDLS linear system solver
++@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../../ImplicitNortonTDLS.mfront";
++@Command "@TFEL_HIPCC_COMPILER@ @TFEL_HIPCC_FLAGS@ -O2 --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
++@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-hip.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/hip-hipcc/test.check b/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
+index ad41c7dc9..501dca761 100644
+--- a/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
++++ b/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
+@@ -3,7 +3,7 @@
+ @Environment {"LD_LIBRARY_PATH": "src"};
+ // the generic interface gives the reference results. Using both interfaces
+ // in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront";
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+ @Command "@TFEL_HIPCC_COMPILER@ @TFEL_HIPCC_FLAGS@ -O2 --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+diff --git a/test-suite/behaviours/generic-parallel/kokkos-host/tdls/test.check b/test-suite/behaviours/generic-parallel/kokkos-host/tdls/test.check
+new file mode 100644
+index 000000000..91a9eb0e0
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/kokkos-host/tdls/test.check
+@@ -0,0 +1,11 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos",
++            "mfront::linear_system_solver::tdls"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// behaviours using the TDLS linear system solver
++@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos-host.json ../../ImplicitNortonTDLS.mfront";
++@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
++@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/kokkos-host/test.check b/test-suite/behaviours/generic-parallel/kokkos-host/test.check
+index 53e89154f..1af8a4bc5 100644
+--- a/test-suite/behaviours/generic-parallel/kokkos-host/test.check
++++ b/test-suite/behaviours/generic-parallel/kokkos-host/test.check
+@@ -3,7 +3,7 @@
+ @Environment {"LD_LIBRARY_PATH": "src"};
+ // the generic interface gives the reference results. Using both interfaces
+ // in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos-host.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront";
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos-host.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+ @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+diff --git a/test-suite/behaviours/generic-parallel/kokkos/tdls/test.check b/test-suite/behaviours/generic-parallel/kokkos/tdls/test.check
+new file mode 100644
+index 000000000..c2d5e7db3
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/kokkos/tdls/test.check
+@@ -0,0 +1,11 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::kokkos",
++            "mfront::linear_system_solver::tdls"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// behaviours using the TDLS linear system solver
++@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos.json ../../ImplicitNortonTDLS.mfront";
++@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
++@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/kokkos/test.check b/test-suite/behaviours/generic-parallel/kokkos/test.check
+index 33fb38a02..ad924a298 100644
+--- a/test-suite/behaviours/generic-parallel/kokkos/test.check
++++ b/test-suite/behaviours/generic-parallel/kokkos/test.check
+@@ -3,7 +3,7 @@
+ @Environment {"LD_LIBRARY_PATH": "src"};
+ // the generic interface gives the reference results. Using both interfaces
+ // in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront";
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-kokkos.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+ @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/tdls/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/tdls/test.check
+new file mode 100644
+index 000000000..fbdec35a5
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/tdls/test.check
+@@ -0,0 +1,11 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-gcc",
++            "mfront::linear_system_solver::tdls"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// behaviours using the TDLS linear system solver
++@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../../ImplicitNortonTDLS.mfront";
++@Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
++@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check
+index 133b1e3da..aba57c617 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check
+@@ -3,7 +3,7 @@
+ @Environment {"LD_LIBRARY_PATH": "src"};
+ // the generic interface gives the reference results. Using both interfaces
+ // in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront";
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+ @Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/tdls/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/tdls/test.check
+new file mode 100644
+index 000000000..e6c0c665e
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/tdls/test.check
+@@ -0,0 +1,11 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::stlpar-parunseq-nvhpc-gpu",
++            "mfront::linear_system_solver::tdls"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// behaviours using the TDLS linear system solver
++@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../../ImplicitNortonTDLS.mfront";
++@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -stdpar=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
++@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+index b40156761..101c1e25f 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+@@ -3,7 +3,7 @@
+ @Environment {"LD_LIBRARY_PATH": "src"};
+ // the generic interface gives the reference results. Using both interfaces
+ // in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront";
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+ @Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -stdpar=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/tdls/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/tdls/test.check
+new file mode 100644
+index 000000000..6973c4d15
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/tdls/test.check
+@@ -0,0 +1,12 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp",
++            "mfront::linear_system_solver::tdls"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++@Environment {"ACPP_VISIBILITY_MASK": "omp"};
++// behaviours using the TDLS linear system solver
++@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../../ImplicitNortonTDLS.mfront";
++@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
++@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-sycl.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
+index dcde701fa..a67b192e9 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
+@@ -5,7 +5,7 @@
+ @Environment {"ACPP_VISIBILITY_MASK": "omp"};
+ // the generic interface gives the reference results. Using both interfaces
+ // in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront";
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+ @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp/tdls/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp/tdls/test.check
+new file mode 100644
+index 000000000..e77b7ddd9
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp/tdls/test.check
+@@ -0,0 +1,11 @@
++@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::sycl-default-acpp",
++            "mfront::linear_system_solver::tdls"};
++
++@Environment {"LD_LIBRARY_PATH": "src"};
++// behaviours using the TDLS linear system solver
++@Command "@mfront@ --obuild --search-path=../.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../../ImplicitNortonTDLS.mfront";
++@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
++@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-sycl.so";
++
++@CleanFiles {"compare"};
++@CleanDirectories {"include", "src"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
+index dd05ea5a8..d871996a7 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
+@@ -3,7 +3,7 @@
+ @Environment {"LD_LIBRARY_PATH": "src"};
+ // the generic interface gives the reference results. Using both interfaces
+ // in the same call also checks that they can be used together.
+-@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront";
++@Command "@mfront@ --obuild --search-path=.. --interface=generic --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../IsotropicLinearHardeningPlasticity.mfront ../ImplicitNorton.mfront ../HosfordPerfectPlasticity.mfront ../StrainHardeningCreep3.mfront ../HenckyImplicitNorton.mfront ../GreenLagrangeImplicitNorton.mfront ../SaintVenantKirchhoffElasticity.mfront ../InitializeFunctionTest.mfront ../PostProcessingTest.mfront ../OrthotropicElastic.mfront ../OrthotropicSaintVenantKirchhoffElasticity.mfront ../OrthotropicStationaryHeatTransfer.mfront ../SingleCrystal_DD_FCC.mfront ../FiniteStrainSingleCrystal.mfront ../ImplicitNortonWithEnergies.mfront ../Norton_rk42.mfront ../Tvergaard.mfront ../BehaviourVariableTest.mfront ../ExternalModelCallerTest.mfront ../StandardElastoViscoPlasticityTest.mfront ../OrthotropicStandardElastoViscoPlasticityTest.mfront ../PorousStandardElastoViscoPlasticityTest.mfront ../GenericParallelModelTest.mfront ../GenericParallelModelWithQuantitiesTest.mfront";
+ @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ // comparisons with the `generic` interface, which gives the reference
+ // results (see compare-all.sh)
+-- 
+2.43.0
+

@@ -1,4 +1,4 @@
-From ba2166a510d647d1ca1df87e7157f536b518e3b4 Mon Sep 17 00:00:00 2001
+From 888f7ddef4d51aac9fca9f73b5286cfa2ac04760 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:47:05 +0200
 Subject: [PATCH] Material: arrays of the integration points in the memory of
@@ -28,11 +28,11 @@ nothing).
  include/MFEMMGIS/Material.hxx       |  15 ++-
  include/MFEMMGIS/MaterialArrays.hxx |  96 ++++++++++++++++
  src/CMakeLists.txt                  |   1 +
- src/Material.cxx                    |  18 ++-
+ src/Material.cxx                    |  15 ++-
  src/MaterialArrays.cxx              | 111 +++++++++++++++++++
  tests/CMakeLists.txt                |  21 ++++
  tests/MaterialArraysTest.cxx        | 163 ++++++++++++++++++++++++++++
- 8 files changed, 422 insertions(+), 4 deletions(-)
+ 8 files changed, 420 insertions(+), 3 deletions(-)
  create mode 100644 include/MFEMMGIS/MaterialArrays.hxx
  create mode 100644 src/MaterialArrays.cxx
  create mode 100644 tests/MaterialArraysTest.cxx
@@ -50,7 +50,7 @@ index 8a1fa53155..804b2ce5b4 100644
  mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
  mfem_mgis_header(MFEMMGIS AbstractBehaviourIntegrator.hxx)
 diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
-index 838d136fa4..84d8b04c7b 100644
+index 789c13dfca..a8807c2fcd 100644
 --- a/include/MFEMMGIS/Material.hxx
 +++ b/include/MFEMMGIS/Material.hxx
 @@ -22,6 +22,7 @@
@@ -89,7 +89,7 @@ index 838d136fa4..84d8b04c7b 100644
 +    const MaterialArrays &getArrays() const;
      //! \return the quadrature space
      const PartialQuadratureSpace &getPartialQuadratureSpace() const;
-     //! \return the quadrature space
+     /*!
 diff --git a/include/MFEMMGIS/MaterialArrays.hxx b/include/MFEMMGIS/MaterialArrays.hxx
 new file mode 100644
 index 0000000000..6775ef0480
@@ -205,27 +205,24 @@ index b694a9e3e5..f5ff6818de 100644
    AbstractBehaviourIntegrator.cxx
    BehaviourIntegratorBase.cxx
 diff --git a/src/Material.cxx b/src/Material.cxx
-index 93c85db029..f89c8555a2 100644
+index d4f8dc5d4f..7047cefa74 100644
 --- a/src/Material.cxx
 +++ b/src/Material.cxx
-@@ -47,9 +47,13 @@ namespace mfem_mgis {
+@@ -38,8 +38,11 @@ namespace mfem_mgis {
  
-   Material::Material(std::shared_ptr<const PartialQuadratureSpace> s,
+   Material::Material(const PartialQuadratureSpace &s,
                       std::unique_ptr<const Behaviour> b_ptr)
 -      : MaterialDataManager(Material_dereferenceBehaviour(b_ptr),
--                            Material_dereferenceQuadratureSpace(s)
--                                .getNumberOfIntegrationPoints()),
-+      : MaterialArrays(
-+            Material_dereferenceBehaviour(b_ptr),
-+            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints()),
-+        MaterialDataManager(
-+            Material_dereferenceBehaviour(b_ptr),
-+            Material_dereferenceQuadratureSpace(s).getNumberOfIntegrationPoints(),
-+            this->getInitializer()),
+-                            s.getNumberOfIntegrationPoints()),
++      : MaterialArrays(Material_dereferenceBehaviour(b_ptr),
++                       s.getNumberOfIntegrationPoints()),
++        MaterialDataManager(Material_dereferenceBehaviour(b_ptr),
++                            s.getNumberOfIntegrationPoints(),
++                            this->getInitializer()),
          quadrature_space(s),
          macroscopic_gradients(this->s1.gradients_stride, real(0)),
          get_rotation_fct_ptr(this->b.symmetry ==
-@@ -60,6 +64,14 @@ namespace mfem_mgis {
+@@ -50,6 +53,14 @@ namespace mfem_mgis {
      this->allocateArrayOfTangentOperatorBlocks();
    }  // end of Material::Material
  
@@ -238,7 +235,7 @@ index 93c85db029..f89c8555a2 100644
 +  }  // end of getArrays
 +
    const PartialQuadratureSpace &Material::getPartialQuadratureSpace() const {
-     return *(this->quadrature_space);
+     return this->quadrature_space;
    }  // end of getPartialQuadratureSpace
 diff --git a/src/MaterialArrays.cxx b/src/MaterialArrays.cxx
 new file mode 100644
@@ -358,10 +355,10 @@ index 0000000000..63fd02b930
 +
 +}  // end of namespace mfem_mgis
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 82753632fb..e3fee48613 100644
+index 154e1298db..51acd79bd9 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -767,6 +767,27 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -770,6 +770,27 @@ if(MFEM_MGIS_HAVE_TFEL)
          "$<TARGET_FILE:BehaviourTest>")
    endif()
  
@@ -391,7 +388,7 @@ index 82753632fb..e3fee48613 100644
      add_test_executable(HypreBoomerAMGTest)
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
 new file mode 100644
-index 0000000000..368282ecbd
+index 0000000000..cf203a4d33
 --- /dev/null
 +++ b/tests/MaterialArraysTest.cxx
 @@ -0,0 +1,163 @@
@@ -444,7 +441,7 @@ index 0000000000..368282ecbd
 +
 +static void testMaterial(
 +    mfem_mgis::Context& ctx,
-+    std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
++    const mfem_mgis::PartialQuadratureSpace& qspace,
 +    const char* const library,
 +    const char* const behaviour) {
 +  using namespace mfem_mgis;
@@ -456,7 +453,7 @@ index 0000000000..368282ecbd
 +  }
 +  auto m = Material(qspace, std::move(b));
 +  auto& a = m.getArrays();
-+  const auto n = qspace->getNumberOfIntegrationPoints();
++  const auto n = qspace.getNumberOfIntegrationPoints();
 +  const auto name = std::string{behaviour};
 +  // sizes and use without copy
 +  for (std::size_t i = 0; i != 2; ++i) {
@@ -542,7 +539,7 @@ index 0000000000..368282ecbd
 +                      {"UnknownsSize", 3},
 +                      {"NumberOfUniformRefinements", 2},
 +                      {"Parallel", false}});
-+  auto qspace = std::make_shared<const PartialQuadratureSpace>(
++  const auto qspace = PartialQuadratureSpace(
 +      *fed, MaterialIdentifier{.id = 1},
 +      [](const mfem::FiniteElement& e,
 +         const mfem::ElementTransformation& tr) noexcept

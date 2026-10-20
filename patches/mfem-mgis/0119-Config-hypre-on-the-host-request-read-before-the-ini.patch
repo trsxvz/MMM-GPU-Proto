@@ -1,4 +1,4 @@
-From 9726cf7ae4f46845ec8bd5f8a579fef89af37967 Mon Sep 17 00:00:00 2001
+From 0c2b48f205f991c74c5ddaf61c12457bbef9666e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 04:19:05 +0200
 Subject: [PATCH] Config: hypre on the host, request read before the
@@ -272,10 +272,10 @@ index 4287d676a1..dae62a719c 100644
        if (getMPIRankForDefaultCommunicator() != 0) {
          mfem::out.Disable();
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 8ecd87c768..94a7ffc977 100644
+index 2a02f64ba7..a0c9912b7c 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -949,6 +949,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -952,6 +952,8 @@ if(MFEM_MGIS_HAVE_TFEL)
        set_tests_properties(BatchIntegrationTestP-cuda
                             BatchIntegrationTestP-cuda-hypre-on-host
                             PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
@@ -284,7 +284,7 @@ index 8ecd87c768..94a7ffc977 100644
      endif()
    endif()
  
-@@ -1407,11 +1409,29 @@ if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
+@@ -1410,11 +1412,29 @@ if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
             COMMAND DeviceOptionTest --device cuda --hypre-on-host
                     --hypre-device-pool-size 1 --expected gpu
                     --expected-error "when hypre computes on the host")

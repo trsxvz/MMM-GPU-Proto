@@ -1,4 +1,4 @@
-From c082f5ecc1592501b388b85933ca2c71b7eedc1e Mon Sep 17 00:00:00 2001
+From 888a8190587684a3fc9180c1c11cf8efae5ac764 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 07:27:41 +0200
 Subject: [PATCH] ex7, ex8: fixes of an independent review of the direct solver
@@ -56,7 +56,7 @@ index e1c8f8d..61867cb 100755
    add_test(NAME ${test}-petsc
             COMMAND mox2 ${mox2_test_options}
 diff --git a/ex7/MixedOxideFuels.cxx b/ex7/MixedOxideFuels.cxx
-index 07176d0..43bf666 100644
+index d9a1ba3..ff44c1e 100644
 --- a/ex7/MixedOxideFuels.cxx
 +++ b/ex7/MixedOxideFuels.cxx
 @@ -121,6 +121,42 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -240,7 +240,7 @@ index 55af98b..662079f 100644
  The results are exported for ParaView:
  
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index 9d8f854..b280db7 100644
+index b11e466..f71fd73 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -52,7 +52,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -306,7 +306,7 @@ index 9d8f854..b280db7 100644
           mfem_mgis::Parameters{
               {"GMRESSolver",
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index 0509a14..7ca5107 100644
+index 611da5a..fc73602 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -36,14 +36,14 @@ struct TestParameters {

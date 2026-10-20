@@ -78,7 +78,7 @@ namespace mfem_mgis {
     // Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>
 #endif
     const auto nnodes = e.GetDof();
-    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
     auto F0 = std::array<real, gsize>{};
     std::copy(this->macroscopic_gradients.begin(),
               this->macroscopic_gradients.end(), F0.begin());
@@ -255,7 +255,7 @@ namespace mfem_mgis {
   Faltus2026RegularizedIsotropicBehaviourIntegrator<
       H>::getAdditionalIntegrationRulesForKernels() const {
     const auto* const r0 =
-        batch::getElementsCenterIntegrationRule(*(this->quadrature_space));
+        batch::getElementsCenterIntegrationRule(this->quadrature_space);
     if (r0 == nullptr) {
       return {};
     }
@@ -278,7 +278,7 @@ namespace mfem_mgis {
       return true;
     }
     const auto p0 = g.find(
-        batch::getElementsCenterIntegrationRule(*(this->quadrature_space)));
+        batch::getElementsCenterIntegrationRule(this->quadrature_space));
     if (p0 == g.end()) {
       return ctx.registerErrorMessage(
           std::string{name} +
@@ -342,7 +342,7 @@ namespace mfem_mgis {
     const auto gsize = static_cast<std::int64_t>(this->s1.gradients_stride);
     if ((this->faltus_data.valid) &&
         (static_cast<std::int64_t>(this->faltus_data.centers.Size()) !=
-         gsize * this->quadrature_space->getNumberOfElements())) {
+         gsize * this->quadrature_space.getNumberOfElements())) {
       // before the first computation of the gradients (prediction of the
       // first time step): null unknowns
       if (!batch::computeFaltusCenters(ctx, this->faltus_data, *this, nullptr,
@@ -374,7 +374,7 @@ namespace mfem_mgis {
     if (data.rule == nullptr) {
       return true;
     }
-    return batch::addFaltusStiffnessMatrices(ctx, m, *(this->quadrature_space),
+    return batch::addFaltusStiffnessMatrices(ctx, m, this->quadrature_space,
                                              this->alpha, *(data.geometry), *g0,
                                              data.kind);
   }  // end of addStiffnessMatricesByKernels
@@ -398,7 +398,7 @@ namespace mfem_mgis {
     if (data.rule == nullptr) {
       return true;
     }
-    return batch::addFaltusStiffnessMatrices(ctx, m, *(this->quadrature_space),
+    return batch::addFaltusStiffnessMatrices(ctx, m, this->quadrature_space,
                                              this->alpha, *(data.geometry), *g0,
                                              data.kind);
   }  // end of addStiffnessMatricesByKernels
@@ -424,7 +424,7 @@ namespace mfem_mgis {
       return true;
     }
     return batch::addFaltusTangentOperatorAction(
-        ctx, y, *(this->quadrature_space), x, this->alpha, *(data.geometry),
+        ctx, y, this->quadrature_space, x, this->alpha, *(data.geometry),
         *g0, data.kind);
   }  // end of addTangentOperatorActionByKernels
 
@@ -448,7 +448,7 @@ namespace mfem_mgis {
       return true;
     }
     return batch::addFaltusStiffnessMatricesDiagonals(
-        ctx, d, *(this->quadrature_space), this->alpha, *(data.geometry), *g0,
+        ctx, d, this->quadrature_space, this->alpha, *(data.geometry), *g0,
         data.kind);
   }  // end of addTangentOperatorDiagonalByKernels
 
@@ -473,7 +473,7 @@ namespace mfem_mgis {
       return true;
     }
     return batch::addFaltusStiffnessMatricesNodalBlocks(
-        ctx, b, *(this->quadrature_space), this->alpha, *(data.geometry), *g0,
+        ctx, b, this->quadrature_space, this->alpha, *(data.geometry), *g0,
         data.kind);
   }  // end of addTangentOperatorNodalBlocksByKernels
 

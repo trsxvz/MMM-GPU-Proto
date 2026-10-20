@@ -1,0 +1,57 @@
+From 1094e7455ff8fd8e0152b351f2dac92896f7ed16 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:36:00 +0200
+Subject: [PATCH] Messages and installation fixed
+
+- tfel.cmake: the message listing the supported C++ compilers cites acpp.
+- LogarithmicStrainIntegrate.hxx and GreenLagrangeStrainIntegrate.hxx: missing space in the message about the axial strain.
+- The headers CUDABackend.hxx, HIPBackend.hxx, ParallelSTLBackend.hxx and SYCLBackend.hxx of the generic-parallel material properties are installed, as the other backends.
+- DDIF2: the message about the constant components of the fracture stresses and energies describes the actual rule (the first component decides).
+---
+ .../MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx    | 2 +-
+ .../MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx      | 2 +-
+ mfront/src/DDIF2StressPotential.cxx                             | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+index 1c181b548..c57929947 100644
+--- a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+@@ -85,7 +85,7 @@ namespace mfront::gb::green_lagrange_strain {
+           }
+         } else {
+           reportError(d,
+-                      "The behaviour does not declare the axial strain"
++                      "The behaviour does not declare the axial strain "
+                       "as an internal state variable");
+           return false;
+         }
+diff --git a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
+index 902bb7a62..68583b988 100644
+--- a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
+@@ -79,7 +79,7 @@ namespace mfront::gb::logarithmic_strain {
+               std::exp(isvs[Traits::axial_strain_offset]));
+         } else {
+           reportError(d,
+-                      "The behaviour does not declare the axial strain"
++                      "The behaviour does not declare the axial strain "
+                       "as an internal state variable");
+           return false;
+         }
+diff --git a/mfront/src/DDIF2StressPotential.cxx b/mfront/src/DDIF2StressPotential.cxx
+index 14c4ee624..f2544f4cc 100644
+--- a/mfront/src/DDIF2StressPotential.cxx
++++ b/mfront/src/DDIF2StressPotential.cxx
+@@ -89,7 +89,7 @@ namespace mfront::bbrick {
+         std::vector<double> values(3u);
+         for (unsigned short i = 0; i != 3; ++i) {
+           tfel::raise_if(!mps[i].is<ConstantMaterialProperty>(),
+-                         "if one  component of '" + an +
++                         "if the first component of '" + an +
+                              "' is a constant value, all components must be "
+                              "constant values");
+           if (b) {
+-- 
+2.43.0
+

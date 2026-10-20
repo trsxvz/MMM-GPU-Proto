@@ -1,0 +1,203 @@
+From 7c8efe5f288d1afc08c851ffb7b1d063c72e8fc9 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 15:58:50 +0200
+Subject: [PATCH] generic-parallel: version of the data structures exported by
+ the libraries
+
+`MFRONT_GPB_API_VERSION`, defined in
+`MFront/GenericParallelBehaviour/BatchData.h`, gives the version of the
+data structures exchanged with the generated functions. The libraries of
+behaviours and models export it (`<name>_generic_parallel_api_version`),
+so that the calling code can check that it uses the same structures. The
+backend writes this symbol and the name of the backend for both
+interfaces.
+
+The documentation explains why the error messages of the points are not
+reported, and how to obtain them with the `generic` interface.
+---
+ .../generic-parallel-behaviour-interface.md   | 14 +++++++++-
+ .../Behaviour/AbstractBackend.hxx             | 10 +++++++
+ .../GenericParallelBehaviour/BatchData.h      |  7 +++++
+ .../Behaviour/AbstractBackend.cxx             | 10 +++++++
+ .../src/GenericParallelBehaviourInterface.cxx |  5 +---
+ mfront/src/GenericParallelModelInterface.cxx  |  5 +---
+ .../behaviours/generic-parallel/compare.cxx   | 28 +++++++++++++++++++
+ 7 files changed, 70 insertions(+), 9 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index b64c573e5..1b639e4cb 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -107,7 +107,11 @@ which tells the calling code where the fields must be allocated (see the
+ section of each backend).
+ 
+ The data structures are declared in
+-`MFront/GenericParallelBehaviour/BatchData.h`.
++`MFront/GenericParallelBehaviour/BatchData.h`. Their version is given by the
++`MFRONT_GPB_API_VERSION` macro, incremented at each incompatible change, and
++exported by the libraries (`generic_parallel_api_version` symbol, an
++`unsigned short`), so that the calling code can check that it uses the same
++structures.
+ 
+ ## Fields
+ 
+@@ -225,6 +229,14 @@ The status, also returned by the function, is:
+ - `-3` in case of a runtime error of the backend (allocation, launch of a
+   kernel, etc.).
+ 
++The message describes invalid arguments and runtime errors. The error
++messages of the points (`error_message` of the `generic` interface) are not
++reported: the code executed on a device can't throw exceptions, and a
++buffer per point would increase the stack of the threads. The `statuses`
++field locates the points where the integration failed: the error message of
++such a point can be obtained by integrating it with the `generic`
++interface.
++
+ ## Execution options
+ 
+ ~~~~{.cxx}
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
+index 1eae8526d..0987efff7 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
+@@ -43,6 +43,16 @@ namespace mfront::generic_parallel::behaviour {
+      * \param[out] os: output stream
+      */
+     virtual void writeSpecificIncludes(std::ostream&) const = 0;
++    /*!
++     * \brief write the symbols describing the generated library: name of
++     * the backend (`<f>_generic_parallel_backend`), which tells the calling
++     * code where the fields must be allocated, and version of the data
++     * structures exchanged with the generated functions
++     * (`<f>_generic_parallel_api_version`, see `MFRONT_GPB_API_VERSION`)
++     * \param[out] os: output stream
++     * \param[in] f: basis of the names of the symbols
++     */
++    void writeSymbols(std::ostream&, std::string_view) const;
+     /*!
+      * \return an expression building the primitive of the backend (see the
+      * `makeApply` functions of the `MFront/GenericParallelBehaviour`
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+index a80e41914..4aff20a6a 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
++++ b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+@@ -17,6 +17,13 @@
+ #include <string.h>
+ #include "MFront/GenericBehaviour/Types.h"
+ 
++/*!
++ * \brief version of the data structures declared in this file, exported by
++ * the generated libraries (`<name>_generic_parallel_api_version` symbol).
++ * It is incremented at each incompatible change of those structures.
++ */
++#define MFRONT_GPB_API_VERSION 1
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif /* __cplusplus */
+diff --git a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+index a41f5e235..db8b8949e 100644
+--- a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+@@ -11,10 +11,20 @@
+  */
+ 
+ #include <ostream>
++#include "MFront/CodeGeneratorUtilities.hxx"
+ #include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
+ 
+ namespace mfront::generic_parallel::behaviour {
+ 
++  void AbstractBackend::writeSymbols(std::ostream& os,
++                                     const std::string_view f) const {
++    const auto n = std::string{f} + "_generic_parallel_";
++    exportStringSymbol(os, n + "backend", this->getName());
++    // the version is defined in `MFront/GenericParallelBehaviour/BatchData.h`
++    exportSymbol(os, "unsigned short", n + "api_version",
++                 "MFRONT_GPB_API_VERSION");
++  }  // end of writeSymbols
++
+   void AbstractBackend::writeCall(std::ostream& os,
+                                   const std::string_view f,
+                                   const std::string_view template_arguments,
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index 0c7fe1992..36f834081 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -778,10 +778,7 @@ namespace mfront {
+        << "#endif /* __cplusplus */\n\n";
+     GenericBehaviourSymbolsGenerator sg;
+     sg.generateGeneralSymbols(os, *this, bd, fd, mhs, name);
+-    // backend of the library, to select the memory of the fields
+-    os << "MFRONT_EXPORT_SYMBOL(const char*, "
+-       << this->getFunctionNameBasis(name) << "_generic_parallel_backend, \""
+-       << this->backend->getName() << "\");\n\n";
++    this->backend->writeSymbols(os, this->getFunctionNameBasis(name));
+     if (!bd.areAllMechanicalDataSpecialised(mhs)) {
+       const auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
+       sg.generateSymbols(os, *this, bd, fd, name, uh);
+diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
+index b94a11eb3..98c65c358 100644
+--- a/mfront/src/GenericParallelModelInterface.cxx
++++ b/mfront/src/GenericParallelModelInterface.cxx
+@@ -228,10 +228,7 @@ namespace mfront {
+     // points integrate a batch
+     GenericParallelBehaviourInterface bi;
+     sg.generateGeneralSymbols(os, bi, bd, fd, hypotheses, name);
+-    os << "MFRONT_EXPORT_SYMBOL(const char*, "
+-       << bi.getFunctionNameBasis(name) << "_generic_parallel_backend, \""
+-       << this->backend->getName() << "\");\n";
+-    os << '\n';
++    this->backend->writeSymbols(os, bi.getFunctionNameBasis(name));
+     sg.generateSymbols(os, bi, bd, fd, name, uh);
+     if (!md.sources.empty()) {
+       os << md.sources << "\n\n";
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index e353dd5e4..3b897fd0f 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -307,6 +307,33 @@ static void* load(const std::string& lib, const std::string& f) {
+   return s;
+ }
+ 
++/*!
++ * \brief check that the version of the data structures exported by the
++ * library is the one of `MFront/GenericParallelBehaviour/BatchData.h`
++ * \param[in] lib: library
++ * \param[in] f: tested function, whose name starts with the name of the
++ * behaviour followed by the modelling hypothesis
++ */
++static void checkVersion(const std::string& lib, const std::string& f) {
++  for (const auto* const h :
++       {"_AxisymmetricalGeneralisedPlaneStrain",
++        "_AxisymmetricalGeneralisedPlaneStress", "_Axisymmetrical",
++        "_GeneralisedPlaneStrain", "_PlaneStrain", "_PlaneStress",
++        "_Tridimensional"}) {
++    const auto p = f.find(h);
++    if (p == std::string::npos) {
++      continue;
++    }
++    const auto* const v = static_cast<const unsigned short*>(
++        load(lib, f.substr(0, p) + "_generic_parallel_api_version"));
++    if (*v != MFRONT_GPB_API_VERSION) {
++      fail("invalid version of the data structures in library '" + lib + "'");
++    }
++    return;
++  }
++  fail("no modelling hypothesis in the name of the function '" + f + "'");
++}
++
+ /*!
+  * \brief call the given function at each point with the behaviour data of
+  * the `generic` interface
+@@ -1170,6 +1197,7 @@ int main(const int argc, const char* const* const argv) {
+          "[--rotation=number_of_values]");
+   }
+   [[maybe_unused]] const auto runtime = Runtime{};
++  checkVersion(argv[2], argv[3]);
+   const auto s =
+       Sizes{std::stoul(argv[4]), std::stoul(argv[5]), std::stoul(argv[6]),
+             std::stoul(argv[7]), std::stoul(argv[8]), std::stoul(argv[9])};
+-- 
+2.43.0
+

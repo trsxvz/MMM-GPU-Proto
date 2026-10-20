@@ -1,4 +1,4 @@
-From 8b207f9d5b7e0a33b0c49983fb650b595edea59f Mon Sep 17 00:00:00 2001
+From 8d65dd77a4572e67a0953dfada5ddd3591da283e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:10:47 +0200
 Subject: [PATCH] Newton: relative tolerance of the linear solver adapted to
@@ -1060,10 +1060,10 @@ index 0000000000..1eec8e10dc
 +  return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 +}  // end of main
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 5ced95ef3b..7a33f4e449 100644
+index 4cdab8b522..c9cdf841a2 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -868,6 +868,18 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -871,6 +871,18 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
    endif()
  

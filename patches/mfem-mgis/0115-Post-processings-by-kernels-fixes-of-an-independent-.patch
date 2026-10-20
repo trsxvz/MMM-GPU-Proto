@@ -1,4 +1,4 @@
-From e850376b80064730847deb91e98e6fc4f1005c2c Mon Sep 17 00:00:00 2001
+From 8229da270fdf28998aea855073d43f6f2eaa6e55 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 21:06:44 +0200
 Subject: [PATCH] Post-processings by kernels: fixes of an independent review
@@ -180,7 +180,7 @@ index f611d8b873..73ed0471af 100644
  }  // end of namespace mfem_mgis::batch
  
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index 9c017403a5..49e7a5d9e7 100644
+index 0d2dfdf50d..d0885f6b88 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -164,8 +164,10 @@ namespace mfem_mgis {
@@ -563,7 +563,7 @@ index f034217a5d..9816f7c29d 100644
      if (this->use_petsc) {
        if (petscrc_file == nullptr) {
 diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
-index 2789255be7..4591d7ec9c 100644
+index 6809491ec5..d6f9478e89 100644
 --- a/src/L2Projection.cxx
 +++ b/src/L2Projection.cxx
 @@ -12,6 +12,9 @@
@@ -714,10 +714,10 @@ index 2789255be7..4591d7ec9c 100644
        a.AddDomainIntegrator(new mfem::MassIntegrator);
      }
 diff --git a/src/PartialQuadratureFunction.cxx b/src/PartialQuadratureFunction.cxx
-index 5745ccce36..541f5201c5 100644
+index 67d8f493ef..d28cc6cf87 100644
 --- a/src/PartialQuadratureFunction.cxx
 +++ b/src/PartialQuadratureFunction.cxx
-@@ -1391,9 +1391,11 @@ namespace mfem_mgis {
+@@ -1352,9 +1352,11 @@ namespace mfem_mgis {
     *
     * The kernels are used if the post-processings are computed by kernels
     * (see `internals::usePostProcessingsKernels`), for a conforming mesh and
@@ -732,7 +732,7 @@ index 5745ccce36..541f5201c5 100644
     * In parallel, the decision is made by all the processes, before any
     * exchange between them.
     * \return true if the grid function is updated, false if the kernels can't
-@@ -1418,17 +1420,23 @@ namespace mfem_mgis {
+@@ -1379,17 +1381,23 @@ namespace mfem_mgis {
      auto values = std::vector<mfem::Vector>(fcts.size());
      const mfem::IntegrationRule* mass_rule = nullptr;
      const auto ok = [&]() -> bool {
@@ -761,10 +761,10 @@ index 5745ccce36..541f5201c5 100644
        mass_rule =
            &(mfem::IntRules.Get(fe.GetGeomType(), 2 * fe.GetOrder() + ow));
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index a95b94d527..1657cd0bb1 100644
+index 72458aace2..412cd81085 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -649,6 +649,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -652,6 +652,13 @@ if(MFEM_MGIS_HAVE_TFEL)
    add_post_processings_kernels_test(hexahedra cube_2mat_per.mesh Tridimensional)
    add_post_processings_kernels_test(tetrahedra beam-tet.mesh Tridimensional)
    add_post_processings_kernels_test(quadrangles bar.msh PlaneStrain)
@@ -779,7 +779,7 @@ index a95b94d527..1657cd0bb1 100644
    # ImplicitGradientRegularizationTest executable
    add_test_executable(ImplicitGradientRegularizationTest)
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index 768d355d23..2301541b26 100644
+index ab1d915373..1e86eefdac 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -10,6 +10,7 @@

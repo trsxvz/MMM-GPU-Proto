@@ -1,4 +1,4 @@
-From 5ef2cc8632dad74ff08aeb34098be02f2e42e9df Mon Sep 17 00:00:00 2001
+From b33e2ad4ca381dcd92863680a2e7d55889ed3604 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 19:43:04 +0200
 Subject: [PATCH] Refuse the Elasticity strategy of BoomerAMG without rigid
@@ -32,7 +32,7 @@ index 5c6c688323..6fa88ab32f 100644
  +--------------------------------+---------------------------------------------------------------------------------------------------------------+
  | ``VerbosityLevel``             | Define the verbosity of the solver. [int: 0,1]                                                                |
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index b555735006..b88d45413e 100644
+index ffb2cecc21..98984368f0 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -180,7 +180,9 @@ options: truncation of the interpolation, aggressive coarsening, size of

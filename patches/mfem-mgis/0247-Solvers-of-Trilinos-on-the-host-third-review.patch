@@ -1,4 +1,4 @@
-From af0069e8f025f5d1f7f8ab1717a3ee99c414a638 Mon Sep 17 00:00:00 2001
+From 81dbc451ec7f9f3dfd631677f4a2b7a490f949c7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 06:36:53 +0200
 Subject: [PATCH] Solvers of Trilinos on the host, third review

@@ -1,4 +1,4 @@
-From f1abb48482342b3af45dc111387bfd253e2bf623 Mon Sep 17 00:00:00 2001
+From 27175240ca9e642a42067d17338280d039461714 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:25:29 +0200
 Subject: [PATCH] Bubble pressure unit, number of the generated vectors
@@ -29,7 +29,7 @@ index d49d78b..d9240c2 100644
  
  The options of `mfem-mgis` are also accepted, for instance `--execution gpu`
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 3be825d..42058fb 100644
+index 63a4b2f..5ac0b84 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -229,7 +229,8 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {

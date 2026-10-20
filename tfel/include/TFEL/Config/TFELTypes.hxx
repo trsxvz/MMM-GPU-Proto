@@ -2,7 +2,7 @@
  * \file   include/TFEL/Config/TFELTypes.hxx
  * \brief  This file implements the Types class
  * \author Thomas Helfer
- * \date   08 Aug 2006
+ * \date 08/08/2006
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -50,6 +50,8 @@ namespace tfel::config {
                        T>;
     using viscouscompliance =
         tfel::math::qt<tfel::math::unit::StandardUnit<-1, 1, 1, 0, 0, 0, 0>, T>;
+    using squared_compliance =
+        tfel::math::qt<tfel::math::unit::StandardUnit<-2, 2, 4, 0, 0, 0, 0>, T>;
     using stressrate = tfel::math::qt<tfel::math::unit::StressRate, T>;
     using temperature = tfel::math::qt<tfel::math::unit::Temperature, T>;
     using thermalexpansion =
@@ -80,6 +82,7 @@ namespace tfel::config {
     using force = T;
     using stress = T;
     using compliance = T;
+    using squared_compliance = T;
     using viscosity = T;
     using viscouscompliance = T;
     using stressrate = T;
@@ -98,7 +101,7 @@ namespace tfel::config {
    * \param typename T, numerical type, double by default.
    * \param bool use_quantities, says if one shall use quantities.
    * \author Thomas Helfer
-   * \date   08 Aug 2006
+   * \date 08/08/2006
    */
   template <unsigned short N, typename T = double, bool use_quantities = true>
   struct Types : ScalarTypes<T, true> {

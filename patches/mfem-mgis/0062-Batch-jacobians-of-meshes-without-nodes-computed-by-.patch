@@ -1,4 +1,4 @@
-From 6da7638434d63dd6ae996391d4af8d3b5ac45ac8 Mon Sep 17 00:00:00 2001
+From a7844d9ad185cee25e6d6344650d3c646058d67f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 06:15:50 +0200
 Subject: [PATCH] Batch: jacobians of meshes without nodes computed by a kernel
@@ -490,10 +490,10 @@ index 4358faba84..a092f6790e 100644
    message(STATUS "mfem-mgis: MFEM compiled with HIP, the sources containing "
            "kernels of MFEM are not compiled (${MFEMMGIS_DEVICE_SOURCES})")
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 5dba929e1e..59731a35e9 100644
+index f58f453f73..0400686baf 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1047,6 +1047,23 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
+@@ -1050,6 +1050,23 @@ if(NOT MFEM_USE_HIP STREQUAL "YES")
    endif()
  endif()
  

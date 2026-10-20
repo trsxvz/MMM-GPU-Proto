@@ -1,4 +1,4 @@
-From e127b5260c1e9898147557799d34340a0299dc9c Mon Sep 17 00:00:00 2001
+From d7c5d02b5bfa26289037839048f29be708605323 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:24:49 +0200
 Subject: [PATCH] Add the preconditioner of MUMPS
@@ -52,7 +52,7 @@ index d39845b52c..994b5cb770 100644
       - PETSc
       - host
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index da9258d994..fe3a3267a6 100644
+index 0dabdc084b..a312e5a32e 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -226,7 +226,8 @@ the diagonal block of each process in parallel, as well as the

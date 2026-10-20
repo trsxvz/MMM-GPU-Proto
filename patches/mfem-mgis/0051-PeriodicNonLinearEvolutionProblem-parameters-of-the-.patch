@@ -1,4 +1,4 @@
-From e7f3737076fd5545c951c11d20bccfc1216aa92f Mon Sep 17 00:00:00 2001
+From 8c987dbc2d006cab49390ac756f85cde890733f8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:35:31 +0200
 Subject: [PATCH] PeriodicNonLinearEvolutionProblem: parameters of the problem
@@ -6,32 +6,35 @@ Subject: [PATCH] PeriodicNonLinearEvolutionProblem: parameters of the problem
 The constructors take the parameters of the non linear evolution problem
 (for instance NonLinearSolver), forwarded to NonLinearEvolutionProblem.
 ---
- include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx | 10 ++++++++--
- src/PeriodicNonLinearEvolutionProblem.cxx              | 10 ++++++----
- 2 files changed, 14 insertions(+), 6 deletions(-)
+ .../PeriodicNonLinearEvolutionProblem.hxx       | 17 ++++++++++++-----
+ src/PeriodicNonLinearEvolutionProblem.cxx       | 10 ++++++----
+ 2 files changed, 18 insertions(+), 9 deletions(-)
 
 diff --git a/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx b/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx
-index ee46fff936..df98a8d5f8 100644
+index af519eca6b..7859b90378 100644
 --- a/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx
 +++ b/include/MFEMMGIS/PeriodicNonLinearEvolutionProblem.hxx
-@@ -113,12 +113,15 @@ namespace mfem_mgis {
+@@ -113,11 +113,15 @@ namespace mfem_mgis {
       * \param[in] fed: finite element discretization
       * \param[in] corner1: one corner of the computation domain
       * \param[in] corner2: second corner of the computation domain
 +     * \param[in] p: parameters of the non linear evolution problem (see
 +     * `NonLinearEvolutionProblem`), for instance `NonLinearSolver`
       */
-     PeriodicNonLinearEvolutionProblem(
-         mgis::Context& ctx,
-         std::shared_ptr<FiniteElementDiscretization> fed,
-         const std::span<const real>& corner1,
--        const std::span<const real>& corner2);
+-    PeriodicNonLinearEvolutionProblem(mgis::Context& ctx,
+-                                      const FiniteElementDiscretization& fed,
+-                                      const std::span<const real>& corner1,
+-                                      const std::span<const real>& corner2);
++    PeriodicNonLinearEvolutionProblem(
++        mgis::Context& ctx,
++        const FiniteElementDiscretization& fed,
++        const std::span<const real>& corner1,
 +        const std::span<const real>& corner2,
 +        const Parameters& p = Parameters());
  
      /*!
       * \brief constructor with profiling support
-@@ -126,11 +129,14 @@ namespace mfem_mgis {
+@@ -125,11 +129,14 @@ namespace mfem_mgis {
       * \param[in] fed: finite element discretization
       * \param[in] bct: impose the zero value on displacement field at xmin, or
       * ymin, or zmin
@@ -40,7 +43,7 @@ index ee46fff936..df98a8d5f8 100644
       */
      PeriodicNonLinearEvolutionProblem(
          mgis::Context& ctx,
-         std::shared_ptr<FiniteElementDiscretization> fed,
+         const FiniteElementDiscretization& fed,
 -        const mfem_mgis::BoundaryConditionType bct = mfem_mgis::FIX_XMIN);
 +        const mfem_mgis::BoundaryConditionType bct = mfem_mgis::FIX_XMIN,
 +        const Parameters& p = Parameters());
@@ -48,12 +51,12 @@ index ee46fff936..df98a8d5f8 100644
      PeriodicNonLinearEvolutionProblem(
          PeriodicNonLinearEvolutionProblem&&) noexcept = default;
 diff --git a/src/PeriodicNonLinearEvolutionProblem.cxx b/src/PeriodicNonLinearEvolutionProblem.cxx
-index 0bd0c9e7a3..88c6563989 100644
+index 95ed1a43d9..31b092d67f 100644
 --- a/src/PeriodicNonLinearEvolutionProblem.cxx
 +++ b/src/PeriodicNonLinearEvolutionProblem.cxx
 @@ -295,9 +295,10 @@ namespace mfem_mgis {
        mgis::Context& ctx,
-       std::shared_ptr<FiniteElementDiscretization> fed,
+       const FiniteElementDiscretization& fed,
        const std::span<const real>& corner1,
 -      const std::span<const real>& corner2)
 +      const std::span<const real>& corner2,
@@ -62,12 +65,12 @@ index 0bd0c9e7a3..88c6563989 100644
 -            ctx, fed, mgis::behaviour::Hypothesis::TRIDIMENSIONAL) {
 +            ctx, fed, mgis::behaviour::Hypothesis::TRIDIMENSIONAL, p) {
      CatchTimeSection(ctx, "PeriodicNonLinEvPB::constructor_with_corners");
-     if (fed->describesAParallelComputation()) {
+     if (fed.describesAParallelComputation()) {
  #ifdef MFEM_USE_MPI
 @@ -317,9 +318,10 @@ namespace mfem_mgis {
    PeriodicNonLinearEvolutionProblem::PeriodicNonLinearEvolutionProblem(
        mgis::Context& ctx,
-       std::shared_ptr<FiniteElementDiscretization> fed,
+       const FiniteElementDiscretization& fed,
 -      const mfem_mgis::BoundaryConditionType bct)
 +      const mfem_mgis::BoundaryConditionType bct,
 +      const Parameters& p)
@@ -75,7 +78,7 @@ index 0bd0c9e7a3..88c6563989 100644
 -            ctx, fed, mgis::behaviour::Hypothesis::TRIDIMENSIONAL) {
 +            ctx, fed, mgis::behaviour::Hypothesis::TRIDIMENSIONAL, p) {
      CatchTimeSection(ctx, "PeriodicNonLinEvPB::constructor_with_bct");
-     if (fed->describesAParallelComputation()) {
+     if (fed.describesAParallelComputation()) {
  #ifdef MFEM_USE_MPI
 -- 
 2.43.0

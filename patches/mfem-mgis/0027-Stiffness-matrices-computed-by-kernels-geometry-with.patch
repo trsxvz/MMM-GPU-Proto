@@ -1,4 +1,4 @@
-From cd2f24c6181259213932af681ed9cb20ec934f98 Mon Sep 17 00:00:00 2001
+From 40351f10d9be479e9dc1cf02c943054e6940c161 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 20:13:12 +0200
 Subject: [PATCH] Stiffness matrices computed by kernels, geometry without the
@@ -89,7 +89,7 @@ index 774fb3b732..fe18e2cdfd 100644
  mfem_mgis_header(MFEMMGIS MultiMaterialNonLinearIntegrator.hxx)
  mfem_mgis_header(MFEMMGIS AbstractBehaviourIntegrator.hxx)
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 415ffaba96..2346472b9f 100644
+index 751ca04e07..50d45bcf07 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 @@ -15,6 +15,7 @@
@@ -100,7 +100,7 @@ index 415ffaba96..2346472b9f 100644
  
  namespace mfem_mgis {
  
-@@ -137,9 +138,10 @@ namespace mfem_mgis {
+@@ -134,9 +135,10 @@ namespace mfem_mgis {
       */
      [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
      /*!
@@ -114,7 +114,7 @@ index 415ffaba96..2346472b9f 100644
       * false.
       */
      [[nodiscard]] virtual bool supportsKernels() const noexcept;
-@@ -155,10 +157,14 @@ namespace mfem_mgis {
+@@ -152,10 +154,14 @@ namespace mfem_mgis {
       * \param[in, out] ctx: execution context
       * \param[in] d: derivatives of the unknowns, which must contain the ones
       * of the integration rule of the elements
@@ -130,7 +130,7 @@ index 415ffaba96..2346472b9f 100644
      /*!
       * \brief add the inner forces of all the elements, computed by kernels
       * from the thermodynamic forces at the end of the time step, to values
-@@ -173,6 +179,19 @@ namespace mfem_mgis {
+@@ -170,6 +176,19 @@ namespace mfem_mgis {
       */
      [[nodiscard]] virtual bool addInnerForcesByKernels(
          Context&, mfem::Vector&, const batch::ElementsGeometrySet&) noexcept;
@@ -438,10 +438,10 @@ index 0000000000..63357fdb01
 +
 +#endif /* LIB_MFEM_MGIS_BATCH_STIFFNESSMATRICES_HXX */
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 3d40ef8441..5c7e88ec6a 100644
+index 1d9cefd6e3..15c7cea333 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -166,6 +166,24 @@ namespace mfem_mgis {
+@@ -165,6 +165,24 @@ namespace mfem_mgis {
       * \param[in] b: boolean
       */
      void setInnerForcesComputedByKernels(const bool) noexcept;
@@ -466,7 +466,7 @@ index 3d40ef8441..5c7e88ec6a 100644
      //! \return the current time increment
      [[nodiscard]] real getTimeIncrement() const noexcept;
      /*!
-@@ -319,12 +337,29 @@ namespace mfem_mgis {
+@@ -318,12 +336,29 @@ namespace mfem_mgis {
       * `computeGradientsByKernels`, kept to avoid reallocations)
       */
      batch::UnknownsDerivativesSet unknowns_derivatives;
@@ -498,10 +498,10 @@ index 3d40ef8441..5c7e88ec6a 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
-index 1b1793a8c5..a6b3daf496 100644
+index 63c35fa28b..0998fd4e35 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
-@@ -66,6 +66,11 @@ namespace mfem_mgis {
+@@ -65,6 +65,11 @@ namespace mfem_mgis {
       * \param[out] r: residual
       */
      void Mult(const mfem::Vector& u, mfem::Vector& r) const override;
@@ -513,7 +513,7 @@ index 1b1793a8c5..a6b3daf496 100644
      //
      [[nodiscard]] bool addBoundaryCondition(
          Context& ctx,
-@@ -156,6 +161,11 @@ namespace mfem_mgis {
+@@ -154,6 +159,11 @@ namespace mfem_mgis {
       * \param[out] r: residual
       */
      void Mult(const mfem::Vector& u, mfem::Vector& r) const override;
@@ -526,10 +526,10 @@ index 1b1793a8c5..a6b3daf496 100644
      [[nodiscard]] bool addBoundaryCondition(
          Context& ctx,
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index 1a8bd2cf40..aa9617715a 100644
+index 1fec9fa1cd..04cdbd6880 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -91,6 +91,18 @@ namespace mfem_mgis {
+@@ -92,6 +92,18 @@ namespace mfem_mgis {
       * `MFEM_MGIS_INNER_FORCES_COMPUTATION`, if defined.
       */
      static const char* const InnerForcesComputation;
@@ -548,7 +548,7 @@ index 1a8bd2cf40..aa9617715a 100644
      //! \return the list of valid parameters
      static std::vector<std::string> getParametersList();
      /*!
-@@ -316,6 +328,11 @@ namespace mfem_mgis {
+@@ -313,6 +325,11 @@ namespace mfem_mgis {
      const bool gradients_kernels;
      //! \brief if true, the inner forces are computed by kernels
      const bool inner_forces_kernels;
@@ -561,7 +561,7 @@ index 1a8bd2cf40..aa9617715a 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
-index 6ef4b64fda..f643a58bb9 100644
+index f42d1e2acc..9f964c5af4 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 @@ -44,11 +44,17 @@ namespace mfem_mgis {
@@ -584,7 +584,7 @@ index 6ef4b64fda..f643a58bb9 100644
     protected:
      /*!
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index 47de80b032..090652b23c 100644
+index 1ade27a1f3..ad51fbd907 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -243,7 +243,9 @@ namespace mfem_mgis {
@@ -654,7 +654,7 @@ index 47de80b032..090652b23c 100644
 +      const auto s = std::span<const real>(v.Read(use_device),
 +                                           static_cast<std::size_t>(v.Size()));
 +      return batch::addStiffnessMatrices(
-+          ctx, m, *(this->quadrature_space),
++          ctx, m, this->quadrature_space,
 +          mgis::makeFieldView(s, this->getArrays().array_layout,
 +                              static_cast<size_type>(this->n), this->K_stride),
 +          p->second, *k);
@@ -671,7 +671,7 @@ index 47de80b032..090652b23c 100644
    void StandardBehaviourIntegratorCRTPBase<Child>::implementUpdateResidual(
        mfem::Vector &Fe,
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index e74937b537..5826fdb12d 100644
+index 01c4f23081..e51e0cec42 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -43,7 +43,9 @@ namespace mfem_mgis {
@@ -1571,7 +1571,7 @@ index 3f068d25a5..0deced3fdb 100644
  mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
  if(MFEMMGIS_DEVICE_SOURCES)
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index f460b130e1..2f240fef21 100644
+index 364f0395bb..e5b2300838 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
 @@ -5,7 +5,9 @@
@@ -1584,7 +1584,7 @@ index f460b130e1..2f240fef21 100644
  #include <utility>
  #include <algorithm>
  #include <exception>
-@@ -397,9 +399,13 @@ namespace mfem_mgis {
+@@ -396,9 +398,13 @@ namespace mfem_mgis {
          return false;
        }
      }
@@ -1599,7 +1599,7 @@ index f460b130e1..2f240fef21 100644
            return false;
          }
        }
-@@ -411,21 +417,10 @@ namespace mfem_mgis {
+@@ -410,21 +416,10 @@ namespace mfem_mgis {
        Context& ctx,
        const mfem::FiniteElementSpace& fes,
        mfem::Vector& f) noexcept {
@@ -1624,7 +1624,7 @@ index f460b130e1..2f240fef21 100644
        const auto* const restriction =
            fes.GetElementRestriction(mfem::ElementDofOrdering::NATIVE);
        auto& fe = this->inner_forces_element_values;
-@@ -455,6 +450,66 @@ namespace mfem_mgis {
+@@ -454,6 +449,66 @@ namespace mfem_mgis {
      this->inner_forces_computed_by_kernels = b;
    }  // end of setInnerForcesComputedByKernels
  
@@ -1691,14 +1691,14 @@ index f460b130e1..2f240fef21 100644
    void MultiMaterialNonLinearIntegrator::AssembleElementVector(
        const mfem::FiniteElement& e,
        mfem::ElementTransformation& tr,
-@@ -508,6 +563,18 @@ namespace mfem_mgis {
+@@ -507,6 +562,18 @@ namespace mfem_mgis {
        mfem::ElementTransformation& tr,
        const mfem::Vector& U,
        mfem::DenseMatrix& K) {
 +    if (this->stiffness_matrices_computed_by_kernels) {
 +      // matrix computed by `computeStiffnessMatricesByKernels`
 +      const auto ndofs =
-+          e.GetDof() * getNumberOfComponents(*(this->fe_discretization));
++          e.GetDof() * getNumberOfComponents(this->fe_discretization);
 +      K.SetSize(ndofs);
 +      const auto* const m = this->stiffness_matrices.HostRead() +
 +                            static_cast<std::size_t>(ndofs) *
@@ -1711,10 +1711,10 @@ index f460b130e1..2f240fef21 100644
      checkIfBehaviourIntegratorsAreDefined(this->behaviour_integrators,
                                            "AssembleElementGrad", m);
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index bfaa5df5f4..0d7b4cfbe2 100644
+index 07f04d4e24..e6a992a366 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -357,6 +357,21 @@ namespace mfem_mgis {
+@@ -360,6 +360,21 @@ namespace mfem_mgis {
      r.SetSubVector(essential_dofs, real{0});
    }  // end of addInnerForcesComputedByKernels
  
@@ -1736,7 +1736,7 @@ index bfaa5df5f4..0d7b4cfbe2 100644
  #ifdef MFEM_USE_MPI
  
    NonLinearEvolutionProblemImplementation<true>::
-@@ -455,6 +470,16 @@ namespace mfem_mgis {
+@@ -457,6 +472,16 @@ namespace mfem_mgis {
      }
    }  // end of Mult
  
@@ -1753,7 +1753,7 @@ index bfaa5df5f4..0d7b4cfbe2 100644
    bool NonLinearEvolutionProblemImplementation<true>::addBoundaryCondition(
        Context& ctx,
        std::unique_ptr<AbstractDirichletBoundaryCondition> bc) noexcept {
-@@ -726,6 +751,16 @@ namespace mfem_mgis {
+@@ -727,6 +752,16 @@ namespace mfem_mgis {
      }
    }  // end of Mult
  
@@ -1771,7 +1771,7 @@ index bfaa5df5f4..0d7b4cfbe2 100644
        Context& ctx,
        std::unique_ptr<AbstractDirichletBoundaryCondition> bc) noexcept {
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index cb628c799f..581e6fb754 100644
+index 68565ff2ba..ff0e0daf00 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
 @@ -40,16 +40,20 @@ namespace mfem_mgis {
@@ -1802,7 +1802,7 @@ index cb628c799f..581e6fb754 100644
    }  // end of getParametersList
  
    [[nodiscard]] static MultiMaterialNonLinearIntegrator*
-@@ -141,9 +145,18 @@ namespace mfem_mgis {
+@@ -140,9 +144,18 @@ namespace mfem_mgis {
              throwing,
              p,
              NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
@@ -1824,7 +1824,7 @@ index cb628c799f..581e6fb754 100644
      }
      this->u0 = real{0};
      this->u1 = real{0};
-@@ -471,7 +484,8 @@ namespace mfem_mgis {
+@@ -460,7 +473,8 @@ namespace mfem_mgis {
                "BehaviourIntegration set to Batch)");
            return false;
          }
@@ -1834,7 +1834,7 @@ index cb628c799f..581e6fb754 100644
              (!this->mgis_integrator->checkKernelsSupport(ctx))) {
            return false;
          }
-@@ -479,10 +493,11 @@ namespace mfem_mgis {
+@@ -468,10 +482,11 @@ namespace mfem_mgis {
            return false;
          }
        }
@@ -1850,7 +1850,7 @@ index cb628c799f..581e6fb754 100644
        }
        if ((this->batch_integration) && (usePETSc())) {
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index ca03448c35..4acc914302 100644
+index 08a5c91b80..adeb94b68e 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -79,6 +79,11 @@ struct ComputationOptions {

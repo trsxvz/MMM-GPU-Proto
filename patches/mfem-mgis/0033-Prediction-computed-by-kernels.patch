@@ -1,4 +1,4 @@
-From 1d9c4f4e179af5a6ff4124965d7ec89ea710a960 Mon Sep 17 00:00:00 2001
+From e425077f5affc3dfa549f0ab5926b92cdc85a1cf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 22:36:23 +0200
 Subject: [PATCH] Prediction computed by kernels
@@ -33,7 +33,7 @@ Beam (111843 unknowns, 3 steps, 1 process, GPU): 1.81 s instead of
  2 files changed, 287 insertions(+), 148 deletions(-)
 
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index bb56b343c7..350010e113 100644
+index d4f5a8a7e0..139fff7d04 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 @@ -12,6 +12,7 @@
@@ -44,7 +44,7 @@ index bb56b343c7..350010e113 100644
  #ifdef MFEM_USE_PETSC
  #include "mfem/linalg/petsc.hpp"
  #endif /* MFEM_USE_PETSC */
-@@ -338,6 +339,12 @@ namespace mfem_mgis {
+@@ -335,6 +336,12 @@ namespace mfem_mgis {
       * element space), kept between the evaluations of the residual
       */
      mutable mfem::Vector inner_forces_by_kernels;
@@ -58,7 +58,7 @@ index bb56b343c7..350010e113 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 294184b7cc..18f1a9799c 100644
+index 03e62e77a7..2a9c94fdd8 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
 @@ -7,6 +7,7 @@
@@ -245,10 +245,10 @@ index 294184b7cc..18f1a9799c 100644
 -      const bool discardLinearSolverFailure) noexcept {
 +      const bool discardLinearSolverFailure,
 +      const PredictionKernels& kernels) noexcept {
-     auto& fed = p.getFiniteElementDiscretization();
+     auto fed = p.getFiniteElementDiscretization();
      auto& fespace = fed.template getFiniteElementSpace<parallel>();
      const auto& u0 = p.getUnknowns(mfem_mgis::bts);
-@@ -216,27 +373,33 @@ namespace mfem_mgis {
+@@ -219,27 +376,33 @@ namespace mfem_mgis {
      } else {
        u0_local = u0;
      }
@@ -294,7 +294,7 @@ index 294184b7cc..18f1a9799c 100644
      b.Assemble();
      //
      auto A = [] {
-@@ -250,11 +413,18 @@ namespace mfem_mgis {
+@@ -253,11 +416,18 @@ namespace mfem_mgis {
        return mfem::SparseMatrix{};
  #endif /* MFEM_USE_MPI */
      }();
@@ -315,7 +315,7 @@ index 294184b7cc..18f1a9799c 100644
      auto mdu_values = mfem::Vector(fespace.GetTrueVSize());
      mdu_values = 0.0;
      if constexpr (parallel) {
-@@ -272,11 +442,72 @@ namespace mfem_mgis {
+@@ -275,11 +445,72 @@ namespace mfem_mgis {
        mdu->SetFromTrueDofs(mdu_values);
      }
      //
@@ -390,7 +390,7 @@ index 294184b7cc..18f1a9799c 100644
      const auto norm = [&B, &fespace, &essential_dofs] {
        auto r = B;
        auto* const rv = r.HostReadWrite();
-@@ -289,7 +520,7 @@ namespace mfem_mgis {
+@@ -292,7 +523,7 @@ namespace mfem_mgis {
          return std::sqrt(mfem::InnerProduct(r, r));
        }
      }();
@@ -399,7 +399,7 @@ index 294184b7cc..18f1a9799c 100644
      ls.Mult(B, X);
      clearHypreErrors();
      // check for convergence
-@@ -305,7 +536,15 @@ namespace mfem_mgis {
+@@ -308,7 +539,15 @@ namespace mfem_mgis {
          x[i] = mv[i];
        }
      }
@@ -416,7 +416,7 @@ index 294184b7cc..18f1a9799c 100644
      //
      return PredictionResult<parallel>{.mdu = std::move(mdu),
                                        .initial_residual_norm = norm};
-@@ -354,133 +593,6 @@ namespace mfem_mgis {
+@@ -357,133 +596,6 @@ namespace mfem_mgis {
      std::function<void(const real, const real)> f;
    };  // end of struct StdFunctionPostProcessing
  
@@ -550,7 +550,7 @@ index 294184b7cc..18f1a9799c 100644
  #ifdef MFEM_USE_MPI
  
    NonLinearEvolutionProblemImplementation<true>::
-@@ -555,8 +667,18 @@ namespace mfem_mgis {
+@@ -557,8 +669,18 @@ namespace mfem_mgis {
        }
        return false;
      }();
@@ -570,7 +570,7 @@ index 294184b7cc..18f1a9799c 100644
  #pragma message("required ?")
      this->solver->setLinearSolver(*(this->linear_solver));
      if (isInvalid(oresult)) {
-@@ -886,8 +1008,18 @@ namespace mfem_mgis {
+@@ -887,8 +1009,18 @@ namespace mfem_mgis {
        }
        return false;
      }();

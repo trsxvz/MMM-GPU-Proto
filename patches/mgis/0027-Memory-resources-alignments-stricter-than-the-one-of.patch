@@ -1,0 +1,284 @@
+From bdb3b1d184a74d81444652135188fbf9325249b3 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 00:42:39 +0200
+Subject: [PATCH] Memory resources: alignments stricter than the one of the
+ memory
+
+The pools of the standard library request blocks aligned on their size
+from their upstream resource. The managed memory resources of CUDA and
+HIP and the shared space resource of Kokkos refused alignments stricter
+than the one of their memory, so a pool over them failed for blocks of
+more than 256 bytes. Such alignments are now obtained by over-allocation,
+the address of the allocated block being stored before the returned
+address (OverAlignedAllocation.hxx).
+---
+ include/CMakeLists.txt                        |  1 +
+ .../CUDAManagedMemoryResource.hxx             | 22 +++--
+ .../HIPManagedMemoryResource.hxx              | 22 +++--
+ .../KokkosSharedSpaceMemoryResource.hxx       | 23 +++--
+ .../MemoryResources/OverAlignedAllocation.hxx | 89 +++++++++++++++++++
+ 5 files changed, 132 insertions(+), 25 deletions(-)
+ create mode 100644 include/MGIS/MemoryResources/OverAlignedAllocation.hxx
+
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index 7b9388e..7706174 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -56,6 +56,7 @@ mgis_header(MGIS/MemoryResources CUDAManagedMemoryResource.hxx)
+ mgis_header(MGIS/MemoryResources HIPManagedMemoryResource.hxx)
+ mgis_header(MGIS/MemoryResources SYCLSharedMemoryResource.hxx)
+ mgis_header(MGIS/MemoryResources KokkosSharedSpaceMemoryResource.hxx)
++mgis_header(MGIS/MemoryResources OverAlignedAllocation.hxx)
+ mgis_header(MGIS/FieldOperations OpenMPFieldOperations.hxx)
+ mgis_header(MGIS/FieldOperations KokkosFieldOperations.hxx)
+ mgis_header(MGIS/FieldOperations SYCLFieldOperations.hxx)
+diff --git a/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
+index 1b780ac..e6a9861 100644
+--- a/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
++++ b/include/MGIS/MemoryResources/CUDAManagedMemoryResource.hxx
+@@ -18,6 +18,7 @@
+ #include <new>
+ #include <cstddef>
+ #include <memory_resource>
++#include "MGIS/MemoryResources/OverAlignedAllocation.hxx"
+ #include <cuda_runtime_api.h>
+ 
+ namespace mgis::memory_resources {
+@@ -26,7 +27,9 @@ namespace mgis::memory_resources {
+    * \brief memory resource allocating managed memory with the runtime of
+    * CUDA, accessible by the host and by the devices (shared location of
+    * the arrays of a material data manager). The managed memory is aligned
+-   * on 256 bytes: a stricter alignment is refused (`std::bad_alloc`).
++   * on 256 bytes: a stricter alignment, requested for instance by the pools
++   * of the standard library, is obtained by over-allocation (see
++   * `internals::allocateOverAligned`).
+    *
+    * This header is not compiled by `MGIS`: it is compiled by the calling
+    * code, with its own CUDA toolkit.
+@@ -35,16 +38,19 @@ namespace mgis::memory_resources {
+    private:
+     void* do_allocate(const std::size_t s, const std::size_t a) override {
+       // the managed memory is aligned on 256 bytes at least
+-      void* p = nullptr;
+-      if ((a > 256) || (cudaMallocManaged(&p, s) != cudaSuccess)) {
+-        throw std::bad_alloc();
+-      }
+-      return p;
++      return internals::allocateOverAligned(s, a, 256, [](const std::size_t n) {
++        void* p = nullptr;
++        if (cudaMallocManaged(&p, n) != cudaSuccess) {
++          throw std::bad_alloc();
++        }
++        return p;
++      });
+     }
+     void do_deallocate(void* const p,
+                        const std::size_t,
+-                       const std::size_t) override {
+-      static_cast<void>(cudaFree(p));
++                       const std::size_t a) override {
++      internals::deallocateOverAligned(
++          p, a, 256, [](void* const b) { static_cast<void>(cudaFree(b)); });
+     }
+     bool do_is_equal(
+         const std::pmr::memory_resource& r) const noexcept override {
+diff --git a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
+index 58bc56f..58746b3 100644
+--- a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
++++ b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
+@@ -18,6 +18,7 @@
+ #include <new>
+ #include <cstddef>
+ #include <memory_resource>
++#include "MGIS/MemoryResources/OverAlignedAllocation.hxx"
+ #include <hip/hip_runtime_api.h>
+ 
+ namespace mgis::memory_resources {
+@@ -26,7 +27,9 @@ namespace mgis::memory_resources {
+    * \brief memory resource allocating managed memory with the runtime of
+    * HIP, accessible by the host and by the devices (shared location of
+    * the arrays of a material data manager). The managed memory is aligned
+-   * on 256 bytes: a stricter alignment is refused (`std::bad_alloc`).
++   * on 256 bytes: a stricter alignment, requested for instance by the pools
++   * of the standard library, is obtained by over-allocation (see
++   * `internals::allocateOverAligned`).
+    *
+    * This header is not compiled by `MGIS`: it is compiled by the calling
+    * code, with its own HIP toolkit.
+@@ -35,16 +38,19 @@ namespace mgis::memory_resources {
+    private:
+     void* do_allocate(const std::size_t s, const std::size_t a) override {
+       // the managed memory is aligned on 256 bytes at least
+-      void* p = nullptr;
+-      if ((a > 256) || (hipMallocManaged(&p, s) != hipSuccess)) {
+-        throw std::bad_alloc();
+-      }
+-      return p;
++      return internals::allocateOverAligned(s, a, 256, [](const std::size_t n) {
++        void* p = nullptr;
++        if (hipMallocManaged(&p, n) != hipSuccess) {
++          throw std::bad_alloc();
++        }
++        return p;
++      });
+     }
+     void do_deallocate(void* const p,
+                        const std::size_t,
+-                       const std::size_t) override {
+-      static_cast<void>(hipFree(p));
++                       const std::size_t a) override {
++      internals::deallocateOverAligned(
++          p, a, 256, [](void* const b) { static_cast<void>(hipFree(b)); });
+     }
+     bool do_is_equal(
+         const std::pmr::memory_resource& r) const noexcept override {
+diff --git a/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx b/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
+index ff3f025..3fcae1e 100644
+--- a/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
++++ b/include/MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx
+@@ -18,6 +18,7 @@
+ #include <new>
+ #include <cstddef>
+ #include <memory_resource>
++#include "MGIS/MemoryResources/OverAlignedAllocation.hxx"
+ #include <Kokkos_Core.hpp>
+ 
+ namespace mgis::memory_resources {
+@@ -29,7 +30,9 @@ namespace mgis::memory_resources {
+    * initialized, and the allocated memory freed before Kokkos is finalized:
+    * the material data managers using this resource must be destroyed before
+    * the call to `Kokkos::finalize`. An alignment stricter than the one of the
+-   * fundamental types is refused (`std::bad_alloc`).
++   * fundamental types, requested for instance by the pools of the standard
++   * library, is obtained by over-allocation (see
++   * `internals::allocateOverAligned`).
+    *
+    * This header is not compiled by `MGIS`: it is compiled by the calling
+    * code, with its own installation of Kokkos.
+@@ -37,18 +40,20 @@ namespace mgis::memory_resources {
+   struct KokkosSharedSpaceMemoryResource final : std::pmr::memory_resource {
+    private:
+     void* do_allocate(const std::size_t s, const std::size_t a) override {
+-      // the allocations of Kokkos are aligned for the fundamental types
+-      if (a > alignof(std::max_align_t)) {
+-        throw std::bad_alloc();
+-      }
++      // the allocations of Kokkos are aligned for the fundamental types.
+       // kokkos_malloc throws on failure
+-      return Kokkos::kokkos_malloc<Kokkos::SharedSpace>(
+-          "mgis::memory_resources::KokkosSharedSpaceMemoryResource", s);
++      return internals::allocateOverAligned(
++          s, a, alignof(std::max_align_t), [](const std::size_t n) {
++            return Kokkos::kokkos_malloc<Kokkos::SharedSpace>(
++                "mgis::memory_resources::KokkosSharedSpaceMemoryResource", n);
++          });
+     }
+     void do_deallocate(void* const p,
+                        const std::size_t,
+-                       const std::size_t) override {
+-      Kokkos::kokkos_free<Kokkos::SharedSpace>(p);
++                       const std::size_t a) override {
++      internals::deallocateOverAligned(
++          p, a, alignof(std::max_align_t),
++          [](void* const b) { Kokkos::kokkos_free<Kokkos::SharedSpace>(b); });
+     }
+     bool do_is_equal(
+         const std::pmr::memory_resource& r) const noexcept override {
+diff --git a/include/MGIS/MemoryResources/OverAlignedAllocation.hxx b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
+new file mode 100644
+index 0000000..566c4d3
+--- /dev/null
++++ b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
+@@ -0,0 +1,89 @@
++/*!
++ * \file   include/MGIS/MemoryResources/OverAlignedAllocation.hxx
++ * \brief  This file defines functions allocating memory with an alignment
++ * stricter than the one guaranteed by an allocation function, for the
++ * memory resources of the `MGIS/MemoryResources` directory.
++ * \date   09/10/2026
++ * \copyright Use, modification and distribution are subject
++ * to one of the following licences:
++ * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
++ *   file LGPL-3.0.txt)
++ * - CECILL-C,  Version 1.0 (See accompanying files
++ *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
++ */
++
++#ifndef LIB_MGIS_MEMORYRESOURCES_OVERALIGNEDALLOCATION_HXX
++#define LIB_MGIS_MEMORYRESOURCES_OVERALIGNEDALLOCATION_HXX
++
++#include <new>
++#include <limits>
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++
++namespace mgis::memory_resources::internals {
++
++  /*!
++   * \brief allocate memory with the given alignment.
++   *
++   * If the alignment is not stricter than the one guaranteed by the
++   * allocation function, the memory is allocated directly. Otherwise, the
++   * memory is over-allocated and the address of the allocated block is
++   * stored just before the returned address: the memory must be accessible
++   * by the host (managed or shared memory). The pools of memory of the
++   * standard library request blocks aligned on their size: those
++   * allocations are thus required to use such a memory resource as the
++   * upstream resource of a pool.
++   *
++   * \return the allocated memory
++   * \param[in] s: size in bytes
++   * \param[in] a: alignment, a power of two
++   * \param[in] g: alignment guaranteed by the allocation function
++   * \param[in] allocate: function allocating the given number of bytes,
++   * which throws `std::bad_alloc` on failure
++   */
++  template <typename AllocationFunction>
++  void* allocateOverAligned(const std::size_t s,
++                            const std::size_t a,
++                            const std::size_t g,
++                            const AllocationFunction& allocate) {
++    if (a <= g) {
++      return allocate(s);
++    }
++    // room for the address of the allocated block and for the alignment
++    const auto extra = a + sizeof(void*);
++    if (s > std::numeric_limits<std::size_t>::max() - extra) {
++      throw std::bad_alloc();
++    }
++    void* const b = allocate(s + extra);
++    const auto ab = reinterpret_cast<std::uintptr_t>(b);
++    const auto ap = (ab + sizeof(void*) + a - 1) & ~(std::uintptr_t{a} - 1);
++    auto* const p = reinterpret_cast<std::byte*>(ap);
++    std::memcpy(p - sizeof(void*), &b, sizeof(void*));
++    return p;
++  }  // end of allocateOverAligned
++
++  /*!
++   * \brief free memory allocated by `allocateOverAligned`
++   * \param[in] p: allocated memory
++   * \param[in] a: alignment given to `allocateOverAligned`
++   * \param[in] g: alignment guaranteed by the allocation function
++   * \param[in] deallocate: function freeing the allocated block
++   */
++  template <typename DeallocationFunction>
++  void deallocateOverAligned(void* const p,
++                             const std::size_t a,
++                             const std::size_t g,
++                             const DeallocationFunction& deallocate) {
++    if (a <= g) {
++      deallocate(p);
++      return;
++    }
++    void* b = nullptr;
++    std::memcpy(&b, static_cast<std::byte*>(p) - sizeof(void*), sizeof(void*));
++    deallocate(b);
++  }  // end of deallocateOverAligned
++
++}  // end of namespace mgis::memory_resources::internals
++
++#endif /* LIB_MGIS_MEMORYRESOURCES_OVERALIGNEDALLOCATION_HXX */
+-- 
+2.43.0
+

@@ -1,4 +1,4 @@
-From 23f521ead567ae1ae459965d8d168c8a37c7d77f Mon Sep 17 00:00:00 2001
+From e957b7d9d4618a827f27d7964289668385ed5884 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 15:44:06 +0200
 Subject: [PATCH] ex8: option -nlsMc selecting the non linear solver of the
@@ -56,7 +56,7 @@ index 23a810d..a7edfea 100644
  - `u3si2_swelling` compares the swelling model to its exact value under a power ramp (`mtest/Swelling.mtest`);
  - `robin_test` compares the Robin boundary condition to the exact solution of a bar (see `Robin/README.md`).
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index 3d67eb3..ba90d94 100644
+index d562eab..ff8f82b 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -40,6 +40,12 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -123,7 +123,7 @@ index 3d67eb3..ba90d94 100644
    auto& heat_transfer = heat_transfer_model->getProblem();
    auto& mechanics = mechanics_model->getProblem();
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index d3bb235..5c4cc0e 100644
+index 54b8a9e..611e2d5 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -25,6 +25,10 @@ struct TestParameters {

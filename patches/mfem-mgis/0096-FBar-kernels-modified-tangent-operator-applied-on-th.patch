@@ -1,4 +1,4 @@
-From e4162cd0f105601092d8266f79ed3b4b6d5cdbbe Mon Sep 17 00:00:00 2001
+From cdf414231d7c39823d61365c7cfa7f9b8ea46e88 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 08:31:50 +0200
 Subject: [PATCH] FBar kernels: modified tangent operator applied on the fly
@@ -269,7 +269,7 @@ index 237670575f..6cd5350237 100644
  }  // end of namespace mfem_mgis::batch
  
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
-index f02afaceb6..629436ce91 100644
+index c3a6d35320..9ce4796a87 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 @@ -102,6 +102,19 @@ namespace mfem_mgis {
@@ -293,10 +293,10 @@ index f02afaceb6..629436ce91 100644
       * \brief constructor
       * \param[in] s: quadrature space
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-index f6fbae98ed..5f3aa8aad0 100644
+index d6781152ff..24f99585b7 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-@@ -676,6 +676,20 @@ namespace mfem_mgis {
+@@ -675,6 +675,20 @@ namespace mfem_mgis {
      }
    }  // end of prepareFBarTangentOperatorForKernels
  
@@ -317,7 +317,7 @@ index f6fbae98ed..5f3aa8aad0 100644
    template <typename Child, Hypothesis H>
    bool FBarBehaviourIntegratorCRTPBase<Child, H>::addStiffnessMatricesByKernels(
        Context& ctx,
-@@ -689,9 +703,13 @@ namespace mfem_mgis {
+@@ -688,9 +702,13 @@ namespace mfem_mgis {
      if (data.rule == nullptr) {
        return true;
      }
@@ -328,13 +328,13 @@ index f6fbae98ed..5f3aa8aad0 100644
 +        ctx, "addStiffnessMatricesByKernels",
 +        [this, &ctx, &m, &data](const mgis::FieldView<const real>& Kb) {
 +          return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
-+                                                 *(this->quadrature_space), Kb,
++                                                 this->quadrature_space, Kb,
 +                                                 *(data.geometry), data.kind);
 +        });
    }  // end of addStiffnessMatricesByKernels
  
    template <typename Child, Hypothesis H>
-@@ -707,9 +725,13 @@ namespace mfem_mgis {
+@@ -706,9 +724,13 @@ namespace mfem_mgis {
      if (data.rule == nullptr) {
        return true;
      }
@@ -345,13 +345,13 @@ index f6fbae98ed..5f3aa8aad0 100644
 +        ctx, "addStiffnessMatricesByKernels",
 +        [this, &ctx, &m, &data](const mgis::FieldView<const real>& Kb) {
 +          return batch::addFBarStiffnessMatrices(ctx, m, this->fbar_data,
-+                                                 *(this->quadrature_space), Kb,
++                                                 this->quadrature_space, Kb,
 +                                                 *(data.geometry), data.kind);
 +        });
    }  // end of addStiffnessMatricesByKernels
  
    template <typename Child, Hypothesis H>
-@@ -727,9 +749,13 @@ namespace mfem_mgis {
+@@ -726,9 +748,13 @@ namespace mfem_mgis {
      if (data.rule == nullptr) {
        return true;
      }
@@ -362,13 +362,13 @@ index f6fbae98ed..5f3aa8aad0 100644
 +        ctx, "addTangentOperatorActionByKernels",
 +        [this, &ctx, &y, &x, &data](const mgis::FieldView<const real>& Kb) {
 +          return batch::addFBarTangentOperatorAction(
-+              ctx, y, this->fbar_data, *(this->quadrature_space), Kb, x,
++              ctx, y, this->fbar_data, this->quadrature_space, Kb, x,
 +              *(data.geometry), data.kind);
 +        });
    }  // end of addTangentOperatorActionByKernels
  
    template <typename Child, Hypothesis H>
-@@ -746,9 +772,13 @@ namespace mfem_mgis {
+@@ -745,9 +771,13 @@ namespace mfem_mgis {
      if (data.rule == nullptr) {
        return true;
      }
@@ -379,7 +379,7 @@ index f6fbae98ed..5f3aa8aad0 100644
 +        ctx, "addTangentOperatorDiagonalByKernels",
 +        [this, &ctx, &d, &data](const mgis::FieldView<const real>& Kb) {
 +          return batch::addFBarStiffnessMatricesDiagonals(
-+              ctx, d, this->fbar_data, *(this->quadrature_space), Kb,
++              ctx, d, this->fbar_data, this->quadrature_space, Kb,
 +              *(data.geometry), data.kind);
 +        });
    }  // end of addTangentOperatorDiagonalByKernels

@@ -1,4 +1,4 @@
-From a59c0f2c989e262547cb7a626c433217c3567dc0 Mon Sep 17 00:00:00 2001
+From 0cf72d07cf3d00454ac331c76dbeff32f0d52345 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 21:33:15 +0200
 Subject: [PATCH] ex8: symmetry of the matrices of the mechanical problem given
@@ -17,7 +17,7 @@ SymmetricPositiveDefinite, the factorizations take 5.3 s instead of
  3 files changed, 22 insertions(+), 1 deletion(-)
 
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index 1482394..3830586 100644
+index fa57aa7..af78d52 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -52,6 +52,10 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -32,7 +32,7 @@ index 1482394..3830586 100644
                   "Finite element order (polynomial degree).");
    args.AddOption(&p.refinement, "-r", "--refinement",
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index 36b6d4c..c843067 100644
+index d716610..31d6680 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -35,6 +35,9 @@ struct TestParameters {

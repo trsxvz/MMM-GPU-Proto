@@ -1,4 +1,4 @@
-From a97ec750d8e35f4e17331750e094c56c7fc6a42c Mon Sep 17 00:00:00 2001
+From efca0185ba5c872b7318f304bb5fa1725af2ddf8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 10:10:56 +0200
 Subject: [PATCH] Test and document the external packages of PETSc

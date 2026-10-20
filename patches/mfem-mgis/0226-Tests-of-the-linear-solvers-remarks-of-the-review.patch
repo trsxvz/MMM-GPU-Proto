@@ -1,4 +1,4 @@
-From 34a11e86a145f2488b3d71bebc1bc8528880386c Mon Sep 17 00:00:00 2001
+From b9fce43e47e09322e85715cc70c1e24cf89a063c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:27:05 +0200
 Subject: [PATCH] Tests of the linear solvers: remarks of the review
@@ -17,10 +17,10 @@ MUMPS.
  3 files changed, 8 insertions(+), 6 deletions(-)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index a37320070f..42a5c34ee2 100644
+index cce18d3d26..9abf6b1bc5 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1872,7 +1872,7 @@ if(MFEM_USE_MPI)
+@@ -1875,7 +1875,7 @@ if(MFEM_USE_MPI)
  endif(MFEM_USE_MPI)
  
  # SparseDirectSolversTest executable: direct solvers of MUMPS, SuperLU_DIST

@@ -1,4 +1,4 @@
-From 006cf1477e8f6131f5d4801ce9b6ad25eb0b643c Mon Sep 17 00:00:00 2001
+From 14654169784f25440ee68257dfb834f2d03031d7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:26:46 +0200
 Subject: [PATCH] Fix the findings of the review of the update on the device
@@ -46,10 +46,10 @@ Subject: [PATCH] Fix the findings of the review of the update on the device
  17 files changed, 250 insertions(+), 57 deletions(-)
 
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 0961cc96b1..8bd7e6f1c4 100644
+index 3368aa5158..5cac1db457 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -38,14 +38,14 @@ namespace mfem_mgis {
+@@ -36,14 +36,14 @@ namespace mfem_mgis {
      /*!
       * \brief revert the state of the material; for a behaviour integrated on
       * the device (see `integratesBatchesOnDevice`), the arrays are copied
@@ -66,7 +66,7 @@ index 0961cc96b1..8bd7e6f1c4 100644
       * `copyStatesOnDevice`)
       */
      void update() override;
-@@ -376,9 +376,12 @@ namespace mfem_mgis {
+@@ -374,9 +374,12 @@ namespace mfem_mgis {
       * density, stored on the host, are updated on the host as by
       * `Material::updateMaterialStates` (see
       * `mgis::behaviour::updateInputValues`). The arrays are then
@@ -118,7 +118,7 @@ index 62fc075124..17a1662c84 100644
     * \param[in] m: mesh discretization
     * \param[in, out] ctx: execution context of the computation
 diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
-index ba1a2d4776..67b00013c7 100644
+index 29501d49b7..47b2b6c95e 100644
 --- a/include/MFEMMGIS/Material.hxx
 +++ b/include/MFEMMGIS/Material.hxx
 @@ -106,7 +106,8 @@ namespace mfem_mgis {
@@ -206,10 +206,10 @@ index 3686ac1d3c..e9ee97fda0 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index 6937c1a8b9..d4e5a9bec2 100644
+index 4e53e7bfee..c696f5f88c 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -107,7 +107,9 @@ namespace mfem_mgis {
+@@ -108,7 +108,9 @@ namespace mfem_mgis {
       * mfem-mgis in the tangent operator: `ElementByElement` (default) or
       * `Kernels` (computed for all the elements by kernels from the tangent
       * operator blocks, on the device if a device is enabled, and assembled
@@ -220,7 +220,7 @@ index 6937c1a8b9..d4e5a9bec2 100644
       * `MatrixFree` (the tangent operator is applied without assembly by
       * kernels, see `MatrixFreeTangentOperator`, the essential degrees of
       * freedom being constrained by `mfem::ConstrainedOperator`: the linear
-@@ -385,6 +387,14 @@ namespace mfem_mgis {
+@@ -382,6 +384,14 @@ namespace mfem_mgis {
       * element space), kept between the evaluations of the residual
       */
      mutable mfem::Vector inner_forces_by_kernels;
@@ -253,7 +253,7 @@ index ea4d188b1f..2ec1a95f31 100644
      [[nodiscard]] std::ostream &getLogStream() const noexcept;
      /*!
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 333527371b..352637bf9a 100644
+index b01a151908..7d6bbe5462 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -7,6 +7,7 @@
@@ -264,7 +264,7 @@ index 333527371b..352637bf9a 100644
  #include <limits>
  #include <utility>
  #include <variant>
-@@ -1247,9 +1248,24 @@ namespace mfem_mgis {
+@@ -1246,9 +1247,24 @@ namespace mfem_mgis {
                            : "BehaviourIntegratorBase::revert: "} +
              ctx.getErrorMessage());
      }
@@ -293,7 +293,7 @@ index 333527371b..352637bf9a 100644
  
    void BehaviourIntegratorBase::revert() {
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index a0f8d9ab99..7c1600a7e0 100644
+index 54cdd7005b..9f5a35a44a 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
 @@ -5,6 +5,8 @@
@@ -305,7 +305,7 @@ index a0f8d9ab99..7c1600a7e0 100644
  #include <utility>
  #include "mfem/linalg/solvers.hpp"
  #include "mfem/linalg/sparsemat.hpp"
-@@ -280,9 +282,19 @@ namespace mfem_mgis {
+@@ -293,9 +295,19 @@ namespace mfem_mgis {
      /*!
       * \brief preconditioner built on the assembled version of an operator
       * applied without assembly (see `AssembledOperatorProvider`), set up
@@ -328,7 +328,7 @@ index a0f8d9ab99..7c1600a7e0 100644
       */
      struct AssembledOperatorPreconditioner final : mfem::Solver {
        /*!
-@@ -298,14 +310,22 @@ namespace mfem_mgis {
+@@ -311,14 +323,22 @@ namespace mfem_mgis {
          const auto* const provider =
              dynamic_cast<const AssembledOperatorProvider*>(&op);
          if (provider == nullptr) {
@@ -355,7 +355,7 @@ index a0f8d9ab99..7c1600a7e0 100644
          }
          ++(this->count);
        }
-@@ -314,12 +334,28 @@ namespace mfem_mgis {
+@@ -327,12 +347,28 @@ namespace mfem_mgis {
        }
  
       private:
@@ -445,10 +445,10 @@ index 9ba7ab99bf..55c54c7118 100644
        ~ConstrainedMatrixFreeTangentOperator() = default;
  
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index d0a0cedca4..c3d62c9537 100644
+index d98b3d8c81..40670d4e52 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -953,7 +953,8 @@ namespace mfem_mgis {
+@@ -952,7 +952,8 @@ namespace mfem_mgis {
    }  // end of synchronizeOnHostForReading
  
    void MultiMaterialNonLinearIntegrator::revert() {
@@ -458,7 +458,7 @@ index d0a0cedca4..c3d62c9537 100644
      for (auto& bis : this->behaviour_integrators) {
        for (auto& bi : bis) {
          bi->revert();
-@@ -962,7 +963,8 @@ namespace mfem_mgis {
+@@ -961,7 +962,8 @@ namespace mfem_mgis {
    }  // end of revert
  
    void MultiMaterialNonLinearIntegrator::update() {
@@ -566,10 +566,10 @@ index 061f98c6d9..b91da35766 100644
      }
      clearHypreErrors();
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 8b57bb7075..343e71233d 100644
+index 32052e1455..ffbf218396 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -729,6 +729,7 @@ namespace mfem_mgis {
+@@ -731,6 +731,7 @@ namespace mfem_mgis {
      // the stiffness matrices are assembled by kernels in the local matrix,
      // then the global matrix is built as by
      // `mfem::ParNonlinearForm::GetGradient`
@@ -577,7 +577,7 @@ index 8b57bb7075..343e71233d 100644
      assembleStiffnessMatrixByKernels(this->getFiniteElementDiscretization(),
                                       *(this->mgis_integrator),
                                       this->getFiniteElementSpace(), this->Grad);
-@@ -1073,6 +1074,7 @@ namespace mfem_mgis {
+@@ -1074,6 +1075,7 @@ namespace mfem_mgis {
  
    mfem::Operator& NonLinearEvolutionProblemImplementation<
        false>::assembleTangentOperatorByKernels() const {
@@ -586,10 +586,10 @@ index 8b57bb7075..343e71233d 100644
                                       *(this->mgis_integrator),
                                       this->getFiniteElementSpace(), this->Grad);
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index 2b66082569..7c9a921786 100644
+index 3ca56a0026..1ec984a688 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -730,7 +730,8 @@ namespace mfem_mgis {
+@@ -719,7 +719,8 @@ namespace mfem_mgis {
        dofs = essential_dofs;
        this->constrained_tangent_operator =
            std::make_unique<ConstrainedMatrixFreeTangentOperator>(
@@ -623,7 +623,7 @@ index 24fbbcd29a..927879b1a3 100644
      if (this->print_level >= 0) {
  #ifdef MFEM_USE_MPI
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index d0643dc3e3..dc2c86cf04 100644
+index f6f320183e..c76d3b5f08 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -107,6 +107,13 @@ struct ComputationOptions {
@@ -640,7 +640,7 @@ index d0643dc3e3..dc2c86cf04 100644
    /*!
     * \brief if true, the gradients of the integration by batches are computed
     * by kernels (parameter `GradientsComputation`)
-@@ -498,7 +505,10 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -503,7 +510,10 @@ static Results compute(mfem_mgis::Context& ctx,
        return r;
      }
      r.iterations.push_back(o.iterations);
@@ -652,10 +652,10 @@ index d0643dc3e3..dc2c86cf04 100644
  #ifdef MFEM_USE_MPI
        if (parallel) {
          checkMatrixFreeDiagonal<true>(problem, name);
-@@ -511,6 +521,15 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -516,6 +526,15 @@ static Results compute(mfem_mgis::Context& ctx,
      }
      problem.update(ctx) | or_die;
-     checkStatesAfterUpdateOrRevert(m, name);
+     checkStatesAfterUpdateOrRevert(m, name, false);
 +    if (opts.write_after_update && (i == 0)) {
 +      // direct write in the state, valid on the host after an update
 +      const auto o = mgis::behaviour::getVariableOffset(
@@ -668,7 +668,7 @@ index d0643dc3e3..dc2c86cf04 100644
      t += dt;
    }
    const auto& u = problem.getUnknowns(ets);
-@@ -1090,6 +1109,15 @@ int main(int argc, char** argv) {
+@@ -1095,6 +1114,15 @@ int main(int argc, char** argv) {
                        .matrix_free = true,
                        .second_material_library = library},
                       ", matrix free, two materials"});
@@ -684,7 +684,7 @@ index d0643dc3e3..dc2c86cf04 100644
      for (const auto& [b, opts, name] : cases) {
        const auto* const m = getMesh(opts);
        auto reference = opts;
-@@ -1143,6 +1171,16 @@ int main(int argc, char** argv) {
+@@ -1148,6 +1176,16 @@ int main(int argc, char** argv) {
      cases.push_back({"IsotropicLinearHardeningThermoPlasticity",
                       {.thermal = true},
                       ", temperature"});

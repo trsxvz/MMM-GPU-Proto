@@ -1,4 +1,4 @@
-From cb5ef82de3b04b613658b63586224398c1d9ff76 Mon Sep 17 00:00:00 2001
+From d32071a110b817df1e8d6f99f2c6857f47e89554 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:31:36 +0200
 Subject: [PATCH] Whole test suite on the GPU: MFEM_MGIS_DEVICE and fixes of
@@ -384,10 +384,10 @@ index cd064a7b52..7267c0a881 100644
  #else  /*  HYPRE_OLD_VERSION */
      return ctx.registerErrorMessage(
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index ae156ee228..ffe374c6ff 100644
+index c5a0056f07..3f34d633b5 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1053,6 +1053,10 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1056,6 +1056,10 @@ if(MFEM_MGIS_HAVE_TFEL)
    if(MFEM_USE_MPI)
      add_test_executable(HypreBoomerAMGTest)
      add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)
@@ -701,7 +701,7 @@ index 773d79c3a1..3862c2d0e3 100644
    const auto scaled = ScaledOperator{wrapped, scaling};
    auto iterations = std::vector<int>{};
 diff --git a/tests/PartialQuadratureFunctionTest.cxx b/tests/PartialQuadratureFunctionTest.cxx
-index e3c7ea956c..4321963e9c 100644
+index e8101d9de7..7e165ebed4 100644
 --- a/tests/PartialQuadratureFunctionTest.cxx
 +++ b/tests/PartialQuadratureFunctionTest.cxx
 @@ -37,6 +37,10 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
@@ -716,7 +716,7 @@ index e3c7ea956c..4321963e9c 100644
    }
  
 diff --git a/tests/TwoLayerCube.cxx b/tests/TwoLayerCube.cxx
-index 8d431df22f..eaf6627b19 100644
+index 0d68cd3533..81fae87813 100644
 --- a/tests/TwoLayerCube.cxx
 +++ b/tests/TwoLayerCube.cxx
 @@ -103,7 +103,11 @@ void (*getSolution(const std::size_t i))(mfem::Vector&, const mfem::Vector&) {

@@ -1,4 +1,4 @@
-From 0195965c93559e716f8c54777f7c9dbafe6fc672 Mon Sep 17 00:00:00 2001
+From 04fcf8f5b659f341b9c38d9e8ca7fef7262ba4bf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 22:00:44 +0200
 Subject: [PATCH] Tests in float: linear solvers, geometry, execution settings
@@ -112,10 +112,10 @@ index 3f2fc630c5..17b53c25c8 100644
    // three iterations with the safeguard of the first choice, η^((1+√5)/2)
    // (Eisenstat and Walker), which does not depend on gamma
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 4d7083dc02..3517aee030 100644
+index 89f75e5538..6eda26826d 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1219,19 +1219,18 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1222,19 +1222,18 @@ if(MFEM_MGIS_HAVE_TFEL)
    endif()
    # IntegrationRuleOrderTest executable: order of the integration rules
    # of the behaviour integrators given by the user, point by point and by
@@ -147,7 +147,7 @@ index 4d7083dc02..3517aee030 100644
    # ExecutionSettingsTest executable: execution settings (option
    # --execution and locations of the phases in the mixed mode), uniaxial
    # tension computed where the settings place each phase, refusal of the
-@@ -1394,10 +1393,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1397,10 +1396,15 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
      # HypreParaSailsTest executable: ParaSails preconditioner given a new
      # operator after the destruction of the previous one, refused when hypre
@@ -232,7 +232,7 @@ index aa51d6a72c..42a079bc53 100644
  }  // end of compare
  
 diff --git a/tests/ExecutionSettingsTest.cxx b/tests/ExecutionSettingsTest.cxx
-index 64b8998297..7154108afa 100644
+index a6ef51902d..e5f79414bc 100644
 --- a/tests/ExecutionSettingsTest.cxx
 +++ b/tests/ExecutionSettingsTest.cxx
 @@ -27,6 +27,7 @@

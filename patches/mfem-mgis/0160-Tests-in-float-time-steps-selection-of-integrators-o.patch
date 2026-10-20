@@ -1,4 +1,4 @@
-From 7f0b3ef650171d2b4a453e190fdbd7f29f36f280 Mon Sep 17 00:00:00 2001
+From 99e8b79f5d4e112284d309b5ce92450889d9d70c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:17:45 +0200
 Subject: [PATCH] Tests in float: time steps, selection of integrators,
@@ -25,7 +25,7 @@ Double unchanged.
  5 files changed, 33 insertions(+), 14 deletions(-)
 
 diff --git a/tests/BehaviourIntegratorsSelectionTest.cxx b/tests/BehaviourIntegratorsSelectionTest.cxx
-index f6e9cd2539..9c75190412 100644
+index 67ae4afb3f..241f9dd03d 100644
 --- a/tests/BehaviourIntegratorsSelectionTest.cxx
 +++ b/tests/BehaviourIntegratorsSelectionTest.cxx
 @@ -15,6 +15,7 @@
@@ -36,8 +36,8 @@ index f6e9cd2539..9c75190412 100644
  
  int main(int argc, char** argv) {
    using namespace mfem_mgis;
-@@ -64,10 +65,14 @@ int main(int argc, char** argv) {
-           or_die) |
+@@ -63,10 +64,14 @@ int main(int argc, char** argv) {
+                or_die) |
        or_die;
    unit_tests::setLinearSolver(may_abort, ctx, problem, params);
 -  problem.setSolverParameters(ctx, {{"VerbosityLevel", 0},
@@ -55,7 +55,7 @@ index f6e9cd2539..9c75190412 100644
        or_die;
    // post-processings using all the behaviour integrators
    for (const auto* const n : {"ComputeResultantForceOnBoundary",
-@@ -111,7 +116,8 @@ int main(int argc, char** argv) {
+@@ -110,7 +115,8 @@ int main(int argc, char** argv) {
    success = !resultant({.index = 2}).has_value() && success;
    success = F0.has_value() && F1.has_value() && Fa.has_value() && success;
    if (success) {
@@ -66,7 +66,7 @@ index f6e9cd2539..9c75190412 100644
                (std::abs(*Fa - (*F0 + *F1)) <= eps) && success;
    }
 diff --git a/tests/FiniteElementSpaceOrderingTest.cxx b/tests/FiniteElementSpaceOrderingTest.cxx
-index 53b1def868..a3de8eee9a 100644
+index 195aa0f565..5acd404402 100644
 --- a/tests/FiniteElementSpaceOrderingTest.cxx
 +++ b/tests/FiniteElementSpaceOrderingTest.cxx
 @@ -26,6 +26,7 @@
@@ -91,7 +91,7 @@ index 53b1def868..a3de8eee9a 100644
        r1.thermodynamic_forces.size() == r2.thermodynamic_forces.size();
    if (success) {
 diff --git a/tests/ImplicitGradientRegularizationTest.cxx b/tests/ImplicitGradientRegularizationTest.cxx
-index 79fb489261..559ea75152 100644
+index efdefdbc15..6f22fef26f 100644
 --- a/tests/ImplicitGradientRegularizationTest.cxx
 +++ b/tests/ImplicitGradientRegularizationTest.cxx
 @@ -15,6 +15,7 @@
@@ -142,7 +142,7 @@ index b4dad4d95f..2e3801a510 100644
      TFEL_TESTS_CHECK(s->run(ctx).first.shallContinue());
      TFEL_TESTS_ASSERT(s->getTimes().size() == 1);
 diff --git a/tests/StationaryNonLinearHeatTransferTest.cxx b/tests/StationaryNonLinearHeatTransferTest.cxx
-index 4b77a57320..dccb233975 100644
+index b14b2eab86..a5d2474174 100644
 --- a/tests/StationaryNonLinearHeatTransferTest.cxx
 +++ b/tests/StationaryNonLinearHeatTransferTest.cxx
 @@ -19,6 +19,7 @@

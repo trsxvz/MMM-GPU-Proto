@@ -1,4 +1,4 @@
-From 1a9eaf242e2af2c6765d37fbc258bf1211f318d9 Mon Sep 17 00:00:00 2001
+From e4ea87d94a9def40812cd3e3f8166979fff57a66 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:06:38 +0200
 Subject: [PATCH] Rejected time steps not written, review of the output files
@@ -25,7 +25,7 @@ Subject: [PATCH] Rejected time steps not written, review of the output files
  6 files changed, 37 insertions(+), 30 deletions(-)
 
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 24bd591..63a79f6 100644
+index 1800ce1..18ce3fe 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -243,9 +243,10 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -70,7 +70,7 @@ index 24bd591..63a79f6 100644
      open(outfile_sighydr, hydrostatic_stress_f);
    }
 diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
-index a4d6eda..1013876 100644
+index d4d26ee..eb3abf5 100644
 --- a/cermet/cermet.cxx
 +++ b/cermet/cermet.cxx
 @@ -105,9 +105,10 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
@@ -116,10 +116,10 @@ index b0ecb66..18e9419 100644
       * temporal sequences.
       * \pre the times must be sorted in ascending order
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 23ebc15..952c511 100644
+index 8f41b86..c9b6693 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
-@@ -345,8 +345,9 @@ int main(int argc, char *argv[]) {
+@@ -337,8 +337,9 @@ int main(int argc, char *argv[]) {
    if (mfem_mgis::isMPIMainProcessForDefaultCommunicator()) {
      out.open(p.output_file);
      if (!out) {
@@ -131,7 +131,7 @@ index 23ebc15..952c511 100644
      }
      out.precision(14);
    }
-@@ -452,9 +453,10 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -444,9 +445,10 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
      exit(args.Help() ? EXIT_SUCCESS : EXIT_FAILURE);
    }
    if (p.mesh_file == nullptr) {

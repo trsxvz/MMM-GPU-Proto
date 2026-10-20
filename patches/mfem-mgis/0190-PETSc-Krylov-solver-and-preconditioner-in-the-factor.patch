@@ -1,4 +1,4 @@
-From 63528df253142a565599cc1d5f215915f90153e0 Mon Sep 17 00:00:00 2001
+From bb0996ad0ebac2ef4268d6749f587f4c8962f357 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:57:11 +0200
 Subject: [PATCH] PETSc: Krylov solver and preconditioner in the factories
@@ -182,7 +182,7 @@ index 0beeb04469..0c9fc7ba96 100644
 +The non linear solver of PETSc, selected by the :cxx:`--use-petsc`
 +command line option, is not related to these solvers.
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 4ffa9a0ff3..d42b91b413 100644
+index ca30a27853..d52c584b41 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -135,6 +135,19 @@ message. The available linear solvers and preconditioners are listed in

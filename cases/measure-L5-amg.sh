@@ -22,15 +22,15 @@ base="-nls fixed-point -fpm newton-k0 -els amg -k0 -pk0 -alst EisenstatWalker1 -
 # name:options of BoomerAMG (empty: default options of mfem-mgis)
 variants=(
   "default:"
-  "threshold-05:StrengthThreshold=0.5"
-  "threshold-07:StrengthThreshold=0.7"
+  "threshold-05:StrongThreshold=0.5"
+  "threshold-07:StrongThreshold=0.7"
   "aggressive-1:AggressiveCoarseningLevels=1"
   "hmis:CoarseningType=10"
   "jacobi:RelaxationType=7"
   "chebyshev:RelaxationType=16"
   "sweeps-2:RelaxationSweeps=2"
   "interp-ext:InterpolationType=14"
-  "threshold-05-aggressive-1:StrengthThreshold=0.5,AggressiveCoarseningLevels=1")
+  "threshold-05-aggressive-1:StrongThreshold=0.5,AggressiveCoarseningLevels=1")
 for device in cuda ""; do
   if [ -z "$device" ]; then
     np=8

@@ -1,4 +1,4 @@
-From 25390effb43ef450eb03cddc63c21b910e4fed97 Mon Sep 17 00:00:00 2001
+From f17f054cb2d255f6b9fe17efc23db232ddbdd2dc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 12:09:40 +0200
 Subject: [PATCH] Documentation: the constructors of
@@ -11,10 +11,10 @@ Subject: [PATCH] Documentation: the constructors of
  2 files changed, 10 insertions(+), 8 deletions(-)
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index 4574b59c7f..86513f52ce 100644
+index 155ef58149..2dfc088fe6 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
-@@ -749,14 +749,15 @@ CPP example:
+@@ -754,14 +754,15 @@ CPP example:
  
  .. code-block:: cpp
  

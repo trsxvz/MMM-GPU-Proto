@@ -255,7 +255,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto output_qt = mfront_gpmp_OutputStatus{};
     auto E = createManagedData(4);
     auto E_qt = createManagedData(4);
-    const auto T = createManagedData(300);
+    const auto T = createManagedData({300});
     //
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     const auto args = std::array<const double *, 1u>{T.get()};

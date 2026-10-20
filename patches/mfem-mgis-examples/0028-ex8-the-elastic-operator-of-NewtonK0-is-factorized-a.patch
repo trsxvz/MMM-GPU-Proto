@@ -1,4 +1,4 @@
-From f59949ae35677692dcf240dec4f38cd681bff1e1 Mon Sep 17 00:00:00 2001
+From 2045d4044754995756d46977dcc37a452618ac98 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:25:29 +0200
 Subject: [PATCH] ex8: the elastic operator of NewtonK0 is factorized at each
@@ -11,7 +11,7 @@ The help of -nlsMc and two comments said that the elastic operator of NewtonK0 i
  2 files changed, 5 insertions(+), 3 deletions(-)
 
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index cd3af8c..522e24f 100644
+index 025d0bb..6c89cfc 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -51,7 +51,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -34,7 +34,7 @@ index cd3af8c..522e24f 100644
          {"Method", "NewtonK0"},
          {"ElasticOperatorUpdate", "EachResolution"},
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index 5a833f3..8fa4628 100644
+index 84a0486..f0b0877 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -31,7 +31,8 @@ struct TestParameters {

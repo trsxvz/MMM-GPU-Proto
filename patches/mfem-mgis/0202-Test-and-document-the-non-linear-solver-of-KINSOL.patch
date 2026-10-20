@@ -1,4 +1,4 @@
-From fd4c4267a20496883dca329d824911e1f9d412c1 Mon Sep 17 00:00:00 2001
+From fda6e1d43772e27309f33ac26429fe900e4ad271 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 07:11:15 +0200
 Subject: [PATCH] Test and document the non linear solver of KINSOL
@@ -131,7 +131,7 @@ index dda21ddb14..3071534bd8 100644
 +reduced to 32 by Anderson's acceleration and to 17 by an update of the
 +tangent operator every five iterations.
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 45258e244c..cdee372533 100644
+index f408e9202f..a15590aa13 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -179,6 +179,14 @@ and transposed interpolations kept. The values of the
@@ -150,10 +150,10 @@ index 45258e244c..cdee372533 100644
  ----------------------------------------------------------------
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index d506b014c7..95cceb5b33 100644
+index 29907865e0..58ae352438 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1150,6 +1150,39 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1153,6 +1153,39 @@ if(MFEM_MGIS_HAVE_TFEL)
                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
    endif()
  

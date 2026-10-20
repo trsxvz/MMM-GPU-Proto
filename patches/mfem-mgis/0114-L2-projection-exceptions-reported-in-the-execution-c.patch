@@ -1,4 +1,4 @@
-From 7757aa1465583d4e0de08484982798c68caabb33 Mon Sep 17 00:00:00 2001
+From 1e1ec0c2e534d60a8f9cb5994f3874ff8d1e697f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:32:06 +0200
 Subject: [PATCH] L2 projection: exceptions reported in the execution context
@@ -14,7 +14,7 @@ context instead of terminating the program.
  1 file changed, 26 insertions(+), 4 deletions(-)
 
 diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
-index 8319650fcc..2789255be7 100644
+index 514a6069cf..6809491ec5 100644
 --- a/src/L2Projection.cxx
 +++ b/src/L2Projection.cxx
 @@ -7,6 +7,7 @@
@@ -25,7 +25,7 @@ index 8319650fcc..2789255be7 100644
  #include <optional>
  #include "mfem/mesh/mesh.hpp"
  #include "mfem/fem/fespace.hpp"
-@@ -915,14 +916,35 @@ namespace mfem_mgis {
+@@ -911,14 +912,35 @@ namespace mfem_mgis {
      return true;
    }  // end of updatePartialQuadratureRegularization_impl
  
@@ -63,7 +63,7 @@ index 8319650fcc..2789255be7 100644
    }  // end of updateL2Projection_impl
  
    template <>
-@@ -995,8 +1017,8 @@ namespace mfem_mgis {
+@@ -991,8 +1013,8 @@ namespace mfem_mgis {
        LinearSolverHandler& l,
        const std::vector<ImmutablePartialQuadratureFunctionView>& fcts,
        const real lc) noexcept {

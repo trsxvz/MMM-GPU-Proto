@@ -1,4 +1,4 @@
-From b56b6de81c7aad0f608fb1d230199f267a4760d0 Mon Sep 17 00:00:00 2001
+From 1fd4923af79123080b41f7c3db51d0ea5318d535 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 12:52:25 +0200
 Subject: [PATCH] Execution settings: --execution cpu|gpu|mixed and the
@@ -62,7 +62,7 @@ are detected. CPU suite 195/195.
  create mode 100644 tests/ExecutionSettingsTest.cxx
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 23dfc6e0f0..a16c56622c 100644
+index 537e48b085..3b5a360204 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -25,6 +25,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -924,7 +924,7 @@ index 0102b1f42b..e0d72f77a5 100644
      LinearSolverHandler s;
      try {
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 7e7a7bbf00..dd1f64c544 100644
+index 1edf68382a..dcd5ec84e4 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
 @@ -25,6 +25,7 @@
@@ -935,18 +935,18 @@ index 7e7a7bbf00..dd1f64c544 100644
  
  namespace mfem_mgis {
  
-@@ -998,6 +999,9 @@ namespace mfem_mgis {
+@@ -997,6 +998,9 @@ namespace mfem_mgis {
      if (isInvalid(bptr)) {
        return {};
      }
 +    if (!internals::checkBehaviourExecutionLocation(ctx, *bptr)) {
 +      return {};
 +    }
-     auto bi = of->generate(ctx, n, *(this->fe_discretization), m,
-                            std::move(bptr), params);
+     auto bi = of->generate(ctx, n, this->fe_discretization, m, std::move(bptr),
+                            params);
      if (isInvalid(bi)) {
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index 63352e1a3d..299cb304b8 100644
+index af9a7638f8..d38fc7d129 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
 @@ -24,6 +24,7 @@
@@ -957,7 +957,7 @@ index 63352e1a3d..299cb304b8 100644
  
  namespace mfem_mgis {
  
-@@ -82,9 +83,12 @@ namespace mfem_mgis {
+@@ -81,9 +82,12 @@ namespace mfem_mgis {
      const auto* const n =
          NonLinearEvolutionProblemImplementationBase::BehaviourIntegration;
      // default value given by the environment, for instance to run a whole
@@ -972,7 +972,7 @@ index 63352e1a3d..299cb304b8 100644
      const auto v = get_if<std::string>(throwing, p, n, d);
      if (v == "Batch") {
        return true;
-@@ -113,8 +117,13 @@ namespace mfem_mgis {
+@@ -112,8 +116,13 @@ namespace mfem_mgis {
                                         const Parameters& p,
                                         const char* const n,
                                         const char* const v) {
@@ -987,7 +987,7 @@ index 63352e1a3d..299cb304b8 100644
      const auto value = get_if<std::string>(throwing, p, n, d);
      if (value == "Kernels") {
        return true;
-@@ -144,8 +153,13 @@ namespace mfem_mgis {
+@@ -143,8 +152,13 @@ namespace mfem_mgis {
      const auto* const n =
          NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation;
      const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
@@ -1003,7 +1003,7 @@ index 63352e1a3d..299cb304b8 100644
      if (value == "ElementByElement") {
        return Mode::ELEMENT_BY_ELEMENT;
 diff --git a/src/PointWiseModel.cxx b/src/PointWiseModel.cxx
-index 431aafd78d..54f208e2b1 100644
+index b8ab3e9c6e..8834fd31a8 100644
 --- a/src/PointWiseModel.cxx
 +++ b/src/PointWiseModel.cxx
 @@ -10,6 +10,7 @@
@@ -1076,10 +1076,10 @@ index 0c641cde52..fdf73ce70a 100644
    [[nodiscard]] bool usePostProcessingsKernels(attributes::MayThrow);
    /*!
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 145ce5e7aa..28b8bf1c67 100644
+index 4565b1fa52..7bd501c98d 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1225,6 +1225,94 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1228,6 +1228,94 @@ if(MFEM_MGIS_HAVE_TFEL)
                 COMMAND IntegrationRuleOrderTest --device debug
                         ${integration_rule_order_test_arguments})
      endif()

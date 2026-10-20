@@ -1,4 +1,4 @@
-From f14f9458a4d81b3811f647a5e4daa1082e337ff8 Mon Sep 17 00:00:00 2001
+From 1e1ac1f9eb5a38b42dd38b097180f4b48f8bc22f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 08:12:00 +0200
 Subject: [PATCH] ex4: option --integration-rule-order (IntegrationRuleOrder
@@ -14,7 +14,7 @@ rule of mfem-mgis being used if it is negative.
  3 files changed, 63 insertions(+), 34 deletions(-)
 
 diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
-index 4b6400f..f692fcc 100644
+index 7c6b9de..da363fa 100644
 --- a/ex4/ssna303_hypre.cxx
 +++ b/ex4/ssna303_hypre.cxx
 @@ -40,6 +40,9 @@ int main(int argc, char** argv) {
@@ -71,7 +71,7 @@ index 4b6400f..f692fcc 100644
      // 2 1 "Volume"
      if (use_fbar) {
 diff --git a/ex4/ssna303_mumps.cxx b/ex4/ssna303_mumps.cxx
-index 4cbf93c..5c4504b 100644
+index 71204e7..fbd1b26 100644
 --- a/ex4/ssna303_mumps.cxx
 +++ b/ex4/ssna303_mumps.cxx
 @@ -46,6 +46,9 @@ int main(int argc, char** argv) {
@@ -129,7 +129,7 @@ index 4cbf93c..5c4504b 100644
    // 2 1 "Volume"
  #ifdef MGIS_HAVE_TFEL
 diff --git a/ex4/ssna303_petsc.cxx b/ex4/ssna303_petsc.cxx
-index 215eb00..af97a43 100644
+index 55faeae..52264df 100644
 --- a/ex4/ssna303_petsc.cxx
 +++ b/ex4/ssna303_petsc.cxx
 @@ -44,6 +44,9 @@ int main(int argc, char** argv) {

@@ -1,4 +1,4 @@
-From 5391e914e37c215d400ef8e77929108c490f28ed Mon Sep 17 00:00:00 2001
+From 197f9546cbdf350c831889094dececa8f93afb72 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 18:45:06 +0200
 Subject: [PATCH] Rigid body modes given to the preconditioners of PETSc
@@ -73,7 +73,7 @@ index acc50bb13f..41f61595fd 100644
  parameter of :cxx:`PETScLinearSolver`:
  
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 12bd9978d5..f5271d5378 100644
+index 2b17b4d8ef..5bd9ffae66 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -146,7 +146,8 @@ parameter, and give access to the Krylov solvers and to most

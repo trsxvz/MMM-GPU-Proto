@@ -243,7 +243,7 @@ static Results computeFailingIntegration(const char* const mesh,
   // nu = 0.3, E = 208 GPa
   problem.addBoundaryCondition(
       ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
-               problem.getFiniteElementDiscretizationPointer(), "Xmax",
+               problem.getFiniteElementDiscretization(), "Xmax",
                [](const real t) noexcept { return -1e9 * t; })) |
       or_die;
   problem.setLinearSolver(ctx, "MUMPSSolver", Parameters{}) | or_die;

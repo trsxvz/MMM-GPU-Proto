@@ -296,7 +296,7 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
     if (isInvalid(omaterial)) {
       return false;
     }
-    const auto qs = omaterial->getPartialQuadratureSpacePointer();
+    const auto qs = omaterial->getPartialQuadratureSpace();
     // the functions differ from one material to another
     const auto c = static_cast<real>(m);
     auto evaluate = [&qs](const auto f) {
@@ -318,7 +318,7 @@ static bool test(mfem_mgis::Context& ctx, const TestParameters& params) {
     const auto f2 = evaluate([](const real x, const real y, const real z) {
       return std::exp(-x) * y * y + std::sin(z);
     });
-    for (size_type o = 0; o != qs->getNumberOfIntegrationPoints(); ++o) {
+    for (size_type o = 0; o != qs.getNumberOfIntegrationPoints(); ++o) {
       auto values = fct->getIntegrationPointValues(o);
       values[0] = f0->getIntegrationPointValue(o);
       values[1] = scalar_functions.back()->getIntegrationPointValue(o);

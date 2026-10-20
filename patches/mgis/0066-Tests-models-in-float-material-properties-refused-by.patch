@@ -1,0 +1,385 @@
+From 6001da7210fdec0c68659ac5f6b9836586b6cec5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 21:40:30 +0200
+Subject: [PATCH] Tests: models in float, material properties refused by
+ RealTypeTest
+
+- the models of the tests (ode_rk54, RungeKuttaModelDSL) are generated with
+  the float numerical type: only the models of the Model DSL are refused.
+  Their tests run in float again; IntegrateTest4 and IntegrateTest5 read
+  the parameters as double (interface of the parameters) and use the
+  tolerance of Tolerance.hxx.
+- RealTypeTest also checks that a material property generated with the
+  other numerical type is refused at loading.
+Double: 51/51, float: 49/49.
+---
+ tests/CMakeLists.txt                   | 56 ++++++++++----------------
+ tests/GenericParallelCUDATest.cxx      | 10 ++---
+ tests/GenericParallelIntegrateTest.cxx | 10 ++---
+ tests/IntegrateTest4.cxx               |  6 ++-
+ tests/IntegrateTest5.cxx               |  6 ++-
+ tests/MaterialDataViewTest.cxx         | 12 ++----
+ tests/RealTypeTest.cxx                 | 33 +++++++++++++--
+ 7 files changed, 69 insertions(+), 64 deletions(-)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 0eab7d6..a53b01e 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -139,20 +139,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+     ComputeSpeedOfSound
+     EnergyTest)
+ 
+-  # the models are only generated with the double numerical type (real_type
+-  # option of mfront): with another type, the tests of the models are not
+-  # built, and the tests taking the library of the models as an optional
+-  # argument skip them
+-  if(MGIS_REAL_TYPE STREQUAL "double")
+-    mfront_behaviours_check_library(ModelTest ode_rk54)
+-    set(MGIS_TEST_MODELS ode_rk54)
+-    set(MGIS_TEST_MODELS_LIBRARY "$<TARGET_FILE:ModelTest>")
+-    set(MGIS_TEST_MODELS_TARGET ModelTest)
+-  else()
+-    set(MGIS_TEST_MODELS)
+-    set(MGIS_TEST_MODELS_LIBRARY)
+-    set(MGIS_TEST_MODELS_TARGET)
+-  endif()
++  mfront_behaviours_check_library(ModelTest ode_rk54)
+ 
+   # behaviour generated with the other numerical type than MGIS (real_type
+   # option of mfront), which must be refused at loading
+@@ -166,15 +153,20 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+   add_custom_command(
+     OUTPUT "${_other_directory}/src/Elasticity.cxx"
+            "${_other_directory}/src/Elasticity-generic.cxx"
++           "${_other_directory}/src/Inconel600_YoungModulus-generic.cxx"
+     COMMAND "${MFRONT}" "--interface=generic"
+             "--dsl-option=real_type:${_other_real_type}"
+             "${CMAKE_CURRENT_SOURCE_DIR}/Elasticity.mfront"
++            "${CMAKE_CURRENT_SOURCE_DIR}/Inconel600_YoungModulus.mfront"
+     WORKING_DIRECTORY "${_other_directory}"
+     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Elasticity.mfront"
+-    COMMENT "mfront source Elasticity.mfront (${_other_real_type})")
++            "${CMAKE_CURRENT_SOURCE_DIR}/Inconel600_YoungModulus.mfront"
++            "${MFRONT}"
++    COMMENT "mfront sources of RealTypeTest (${_other_real_type})")
+   add_library(OtherRealTypeBehaviourTest SHARED EXCLUDE_FROM_ALL
+     "${_other_directory}/src/Elasticity.cxx"
+-    "${_other_directory}/src/Elasticity-generic.cxx")
++    "${_other_directory}/src/Elasticity-generic.cxx"
++    "${_other_directory}/src/Inconel600_YoungModulus-generic.cxx")
+   target_include_directories(OtherRealTypeBehaviourTest
+     PRIVATE "${_other_directory}/include" "${TFEL_INCLUDE_PATH}")
+   target_link_libraries(OtherRealTypeBehaviourTest
+@@ -184,10 +176,12 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+   add_test(NAME RealTypeTest
+     COMMAND RealTypeTest
+     "$<TARGET_FILE:BehaviourTest>"
+-    "$<TARGET_FILE:OtherRealTypeBehaviourTest>")
++    "$<TARGET_FILE:OtherRealTypeBehaviourTest>"
++    "$<TARGET_FILE:MaterialPropertyTest>")
+   add_dependencies(build-tests RealTypeTest OtherRealTypeBehaviourTest)
+   set_property(TEST RealTypeTest
+-    PROPERTY DEPENDS BehaviourTest OtherRealTypeBehaviourTest)
++    PROPERTY DEPENDS BehaviourTest OtherRealTypeBehaviourTest
++    MaterialPropertyTest)
+   set_test_environment(RealTypeTest)
+ 
+   # tests of the generic-parallel interface, if TFEL provides it
+@@ -208,7 +202,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+       TensorialExternalStateVariableTest
+       ComputeSpeedOfSound
+       EnergyTest
+-      ${MGIS_TEST_MODELS})
++      ode_rk54)
+     add_executable(GenericParallelLoadTest EXCLUDE_FROM_ALL
+       GenericParallelLoadTest.cxx)
+     target_link_libraries(GenericParallelLoadTest PRIVATE MFrontGenericInterface)
+@@ -231,11 +225,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+       COMMAND GenericParallelIntegrateTest
+       "$<TARGET_FILE:GenericParallelBehaviourTest>"
+       "$<TARGET_FILE:BehaviourTest>"
+-      ${MGIS_TEST_MODELS_LIBRARY})
++      "$<TARGET_FILE:ModelTest>")
+     add_dependencies(build-tests GenericParallelIntegrateTest)
+     set_property(TEST GenericParallelIntegrateTest
+-      PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest
+-      ${MGIS_TEST_MODELS_TARGET})
++      PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest ModelTest)
+     set_test_environment(GenericParallelIntegrateTest)
+     # material data views, with behaviours generated by the generic and the
+     # generic-parallel interfaces
+@@ -246,11 +239,10 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+       COMMAND MaterialDataViewTest
+       "$<TARGET_FILE:GenericParallelBehaviourTest>"
+       "$<TARGET_FILE:BehaviourTest>"
+-      ${MGIS_TEST_MODELS_LIBRARY})
++      "$<TARGET_FILE:ModelTest>")
+     add_dependencies(build-tests MaterialDataViewTest)
+     set_property(TEST MaterialDataViewTest
+-      PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest
+-      ${MGIS_TEST_MODELS_TARGET})
++      PROPERTY DEPENDS GenericParallelBehaviourTest BehaviourTest ModelTest)
+     set_test_environment(MaterialDataViewTest)
+     # layouts of the material data managers
+     add_executable(MaterialDataManagerLayoutTest EXCLUDE_FROM_ALL
+@@ -321,7 +313,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+         OrthotropicElasticity
+         InitializeFunctionTest
+         PostProcessingTest
+-        ${MGIS_TEST_MODELS})
++        ode_rk54)
+       mfront_generic_parallel_material_properties_check_library(
+         GenericParallelMaterialPropertyTestCUDA cuda
+         Inconel600_YoungModulus
+@@ -337,12 +329,11 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+         "$<TARGET_FILE:BehaviourTest>"
+         "$<TARGET_FILE:GenericParallelMaterialPropertyTestCUDA>"
+         "$<TARGET_FILE:MaterialPropertyTest>"
+-        ${MGIS_TEST_MODELS_LIBRARY})
++        "$<TARGET_FILE:ModelTest>")
+       add_dependencies(build-tests GenericParallelCUDATest)
+       set_property(TEST GenericParallelCUDATest
+         PROPERTY DEPENDS GenericParallelBehaviourTestCUDA BehaviourTest
+-        GenericParallelMaterialPropertyTestCUDA MaterialPropertyTest
+-        ${MGIS_TEST_MODELS_TARGET})
++        GenericParallelMaterialPropertyTestCUDA MaterialPropertyTest ModelTest)
+       set_test_environment(GenericParallelCUDATest)
+       # field operations with the runtime of CUDA, integration and update of
+       # the states on the device
+@@ -386,11 +377,8 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+   add_library_test(IntegrateTest2b IntegrateTest2b.cxx BehaviourTest)
+   add_library_test(IntegrateTest3 IntegrateTest3.cxx BehaviourTest)
+   add_library_test(IntegrateTest3b IntegrateTest3b.cxx BehaviourTest)
+-  if(MGIS_REAL_TYPE STREQUAL "double")
+-    # models
+-    add_library_test(IntegrateTest4 IntegrateTest4.cxx ModelTest)
+-    add_library_test(IntegrateTest5 IntegrateTest5.cxx ModelTest)
+-  endif()
++  add_library_test(IntegrateTest4 IntegrateTest4.cxx ModelTest)
++  add_library_test(IntegrateTest5 IntegrateTest5.cxx ModelTest)
+   add_library_test(RotateFunctionsTest RotateFunctionsTest.cxx BehaviourTest)
+   add_library_test(RotationMatrixCopyTest RotationMatrixCopyTest.cxx BehaviourTest)
+   add_library_test(IntegrateDebugTest IntegrateDebugTest.cxx BehaviourTest)
+diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
+index 7703ebb..f87dcec 100644
+--- a/tests/GenericParallelCUDATest.cxx
++++ b/tests/GenericParallelCUDATest.cxx
+@@ -890,14 +890,12 @@ static void testAsynchronousComputations(const std::string& library,
+ }  // end of testAsynchronousComputations
+ 
+ int main(const int argc, const char* const* const argv) {
+-  // the library of the models is optional: the models are only generated
+-  // with the double numerical type
+-  if ((argc != 5) && (argc != 6)) {
++  if (argc != 6) {
+     std::cerr << "usage: " << argv[0]
+               << " cuda-library generic-library "
+                  "cuda-material-properties-library "
+                  "generic-material-properties-library "
+-                 "[generic-models-library]\n";
++                 "generic-models-library\n";
+     return EXIT_FAILURE;
+   }
+   try {
+@@ -906,9 +904,7 @@ int main(const int argc, const char* const* const argv) {
+     testMemoryLocations(argv[1]);
+     testMemoryResource(argv[2], argv[1]);
+     testStream(argv[2], argv[1]);
+-    if (argc == 6) {
+-      testModel(argv[5], argv[1]);
+-    }
++    testModel(argv[5], argv[1]);
+     testMaterialProperties(argv[4], argv[3]);
+     testPartialFailures(argv[1]);
+     testAsynchronousComputations(argv[2], argv[1], argv[4], argv[3]);
+diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
+index 8456415..cbf67dd 100644
+--- a/tests/GenericParallelIntegrateTest.cxx
++++ b/tests/GenericParallelIntegrateTest.cxx
+@@ -1624,12 +1624,10 @@ static void testRotationsOnViews(const std::string& library,
+ }  // end of testRotationsOnViews
+ 
+ int main(const int argc, const char* const* const argv) {
+-  // the library of the models is optional: the models are only generated
+-  // with the double numerical type
+-  if ((argc != 3) && (argc != 4)) {
++  if (argc != 4) {
+     std::cerr << "usage: " << argv[0]
+               << " generic-parallel-library generic-library "
+-                 "[generic-models-library]\n";
++                 "generic-models-library\n";
+     return EXIT_FAILURE;
+   }
+   try {
+@@ -1648,9 +1646,7 @@ int main(const int argc, const char* const* const argv) {
+     testExecutionPolicies(argv[2], argv[1]);
+     testMemoryLocations(argv[2], argv[1]);
+     testPartialFailures(argv[2], argv[1]);
+-    if (argc == 4) {
+-      testModel(argv[3], argv[1]);
+-    }
++    testModel(argv[3], argv[1]);
+     testFailure(argv[2], argv[1]);
+     testAsynchronousComputations(argv[2], argv[1]);
+   } catch (std::exception& e) {
+diff --git a/tests/IntegrateTest4.cxx b/tests/IntegrateTest4.cxx
+index e272d34..8cb3f24 100644
+--- a/tests/IntegrateTest4.cxx
++++ b/tests/IntegrateTest4.cxx
+@@ -22,6 +22,7 @@
+ #include "MGIS/ThreadPool.hxx"
+ #include "MGIS/Model/Model.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+@@ -33,7 +34,8 @@ int main(const int argc, const char* const* argv) {
+   try {
+     const auto model =
+         mgis::model::load(argv[1], "ode_rk54", Hypothesis::TRIDIMENSIONAL);
+-    const auto A = getParameterDefaultValue<mgis::real>(model, "A");
++    // the parameters are given in double, whatever the numerical type
++    const auto A = getParameterDefaultValue<double>(model, "A");
+     ThreadPool p{2};
+     MaterialDataManager m{model, 100};
+     const auto o = getVariableOffset(model.isvs, "x", model.hypothesis);
+@@ -67,7 +69,7 @@ int main(const int argc, const char* const* argv) {
+     std::cerr.precision(14);
+     auto t = mgis::real{};
+     for (size_type i = 0; i != 10; ++i) {
+-      constexpr auto eps = mgis::real{1e-10};
++      constexpr auto eps = mgis::tests::tolerance(1e-10);
+       const auto x_ref = exp(-A * t);
+       if (std::abs(xvi[i] - x_ref) > eps) {
+         std::cerr << "IntegrateTest: invalid value for x "
+diff --git a/tests/IntegrateTest5.cxx b/tests/IntegrateTest5.cxx
+index 7de8da5..b9feeee 100644
+--- a/tests/IntegrateTest5.cxx
++++ b/tests/IntegrateTest5.cxx
+@@ -21,6 +21,7 @@
+ #include "MGIS/Behaviour/BehaviourData.hxx"
+ #include "MGIS/Model/Model.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
++#include "Tolerance.hxx"
+ 
+ int main(const int argc, const char* const* argv) {
+   using namespace mgis;
+@@ -32,7 +33,8 @@ int main(const int argc, const char* const* argv) {
+   try {
+     const auto model =
+         mgis::model::load(argv[1], "ode_rk54", Hypothesis::TRIDIMENSIONAL);
+-    const auto A = getParameterDefaultValue<mgis::real>(model, "A");
++    // the parameters are given in double, whatever the numerical type
++    const auto A = getParameterDefaultValue<double>(model, "A");
+     auto d = BehaviourData{model};
+     const auto o = getVariableOffset(model.isvs, "x", model.hypothesis);
+     // initialize the internal state variable
+@@ -58,7 +60,7 @@ int main(const int argc, const char* const* argv) {
+     std::cerr.precision(14);
+     auto t = mgis::real{};
+     for (size_type i = 0; i != 10; ++i) {
+-      constexpr auto eps = mgis::real{1e-10};
++      constexpr auto eps = mgis::tests::tolerance(1e-10);
+       const auto x_ref = exp(-A * t);
+       if (std::abs(xvalues[i] - x_ref) > eps) {
+         std::cerr << "IntegrateTest: invalid value for x "
+diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
+index 40d5b6a..5fe2bff 100644
+--- a/tests/MaterialDataViewTest.cxx
++++ b/tests/MaterialDataViewTest.cxx
+@@ -1661,12 +1661,10 @@ static void testFailingOperations(const std::string& library) {
+ }  // end of testFailingOperations
+ 
+ int main(const int argc, const char* const* const argv) {
+-  // the library of the models is optional: the models are only generated
+-  // with the double numerical type
+-  if ((argc != 3) && (argc != 4)) {
++  if (argc != 4) {
+     std::cerr << "usage: " << argv[0]
+               << " generic-parallel-library generic-library "
+-                 "[generic-models-library]\n";
++                 "generic-models-library\n";
+     return EXIT_FAILURE;
+   }
+   try {
+@@ -1688,10 +1686,8 @@ int main(const int argc, const char* const* const argv) {
+       testPostProcessings(library);
+       testMakeView(library);
+     }
+-    if (argc == 4) {
+-      testModel(argv[3]);
+-      testModel(argv[1]);
+-    }
++    testModel(argv[3]);
++    testModel(argv[1]);
+     testFailingPoint(argv[2]);
+     testFailingOperations(argv[2]);
+     testErrors(argv[2], argv[1]);
+diff --git a/tests/RealTypeTest.cxx b/tests/RealTypeTest.cxx
+index 53a171b..ed3f87d 100644
+--- a/tests/RealTypeTest.cxx
++++ b/tests/RealTypeTest.cxx
+@@ -1,8 +1,9 @@
+ /*!
+  * \file   tests/RealTypeTest.cxx
+- * \brief  This test checks that a behaviour generated with the numerical
+- * type of MGIS is loaded, and that a behaviour generated with another
+- * numerical type (real_type option of mfront) is refused.
++ * \brief  This test checks that a behaviour and a material property
++ * generated with the numerical type of MGIS are loaded, and that a behaviour
++ * and a material property generated with another numerical type (real_type
++ * option of mfront) are refused.
+  * \date   13/10/2026
+  * \copyright Use, modification and distribution are subject
+  * to one of the following licences:
+@@ -18,6 +19,7 @@
+ #include <stdexcept>
+ #include "MGIS/LibrariesManager.hxx"
+ #include "MGIS/Behaviour/Behaviour.hxx"
++#include "MGIS/MaterialProperty/MaterialProperty.hxx"
+ 
+ int main(const int argc, const char* const* const argv) {
+   using namespace mgis::behaviour;
+@@ -29,7 +31,9 @@ int main(const int argc, const char* const* const argv) {
+     }
+     return b;
+   };
+-  if (!check(argc == 3, "usage: RealTypeTest library other-type-library")) {
++  if (!check(argc == 4,
++             "usage: RealTypeTest behaviours-library other-type-library "
++             "material-properties-library")) {
+     return EXIT_FAILURE;
+   }
+   constexpr auto h = Hypothesis::TRIDIMENSIONAL;
+@@ -57,5 +61,26 @@ int main(const int argc, const char* const* const argv) {
+           std::string{"invalid error message: "} + e.what());
+   }
+   check(refused, "a behaviour generated with another type must be refused");
++  // material properties
++  try {
++    static_cast<void>(
++        mgis::material_property::load(argv[3], "Inconel600_YoungModulus"));
++  } catch (std::exception& e) {
++    check(false, std::string{"loading failed: "} + e.what());
++  }
++  check(lm.getRealSize(argv[2], "Inconel600_YoungModulus") == other_size,
++        "invalid size of the numerical type of the material property "
++        "generated with the other type");
++  auto mp_refused = false;
++  try {
++    static_cast<void>(
++        mgis::material_property::load(argv[2], "Inconel600_YoungModulus"));
++  } catch (std::exception& e) {
++    mp_refused = true;
++    check(std::string{e.what()}.find("numerical type") != std::string::npos,
++          std::string{"invalid error message: "} + e.what());
++  }
++  check(mp_refused,
++        "a material property generated with another type must be refused");
+   return success ? EXIT_SUCCESS : EXIT_FAILURE;
+ }  // end of main
+-- 
+2.43.0
+

@@ -1,0 +1,786 @@
+From 947e5e8fd01d6599aad60662572223dab179b554 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 06:40:06 +0200
+Subject: [PATCH] generic-parallel: tests of material properties using data or
+ other material laws
+
+- LinearDataInterpolationTest: material property defined by the linear
+  interpolation of data, with quantities.
+- MaterialLawCallTest: material property calling another material
+  property (Inconel600_YoungModulus).
+
+Both are generated and checked by all the configurations. The checks are
+shared by a checkTemperatureDependentMaterialProperty function in each
+test program.
+
+test-hip.hip: hipMallocManaged takes a size in bytes, not a number of
+values.
+---
+ .../MaterialLawCallTest.mfront                | 20 +++++
+ .../generic-parallel/cuda-clang/test.check    |  1 +
+ .../generic-parallel/cuda-nvcc/test.check     |  1 +
+ .../hip-clang-nvidia-platform/test.check      |  1 +
+ .../generic-parallel/hip-hipcc/test.check     |  1 +
+ .../generic-parallel/kokkos-host/test.check   |  2 +
+ .../generic-parallel/kokkos/test.check        |  2 +
+ .../openmp-host-gcc/test.check                |  2 +
+ .../openmp-offload-nvhpc-gpu/test.check       |  2 +
+ .../stlpar-parunseq-clang/test.check          |  1 +
+ .../stlpar-parunseq-gcc/test.check            |  1 +
+ .../stlpar-parunseq-icpx/test.check           |  1 +
+ .../stlpar-parunseq-nvhpc-gpu/test.check      |  1 +
+ .../sycl-default-acpp/test.check              |  1 +
+ .../sycl-default-icpx/test.check              |  1 +
+ .../sycl-gpu-acpp-2/test.check                |  1 +
+ .../generic-parallel/sycl-gpu-acpp/test.check |  1 +
+ .../generic-parallel/test-cuda.cu             | 77 ++++++++-----------
+ .../generic-parallel/test-cxx.cxx             | 67 ++++++++--------
+ .../generic-parallel/test-hip.hip             | 45 +++++++++--
+ .../generic-parallel/test-sycl-device.cxx     | 53 +++++++++++++
+ .../generic-parallel/test-sycl-usm.cxx        | 50 ++++++++++++
+ .../generic-parallel/test-sycl.cxx            | 43 +++++++++--
+ 23 files changed, 279 insertions(+), 96 deletions(-)
+ create mode 100644 test-suite/material-properties/generic-parallel/MaterialLawCallTest.mfront
+
+diff --git a/test-suite/material-properties/generic-parallel/MaterialLawCallTest.mfront b/test-suite/material-properties/generic-parallel/MaterialLawCallTest.mfront
+new file mode 100644
+index 000000000..6f51942a0
+--- /dev/null
++++ b/test-suite/material-properties/generic-parallel/MaterialLawCallTest.mfront
+@@ -0,0 +1,20 @@
++@DSL MaterialLaw;
++@Law MaterialLawCallTest;
++@Description {
++  "A material property calling another material property: the shear "
++  "modulus is computed from the Young modulus of Inconel600 and a "
++  "constant Poisson ratio."
++}
++
++@Input TK;
++TK.setGlossaryName("Temperature");
++
++@Output G;
++G.setGlossaryName("ShearModulus");
++
++@MaterialLaw "Inconel600_YoungModulus.mfront";
++
++@Function {
++  const real E = Inconel600_YoungModulus(TK);
++  G = E / (2 * (1 + 0.3));
++}
+diff --git a/test-suite/material-properties/generic-parallel/cuda-clang/test.check b/test-suite/material-properties/generic-parallel/cuda-clang/test.check
+index af731b269..3b3423193 100644
+--- a/test-suite/material-properties/generic-parallel/cuda-clang/test.check
++++ b/test-suite/material-properties/generic-parallel/cuda-clang/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-cuda-clang.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-cuda-clang.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-cuda-clang.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-cuda-clang.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-cuda-clang.json";
+ @Command "@TFEL_CLANGXX_COMPILER@ -O2 --std=c++@TFEL_CXX_STANDARD@ -march=native -x cuda --cuda-compile-host-device --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I @TFEL_INCLUDE_DIR@ -I include ../test-cuda.cu -o test-cuda -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-cuda -lGenericParallelInconel600-cuda -lGenericParallelMaterialLaw-cuda -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread";
+ @Command "./test-cuda test-cuda-clang";
+diff --git a/test-suite/material-properties/generic-parallel/cuda-nvcc/test.check b/test-suite/material-properties/generic-parallel/cuda-nvcc/test.check
+index 1f810a214..3db426779 100644
+--- a/test-suite/material-properties/generic-parallel/cuda-nvcc/test.check
++++ b/test-suite/material-properties/generic-parallel/cuda-nvcc/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-cuda-nvcc.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-cuda-nvcc.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-cuda-nvcc.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-cuda-nvcc.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-cuda-nvcc.json";
+ @Command "@TFEL_NVCC_COMPILER@ -O3 --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ -I include ../test-cuda.cu -o test-cuda -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-cuda -lGenericParallelInconel600-cuda -lGenericParallelMaterialLaw-cuda";
+ @Command "./test-cuda test-cuda-nvcc";
+diff --git a/test-suite/material-properties/generic-parallel/hip-clang-nvidia-platform/test.check b/test-suite/material-properties/generic-parallel/hip-clang-nvidia-platform/test.check
+index 302f5f7a1..e48b528d1 100644
+--- a/test-suite/material-properties/generic-parallel/hip-clang-nvidia-platform/test.check
++++ b/test-suite/material-properties/generic-parallel/hip-clang-nvidia-platform/test.check
+@@ -7,6 +7,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-hip-clang-nvidia-platform.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-hip-clang-nvidia-platform.json";
+ @Command "@TFEL_CLANGXX_COMPILER@ -D__HIP_PLATFORM_NVIDIA__ -O3 --std=c++@TFEL_CXX_STANDARD@ -march=native -x cuda --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version --cuda-compile-host-device --cuda-gpu-arch=native -I@TFEL_HIP_INCLUDE_DIR@ -I @TFEL_INCLUDE_DIR@ -I include ../test-hip.hip -o test-hip -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-hip -lGenericParallelInconel600-hip -lGenericParallelMaterialLaw-hip -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl -lrt -pthread";
+ @Command "./test-hip test-hip-hipcc";
+diff --git a/test-suite/material-properties/generic-parallel/hip-hipcc/test.check b/test-suite/material-properties/generic-parallel/hip-hipcc/test.check
+index 5b375b2e2..731ee49e5 100644
+--- a/test-suite/material-properties/generic-parallel/hip-hipcc/test.check
++++ b/test-suite/material-properties/generic-parallel/hip-hipcc/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-hip-hipcc.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-hip-hipcc.json";
+ @Command "@TFEL_HIPCC_COMPILER@ @TFEL_HIPCC_FLAGS@ -O3 --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ -I include ../test-hip.hip -o test-hip -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-hip -lGenericParallelInconel600-hip -lGenericParallelMaterialLaw-hip";
+ @Command "./test-hip test-hip-hipcc";
+diff --git a/test-suite/material-properties/generic-parallel/kokkos-host/test.check b/test-suite/material-properties/generic-parallel/kokkos-host/test.check
+index bf1f22635..619731c33 100644
+--- a/test-suite/material-properties/generic-parallel/kokkos-host/test.check
++++ b/test-suite/material-properties/generic-parallel/kokkos-host/test.check
+@@ -5,6 +5,8 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-kokkos-host.json ../Inconel600_YoungModulus.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-kokkos-host.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-kokkos-host.json ../UO2_YoungModulus_Martin1989.mfront";
++@Command "@mfront@ --interface=generic-parallel --configuration-file=config-kokkos-host.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-kokkos-host.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-kokkos-host.json";
+ @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=kokkos -DMFRONT_GPMP_TEST_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-kokkos -L@TFEL_LIBRARY_DIR@ -lTFELTests -Lsrc -lGenericParallelUO2-kokkos -lGenericParallelInconel600-kokkos -lGenericParallelMaterialLaw-kokkos @TFEL_KOKKOS_LINKER_FLAGS@";
+ @Command "./test-kokkos test-kokkos-kokkos-host";
+diff --git a/test-suite/material-properties/generic-parallel/kokkos/test.check b/test-suite/material-properties/generic-parallel/kokkos/test.check
+index 490cb305f..ea2554b42 100644
+--- a/test-suite/material-properties/generic-parallel/kokkos/test.check
++++ b/test-suite/material-properties/generic-parallel/kokkos/test.check
+@@ -5,6 +5,8 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-kokkos.json ../Inconel600_YoungModulus.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-kokkos.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-kokkos.json ../UO2_YoungModulus_Martin1989.mfront";
++@Command "@mfront@ --interface=generic-parallel --configuration-file=config-kokkos.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-kokkos.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-kokkos.json";
+ @Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=kokkos -DMFRONT_GPMP_TEST_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-kokkos -L@TFEL_LIBRARY_DIR@ -lTFELTests -Lsrc -lGenericParallelUO2-kokkos -lGenericParallelInconel600-kokkos -lGenericParallelMaterialLaw-kokkos @TFEL_KOKKOS_LINKER_FLAGS@";
+ @Command "./test-kokkos test-kokkos-kokkos";
+diff --git a/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check b/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check
+index 7727d0bbb..c344d3ce3 100644
+--- a/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check
++++ b/test-suite/material-properties/generic-parallel/openmp-host-gcc/test.check
+@@ -5,6 +5,8 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../Inconel600_YoungModulus.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../UO2_YoungModulus_Martin1989.mfront";
++@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-openmp-host-gcc.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-openmp-host-gcc.json";
+ @Command "@TFEL_GXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openmp ../test-cxx.cxx -o test-openmp -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openmp -lGenericParallelInconel600-openmp -lGenericParallelMaterialLaw-openmp";
+ @Command "./test-openmp test-openmp-openmp-host-gcc";
+diff --git a/test-suite/material-properties/generic-parallel/openmp-offload-nvhpc-gpu/test.check b/test-suite/material-properties/generic-parallel/openmp-offload-nvhpc-gpu/test.check
+index 6b27a16e8..a471496a2 100644
+--- a/test-suite/material-properties/generic-parallel/openmp-offload-nvhpc-gpu/test.check
++++ b/test-suite/material-properties/generic-parallel/openmp-offload-nvhpc-gpu/test.check
+@@ -5,6 +5,8 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../Inconel600_YoungModulus.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../UO2_YoungModulus_Martin1989.mfront";
++@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-openmp-offload-nvhpc-gpu.json";
+ @Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -mp=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openmp ../test-cxx.cxx -o test-openmp -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openmp -lGenericParallelInconel600-openmp -lGenericParallelMaterialLaw-openmp";
+ @Command "./test-openmp test-openmp-openmp-offload-nvhpc-gpu";
+diff --git a/test-suite/material-properties/generic-parallel/stlpar-parunseq-clang/test.check b/test-suite/material-properties/generic-parallel/stlpar-parunseq-clang/test.check
+index edd017ee0..73b48f8d4 100644
+--- a/test-suite/material-properties/generic-parallel/stlpar-parunseq-clang/test.check
++++ b/test-suite/material-properties/generic-parallel/stlpar-parunseq-clang/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-clang.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-clang.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-clang.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-stlpar-parunseq-clang.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-stlpar-parunseq-clang.json";
+ @Command "@TFEL_CLANGXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ ../test-cxx.cxx -o test-stlpar -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-stlpar -lGenericParallelInconel600-stlpar -lGenericParallelMaterialLaw-stlpar";
+ @Command "./test-stlpar test-stlpar-parunseq-clang";
+diff --git a/test-suite/material-properties/generic-parallel/stlpar-parunseq-gcc/test.check b/test-suite/material-properties/generic-parallel/stlpar-parunseq-gcc/test.check
+index 7f4f377ff..72fcbd96c 100644
+--- a/test-suite/material-properties/generic-parallel/stlpar-parunseq-gcc/test.check
++++ b/test-suite/material-properties/generic-parallel/stlpar-parunseq-gcc/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-stlpar-parunseq-gcc.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-stlpar-parunseq-gcc.json";
+ @Command "@TFEL_GXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ ../test-cxx.cxx -o test-stlpar -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-stlpar -lGenericParallelInconel600-stlpar -lGenericParallelMaterialLaw-stlpar";
+ @Command "./test-stlpar test-stlpar-parunseq-gcc";
+diff --git a/test-suite/material-properties/generic-parallel/stlpar-parunseq-icpx/test.check b/test-suite/material-properties/generic-parallel/stlpar-parunseq-icpx/test.check
+index 6a562c94b..a268982f0 100644
+--- a/test-suite/material-properties/generic-parallel/stlpar-parunseq-icpx/test.check
++++ b/test-suite/material-properties/generic-parallel/stlpar-parunseq-icpx/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-icpx.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-icpx.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-icpx.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-stlpar-parunseq-icpx.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-stlpar-parunseq-icpx.json";
+ @Command "@TFEL_ICPX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ ../test-cxx.cxx -o test-stlpar -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src  -lGenericParallelUO2-stlpar -lGenericParallelInconel600-stlpar -lGenericParallelMaterialLaw-stlpar";
+ @Command "./test-stlpar test-stlpar-parunseq-icpx";
+diff --git a/test-suite/material-properties/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check b/test-suite/material-properties/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+index fea74163c..92b8b5968 100644
+--- a/test-suite/material-properties/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
++++ b/test-suite/material-properties/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-stlpar-parunseq-nvhpc-gpu.json";
+ @Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -stdpar=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ ../test-cxx.cxx -o test-stlpar -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-stlpar -lGenericParallelInconel600-stlpar -lGenericParallelMaterialLaw-stlpar";
+ @Command "./test-stlpar test-stlpar-parunseq-nvhpc";
+diff --git a/test-suite/material-properties/generic-parallel/sycl-default-acpp/test.check b/test-suite/material-properties/generic-parallel/sycl-default-acpp/test.check
+index 22ed5f74d..7672ef0aa 100644
+--- a/test-suite/material-properties/generic-parallel/sycl-default-acpp/test.check
++++ b/test-suite/material-properties/generic-parallel/sycl-default-acpp/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-sycl-default-acpp.json";
+ 
+ @Command "@TFEL_ACPP_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ ../test-sycl.cxx -o test-sycl -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-sycl -lGenericParallelInconel600-sycl -lGenericParallelMaterialLaw-sycl";
+diff --git a/test-suite/material-properties/generic-parallel/sycl-default-icpx/test.check b/test-suite/material-properties/generic-parallel/sycl-default-icpx/test.check
+index c78e13de4..2abe548b1 100644
+--- a/test-suite/material-properties/generic-parallel/sycl-default-icpx/test.check
++++ b/test-suite/material-properties/generic-parallel/sycl-default-icpx/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-icpx.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-icpx.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-icpx.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-sycl-default-icpx.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-sycl-default-icpx.json";
+ @Command "@TFEL_ICPX_COMPILER@ -fsycl -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ ../test-sycl.cxx -o test-sycl -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-sycl -lGenericParallelInconel600-sycl -lGenericParallelMaterialLaw-sycl";
+ @Command "./test-sycl test-sycl-default-icpx";
+diff --git a/test-suite/material-properties/generic-parallel/sycl-gpu-acpp-2/test.check b/test-suite/material-properties/generic-parallel/sycl-gpu-acpp-2/test.check
+index 558bf4e2c..ab97fb7bf 100644
+--- a/test-suite/material-properties/generic-parallel/sycl-gpu-acpp-2/test.check
++++ b/test-suite/material-properties/generic-parallel/sycl-gpu-acpp-2/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp-2.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp-2.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp-2.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-sycl-default-acpp-2.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-sycl-default-acpp-2.json";
+ 
+ @Command "@TFEL_ACPP_COMPILER@ -I @TFEL_INCLUDE_DIR@ -DTFEL_SYCL_DEVICE=1 -DTFEL_SYCL_USM_ALLOCATOR=1 -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ ../test-sycl-usm.cxx -o test-sycl-usm-1-1 -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-sycl -lGenericParallelInconel600-sycl -lGenericParallelMaterialLaw-sycl";
+diff --git a/test-suite/material-properties/generic-parallel/sycl-gpu-acpp/test.check b/test-suite/material-properties/generic-parallel/sycl-gpu-acpp/test.check
+index 34282ba60..ae0ef25af 100644
+--- a/test-suite/material-properties/generic-parallel/sycl-gpu-acpp/test.check
++++ b/test-suite/material-properties/generic-parallel/sycl-gpu-acpp/test.check
+@@ -6,6 +6,7 @@
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../Inconel600_YoungModulus-qt.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../UO2_YoungModulus_Martin1989.mfront";
+ @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../LinearDataInterpolationTest.mfront";
++@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../MaterialLawCallTest.mfront";
+ @Command "@mfront@ --obuild --configuration-file=config-sycl-default-acpp.json";
+ 
+ @Command "@TFEL_ACPP_COMPILER@ -DTFEL_SYCL_DEVICE=1 -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ ../test-sycl.cxx -o test-sycl -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-sycl -lGenericParallelInconel600-sycl -lGenericParallelMaterialLaw-sycl";
+diff --git a/test-suite/material-properties/generic-parallel/test-cuda.cu b/test-suite/material-properties/generic-parallel/test-cuda.cu
+index 8e48427b6..993e00a9e 100644
+--- a/test-suite/material-properties/generic-parallel/test-cuda.cu
++++ b/test-suite/material-properties/generic-parallel/test-cuda.cu
+@@ -22,6 +22,7 @@
+ #include "Inconel600_YoungModulus_qt-generic-parallel-cuda.hxx"
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-cuda.hxx"
+ #include "LinearDataInterpolationTest-generic-parallel-cuda.hxx"
++#include "MaterialLawCallTest-generic-parallel-cuda.hxx"
+ 
+ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   Iconel600YoungModulusTest()
+@@ -425,66 +426,52 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     }
+   }
+ 
+-  // bound violated with the warning policy: the result is computed at all
+-  // points and must be used with caution (status 1), as with the `generic`
+-  // interface
+   void test12() {
+-    constexpr auto eps = double{1e-2};
+-    auto young = [](const double T, const double f) {
+-      constexpr auto E0 = 2.2693e11;
+-      constexpr auto dE_dT = -1.53994698e7;
+-      constexpr auto d2E_dT2 = -1.9198278e4;
+-      constexpr auto f0 = 0.4;
+-      return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
+-    };
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto E = thrust::host_vector<double>(4);
+-    const auto T = thrust::host_vector<double>{300, 3000, 300, 800};
+-    const auto f = thrust::host_vector<double>{0, 0.1, 0.15, 0.12};
+-    thrust::device_vector<double> d_T(T);
+-    thrust::device_vector<double> d_f(f);
+-    thrust::device_vector<double> d_E(E.size());
+-    const auto policy = GENERIC_MATERIALPROPERTY_WARNING_POLICY;
+-    const auto args =
+-        std::array<const double *, 2u>{thrust::raw_pointer_cast(d_T.data()),
+-                                       thrust::raw_pointer_cast(d_f.data())};
+-    const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 1};
+-    UO2_YoungModulus_Martin1989(&output, thrust::raw_pointer_cast(d_E.data()),
+-                                1, args.data(), args_strides.data(),
+-                                args.size(), 4, policy);
+-    E = d_E;
+-    TFEL_TESTS_CHECK_EQUAL(output.status, 1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 1);
+-    for (std::size_t i = 0; i != E.size(); ++i) {
+-      TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) <
+-                        eps * std::abs(young(T[i], f[i])));
+-    }
++    // linear interpolation of data
++    this->checkTemperatureDependentMaterialProperty(
++        LinearDataInterpolationTest, {293.15, 493.15, 793.15, 893.15},
++        {240e9, 210e9, 175e9, 170e9});
+   }
+ 
+-  // material property defined by the linear interpolation of data
+   void test13() {
++    // material property calling another material property
++    const auto T = std::array<double, 4u>{300, 500, 300, 800};
++    auto G = std::array<double, 4u>{};
++    for (std::size_t i = 0; i != T.size(); ++i) {
++      G[i] = fct(T[i]) / (2 * (1 + 0.3));
++    }
++    this->checkTemperatureDependentMaterialProperty(MaterialLawCallTest, T, G);
++  }
++
++  /*!
++   * \brief evaluate a material property depending on the temperature at four
++   * points and compare the results to reference values
++   * \param[in] mp: material property
++   * \param[in] T_values: temperatures
++   * \param[in] references: reference values
++   */
++  void checkTemperatureDependentMaterialProperty(
++      const auto mp,
++      const std::array<double, 4u>& T_values,
++      const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+     auto output = mfront_gmp_OutputStatus{};
+-    auto E = thrust::host_vector<double>(4);
+     const auto T =
+-        thrust::host_vector<double>{293.15, 493.15, 793.15, 893.15};
+-    const auto E_ref = std::array<double, 4u>{240e9, 210e9, 175e9, 170e9};
++        thrust::host_vector<double>(T_values.begin(), T_values.end());
+     thrust::device_vector<double> d_T(T);
+-    thrust::device_vector<double> d_E(E.size());
++    thrust::device_vector<double> d_v(T.size());
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     const auto args =
+         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+-    LinearDataInterpolationTest(&output, thrust::raw_pointer_cast(d_E.data()),
+-                                1, args.data(), args_strides.data(),
+-                                args.size(), 4, policy);
+-    E = d_E;
++    mp(&output, thrust::raw_pointer_cast(d_v.data()), 1, args.data(),
++       args_strides.data(), args.size(), T.size(), policy);
++    const auto v = thrust::host_vector<double>(d_v);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+-    for (std::size_t i = 0; i != E.size(); ++i) {
+-      TFEL_TESTS_ASSERT(std::abs(E[i] - E_ref[i]) < eps);
++    for (std::size_t i = 0; i != v.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
+     }
+   }
+ };
+diff --git a/test-suite/material-properties/generic-parallel/test-cxx.cxx b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+index 98d5704c4..cf55f4815 100644
+--- a/test-suite/material-properties/generic-parallel/test-cxx.cxx
++++ b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+@@ -45,6 +45,8 @@
+ #include MFRONT_GPMP_TEST_HEADER(Inconel600_YoungModulus)
+ #include MFRONT_GPMP_TEST_HEADER(Inconel600_YoungModulus_qt)
+ #include MFRONT_GPMP_TEST_HEADER(UO2_YoungModulus_Martin1989)
++#include MFRONT_GPMP_TEST_HEADER(LinearDataInterpolationTest)
++#include MFRONT_GPMP_TEST_HEADER(MaterialLawCallTest)
+ 
+ #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+ //! \brief allocator in the shared memory space of Kokkos
+@@ -382,53 +384,48 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     }
+   }
+ 
+-  // bound violated with the warning policy: the result is computed at all
+-  // points and must be used with caution (status 1), as with the `generic`
+-  // interface
+   void test12() {
+-    constexpr auto eps = double{1e-2};
+-    auto young = [](const double T, const double f) {
+-      constexpr auto E0 = 2.2693e11;
+-      constexpr auto dE_dT = -1.53994698e7;
+-      constexpr auto d2E_dT2 = -1.9198278e4;
+-      constexpr auto f0 = 0.4;
+-      return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
+-    };
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto E = std::vector<double>(4);
+-    const auto T = std::vector<double>{300, 3000, 300, 800};
+-    const auto f = std::vector<double>{0, 0.1, 0.15, 0.12};
+-    const auto policy = GENERIC_MATERIALPROPERTY_WARNING_POLICY;
+-    const auto args = std::array<const double *, 2u>{T.data(), f.data()};
+-    const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 1};
+-    UO2_YoungModulus_Martin1989(&output, E.data(), 1, args.data(),
+-                                args_strides.data(), args.size(), 4, policy);
+-    TFEL_TESTS_CHECK_EQUAL(output.status, 1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 1);
+-    for (std::size_t i = 0; i != E.size(); ++i) {
+-      TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) <
+-                        eps * std::abs(young(T[i], f[i])));
+-    }
++    // linear interpolation of data
++    this->checkTemperatureDependentMaterialProperty(
++        LinearDataInterpolationTest, {293.15, 493.15, 793.15, 893.15},
++        {240e9, 210e9, 175e9, 170e9});
+   }
+ 
+-  // material property defined by the linear interpolation of data
+   void test13() {
++    // material property calling another material property
++    const auto T = std::array<double, 4u>{300, 500, 300, 800};
++    auto G = std::array<double, 4u>{};
++    for (std::size_t i = 0; i != T.size(); ++i) {
++      G[i] = fct(T[i]) / (2 * (1 + 0.3));
++    }
++    this->checkTemperatureDependentMaterialProperty(MaterialLawCallTest, T, G);
++  }
++
++  /*!
++   * \brief evaluate a material property depending on the temperature at four
++   * points and compare the results to reference values
++   * \param[in] mp: material property
++   * \param[in] T_values: temperatures
++   * \param[in] references: reference values
++   */
++  void checkTemperatureDependentMaterialProperty(
++      const auto mp,
++      const std::array<double, 4u>& T_values,
++      const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+     auto output = mfront_gmp_OutputStatus{};
+-    auto E = std::vector<double>(4);
+-    const auto T = std::vector<double>{293.15, 493.15, 793.15, 893.15};
+-    const auto E_ref = std::vector<double>{240e9, 210e9, 175e9, 170e9};
++    auto v = test_vector<double>(T_values.size());
++    const auto T = test_vector<double>(T_values.begin(), T_values.end());
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     const auto args = std::array<const double *, 1u>{T.data()};
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+-    LinearDataInterpolationTest(&output, E.data(), 1, args.data(),
+-                                args_strides.data(), args.size(), 4, policy);
++    mp(&output, v.data(), 1, args.data(), args_strides.data(), args.size(),
++       T.size(), policy);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+-    for (std::size_t i = 0; i != E.size(); ++i) {
+-      TFEL_TESTS_ASSERT(std::abs(E[i] - E_ref[i]) < eps);
++    for (std::size_t i = 0; i != v.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
+     }
+   }
+ };
+diff --git a/test-suite/material-properties/generic-parallel/test-hip.hip b/test-suite/material-properties/generic-parallel/test-hip.hip
+index 7363e7a81..863a9024f 100644
+--- a/test-suite/material-properties/generic-parallel/test-hip.hip
++++ b/test-suite/material-properties/generic-parallel/test-hip.hip
+@@ -23,6 +23,7 @@
+ #include "Inconel600_YoungModulus_qt-generic-parallel-hip.hxx"
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-hip.hxx"
+ #include "LinearDataInterpolationTest-generic-parallel-hip.hxx"
++#include "MaterialLawCallTest-generic-parallel-hip.hxx"
+ 
+ [[nodiscard]] std::unique_ptr<double, void (*)(double *const) noexcept>
+ createManagedData(const std::size_t s) {
+@@ -67,6 +68,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test10();
+     this->test11();
+     this->test12();
++    this->test13();
+     return this->result;
+   }  // end of execute
+ 
+@@ -373,23 +375,50 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     }
+   }
+ 
+-  // material property defined by the linear interpolation of data
++
+   void test12() {
++    // linear interpolation of data
++    this->checkTemperatureDependentMaterialProperty(
++        LinearDataInterpolationTest, {293.15, 493.15, 793.15, 893.15},
++        {240e9, 210e9, 175e9, 170e9});
++  }
++
++  void test13() {
++    // material property calling another material property
++    const auto T = std::array<double, 4u>{300, 500, 300, 800};
++    auto G = std::array<double, 4u>{};
++    for (std::size_t i = 0; i != T.size(); ++i) {
++      G[i] = fct(T[i]) / (2 * (1 + 0.3));
++    }
++    this->checkTemperatureDependentMaterialProperty(MaterialLawCallTest, T, G);
++  }
++
++  /*!
++   * \brief evaluate a material property depending on the temperature at four
++   * points and compare the results to reference values
++   * \param[in] mp: material property
++   * \param[in] T_values: temperatures
++   * \param[in] references: reference values
++   */
++  void checkTemperatureDependentMaterialProperty(
++      const auto mp,
++      const std::array<double, 4u>& T_values,
++      const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+     auto output = mfront_gmp_OutputStatus{};
+-    auto E = createManagedData(4);
+-    const auto T = createManagedData({293.15, 493.15, 793.15, 893.15});
+-    const auto E_ref = std::array<double, 4u>{240e9, 210e9, 175e9, 170e9};
++    auto v = createManagedData(T_values.size());
++    const auto T = createManagedData(T_values.size());
++    std::copy(T_values.begin(), T_values.end(), T.get());
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     const auto args = std::array<const double *, 1u>{T.get()};
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+-    LinearDataInterpolationTest(&output, E.get(), 1, args.data(),
+-                                args_strides.data(), args.size(), 4, policy);
++    mp(&output, v.get(), 1, args.data(), args_strides.data(), args.size(),
++       T_values.size(), policy);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+-    for (std::size_t i = 0; i != 4; ++i) {
+-      TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - E_ref[i]) < eps);
++    for (std::size_t i = 0; i != T_values.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(getValue(v, i) - references[i]) < eps);
+     }
+   }
+ };
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl-device.cxx b/test-suite/material-properties/generic-parallel/test-sycl-device.cxx
+index 9405115f4..996488f3f 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl-device.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl-device.cxx
+@@ -26,6 +26,8 @@
+ #include "Inconel600_YoungModulus-generic-parallel-sycl.hxx"
+ #include "Inconel600_YoungModulus_qt-generic-parallel-sycl.hxx"
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-sycl.hxx"
++#include "LinearDataInterpolationTest-generic-parallel-sycl.hxx"
++#include "MaterialLawCallTest-generic-parallel-sycl.hxx"
+ 
+ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   Iconel600YoungModulusTest()
+@@ -45,6 +47,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test9();
+     this->test10();
+     this->test11();
++    this->test12();
++    this->test13();
+     return this->result;
+   }  // end of execute
+ 
+@@ -472,6 +476,55 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
+     }
+   }
++
++  void test12() {
++    // linear interpolation of data
++    this->checkTemperatureDependentMaterialProperty(
++        LinearDataInterpolationTest, {293.15, 493.15, 793.15, 893.15},
++        {240e9, 210e9, 175e9, 170e9});
++  }
++
++  void test13() {
++    // material property calling another material property
++    const auto T = std::array<double, 4u>{300, 500, 300, 800};
++    auto G = std::array<double, 4u>{};
++    for (std::size_t i = 0; i != T.size(); ++i) {
++      G[i] = fct(T[i]) / (2 * (1 + 0.3));
++    }
++    this->checkTemperatureDependentMaterialProperty(MaterialLawCallTest, T, G);
++  }
++
++  /*!
++   * \brief evaluate a material property depending on the temperature at four
++   * points and compare the results to reference values
++   * \param[in] mp: material property
++   * \param[in] T_values: temperatures
++   * \param[in] references: reference values
++   */
++  void checkTemperatureDependentMaterialProperty(
++      const auto mp,
++      const std::array<double, 4u>& T_values,
++      const std::array<double, 4u>& references) {
++    constexpr auto eps = double{1e-2};
++    auto output = mfront_gmp_OutputStatus{};
++    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
++    auto Q = sycl::queue{sycl::gpu_selector_v};
++    auto v = usm_vector(T_values.size(), Q);
++    const auto T = usm_vector(T_values.begin(), T_values.end(), Q);
++    auto d_v = to_device(v, Q);
++    auto d_T = to_device(T, Q);
++    const auto args = std::array<const double *, 1u>{d_T.get()};
++    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
++    mp(&output, d_v.get(), 1, &Q, args.data(), args_strides.data(),
++       args.size(), T.size(), policy);
++    to_host(v, d_v, Q);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
++    for (std::size_t i = 0; i != v.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
++    }
++  }
+ };
+ 
+ TFEL_TESTS_GENERATE_PROXY(Iconel600YoungModulusTest,
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx b/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx
+index 151dc488a..44a272093 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx
+@@ -25,6 +25,8 @@
+ #include "Inconel600_YoungModulus-generic-parallel-sycl.hxx"
+ #include "Inconel600_YoungModulus_qt-generic-parallel-sycl.hxx"
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-sycl.hxx"
++#include "LinearDataInterpolationTest-generic-parallel-sycl.hxx"
++#include "MaterialLawCallTest-generic-parallel-sycl.hxx"
+ 
+ #ifdef TFEL_SYCL_DEVICE
+ #if TFEL_SYCL_DEVICE == 0
+@@ -71,6 +73,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test9();
+     this->test10();
+     this->test11();
++    this->test12();
++    this->test13();
+     return this->result;
+   }  // end of execute
+ 
+@@ -404,6 +408,52 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
+     }
+   }
++
++  void test12() {
++    // linear interpolation of data
++    this->checkTemperatureDependentMaterialProperty(
++        LinearDataInterpolationTest, {293.15, 493.15, 793.15, 893.15},
++        {240e9, 210e9, 175e9, 170e9});
++  }
++
++  void test13() {
++    // material property calling another material property
++    const auto T = std::array<double, 4u>{300, 500, 300, 800};
++    auto G = std::array<double, 4u>{};
++    for (std::size_t i = 0; i != T.size(); ++i) {
++      G[i] = fct(T[i]) / (2 * (1 + 0.3));
++    }
++    this->checkTemperatureDependentMaterialProperty(MaterialLawCallTest, T, G);
++  }
++
++  /*!
++   * \brief evaluate a material property depending on the temperature at four
++   * points and compare the results to reference values
++   * \param[in] mp: material property
++   * \param[in] T_values: temperatures
++   * \param[in] references: reference values
++   */
++  void checkTemperatureDependentMaterialProperty(
++      const auto mp,
++      const std::array<double, 4u>& T_values,
++      const std::array<double, 4u>& references) {
++    constexpr auto eps = double{1e-2};
++    auto output = mfront_gmp_OutputStatus{};
++    auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
++    auto v = usm_vector(T_values.size(), Q);
++    const auto T = usm_vector(T_values.begin(), T_values.end(), Q);
++    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
++    const auto args = std::array<const double *, 1u>{T.data()};
++    const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
++    mp(&output, v.data(), 1, &Q, args.data(), args_strides.data(),
++       args.size(), T.size(), policy);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
++    for (std::size_t i = 0; i != v.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
++    }
++  }
+ };
+ 
+ TFEL_TESTS_GENERATE_PROXY(Iconel600YoungModulusTest,
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
+index 214b4333e..182151ae1 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
+@@ -26,6 +26,7 @@
+ #include "Inconel600_YoungModulus_qt-generic-parallel-sycl.hxx"
+ #include "UO2_YoungModulus_Martin1989-generic-parallel-sycl.hxx"
+ #include "LinearDataInterpolationTest-generic-parallel-sycl.hxx"
++#include "MaterialLawCallTest-generic-parallel-sycl.hxx"
+ 
+ #ifdef TFEL_SYCL_DEVICE
+ #if TFEL_SYCL_DEVICE == 0
+@@ -58,6 +59,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test10();
+     this->test11();
+     this->test12();
++    this->test13();
+     return this->result;
+   }  // end of execute
+ 
+@@ -356,24 +358,49 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     }
+   }
+ 
+-  // material property defined by the linear interpolation of data
+   void test12() {
++    // linear interpolation of data
++    this->checkTemperatureDependentMaterialProperty(
++        LinearDataInterpolationTest, {293.15, 493.15, 793.15, 893.15},
++        {240e9, 210e9, 175e9, 170e9});
++  }
++
++  void test13() {
++    // material property calling another material property
++    const auto T = std::array<double, 4u>{300, 500, 300, 800};
++    auto G = std::array<double, 4u>{};
++    for (std::size_t i = 0; i != T.size(); ++i) {
++      G[i] = fct(T[i]) / (2 * (1 + 0.3));
++    }
++    this->checkTemperatureDependentMaterialProperty(MaterialLawCallTest, T, G);
++  }
++
++  /*!
++   * \brief evaluate a material property depending on the temperature at four
++   * points and compare the results to reference values
++   * \param[in] mp: material property
++   * \param[in] T_values: temperatures
++   * \param[in] references: reference values
++   */
++  void checkTemperatureDependentMaterialProperty(
++      const auto mp,
++      const std::array<double, 4u>& T_values,
++      const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+     auto output = mfront_gmp_OutputStatus{};
+-    auto E = std::vector<double>(4);
+-    const auto T = std::vector<double>{293.15, 493.15, 793.15, 893.15};
+-    const auto E_ref = std::vector<double>{240e9, 210e9, 175e9, 170e9};
++    auto v = std::vector<double>(T_values.size());
++    const auto T = std::vector<double>(T_values.begin(), T_values.end());
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     const auto args = std::array<const double *, 1u>{T.data()};
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+-    LinearDataInterpolationTest(&output, E.data(), 1, &Q, args.data(),
+-                                args_strides.data(), args.size(), 4, policy);
++    mp(&output, v.data(), 1, &Q, args.data(), args_strides.data(),
++       args.size(), T.size(), policy);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+-    for (std::size_t i = 0; i != E.size(); ++i) {
+-      TFEL_TESTS_ASSERT(std::abs(E[i] - E_ref[i]) < eps);
++    for (std::size_t i = 0; i != v.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
+     }
+   }
+ };
+-- 
+2.43.0
+

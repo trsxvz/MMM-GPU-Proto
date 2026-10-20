@@ -2,7 +2,7 @@
  * \file   mfront/src/CppMaterialPropertyInterface.cxx
  * \brief
  * \author Thomas Helfer
- * \date   06 mai 2008
+ * \date 06/05/2008
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -248,6 +248,7 @@ namespace mfront {
                        "' "
                        "for writing output file.");
     header.exceptions(std::ios::badbit | std::ios::failbit);
+    header.precision(14);
     header << "/*!\n"
            << "* \\file   " << getHeaderFileName(name) << '\n'
            << "* \\brief  "
@@ -259,7 +260,7 @@ namespace mfront {
       header << "* \\author " << fd.authorName << '\n';
     }
     if (!fd.date.empty()) {
-      header << "* \\date   " << fd.date << '\n';
+      header << "* \\date " << fd.date << '\n';
     }
     if (!fd.description.empty()) {
       header << fd.description << '\n';
@@ -357,6 +358,7 @@ namespace mfront {
     std::ofstream src(src_name);
     throw_if(!src, "unable to open '" + src_name + "'");
     src.exceptions(std::ios::badbit | std::ios::failbit);
+    src.precision(14);
     src << "/*!\n"
         << "* \\file   " << src_name << '\n'
         << "* \\brief  "
@@ -368,7 +370,7 @@ namespace mfront {
       src << "* \\author " << fd.authorName << '\n';
     }
     if (!fd.date.empty()) {
-      src << "* \\date   " << fd.date << '\n';
+      src << "* \\date " << fd.date << '\n';
     }
     src << " */\n\n"
         << "#include<stdexcept>\n"

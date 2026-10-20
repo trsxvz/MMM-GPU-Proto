@@ -1,4 +1,4 @@
-From 2258f1ff1ca8d71f75b19901a9533186fa0cc11c Mon Sep 17 00:00:00 2001
+From dd38f3cc2b6206f8f1a92699da8ecff2da327793 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 02:34:02 +0200
 Subject: [PATCH] AmgX nodal blocks: remarks of the review
@@ -486,10 +486,10 @@ index 0d5ea672b5..974bae891d 100644
  }  // end of checkNodalBlocks
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 1eed8ced0a..0707fc9330 100644
+index 09add0c2f2..3fb39a7527 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1957,7 +1957,11 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
+@@ -1960,7 +1960,11 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
               COMMAND mpirun -n 2 ./AmgXSolverTest --parallel)
      add_test(NAME AmgXSolverTestP-cuda
               COMMAND mpirun -n 2 ./AmgXSolverTest --parallel --device cuda)

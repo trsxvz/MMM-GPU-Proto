@@ -1,4 +1,4 @@
-From a8715a642c7da80b043fbcaf628b2b306e3481c8 Mon Sep 17 00:00:00 2001
+From 12698d9ce2d07c6e28d8de4c1a5b9f6c73017986 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 14:02:27 +0200
 Subject: [PATCH] Execution settings: review fixes, copies of the material
@@ -77,7 +77,7 @@ failures), device tests 94/94.
  create mode 100644 cmake/modules/MFEMMGISBehaviours.cmake
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index a16c56622c..8bc0f5356e 100644
+index 3b5a360204..8d4a20770e 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -30,6 +30,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -520,10 +520,10 @@ index f412f99039..772547b866 100644
            m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
        a.number_of_points = qs.getNumberOfIntegrationPoints();
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 42e566d768..4b973042b1 100644
+index f23df82a61..28d5ad8bdf 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
-@@ -1115,8 +1115,8 @@ namespace mfem_mgis {
+@@ -1108,8 +1108,8 @@ namespace mfem_mgis {
              std::pair{&(st->dissipated_energies),
                        StateArrayKind::DISSIPATED_ENERGIES}}) {
          const auto& array = arrays.getArray(a, stage);
@@ -534,7 +534,7 @@ index 42e566d768..4b973042b1 100644
          *view = relocate(*view, p, array.Size());
        }
        std::fill(st->material_properties.begin(), st->material_properties.end(),
-@@ -1218,7 +1218,8 @@ namespace mfem_mgis {
+@@ -1217,7 +1217,8 @@ namespace mfem_mgis {
    BehaviourIntegratorBase::readTangentOperatorBlocks(const bool d) const {
      const auto& v = this->getArrays().getTangentOperatorBlocks();
      const auto s =
@@ -544,7 +544,7 @@ index 42e566d768..4b973042b1 100644
      return mgis::makeFieldView(s, this->getArrays().array_layout,
                                 static_cast<size_type>(this->n), this->K_stride);
    }  // end of readTangentOperatorBlocks
-@@ -1251,10 +1252,12 @@ namespace mfem_mgis {
+@@ -1250,10 +1251,12 @@ namespace mfem_mgis {
              mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
              data.kind);
        }
@@ -559,7 +559,7 @@ index 42e566d768..4b973042b1 100644
 +          std::span<const real>(this->getArrays().read(a, ets, use_device),
 +                                static_cast<std::size_t>(v.Size()));
        return batch::addInnerForces(
-           ctx, f, *(this->quadrature_space),
+           ctx, f, this->quadrature_space,
            mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
 diff --git a/src/Config.cxx b/src/Config.cxx
 index c71a941ef8..da31b7ecb8 100644
@@ -1044,10 +1044,10 @@ index 5c08151342..fcd0fdfc39 100644
               PROPERTY MFEM_MGIS_MFEM_USE_CUDA SET)
  if(NOT _mfem_mgis_mfem_described)
 diff --git a/src/Material.cxx b/src/Material.cxx
-index 15df312054..8f141d7276 100644
+index 8b52f0f869..0ccd3aa143 100644
 --- a/src/Material.cxx
 +++ b/src/Material.cxx
-@@ -341,7 +341,7 @@ namespace mfem_mgis {
+@@ -325,7 +325,7 @@ namespace mfem_mgis {
      const auto &array = this->getArray(a, s);
      const auto source = host ? mgis::FieldView<const real>(hsource)
                               : relocate(mgis::FieldView<const real>(hsource),
@@ -1056,7 +1056,7 @@ index 15df312054..8f141d7276 100644
      const auto matrices =
          host ? hmatrices : relocate(hmatrices, r.Read(), r.Size());
      auto *const values = host ? v.HostWrite() : v.Write();
-@@ -414,8 +414,8 @@ namespace mfem_mgis {
+@@ -398,8 +398,8 @@ namespace mfem_mgis {
          [&arrays](mgis::FieldView<real>& view, const StateArray a,
                    const TimeStepStage s, const bool output) {
            const auto& array = arrays.getArray(a, s);
@@ -1210,10 +1210,10 @@ index 728ef68f50..35b3cbca10 100644
  
    real* MaterialArrays::writeTangentOperatorBlocks(const bool d) {
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index 299cb304b8..2c3ab76134 100644
+index d38fc7d129..88789f1136 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -85,7 +85,8 @@ namespace mfem_mgis {
+@@ -84,7 +84,8 @@ namespace mfem_mgis {
      // default value given by the environment, for instance to run a whole
      // test suite or an application with the integration by batches, or
      // else by the execution settings
@@ -1223,7 +1223,7 @@ index 299cb304b8..2c3ab76134 100644
      const auto d =
          e != nullptr ? std::string{e}
                       : std::string{internals::getDefaultBehaviourIntegration()};
-@@ -119,7 +120,7 @@ namespace mfem_mgis {
+@@ -118,7 +119,7 @@ namespace mfem_mgis {
                                         const char* const v) {
      // default value given by the environment, or else by the execution
      // settings
@@ -1232,7 +1232,7 @@ index 299cb304b8..2c3ab76134 100644
      const auto d =
          e != nullptr
              ? std::string{e}
-@@ -155,7 +156,7 @@ namespace mfem_mgis {
+@@ -154,7 +155,7 @@ namespace mfem_mgis {
      const auto* const v = "MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION";
      // default value given by the environment, or else by the execution
      // settings
@@ -1315,10 +1315,10 @@ index c653a43dd2..9689e83be9 100644
  
        static void writeNode(const mgis::ProfilingData& node,
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 28b8bf1c67..774582b958 100644
+index 7bd501c98d..387376a773 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1232,9 +1232,26 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1235,9 +1235,26 @@ if(MFEM_MGIS_HAVE_TFEL)
      # refusal of the contradictory options by initialize
      if(MFEM_USE_MPI)
        add_test_executable(ExecutionSettingsTest)
@@ -1346,7 +1346,7 @@ index 28b8bf1c67..774582b958 100644
        add_test(NAME ExecutionSettingsTest
                 COMMAND ExecutionSettingsTest
                         ${execution_settings_test_arguments})
-@@ -1242,6 +1259,19 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1245,6 +1262,19 @@ if(MFEM_MGIS_HAVE_TFEL)
                 COMMAND ExecutionSettingsTest --execution cpu
                         --expected-settings cpu,cpu,cpu,cpu,cpu
                         ${execution_settings_test_arguments})
@@ -1366,7 +1366,7 @@ index 28b8bf1c67..774582b958 100644
        function(add_execution_settings_refusal_test name message)
          add_test(NAME ExecutionSettingsTest-refused-${name}
                   COMMAND ExecutionSettingsTest ${ARGN})
-@@ -1268,33 +1298,41 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1271,33 +1301,41 @@ if(MFEM_MGIS_HAVE_TFEL)
            --execution gpu --device debug)
          add_execution_settings_refusal_test(
            hypre-on-host

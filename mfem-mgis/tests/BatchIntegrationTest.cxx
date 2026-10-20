@@ -639,7 +639,7 @@ static void distortMesh(mfem::Mesh& m) {
  */
 static void setVaryingMaterialAxes(mfem_mgis::Material& m) {
   using namespace mfem_mgis;
-  const auto qspace = m.getPartialQuadratureSpacePointer();
+  const auto qspace = m.getPartialQuadratureSpace();
   auto a1 = std::make_shared<PartialQuadratureFunction>(qspace, 3);
   auto a2 = std::make_shared<PartialQuadratureFunction>(qspace, 3);
   auto v1 = a1->getValues();
@@ -679,24 +679,29 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
 /*!
  * \brief checks the states of a material after an update or a revert,
  * through the copies of its arrays on the host, read without
- * synchronization: the states are equal and the tangent operator blocks are
- * null, for a behaviour integrated on the host or on the device
+ * synchronization: the states are equal, for a behaviour integrated on the
+ * host or on the device. The tangent operator blocks are null after a
+ * revert. They are kept by an update, since the prediction of the next time
+ * step may use the operators of the last iteration.
  * \param[in] m: material
  * \param[in] name: name of the computation
+ * \param[in] revert: true after a revert, false after an update
  */
 static void checkStatesAfterUpdateOrRevert(const mfem_mgis::Material& m,
-                                           const std::string& name) {
+                                           const std::string& name,
+                                           const bool revert) {
   const auto same_states = std::ranges::equal(m.s0.gradients, m.s1.gradients) &&
                            std::ranges::equal(m.s0.thermodynamic_forces,
                                               m.s1.thermodynamic_forces) &&
                            std::ranges::equal(m.s0.internal_state_variables,
                                               m.s1.internal_state_variables);
   check(same_states, name + ": different states after an update or a revert");
+  if (!revert) {
+    return;
+  }
   check(std::ranges::all_of(
             m.K, [](const mfem_mgis::real v) noexcept { return v == 0; }),
-        name +
-            ": tangent operator blocks not null after an update or a "
-            "revert");
+        name + ": tangent operator blocks not null after a revert");
 }  // end of checkStatesAfterUpdateOrRevert
 
 /*!
@@ -1101,7 +1106,7 @@ static Results compute(mfem_mgis::Context& ctx,
     // traction, the plastic behaviour yielding during the last time steps
     problem.addBoundaryCondition(
         ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
-                 problem.getFiniteElementDiscretizationPointer(), "Xmax",
+                 problem.getFiniteElementDiscretization(), "Xmax",
                  [](const real t) noexcept { return -450e6 * t; })) |
         or_die;
   } else {
@@ -1195,7 +1200,7 @@ static Results compute(mfem_mgis::Context& ctx,
               name + ": null prediction");
         r.predictions.insert(r.predictions.end(), pv, pv + p.Size());
         problem.revert(ctx) | or_die;
-        checkStatesAfterUpdateOrRevert(m, name);
+        checkStatesAfterUpdateOrRevert(m, name, true);
         // the revert sets the temperature at the end of the time step to
         // the one at the beginning of the time step
         setTemperature(t + dt);
@@ -1224,7 +1229,7 @@ static Results compute(mfem_mgis::Context& ctx,
 #endif /* MFEM_USE_MPI */
     }
     problem.update(ctx) | or_die;
-    checkStatesAfterUpdateOrRevert(m, name);
+    checkStatesAfterUpdateOrRevert(m, name, false);
     if (opts.write_after_update && (i == 0)) {
       // direct write in the state, valid on the host after an update
       const auto offset = mgis::behaviour::getVariableOffset(
@@ -1385,7 +1390,7 @@ struct NoBatchIntegrationBehaviourIntegrator final
       const mfem_mgis::size_type m,
       std::unique_ptr<const mfem_mgis::Behaviour> behaviour)
       : mfem_mgis::BehaviourIntegratorBase(
-            std::make_shared<mfem_mgis::PartialQuadratureSpace>(
+            mfem_mgis::PartialQuadratureSpace(
                 fed, mfem_mgis::MaterialIdentifier{.id = m},
                 selectIntegrationRule),
             std::move(behaviour)) {}

@@ -1,4 +1,4 @@
-From 21e4e50364c421ef001519e1b21623f77fc3b34b Mon Sep 17 00:00:00 2001
+From e309a973aab11f6460ba91fac5d8ef4d382ce4aa Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 15:37:28 +0200
 Subject: [PATCH] Material: component by component layout of the arrays
@@ -22,13 +22,13 @@ component layout.
 ---
  include/MFEMMGIS/Material.hxx       |  8 +++++-
  include/MFEMMGIS/MaterialArrays.hxx | 11 ++++++--
- src/Material.cxx                    | 43 +++++++++++++++++++++++++++--
- src/MaterialArrays.cxx              | 18 ++++++++----
- tests/MaterialArraysTest.cxx        | 35 +++++++++++++++++------
- 5 files changed, 97 insertions(+), 18 deletions(-)
+ src/Material.cxx                    | 42 +++++++++++++++++++++++++++--
+ src/MaterialArrays.cxx              | 18 +++++++++----
+ tests/MaterialArraysTest.cxx        | 35 ++++++++++++++++++------
+ 5 files changed, 96 insertions(+), 18 deletions(-)
 
 diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
-index b6d2444fee..8591c199ee 100644
+index 5138652660..476357d397 100644
 --- a/include/MFEMMGIS/Material.hxx
 +++ b/include/MFEMMGIS/Material.hxx
 @@ -57,9 +57,15 @@ namespace mfem_mgis {
@@ -41,7 +41,7 @@ index b6d2444fee..8591c199ee 100644
 +     * `getInternalStateVariable`...), nor by the behaviour integrators of
 +     * mfem-mgis, which use the point by point layout.
       */
-     Material(std::shared_ptr<const PartialQuadratureSpace> s,
+     Material(const PartialQuadratureSpace &s,
 -             std::unique_ptr<const Behaviour> b_ptr);
 +             std::unique_ptr<const Behaviour> b_ptr,
 +             const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
@@ -86,25 +86,23 @@ index bb0c443172..3dc362be7d 100644
     private:
      //! \brief copy constructor (disabled)
 diff --git a/src/Material.cxx b/src/Material.cxx
-index d38a35f0df..b7c4f6ca89 100644
+index 812f8391f8..e8d491ca2a 100644
 --- a/src/Material.cxx
 +++ b/src/Material.cxx
-@@ -47,10 +47,12 @@ namespace mfem_mgis {
+@@ -38,9 +38,10 @@ namespace mfem_mgis {
    }
  
-   Material::Material(std::shared_ptr<const PartialQuadratureSpace> s,
+   Material::Material(const PartialQuadratureSpace &s,
 -                     std::unique_ptr<const Behaviour> b_ptr)
 +                     std::unique_ptr<const Behaviour> b_ptr,
 +                     const mgis::FieldLayout l)
        : MaterialArrays(Material_dereferenceBehaviour(b_ptr),
-                        Material_dereferenceQuadratureSpace(s)
--                           .getNumberOfIntegrationPoints()),
-+                           .getNumberOfIntegrationPoints(),
-+                       l),
+-                       s.getNumberOfIntegrationPoints()),
++                       s.getNumberOfIntegrationPoints(), l),
          MaterialDataManager(Material_dereferenceBehaviour(b_ptr),
-                             Material_dereferenceQuadratureSpace(s)
-                                 .getNumberOfIntegrationPoints(),
-@@ -292,11 +294,29 @@ namespace mfem_mgis {
+                             s.getNumberOfIntegrationPoints(),
+                             this->getInitializer()),
+@@ -277,11 +278,29 @@ namespace mfem_mgis {
           .data_stride = static_cast<size_type>(*ostride)});
    }  // end of buildImmutablePartialQuadratureFunctionView
  
@@ -132,9 +130,9 @@ index d38a35f0df..b7c4f6ca89 100644
 +      return {};
 +    }
      m.synchronizeOnHost();
-     return buildPartialQuadratureFunction(
-         ctx, m.getPartialQuadratureSpacePointer(),
-@@ -308,6 +328,9 @@ namespace mfem_mgis {
+     return buildPartialQuadratureFunction(ctx, m.getPartialQuadratureSpace(),
+                                           getStateManager(m, s).gradients,
+@@ -293,6 +312,9 @@ namespace mfem_mgis {
        const Material &m,
        const std::string_view n,
        const Material::StateSelection s) noexcept {
@@ -143,8 +141,8 @@ index d38a35f0df..b7c4f6ca89 100644
 +    }
      m.synchronizeOnHostForReading();
      return buildImmutablePartialQuadratureFunctionView(
-         ctx, m.getPartialQuadratureSpacePointer(),
-@@ -319,6 +342,9 @@ namespace mfem_mgis {
+         ctx, m.getPartialQuadratureSpace(), getStateManager(m, s).gradients,
+@@ -304,6 +326,9 @@ namespace mfem_mgis {
        Material &m,
        const std::string_view n,
        const Material::StateSelection s) noexcept {
@@ -153,8 +151,8 @@ index d38a35f0df..b7c4f6ca89 100644
 +    }
      m.synchronizeOnHost();
      return buildPartialQuadratureFunction(
-         ctx, m.getPartialQuadratureSpacePointer(),
-@@ -331,6 +357,9 @@ namespace mfem_mgis {
+         ctx, m.getPartialQuadratureSpace(),
+@@ -316,6 +341,9 @@ namespace mfem_mgis {
        const Material &m,
        const std::string_view n,
        const Material::StateSelection s) noexcept {
@@ -163,8 +161,8 @@ index d38a35f0df..b7c4f6ca89 100644
 +    }
      m.synchronizeOnHostForReading();
      return buildImmutablePartialQuadratureFunctionView(
-         ctx, m.getPartialQuadratureSpacePointer(),
-@@ -343,6 +372,9 @@ namespace mfem_mgis {
+         ctx, m.getPartialQuadratureSpace(),
+@@ -328,6 +356,9 @@ namespace mfem_mgis {
        Material &m,
        const std::string_view n,
        const Material::StateSelection s) noexcept {
@@ -173,8 +171,8 @@ index d38a35f0df..b7c4f6ca89 100644
 +    }
      m.synchronizeOnHost();
      return buildPartialQuadratureFunction(
-         ctx, m.getPartialQuadratureSpacePointer(),
-@@ -355,6 +387,9 @@ namespace mfem_mgis {
+         ctx, m.getPartialQuadratureSpace(),
+@@ -340,6 +371,9 @@ namespace mfem_mgis {
                             const Material &m,
                             const std::string_view n,
                             const Material::StateSelection s) noexcept {
@@ -183,8 +181,8 @@ index d38a35f0df..b7c4f6ca89 100644
 +    }
      m.synchronizeOnHostForReading();
      return buildImmutablePartialQuadratureFunctionView(
-         ctx, m.getPartialQuadratureSpacePointer(),
-@@ -364,6 +399,7 @@ namespace mfem_mgis {
+         ctx, m.getPartialQuadratureSpace(),
+@@ -349,6 +383,7 @@ namespace mfem_mgis {
  
    std::optional<PartialQuadratureFunction> getStoredEnergy(
        Context &ctx, Material &m, const Material::StateSelection s) noexcept {
@@ -192,7 +190,7 @@ index d38a35f0df..b7c4f6ca89 100644
      m.synchronizeOnHost();
      const auto &sm = getStateManager(m, s);
      if (!sm.b.computesStoredEnergy) {
-@@ -379,6 +415,7 @@ namespace mfem_mgis {
+@@ -364,6 +399,7 @@ namespace mfem_mgis {
        Context &ctx,
        const Material &m,
        const Material::StateSelection s) noexcept {
@@ -200,7 +198,7 @@ index d38a35f0df..b7c4f6ca89 100644
      m.synchronizeOnHostForReading();
      const auto &sm = getStateManager(m, s);
      if (!sm.b.computesStoredEnergy) {
-@@ -392,6 +429,7 @@ namespace mfem_mgis {
+@@ -377,6 +413,7 @@ namespace mfem_mgis {
  
    std::optional<PartialQuadratureFunction> getDissipatedEnergy(
        Context &ctx, Material &m, const Material::StateSelection s) noexcept {
@@ -208,7 +206,7 @@ index d38a35f0df..b7c4f6ca89 100644
      m.synchronizeOnHost();
      const auto &sm = getStateManager(m, s);
      if (!sm.b.computesDissipatedEnergy) {
-@@ -407,6 +445,7 @@ namespace mfem_mgis {
+@@ -392,6 +429,7 @@ namespace mfem_mgis {
        Context &ctx,
        const Material &m,
        const Material::StateSelection s) noexcept {
@@ -266,12 +264,12 @@ index 5ff090bf78..6d7930c190 100644
    }  // end of getInitializer
  
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 651c305264..acf5638311 100644
+index 0130eddaca..bbf5a2b760 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -50,7 +50,8 @@ static void testMaterial(
      mfem_mgis::Context& ctx,
-     std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
+     const mfem_mgis::PartialQuadratureSpace& qspace,
      const char* const library,
 -    const char* const behaviour) {
 +    const char* const behaviour,
@@ -286,7 +284,7 @@ index 651c305264..acf5638311 100644
 -  auto m = Material(qspace, std::move(b));
 +  auto m = Material(qspace, std::move(b), layout);
    auto& a = m.getArrays();
-   const auto n = qspace->getNumberOfIntegrationPoints();
+   const auto n = qspace.getNumberOfIntegrationPoints();
 -  const auto name = std::string{behaviour};
 +  const auto pbp = layout == mgis::FieldLayout::POINT_BY_POINT;
 +  const auto name = std::string{behaviour} +
@@ -339,7 +337,7 @@ index 651c305264..acf5638311 100644
 +    }
    }
    testHostAccesses(ctx, mesh, library);
-   testQuadratureSpaceArrays(*qspace);
+   testQuadratureSpaceArrays(qspace);
 -- 
 2.43.0
 

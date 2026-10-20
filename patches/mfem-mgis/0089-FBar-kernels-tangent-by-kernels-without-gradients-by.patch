@@ -1,4 +1,4 @@
-From b8dbb8000808725ca3ead487b7c14ed068e7f0b9 Mon Sep 17 00:00:00 2001
+From b9b63e5de4b1439ec5bd320d818266d1263ea31c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] FBar kernels: tangent by kernels without gradients by kernels
@@ -31,10 +31,10 @@ prediction in the FBar case with quadratic elements.
  8 files changed, 143 insertions(+), 67 deletions(-)
 
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-index c53d19ada0..f6fbae98ed 100644
+index 31deb4c26d..d6781152ff 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-@@ -90,6 +90,7 @@ namespace mfem_mgis {
+@@ -89,6 +89,7 @@ namespace mfem_mgis {
      // the gradients are computed element by element: the data of the FBar
      // formulation computed by kernels no longer match the unknowns
      this->fbar_data.valid = false;
@@ -42,15 +42,15 @@ index c53d19ada0..f6fbae98ed 100644
  #ifdef MFEM_THREAD_SAFE
      mfem::Vector shape0;
      mfem::DenseMatrix dshape0;
-@@ -242,6 +243,7 @@ namespace mfem_mgis {
+@@ -241,6 +242,7 @@ namespace mfem_mgis {
      // the data of the FBar formulation computed by kernels no longer match
      // the unknowns
      this->fbar_data.valid = false;
 +    this->fbar_data.has_tangent_operator = false;
-     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+     const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
      const auto &ir = child.getIntegrationRule(e, tr);
  #ifdef MFEM_THREAD_SAFE
-@@ -628,9 +630,11 @@ namespace mfem_mgis {
+@@ -627,9 +629,11 @@ namespace mfem_mgis {
      if (!this->getKernelsData(ctx, data, name, g)) {
        return false;
      }
@@ -63,7 +63,7 @@ index c53d19ada0..f6fbae98ed 100644
      if (!this->fbar_data.valid) {
        return ctx.registerErrorMessage(
            std::string{name} +
-@@ -638,6 +642,9 @@ namespace mfem_mgis {
+@@ -637,6 +641,9 @@ namespace mfem_mgis {
            "computed by kernels from gradients computed by kernels "
            "(GradientsComputation set to Kernels)");
      }
@@ -74,10 +74,10 @@ index c53d19ada0..f6fbae98ed 100644
        if (this->fbar_data.coefficients.Size() != this->n) {
          // before the first computation of the gradients (prediction of the
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index c16f1ba2fa..5f459a78a8 100644
+index 7c38733309..2d9776d547 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -140,6 +140,22 @@ namespace mfem_mgis {
+@@ -139,6 +139,22 @@ namespace mfem_mgis {
       * \param[in, out] ctx: execution context
       */
      [[nodiscard]] bool checkKernelsSupport(Context& ctx) const noexcept;
@@ -101,10 +101,10 @@ index c16f1ba2fa..5f459a78a8 100644
       * \brief compute the gradients of all the behaviour integrators by
       * kernels (first step of the integration by batches, replacing the calls
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index 63ff06a779..7c2ede7b80 100644
+index a80e238462..43ecd61e58 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -123,8 +123,10 @@ namespace mfem_mgis {
+@@ -124,8 +124,10 @@ namespace mfem_mgis {
       * operator; the non linear form must only contain the integrator of
       * mfem-mgis). `Kernels` and `MatrixFree` are supported for the same
       * behaviour integrators and meshes as for `GradientsComputation`, not
@@ -198,10 +198,10 @@ index d549315a3d..6b4666725d 100644
      return true;
  #endif /* MFEM_MGIS_HAVE_DEVICE_SOURCES */
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 8e508d9a56..6ee857b9e3 100644
+index db7d488af3..76f15dd35b 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -299,6 +299,29 @@ namespace mfem_mgis {
+@@ -298,6 +298,29 @@ namespace mfem_mgis {
      return true;
    }  // end of checkBatchIntegrationSupport
  
@@ -232,10 +232,10 @@ index 8e508d9a56..6ee857b9e3 100644
        Context& ctx) const noexcept {
      auto ctx2 = Context{};
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index 7c9a921786..5b2995df92 100644
+index 1ec984a688..baeb16d7b3 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -521,6 +521,11 @@ namespace mfem_mgis {
+@@ -510,6 +510,11 @@ namespace mfem_mgis {
              (!this->mgis_integrator->checkKernelsSupport(ctx))) {
            return false;
          }
@@ -248,7 +248,7 @@ index 7c9a921786..5b2995df92 100644
            return false;
          }
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index f2620e3528..20d54c74e8 100644
+index 60bb7c7732..68688aad68 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -28,6 +28,7 @@
@@ -259,7 +259,7 @@ index f2620e3528..20d54c74e8 100644
  #include <tuple>
  #include <stdexcept>
  #include <utility>
-@@ -951,7 +952,8 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
+@@ -956,7 +957,8 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
  
  /*!
   * \brief the tangent operator of the FBar formulation can't be computed by
@@ -269,7 +269,7 @@ index f2620e3528..20d54c74e8 100644
   * \param[in, out] ctx: execution context
   * \param[in] mesh: mesh
   * \param[in] library: behaviour library
-@@ -961,60 +963,77 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
+@@ -966,60 +968,77 @@ static void testFBarTangentOperatorRefusal(mfem_mgis::Context& ctx,
                                             const char* const library) {
    using namespace mfem_mgis;
    auto or_die = ctx.getFatalFailureHandler();
@@ -397,7 +397,7 @@ index f2620e3528..20d54c74e8 100644
  }  // end of testFBarTangentOperatorRefusal
  
  /*!
-@@ -1391,9 +1410,11 @@ int main(int argc, char** argv) {
+@@ -1396,9 +1415,11 @@ int main(int argc, char** argv) {
                        .matrix_free = true,
                        .second_material_library = library},
                       ", FBar, two materials, matrix free"});
@@ -410,7 +410,7 @@ index f2620e3528..20d54c74e8 100644
                        .gradients_kernels = true,
                        .inner_forces_kernels = true,
                        .tangent_operator_kernels = true,
-@@ -1517,9 +1538,9 @@ int main(int argc, char** argv) {
+@@ -1522,9 +1543,9 @@ int main(int argc, char** argv) {
                          .matrix_free = true},
                         ", matrix free"});
      }

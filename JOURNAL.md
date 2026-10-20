@@ -5499,3 +5499,42 @@ formula as MTest). All the others give the Newton solution to within
   (`--non-linear newton|modified-newton|newton-k0`, the elastic operator
   of NewtonK0 being solved by the linear solver of the run), ex2 refined
   twice, ex5 in parallel and refined twice.
+
+### 2026-10-20, rebase of all the repositories onto the official masters
+
+- TFEL (124 patches on `d24a5cfe8`), MGIS (78 patches on `a30dbf5`),
+  mfem-mgis (274 patches on `5bbd5a6981`), mfem-mgis-examples (38 patches
+  on `f256bd8` of `latug0/mfem-mgis-examples`) and mm-opera-hpc (40
+  patches on `f3fc124` of `rprat-pro/mm-opera-hpc`) are rebased onto the
+  last commits of the official branches. The patches of the prototype
+  which were already merged, or became empty, are dropped (3 in TFEL, 3 in
+  MGIS, 1 in mfem-mgis). Each patch series is checked by
+  `scripts/verify-patches.sh` on its new base.
+- Each file changed both by the official repository and by the prototype
+  is checked by a three-way merge of the old base, the official master
+  and the former tree of the prototype: no change of the official
+  repository is lost, and the remaining differences are deliberate.
+- Changes of the official repositories carried over to the code of the
+  prototype:
+  - mfem-mgis #498: the update of a material keeps the tangent operator
+    blocks, on the host and on the device (the prediction may use the
+    operators of the last iteration). MGIS gets the matching
+    `update(MaterialDataView, UpdateArguments, FieldOperations)`;
+  - mfem-mgis: partial quadrature spaces and finite element
+    discretizations handled by value, in all the code and the tests of the
+    prototype;
+  - mfem-mgis #495: the `StrongThreshold` option of BoomerAMG replaces the
+    `StrengthThreshold` option of the prototype (BoomerAMG and hybrid
+    solver of hypre, `cases/`);
+  - mm-opera-hpc: problems built by `construct` with the fatal failure
+    handler.
+- Defects found by the rebase: the generated code of the material
+  properties restored `errno` from a variable the prototype removed; the
+  `assign` function of mfem-mgis compared the addresses of two copies of
+  the same quadrature space (fixed in a separate patch, candidate for the
+  official repository); a test behaviour of MGIS raised an exception in
+  device code.
+- Tests: 6980 tests of TFEL, 57 of MGIS, 360 of mfem-mgis, 25 of the
+  examples, 9 of mm-opera-hpc and 143 of `cases/`, all green. The `-O3`
+  matrix of the `generic-parallel` tests, the compilation sweeps and the
+  suite of mfem-mgis on the GPU are run afterwards.

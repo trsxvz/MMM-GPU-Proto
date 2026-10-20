@@ -1,4 +1,4 @@
-From 62954b75818a5fe5ce5ca6d62df3fdb030b89805 Mon Sep 17 00:00:00 2001
+From aae88321e546d0a9058fd49f3c6446b762bf41be Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 04:07:21 +0200
 Subject: [PATCH] Solvers and preconditioners of Trilinos
@@ -389,7 +389,7 @@ index 243185f96e..96d85b0e4c 100644
  
  Direct solvers of SuperLU_DIST and STRUMPACK
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index c18fe10d07..b09908ec5b 100644
+index 0b8da1be3c..bb33cc9824 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -151,6 +151,19 @@ the rigid body modes are given to the preconditioners of PETSc (GAMG).

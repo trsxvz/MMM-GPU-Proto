@@ -1,4 +1,4 @@
-From c03ce098c1a534a588c0af40d72c5578c4f19e44 Mon Sep 17 00:00:00 2001
+From 630dcfeecd9ef3071a4a7046e90f77a1e7ef91eb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:06:59 +0200
 Subject: [PATCH] ex4: --profiling option
@@ -12,7 +12,7 @@ sections of mfem-mgis), for the three variants (MUMPS, hypre, PETSc).
  3 files changed, 24 insertions(+), 4 deletions(-)
 
 diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
-index 0d7efbf..10d921c 100644
+index dc74a35..cfe211e 100644
 --- a/ex4/ssna303_hypre.cxx
 +++ b/ex4/ssna303_hypre.cxx
 @@ -26,7 +26,6 @@
@@ -60,7 +60,7 @@ index 0d7efbf..10d921c 100644
    return EXIT_SUCCESS;
  }
 diff --git a/ex4/ssna303_mumps.cxx b/ex4/ssna303_mumps.cxx
-index 80ecdcc..d3e53e3 100644
+index c8ff596..a85d13b 100644
 --- a/ex4/ssna303_mumps.cxx
 +++ b/ex4/ssna303_mumps.cxx
 @@ -34,7 +34,6 @@
@@ -108,7 +108,7 @@ index 80ecdcc..d3e53e3 100644
    return EXIT_SUCCESS;
  }
 diff --git a/ex4/ssna303_petsc.cxx b/ex4/ssna303_petsc.cxx
-index 797ed9b..cd21e7e 100644
+index 3d5b88f..da69367 100644
 --- a/ex4/ssna303_petsc.cxx
 +++ b/ex4/ssna303_petsc.cxx
 @@ -46,6 +46,7 @@ int main(int argc, char** argv) {

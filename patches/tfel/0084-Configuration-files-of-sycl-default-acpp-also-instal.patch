@@ -1,0 +1,30 @@
+From 52b6f5c4f9db41481f1475e7a0e260cfeefd3067 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 17:29:52 +0200
+Subject: [PATCH] Configuration files of sycl-default-acpp also installed for
+ the sycl-gpu-acpp configuration
+
+The tests of the sycl-gpu-acpp configuration use those files: they
+failed if sycl-default-acpp was not selected.
+---
+ docs/web/release-notes/release-notes-5.2.md | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
+index 50e1ed91d..68cb7a831 100644
+--- a/docs/web/release-notes/release-notes-5.2.md
++++ b/docs/web/release-notes/release-notes-5.2.md
+@@ -161,8 +161,8 @@ The following configurations are supported for parallel computations:
+   programming model and AdaptiveCpp's `acpp` compiler.
+ - `sycl-gpu-acpp`: tests of the `SYCL` backend for material properties on
+   the GPU with AdaptiveCpp's `acpp` compiler. Those tests use the
+-  configuration files of the `sycl-default-acpp` configuration, which must
+-  also be selected.
++  configuration files of the `sycl-default-acpp` configuration, which are
++  installed if one of those two configurations is selected.
+ - `kokkos`: configuration associated with the `Kokkos` library, using the
+   compiler and the flags of the `Kokkos` installation found by `cmake`
+   (default execution space and default host execution space).
+-- 
+2.43.0
+

@@ -111,7 +111,7 @@ integration of MGIS stays on CPU.
 ## mfem-mgis
 
 The branch `gpu-proto` of mfem-mgis starts from the official master
-`20dcdf0a9b` (16/10/2026, merge of PR #487). The order follows the
+`5bbd5a6981` (20/10/2026, merge of PR #500). The order follows the
 dependencies:
 
 - contributions 1 and 2 need neither the TFEL nor the MGIS of the
@@ -274,8 +274,8 @@ be rebuilt from the final state, by pieces of files.
 
 ## mfem-mgis-examples and mm-opera-hpc
 
-The changes of the examples (31 patches since `600da70`) and of
-mm-opera-hpc (34 patches since `49147f2`) follow the contributions of
+The changes of the examples (38 patches since `f256bd8`) and of
+mm-opera-hpc (40 patches since `f3fc124`) follow the contributions of
 mfem-mgis that they use. They will be proposed after them, by topic:
 
 - options of mfem-mgis and of the behaviour in each example and each case

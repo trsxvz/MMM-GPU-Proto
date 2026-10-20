@@ -1,4 +1,4 @@
-From f1b0b95d008d34de7b5b71fc9591f84173fc85f8 Mon Sep 17 00:00:00 2001
+From 18872fbeb6a892da859291e40c81396c0b7f9f4d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 12:46:57 +0200
 Subject: [PATCH] Option --device: MFEM device created by initialize
@@ -152,10 +152,10 @@ index 2b764badc8..9db26a9f41 100644
      static bool use_petsc = false;
      static const char* petscrc_file = "";
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 17cb97a48c..ae6d0c8e4e 100644
+index d1a1350f41..d5d63fceb7 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -767,6 +767,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -770,6 +770,13 @@ if(MFEM_MGIS_HAVE_TFEL)
          "$<TARGET_FILE:BehaviourTest>")
    endif()
  

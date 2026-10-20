@@ -1,4 +1,4 @@
-From a952586cb9d49ad7e4e7701a8e173b053db118b5 Mon Sep 17 00:00:00 2001
+From 5bc63b63b9d19e819ebbc721110607896bcf6d66 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 19:09:38 +0200
 Subject: [PATCH] Standard memory of the host for the device configured by
@@ -150,10 +150,10 @@ index 87722c16b5..9570462b11 100644
            std::make_unique<mfem::Device>(device_configuration, identifier);
        // the kernels are launched asynchronously on a GPU: the profiling
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 0d3a06b9d3..ffa1406426 100644
+index 134501c055..3834246735 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1302,6 +1302,23 @@ add_test(NAME DeviceOptionTest-debug
+@@ -1305,6 +1305,23 @@ add_test(NAME DeviceOptionTest-debug
           COMMAND DeviceOptionTest --device debug --expected debug)
  add_test(NAME DeviceOptionTest-debug-short
           COMMAND DeviceOptionTest -dev debug --expected debug)

@@ -66,11 +66,11 @@ jobs:
           fi
           echo "patches/$directory: applied on $base"
         }
-        check tfel https://github.com/thelfer/tfel.git ff0959ece
-        check mgis https://github.com/thelfer/MFrontGenericInterfaceSupport.git e8ef4b4
-        check mfem-mgis https://github.com/thelfer/mfem-mgis.git 20dcdf0a9b
-        check mfem-mgis-examples https://github.com/latug0/mfem-mgis-examples.git 600da70
-        check mm-opera-hpc https://github.com/rprat-pro/mm-opera-hpc.git 49147f2
+        check tfel https://github.com/thelfer/tfel.git d24a5cfe8
+        check mgis https://github.com/thelfer/MFrontGenericInterfaceSupport.git a30dbf5
+        check mfem-mgis https://github.com/thelfer/mfem-mgis.git 5bbd5a6981
+        check mfem-mgis-examples https://github.com/latug0/mfem-mgis-examples.git f256bd8
+        check mm-opera-hpc https://github.com/rprat-pro/mm-opera-hpc.git f3fc124
 
   cpu:
     runs-on: ubuntu-24.04
@@ -188,7 +188,7 @@ jobs:
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib
         git clone --quiet --filter=blob:none \
           https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
-        git -C mgis checkout --quiet e8ef4b4
+        git -C mgis checkout --quiet a30dbf5
         git -C mgis -c user.name=ci -c user.email=ci@localhost \
           am --quiet --keep-cr $PWD/patches/mgis/*.patch
         cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
@@ -385,7 +385,7 @@ jobs:
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib
         git clone --quiet --filter=blob:none \
           https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
-        git -C mgis checkout --quiet e8ef4b4
+        git -C mgis checkout --quiet a30dbf5
         git -C mgis -c user.name=ci -c user.email=ci@localhost \
           am --quiet --keep-cr $PWD/patches/mgis/*.patch
         cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \
@@ -596,7 +596,7 @@ jobs:
         export LD_LIBRARY_PATH=$PWD/install/tfel/lib
         git clone --quiet --filter=blob:none \
           https://github.com/thelfer/MFrontGenericInterfaceSupport.git mgis
-        git -C mgis checkout --quiet e8ef4b4
+        git -C mgis checkout --quiet a30dbf5
         git -C mgis -c user.name=ci -c user.email=ci@localhost \
           am --quiet --keep-cr $PWD/patches/mgis/*.patch
         cmake -S mgis -B build/mgis -DCMAKE_BUILD_TYPE=Release \

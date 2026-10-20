@@ -1,4 +1,4 @@
-From 05458c343cb6b101988df9a55aeb3f65e88476dd Mon Sep 17 00:00:00 2001
+From 474cf96959495591e135aab68905f777bc5e39c0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 18:16:24 +0200
 Subject: [PATCH] Kokkos initialized by mfem_mgis::initialize on demand
@@ -510,10 +510,10 @@ index 4387b4f5cd..5c08151342 100644
  # before mfem-mgis, the description of MFEM is the one used to build
  # mfem-mgis
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 5499dcfebe..f21e2aa401 100644
+index 633355edfa..2191012004 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1046,6 +1046,30 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1049,6 +1049,30 @@ if(MFEM_MGIS_HAVE_TFEL)
                 COMMAND MaterialArraysTest --device cuda
                         ${material_arrays_test_arguments}
                         ${material_arrays_test_cuda_library})
@@ -544,7 +544,7 @@ index 5499dcfebe..f21e2aa401 100644
      endif()
    endif()
  
-@@ -1276,6 +1300,54 @@ add_test(NAME DeviceOptionTest-debug
+@@ -1279,6 +1303,54 @@ add_test(NAME DeviceOptionTest-debug
           COMMAND DeviceOptionTest --device debug --expected debug)
  add_test(NAME DeviceOptionTest-debug-short
           COMMAND DeviceOptionTest -dev debug --expected debug)

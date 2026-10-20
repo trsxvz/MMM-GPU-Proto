@@ -51,7 +51,7 @@ namespace tfel::math {
     //! \return the iterator preceding the given one (see `advance`)
     template <typename Iterator>
     TFEL_HOST_DEVICE constexpr Iterator previous(Iterator i) {
-      advance(i, -1);
+      internals::advance(i, -1);
       return i;
     }  // end of previous
 

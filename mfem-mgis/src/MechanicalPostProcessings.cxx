@@ -42,7 +42,7 @@ namespace mfem_mgis {
     if (isInvalid(oH)) {
       return false;
     }
-    auto F = PartialQuadratureFunction(m.getPartialQuadratureSpacePointer(),
+    auto F = PartialQuadratureFunction(m.getPartialQuadratureSpace(),
                                        oH->getNumberOfComponents());
     const auto n = m.getPartialQuadratureSpace().getNumberOfIntegrationPoints();
     for (size_type i = 0; i != n; ++i) {
@@ -136,7 +136,7 @@ namespace mfem_mgis {
 
   std::optional<PartialQuadratureFunction> computeVonMisesEquivalentStress(
       Context& ctx, const Material& m, const Material::StateSelection s) {
-    PartialQuadratureFunction seq(m.getPartialQuadratureSpacePointer());
+    PartialQuadratureFunction seq(m.getPartialQuadratureSpace());
     if (!computeVonMisesEquivalentStress(ctx, seq, m, s)) {
       return {};
     }
@@ -147,8 +147,7 @@ namespace mfem_mgis {
                                        PartialQuadratureFunction& seq,
                                        const Material& m,
                                        const Material::StateSelection s) {
-    if (seq.getPartialQuadratureSpacePointer() !=
-        m.getPartialQuadratureSpacePointer()) {
+    if (seq.getPartialQuadratureSpace() != m.getPartialQuadratureSpace()) {
       return ctx.registerErrorMessage(
           "computeVonMisesEquivalentStress: quadrature function is not defined "
           "on the given material");
@@ -251,8 +250,7 @@ namespace mfem_mgis {
                             PartialQuadratureFunction& svp,
                             const Material& m,
                             const Material::StateSelection s) {
-    if (svp.getPartialQuadratureSpacePointer() !=
-        m.getPartialQuadratureSpacePointer()) {
+    if (svp.getPartialQuadratureSpace() != m.getPartialQuadratureSpace()) {
       return ctx.registerErrorMessage(
           "computeEigenStresses: quadrature function is not defined "
           "on the given material");
@@ -274,7 +272,7 @@ namespace mfem_mgis {
 
   std::optional<PartialQuadratureFunction> computeEigenStresses(
       Context& ctx, const Material& m, const Material::StateSelection s) {
-    PartialQuadratureFunction svp(m.getPartialQuadratureSpacePointer(), 3);
+    PartialQuadratureFunction svp(m.getPartialQuadratureSpace(), 3);
     if (!computeEigenStresses(ctx, svp, m, s)) {
       return {};
     }
@@ -364,8 +362,7 @@ namespace mfem_mgis {
                                PartialQuadratureFunction& s1,
                                const Material& m,
                                const Material::StateSelection s) {
-    if (s1.getPartialQuadratureSpacePointer() !=
-        m.getPartialQuadratureSpacePointer()) {
+    if (s1.getPartialQuadratureSpace() != m.getPartialQuadratureSpace()) {
       return ctx.registerErrorMessage(
           "computeFirstEigenStress: quadrature function is not defined "
           "on the given material");
@@ -386,7 +383,7 @@ namespace mfem_mgis {
 
   std::optional<PartialQuadratureFunction> computeFirstEigenStress(
       Context& ctx, const Material& m, const Material::StateSelection s) {
-    PartialQuadratureFunction s1(m.getPartialQuadratureSpacePointer());
+    PartialQuadratureFunction s1(m.getPartialQuadratureSpace());
     if (!computeFirstEigenStress(ctx, s1, m, s)) {
       return {};
     }
@@ -454,8 +451,7 @@ namespace mfem_mgis {
                                   PartialQuadratureFunction& rstress,
                                   const Material& m,
                                   const Material::StateSelection s) {
-    if (rstress.getPartialQuadratureSpacePointer() !=
-        m.getPartialQuadratureSpacePointer()) {
+    if (rstress.getPartialQuadratureSpace() != m.getPartialQuadratureSpace()) {
       return ctx.registerErrorMessage(
           "computeStressInGlobalFrame: quadrature function is not defined "
           "on the given material");
@@ -522,8 +518,7 @@ namespace mfem_mgis {
       return ctx.registerErrorMessage(
           "computeStressInGlobalFrame: not a mechanical behaviour");
     }
-    PartialQuadratureFunction rpk1(m.getPartialQuadratureSpacePointer(),
-                                   stress_size);
+    PartialQuadratureFunction rpk1(m.getPartialQuadratureSpace(), stress_size);
     if (!computeStressInGlobalFrame(ctx, rpk1, m, s)) {
       return {};
     }
@@ -561,8 +556,7 @@ namespace mfem_mgis {
                                         PartialQuadratureFunction& sig,
                                         const Material& m,
                                         const Material::StateSelection s) {
-    if (sig.getPartialQuadratureSpacePointer() !=
-        m.getPartialQuadratureSpacePointer()) {
+    if (sig.getPartialQuadratureSpace() != m.getPartialQuadratureSpace()) {
       return ctx.registerErrorMessage(
           "computeEigenStresses: quadrature function is not defined "
           "on the given material");
@@ -608,8 +602,7 @@ namespace mfem_mgis {
           "computeCauchyStressInGlobalFrame: unsupported modelling "
           "hypothesis");
     }
-    PartialQuadratureFunction sig(m.getPartialQuadratureSpacePointer(),
-                                  stress_size);
+    PartialQuadratureFunction sig(m.getPartialQuadratureSpace(), stress_size);
     if (!computeCauchyStressInGlobalFrame(ctx, sig, m, s)) {
       return {};
     }
@@ -644,8 +637,7 @@ namespace mfem_mgis {
                            PartialQuadratureFunction& sig,
                            const Material& m,
                            const Material::StateSelection s) {
-    if (sig.getPartialQuadratureSpacePointer() !=
-        m.getPartialQuadratureSpacePointer()) {
+    if (sig.getPartialQuadratureSpace() != m.getPartialQuadratureSpace()) {
       return ctx.registerErrorMessage(
           "computeEigenStresses: quadrature function is not defined "
           "on the given material");
@@ -687,8 +679,7 @@ namespace mfem_mgis {
           "computeCauchyStress: unsupported modelling "
           "hypothesis");
     }
-    PartialQuadratureFunction sig(m.getPartialQuadratureSpacePointer(),
-                                  stress_size);
+    PartialQuadratureFunction sig(m.getPartialQuadratureSpace(), stress_size);
     if (!computeCauchyStress(ctx, sig, m, s)) {
       return {};
     }

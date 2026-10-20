@@ -1,0 +1,252 @@
+From 3731baf6212f74cb923fecc6172c913157481a77 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 15 Oct 2026 00:11:45 +0200
+Subject: [PATCH] Bindings: getAxialDeformationGradientOffset
+
+C (mgis_bv_behaviour_get_axial_deformation_gradient_offset), Fortran
+(behaviour_get_axial_deformation_gradient_offset, one-based offset) and
+Python (getAxialDeformationGradientOffset, None without such a variable)
+bindings, needed by the callers which provide their own arrays of
+internal state variables. The C and Python tests check the offset and
+the initial value for a behaviour written with the deformation gradient
+in plane stress. Not bound in Julia, whose bindings can not be built
+here (jlcxx not available).
+---
+ bindings/c/include/MGIS/Behaviour/Behaviour.h | 14 ++++++
+ bindings/c/src/Behaviour.cxx                  | 11 +++++
+ bindings/c/tests/DisplacementGradientTest-c.c | 48 ++++++++++++++++++-
+ bindings/fortran/src/mgis_behaviour.f90       | 33 +++++++++++++
+ bindings/python/src/Behaviour.cxx             |  4 ++
+ .../python/tests/DisplacementGradientTest.py  | 17 +++++++
+ docs/web/bindings-cxx.md                      |  2 +-
+ 7 files changed, 127 insertions(+), 2 deletions(-)
+
+diff --git a/bindings/c/include/MGIS/Behaviour/Behaviour.h b/bindings/c/include/MGIS/Behaviour/Behaviour.h
+index 8f7bb0c..e991ef6 100644
+--- a/bindings/c/include/MGIS/Behaviour/Behaviour.h
++++ b/bindings/c/include/MGIS/Behaviour/Behaviour.h
+@@ -243,6 +243,20 @@ MGIS_C_EXPORT mgis_status mgis_bv_behaviour_get_tangent_operator_array_size(
+  */
+ MGIS_C_EXPORT mgis_status mgis_bv_behaviour_uses_displacement_gradient(
+     int* const, const mgis_bv_Behaviour* const);
++/*!
++ * \brief get the offset of the `AxialDeformationGradient` internal state
++ * variable of a finite strain behaviour in plane stress, which holds the
++ * axial component of the deformation gradient computed by a behaviour
++ * written with the deformation gradient. The states allocated by MGIS set
++ * this variable to one: a caller that provides its own arrays of internal
++ * state variables must do the same.
++ * \param[out] r: 1 if the behaviour has such a variable, 0 otherwise
++ * \param[out] o: offset of the variable, if any
++ * \param[in] b: behaviour
++ */
++MGIS_C_EXPORT mgis_status
++mgis_bv_behaviour_get_axial_deformation_gradient_offset(
++    int* const, mgis_size_type* const, const mgis_bv_Behaviour* const);
+ /*
+  * The following rotation functions report a failure for a behaviour which
+  * provides no rotation function of an integration point: an isotropic
+diff --git a/bindings/c/src/Behaviour.cxx b/bindings/c/src/Behaviour.cxx
+index 9cb0324..59e2b6e 100644
+--- a/bindings/c/src/Behaviour.cxx
++++ b/bindings/c/src/Behaviour.cxx
+@@ -400,6 +400,17 @@ mgis_status mgis_bv_behaviour_uses_displacement_gradient(
+   return mgis_report_success();
+ }  // end of mgis_bv_behaviour_uses_displacement_gradient
+ 
++mgis_status mgis_bv_behaviour_get_axial_deformation_gradient_offset(
++    int* const r, mgis_size_type* const o, const mgis_bv_Behaviour* const b) {
++  if ((r == nullptr) || (o == nullptr) || (b == nullptr)) {
++    return mgis_report_failure("invalid argument");
++  }
++  const auto offset = mgis::behaviour::getAxialDeformationGradientOffset(*b);
++  *r = static_cast<int>(offset.has_value());
++  *o = offset.value_or(0);
++  return mgis_report_success();
++}  // end of mgis_bv_behaviour_get_axial_deformation_gradient_offset
++
+ mgis_status mgis_bv_behaviour_get_library(const char** l,
+                                           const mgis_bv_Behaviour* const b) {
+   if (b == nullptr) {
+diff --git a/bindings/c/tests/DisplacementGradientTest-c.c b/bindings/c/tests/DisplacementGradientTest-c.c
+index c0ff828..67abe10 100644
+--- a/bindings/c/tests/DisplacementGradientTest-c.c
++++ b/bindings/c/tests/DisplacementGradientTest-c.c
+@@ -1,7 +1,7 @@
+ /*!
+  * \file   DisplacementGradientTest-c.c
+  * \brief  Finite strain behaviour loaded with the displacement gradient
+- * through the C bindings
++ * through the C bindings, and axial deformation gradient in plane stress
+  * \date   14/10/2026
+  * \copyright (C) Copyright Thomas Helfer 2018.
+  * Use, modification and distribution are subject
+@@ -15,6 +15,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include "MGIS/Behaviour/Behaviour.h"
++#include "MGIS/Behaviour/MaterialDataManager.h"
+ 
+ int test_status = EXIT_SUCCESS;
+ 
+@@ -62,6 +63,50 @@ static void test(const char* const* argv,
+   check_status(mgis_bv_free_behaviour(&b));
+ }  // end of test
+ 
++/*!
++ * \brief offset and initial value of the axial deformation gradient of a
++ * behaviour written with the deformation gradient in plane stress (the
++ * Green-Lagrange strain is stored before it), and absence of this variable
++ * for the behaviour given on the command line, written in a strain
++ * framework
++ */
++static void test_axial_deformation_gradient(const char* const* argv) {
++  mgis_bv_Behaviour* b;
++  mgis_bv_FiniteStrainBehaviourOptions* o;
++  int r;
++  mgis_size_type offset;
++  check_status(mgis_bv_create_finite_strain_behaviour_options(&o));
++  check_status(mgis_bv_load_finite_strain_behaviour(
++      &b, o, argv[1], "SaintVenantKirchhoffElasticity", "PlaneStress"));
++  check_status(
++      mgis_bv_behaviour_get_axial_deformation_gradient_offset(&r, &offset, b));
++  if (check(r == 1, "no axial deformation gradient")) {
++    mgis_bv_MaterialDataManager* m;
++    mgis_bv_MaterialStateManager* s0;
++    mgis_real* isvs;
++    mgis_size_type stride;
++    check(offset == 4, "invalid offset of the axial deformation gradient");
++    check_status(mgis_bv_create_material_data_manager(&m, b, 2));
++    check_status(mgis_bv_material_data_manager_get_state_0(&s0, m));
++    check_status(
++        mgis_bv_material_state_manager_get_internal_state_variables(&isvs, s0));
++    check_status(
++        mgis_bv_material_state_manager_get_internal_state_variables_stride(
++            &stride, s0));
++    check((isvs[offset] == 1) && (isvs[stride + offset] == 1),
++          "invalid initial value of the axial deformation gradient");
++    check_status(mgis_bv_free_material_data_manager(&m));
++  }
++  check_status(mgis_bv_free_behaviour(&b));
++  check_status(mgis_bv_load_finite_strain_behaviour(&b, o, argv[1], argv[2],
++                                                    "PlaneStress"));
++  check_status(
++      mgis_bv_behaviour_get_axial_deformation_gradient_offset(&r, &offset, b));
++  check(r == 0, "unexpected axial deformation gradient");
++  check_status(mgis_bv_free_finite_strain_behaviour_options(&o));
++  check_status(mgis_bv_free_behaviour(&b));
++}  // end of test_axial_deformation_gradient
++
+ int main(const int argc, const char* const* argv) {
+   if (!check(argc == 3, "expected three arguments")) {
+     return EXIT_FAILURE;
+@@ -72,5 +117,6 @@ int main(const int argc, const char* const* argv) {
+   test(argv, "F", MGIS_BV_DEFORMATION_GRADIENT, 0);
+   test(argv, "DisplacementGradient", MGIS_BV_DEFORMATION_GRADIENT, 1);
+   test(argv, "H", MGIS_BV_DEFORMATION_GRADIENT, 1);
++  test_axial_deformation_gradient(argv);
+   return test_status;
+ }  // end of main
+diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
+index e7d9234..41771ea 100644
+--- a/bindings/fortran/src/mgis_behaviour.f90
++++ b/bindings/fortran/src/mgis_behaviour.f90
+@@ -856,6 +856,39 @@ contains
+        r = .true.
+     end if
+   end function behaviour_uses_displacement_gradient
++  ! behaviour_get_axial_deformation_gradient_offset
++  function behaviour_get_axial_deformation_gradient_offset(r,o,b) result(s)
++    use, intrinsic :: iso_c_binding, only: c_int, c_size_t
++    use mgis_fortran_utilities
++    use mgis, only: mgis_status
++    implicit none
++    interface
++       function behaviour_get_axial_deformation_gradient_offset_wrapper(r,o,b) &
++            bind(c,name = 'mgis_bv_behaviour_get_axial_deformation_gradient_offset') &
++            result(s)
++         use, intrinsic :: iso_c_binding, only: c_int, c_size_t, c_ptr
++         use mgis, only: mgis_status
++         implicit none
++         integer(kind=c_int), intent(out) :: r
++         integer(kind=c_size_t), intent(out) :: o
++         type(c_ptr), intent(in), value :: b
++         type(mgis_status) :: s
++       end function behaviour_get_axial_deformation_gradient_offset_wrapper
++    end interface
++    logical, intent(out) :: r
++    integer, intent(out) :: o
++    type(behaviour), intent(in) :: b
++    type(mgis_status) :: s
++    integer(kind=c_int) :: ri
++    integer(kind=c_size_t) :: offset
++    s = behaviour_get_axial_deformation_gradient_offset_wrapper(ri, offset, b%ptr)
++    if (ri .eq. 0) then
++       r = .false.
++    else
++       r = .true.
++    end if
++    o = offset + 1
++  end function behaviour_get_axial_deformation_gradient_offset
+   ! behaviour_get_library
+   function behaviour_get_library(l,b) result(s)
+     use mgis_fortran_utilities
+diff --git a/bindings/python/src/Behaviour.cxx b/bindings/python/src/Behaviour.cxx
+index 65d66a8..bc0c5c5 100644
+--- a/bindings/python/src/Behaviour.cxx
++++ b/bindings/python/src/Behaviour.cxx
+@@ -272,6 +272,10 @@ void declareBehaviour(pybind11::module_ &m) {
+   m.def("usesDisplacementGradient", mgis::behaviour::usesDisplacementGradient,
+         "return true if the gradients of the behaviour are the displacement "
+         "gradient");
++  m.def("getAxialDeformationGradientOffset",
++        mgis::behaviour::getAxialDeformationGradientOffset,
++        "return the offset of the AxialDeformationGradient internal state "
++        "variable of a finite strain behaviour in plane stress, or None");
+   m.def("loadFromDatabase", Behaviour_loadFromDatabase, "name"_a,
+         "hypothesis"_a, "material"_a = std::optional<std::string>{});
+ 
+diff --git a/bindings/python/tests/DisplacementGradientTest.py b/bindings/python/tests/DisplacementGradientTest.py
+index ca2aa69..ecef777 100644
+--- a/bindings/python/tests/DisplacementGradientTest.py
++++ b/bindings/python/tests/DisplacementGradientTest.py
+@@ -31,6 +31,23 @@ class DisplacementGradientTest(unittest.TestCase):
+                         'invalid gradient name')
+         self.assertTrue(bH.gradients[0].type == mgis_bv.VariableType.TENSOR,
+                         'invalid gradient type')
++        # axial deformation gradient of a behaviour written with the
++        # deformation gradient in plane stress, stored after the
++        # Green-Lagrange strain and initialized to one
++        ps = mgis_bv.Hypothesis.PlaneStress
++        o = mgis_bv.FiniteStrainBehaviourOptions()
++        b = mgis_bv.load(o, lib, 'SaintVenantKirchhoffElasticity', ps)
++        offset = mgis_bv.getAxialDeformationGradientOffset(b)
++        self.assertTrue(offset == 4,
++                        'invalid offset of the axial deformation gradient')
++        m = mgis_bv.MaterialDataManager(b, 2)
++        for s in [m.s0, m.s1]:
++            self.assertTrue((s.internal_state_variables[:, offset] == 1).all(),
++                            'invalid initial value of the axial '
++                            'deformation gradient')
++        bh = mgis_bv.load(o, lib, 'HenckyElasticity', ps)
++        self.assertTrue(mgis_bv.getAxialDeformationGradientOffset(bh) is None,
++                        'unexpected axial deformation gradient')
+ 
+ 
+ if __name__ == '__main__':
+diff --git a/docs/web/bindings-cxx.md b/docs/web/bindings-cxx.md
+index 2710474..87c723e 100644
+--- a/docs/web/bindings-cxx.md
++++ b/docs/web/bindings-cxx.md
+@@ -200,7 +200,7 @@ by the behaviour, and the one given in the gradients is ignored (`TFEL`
+ this axial component in the `AxialDeformationGradient` internal state
+ variable, which must start from one. The states allocated by `MGIS` set
+ it to one, and the `getAxialDeformationGradientOffset` function returns
+-its offset.
++its offset (also available in the `C`, `Fortran` and `Python` bindings).
+ A caller that provides its own arrays of internal state variables (see
+ the `MaterialDataManagerInitializer` class) must set it to one, as it
+ must set the deformation gradient to the identity.
+-- 
+2.43.0
+

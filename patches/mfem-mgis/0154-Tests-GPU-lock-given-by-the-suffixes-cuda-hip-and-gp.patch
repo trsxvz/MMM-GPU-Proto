@@ -1,4 +1,4 @@
-From e8edc5c90c059dc1797af0bfd006947fe0f43f24 Mon Sep 17 00:00:00 2001
+From fb63f35f15e236c61bdfdabcb38d6efdf1e475fb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:11:04 +0200
 Subject: [PATCH] Tests: GPU lock given by the suffixes -cuda, -hip and -gpu
@@ -13,10 +13,10 @@ without being listed; the explicit list is removed.
  1 file changed, 4 insertions(+), 12 deletions(-)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 0d7d0ee074..72e5b6b1d0 100644
+index 7b51f403a6..1ae26b8d0a 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1330,12 +1330,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1333,12 +1333,8 @@ if(MFEM_MGIS_HAVE_TFEL)
        # the variants placing the behaviours on the GPU require their
        # library for the GPU
        set(_bh_locations cpu)
@@ -29,7 +29,7 @@ index 0d7d0ee074..72e5b6b1d0 100644
          add_test(NAME ExecutionSettingsTest-gpu
                   COMMAND ExecutionSettingsTest --execution gpu
                           --expected-settings gpu,gpu,gpu,gpu,gpu
-@@ -1367,16 +1363,10 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1370,16 +1366,10 @@ if(MFEM_MGIS_HAVE_TFEL)
                                 --expected-settings
                                 mixed,${_fe},${_bh},${_lsd},${_ppd}
                                 ${execution_settings_test_gpu_arguments})
@@ -46,7 +46,7 @@ index 0d7d0ee074..72e5b6b1d0 100644
      endif()
    endif()
  
-@@ -1764,10 +1754,12 @@ install(
+@@ -1767,10 +1757,12 @@ install(
    RENAME CMakeLists.txt)
  
  # each process on the GPU may reserve a large memory pool (4 GiB for hypre

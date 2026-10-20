@@ -2,7 +2,7 @@
  * \file   TestLauncher.hxx
  * \brief  This file declares the TestLauncher class
  * \author Thomas Helfer
- * \date   28 Jan 2008
+ * \date 28/01/2008
  *
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
@@ -83,6 +83,8 @@ namespace tfel::check {
       ~Command();
       //! \brief command to be executed
       std::string command;
+      //! \brief maximum duration in seconds
+      std::optional<int> timeout;
       //! \brief function testing the output of the command
       std::function<std::tuple<bool, std::string>(
           const std::vector<std::string>&)>

@@ -1,4 +1,4 @@
-From 7ae75576946cfddccb33603a0245c37790eb0424 Mon Sep 17 00:00:00 2001
+From 399e96237cb203e8e4c4246a37f880766d23add4 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 20:08:57 +0200
 Subject: [PATCH] ex2, ex4: refinement of the mesh
@@ -42,7 +42,7 @@ index 0f399fb..6074d49 100644
                {"Materials", mfem_mgis::Parameters{{"NotchedBeam", 1}}},
                {"Boundaries", mfem_mgis::Parameters{{"LowerBoundary", 3},
 diff --git a/ex4/ssna303_mumps.cxx b/ex4/ssna303_mumps.cxx
-index 2ab06ab..b020361 100644
+index 8af13ac..07ae3f5 100644
 --- a/ex4/ssna303_mumps.cxx
 +++ b/ex4/ssna303_mumps.cxx
 @@ -48,6 +48,7 @@ int main(int argc, char** argv) {

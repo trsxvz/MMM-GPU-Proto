@@ -1,4 +1,4 @@
-From 8535fe39b1bcc793eb46a1c839e02f4914ee89ed Mon Sep 17 00:00:00 2001
+From 941667351788bf7a8af41f6447e0f67a2cbf25c6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:12:03 +0200
 Subject: [PATCH] Compute the nodal blocks of the tangent operator applied
@@ -46,10 +46,10 @@ operator applied without assembly, the blocks being gathered by a kernel.
  27 files changed, 784 insertions(+), 37 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 0fa318a8fd..94e23a3b3b 100644
+index b894e0b575..12a36d8818 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -286,6 +286,24 @@ namespace mfem_mgis {
+@@ -283,6 +283,24 @@ namespace mfem_mgis {
          Context& ctx,
          mfem::Vector& d,
          const batch::ElementsGeometrySet& g) noexcept;
@@ -178,7 +178,7 @@ index fdbc08a94b..f2a5f0a9fe 100644
     * \brief adds the action of the stiffness matrices of the elements of a
     * material, computed from the tangent operator blocks without assembling
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
-index 339d044182..b4b451c4e3 100644
+index 32afbea540..3f6d1a062e 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 @@ -148,6 +148,15 @@ namespace mfem_mgis {
@@ -198,10 +198,10 @@ index 339d044182..b4b451c4e3 100644
     protected:
      static_assert(((H == Hypothesis::PLANESTRAIN) ||
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-index daa842a5bc..1ae36aada4 100644
+index 7301177720..ac4ced8e4d 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-@@ -782,6 +782,29 @@ namespace mfem_mgis {
+@@ -781,6 +781,29 @@ namespace mfem_mgis {
          });
    }  // end of addTangentOperatorDiagonalByKernels
  
@@ -223,7 +223,7 @@ index daa842a5bc..1ae36aada4 100644
 +        ctx, "addTangentOperatorNodalBlocksByKernels",
 +        [this, &ctx, &blocks, &data](const mgis::FieldView<const real>& Kb) {
 +          return batch::addFBarStiffnessMatricesNodalBlocks(
-+              ctx, blocks, this->fbar_data, *(this->quadrature_space), Kb,
++              ctx, blocks, this->fbar_data, this->quadrature_space, Kb,
 +              *(data.geometry), data.kind);
 +        });
 +  }  // end of addTangentOperatorNodalBlocksByKernels
@@ -252,7 +252,7 @@ index 367e423d51..468592fb7b 100644
     private:
      /*!
 diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
-index 9f941d356d..7321b38e6d 100644
+index f86bc4599f..e01d91c3b8 100644
 --- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
 +++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
 @@ -452,6 +452,31 @@ namespace mfem_mgis {
@@ -280,7 +280,7 @@ index 9f941d356d..7321b38e6d 100644
 +      return true;
 +    }
 +    return batch::addFaltusStiffnessMatricesNodalBlocks(
-+        ctx, b, *(this->quadrature_space), this->alpha, *(data.geometry), *g0,
++        ctx, b, this->quadrature_space, this->alpha, *(data.geometry), *g0,
 +        data.kind);
 +  }  // end of addTangentOperatorNodalBlocksByKernels
 +
@@ -397,10 +397,10 @@ index 39769eb093..595d7ce2cd 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 2dfc717526..bca16cbfd3 100644
+index 732b098790..7ea9df07ce 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -306,6 +306,23 @@ namespace mfem_mgis {
+@@ -305,6 +305,23 @@ namespace mfem_mgis {
          Context& ctx,
          const mfem::FiniteElementSpace& fes,
          mfem::Vector& d) noexcept;
@@ -425,7 +425,7 @@ index 2dfc717526..bca16cbfd3 100644
       * \brief create the sparse matrix in which
       * `assembleStiffnessMatrixByKernels` assembles the stiffness matrices of
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
-index 0b0c3f4040..c2b5f7fcfc 100644
+index e7b5e624cd..f8805ed80b 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 @@ -133,6 +133,16 @@ namespace mfem_mgis {
@@ -446,7 +446,7 @@ index 0b0c3f4040..c2b5f7fcfc 100644
     protected:
      /*!
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index 96e30354d3..8c2097238b 100644
+index 755ffe26a0..ecd6afb067 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -404,6 +404,35 @@ namespace mfem_mgis {
@@ -470,7 +470,7 @@ index 96e30354d3..8c2097238b 100644
 +    try {
 +      const auto use_device = mfem::Device::IsEnabled();
 +      return batch::addStiffnessMatricesNodalBlocks(
-+          ctx, b, *(this->quadrature_space),
++          ctx, b, this->quadrature_space,
 +          this->readTangentOperatorBlocks(use_device), *(data.geometry),
 +          data.kind);
 +    } catch (std::exception &e) {
@@ -486,7 +486,7 @@ index 96e30354d3..8c2097238b 100644
    bool
    StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index 6e05b596ff..65cd2b1efa 100644
+index 2c31860801..4a3a73915d 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -104,6 +104,14 @@ namespace mfem_mgis {
@@ -1191,10 +1191,10 @@ index 55c54c7118..d5b7bdcc60 100644
        const {
      return this->assemble();
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 611ad81dcf..8c3fa0dd4f 100644
+index 99f1a648db..a01303f438 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -726,6 +726,49 @@ namespace mfem_mgis {
+@@ -725,6 +725,49 @@ namespace mfem_mgis {
      return true;
    }  // end of addTangentOperatorDiagonalByKernels
  

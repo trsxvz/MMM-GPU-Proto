@@ -1,4 +1,4 @@
-From 39a9d4bac55872e7a04fddb8305f4a1d6af68949 Mon Sep 17 00:00:00 2001
+From a9d97b80bef433380c5a69ac4b51f5c9705c3d21 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 06:06:29 +0200
 Subject: [PATCH] Initialize functions and post-processings of batches
@@ -23,10 +23,10 @@ post-processing with the ones of the generic interface.
  2 files changed, 258 insertions(+), 58 deletions(-)
 
 diff --git a/src/Integrate.cxx b/src/Integrate.cxx
-index d799dd2..b1f6adc 100644
+index 1bc6cce..ce6fd7d 100644
 --- a/src/Integrate.cxx
 +++ b/src/Integrate.cxx
-@@ -444,51 +444,41 @@ namespace mgis::behaviour::internals {
+@@ -446,51 +446,41 @@ namespace mgis::behaviour::internals {
    }  // end of makeBatchField
  
    /*!
@@ -108,7 +108,7 @@ index d799dd2..b1f6adc 100644
      // state at the beginning of the time step
      const auto& s0 = m.s0;
      d.s0.gradients = makeArrayBatchField(std::span<const real>(s0.gradients),
-@@ -504,10 +494,10 @@ namespace mgis::behaviour::internals {
+@@ -506,10 +496,10 @@ namespace mgis::behaviour::internals {
          makeArrayBatchField(std::span<const real>(s0.stored_energies), 1, b);
      d.s0.dissipated_energy = makeArrayBatchField(
          std::span<const real>(s0.dissipated_energies), 1, b);
@@ -122,7 +122,7 @@ index d799dd2..b1f6adc 100644
      d.s1.gradients = makeArrayBatchField(std::span<const real>(s1.gradients),
                                           s1.gradients_stride, b);
      d.s1.thermodynamic_forces = makeArrayBatchField(
-@@ -517,30 +507,124 @@ namespace mgis::behaviour::internals {
+@@ -519,30 +509,124 @@ namespace mgis::behaviour::internals {
          s1.internal_state_variables, s1.internal_state_variables_stride, b);
      d.s1.stored_energy = makeArrayBatchField(s1.stored_energies, 1, b);
      d.s1.dissipated_energy = makeArrayBatchField(s1.dissipated_energies, 1, b);
@@ -256,7 +256,7 @@ index d799dd2..b1f6adc 100644
    /*!
     * \brief execute the given initialize function over a range of integration
     * points.
-@@ -550,6 +634,9 @@ namespace mgis::behaviour::internals {
+@@ -552,6 +636,9 @@ namespace mgis::behaviour::internals {
        const BehaviourInitializeFunction p,
        const mgis::size_type b,
        const mgis::size_type e) {
@@ -266,7 +266,7 @@ index d799dd2..b1f6adc 100644
      // workspace
      auto& ws = m.getBehaviourIntegrationWorkSpace();
      auto v = internals::initializeBehaviourDataView(ws);
-@@ -583,6 +670,11 @@ namespace mgis::behaviour::internals {
+@@ -589,6 +676,11 @@ namespace mgis::behaviour::internals {
        const mgis::size_type inputs_stride,
        const mgis::size_type b,
        const mgis::size_type e) {
@@ -278,7 +278,7 @@ index d799dd2..b1f6adc 100644
      // workspace
      auto& ws = m.getBehaviourIntegrationWorkSpace();
      auto v = internals::initializeBehaviourDataView(ws);
-@@ -727,6 +819,11 @@ namespace mgis::behaviour::internals {
+@@ -737,6 +829,11 @@ namespace mgis::behaviour::internals {
        const mgis::size_type outputs_stride,
        const mgis::size_type b,
        const mgis::size_type e) {
@@ -290,7 +290,7 @@ index d799dd2..b1f6adc 100644
      // workspace
      auto& ws = m.getBehaviourIntegrationWorkSpace();
      auto v = internals::initializeBehaviourDataView(ws);
-@@ -881,8 +978,25 @@ namespace mgis::behaviour {
+@@ -897,8 +994,25 @@ namespace mgis::behaviour {
      return executeInitializeFunction(m, n, inputs, 0, m.n);
    }  // end of executeInitializeFunction
  
@@ -316,7 +316,7 @@ index d799dd2..b1f6adc 100644
      const auto& ifct = getBehaviourInitializeFunction(m.b, n);
      if (!ifct.inputs.empty()) {
        mgis::raise(
-@@ -925,6 +1039,9 @@ namespace mgis::behaviour {
+@@ -945,6 +1059,9 @@ namespace mgis::behaviour {
        MaterialDataManager& m,
        const std::string_view n,
        std::span<const real> inputs) {
@@ -326,7 +326,7 @@ index d799dd2..b1f6adc 100644
      const auto& ifct = getBehaviourInitializeFunction(m.b, n);
      const auto istride = getArraySize(ifct.inputs, m.b.hypothesis);
      if ((inputs.size() != m.n * istride) && (inputs.size() != istride)) {
-@@ -1054,12 +1171,8 @@ namespace mgis::behaviour {
+@@ -1078,12 +1195,8 @@ namespace mgis::behaviour {
        const BehaviourIntegrationOptions& opts,
        const real dt) {
      if (isGenericParallelBehaviour(m.b)) {
@@ -341,7 +341,7 @@ index d799dd2..b1f6adc 100644
      }
      m.setThreadSafe(true);
      internals::allocate(m, opts);
-@@ -1330,6 +1443,9 @@ namespace mgis::behaviour {
+@@ -1363,6 +1476,9 @@ namespace mgis::behaviour {
        mgis::ThreadPool& p,
        MaterialDataManager& m,
        const std::string_view n) {

@@ -1,4 +1,4 @@
-From 41e7e0baf08d089578d7dc3420446bbf611dc9d2 Mon Sep 17 00:00:00 2001
+From 6f7b0ef558ec006937238ffd916bdc3889a8f934 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 04:01:39 +0200
 Subject: [PATCH] Measures and integrals summed in double, checked against MFEM
@@ -42,7 +42,7 @@ index cd9dc213e8..77c8316f07 100644
     * \param[in] qs: partial quadrature space. All its elements must use the
     * integration rule of the geometric data.
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index 10bfe5b2ed..6e05b596ff 100644
+index 73fb193832..2c31860801 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -192,14 +192,15 @@ namespace mfem_mgis {
@@ -158,7 +158,7 @@ index 29dd0c0886..05660fa2d2 100644
  
    /*!
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index 1d31a25cfa..703c8a9553 100644
+index fa35be9be1..0dbaf5730e 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -148,6 +148,40 @@ static bool check(mfem_mgis::Context& ctx,

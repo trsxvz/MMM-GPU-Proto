@@ -1,4 +1,4 @@
-From 9d6e426a549b3e767a2f1ce88639501b83d5b7c8 Mon Sep 17 00:00:00 2001
+From c4e399194531e1f4466b3d59dcc40432673756da Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 17:40:38 +0200
 Subject: [PATCH] Tests: iterations of BatchIntegrationTest may differ by two
@@ -17,7 +17,7 @@ one in double as before.
  1 file changed, 11 insertions(+), 3 deletions(-)
 
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 10c79c0e29..06e4fc33a6 100644
+index 838924fb2c..5c5afaa48f 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -43,6 +43,7 @@
@@ -28,7 +28,7 @@ index 10c79c0e29..06e4fc33a6 100644
  #include <stdexcept>
  #include <utility>
  #include <vector>
-@@ -1252,7 +1253,7 @@ static mfem_mgis::real getComparisonTolerance(const ComputationOptions& opts) {
+@@ -1257,7 +1258,7 @@ static mfem_mgis::real getComparisonTolerance(const ComputationOptions& opts) {
   * \param[in] name: name of the comparison
   * \param[in] eps: tolerance on the relative differences. If null, the
   * numbers of iterations must be the same; otherwise, they may differ by one
@@ -37,7 +37,7 @@ index 10c79c0e29..06e4fc33a6 100644
   */
  static void compare(const Results& r1,
                      const Results& r2,
-@@ -1279,10 +1280,17 @@ static void compare(const Results& r1,
+@@ -1284,10 +1285,17 @@ static void compare(const Results& r1,
    } else {
      // rounding errors may move the convergence by one iteration, the
      // relative tolerance of the Newton algorithm being close to the

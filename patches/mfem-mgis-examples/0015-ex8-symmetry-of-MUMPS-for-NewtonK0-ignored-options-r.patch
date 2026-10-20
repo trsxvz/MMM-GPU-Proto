@@ -1,4 +1,4 @@
-From 415014f55ad0aa2984333ad93432f786965e9827 Mon Sep 17 00:00:00 2001
+From b62fa17ec8ed205b2b4d93e6f3d197f698f4d522 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 21:46:20 +0200
 Subject: [PATCH] ex8: symmetry of MUMPS for NewtonK0, ignored options
@@ -63,7 +63,7 @@ index a7edfea..ec80d71 100644
  | `-r` | `--refinement` | Uniform refinement level of the mesh (default: `0`). |
  | `-pp`, `-no-pp` | `--post-processing`, `--no-post-processing` | Enables (default) or disables the export of results for ParaView. |
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index 3830586..b144378 100644
+index af78d52..c39c3d5 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -54,8 +54,12 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -102,7 +102,7 @@ index 3830586..b144378 100644
           mfem_mgis::Parameters{
               {"GMRESSolver",
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index c843067..124b45f 100644
+index 31d6680..e60d766 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -35,9 +35,11 @@ struct TestParameters {

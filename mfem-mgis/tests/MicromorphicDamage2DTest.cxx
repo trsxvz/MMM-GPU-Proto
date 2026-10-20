@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
   }
   //
   const auto H = mfem_mgis::PartialQuadratureFunction::evaluate(
-      m.getPartialQuadratureSpacePointer(),
+      m.getPartialQuadratureSpace(),
       [](const mfem_mgis::real x, const mfem_mgis::real) noexcept {
         const auto d = std::sin(4 * pi * x) / 2;
         return Gc * d * (1 + l0 * l0 * 16 * pi * pi) / (2 * l0 * (1 - d));
@@ -89,12 +89,12 @@ int main(int argc, char** argv) {
   //    $EndPhysicalNames
   problem.addBoundaryCondition(
       ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
-               ctx, problem.getFiniteElementDiscretizationPointer(), 3, 0) |
+               ctx, problem.getFiniteElementDiscretization(), 3, 0) |
                or_die) |
       or_die;
   problem.addBoundaryCondition(
       ctx, make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
-               ctx, problem.getFiniteElementDiscretizationPointer(), 1, 0) |
+               ctx, problem.getFiniteElementDiscretization(), 1, 0) |
                or_die) |
       or_die;
   // set the solver parameters

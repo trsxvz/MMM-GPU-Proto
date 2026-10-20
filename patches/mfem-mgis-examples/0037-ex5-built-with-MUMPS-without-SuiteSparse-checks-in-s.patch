@@ -1,4 +1,4 @@
-From 58ad56b7e0f7ec57fdca8359aead66c95b2d3623 Mon Sep 17 00:00:00 2001
+From 892bbb4bbd87499a101c0baa546bd663fe2082f5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 12:28:29 +0200
 Subject: [PATCH] ex5: built with MUMPS without SuiteSparse, checks in single
@@ -68,7 +68,7 @@ index 05dbeba..69519ed 100644
  
  
 diff --git a/ex5/SatohTest.cxx b/ex5/SatohTest.cxx
-index 2d886a6..9390ecf 100644
+index a6345f9..72986e2 100644
 --- a/ex5/SatohTest.cxx
 +++ b/ex5/SatohTest.cxx
 @@ -5,6 +5,7 @@

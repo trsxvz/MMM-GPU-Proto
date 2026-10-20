@@ -1,4 +1,4 @@
-From cf6c61dadc3f3f4bfd72edd1bfbcb26c66583ca7 Mon Sep 17 00:00:00 2001
+From 613d4a6fde5fdd2bb827a7655bc55d4c98c16ebf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 21:52:19 +0200
 Subject: [PATCH] BatchIntegrationTest: computations on two processes
@@ -18,7 +18,7 @@ which the sequential tests do not detect.
  2 files changed, 49 insertions(+), 12 deletions(-)
 
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 4acc914302..1b74a49f21 100644
+index adeb94b68e..dde370761a 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -8,7 +8,9 @@
@@ -151,10 +151,10 @@ index 4acc914302..1b74a49f21 100644
    // invalid value
    {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 08e7bfdd62..1502529670 100644
+index 00aa15e9c2..6f44ddc958 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -831,6 +831,23 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -834,6 +834,23 @@ if(MFEM_MGIS_HAVE_TFEL)
               COMMAND BatchIntegrationTest --device cuda
                       ${batch_integration_test_arguments})
    endif()

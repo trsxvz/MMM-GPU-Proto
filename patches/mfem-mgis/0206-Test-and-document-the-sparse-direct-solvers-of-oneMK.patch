@@ -1,4 +1,4 @@
-From 9c152db0e66609284821268338f5caf8bebccf5a Mon Sep 17 00:00:00 2001
+From 5f822e59b6e9b65795a0d2dfdf142898ef1a7716 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 10:10:50 +0200
 Subject: [PATCH] Test and document the sparse direct solvers of oneMKL
@@ -100,7 +100,7 @@ index 27c450c06b..d1ca19edf5 100644
  
  Linear solvers and preconditioners of Ginkgo
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index cdee372533..84505ee600 100644
+index a15590aa13..8c69423688 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -179,6 +179,14 @@ and transposed interpolations kept. The values of the
@@ -119,10 +119,10 @@ index cdee372533..84505ee600 100644
  --------------------------
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 95cceb5b33..cebf2cf46d 100644
+index 58ae352438..35b015659b 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1712,6 +1712,48 @@ if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
+@@ -1715,6 +1715,48 @@ if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
      FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
  endif()
  

@@ -1,4 +1,4 @@
-From 0ae8eb38376e1773bc421bbc7de290734c32e6ba Mon Sep 17 00:00:00 2001
+From 7d5788e05c4c1292fdd2428b22ab1bcdb95d5f20 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:21:03 +0200
 Subject: [PATCH] PointWiseModel and Faltus: failures reported as they are
@@ -34,10 +34,10 @@ index 57c6332c52..370c6881fe 100644
        data.centers.SetSize(static_cast<int>(size));
        if (elements.Size() == 0) {
 diff --git a/src/PointWiseModel.cxx b/src/PointWiseModel.cxx
-index 54f208e2b1..43140c9c15 100644
+index 8834fd31a8..4b115c9a1d 100644
 --- a/src/PointWiseModel.cxx
 +++ b/src/PointWiseModel.cxx
-@@ -124,7 +124,9 @@ namespace mfem_mgis {
+@@ -108,7 +108,9 @@ namespace mfem_mgis {
          std::ignore =
              ctx.registerErrorMessage("point wise model integration failed");
        }

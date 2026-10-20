@@ -1,4 +1,4 @@
-From 68bf2b684baf31188cc12691bf2e13dd26031060 Mon Sep 17 00:00:00 2001
+From 3f32a0770efbc94a06fb28b14a81d6f218ee44aa Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 05:34:07 +0200
 Subject: [PATCH] Add the solvers and preconditioners of hypre not wrapped by

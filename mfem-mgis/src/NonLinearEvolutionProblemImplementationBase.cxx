@@ -66,11 +66,10 @@ namespace mfem_mgis {
   }  // end of getParametersList
 
   [[nodiscard]] static MultiMaterialNonLinearIntegrator*
-  buildMultiMaterialNonLinearIntegrator(
-      attributes::Throwing,
-      std::shared_ptr<FiniteElementDiscretization> fed,
-      const Hypothesis h,
-      const Parameters& p) {
+  buildMultiMaterialNonLinearIntegrator(attributes::Throwing,
+                                        const FiniteElementDiscretization& fed,
+                                        const Hypothesis h,
+                                        const Parameters& p) {
     const auto* const n = NonLinearEvolutionProblemImplementationBase::
         UseMultiMaterialNonLinearIntegrator;
     if (!get_if<bool>(throwing, p, n, true)) {
@@ -220,12 +219,12 @@ namespace mfem_mgis {
   NonLinearEvolutionProblemImplementationBase::
       NonLinearEvolutionProblemImplementationBase(
           Context&,
-          std::shared_ptr<FiniteElementDiscretization> fed,
+          const FiniteElementDiscretization& fed,
           const Hypothesis h,
           const Parameters& p)
       : fe_discretization(fed),
-        u0(getTrueVSize(*fed)),
-        u1(getTrueVSize(*fed)),
+        u0(getTrueVSize(fed)),
+        u1(getTrueVSize(fed)),
         mgis_integrator(
             buildMultiMaterialNonLinearIntegrator(throwing, fed, h, p)),
         hypothesis(h),
@@ -272,20 +271,9 @@ namespace mfem_mgis {
     this->u1 = real{0};
   }  // end of NonLinearEvolutionProblemImplementationBase
 
-  FiniteElementDiscretization& NonLinearEvolutionProblemImplementationBase::
-      getFiniteElementDiscretization() noexcept {
-    return *(this->fe_discretization);
-  }  // end of getFiniteElementDiscretization
-
-  const FiniteElementDiscretization&
+  FiniteElementDiscretization
   NonLinearEvolutionProblemImplementationBase::getFiniteElementDiscretization()
       const noexcept {
-    return *(this->fe_discretization);
-  }  // end of getFiniteElementDiscretization
-
-  std::shared_ptr<FiniteElementDiscretization>
-  NonLinearEvolutionProblemImplementationBase::
-      getFiniteElementDiscretizationPointer() noexcept {
     return this->fe_discretization;
   }  // end of getFiniteElementDiscretization
 
@@ -309,6 +297,7 @@ namespace mfem_mgis {
       Context& ctx) noexcept {
     CatchTimeSection(ctx, "NLEPIB::revert");
     this->u1 = this->u0;
+    this->hasStiffnessOperatorsBeenComputed = false;
     if (this->mgis_integrator != nullptr) {
       try {
         this->mgis_integrator->revert();
@@ -593,7 +582,7 @@ namespace mfem_mgis {
         const auto supported =
             (this->mgis_integrator == nullptr) ||
             (this->mgis_integrator->checkBatchIntegrationSupport(ctx));
-        if (!isTrueOnAllProcesses(*(this->fe_discretization), supported)) {
+        if (!isTrueOnAllProcesses(this->fe_discretization, supported)) {
           this->batch_integration = false;
         }
       }
@@ -611,7 +600,7 @@ namespace mfem_mgis {
             ctx, this->gradients_kernels)) &&
         (this->mgis_integrator->checkInnerForcesKernelsSupport(
             ctx, this->gradients_kernels));
-    if (isTrueOnAllProcesses(*(this->fe_discretization), supported)) {
+    if (isTrueOnAllProcesses(this->fe_discretization, supported)) {
       return;
     }
     this->gradients_kernels = false;
@@ -697,7 +686,7 @@ namespace mfem_mgis {
       }
       return true;
     }();
-    return isTrueOnAllProcesses(*(this->fe_discretization), success);
+    return isTrueOnAllProcesses(this->fe_discretization, success);
   }  // end of setup
 
   bool NonLinearEvolutionProblemImplementationBase::updateLinearSolver(
@@ -879,7 +868,7 @@ namespace mfem_mgis {
     };
     if (this->tangent_operator == nullptr) {
       this->tangent_operator = std::make_unique<MatrixFreeTangentOperator>(
-          *(this->fe_discretization), *(this->mgis_integrator));
+          this->fe_discretization, *(this->mgis_integrator));
     }
     if ((this->constrained_tangent_operator == nullptr) || changed()) {
       this->constrained_tangent_operator.reset();

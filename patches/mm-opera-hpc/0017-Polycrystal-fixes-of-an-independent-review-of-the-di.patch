@@ -1,4 +1,4 @@
-From 0995a3932b2d9eadc6227607a1939ebe7fa2591d Mon Sep 17 00:00:00 2001
+From 546e103392cf5917e2b0a2a5d173062f20adff16 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 07:54:21 +0200
 Subject: [PATCH] Polycrystal: fixes of an independent review of the direct
@@ -41,7 +41,7 @@ index 2453b5c..c2a4a84 100644
  | `--macroscopic-stress-output-file <string>` | string | `uniaxial-polycrystal.res`   | Output file containing the evolution of the diagonal components of the deformation gradient and the diagonal components of the Cauchy stress. |
  | `--enable-post-processings`                 | bool   | `false`                      | Execute post-processing steps (default).                                                                                                      |
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 8b7bd2d..a8fd270 100644
+index e747f8b..ea8e43b 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -214,6 +214,39 @@ int main(int argc, char *argv[]) {
@@ -84,7 +84,7 @@ index 8b7bd2d..a8fd270 100644
    if (std::string_view{p.adaptive_linear_solver_tolerance} != "None") {
      auto adaptive_options = mfem_mgis::Parameters{};
      if (initial_tolerance_given) {
-@@ -337,16 +370,19 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -329,16 +362,19 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
    args.AddOption(&p.library, "-l", "--library", "Material library.");
    args.AddOption(&p.behaviour, "-b", "--behaviour", "Mechanical behaviour.");
    args.AddOption(&p.linear_solver, "", "--linear-solver",
@@ -109,7 +109,7 @@ index 8b7bd2d..a8fd270 100644
    args.AddOption(&p.linear_solver_preconditioner, "",
                   "--linear-solver-preconditioner",
                   "preconditioner of the linear solver to be used");
-@@ -587,11 +623,6 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
+@@ -579,11 +615,6 @@ static void setLinearSolver(mfem_mgis::attributes::MayAbort,
          or_die;
      return;
    }

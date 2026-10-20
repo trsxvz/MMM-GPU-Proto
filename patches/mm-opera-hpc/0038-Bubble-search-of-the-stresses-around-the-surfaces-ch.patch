@@ -1,4 +1,4 @@
-From a63f0c892aadaedec8255cbd68ae06a5b32039fa Mon Sep 17 00:00:00 2001
+From cff5d4380dab6df718e353bf79e100785ba661a8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 01:10:14 +0200
 Subject: [PATCH] Bubble: search of the stresses around the surfaces, checks
@@ -60,7 +60,7 @@ index b8e5be4..8990c84 100644
  | `--linear-solver-preconditioner <string>` | string | `HypreBoomerAMG`         | Preconditioner of the conjugate gradient solver `HyprePCG` (`HypreDiagScale`..., `none` for no preconditioner). |
  
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index f00c582..bff15c2 100644
+index 747b5c7..8201d8d 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -228,7 +228,9 @@ void fill_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -82,7 +82,7 @@ index f00c582..bff15c2 100644
 +  // boundaries of the mesh (an identifier out of range would select no
 +  // surface, or an invalid one)
 +  {
-+    const auto& mesh = fed->getMesh<true>();
++    const auto& mesh = fed.getMesh<true>();
 +    const auto max_attribute =
 +        mesh.bdr_attributes.Size() == 0 ? 0 : mesh.bdr_attributes.Max();
 +    for (const auto& b : bubbles) {

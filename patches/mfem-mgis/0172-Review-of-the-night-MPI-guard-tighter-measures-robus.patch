@@ -1,4 +1,4 @@
-From f26dc97eff60293f68da5347de0b98ebf46ae30d Mon Sep 17 00:00:00 2001
+From 7b8b2787f425d1702aa9908a82bab087a0d45902 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 05:04:15 +0200
 Subject: [PATCH] Review of the night: MPI guard, tighter measures, robust
@@ -80,10 +80,10 @@ index cf9cd55c4e..5f2a7e64dd 100644
    set(${variable} ${_dependencies} PARENT_SCOPE)
  endfunction()
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 76c1d902a7..0a84c8ccbd 100644
+index 4aa1a2550a..102f196950 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
-@@ -1233,7 +1233,8 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -1238,7 +1238,8 @@ static Results compute(mfem_mgis::Context& ctx,
   * reach 5.1e-4 in parallel, the reference being computed by MUMPS, and
   * 6.3e-3 in sequential, the reference being then computed by GMRES with a
   * Jacobi preconditioner, MFEM in single precision having no sequential
@@ -108,10 +108,10 @@ index 0151aa3231..dda9fd8022 100644
    }
    auto X = mfem::Vector(B.Size());
 diff --git a/tests/MicromorphicDamage2DTest2.cxx b/tests/MicromorphicDamage2DTest2.cxx
-index acf8ee0bd9..e4a3c0e6bf 100644
+index f632650099..4199aa8f40 100644
 --- a/tests/MicromorphicDamage2DTest2.cxx
 +++ b/tests/MicromorphicDamage2DTest2.cxx
-@@ -253,8 +253,9 @@ int main(int argc, char** argv) {
+@@ -246,8 +246,9 @@ int main(int argc, char** argv) {
      // 2.6e-8 (absolute), increasing with the damage. Measured in float: the
      // initial residuals of the first iteration are 56.6 (mechanical problem)
      // and 3.6e-6 to 3.2e-5 (micromorphic problem, increasing with the
@@ -124,7 +124,7 @@ index acf8ee0bd9..e4a3c0e6bf 100644
      // smaller residual only requires one more iteration)
      constexpr auto first_iteration_tolerance =
 diff --git a/tests/PostProcessingsKernelsTest.cxx b/tests/PostProcessingsKernelsTest.cxx
-index 703c8a9553..3dc1b5021f 100644
+index 0dbaf5730e..d0f064c692 100644
 --- a/tests/PostProcessingsKernelsTest.cxx
 +++ b/tests/PostProcessingsKernelsTest.cxx
 @@ -17,6 +17,7 @@
@@ -195,7 +195,7 @@ index 703c8a9553..3dc1b5021f 100644
                                           ": wrong value");
      }
 diff --git a/tests/TwoLayerCube.cxx b/tests/TwoLayerCube.cxx
-index faa5b6c843..e9dd1080c7 100644
+index b82b2ddfe9..f62ac56eda 100644
 --- a/tests/TwoLayerCube.cxx
 +++ b/tests/TwoLayerCube.cxx
 @@ -175,19 +175,21 @@ static bool setSolverParameters(

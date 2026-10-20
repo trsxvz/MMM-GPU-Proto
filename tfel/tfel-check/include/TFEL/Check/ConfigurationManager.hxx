@@ -2,7 +2,7 @@
  * \file   tfel-check/include/TFEL/Check/ConfigurationManager.hxx
  * \brief
  * \author Thomas Helfer
- * \date   13/09/2017
+ * \date 13/09/2017
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -94,6 +94,19 @@ namespace tfel::check {
      * \param[in] b: boolean
      */
     void setDiscardCommandsFailure(const bool);
+    /*!
+     * \brief set if the the generated files and directories listed by
+     * the @CleanFiles and @CleanDirectories keywords must be removed
+     * \param[in] b: boolean
+     */
+    void setCleanUp(const bool);
+    /*!
+     * \brief set if the the generated files and directories listed by
+     * the @CleanFiles and @CleanDirectories keywords must not be removed in
+     * case of failure.
+     * \param[in] b: boolean
+     */
+    void discardCleanUpOnFailure(const bool);
 
    private:
     /*!

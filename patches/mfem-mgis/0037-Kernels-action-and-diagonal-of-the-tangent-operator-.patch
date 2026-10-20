@@ -1,4 +1,4 @@
-From 5f732fbe1a41dbe90a1eef63e1cfc5b612446b7d Mon Sep 17 00:00:00 2001
+From efb0dd3495c49f35ac01c35ae56c758c56049cb3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 23:54:43 +0200
 Subject: [PATCH] Kernels: action and diagonal of the tangent operator without
@@ -50,10 +50,10 @@ product by the matrix assembled by MFEM and its diagonal.
  14 files changed, 853 insertions(+), 138 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 77c9aa0da9..bd4ebef6eb 100644
+index 573aeea968..7300080603 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -213,6 +213,37 @@ namespace mfem_mgis {
+@@ -210,6 +210,37 @@ namespace mfem_mgis {
          Context&,
          const batch::AssembledStiffnessMatrix&,
          const batch::ElementsGeometrySet&) noexcept;
@@ -186,10 +186,10 @@ index de3bada519..f3517fceae 100644
     * \brief sparse matrix in which the stiffness matrices of the elements are
     * assembled by kernels (see `addStiffnessMatrices`)
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index f421f4abac..a1d4ceabd3 100644
+index e557172fc2..58cdd2b1d4 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -344,6 +344,17 @@ namespace mfem_mgis {
+@@ -342,6 +342,17 @@ namespace mfem_mgis {
         * `integrateBatch` (integration on the device)
         */
        std::vector<mfem::Vector> device_inputs;
@@ -208,10 +208,10 @@ index f421f4abac..a1d4ceabd3 100644
        mfem::Vector rotated_thermodynamic_forces;
        /*!
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 2d536ee650..06bb9e8b4f 100644
+index d83ddd0c29..ddba1e8637 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -195,6 +195,36 @@ namespace mfem_mgis {
+@@ -194,6 +194,36 @@ namespace mfem_mgis {
       * \param[in] b: boolean
       */
      void setStiffnessMatricesComputedByKernels(const bool) noexcept;
@@ -248,7 +248,7 @@ index 2d536ee650..06bb9e8b4f 100644
      /*!
       * \brief create the sparse matrix in which
       * `assembleStiffnessMatrixByKernels` assembles the stiffness matrices of
-@@ -395,6 +425,22 @@ namespace mfem_mgis {
+@@ -394,6 +424,22 @@ namespace mfem_mgis {
       * `computeElementsDegreesOfFreedom`
       */
      mfem::Array<int> element_dofs;
@@ -272,7 +272,7 @@ index 2d536ee650..06bb9e8b4f 100644
       * \brief computes the degrees of freedom of all the elements if they are
       * not computed yet
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
-index bf35017cb4..57e2c4dd4f 100644
+index 63f866b454..3d5a2a10f4 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 @@ -60,7 +60,52 @@ namespace mfem_mgis {
@@ -329,7 +329,7 @@ index bf35017cb4..57e2c4dd4f 100644
       * \brief implementation of `addStiffnessMatricesByKernels`
       * \tparam Destination: matrices element by element (`mfem::Vector`) or
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index e35ccd74e2..f806b9971d 100644
+index cd4b5b5672..c32cea6a54 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -250,59 +250,84 @@ namespace mfem_mgis {
@@ -521,7 +521,7 @@ index e35ccd74e2..f806b9971d 100644
 -      const auto s = std::span<const real>(v.Read(use_device),
 -                                           static_cast<std::size_t>(v.Size()));
        return batch::addStiffnessMatrices(
-           ctx, m, *(this->quadrature_space),
+           ctx, m, this->quadrature_space,
 -          mgis::makeFieldView(s, this->getArrays().array_layout,
 -                              static_cast<size_type>(this->n), this->K_stride),
 -          p->second, *k);
@@ -565,7 +565,7 @@ index e35ccd74e2..f806b9971d 100644
 +      auto &dg = this->wks.gradients_increments;
 +      auto &ds = this->wks.thermodynamic_forces_increments;
 +      if ((!batch::computeGradientsIncrements(
-+              ctx, dg, *(this->quadrature_space), p->second, *(data.geometry),
++              ctx, dg, this->quadrature_space, p->second, *(data.geometry),
 +              data.kind)) ||
 +          (!batch::multiplyByTangentOperatorBlocks(
 +              ctx, ds, this->readTangentOperatorBlocks(use_device), dg,
@@ -577,7 +577,7 @@ index e35ccd74e2..f806b9971d 100644
 +      const auto s = std::span<const real>(ds.Read(use_device),
 +                                           static_cast<std::size_t>(ds.Size()));
 +      return batch::addInnerForces(
-+          ctx, y, *(this->quadrature_space),
++          ctx, y, this->quadrature_space,
 +          mgis::makePointByPointFieldView(s, np, gs, gs), *(data.geometry),
 +          data.kind);
 +    } catch (std::exception &e) {
@@ -606,7 +606,7 @@ index e35ccd74e2..f806b9971d 100644
 +    try {
 +      const auto use_device = mfem::Device::IsEnabled();
 +      return batch::addStiffnessMatricesDiagonals(
-+          ctx, d, *(this->quadrature_space),
++          ctx, d, this->quadrature_space,
 +          this->readTangentOperatorBlocks(use_device), *(data.geometry),
 +          data.kind);
 +    } catch (std::exception &e) {
@@ -622,7 +622,7 @@ index e35ccd74e2..f806b9971d 100644
    bool
    StandardBehaviourIntegratorCRTPBase<Child>::addStiffnessMatricesByKernels(
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index 0785d48130..6c656e0e15 100644
+index 72bd7fa8d0..2915cc227a 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -71,6 +71,25 @@ namespace mfem_mgis {
@@ -1163,10 +1163,10 @@ index 934e77ead3..ebd51ae6fc 100644
     * \brief sets values to zero
     * \param[out] v: values
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 54c3a11809..bdfab85c62 100644
+index a43e8e4cbf..601a483371 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -441,11 +441,8 @@ namespace mfem_mgis {
+@@ -440,11 +440,8 @@ namespace mfem_mgis {
      return true;
    }  // end of checkKernelsSupport
  
@@ -1180,7 +1180,7 @@ index 54c3a11809..bdfab85c62 100644
      auto rules = std::vector<const mfem::IntegrationRule*>{};
      for (const auto& bis : this->behaviour_integrators) {
        for (const auto& bi : bis) {
-@@ -457,6 +454,15 @@ namespace mfem_mgis {
+@@ -456,6 +453,15 @@ namespace mfem_mgis {
          }
        }
      }
@@ -1196,7 +1196,7 @@ index 54c3a11809..bdfab85c62 100644
      // the derivatives of the rules which are no longer used are released
      std::erase_if(this->unknowns_derivatives, [&rules](const auto& d) {
        return std::find(rules.begin(), rules.end(), d.first) == rules.end();
-@@ -580,6 +586,72 @@ namespace mfem_mgis {
+@@ -579,6 +585,72 @@ namespace mfem_mgis {
      this->stiffness_matrices_computed_by_kernels = b;
    }  // end of setStiffnessMatricesComputedByKernels
  

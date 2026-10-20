@@ -1,4 +1,4 @@
-From ffe6fbfecee4f93d7f5b3fb6616f5c8e27802437 Mon Sep 17 00:00:00 2001
+From e30327502979eec50961a6c20b484c87bf7a30b3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 00:11:54 +0200
 Subject: [PATCH] MaterialArrays: initialize the axial deformation gradient to
@@ -95,10 +95,10 @@ index 6696fbb0fa..81815a5ce7 100644
  
    mgis::behaviour::MaterialDataManagerInitializer
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 4fff8c3b33..a27b808a4d 100644
+index 2efdd2f1b9..41d332c8e3 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -65,6 +65,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -68,6 +68,7 @@ if(MFEM_MGIS_HAVE_TFEL)
      Mazars
      SaintVenantKirchhoffElasticity
      SaintVenantKirchhoffElasticityV2
@@ -107,7 +107,7 @@ index 4fff8c3b33..a27b808a4d 100644
      MicromorphicDamageI_SpectralSplit
      MicromorphicDamageII
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 16eb654db4..a87b6577b7 100644
+index 16bdfcb8ab..270615d207 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -2,7 +2,8 @@
@@ -148,7 +148,7 @@ index 16eb654db4..a87b6577b7 100644
 +                                 {"NumberOfUniformRefinements", 0},
 +                                 {"Parallel", false}}) |
 +             or_die;
-+  auto qspace = make_shared<const PartialQuadratureSpace>(
++  const auto qspace = construct<PartialQuadratureSpace>(
 +                    ctx, *fed, MaterialIdentifier{.id = 5},
 +                    [](const mfem::FiniteElement& e,
 +                       const mfem::ElementTransformation&) noexcept
@@ -156,7 +156,7 @@ index 16eb654db4..a87b6577b7 100644
 +                      return mfem::IntRules.Get(e.GetGeomType(), 2);
 +                    }) |
 +                or_die;
-+  const auto n = qspace->getNumberOfIntegrationPoints();
++  const auto n = qspace.getNumberOfIntegrationPoints();
 +  for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
 +                       mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
 +    const auto name =

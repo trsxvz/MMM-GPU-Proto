@@ -1,4 +1,4 @@
-From 0d4ed6a9ef4039d17177cfa3a1f17ccce7ecaa5c Mon Sep 17 00:00:00 2001
+From 569342a83176dcdcbfc75298495a528883dac0ae Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 20:49:41 +0200
 Subject: [PATCH] PETSc copy and BoomerAMG elasticity: remarks of the review
@@ -77,7 +77,7 @@ index e0fe5a66b3..7501df4c0e 100644
  memory :code:`MFEM` places in the vectors of :code:`PETSc`, were left by
  :code:`MFEM` 4.10 in states unknown to its memory manager (with the memory
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 9ce00e6b76..4acfb597c6 100644
+index e0dff3a4e9..2ccbebabbc 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -183,7 +183,10 @@ and transposed interpolations kept. The values of the

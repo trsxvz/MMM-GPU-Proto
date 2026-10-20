@@ -1,4 +1,4 @@
-From 3d3d7f6d79cff05176f96aa19908bbfb6134c039 Mon Sep 17 00:00:00 2001
+From dcefb42ba6778dfc912864b414c3242c65187b24 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 11:04:53 +0200
 Subject: [PATCH] Kernels: global tangent operator with the pattern and the
@@ -202,7 +202,7 @@ index 0000000000..bca4d8e938
 +
 +#endif /* LIB_MFEM_MGIS_BATCH_GLOBALSTIFFNESSMATRIX_HXX */
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
-index dfe9976952..0158626a64 100644
+index 3189b9d8d6..c8e215d45d 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.hxx
 @@ -14,6 +14,7 @@
@@ -213,7 +213,7 @@ index dfe9976952..0158626a64 100644
  #endif /* MFEM_USE_MPI */
  #include "MFEMMGIS/Config.hxx"
  #include "MFEMMGIS/Parameters.hxx"
-@@ -132,6 +133,17 @@ namespace mfem_mgis {
+@@ -131,6 +132,17 @@ namespace mfem_mgis {
      std::vector<
          std::unique_ptr<AbstractNonLinearEvolutionProblemPostProcessing<true>>>
          postprocessings;
@@ -626,10 +626,10 @@ index 05eb8fc721..cad17d35ce 100644
  mfem_mgis_library(MFEMMGIS ${MFEMMGIS_SOURCES})
  if(MFEMMGIS_DEVICE_SOURCES)
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 3ff2cf608b..11123de7b5 100644
+index 7306c6156c..0ad3dc63c6 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -775,6 +775,30 @@ namespace mfem_mgis {
+@@ -777,6 +777,30 @@ namespace mfem_mgis {
                                       *(this->mgis_integrator),
                                       this->getFiniteElementSpace(), this->Grad);
      auto* const pfes = this->ParFESpace();
@@ -661,10 +661,10 @@ index 3ff2cf608b..11123de7b5 100644
      mfem::OperatorHandle dA(this->pGrad.Type());
      mfem::OperatorHandle Ph(this->pGrad.Type());
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index cf61b2c523..abacf128cc 100644
+index 54b73079cb..a48a742f13 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1052,6 +1052,20 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1055,6 +1055,20 @@ if(MFEM_MGIS_HAVE_TFEL)
                 COMMAND GradientsKernelsTest --device cuda
                         ${gradients_kernels_test_arguments})
      endif()

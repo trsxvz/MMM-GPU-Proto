@@ -1,4 +1,4 @@
-From 6ca36cd710ab90be0fd39b8d88ae1faa337a9181 Mon Sep 17 00:00:00 2001
+From 0851218c336e88146a3688a793e9c34e7137eb68 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:01:41 +0200
 Subject: [PATCH] Add the multigrid reduction of hypre (HypreMGR)
@@ -125,7 +125,7 @@ index 80ad8b9053..51f4513d28 100644
  
  Linear solvers and preconditioners of PETSc
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index fe3a3267a6..14f50bc555 100644
+index a312e5a32e..ff6191852f 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -169,9 +169,11 @@ Solvers and preconditioners of hypre
@@ -532,10 +532,10 @@ index 5746c40d5e..d398245b58 100644
  
  #endif /* MFEM_USE_MPI */
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 0d974ca66f..a37320070f 100644
+index 907995f9d9..cce18d3d26 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1810,6 +1810,30 @@ if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
+@@ -1813,6 +1813,30 @@ if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")) AND
      FAIL_REGULAR_EXPRESSION "check failed" RESOURCE_LOCK gpu TIMEOUT 300)
  endif()
  

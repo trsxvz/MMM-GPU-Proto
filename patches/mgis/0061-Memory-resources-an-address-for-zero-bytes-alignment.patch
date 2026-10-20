@@ -1,0 +1,163 @@
+From 5d728d4167ead22e0b3de03dc3d837fc0e67d6eb Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 19:10:26 +0200
+Subject: [PATCH] Memory resources: an address for zero bytes, alignment of
+ SYCL
+
+- cudaMallocManaged and hipMallocManaged on NVIDIA GPUs return a null
+  pointer for zero bytes, hipMallocManaged on AMD GPUs an error, and
+  sycl::aligned_alloc_shared a null pointer: the memory resources
+  returned a null pointer or threw std::bad_alloc, whereas a memory
+  resource must return the address of an allocated block. At least one
+  byte is now allocated. The test of the allocation of zero bytes by the
+  resource of CUDA checks the returned address.
+- sycl::aligned_alloc_shared does not always honor the requested
+  alignment (AdaptiveCpp 25.10 returns a block aligned on 2048 bytes for
+  an alignment of 4096 bytes when other blocks are allocated): the
+  resource of SYCL now assumes the alignment of the fundamental types and
+  over-allocates for a stricter one, as the other resources.
+- duplicated include removed.
+---
+ docs/web/generic-parallel.md                  |  9 ++++--
+ .../HIPManagedMemoryResource.hxx              |  1 -
+ .../MemoryResources/OverAlignedAllocation.hxx |  8 +++--
+ .../SYCLSharedMemoryResource.hxx              | 32 +++++++++++++------
+ tests/FieldOperationsCUDATest.cu              |  3 ++
+ 5 files changed, 37 insertions(+), 16 deletions(-)
+
+diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
+index 80220df..2b9abd2 100644
+--- a/docs/web/generic-parallel.md
++++ b/docs/web/generic-parallel.md
+@@ -265,9 +265,12 @@ code with its own GPU toolkit (`MGIS/MemoryResources/`):
+ 
+ Those resources satisfy any alignment, as required by the pools of the
+ standard library (`std::pmr::synchronized_pool_resource`), which request
+-blocks aligned on their size: an alignment stricter than the one of the
+-memory of the runtime is obtained by over-allocation (`CUDA`, `HIP`,
+-`Kokkos`) or by the aligned allocation of `SYCL`.
++blocks aligned on their size: an alignment stricter than the one
++guaranteed by the memory of the runtime (256 bytes for `CUDA`, the
++alignment of the fundamental types otherwise, the aligned allocation of
++`SYCL` not always honoring the requested alignment) is obtained by
++over-allocation. They also return an address for an allocation of zero
++bytes, for which the runtimes return a null pointer or an error.
+ 
+ # Execution policy
+ 
+diff --git a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
+index 2dd6f9c..6e5c9df 100644
+--- a/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
++++ b/include/MGIS/MemoryResources/HIPManagedMemoryResource.hxx
+@@ -17,7 +17,6 @@
+ 
+ #include <new>
+ #include <cstddef>
+-#include <cstddef>
+ #include <memory_resource>
+ #include "MGIS/MemoryResources/OverAlignedAllocation.hxx"
+ #include <hip/hip_runtime_api.h>
+diff --git a/include/MGIS/MemoryResources/OverAlignedAllocation.hxx b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
+index b56b5cf..57a8816 100644
+--- a/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
++++ b/include/MGIS/MemoryResources/OverAlignedAllocation.hxx
+@@ -27,7 +27,11 @@ namespace mgis::memory_resources::internals {
+    * \brief allocate memory with the given alignment.
+    *
+    * If the alignment `a` is not stricter than the alignment `g` guaranteed
+-   * by the allocation function, the memory is allocated directly.
++   * by the allocation function, the memory is allocated directly, at least
++   * one byte being requested: for zero bytes, the allocation functions of
++   * the runtimes return a null pointer (`cudaMallocManaged`) or an error
++   * (`hipMallocManaged` on AMD GPUs), whereas a memory resource must return
++   * the address of an allocated block.
+    * Otherwise, the memory is over-allocated and the address of the
+    * allocated block is stored just before the returned address: the memory
+    * must be accessible by the host (managed or shared memory). The pools of
+@@ -48,7 +52,7 @@ namespace mgis::memory_resources::internals {
+                             const std::size_t g,
+                             const AllocationFunction& allocate) {
+     if (a <= g) {
+-      return allocate(s);
++      return allocate(s == 0 ? 1 : s);
+     }
+     // room for the address of the allocated block and for the alignment
+     const auto extra = a + sizeof(void*);
+diff --git a/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
+index 06765df..e314d1e 100644
+--- a/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
++++ b/include/MGIS/MemoryResources/SYCLSharedMemoryResource.hxx
+@@ -19,6 +19,7 @@
+ #include <cstddef>
+ #include <memory_resource>
+ #include <sycl/sycl.hpp>
++#include "MGIS/MemoryResources/OverAlignedAllocation.hxx"
+ 
+ namespace mgis::memory_resources {
+ 
+@@ -28,8 +29,13 @@ namespace mgis::memory_resources {
+    * (shared location of the arrays of a material data manager). The
+    * resource keeps the device and the context of the queue, not the queue
+    * itself: the queue of the computations is given by the execution policy
+-   * (see `mgis::BatchExecutionPolicy`). Any alignment is obtained directly
+-   * by `sycl::aligned_alloc_shared`, without over-allocation.
++   * (see `mgis::BatchExecutionPolicy`). The alignment requested from
++   * `sycl::aligned_alloc_shared` is not always honored (AdaptiveCpp 25.10
++   * returns a block aligned on 2048 bytes for an alignment of 4096 bytes,
++   * when other blocks are allocated): only the alignment of the fundamental
++   * types is assumed, a stricter alignment, requested for instance by the
++   * pools of the standard library, being obtained by over-allocation (see
++   * `internals::allocateOverAligned`).
+    *
+    * This header is not compiled by `MGIS`: it is compiled by the calling
+    * code, with its own SYCL implementation.
+@@ -45,17 +51,23 @@ namespace mgis::memory_resources {
+ 
+    private:
+     void* do_allocate(const std::size_t s, const std::size_t a) override {
+-      auto* const p =
+-          ::sycl::aligned_alloc_shared(a, s, this->device, this->context);
+-      if (p == nullptr) {
+-        throw std::bad_alloc();
+-      }
+-      return p;
++      // the shared memory is aligned for the fundamental types
++      return internals::allocateOverAligned(
++          s, a, alignof(std::max_align_t), [this](const std::size_t n) {
++            auto* const p =
++                ::sycl::malloc_shared(n, this->device, this->context);
++            if (p == nullptr) {
++              throw std::bad_alloc();
++            }
++            return p;
++          });
+     }
+     void do_deallocate(void* const p,
+                        const std::size_t,
+-                       const std::size_t) override {
+-      ::sycl::free(p, this->context);
++                       const std::size_t a) override {
++      internals::deallocateOverAligned(
++          p, a, alignof(std::max_align_t),
++          [this](void* const b) { ::sycl::free(b, this->context); });
+     }
+     bool do_is_equal(
+         const std::pmr::memory_resource& r) const noexcept override {
+diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
+index 0babe60..63c6b3f 100644
+--- a/tests/FieldOperationsCUDATest.cu
++++ b/tests/FieldOperationsCUDATest.cu
+@@ -792,7 +792,10 @@ static void testFunctionsOnDeviceViews(const std::string& gp_library,
+ static void testZeroByteAllocation() {
+   auto managed = mgis::memory_resources::CUDAManagedMemoryResource{};
+   try {
++    // cudaMallocManaged returns a null pointer for zero bytes, which a
++    // memory resource must not return
+     auto* const p = managed.allocate(0, alignof(double));
++    check(p != nullptr, "allocation of zero bytes: null pointer returned");
+     managed.deallocate(p, 0, alignof(double));
+   } catch (...) {
+     check(false, "allocation of zero bytes refused");
+-- 
+2.43.0
+

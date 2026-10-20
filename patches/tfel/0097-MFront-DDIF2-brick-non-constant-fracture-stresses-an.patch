@@ -1,0 +1,50 @@
+From 72f90416da0e3810bcc6c80f449fd64497eb57b4 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 02:34:20 +0200
+Subject: [PATCH] MFront DDIF2 brick: non constant fracture stresses and
+ energies
+
+- fracture stresses: the test on the number of fracture stresses given
+  was inverted when the first one is not constant. With one fracture
+  stress, the evaluation of the second and third ones (not given) was
+  generated and MFront failed; with three fracture stresses, only the
+  first one was evaluated and used in all directions.
+- fracture energies: with three non constant fracture energies, the
+  first one was evaluated for all directions.
+
+Checked with pairs of behaviours using the generic interface and MTest
+(uniaxial loadings along each direction): the same behaviour with
+constant values and with non constant values equal to them (for instance
+"150e6+0*T") give identical results after this commit; before it, the
+second and third directions differed and a single non constant fracture
+stress was refused. The results of the behaviours with constant values
+are unchanged.
+---
+ mfront/src/DDIF2StressPotential.cxx | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/mfront/src/DDIF2StressPotential.cxx b/mfront/src/DDIF2StressPotential.cxx
+index c21978071..52e23ace3 100644
+--- a/mfront/src/DDIF2StressPotential.cxx
++++ b/mfront/src/DDIF2StressPotential.cxx
+@@ -343,7 +343,7 @@ namespace mfront::bbrick {
+     if (!this->sr[0].empty()) {
+       if (!this->sr[0].is<BehaviourDescription::ConstantMaterialProperty>()) {
+         std::ostringstream ssigr;
+-        if (this->sr[1].empty()) {
++        if (!this->sr[1].empty()) {
+           for (unsigned short i = 0; i != 3; ++i) {
+             ssigr << "this->sigr[" << i << "] = ";
+             dsl.writeMaterialPropertyEvaluation(ssigr, this->sr[i], ets);
+@@ -383,7 +383,7 @@ namespace mfront::bbrick {
+       if (!this->gc[1].empty()) {
+         for (unsigned short i = 0; i != 3; ++i) {
+           sgc << "this->Gc[" << i << "] = ";
+-          dsl.writeMaterialPropertyEvaluation(sgc, this->gc[0], ets);
++          dsl.writeMaterialPropertyEvaluation(sgc, this->gc[i], ets);
+           sgc << ";\n";
+         }
+       } else {
+-- 
+2.43.0
+

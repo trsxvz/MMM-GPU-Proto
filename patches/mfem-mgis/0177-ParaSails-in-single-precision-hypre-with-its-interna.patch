@@ -1,4 +1,4 @@
-From 2ff3f2a491e3522a0fdde6d6657edd206cddfb20 Mon Sep 17 00:00:00 2001
+From 4a872a32064fc4498c75c6ae02473eacf5c53a64 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 15:31:43 +0200
 Subject: [PATCH] ParaSails in single precision: hypre with its internal LAPACK
@@ -80,10 +80,10 @@ index d82e0e4588..ad1cffc3d9 100644
  - ``MGIS`` must be configured with the same type
    (``-DMGIS_REAL_TYPE=float``), which the configuration checks;
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 1e117606ea..c70d8ff11a 100644
+index 43d9fd68f3..7857eeb93a 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1393,15 +1393,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1396,15 +1396,14 @@ if(MFEM_MGIS_HAVE_TFEL)
      endif()
      # HypreParaSailsTest executable: ParaSails preconditioner given a new
      # operator after the destruction of the previous one, refused when hypre

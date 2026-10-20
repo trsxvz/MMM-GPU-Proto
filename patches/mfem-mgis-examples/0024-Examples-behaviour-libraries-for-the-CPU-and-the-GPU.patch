@@ -1,4 +1,4 @@
-From dbf659fdb128f84e94742e0e027d5995f74c3921 Mon Sep 17 00:00:00 2001
+From 49414def85a91a7e780af58d43af7e5a6bc6c8a5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 14:14:59 +0200
 Subject: [PATCH] Examples: behaviour libraries for the CPU and the GPU, placed
@@ -386,7 +386,7 @@ index 07a35ce..fe1d440 100644
 +  endif()
 +endif()
 diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
-index f692fcc..10fbf2e 100644
+index da363fa..91ffc5c 100644
 --- a/ex4/ssna303_hypre.cxx
 +++ b/ex4/ssna303_hypre.cxx
 @@ -5,6 +5,7 @@
@@ -456,7 +456,7 @@ index f692fcc..10fbf2e 100644
            or_die;
      }
 diff --git a/ex4/ssna303_mumps.cxx b/ex4/ssna303_mumps.cxx
-index 5c4504b..2ab06ab 100644
+index fbd1b26..8af13ac 100644
 --- a/ex4/ssna303_mumps.cxx
 +++ b/ex4/ssna303_mumps.cxx
 @@ -5,6 +5,7 @@
@@ -534,7 +534,7 @@ index 5c4504b..2ab06ab 100644
  #endif /* MGIS_HAVE_TFEL */
    // materials
 diff --git a/ex4/ssna303_petsc.cxx b/ex4/ssna303_petsc.cxx
-index af97a43..7061fe2 100644
+index 52264df..714fbc5 100644
 --- a/ex4/ssna303_petsc.cxx
 +++ b/ex4/ssna303_petsc.cxx
 @@ -5,6 +5,7 @@
@@ -648,7 +648,7 @@ index da05202..7fd74d3 100644
    message(STATUS "Disabling satoh. Compile MFEM with SuiteSparse support to enable it")
  endif()
 diff --git a/ex5/SatohTest.cxx b/ex5/SatohTest.cxx
-index 3a9e8bc..1153171 100644
+index 1326d97..fdd428d 100644
 --- a/ex5/SatohTest.cxx
 +++ b/ex5/SatohTest.cxx
 @@ -5,6 +5,8 @@
@@ -758,7 +758,7 @@ index 2065559..b7b3f67 100755
 +                       RESOURCE_LOCK gpu)
 +endif()
 diff --git a/ex6/RveNonLinearElastic.cxx b/ex6/RveNonLinearElastic.cxx
-index 26a21cb..dc70044 100644
+index 8b6934a..29dd503 100644
 --- a/ex6/RveNonLinearElastic.cxx
 +++ b/ex6/RveNonLinearElastic.cxx
 @@ -14,6 +14,8 @@
@@ -884,7 +884,7 @@ index 61867cb..9c3460b 100755
 +                       RESOURCE_LOCK "avgStress;gpu")
 +endif()
 diff --git a/ex7/MixedOxideFuels.cxx b/ex7/MixedOxideFuels.cxx
-index 43bf666..f11ba63 100644
+index ff44c1e..2ad99cc 100644
 --- a/ex7/MixedOxideFuels.cxx
 +++ b/ex7/MixedOxideFuels.cxx
 @@ -12,6 +12,7 @@
@@ -1258,7 +1258,7 @@ index 6247d30..c180f3e 100644
 +      PROCESSORS 2 RESOURCE_LOCK gpu)
 +endif()
 diff --git a/ex8/Robin/robin_test.cxx b/ex8/Robin/robin_test.cxx
-index eb20f73..748e1d5 100644
+index 7395819..cc3812b 100644
 --- a/ex8/Robin/robin_test.cxx
 +++ b/ex8/Robin/robin_test.cxx
 @@ -12,13 +12,16 @@
@@ -1318,7 +1318,7 @@ index eb20f73..748e1d5 100644
        or_die;
    auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index b280db7..cd3af8c 100644
+index f71fd73..025d0bb 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -9,6 +9,7 @@
@@ -1362,7 +1362,7 @@ index b280db7..cd3af8c 100644
  
  int main(int argc, char* argv[]) {
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index 7ca5107..5a833f3 100644
+index fc73602..84a0486 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -1,5 +1,6 @@
@@ -1430,7 +1430,7 @@ index 7ca5107..5a833f3 100644
 @@ -189,7 +193,7 @@ inline SetupPropertiesResult setup_properties(
        auto sw_model =
            mfem_mgis::make_shared<mfem_mgis::PointWiseModel>(
-               ctx, m_mc.getPartialQuadratureSpacePointer(),
+               ctx, m_mc.getPartialQuadratureSpace(),
 -              mfem_mgis::Parameters{{"Library", p.libraryU3SI2},
 +              mfem_mgis::Parameters{{"Library", p.library_u3si2},
                                      {"Model", "U3SI2_SolidSwelling"},

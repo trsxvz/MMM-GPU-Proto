@@ -1,4 +1,4 @@
-From ec37d69748b1f9667d58a794be940adfbfbd019d Mon Sep 17 00:00:00 2001
+From 000a824325bcf0c3702a6bafcb8ba553ce092a93 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:01:14 +0200
 Subject: [PATCH] Generic test of the linear solvers on the elasticity:
@@ -21,10 +21,10 @@ the weaker checks of the linear elasticity.
  2 files changed, 75 insertions(+), 44 deletions(-)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 4db16b4882..0d974ca66f 100644
+index cdc9b04580..907995f9d9 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1637,43 +1637,32 @@ endif(MFEM_USE_MPI)
+@@ -1640,43 +1640,32 @@ endif(MFEM_USE_MPI)
  # preconditioner registered in the factories (generic test, see the test)
  add_test_executable(LinearSolverFactoriesTest)
  add_test(NAME LinearSolverFactoriesTest COMMAND LinearSolverFactoriesTest)

@@ -300,7 +300,7 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
   if (c.heat_source) {
     problem.addBoundaryCondition(
         ctx, std::make_unique<UniformHeatSourceBoundaryCondition>(
-                 problem.getFiniteElementDiscretizationPointer(), "M1",
+                 problem.getFiniteElementDiscretization(), "M1",
                  [](const real t) noexcept { return 1e4 * t; })) |
         or_die;
   }

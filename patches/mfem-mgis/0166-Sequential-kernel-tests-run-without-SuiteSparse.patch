@@ -1,4 +1,4 @@
-From 92e29c01be3f4933155f41563b383b22a569a032 Mon Sep 17 00:00:00 2001
+From b08d504e5a81f8eb565f2c19259a9e8511052dbe Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 22:23:37 +0200
 Subject: [PATCH] Sequential kernel tests run without SuiteSparse
@@ -11,10 +11,10 @@ UMFPack is not available (MFEM in float).
  1 file changed, 38 insertions(+), 40 deletions(-)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 3517aee030..4e5ca66387 100644
+index 6eda26826d..356c49e7ef 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -996,27 +996,26 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -999,27 +999,26 @@ if(MFEM_MGIS_HAVE_TFEL)
        --two-materials-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube-two-materials.mesh
        --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
        --library $<TARGET_FILE:BehaviourTest>)
@@ -61,7 +61,7 @@ index 3517aee030..4e5ca66387 100644
    endif()
    if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
      add_test(NAME HeatTransferKernelsTestP
-@@ -1034,27 +1033,26 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1037,27 +1036,26 @@ if(MFEM_MGIS_HAVE_TFEL)
        --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
        --square-mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube2d.msh
        --library $<TARGET_FILE:BehaviourTest>)

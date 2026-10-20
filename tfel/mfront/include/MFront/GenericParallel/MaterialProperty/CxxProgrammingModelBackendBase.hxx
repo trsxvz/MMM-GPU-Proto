@@ -4,7 +4,7 @@
  *
  * \brief  This file declares the `CxxProgrammingModelBackendBase` class
  * \author Thomas Helfer
- * \date   18/05/2026
+ * \date 18/05/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -75,8 +75,10 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] i: interface
      * \param[in] mpd: material property description
      * \param[in] fd: file description
-     * \param[in] handleStrides: boolean stating if one shall add
-     * support for strides
+     * \param[in] treatStrides: if true, the function handles the strides of
+     * the output and of the arguments. Otherwise, the arguments and the
+     * output are contiguous arrays and the name of the function ends with
+     * `2`.
      */
     virtual void writeCImplementations2(
         std::ostream&,
@@ -161,7 +163,7 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] os: output stream
      * \param[in] i: interface
      * \param[in] mpd: material property description
-     * \param[in] handleStrides: boolean stating if one shall add
+     * \param[in] treatStrides: boolean stating if one shall add
      * support for strides
      */
     virtual void writeDataTransfersToDevice(
@@ -175,7 +177,7 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] os: output stream
      * \param[in] i: interface
      * \param[in] mpd: material property description
-     * \param[in] handleStrides: boolean stating if one shall add
+     * \param[in] treatStrides: boolean stating if one shall add
      * support for strides
      */
     virtual void writeDataTransfersToHost(

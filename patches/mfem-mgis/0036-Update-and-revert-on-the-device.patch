@@ -1,4 +1,4 @@
-From b15882cd3962e3363e4f2fa2682d99b46648625d Mon Sep 17 00:00:00 2001
+From 241c5a900e44657446e8de70bdadece8edecf095 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 23:44:17 +0200
 Subject: [PATCH] Update and revert on the device
@@ -16,15 +16,15 @@ Beam (111843 unknowns, 10 steps, 1 process, GPU): 3.3 s instead of
 4.1 s.
 ---
  include/MFEMMGIS/BehaviourIntegratorBase.hxx  | 16 +++++
- src/BehaviourIntegratorBase.cxx               | 60 ++++++++++++++++++-
- ...nearEvolutionProblemImplementationBase.cxx | 14 +++--
- 3 files changed, 82 insertions(+), 8 deletions(-)
+ src/BehaviourIntegratorBase.cxx               | 66 ++++++++++++++++++-
+ ...nearEvolutionProblemImplementationBase.cxx | 14 ++--
+ 3 files changed, 88 insertions(+), 8 deletions(-)
 
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 62ddaaa942..f421f4abac 100644
+index ad451f5402..e557172fc2 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -35,7 +35,15 @@ namespace mfem_mgis {
+@@ -33,7 +33,15 @@ namespace mfem_mgis {
                               const real t,
                               const real dt) noexcept override;
      [[nodiscard]] bool cleanup(Context& ctx) noexcept override;
@@ -40,7 +40,7 @@ index 62ddaaa942..f421f4abac 100644
      void update() override;
      [[nodiscard]] bool hasMaterial() const noexcept override;
      OptionalReference<Material> getMaterial(Context& ctx) noexcept override;
-@@ -354,6 +362,14 @@ namespace mfem_mgis {
+@@ -352,6 +360,14 @@ namespace mfem_mgis {
       * \param[in] it: integration type
       */
      [[nodiscard]] bool integrateBatchOnDevice(const IntegrationType);
@@ -56,7 +56,7 @@ index 62ddaaa942..f421f4abac 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index cf365f5f68..d91823f05c 100644
+index a4d9ccdc18..bffcfde7fa 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -6,6 +6,7 @@
@@ -75,7 +75,7 @@ index cf365f5f68..d91823f05c 100644
  #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/IntegrationType.hxx"
  #include "MFEMMGIS/MeshDiscretization.hxx"
-@@ -1186,13 +1188,67 @@ namespace mfem_mgis {
+@@ -1179,13 +1181,73 @@ namespace mfem_mgis {
      return true;
    }  // end of cleanup
  
@@ -113,13 +113,19 @@ index cf365f5f68..d91823f05c 100644
 +                mgis::FieldView<const real>{});
 +      st->mass_density = {};
 +    }
-+    // the tangent operator blocks are set to zero
-+    v.K = relocate(v.K, arrays.writeTangentOperatorBlocks(),
-+                   arrays.getTangentOperatorBlocks().Size());
++    // the tangent operator blocks are set to zero by a revert. As on the
++    // host, they are kept by an update: the prediction of the next time step
++    // may use the operators of the last iteration
++    if (u) {
++      v.K = {};
++    } else {
++      v.K = relocate(v.K, arrays.writeTangentOperatorBlocks(),
++                     arrays.getTangentOperatorBlocks().Size());
++    }
 +    v.speed_of_sound = {};
 +    auto ops = batch::MFEMFieldOperations(true);
 +    if (u) {
-+      mgis::behaviour::update(v, ops);
++      mgis::behaviour::update(v, {.zero_tangent_operator_blocks = false}, ops);
 +    } else {
 +      mgis::behaviour::revert(v, ops);
 +    }
@@ -136,20 +142,20 @@ index cf365f5f68..d91823f05c 100644
    }  // end of revert
  
    void BehaviourIntegratorBase::update() {
--    this->updateMaterialStates();
+-    this->updateMaterialStates({.zero_tangent_operator_blocks = false});
 +    if (this->integratesBatchesOnDevice()) {
 +      this->copyStatesOnDevice(true);
 +    } else {
-+      this->updateMaterialStates();
++      this->updateMaterialStates({.zero_tangent_operator_blocks = false});
 +    }
    }  // end of update
  
    void BehaviourIntegratorBase::setMacroscopicGradients(
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index a42b00265b..ff0130ef78 100644
+index ef515eb393..277a04787b 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -594,12 +594,14 @@ namespace mfem_mgis {
+@@ -583,12 +583,14 @@ namespace mfem_mgis {
        Context& ctx, const real t, const real dt) noexcept {
      CatchTimeSection(ctx, "NLEPIB::solve");
      NonLinearResolutionOutput output;

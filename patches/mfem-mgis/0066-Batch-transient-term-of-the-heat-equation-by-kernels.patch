@@ -1,4 +1,4 @@
-From 1ee715066df233d22eaa419c8bc53af3b54b52cc Mon Sep 17 00:00:00 2001
+From 719c32a7c0fbc123ced2a5ef5f36d469e8d24e3c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 07:36:52 +0200
 Subject: [PATCH] Batch: transient term of the heat equation by kernels
@@ -62,10 +62,10 @@ recognition of the behaviours) are detected.
  create mode 100644 tests/HeatStorage.mfront
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index bd277dc41a..cfc54de852 100644
+index c54d5541f8..4e52b6397e 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -156,8 +156,10 @@ namespace mfem_mgis {
+@@ -153,8 +153,10 @@ namespace mfem_mgis {
       * \return true if the computation of the gradients by kernels requires
       * the values of the unknowns at the integration points (see
       * `batch::UnknownsDerivatives::point_values`), for instance the
@@ -153,7 +153,7 @@ index a5b39148d3..79166d9b8b 100644
     */
    MFEM_MGIS_EXPORT [[nodiscard]] bool requiresUnknownsValues(
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index 8f1a87a706..9e04bfcfc8 100644
+index 70d8aeaadd..38106d9d9b 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -225,41 +225,44 @@ namespace mfem_mgis {
@@ -786,10 +786,10 @@ index 6c88d21b17..5283a79b0e 100644
                     [](const FiniteElementDiscretization& fed, const size_type m,
                        std::unique_ptr<const Behaviour> b) {
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 68c0c5dc62..b7b1d97d52 100644
+index 7b9d315e59..d407067e5f 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -387,10 +387,11 @@ namespace mfem_mgis {
+@@ -386,10 +386,11 @@ namespace mfem_mgis {
                "the behaviour integrator of material '" +
                std::to_string(m) +
                "' can't be computed by kernels (supported: standard "
@@ -806,10 +806,10 @@ index 68c0c5dc62..b7b1d97d52 100644
        }
      }
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index b7162253f2..01a8fd072d 100644
+index 346511f389..9a14d2f2d3 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -70,6 +70,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -73,6 +73,7 @@ if(MFEM_MGIS_HAVE_TFEL)
      MicromorphicDamageII
      StationaryNonLinearHeatTransfer
      OrthotropicStationaryNonLinearHeatTransfer
@@ -817,7 +817,7 @@ index b7162253f2..01a8fd072d 100644
      UO2Shrinkage_RAPHAEL2008
      FailingIsotropicLinearElasticity
      OrthotropicSaintVenantKirchhoffElasticity)
-@@ -786,7 +787,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -789,7 +790,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                       OrthotropicElasticity
                       OrthotropicSaintVenantKirchhoffElasticity
                       StationaryNonLinearHeatTransfer
@@ -827,7 +827,7 @@ index b7162253f2..01a8fd072d 100644
      list(APPEND batch_integration_test_behaviours
           "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
    endforeach()
-@@ -886,10 +888,11 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -889,10 +891,11 @@ if(MFEM_MGIS_HAVE_TFEL)
               COMMAND HeatTransferKernelsTest
                       ${heat_transfer_kernels_test_arguments}
                       ${batch_integration_test_libraries})
@@ -841,7 +841,7 @@ index b7162253f2..01a8fd072d 100644
      if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
        add_test(NAME HeatTransferKernelsTest-cuda
                 COMMAND HeatTransferKernelsTest --device cuda
-@@ -902,8 +905,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -905,8 +908,7 @@ if(MFEM_MGIS_HAVE_TFEL)
    if(MFEM_USE_MPI AND MFEM_USE_MUMPS)
      add_test(NAME HeatTransferKernelsTestP
               COMMAND mpirun -n 2 ./HeatTransferKernelsTest --parallel

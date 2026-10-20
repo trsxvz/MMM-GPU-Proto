@@ -1,4 +1,4 @@
-From cbdd937ca66ad621f6bb7af0b8d84fd0d4ee8393 Mon Sep 17 00:00:00 2001
+From 6009fc5249656ba134b03b6243fe5ce6486f7610 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 14:24:55 +0200
 Subject: [PATCH] ex2, ex5, ex6: outputs for the benchmarks
@@ -102,7 +102,7 @@ index 6074d49..ac8d062 100644
    // resultant force. The tolerance is above the rounding of the forces, which
    // are written with 6 significant digits. It is larger for the reference
 diff --git a/ex5/SatohTest.cxx b/ex5/SatohTest.cxx
-index 9390ecf..df45ab9 100644
+index 72986e2..27b0cac 100644
 --- a/ex5/SatohTest.cxx
 +++ b/ex5/SatohTest.cxx
 @@ -24,6 +24,7 @@
@@ -149,7 +149,7 @@ index 9390ecf..df45ab9 100644
    // behaviour library: given by --library, or else the library built with
    // the example for the processor of the behaviours (option --execution)
    const auto behaviour_library =
-@@ -345,5 +354,6 @@ int main(int argc, char** argv) {
+@@ -344,5 +353,6 @@ int main(int argc, char** argv) {
    const auto temperature = checkImposedTemperature(fed, parallel, T);
    const auto reactions =
        checkReactions(ctx, problem, parallel, (refinement == 0) && (order == 2));
@@ -157,7 +157,7 @@ index 9390ecf..df45ab9 100644
    return (temperature && reactions) ? EXIT_SUCCESS : EXIT_FAILURE;
  }
 diff --git a/ex6/RveNonLinearElastic.cxx b/ex6/RveNonLinearElastic.cxx
-index e063f0d..554b79a 100644
+index e2f1dbb..6f423b3 100644
 --- a/ex6/RveNonLinearElastic.cxx
 +++ b/ex6/RveNonLinearElastic.cxx
 @@ -71,7 +71,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {

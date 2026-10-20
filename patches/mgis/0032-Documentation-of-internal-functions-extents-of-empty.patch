@@ -1,0 +1,114 @@
+From 3e29f32210a02a7cb698f0ce695a61c69a8fca8e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 9 Oct 2026 00:52:29 +0200
+Subject: [PATCH] Documentation of internal functions, extents of empty
+ component views
+
+- getComponents keeps the number of points and of components of an empty
+  result instead of returning a default view.
+- documentation of the internal functions building the function views of
+  MaterialFunctionManager, parameter names of getComponents.
+---
+ .../Behaviour/MaterialFunctionManager.ixx     | 36 +++++++++++++++++++
+ include/MGIS/FieldView.ixx                    | 17 +++++----
+ 2 files changed, 46 insertions(+), 7 deletions(-)
+
+diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
+index cdcf536..12f600d 100644
+--- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
++++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
+@@ -162,6 +162,23 @@ namespace mgis::behaviour {
+       return eh.registerErrorMessage(emsg2);
+     }  // end of registerErrorMessage
+ 
++    /*!
++     * \return a view on a variable of a group of variables stored point by
++     * point
++     * \param[in] eh: error handler
++     * \param[in] qspace: quadrature space
++     * \param[in] variables: variables of the group
++     * \param[in] values: values of the group
++     * \param[in] n: name of the variable
++     * \param[in] h: modelling hypothesis
++     * \param[in] stride: number of values of the group at a point
++     * \param[in] l: layout of the values. The views of `mgis::function`
++     * with a dynamic stride describe values stored point by point: the
++     * variables with several components stored component by component are
++     * refused (see `makeStridedCoalescedFunctionView`)
++     * \param[in] emsg1: error message, followed by the name of the variable
++     * \param[in] emsg2: error message, if the error handler is not a context
++     */
+     template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+     std::optional<mgis::function::FunctionView<
+         mgis::function::SharedSpace<SpaceType>,
+@@ -228,6 +245,23 @@ namespace mgis::behaviour {
+       }
+     }  // end of makeFunctionView
+ 
++    /*!
++     * \return a view on a variable of a group of variables stored point by
++     * point
++     * \param[in] eh: error handler
++     * \param[in] qspace: quadrature space
++     * \param[in] variables: variables of the group
++     * \param[in] values: values of the group
++     * \param[in] n: name of the variable
++     * \param[in] h: modelling hypothesis
++     * \param[in] stride: number of values of the group at a point
++     * \param[in] l: layout of the values. The views of `mgis::function`
++     * with a dynamic stride describe values stored point by point: the
++     * variables with several components stored component by component are
++     * refused (see `makeStridedCoalescedFunctionView`)
++     * \param[in] emsg1: error message, followed by the name of the variable
++     * \param[in] emsg2: error message, if the error handler is not a context
++     */
+     template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+     std::optional<mgis::function::FunctionView<
+         mgis::function::SharedSpace<SpaceType>,
+@@ -475,6 +509,8 @@ namespace mgis::behaviour {
+      * \param[in] n: name of the variable
+      * \param[in] h: modelling hypothesis
+      * \param[in] l: layout of the values
++     * \param[in] emsg1: error message, followed by the name of the variable
++     * \param[in] emsg2: error message, if the error handler is not a context
+      */
+     template <size_type N,
+               bool is_mutable,
+diff --git a/include/MGIS/FieldView.ixx b/include/MGIS/FieldView.ixx
+index 3d4b3ed..91b9268 100644
+--- a/include/MGIS/FieldView.ixx
++++ b/include/MGIS/FieldView.ixx
+@@ -243,20 +243,23 @@ namespace mgis {
+   }  // end of makeUniformFieldView
+ 
+   template <typename ValueType>
+-  constexpr FieldView<ValueType> getComponents(const FieldView<ValueType>& f,
++  constexpr FieldView<ValueType> getComponents(const FieldView<ValueType>& v,
+                                                const size_type o,
+                                                const size_type nc) {
+-    if (o + nc > f.getNumberOfComponents()) {
++    if (o + nc > v.getNumberOfComponents()) {
+       internals::reportFieldViewContractViolation(
+           "getComponents: invalid range of components");
+     }
+-    if ((nc == 0) || (f.getNumberOfPoints() == 0)) {
+-      return FieldView<ValueType>{};
++    if ((nc == 0) || (v.getNumberOfPoints() == 0)) {
++      // no value: only the extents and the strides are kept
++      return FieldView<ValueType>(no_precondition_check, std::span<ValueType>{},
++                                  v.getNumberOfPoints(), nc,
++                                  v.getPointStride(), v.getComponentStride());
+     }
+-    const auto values = f.getValues().subspan(o * f.getComponentStride());
++    const auto values = v.getValues().subspan(o * v.getComponentStride());
+     return FieldView<ValueType>(no_precondition_check, values,
+-                                f.getNumberOfPoints(), nc, f.getPointStride(),
+-                                f.getComponentStride());
++                                v.getNumberOfPoints(), nc, v.getPointStride(),
++                                v.getComponentStride());
+   }  // end of getComponents
+ 
+ }  // end of namespace mgis
+-- 
+2.43.0
+

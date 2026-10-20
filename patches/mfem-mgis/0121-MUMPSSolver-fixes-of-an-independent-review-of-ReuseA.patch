@@ -1,4 +1,4 @@
-From 97038fef48657e9e4baf1bf2b21b3480a4f7c144 Mon Sep 17 00:00:00 2001
+From 2e70d5cef7668b98bfe12fdf699a994dceb626a4 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 05:41:09 +0200
 Subject: [PATCH] MUMPSSolver: fixes of an independent review of ReuseAnalysis
@@ -46,7 +46,7 @@ counted).
  create mode 100644 src/MUMPSSolvers.hxx
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index 396e1aba0e..4e553e87f6 100644
+index 39c47c0303..4ebda78b1e 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
 @@ -63,10 +63,12 @@ MUMPS Solver
@@ -492,10 +492,10 @@ index fb137e4b49..48ae740f8c 100644
  
      /*!
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 05d36b5137..f9b695ba9c 100644
+index 7423708efc..79905ae101 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1207,20 +1207,6 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1210,20 +1210,6 @@ if(MFEM_MGIS_HAVE_TFEL)
      add_test_executable(HypreParaSailsTest)
      add_test(NAME HypreParaSailsTest COMMAND HypreParaSailsTest)
      add_test(NAME HypreParaSailsTestP COMMAND mpirun -n 2 ./HypreParaSailsTest)
@@ -516,7 +516,7 @@ index 05d36b5137..f9b695ba9c 100644
    endif(MFEM_USE_MPI)
  
  endif(MFEM_MGIS_HAVE_TFEL)
-@@ -1238,6 +1224,25 @@ if(MFEM_USE_MPI)
+@@ -1241,6 +1227,25 @@ if(MFEM_USE_MPI)
                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
  endif()
  

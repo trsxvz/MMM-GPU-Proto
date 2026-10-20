@@ -1,4 +1,4 @@
-From 9b31d94f29a790e283ad5aafaea101673adcd0fd Mon Sep 17 00:00:00 2001
+From 93be6655f31747eb6af21caaab6ff83c1b19bf36 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 22:15:06 +0200
 Subject: [PATCH] Cases run with the float numerical type
@@ -35,7 +35,7 @@ references by 0.005 % to 0.23 %.
  7 files changed, 62 insertions(+), 29 deletions(-)
 
 diff --git a/bubble/src/Bubble.cxx b/bubble/src/Bubble.cxx
-index 63a79f6..4b9921c 100644
+index 18ce3fe..2c78ab2 100644
 --- a/bubble/src/Bubble.cxx
 +++ b/bubble/src/Bubble.cxx
 @@ -12,6 +12,7 @@
@@ -158,7 +158,7 @@ index bb74249..49994ec 100644
  
        // Reconstruct structured data from flattened array
 diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
-index 1013876..7235a18 100644
+index eb3abf5..27bbf70 100644
 --- a/cermet/cermet.cxx
 +++ b/cermet/cermet.cxx
 @@ -66,7 +66,7 @@ struct TestParameters {

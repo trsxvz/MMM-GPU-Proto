@@ -1,4 +1,4 @@
-From 4908eb5d27fce4cb5ffdb0f72b08352c4e4fe637 Mon Sep 17 00:00:00 2001
+From 6ae262f31764b0720b2e69449596dffb8588fdf0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:12:24 +0200
 Subject: [PATCH] ex2, ex6: behaviour library and device options
@@ -27,7 +27,7 @@ index 70aeb68..9a3927b 100644
    args.AddOption(&use_fbar, "-fb", "--use-fbar", "-no-fb", "--no-use-fbar",
                   "Use the FBar formulation.");
 diff --git a/ex6/RveNonLinearElastic.cxx b/ex6/RveNonLinearElastic.cxx
-index ddc852c..26a21cb 100644
+index 1f672dd..8b6934a 100644
 --- a/ex6/RveNonLinearElastic.cxx
 +++ b/ex6/RveNonLinearElastic.cxx
 @@ -47,7 +47,9 @@ struct TestParameters {

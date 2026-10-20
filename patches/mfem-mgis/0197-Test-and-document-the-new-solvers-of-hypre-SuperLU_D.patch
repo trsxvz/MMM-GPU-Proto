@@ -1,4 +1,4 @@
-From bafacaee0cea30f581e0af5c361395fe9434e7a7 Mon Sep 17 00:00:00 2001
+From 50c3366bd035b8ccb46650e98e37b9a04aba0ba8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 05:34:07 +0200
 Subject: [PATCH] Test and document the new solvers of hypre, SuperLU_DIST and
@@ -245,7 +245,7 @@ index 673417916e..98ae18f344 100644
  
  Linear solvers and preconditioners of Ginkgo
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 8a4828d39b..83f19cb795 100644
+index df9cf6b55d..11a84b4d24 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -164,6 +164,31 @@ Each entry is described by a configuration of Ginkgo, completed by its
@@ -281,10 +281,10 @@ index 8a4828d39b..83f19cb795 100644
  --------------------------
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index e6c3d5eb1e..fc10ac8af0 100644
+index 7a8cbb46bf..e44dbecb72 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1646,6 +1646,28 @@ if(MFEM_USE_GINKGO STREQUAL "YES")
+@@ -1649,6 +1649,28 @@ if(MFEM_USE_GINKGO STREQUAL "YES")
    endif()
  endif()
  

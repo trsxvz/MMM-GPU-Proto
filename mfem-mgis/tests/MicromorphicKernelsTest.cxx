@@ -210,12 +210,12 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
   const auto Yr =
       tridimensional
           ? PartialQuadratureFunction::evaluate(
-                m.getPartialQuadratureSpacePointer(),
+                m.getPartialQuadratureSpace(),
                 [](const real x, const real y, const real z) noexcept {
                   return 10 * (1 + std::sin(3 * x + 2 * y + z));
                 })
           : PartialQuadratureFunction::evaluate(
-                m.getPartialQuadratureSpacePointer(),
+                m.getPartialQuadratureSpace(),
                 [](const real x, const real y) noexcept {
                   return 10 * (1 + std::sin(3 * x + 2 * y));
                 });

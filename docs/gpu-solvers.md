@@ -244,7 +244,7 @@ p-multigrid).
   for the GPU (PMIS, ext+i, l1-Jacobi, without aggressive coarsening;
   checked in `HypreBoomerAMG::SetDefaultOptions`, MFEM 4.9).
 - **Settings exposed in mfem-mgis** (interest 8, done): options
-  `StrengthThreshold`, `CoarseningType`, `AggressiveCoarseningLevels`,
+  `StrongThreshold`, `CoarseningType`, `AggressiveCoarseningLevels`,
   `InterpolationType`, `RelaxationType`, `RelaxationSweeps`, `CycleType`,
   `NumberOfCycles` and `MaximumNumberOfLevels` of `HypreBoomerAMG`, in addition
   to the strategy. Best setting measured on the beam:

@@ -39,7 +39,7 @@ static void forEachIntegrationPoint(
   const auto& fed = s.getFiniteElementDiscretization();
   const auto& fespace = fed.getFiniteElementSpace<parallel>();
   const auto l = s.getLocation();
-  if(isInvalid(l.material_identifier)){
+  if (isInvalid(l.material_identifier)) {
     mfem_mgis::abort("invalid partial quadrature space");
   }
   const auto m = l.material_identifier->id;
@@ -275,7 +275,7 @@ int main(int argc, char** argv) {
   mgis::behaviour::setExternalStateVariable(ctx, m1.s0, "Temperature", 293.15) |
       or_die;
   auto Tg = mfem_mgis::PartialQuadratureFunction::evaluate(
-      m1.getPartialQuadratureSpacePointer(),
+      m1.getPartialQuadratureSpace(),
       [](const mfem_mgis::real x, const mfem_mgis::real) {
         return getTemperature(x);
       });
@@ -288,8 +288,7 @@ int main(int argc, char** argv) {
       problem.addBoundaryCondition(
           ctx,
           mfem_mgis::make_unique<mfem_mgis::UniformDirichletBoundaryCondition>(
-              ctx, problem.getFiniteElementDiscretizationPointer(), boundary,
-              dof) |
+              ctx, problem.getFiniteElementDiscretization(), boundary, dof) |
               or_die) |
           or_die;
     }

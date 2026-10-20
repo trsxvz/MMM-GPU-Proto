@@ -59,8 +59,7 @@ namespace mfem_mgis {
   }  // end of convertSizesOfTangentOperatorBlocksToString
 
   BehaviourIntegratorBase::BehaviourIntegratorBase(
-      std::shared_ptr<const PartialQuadratureSpace> s,
-      std::unique_ptr<const Behaviour> b_ptr)
+      const PartialQuadratureSpace& s, std::unique_ptr<const Behaviour> b_ptr)
       : Material(s, std::move(b_ptr)) {
     // The following arrays are storing material properties and external
     // state variables. They can be allocated a single time
@@ -398,12 +397,6 @@ namespace mfem_mgis {
   const PartialQuadratureSpace&
   BehaviourIntegratorBase::getPartialQuadratureSpace() const noexcept {
     return static_cast<const Material*>(this)->getPartialQuadratureSpace();
-  }  // end of getPartialQuadratureSpace
-
-  std::shared_ptr<const PartialQuadratureSpace>
-  BehaviourIntegratorBase::getPartialQuadratureSpacePointer() const noexcept {
-    return static_cast<const Material*>(this)
-        ->getPartialQuadratureSpacePointer();
   }  // end of getPartialQuadratureSpace
 
   real BehaviourIntegratorBase::getTimeIncrement() const noexcept {
@@ -1132,13 +1125,19 @@ namespace mfem_mgis {
                 mgis::FieldView<const real>{});
       st->mass_density = {};
     }
-    // the tangent operator blocks are set to zero
-    v.K = relocate(v.K, arrays.writeTangentOperatorBlocks(),
-                   arrays.getTangentOperatorBlocks().Size());
+    // the tangent operator blocks are set to zero by a revert. As on the
+    // host, they are kept by an update: the prediction of the next time step
+    // may use the operators of the last iteration
+    if (u) {
+      v.K = {};
+    } else {
+      v.K = relocate(v.K, arrays.writeTangentOperatorBlocks(),
+                     arrays.getTangentOperatorBlocks().Size());
+    }
     v.speed_of_sound = {};
     auto ops = batch::MFEMFieldOperations(true);
     if (u) {
-      mgis::behaviour::update(v, ops);
+      mgis::behaviour::update(v, {.zero_tangent_operator_blocks = false}, ops);
     } else {
       mgis::behaviour::revert(v, ops);
     }
@@ -1178,7 +1177,7 @@ namespace mfem_mgis {
 
   bool BehaviourIntegratorBase::isQuadratureSpaceSupportedByKernels()
       const noexcept {
-    const auto& s = *(this->quadrature_space);
+    const auto& s = this->quadrature_space;
     if (s.shallUseBoundaryElementsAPI()) {
       return false;
     }
@@ -1192,9 +1191,9 @@ namespace mfem_mgis {
       const char* const name,
       const batch::ElementsGeometrySet& g) const noexcept {
     data = KernelsData{};
-    const auto* const r = this->quadrature_space->getUniformIntegrationRule();
+    const auto* const r = this->quadrature_space.getUniformIntegrationRule();
     if (r == nullptr) {
-      if (this->quadrature_space->getNumberOfElements() == 0) {
+      if (this->quadrature_space.getNumberOfElements() == 0) {
         return true;
       }
       return ctx.registerErrorMessage(
@@ -1254,7 +1253,7 @@ namespace mfem_mgis {
         const auto s = std::span<const real>(
             v.Read(use_device), static_cast<std::size_t>(v.Size()));
         return batch::addInnerForces(
-            ctx, f, *(this->quadrature_space),
+            ctx, f, this->quadrature_space,
             mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
             data.kind);
       }
@@ -1265,7 +1264,7 @@ namespace mfem_mgis {
           std::span<const real>(this->getArrays().read(a, ets, use_device),
                                 static_cast<std::size_t>(v.Size()));
       return batch::addInnerForces(
-          ctx, f, *(this->quadrature_space),
+          ctx, f, this->quadrature_space,
           mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
           *(data.geometry), data.kind);
     } catch (std::exception& e) {
@@ -1290,7 +1289,7 @@ namespace mfem_mgis {
     if (this->integratesBatchesOnDevice()) {
       this->copyStatesOnDevice(true);
     } else {
-      this->updateMaterialStates();
+      this->updateMaterialStates({.zero_tangent_operator_blocks = false});
     }
   }  // end of update
 

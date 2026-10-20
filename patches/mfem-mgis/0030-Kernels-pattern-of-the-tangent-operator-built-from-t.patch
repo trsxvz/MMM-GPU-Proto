@@ -1,4 +1,4 @@
-From fea6445144412cb94bfee63d9f3c2b6f093b1924 Mon Sep 17 00:00:00 2001
+From 7a2342fa378a8431372ce5bfe22e6882da87ecbc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 21:44:47 +0200
 Subject: [PATCH] Kernels: pattern of the tangent operator built from the
@@ -92,10 +92,10 @@ index db10a468be..de3bada519 100644
     * matrix
     * \param[in, out] m: assembled matrix
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 93bef81425..2628255b05 100644
+index 2221776333..6f71653a6e 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -184,6 +184,17 @@ namespace mfem_mgis {
+@@ -183,6 +183,17 @@ namespace mfem_mgis {
       * \param[in] b: boolean
       */
      void setStiffnessMatricesComputedByKernels(const bool) noexcept;
@@ -113,7 +113,7 @@ index 93bef81425..2628255b05 100644
      /*!
       * \brief assemble the stiffness matrices of all the elements, computed
       * by kernels, in a sparse matrix on the local vector of the finite
-@@ -193,8 +204,9 @@ namespace mfem_mgis {
+@@ -192,8 +203,9 @@ namespace mfem_mgis {
       * \return true on success
       * \param[in, out] ctx: execution context
       * \param[in] fes: finite element space
@@ -125,7 +125,7 @@ index 93bef81425..2628255b05 100644
       */
      [[nodiscard]] bool assembleStiffnessMatrixByKernels(
          Context& ctx,
-@@ -369,9 +381,18 @@ namespace mfem_mgis {
+@@ -368,9 +380,18 @@ namespace mfem_mgis {
      /*!
       * \brief degrees of freedom of all the elements (see
       * `batch::computeElementsDegreesOfFreedom`), computed once by
@@ -333,10 +333,10 @@ index a028c36774..bd62a47738 100644
            }
          }
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index d0bb7ae0a7..4818818a1a 100644
+index b117c1dc6b..ab765e3abc 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -557,19 +557,31 @@ namespace mfem_mgis {
+@@ -556,19 +556,31 @@ namespace mfem_mgis {
      this->stiffness_matrices_computed_by_kernels = b;
    }  // end of setStiffnessMatricesComputedByKernels
  
@@ -376,10 +376,10 @@ index d0bb7ae0a7..4818818a1a 100644
        return false;
      }
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index dd951cca10..5d2563629c 100644
+index 0bff23e114..fd29bee420 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
-@@ -436,19 +436,25 @@ namespace mfem_mgis {
+@@ -439,19 +439,25 @@ namespace mfem_mgis {
  
    /*!
     * \brief assembles the stiffness matrices of the elements computed by
@@ -409,7 +409,7 @@ index dd951cca10..5d2563629c 100644
      raiseOnFailureOnAnyProcess(fed, ctx, success,
                                 "computation of the tangent operator");
    }  // end of assembleStiffnessMatrixByKernels
-@@ -569,14 +575,13 @@ namespace mfem_mgis {
+@@ -571,14 +577,13 @@ namespace mfem_mgis {
      }
      const auto only_mfem_mgis =
          isTheOnlyIntegrator(*this, this->mgis_integrator);
@@ -429,7 +429,7 @@ index dd951cca10..5d2563629c 100644
        auto* const pfes = this->ParFESpace();
        this->pGrad.Clear();
        mfem::OperatorHandle dA(this->pGrad.Type());
-@@ -597,17 +602,11 @@ namespace mfem_mgis {
+@@ -599,17 +604,11 @@ namespace mfem_mgis {
        }
        return *(this->pGrad.Ptr());
      }
@@ -452,7 +452,7 @@ index dd951cca10..5d2563629c 100644
      return mfem_mgis::NonlinearForm<true>::GetGradient(u);
    }  // end of GetGradient
  
-@@ -898,11 +897,10 @@ namespace mfem_mgis {
+@@ -899,11 +898,10 @@ namespace mfem_mgis {
      }
      const auto only_mfem_mgis =
          isTheOnlyIntegrator(*this, this->mgis_integrator);
@@ -466,7 +466,7 @@ index dd951cca10..5d2563629c 100644
        // as `mfem::NonlinearForm::GetGradient`, the elimination of the
        // essential degrees of freedom giving the same result as
        // `EliminateRowCol`, the pattern of the matrix being symmetric
-@@ -924,13 +922,9 @@ namespace mfem_mgis {
+@@ -925,13 +923,9 @@ namespace mfem_mgis {
        static_cast<void>(mGrad->HostReadData());
        return *mGrad;
      }

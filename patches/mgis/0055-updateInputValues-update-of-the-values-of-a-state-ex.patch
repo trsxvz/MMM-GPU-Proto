@@ -1,0 +1,362 @@
+From 183606662d9ba26bdcda19452460004c0a3d1136 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 10 Oct 2026 00:43:03 +0200
+Subject: [PATCH] updateInputValues: update of the values of a state except its
+ arrays
+
+updateInputValues updates the material properties, the external state
+variables and the mass density of a state from another state, with the
+procedure and the update policies of updateValues, without copying the
+arrays of the states (gradients, thermodynamic forces, internal state
+variables, energies), which the calling code copies, for instance on
+their copies on a device (update and revert of a MaterialDataView).
+updateValues is now the copy of the arrays followed by
+updateInputValues.
+---
+ .../MGIS/Behaviour/MaterialStateManager.hxx   |  18 +++
+ src/MaterialStateManager.cxx                  | 138 ++++++++++++------
+ tests/MaterialDataManagerLayoutTest.cxx       | 118 ++++++++-------
+ 3 files changed, 180 insertions(+), 94 deletions(-)
+
+diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
+index 47f9058..fb1c24c 100644
+--- a/include/MGIS/Behaviour/MaterialStateManager.hxx
++++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
+@@ -644,6 +644,24 @@ namespace mgis::behaviour {
+                                                MaterialStateManager&,
+                                                const MaterialStateManager&,
+                                                FieldOperations&) noexcept;
++  /*!
++   * \brief update the material properties, the external state variables and
++   * the mass density of a state from another state, as `updateValues`
++   * (same procedure and update policies), without copying the arrays of
++   * the states (gradients, thermodynamic forces, internal state variables,
++   * energies). The calling code copies these arrays, for instance on their
++   * copies on a device (see `update(const MaterialDataView&,
++   * FieldOperations&)`).
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[out] o: output state
++   * \param[in] i: input state
++   * \param[in] ops: operations copying the values given by the calling code
++   */
++  MGIS_EXPORT MGIS_NODISCARD bool updateInputValues(Context&,
++                                                    MaterialStateManager&,
++                                                    const MaterialStateManager&,
++                                                    FieldOperations&) noexcept;
+   /*!
+    * \brief extract an internal state variable
+    *
+diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
+index 8db4d68..8b041c3 100644
+--- a/src/MaterialStateManager.cxx
++++ b/src/MaterialStateManager.cxx
+@@ -782,22 +782,19 @@ namespace mgis::behaviour {
+    * \param[in] i: input state
+    * \param[in] ops: operations copying the arrays given by the calling code
+    */
+-  [[nodiscard]] static bool updateValuesImpl(ErrorBacktrace& ctx,
+-                                             MaterialStateManager& o,
+-                                             const MaterialStateManager& i,
+-                                             FieldOperations& ops) noexcept {
+-    if (o.layout != i.layout) {
+-      return ctx.registerErrorMessage(
+-          "updateValues: the arrays of the material state managers have "
+-          "different layouts");
+-    }
++  /*!
++   * \brief checks that two material state managers hold the same behaviour,
++   * and that their material properties are the ones of the behaviour
++   * \return true on success
++   * \param[in, out] ctx: error handler
++   * \param[in] o: output state
++   * \param[in] i: input state
++   */
++  [[nodiscard]] static bool checkStates(
++      ErrorBacktrace& ctx,
++      const MaterialStateManager& o,
++      const MaterialStateManager& i) noexcept {
+     using FieldHolder = MaterialStateManager::FieldHolder;
+-    using MutableFieldHolder = MaterialStateManager::MutableFieldHolder;
+-    auto u = ValuesUpdate{.ctx = ctx,
+-                          .ops = ops,
+-                          .host_accessible =
+-                              isHostAccessible(o.memory_location) &&
+-                              isHostAccessible(i.memory_location)};
+     auto check_mps =
+         [&ctx](
+             const Behaviour& b,
+@@ -817,34 +814,23 @@ namespace mgis::behaviour {
+       return ctx.registerErrorMessage(
+           "the material state managers do not hold the same behaviour");
+     }
+-    if (!check_mps(o.b, i.material_properties)) {
+-      return false;
+-    }
+-    if (!check_mps(o.b, o.material_properties)) {
+-      return false;
+-    }
+-    if (!updateArray(u, o, i, [](auto& s) { return getGradientsView(s); })) {
+-      return false;
+-    }
+-    if (!updateArray(u, o, i,
+-                     [](auto& s) { return getThermodynamicForcesView(s); })) {
+-      return false;
+-    }
+-    if (!updateArray(u, o, i, [](auto& s) {
+-          return getInternalStateVariablesView(s);
+-        })) {
+-      return false;
+-    }
+-    if (!updateArray(u, o, i, [](auto& s) {
+-          return getEnergiesView(s.stored_energies, s.n);
+-        })) {
+-      return false;
+-    }
+-    if (!updateArray(u, o, i, [](auto& s) {
+-          return getEnergiesView(s.dissipated_energies, s.n);
+-        })) {
+-      return false;
+-    }
++    return check_mps(o.b, i.material_properties) &&
++           check_mps(o.b, o.material_properties);
++  }  // end of checkStates
++
++  /*!
++   * \brief update the material properties, the external state variables and
++   * the mass density of a state from another state (see `updateInputValues`)
++   * \return true on success
++   * \param[in, out] u: update
++   * \param[out] o: output state
++   * \param[in] i: input state
++   */
++  [[nodiscard]] static bool updateInputValuesImpl(
++      ValuesUpdate& u,
++      MaterialStateManager& o,
++      const MaterialStateManager& i) noexcept {
++    using MutableFieldHolder = MaterialStateManager::MutableFieldHolder;
+     auto pmp = o.material_properties.begin();
+     while (pmp != o.material_properties.end()) {
+       if (i.material_properties.count(pmp->first) == 0) {
+@@ -899,6 +885,57 @@ namespace mgis::behaviour {
+       o.mass_density.reset();
+     }
+     return true;
++  }  // end of updateInputValuesImpl
++
++  /*!
++   * \brief update the values of a state from another state
++   * (see `updateValues`)
++   * \return true on success
++   * \param[in, out] ctx: error handler
++   * \param[out] o: output state
++   * \param[in] i: input state
++   * \param[in] ops: operations copying the arrays given by the calling code
++   */
++  [[nodiscard]] static bool updateValuesImpl(ErrorBacktrace& ctx,
++                                             MaterialStateManager& o,
++                                             const MaterialStateManager& i,
++                                             FieldOperations& ops) noexcept {
++    if (o.layout != i.layout) {
++      return ctx.registerErrorMessage(
++          "updateValues: the arrays of the material state managers have "
++          "different layouts");
++    }
++    if (!checkStates(ctx, o, i)) {
++      return false;
++    }
++    auto u =
++        ValuesUpdate{.ctx = ctx,
++                     .ops = ops,
++                     .host_accessible = isHostAccessible(o.memory_location) &&
++                                        isHostAccessible(i.memory_location)};
++    if (!updateArray(u, o, i, [](auto& s) { return getGradientsView(s); })) {
++      return false;
++    }
++    if (!updateArray(u, o, i,
++                     [](auto& s) { return getThermodynamicForcesView(s); })) {
++      return false;
++    }
++    if (!updateArray(u, o, i, [](auto& s) {
++          return getInternalStateVariablesView(s);
++        })) {
++      return false;
++    }
++    if (!updateArray(u, o, i, [](auto& s) {
++          return getEnergiesView(s.stored_energies, s.n);
++        })) {
++      return false;
++    }
++    if (!updateArray(u, o, i, [](auto& s) {
++          return getEnergiesView(s.dissipated_energies, s.n);
++        })) {
++      return false;
++    }
++    return updateInputValuesImpl(u, o, i);
+   }  // end of updateValuesImpl
+ 
+   bool updateValues(Context& ctx,
+@@ -908,6 +945,21 @@ namespace mgis::behaviour {
+     return updateValuesImpl(ctx, o, i, ops);
+   }  // end of updateValues
+ 
++  bool updateInputValues(Context& ctx,
++                         MaterialStateManager& o,
++                         const MaterialStateManager& i,
++                         FieldOperations& ops) noexcept {
++    if (!checkStates(ctx, o, i)) {
++      return false;
++    }
++    auto u =
++        ValuesUpdate{.ctx = ctx,
++                     .ops = ops,
++                     .host_accessible = isHostAccessible(o.memory_location) &&
++                                        isHostAccessible(i.memory_location)};
++    return updateInputValuesImpl(u, o, i);
++  }  // end of updateInputValues
++
+   void updateValues(MaterialStateManager& o,
+                     const MaterialStateManager& i,
+                     FieldOperations& ops) {
+diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
+index 3f11315..f0ced43 100644
+--- a/tests/MaterialDataManagerLayoutTest.cxx
++++ b/tests/MaterialDataManagerLayoutTest.cxx
+@@ -688,7 +688,8 @@ static void testInitializeFunctionsAndPostProcessingsForms(
+  * \brief end of a time step with material properties and external state
+  * variables given by the calling code (external arrays), stored by the
+  * manager (local arrays) or uniform, with the update policies, by `update`
+- * and `revert` with and without field operations, in both layouts
++ * and `revert` with and without field operations, and by `updateInputValues`
++ * (the arrays of the states being unchanged), in both layouts
+  */
+ static void testUpdateOfMaterialPropertiesAndExternalStateVariables(
+     const std::string& library) {
+@@ -707,59 +708,74 @@ static void testUpdateOfMaterialPropertiesAndExternalStateVariables(
+        {FieldLayout::POINT_BY_POINT, FieldLayout::COMPONENT_BY_COMPONENT}) {
+     for (const auto with_operations : {false, true}) {
+       for (const auto revert_states : {false, true}) {
+-        const auto t = std::string{"update of the material properties, "} +
+-                       (revert_states ? "revert" : "update") +
+-                       (with_operations ? " with operations, " : ", ") +
+-                       library;
+-        auto m = makeManager(b, n, l);
+-        auto& from = revert_states ? m->s0 : m->s1;
+-        auto& to = revert_states ? m->s1 : m->s0;
+-        // external arrays
+-        auto E_from = values(150e9);
+-        auto E_to = values(100e9);
+-        setMaterialProperty(from, "YoungModulus", E_from,
+-                            MaterialStateManager::EXTERNAL_STORAGE);
+-        setMaterialProperty(to, "YoungModulus", E_to,
+-                            MaterialStateManager::EXTERNAL_STORAGE);
+-        // local arrays
+-        auto nu_from = values(0.3);
+-        auto nu_to = values(0.2);
+-        setMaterialProperty(from, "PoissonRatio", nu_from,
+-                            MaterialStateManager::LOCAL_STORAGE);
+-        setMaterialProperty(to, "PoissonRatio", nu_to,
+-                            MaterialStateManager::LOCAL_STORAGE);
+-        // uniform value which shall not be updated
+-        auto T_from = values(300);
+-        setExternalStateVariable(from, "Temperature", T_from,
+-                                 MaterialStateManager::EXTERNAL_STORAGE);
+-        setExternalStateVariable(to, "Temperature", 293.15,
+-                                 MaterialStateManager::NOUPDATE);
+-        if (revert_states) {
+-          if (with_operations) {
+-            revert(*m, ops);
+-          } else {
+-            revert(*m);
+-          }
+-        } else {
+-          if (with_operations) {
+-            update(*m, ops);
++        for (const auto inputs_only : {false, true}) {
++          const auto t = std::string{"update of the material properties, "} +
++                         (inputs_only ? "inputs only, " : "") +
++                         (revert_states ? "revert" : "update") +
++                         (with_operations ? " with operations, " : ", ") +
++                         library;
++          auto m = makeManager(b, n, l);
++          auto& from = revert_states ? m->s0 : m->s1;
++          auto& to = revert_states ? m->s1 : m->s0;
++          // external arrays
++          auto E_from = values(150e9);
++          auto E_to = values(100e9);
++          setMaterialProperty(from, "YoungModulus", E_from,
++                              MaterialStateManager::EXTERNAL_STORAGE);
++          setMaterialProperty(to, "YoungModulus", E_to,
++                              MaterialStateManager::EXTERNAL_STORAGE);
++          // local arrays
++          auto nu_from = values(0.3);
++          auto nu_to = values(0.2);
++          setMaterialProperty(from, "PoissonRatio", nu_from,
++                              MaterialStateManager::LOCAL_STORAGE);
++          setMaterialProperty(to, "PoissonRatio", nu_to,
++                              MaterialStateManager::LOCAL_STORAGE);
++          // uniform value which shall not be updated
++          auto T_from = values(300);
++          setExternalStateVariable(from, "Temperature", T_from,
++                                   MaterialStateManager::EXTERNAL_STORAGE);
++          setExternalStateVariable(to, "Temperature", 293.15,
++                                   MaterialStateManager::NOUPDATE);
++          // arrays of the states
++          std::fill(from.gradients.begin(), from.gradients.end(), real{1});
++          std::fill(to.gradients.begin(), to.gradients.end(), real{0});
++          if (inputs_only) {
++            auto ctx = mgis::Context{};
++            check(updateInputValues(ctx, to, from, ops),
++                  t + ": updateInputValues failed (" + ctx.getErrorMessage() +
++                      ")");
++          } else if (revert_states) {
++            if (with_operations) {
++              revert(*m, ops);
++            } else {
++              revert(*m);
++            }
+           } else {
+-            update(*m);
++            if (with_operations) {
++              update(*m, ops);
++            } else {
++              update(*m);
++            }
+           }
++          const auto g = inputs_only ? real{0} : real{1};
++          check(std::all_of(to.gradients.begin(), to.gradients.end(),
++                            [g](const real v) { return same(v, g); }),
++                t + ": invalid gradients");
++          check(E_to == E_from, t + ": invalid external array");
++          const auto& nu = std::get<MaterialStateManager::MutableFieldHolder>(
++                               to.material_properties.at("PoissonRatio"))
++                               .value;
++          check(std::holds_alternative<std::vector<real>>(nu) &&
++                    (std::get<std::vector<real>>(nu) == nu_from),
++                t + ": invalid local array");
++          const auto& T = std::get<MaterialStateManager::MutableFieldHolder>(
++                              to.external_state_variables.at("Temperature"))
++                              .value;
++          check(std::holds_alternative<real>(T) &&
++                    same(std::get<real>(T), 293.15),
++                t + ": a value which shall not be updated was modified");
+         }
+-        check(E_to == E_from, t + ": invalid external array");
+-        const auto& nu = std::get<MaterialStateManager::MutableFieldHolder>(
+-                             to.material_properties.at("PoissonRatio"))
+-                             .value;
+-        check(std::holds_alternative<std::vector<real>>(nu) &&
+-                  (std::get<std::vector<real>>(nu) == nu_from),
+-              t + ": invalid local array");
+-        const auto& T = std::get<MaterialStateManager::MutableFieldHolder>(
+-                            to.external_state_variables.at("Temperature"))
+-                            .value;
+-        check(
+-            std::holds_alternative<real>(T) && same(std::get<real>(T), 293.15),
+-            t + ": a value which shall not be updated was modified");
+       }
+     }
+   }
+-- 
+2.43.0
+

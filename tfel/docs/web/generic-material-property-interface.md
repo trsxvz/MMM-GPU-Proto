@@ -79,7 +79,7 @@ typedef struct {
    *   was a child of `std::exception`, the content of the string returned by
    *   the `what` method is copied in the `msg` field. Otherwise, the
    *   `msg` field contains the "unknown exception" string.
-   * - If the exit status is -3, an error occured in the `C` library, i.e. the
+   * - If the exit status is -3, an error occurred in the `C` library, i.e. the
    *   `errno` value was set to a non zero value during the computation.
    *   The value of `errno` corresponding to the error is stored to in the
    *   `c_error_number` field of this structure. The string returned by

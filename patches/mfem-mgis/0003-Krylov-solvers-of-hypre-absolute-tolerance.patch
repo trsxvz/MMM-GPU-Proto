@@ -1,4 +1,4 @@
-From 86fdba0ac399a3b977ff9256fddd3bcbf510aa20 Mon Sep 17 00:00:00 2001
+From 7d8cebf97ad535d0b729dcd73ec1b2d9af75fde0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 12:46:57 +0200
 Subject: [PATCH] Krylov solvers of hypre: absolute tolerance
@@ -20,10 +20,10 @@ much larger than the initial residual, each solver stops at once.
  create mode 100644 tests/HypreKrylovAbsoluteToleranceTest.cxx
 
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index 833fa3f026..911cb18e85 100644
+index 4dc570d178..3b8f4bf8db 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -390,6 +390,7 @@ namespace mfem_mgis {
+@@ -403,6 +403,7 @@ namespace mfem_mgis {
        const char* const Preconditioner = "Preconditioner";
        const auto allowed_parameters = std::vector<std::string>{
            Problem::SolverVerbosityLevel, SolverTolerance,
@@ -31,7 +31,7 @@ index 833fa3f026..911cb18e85 100644
            Problem::SolverMaximumNumberOfIterations, Preconditioner};
        auto s = std::make_unique<mfem::HyprePCG>(fespace.GetComm());
        s->iterative_mode = false;
-@@ -403,6 +404,14 @@ namespace mfem_mgis {
+@@ -416,6 +417,14 @@ namespace mfem_mgis {
          }
          s->SetPrintLevel(*olvl);
        }
@@ -46,7 +46,7 @@ index 833fa3f026..911cb18e85 100644
        if (contains(params, SolverTolerance)) {
          const auto otol = get<double>(ctx, params, SolverTolerance);
          if (isInvalid(otol)) {
-@@ -453,6 +462,7 @@ namespace mfem_mgis {
+@@ -466,6 +475,7 @@ namespace mfem_mgis {
        const char* const Krylov_Dimension = "KDim";
        const auto allowed_parameters = std::vector<std::string>{
            Problem::SolverVerbosityLevel, SolverTolerance,
@@ -54,7 +54,7 @@ index 833fa3f026..911cb18e85 100644
            Problem::SolverMaximumNumberOfIterations, Preconditioner,
            Krylov_Dimension};
        auto s = std::make_unique<mfem::HypreGMRES>(fespace.GetComm());
-@@ -536,6 +546,7 @@ namespace mfem_mgis {
+@@ -549,6 +559,7 @@ namespace mfem_mgis {
        const char* const Krylov_Dimension = "KDim";
        const auto allowed_parameters = std::vector<std::string>{
            Problem::SolverVerbosityLevel, SolverTolerance,
@@ -62,7 +62,7 @@ index 833fa3f026..911cb18e85 100644
            Problem::SolverMaximumNumberOfIterations, Preconditioner,
            Krylov_Dimension};
        auto s = std::make_unique<mfem::HypreFGMRES>(fespace.GetComm());
-@@ -556,7 +567,8 @@ namespace mfem_mgis {
+@@ -569,7 +580,8 @@ namespace mfem_mgis {
          if (isInvalid(otol)) {
            return {};
          }
@@ -73,10 +73,10 @@ index 833fa3f026..911cb18e85 100644
        if (contains(params, SolverTolerance)) {
          const auto otol = get<double>(ctx, params, SolverTolerance);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 95ab7395dc..17cb97a48c 100644
+index 4f9e9c8bf3..d1a1350f41 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -771,6 +771,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -774,6 +774,9 @@ if(MFEM_MGIS_HAVE_TFEL)
    if(MFEM_USE_MPI)
      add_test_executable(HypreBoomerAMGTest)
      add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)

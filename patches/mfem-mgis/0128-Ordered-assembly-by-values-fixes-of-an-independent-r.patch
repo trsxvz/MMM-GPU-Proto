@@ -1,4 +1,4 @@
-From c823362bb63d2b7fba7630ce05c0d1fcfa496d63 Mon Sep 17 00:00:00 2001
+From 200d1869b2d7f26fe89f4792c8805de7fe1061a0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 10:12:14 +0200
 Subject: [PATCH] Ordered assembly by values: fixes of an independent review
@@ -90,10 +90,10 @@ index 5294c7ab12..b59ae0f2b8 100644
     * matrix
     * \param[in, out] ctx: execution context
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 5bf937c09f..cb59bc0548 100644
+index e8c5528ac1..6ca44309ab 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -237,13 +237,15 @@ namespace mfem_mgis {
+@@ -236,13 +236,15 @@ namespace mfem_mgis {
       * `computeStiffnessMatricesByKernels`), then added by one thread per
       * value of the matrix (see `batch::addStiffnessMatricesByEntries`), the
       * contributions of the stiffness matrices to each value being computed
@@ -116,7 +116,7 @@ index 5bf937c09f..cb59bc0548 100644
       * Otherwise (default), they are added without being stored, by atomic
       * additions whose order depends on the scheduling of the threads on a
       * device.
-@@ -313,7 +315,7 @@ namespace mfem_mgis {
+@@ -312,7 +314,7 @@ namespace mfem_mgis {
       * by kernels, in a sparse matrix on the local vector of the finite
       * element space, without storing them (see
       * `AbstractBehaviourIntegrator::addStiffnessMatricesByKernels`), unless
@@ -125,7 +125,7 @@ index 5bf937c09f..cb59bc0548 100644
       * `setOrderedStiffnessMatricesAssembly`). The values of the matrix are
       * set to zero first. Unless a GPU or the debug
       * device of MFEM is used, the positions of the entries in the rows of
-@@ -538,6 +540,12 @@ namespace mfem_mgis {
+@@ -537,6 +539,12 @@ namespace mfem_mgis {
       * columns are not sorted (first array) or sorted (second array)
       */
      std::array<batch::EntriesContributions, 2> stiffness_matrices_contributions;
@@ -215,10 +215,10 @@ index d4560b0cfd..8312071f8e 100644
     * \param[in] nnz: number of values of the matrix
     * \param[in] offsets: offsets of the values (see `EntriesContributions`)
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index da3b058d0f..7e7a7bbf00 100644
+index 65b72ad022..1edf68382a 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -785,24 +785,37 @@ namespace mfem_mgis {
+@@ -784,24 +784,37 @@ namespace mfem_mgis {
          return false;
        }
        // contributions of the stiffness matrices of the elements to the
@@ -264,7 +264,7 @@ index da3b058d0f..7e7a7bbf00 100644
          if ((!batch::zeroSparseMatrixValues(ctx, m)) ||
              (!compute_contributions()) ||
 diff --git a/tests/GradientsKernelsTest.cxx b/tests/GradientsKernelsTest.cxx
-index c6daf3adac..afb450a6f2 100644
+index 2ae14d783e..b8af63aabf 100644
 --- a/tests/GradientsKernelsTest.cxx
 +++ b/tests/GradientsKernelsTest.cxx
 @@ -530,6 +530,42 @@ static void testCase(mfem_mgis::Context& ctx,

@@ -1,4 +1,4 @@
-From 487b80f0f8c3f43f771b23b1b3299a4eacce8ce5 Mon Sep 17 00:00:00 2001
+From be931c693812ac47ee2754095e5e5b778b944696 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 06:18:16 +0200
 Subject: [PATCH] ex8: cuDSS as direct solver
@@ -40,7 +40,7 @@ index 374a71e..41f4080 100644
  | `-r` | `--refinement` | Uniform refinement level of the mesh (default: `0`). |
  | `-pp`, `-no-pp` | `--post-processing`, `--no-post-processing` | Enables (default) or disables the export of results for ParaView. |
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index 9d78a5c..9d8f854 100644
+index 07adcb8..b11e466 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -54,7 +54,8 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -90,7 +90,7 @@ index 9d78a5c..9d8f854 100644
                                   p.mumps_reuse_analysis)}}},
          {"TangentLinearSolver",
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index 7937023..0509a14 100644
+index 4b47dcb..611da5a 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -35,13 +35,14 @@ struct TestParameters {

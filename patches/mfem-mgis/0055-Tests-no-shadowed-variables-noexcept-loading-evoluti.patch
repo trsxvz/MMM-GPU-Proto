@@ -1,4 +1,4 @@
-From 56018492098a6a41b691cb9cb6119b8b86db8155 Mon Sep 17 00:00:00 2001
+From f49f60c82ea8eda8aa35cf320a92be7e295a3673 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:13:24 +0200
 Subject: [PATCH] Tests: no shadowed variables, noexcept loading evolutions
@@ -6,35 +6,31 @@ Subject: [PATCH] Tests: no shadowed variables, noexcept loading evolutions
 Warnings of BatchIntegrationTest and GradientsKernelsTest (-Wshadow,
 -Wnoexcept).
 ---
- tests/BatchIntegrationTest.cxx | 27 ++++++++++++++-------------
+ tests/BatchIntegrationTest.cxx | 23 ++++++++++++-----------
  tests/GradientsKernelsTest.cxx | 12 ++++++------
- 2 files changed, 20 insertions(+), 19 deletions(-)
+ 2 files changed, 18 insertions(+), 17 deletions(-)
 
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index dc2c86cf04..b50d57dd25 100644
+index c76d3b5f08..fcd839ccc2 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
-@@ -211,11 +211,11 @@ static void checkStatesAfterUpdateOrRevert(const mfem_mgis::Material& m,
-                            std::ranges::equal(m.s0.internal_state_variables,
-                                               m.s1.internal_state_variables);
-   check(same_states, name + ": different states after an update or a revert");
+@@ -218,9 +218,9 @@ static void checkStatesAfterUpdateOrRevert(const mfem_mgis::Material& m,
+   if (!revert) {
+     return;
+   }
 -  check(
 -      std::ranges::all_of(m.K, [](const mfem_mgis::real v) { return v == 0; }),
--      name +
--          ": tangent operator blocks not null after an update or a "
--          "revert");
+-      name + ": tangent operator blocks not null after a revert");
 +  check(std::ranges::all_of(
 +            m.K, [](const mfem_mgis::real v) noexcept { return v == 0; }),
-+        name +
-+            ": tangent operator blocks not null after an update or a "
-+            "revert");
++        name + ": tangent operator blocks not null after a revert");
  }  // end of checkStatesAfterUpdateOrRevert
  
  /*!
-@@ -413,14 +413,14 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -418,14 +418,14 @@ static Results compute(mfem_mgis::Context& ctx,
      problem.addBoundaryCondition(
          ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
-                  problem.getFiniteElementDiscretizationPointer(), "Xmax",
+                  problem.getFiniteElementDiscretization(), "Xmax",
 -                 [](const real t) { return -450e6 * t; })) |
 +                 [](const real t) noexcept { return -450e6 * t; })) |
          or_die;
@@ -48,7 +44,7 @@ index dc2c86cf04..b50d57dd25 100644
                   // tension then compression
                   return t < 0.5 ? 2e-2 * t : 1e-2 - 3e-2 * (t - 0.5);
                 }}}) |
-@@ -487,9 +487,10 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -492,9 +492,10 @@ static Results compute(mfem_mgis::Context& ctx,
        const auto* const pv = p.HostRead();
        // the prediction of the first time step is not null: the unknowns
        // are not reverted by the failed resolution
@@ -62,8 +58,8 @@ index dc2c86cf04..b50d57dd25 100644
        r.predictions.insert(r.predictions.end(), pv, pv + p.Size());
        problem.revert(ctx) | or_die;
        checkStatesAfterUpdateOrRevert(m, name);
-@@ -523,11 +524,11 @@ static Results compute(mfem_mgis::Context& ctx,
-     checkStatesAfterUpdateOrRevert(m, name);
+@@ -528,11 +529,11 @@ static Results compute(mfem_mgis::Context& ctx,
+     checkStatesAfterUpdateOrRevert(m, name, false);
      if (opts.write_after_update && (i == 0)) {
        // direct write in the state, valid on the host after an update
 -      const auto o = mgis::behaviour::getVariableOffset(
@@ -76,7 +72,7 @@ index dc2c86cf04..b50d57dd25 100644
        }
      }
      t += dt;
-@@ -878,7 +879,7 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
+@@ -883,7 +884,7 @@ static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
    problem.addBoundaryCondition(
        ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
                 problem.getFiniteElementDiscretizationPointer(), "Xmax",

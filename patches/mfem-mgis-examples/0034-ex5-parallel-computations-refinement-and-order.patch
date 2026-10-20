@@ -1,4 +1,4 @@
-From 3cba7679d210ba6bf34c944f1ef9e582edc8788b Mon Sep 17 00:00:00 2001
+From 8d29870963c385f94ea843da0c5442781d1a37cc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 20:08:57 +0200
 Subject: [PATCH] ex5: parallel computations, refinement and order
@@ -45,7 +45,7 @@ index 86bbd92..44f4043 100644
    # ../config/TestMode.cmake)
    if(MFEM_MGIS_EXAMPLES_RUN_GPU_TESTS AND BehavioursEx5_HAVE_GPU_BEHAVIOURS)
 diff --git a/ex5/SatohTest.cxx b/ex5/SatohTest.cxx
-index 1153171..2d886a6 100644
+index fdd428d..a6345f9 100644
 --- a/ex5/SatohTest.cxx
 +++ b/ex5/SatohTest.cxx
 @@ -16,6 +16,7 @@
@@ -207,7 +207,7 @@ index 1153171..2d886a6 100644
                {"UnknownsSize", 2},
                {"Hypothesis", "PlaneStrain"},
                {"Parallel", parallel}}) |
-@@ -225,42 +279,65 @@ int main(int argc, char** argv) {
+@@ -224,42 +278,65 @@ int main(int argc, char** argv) {
            or_die;
      }
    }

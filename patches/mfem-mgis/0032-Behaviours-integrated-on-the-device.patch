@@ -1,4 +1,4 @@
-From 918c463ebd58c9b302492ae5474b1baf6603304d Mon Sep 17 00:00:00 2001
+From acc2ad804b26f467a68080b4680362fea0bc36a0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 22:16:24 +0200
 Subject: [PATCH] Behaviours integrated on the device
@@ -44,10 +44,10 @@ without kernels.
  12 files changed, 447 insertions(+), 52 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 8668f35c59..77c9aa0da9 100644
+index f17f4f3c0b..573aeea968 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -137,6 +137,13 @@ namespace mfem_mgis {
+@@ -134,6 +134,13 @@ namespace mfem_mgis {
       * \note the default implementation returns false
       */
      [[nodiscard]] virtual bool integrateBatch(const IntegrationType it);
@@ -62,10 +62,10 @@ index 8668f35c59..77c9aa0da9 100644
       * \return true if the gradients, the inner forces and the stiffness
       * matrices of the behaviour integrator can be computed by kernels (see
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index 8299412e69..f13491baac 100644
+index 020704759b..1f61a65702 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -90,9 +90,28 @@ namespace mfem_mgis {
+@@ -88,9 +88,28 @@ namespace mfem_mgis {
       * \param[in] it: integration type
       * \note this method shall be called after having set the gradients, the
       * arrays of the material being synchronized on the host (see
@@ -95,7 +95,7 @@ index 8299412e69..f13491baac 100644
      //! \brief destructor
      ~BehaviourIntegratorBase() override;
  
-@@ -303,6 +322,12 @@ namespace mfem_mgis {
+@@ -301,6 +320,12 @@ namespace mfem_mgis {
        std::map<std::string, QPEvaluatorResult> pqfcts_esvs_ets;
        //! \brief rotation matrices used by `integrateBatch`
        mfem::Vector rotation_matrices;
@@ -108,7 +108,7 @@ index 8299412e69..f13491baac 100644
        //! \brief see `getRotatedThermodynamicForces`
        mfem::Vector rotated_thermodynamic_forces;
        /*!
-@@ -313,6 +338,14 @@ namespace mfem_mgis {
+@@ -311,6 +336,14 @@ namespace mfem_mgis {
      } wks;  //!< workspace
      //! \brief time increment for the given time step
      real time_increment;
@@ -181,10 +181,10 @@ index 5ec308300b..1420dc85fb 100644
  
  #endif /* LIB_MFEM_MGIS_MATERIALARRAYS_HXX */
 diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-index 2628255b05..2d536ee650 100644
+index 6f71653a6e..d83ddd0c29 100644
 --- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
 +++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
-@@ -115,11 +115,22 @@ namespace mfem_mgis {
+@@ -114,11 +114,22 @@ namespace mfem_mgis {
      /*!
       * \brief integrate the behaviours at all the integration points, by
       * batches (one call per behaviour integrator, see
@@ -209,7 +209,7 @@ index 2628255b05..2d536ee650 100644
       * \return true if the gradients of all the behaviour integrators can be
       * computed by kernels (see
 diff --git a/src/AbstractBehaviourIntegrator.cxx b/src/AbstractBehaviourIntegrator.cxx
-index 553932d527..0785d48130 100644
+index 6594b132a0..72bd7fa8d0 100644
 --- a/src/AbstractBehaviourIntegrator.cxx
 +++ b/src/AbstractBehaviourIntegrator.cxx
 @@ -38,6 +38,10 @@ namespace mfem_mgis {
@@ -224,7 +224,7 @@ index 553932d527..0785d48130 100644
      return false;
    }  // end of supportsKernels
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index 23d058c0c7..4fab180a35 100644
+index 9e30dbe7b3..a6188f492d 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -5,13 +5,16 @@
@@ -244,7 +244,7 @@ index 23d058c0c7..4fab180a35 100644
  #include "MFEMMGIS/MPI.hxx"
  #include "MFEMMGIS/IntegrationType.hxx"
  #include "MFEMMGIS/MeshDiscretization.hxx"
-@@ -873,10 +876,187 @@ namespace mfem_mgis {
+@@ -866,10 +869,187 @@ namespace mfem_mgis {
  
    }  // end of namespace
  
@@ -432,7 +432,7 @@ index 23d058c0c7..4fab180a35 100644
      const auto orthotropic =
          this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
      const auto prediction =
-@@ -952,10 +1132,11 @@ namespace mfem_mgis {
+@@ -945,10 +1125,11 @@ namespace mfem_mgis {
        return {};
      }
      if (!this->wks.has_rotated_thermodynamic_forces) {
@@ -449,10 +449,10 @@ index 23d058c0c7..4fab180a35 100644
      const auto& v = this->wks.rotated_thermodynamic_forces;
      if (v.Size() == 0) {
 diff --git a/src/Material.cxx b/src/Material.cxx
-index 2fc478d605..b00e5cc55a 100644
+index af515da6e4..a550adb907 100644
 --- a/src/Material.cxx
 +++ b/src/Material.cxx
-@@ -316,20 +316,37 @@ namespace mfem_mgis {
+@@ -300,20 +300,37 @@ namespace mfem_mgis {
      if (size == 0) {
        return;
      }
@@ -522,10 +522,10 @@ index 1a7e9e9479..728ef68f50 100644
 +
  }  // end of namespace mfem_mgis
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index 4818818a1a..54c3a11809 100644
+index ab765e3abc..a43e8e4cbf 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -344,16 +344,39 @@ namespace mfem_mgis {
+@@ -343,16 +343,39 @@ namespace mfem_mgis {
      // all the behaviour integrators are integrated, even if one of them
      // fails, as all the points of a batch
      auto success = true;
@@ -566,7 +566,7 @@ index 4818818a1a..54c3a11809 100644
        Context& ctx) const noexcept {
      for (size_type m = 0;
 diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
-index 5d2563629c..294184b7cc 100644
+index fd29bee420..03e62e77a7 100644
 --- a/src/NonLinearEvolutionProblemImplementation.cxx
 +++ b/src/NonLinearEvolutionProblemImplementation.cxx
 @@ -41,6 +41,26 @@
@@ -617,7 +617,7 @@ index 5d2563629c..294184b7cc 100644
        }
      } else if (!prediction) {
        mfem::Array<int> vdofs;
-@@ -749,15 +771,20 @@ namespace mfem_mgis {
+@@ -751,15 +773,20 @@ namespace mfem_mgis {
      if (this->mgis_integrator == nullptr) {
        return true;
      }
@@ -647,7 +647,7 @@ index 5d2563629c..294184b7cc 100644
      }
      const auto dt = this->mgis_integrator->getTimeIncrement();
      if (odt.has_value()) {
-@@ -1068,15 +1095,20 @@ namespace mfem_mgis {
+@@ -1069,15 +1096,20 @@ namespace mfem_mgis {
      if (this->mgis_integrator == nullptr) {
        return true;
      }
@@ -678,7 +678,7 @@ index 5d2563629c..294184b7cc 100644
      const auto dt = this->mgis_integrator->getTimeIncrement();
      if (odt.has_value()) {
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 1b74a49f21..a99d744779 100644
+index dde370761a..dab84d21f0 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -21,6 +21,7 @@
@@ -762,10 +762,10 @@ index 1b74a49f21..a99d744779 100644
        testFailure(ctx, mesh, l, "Batch", true);
      }
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 1502529670..63ec0f1992 100644
+index 6f44ddc958..fa221c94f5 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -785,8 +785,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -788,8 +788,14 @@ if(MFEM_MGIS_HAVE_TFEL)
           "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
    endforeach()
    get_filename_component(_mfront_bin "${MFRONT}" DIRECTORY)
@@ -782,7 +782,7 @@ index 1502529670..63ec0f1992 100644
      string(REPLACE ":" ";" _bc "${backend_configuration}")
      list(GET _bc 0 _backend)
      list(GET _bc 1 _configuration)
-@@ -808,8 +814,13 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -811,8 +817,13 @@ if(MFEM_MGIS_HAVE_TFEL)
        add_custom_target(GenericParallelBehaviour-${_backend}
                          DEPENDS "${_library}")
        add_dependencies(build-tests GenericParallelBehaviour-${_backend})
@@ -798,7 +798,7 @@ index 1502529670..63ec0f1992 100644
      endif()
    endforeach()
    set(batch_integration_test_arguments
-@@ -820,16 +831,19 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -823,16 +834,19 @@ if(MFEM_MGIS_HAVE_TFEL)
    add_test(NAME BatchIntegrationTest
             COMMAND BatchIntegrationTest ${batch_integration_test_arguments}
                     ${batch_integration_test_libraries})
@@ -823,7 +823,7 @@ index 1502529670..63ec0f1992 100644
    endif()
    # computations on two processes (the comparisons only), with MUMPS, one
    # thread per process
-@@ -843,7 +857,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -846,7 +860,8 @@ if(MFEM_MGIS_HAVE_TFEL)
      if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
        add_test(NAME BatchIntegrationTestP-cuda
                 COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel

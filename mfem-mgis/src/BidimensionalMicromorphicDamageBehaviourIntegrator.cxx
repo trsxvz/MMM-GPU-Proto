@@ -23,7 +23,7 @@ namespace mfem_mgis {
     return mfem::IntRules.Get(e.GetGeomType(), order);
   }  // end of selectIntegrationRule
 
-  std::shared_ptr<const PartialQuadratureSpace>
+  PartialQuadratureSpace
   BidimensionalMicromorphicDamageBehaviourIntegrator::buildQuadratureSpace(
       attributes::Throwing,
       const FiniteElementDiscretization &fed,
@@ -33,8 +33,7 @@ namespace mfem_mgis {
         -> const mfem::IntegrationRule & {
       return applyIntegrationRuleOrder(fed, e, selectIntegrationRule(e, tr));
     };  // end of selector
-    return std::make_shared<PartialQuadratureSpace>(
-        fed, LocationIdentifier{MaterialIdentifier{m}}, selector);
+    return {fed, LocationIdentifier{MaterialIdentifier{m}}, selector};
   }  // end of buildQuadratureSpace
 
   BidimensionalMicromorphicDamageBehaviourIntegrator::
@@ -63,7 +62,7 @@ namespace mfem_mgis {
   BidimensionalMicromorphicDamageBehaviourIntegrator::getIntegrationRule(
       const mfem::FiniteElement &e,
       const mfem::ElementTransformation &t) const {
-    return this->quadrature_space->getIntegrationRule(e, t);
+    return this->quadrature_space.getIntegrationRule(e, t);
   }  // end of getIntegrationRule
 
   BidimensionalMicromorphicDamageBehaviourIntegrator::RotationMatrix

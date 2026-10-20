@@ -562,7 +562,11 @@ Algebraic MultiGrid (AMG)
 +--------------------------------+---------------------------------------------------------------------------------------------------------------+
 | ``VerbosityLevel``             | Define the verbosity of the solver. [int: 0,1]                                                                |
 +--------------------------------+---------------------------------------------------------------------------------------------------------------+
-| ``StrengthThreshold``          | Strength threshold of ``hypre``. [double]                                                                     |
+| ``StrongThreshold``            | Controls how much of the matrix is ignored. Higher means more values ignored, ie. faster but less powerful    |
+|                                | preconditioning. The default is 0.25. For 2D Laplace operators, 0.25 is a good value, for 3D Laplace          |
+|                                | operators, 0.5 or 0.6 is a better value. For elasticity problems, a large strength threshold, such as 0.9, is |
+|                                | often better. [double] 0 <= StrongThreshold <= 1. For more details this the "Strong Threshold" section on     |
+|                                | `this page`_.                                                                                                 |
 +--------------------------------+---------------------------------------------------------------------------------------------------------------+
 | ``CoarseningType``             | Coarsening type of ``hypre``. [int]                                                                           |
 +--------------------------------+---------------------------------------------------------------------------------------------------------------+
@@ -584,6 +588,7 @@ Algebraic MultiGrid (AMG)
 The values of the options of ``hypre`` are the ones of ``hypre`` (see its
 documentation).
 
+.. _this page: https://mooseframework.inl.gov/application_usage/hypre.html
 - website: https://hypre.readthedocs.io/en/latest/solvers-boomeramg.html
 
 **Example:**

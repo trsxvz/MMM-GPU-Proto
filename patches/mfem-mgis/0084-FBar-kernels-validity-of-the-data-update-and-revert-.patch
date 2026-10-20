@@ -1,4 +1,4 @@
-From bb093399842d4f448499be3a71b0882559490ef1 Mon Sep 17 00:00:00 2001
+From 3644a5e881873884b121adc2fa988c35b7640c83 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 05:03:39 +0200
 Subject: [PATCH] FBar kernels: validity of the data, update and revert, thread
@@ -78,10 +78,10 @@ index b8558244ed..4f64460cb4 100644
     * \brief computes the tangent operator `K'` at the integration points of
     * a material and the vectors `a` of its elements, from the tangent
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-index 7816bfe0ec..c53d19ada0 100644
+index 5303f6e452..31deb4c26d 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-@@ -87,6 +87,9 @@ namespace mfem_mgis {
+@@ -86,6 +86,9 @@ namespace mfem_mgis {
        }
        return true;
      }
@@ -91,17 +91,17 @@ index 7816bfe0ec..c53d19ada0 100644
  #ifdef MFEM_THREAD_SAFE
      mfem::Vector shape0;
      mfem::DenseMatrix dshape0;
-@@ -236,6 +239,9 @@ namespace mfem_mgis {
+@@ -235,6 +238,9 @@ namespace mfem_mgis {
          Traits::updateExternalStateVariablesFromUnknownsValues ||
          Traits::gradientsComputationRequiresShapeFunctions;
      auto &child = static_cast<Child &>(*this);
 +    // the data of the FBar formulation computed by kernels no longer match
 +    // the unknowns
 +    this->fbar_data.valid = false;
-     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+     const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
      const auto &ir = child.getIntegrationRule(e, tr);
  #ifdef MFEM_THREAD_SAFE
-@@ -517,13 +523,16 @@ namespace mfem_mgis {
+@@ -516,13 +522,16 @@ namespace mfem_mgis {
  
    template <typename Child, Hypothesis H>
    void FBarBehaviourIntegratorCRTPBase<Child, H>::revert() {
@@ -120,7 +120,7 @@ index 7816bfe0ec..c53d19ada0 100644
      BehaviourIntegratorBase::update();
    }  // end of update
  
-@@ -622,6 +631,13 @@ namespace mfem_mgis {
+@@ -621,6 +630,13 @@ namespace mfem_mgis {
      if ((data.rule == nullptr) || (this->fbar_data.has_tangent_operator)) {
        return true;
      }
@@ -266,10 +266,10 @@ index af4f0f36d2..71d788ebd1 100644
        }
        if (!addTangentOperatorAction(
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index e53f764b08..8aa65be4dc 100644
+index 02bb2cc9be..84c24a56ac 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
-@@ -492,24 +492,27 @@ static Results compute(mfem_mgis::Context& ctx,
+@@ -497,24 +497,27 @@ static Results compute(mfem_mgis::Context& ctx,
      setTemperature(t + dt);
      if (opts.prediction) {
        // prediction alone: resolution without iteration (which fails), then
@@ -307,7 +307,7 @@ index e53f764b08..8aa65be4dc 100644
 +              name + ": null prediction");
 +        r.predictions.insert(r.predictions.end(), pv, pv + p.Size());
 +        problem.revert(ctx) | or_die;
-+        checkStatesAfterUpdateOrRevert(m, name);
++        checkStatesAfterUpdateOrRevert(m, name, true);
 +        // the revert sets the temperature at the end of the time step to
 +        // the one at the beginning of the time step
 +        setTemperature(t + dt);
@@ -315,7 +315,7 @@ index e53f764b08..8aa65be4dc 100644
        setMaximumNumberOfIterations(20);
      }
      const auto o = problem.solve(ctx, t, dt);
-@@ -917,6 +920,69 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
+@@ -922,6 +925,69 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
   * non linear form contains a boundary integrator (imposed pressure): the
   * resolution fails with an error message, on all the processes
   */
@@ -385,7 +385,7 @@ index e53f764b08..8aa65be4dc 100644
  static void testMatrixFreeRefusal(mfem_mgis::Context& ctx,
                                    const char* const mesh,
                                    const char* const library) {
-@@ -1387,6 +1453,7 @@ int main(int argc, char** argv) {
+@@ -1392,6 +1458,7 @@ int main(int argc, char** argv) {
      }
    }
    testMatrixFreeRefusal(ctx, mesh, library);

@@ -1,4 +1,4 @@
-From ceb7791fef946aba0cd29b6df8ca537103c9eda2 Mon Sep 17 00:00:00 2001
+From ea6e3b860a1cfdeaf14e4c8b4e2a921e65296883 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 03:23:46 +0200
 Subject: [PATCH] Config: review of the size of the pool of memory of hypre
@@ -146,10 +146,10 @@ index a4d53b3ca9..8b2a43cddb 100644
                       Finalizer::hypre_device_pool_size_short_option,
                       Finalizer::hypre_device_pool_size_option,
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 54be8d6120..7741b45b9d 100644
+index 7b912bbfb5..0d3a231a04 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1149,6 +1149,19 @@ if(MFEM_USE_MPI)
+@@ -1152,6 +1152,19 @@ if(MFEM_USE_MPI)
             COMMAND HypreDevicePoolSizeTest -hdps 1x --expected error)
    add_test(NAME HypreDevicePoolSizeTest-missing
             COMMAND HypreDevicePoolSizeTest --expected error -hdps)

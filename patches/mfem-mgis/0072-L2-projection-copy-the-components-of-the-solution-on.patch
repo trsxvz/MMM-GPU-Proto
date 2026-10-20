@@ -1,4 +1,4 @@
-From 11ae77391ec1e3b596d91213f9327e6c7c2eef97 Mon Sep 17 00:00:00 2001
+From be956be17c5da0974dcac0a1969100319db550f2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:59:08 +0200
 Subject: [PATCH] L2 projection: copy the components of the solution on the
@@ -20,11 +20,11 @@ compared to their interpolants (it failed on the GPU before this fix).
  2 files changed, 114 insertions(+), 4 deletions(-)
 
 diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
-index bf30a9f0f6..6caaea79df 100644
+index e47a1ad875..162670c93b 100644
 --- a/src/L2Projection.cxx
 +++ b/src/L2Projection.cxx
-@@ -682,10 +682,12 @@ namespace mfem_mgis {
-         }
+@@ -678,10 +678,12 @@ namespace mfem_mgis {
+         return ctx.registerErrorMessage("linear solver failed");
        }
        a.RecoverFEMSolution(X, b, *x);
 -      // copy solution to r.result, if needed
@@ -40,7 +40,7 @@ index bf30a9f0f6..6caaea79df 100644
              (rfespace.GetOrdering() == mfem::Ordering::byNODES);
          if (bynodes) {
 diff --git a/tests/L2ProjectionTest.cxx b/tests/L2ProjectionTest.cxx
-index 4399560485..75e32e746a 100644
+index 58d8e9c26b..15084a38f7 100644
 --- a/tests/L2ProjectionTest.cxx
 +++ b/tests/L2ProjectionTest.cxx
 @@ -5,9 +5,14 @@
@@ -79,7 +79,7 @@ index 4399560485..75e32e746a 100644
 +       {"UnknownsSize", 1},
 +       {"NumberOfUniformRefinements", parallel ? 1 : 0},
 +       {"Parallel", parallel}}};
-+  auto space = std::make_shared<PartialQuadratureSpace>(
++  auto space = PartialQuadratureSpace(
 +      fed, MaterialIdentifier{.id = 5},
 +      [](const mfem::FiniteElement& e,
 +         const mfem::ElementTransformation& tr) noexcept
@@ -100,7 +100,7 @@ index 4399560485..75e32e746a 100644
 +            return a + b * x + d * y;
 +          });
 +      const auto f_values = f->getValues();
-+      for (size_type idx = 0; idx != space->getNumberOfIntegrationPoints();
++      for (size_type idx = 0; idx != space.getNumberOfIntegrationPoints();
 +           ++idx) {
 +        values[n * idx + c] = f_values[idx];
 +      }

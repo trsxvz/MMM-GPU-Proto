@@ -1,4 +1,4 @@
-From cdda7868a2a4aba24de9ebd3af37923beea7db5c Mon Sep 17 00:00:00 2001
+From cd4fc4ad50d56dc8fe06331156f54d71d9744c3d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 01:10:14 +0200
 Subject: [PATCH] Grain law of UO2: consistent tangent operator

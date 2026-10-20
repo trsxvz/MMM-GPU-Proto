@@ -1,4 +1,4 @@
-From 4ccfef262e374ff817071825eee6e68e11e9da58 Mon Sep 17 00:00:00 2001
+From 75b5ea0c509d6be6ab4279efdfe4e698ee39f590 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 14:59:47 +0200
 Subject: [PATCH] Execution settings: placement of the behaviour of a material
@@ -24,7 +24,7 @@ fail (mutation detected). CPU suite 198/198, GPU variants 20/20.
  6 files changed, 100 insertions(+), 18 deletions(-)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 8bc0f5356e..f92f891d6e 100644
+index 8d4a20770e..846dbe258f 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -29,7 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
@@ -172,10 +172,10 @@ index fd1a046f07..adbc81eff1 100644
     * \brief checks that a linear solver or a preconditioner computes where
     * the execution settings place the linear solvers
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index dd1f64c544..61f0c2b435 100644
+index dcd5ec84e4..681047b1a8 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -999,11 +999,19 @@ namespace mfem_mgis {
+@@ -998,11 +998,19 @@ namespace mfem_mgis {
      if (isInvalid(bptr)) {
        return {};
      }
@@ -191,14 +191,14 @@ index dd1f64c544..61f0c2b435 100644
 +                                                    olocation->first)) {
        return {};
      }
-     auto bi = of->generate(ctx, n, *(this->fe_discretization), m,
--                           std::move(bptr), params);
-+                           std::move(bptr), olocation->second);
+     auto bi = of->generate(ctx, n, this->fe_discretization, m, std::move(bptr),
+-                           params);
++                           olocation->second);
      if (isInvalid(bi)) {
        return {};
      }
 diff --git a/tests/ExecutionSettingsTest.cxx b/tests/ExecutionSettingsTest.cxx
-index 129a9a1130..64b8998297 100644
+index aaa30cf05b..a6ef51902d 100644
 --- a/tests/ExecutionSettingsTest.cxx
 +++ b/tests/ExecutionSettingsTest.cxx
 @@ -439,12 +439,16 @@ static void checkFiniteElementsKernelsFallback(const char* const mesh,

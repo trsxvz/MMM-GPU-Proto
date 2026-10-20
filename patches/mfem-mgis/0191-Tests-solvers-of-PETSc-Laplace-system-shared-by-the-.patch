@@ -1,4 +1,4 @@
-From b5c2860a3b415e674fcf67ae0ce65d0114edf6fb Mon Sep 17 00:00:00 2001
+From 16f45fb9cfd824b518452a86159ce060c65bf253 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:57:11 +0200
 Subject: [PATCH] Tests: solvers of PETSc, Laplace system shared by the solver
@@ -23,10 +23,10 @@ and the refusal of invalid options.
  create mode 100644 tests/PETScSolversTest.cxx
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 6ed5d65ec7..83617f3e8d 100644
+index 86546d54b2..0fbb48f16a 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1601,6 +1601,15 @@ if(MFEM_USE_MPI)
+@@ -1604,6 +1604,15 @@ if(MFEM_USE_MPI)
    set_tests_properties(LinearSolverFactoriesTestP PROPERTIES
      FAIL_REGULAR_EXPRESSION "check failed")
  endif(MFEM_USE_MPI)

@@ -1,4 +1,4 @@
-From a8141c06b509486b66a5011e07327a70acd7aff8 Mon Sep 17 00:00:00 2001
+From e2c906e8410e496b5071151ee4dd469dddfdfbec Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 08:35:04 +0200
 Subject: [PATCH] Micromorphic damage by kernels, on the CRTP base of the
@@ -146,7 +146,7 @@ index 79166d9b8b..4efd93e55f 100644
     */
    MFEM_MGIS_EXPORT [[nodiscard]] bool requiresUnknownsValues(
 diff --git a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
-index 591de47147..803771b251 100644
+index 0b31580031..08846a480f 100644
 --- a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
 @@ -1,40 +1,100 @@
@@ -352,7 +352,7 @@ index 591de47147..803771b251 100644
  
  }  // end of namespace mfem_mgis
 diff --git a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
-index 871d7a8fd0..a2d4a5a3fe 100644
+index f896bccddd..3af614a003 100644
 --- a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
 @@ -1,89 +1,131 @@
@@ -582,7 +582,7 @@ index 871d7a8fd0..a2d4a5a3fe 100644
        // OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator
  
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index 9e04bfcfc8..5aea8e8f93 100644
+index 38106d9d9b..853f097ab7 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -227,8 +227,9 @@ namespace mfem_mgis {
@@ -625,7 +625,7 @@ index 9e04bfcfc8..5aea8e8f93 100644
            } else {
              child.updateInnerForces(Fe, rs, shape, w, ni);
 diff --git a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
-index 6deb2ed08a..5a8955f575 100644
+index 94586666ef..eb7b1574da 100644
 --- a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
 @@ -1,38 +1,100 @@
@@ -1252,7 +1252,7 @@ index 75d543e425..ff50db163b 100644
    }  // end of launchTangentOperatorActionKernel
  
 diff --git a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
-index 6cb5563df6..c1ba45a393 100644
+index 04b79a897d..d58deccd5f 100644
 --- a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
 +++ b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
 @@ -1,14 +1,14 @@
@@ -1280,9 +1280,9 @@ index 6cb5563df6..c1ba45a393 100644
 -  }
 +  }  // end of selectIntegrationRule
  
-   std::shared_ptr<const PartialQuadratureSpace>
+   PartialQuadratureSpace
    BidimensionalMicromorphicDamageBehaviourIntegrator::buildQuadratureSpace(
-@@ -40,8 +40,9 @@ namespace mfem_mgis {
+@@ -39,8 +39,9 @@ namespace mfem_mgis {
            const FiniteElementDiscretization &fed,
            const size_type m,
            std::unique_ptr<const Behaviour> b_ptr)
@@ -1294,7 +1294,7 @@ index 6cb5563df6..c1ba45a393 100644
      this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
      this->checkBehaviourVariablesSizes(
          throwing, {.gradients_sizes = {1, 2},
-@@ -64,95 +65,92 @@ namespace mfem_mgis {
+@@ -63,95 +64,92 @@ namespace mfem_mgis {
          selectIntegrationRule(e, t);
    }  // end of getIntegrationRule
  
@@ -1377,7 +1377,7 @@ index 6cb5563df6..c1ba45a393 100644
 +      const mfem::Vector &u,
        const IntegrationType it) {
 -    // element offset
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    // integration rule
 -    const auto &ir = this->getIntegrationRule(e, tr);
 -#ifdef MFEM_THREAD_SAFE
@@ -1435,7 +1435,7 @@ index 6cb5563df6..c1ba45a393 100644
 -    const auto nnodes = e.GetDof();
 -    const auto thsize = this->s1.thermodynamic_forces_stride;
 -    // element offset
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    Fe.SetSize(e.GetDof());
 -    Fe = 0.;
 -    const auto &ir = this->getIntegrationRule(e, tr);
@@ -1466,7 +1466,7 @@ index 6cb5563df6..c1ba45a393 100644
    }  // end of updateResidual
  
    void BidimensionalMicromorphicDamageBehaviourIntegrator::updateJacobian(
-@@ -160,93 +158,14 @@ namespace mfem_mgis {
+@@ -159,93 +157,14 @@ namespace mfem_mgis {
        const mfem::FiniteElement &e,
        mfem::ElementTransformation &tr,
        const mfem::Vector &) {
@@ -1480,7 +1480,7 @@ index 6cb5563df6..c1ba45a393 100644
 -#endif
 -    const auto &ir = this->getIntegrationRule(e, tr);
 -    const auto nnodes = e.GetDof();
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    Ke.SetSize(e.GetDof(), e.GetDof());
 -    Ke = 0.;
 -    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
@@ -1533,7 +1533,7 @@ index 6cb5563df6..c1ba45a393 100644
 -    const auto nnodes = e.GetDof();
 -    const auto thsize = this->s1.thermodynamic_forces_stride;
 -    // element offset
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    Fe.SetSize(e.GetDof());
 -    Fe = 0.;
 -    const auto &ir = this->getIntegrationRule(e, tr);
@@ -1563,10 +1563,10 @@ index 6cb5563df6..c1ba45a393 100644
  
    BidimensionalMicromorphicDamageBehaviourIntegrator::
 diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
-index b7b1d97d52..c0f3a88a0b 100644
+index d407067e5f..e9ebfc875b 100644
 --- a/src/MultiMaterialNonLinearIntegrator.cxx
 +++ b/src/MultiMaterialNonLinearIntegrator.cxx
-@@ -388,10 +388,11 @@ namespace mfem_mgis {
+@@ -387,10 +387,11 @@ namespace mfem_mgis {
                std::to_string(m) +
                "' can't be computed by kernels (supported: standard "
                "mechanical behaviours, small or finite strain, stationary non "
@@ -1583,7 +1583,7 @@ index b7b1d97d52..c0f3a88a0b 100644
        }
      }
 diff --git a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
-index 6706096651..1ed08e29c9 100644
+index 7e0e9c11a4..0d4a8fc097 100644
 --- a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
 +++ b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
 @@ -1,16 +1,15 @@
@@ -1613,9 +1613,9 @@ index 6706096651..1ed08e29c9 100644
 -  }
 +  }  // end of selectIntegrationRule
  
-   std::shared_ptr<const PartialQuadratureSpace>
+   PartialQuadratureSpace
    OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
-@@ -42,8 +41,9 @@ namespace mfem_mgis {
+@@ -41,8 +40,9 @@ namespace mfem_mgis {
            const FiniteElementDiscretization &fed,
            const size_type m,
            std::unique_ptr<const Behaviour> b_ptr)
@@ -1627,7 +1627,7 @@ index 6706096651..1ed08e29c9 100644
      this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
      this->checkBehaviourVariablesSizes(
          throwing, {.gradients_sizes = {1, 2},
-@@ -66,60 +66,92 @@ namespace mfem_mgis {
+@@ -65,60 +65,92 @@ namespace mfem_mgis {
          selectIntegrationRule(e, t);
    }  // end of getIntegrationRule
  
@@ -1718,7 +1718,7 @@ index 6706096651..1ed08e29c9 100644
 +      const mfem::Vector &u,
        const IntegrationType it) {
 -    // element offset
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    // integration rule
 -    const auto &ir = this->getIntegrationRule(e, tr);
 -#ifdef MFEM_THREAD_SAFE
@@ -1770,7 +1770,7 @@ index 6706096651..1ed08e29c9 100644
    }  // end of integrate
  
    void
-@@ -127,48 +159,8 @@ namespace mfem_mgis {
+@@ -126,48 +158,8 @@ namespace mfem_mgis {
        mfem::Vector &Fe,
        const mfem::FiniteElement &e,
        mfem::ElementTransformation &tr,
@@ -1786,7 +1786,7 @@ index 6706096651..1ed08e29c9 100644
 -    const auto nnodes = e.GetDof();
 -    const auto thsize = this->s1.thermodynamic_forces_stride;
 -    // element offset
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    Fe.SetSize(e.GetDof());
 -    Fe = 0.;
 -    const auto &ir = this->getIntegrationRule(e, tr);
@@ -1821,7 +1821,7 @@ index 6706096651..1ed08e29c9 100644
    }  // end of updateResidual
  
    void
-@@ -177,99 +169,14 @@ namespace mfem_mgis {
+@@ -176,99 +168,14 @@ namespace mfem_mgis {
        const mfem::FiniteElement &e,
        mfem::ElementTransformation &tr,
        const mfem::Vector &) {
@@ -1835,7 +1835,7 @@ index 6706096651..1ed08e29c9 100644
 -#endif
 -    const auto &ir = this->getIntegrationRule(e, tr);
 -    const auto nnodes = e.GetDof();
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    Ke.SetSize(e.GetDof(), e.GetDof());
 -    Ke = 0.;
 -    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
@@ -1889,7 +1889,7 @@ index 6706096651..1ed08e29c9 100644
 -    const auto nnodes = e.GetDof();
 -    const auto thsize = this->s1.thermodynamic_forces_stride;
 -    // element offset
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    Fe.SetSize(e.GetDof());
 -    Fe = 0.;
 -    const auto &ir = this->getIntegrationRule(e, tr);
@@ -1924,7 +1924,7 @@ index 6706096651..1ed08e29c9 100644
  
    OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator::
 diff --git a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
-index 4c58903744..2ad9218bab 100644
+index 67e3cbf37f..e60ce11053 100644
 --- a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
 +++ b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
 @@ -1,14 +1,14 @@
@@ -1952,9 +1952,9 @@ index 4c58903744..2ad9218bab 100644
 -  }
 +  }  // end of selectIntegrationRule
  
-   std::shared_ptr<const PartialQuadratureSpace>
+   PartialQuadratureSpace
    TridimensionalMicromorphicDamageBehaviourIntegrator::buildQuadratureSpace(
-@@ -40,8 +40,9 @@ namespace mfem_mgis {
+@@ -39,8 +39,9 @@ namespace mfem_mgis {
            const FiniteElementDiscretization &fed,
            const size_type m,
            std::unique_ptr<const Behaviour> b_ptr)
@@ -1966,7 +1966,7 @@ index 4c58903744..2ad9218bab 100644
      this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
      this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
      this->checkBehaviourVariablesSizes(
-@@ -65,97 +66,97 @@ namespace mfem_mgis {
+@@ -64,97 +65,97 @@ namespace mfem_mgis {
          selectIntegrationRule(e, t);
    }  // end of getIntegrationRule
  
@@ -2054,7 +2054,7 @@ index 4c58903744..2ad9218bab 100644
 +      const mfem::Vector &u,
        const IntegrationType it) {
 -    // element offset
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    // integration rule
 -    const auto &ir = this->getIntegrationRule(e, tr);
 -#ifdef MFEM_THREAD_SAFE
@@ -2113,7 +2113,7 @@ index 4c58903744..2ad9218bab 100644
 -    const auto nnodes = e.GetDof();
 -    const auto thsize = this->s1.thermodynamic_forces_stride;
 -    // element offset
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    Fe.SetSize(e.GetDof());
 -    Fe = 0.;
 -    const auto &ir = this->getIntegrationRule(e, tr);
@@ -2145,7 +2145,7 @@ index 4c58903744..2ad9218bab 100644
    }  // end of updateResidual
  
    void TridimensionalMicromorphicDamageBehaviourIntegrator::updateJacobian(
-@@ -163,98 +164,14 @@ namespace mfem_mgis {
+@@ -162,98 +163,14 @@ namespace mfem_mgis {
        const mfem::FiniteElement &e,
        mfem::ElementTransformation &tr,
        const mfem::Vector &) {
@@ -2159,7 +2159,7 @@ index 4c58903744..2ad9218bab 100644
 -#endif
 -    const auto &ir = this->getIntegrationRule(e, tr);
 -    const auto nnodes = e.GetDof();
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    Ke.SetSize(e.GetDof(), e.GetDof());
 -    Ke = 0.;
 -    for (size_type i = 0; i != ir.GetNPoints(); ++i) {
@@ -2215,7 +2215,7 @@ index 4c58903744..2ad9218bab 100644
 -    const auto nnodes = e.GetDof();
 -    const auto thsize = this->s1.thermodynamic_forces_stride;
 -    // element offset
--    const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+-    const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
 -    Fe.SetSize(e.GetDof());
 -    Fe = 0.;
 -    const auto &ir = this->getIntegrationRule(e, tr);
@@ -2247,7 +2247,7 @@ index 4c58903744..2ad9218bab 100644
  
    TridimensionalMicromorphicDamageBehaviourIntegrator::
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index 98a0a13101..a658ba77cd 100644
+index 6ffa55066a..d22a433948 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -26,6 +26,7 @@
@@ -2268,7 +2268,7 @@ index 98a0a13101..a658ba77cd 100644
  #include "MFEMMGIS/IntegrationType.hxx"
  #include "MFEMMGIS/FiniteElementDiscretization.hxx"
  #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
-@@ -598,6 +602,61 @@ static void compare(const Results& r1,
+@@ -603,6 +607,61 @@ static void compare(const Results& r1,
    }
  }  // end of compare
  
@@ -2284,7 +2284,7 @@ index 98a0a13101..a658ba77cd 100644
 +      const mfem_mgis::size_type m,
 +      std::unique_ptr<const mfem_mgis::Behaviour> b)
 +      : mfem_mgis::BehaviourIntegratorBase(
-+            std::make_shared<mfem_mgis::PartialQuadratureSpace>(
++            mfem_mgis::PartialQuadratureSpace(
 +                fed, mfem_mgis::MaterialIdentifier{.id = m},
 +                selectIntegrationRule),
 +            std::move(b)) {}
@@ -2330,7 +2330,7 @@ index 98a0a13101..a658ba77cd 100644
  /*!
   * \brief a behaviour integrator which does not support the integration by
   * batches is refused
-@@ -607,6 +666,17 @@ static void testRefusal(mfem_mgis::Context& ctx,
+@@ -612,6 +671,17 @@ static void testRefusal(mfem_mgis::Context& ctx,
                          const char* const library) {
    using namespace mfem_mgis;
    auto or_die = ctx.getFatalFailureHandler();
@@ -2348,7 +2348,7 @@ index 98a0a13101..a658ba77cd 100644
    auto problem = construct<NonLinearEvolutionProblem>(
                       ctx, Parameters{{"MeshFileName", mesh_2d},
                                       {"FiniteElementFamily", "H1"},
-@@ -617,7 +687,7 @@ static void testRefusal(mfem_mgis::Context& ctx,
+@@ -622,7 +692,7 @@ static void testRefusal(mfem_mgis::Context& ctx,
                                       {"BehaviourIntegration", "Batch"},
                                       {"Parallel", false}}) |
                   or_die;
@@ -2358,10 +2358,10 @@ index 98a0a13101..a658ba77cd 100644
        or_die;
    auto c = Context{};
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 01a8fd072d..fe9ff0428d 100644
+index 9a14d2f2d3..767a70292a 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -71,6 +71,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -74,6 +74,7 @@ if(MFEM_MGIS_HAVE_TFEL)
      StationaryNonLinearHeatTransfer
      OrthotropicStationaryNonLinearHeatTransfer
      HeatStorage
@@ -2369,7 +2369,7 @@ index 01a8fd072d..fe9ff0428d 100644
      UO2Shrinkage_RAPHAEL2008
      FailingIsotropicLinearElasticity
      OrthotropicSaintVenantKirchhoffElasticity)
-@@ -788,7 +789,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -791,7 +792,9 @@ if(MFEM_MGIS_HAVE_TFEL)
                       OrthotropicSaintVenantKirchhoffElasticity
                       StationaryNonLinearHeatTransfer
                       OrthotropicStationaryNonLinearHeatTransfer
@@ -2380,7 +2380,7 @@ index 01a8fd072d..fe9ff0428d 100644
      list(APPEND batch_integration_test_behaviours
           "${CMAKE_CURRENT_SOURCE_DIR}/${_behaviour}.mfront")
    endforeach()
-@@ -910,6 +913,42 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -913,6 +916,42 @@ if(MFEM_MGIS_HAVE_TFEL)
                           PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
    endif()
  
@@ -2442,7 +2442,7 @@ index ac332cd273..8ca1c0d943 100644
    Yv = Y_ets;
 diff --git a/tests/MicromorphicKernelsTest.cxx b/tests/MicromorphicKernelsTest.cxx
 new file mode 100644
-index 0000000000..708029463c
+index 0000000000..f8e5b1a1b7
 --- /dev/null
 +++ b/tests/MicromorphicKernelsTest.cxx
 @@ -0,0 +1,424 @@
@@ -2605,12 +2605,12 @@ index 0000000000..708029463c
 +  const auto Yr =
 +      tridimensional
 +          ? PartialQuadratureFunction::evaluate(
-+                m.getPartialQuadratureSpacePointer(),
++                m.getPartialQuadratureSpace(),
 +                [](const real x, const real y, const real z) noexcept {
 +                  return 10 * (1 + std::sin(3 * x + 2 * y + z));
 +                })
 +          : PartialQuadratureFunction::evaluate(
-+                m.getPartialQuadratureSpacePointer(),
++                m.getPartialQuadratureSpace(),
 +                [](const real x, const real y) noexcept {
 +                  return 10 * (1 + std::sin(3 * x + 2 * y));
 +                });

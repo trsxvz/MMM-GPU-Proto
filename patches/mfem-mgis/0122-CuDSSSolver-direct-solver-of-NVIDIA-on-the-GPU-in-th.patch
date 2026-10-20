@@ -1,4 +1,4 @@
-From 117c75368d8c88ba6131838bd1b7ce6cc08a8791 Mon Sep 17 00:00:00 2001
+From ff9cfe9c1b418ab4a12455d64c79f7afec9f818c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 06:18:10 +0200
 Subject: [PATCH] CuDSSSolver: direct solver of NVIDIA on the GPU in the
@@ -56,7 +56,7 @@ host (analysis reused), and ex8 on the GPU takes 4.4 s instead of 9.8 s.
  rename tests/{MUMPSReuseAnalysisTest.cxx => DirectSolverReuseAnalysisTest.cxx} (83%)
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index 4e553e87f6..c864fae64f 100644
+index 4ebda78b1e..b2be1449ff 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
 @@ -68,7 +68,7 @@ the processes. The matrix being distributed, MUMPS does not use the
@@ -900,10 +900,10 @@ index 48ae740f8c..205b71b7ec 100644
    namespace {
  
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index f9b695ba9c..bdb205fa2f 100644
+index 79905ae101..9fb52326ad 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1224,20 +1224,43 @@ if(MFEM_USE_MPI)
+@@ -1227,20 +1227,43 @@ if(MFEM_USE_MPI)
                         PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
  endif()
  

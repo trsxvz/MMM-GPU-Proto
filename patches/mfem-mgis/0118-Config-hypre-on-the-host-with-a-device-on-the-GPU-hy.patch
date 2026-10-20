@@ -1,4 +1,4 @@
-From a66b2b87e5830df3a6b6f6a6e81631b408db19f8 Mon Sep 17 00:00:00 2001
+From d73ea42de292973770e52ff901460d059ccdb4a7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:59:26 +0200
 Subject: [PATCH] Config: hypre on the host with a device on the GPU
@@ -233,10 +233,10 @@ index 9816f7c29d..4287d676a1 100644
      parser.AddOption(
          &kokkos, Finalizer::kokkos_short_option, Finalizer::kokkos_option,
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9f8f65734e..8ecd87c768 100644
+index 11413e3430..2a02f64ba7 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -940,7 +940,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -943,7 +943,14 @@ if(MFEM_MGIS_HAVE_TFEL)
                 COMMAND mpirun -n 2 ./BatchIntegrationTest --parallel
                         --device cuda ${batch_integration_test_arguments}
                         ${batch_integration_test_cuda_library})
@@ -251,7 +251,7 @@ index 9f8f65734e..8ecd87c768 100644
                             PROPERTIES ENVIRONMENT OMP_NUM_THREADS=1)
      endif()
    endif()
-@@ -1183,6 +1190,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1186,6 +1193,15 @@ if(MFEM_MGIS_HAVE_TFEL)
      add_test_executable(HypreILUTest)
      add_test(NAME HypreILUTest COMMAND HypreILUTest)
      add_test(NAME HypreILUTestP COMMAND mpirun -n 2 ./HypreILUTest)
@@ -267,7 +267,7 @@ index 9f8f65734e..8ecd87c768 100644
      # HypreParaSailsTest executable: ParaSails preconditioner given a new
      # operator after the destruction of the previous one, refused when hypre
      # computes on a GPU
-@@ -1369,8 +1385,34 @@ if(MFEM_USE_UMPIRE STREQUAL "YES")
+@@ -1372,8 +1388,34 @@ if(MFEM_USE_UMPIRE STREQUAL "YES")
  endif()
  if((MFEM_USE_CUDA STREQUAL "YES") AND enable-gpu-tests)
    add_test(NAME DeviceOptionTest-cuda

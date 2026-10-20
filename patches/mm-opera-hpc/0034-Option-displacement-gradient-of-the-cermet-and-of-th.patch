@@ -1,4 +1,4 @@
-From 1322426bf2450c29d39c0391d66cb519396db1c7 Mon Sep 17 00:00:00 2001
+From 29e4b44a98904421a8b071bc14db5e128557d47b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:39:32 +0200
 Subject: [PATCH] Option --displacement-gradient of the cermet and of the
@@ -74,7 +74,7 @@ index 83e4a1e..95973c5 100644
  
  ### Run it
 diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
-index 7235a18..cafadfa 100644
+index 27bbf70..47fa314 100644
 --- a/cermet/cermet.cxx
 +++ b/cermet/cermet.cxx
 @@ -5,6 +5,7 @@
@@ -286,7 +286,7 @@ index 32bf6a4..c3b8cfb 100644
  ## References
  
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 952c511..64b6668 100644
+index c9b6693..3e56688 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -18,6 +18,7 @@
@@ -306,7 +306,7 @@ index 952c511..64b6668 100644
  };
  
  struct LoadingParameters {
-@@ -336,9 +339,9 @@ int main(int argc, char *argv[]) {
+@@ -328,9 +331,9 @@ int main(int argc, char *argv[]) {
      }
      return times;
    }();
@@ -319,7 +319,7 @@ index 952c511..64b6668 100644
    };
    // main output file, written by the main process only
    std::ofstream out;
-@@ -355,7 +358,7 @@ int main(int argc, char *argv[]) {
+@@ -347,7 +350,7 @@ int main(int argc, char *argv[]) {
    const auto np = mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation::
        NumericalParameters{.macroscopic_elastic_material_properties = mp};
    mm_opera_hpc::UniaxialMacroscopicStressPeriodicSimulation s(
@@ -328,7 +328,7 @@ index 952c511..64b6668 100644
    const auto success = s.run(ctx, out, temporal_sequences);
  
    if (paraview_exporter != nullptr) {
-@@ -442,6 +445,13 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -434,6 +437,13 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                   "choose the duration");
    args.AddOption(&p.nstep, "-n", "--nstep",
                   "choose the number of steps");
@@ -342,7 +342,7 @@ index 952c511..64b6668 100644
  
    args.Parse();
  
-@@ -487,8 +497,10 @@ static void setupMaterials(
+@@ -479,8 +489,10 @@ static void setupMaterials(
    mfem_mgis::Profiler::Utils::Message("Nombre de matériaux : ", nMat);
  
    for (int i = 0; i < nMat; i++) {

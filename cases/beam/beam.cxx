@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
                  "Options of all the BoomerAMG preconditioners and solvers, "
                  "as Name=value separated by commas (see the HypreBoomerAMG "
                  "preconditioner of mfem-mgis), for instance "
-                 "RelaxationType=8,StrengthThreshold=0.5.");
+                 "RelaxationType=8,StrongThreshold=0.5.");
   args.AddOption(&amgx_configuration_file, "-amgxc",
                  "--amgx-configuration-file",
                  "Configuration file of the cycles of AmgX (cg-amgx, amgx), "
@@ -430,7 +430,7 @@ int main(int argc, char** argv) {
       // integrator in the non linear form
       problem.addBoundaryCondition(
           ctx, std::make_unique<UniformImposedPressureBoundaryCondition>(
-                   problem.getFiniteElementDiscretizationPointer(), 2,
+                   problem.getFiniteElementDiscretization(), 2,
                    [pressure](const real t) { return pressure * t; })) |
           or_die;
     }

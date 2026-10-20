@@ -1,4 +1,4 @@
-From c958683c71f2ae3a4ca2a49778439ddc9e651bdb Mon Sep 17 00:00:00 2001
+From eaf8fed6f84813972663ad910de307792f6b1961 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:58:04 +0200
 Subject: [PATCH] Docs: AbsoluteTolerance of the Krylov solvers of hypre
@@ -8,7 +8,7 @@ Subject: [PATCH] Docs: AbsoluteTolerance of the Krylov solvers of hypre
  1 file changed, 6 insertions(+)
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index b0cabe023f..50100011f9 100644
+index 82647b7402..c4a5d77911 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
 @@ -282,6 +282,8 @@ Preconditioned Conjugate Gradient (HyprePCG)

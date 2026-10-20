@@ -1,4 +1,4 @@
-From 9d6be1d0654cdb44ac2bc6db59e5f83b80ec3f16 Mon Sep 17 00:00:00 2001
+From 3cc8bebb908d58810d745d1ed2b1e8540345b951 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:06:30 +0200
 Subject: [PATCH] Tests in float: TwoLayerCube and UniaxialTensileTest
@@ -81,7 +81,7 @@ index 0000000000..2cfed14983
 +
 +#endif /* LIB_MFEM_MGIS_TESTS_TOLERANCE_HXX */
 diff --git a/tests/TwoLayerCube.cxx b/tests/TwoLayerCube.cxx
-index 0f23ab5f20..12f12b48ed 100644
+index 84b4f74723..02330fdf30 100644
 --- a/tests/TwoLayerCube.cxx
 +++ b/tests/TwoLayerCube.cxx
 @@ -43,6 +43,7 @@

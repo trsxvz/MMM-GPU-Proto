@@ -221,8 +221,8 @@ namespace mfront {
       const MaterialPropertyDescription&,
       const FileDescription&,
       const std::string_view,
-      const bool,
-      const bool = false);
+      const bool areQuantitiesSupported,
+      const bool device_code_only = false);
   /*!
    * \brief an helper function which writes the declaration of some `TFEL`
    * standard scalar alias. The `tfel::config::ScalarTypes` class for details.
@@ -235,7 +235,7 @@ namespace mfront {
       std::ostream&,
       const MaterialPropertyDescription&,
       const std::string_view,
-      const bool);
+      const bool areQuantitiesSupported);
   /*!
    * \return the name of a text file allowing the change the name of the
    * parameters of the given material property

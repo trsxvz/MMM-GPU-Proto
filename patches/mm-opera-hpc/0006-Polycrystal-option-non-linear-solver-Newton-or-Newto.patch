@@ -1,4 +1,4 @@
-From 40af0307ea8e177b3aea82e0f55e02730091e64c Mon Sep 17 00:00:00 2001
+From 8c9afa5bf740bb408ea6be996dea29ff66c082e9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:37:29 +0200
 Subject: [PATCH] Polycrystal: option --non-linear-solver (Newton or NewtonK0)
@@ -7,11 +7,11 @@ NewtonK0 is the FixedPoint solver of mfem-mgis with the NewtonK0 method:
 the conjugate gradient is preconditioned by BoomerAMG built once on the
 elastic operator, given by an integration of the behaviours.
 ---
- polycrystal/UniaxialPolycrystal.cxx | 32 ++++++++++++++++++++++++++++-
- 1 file changed, 31 insertions(+), 1 deletion(-)
+ polycrystal/UniaxialPolycrystal.cxx | 34 ++++++++++++++++++++++++++++-
+ 1 file changed, 33 insertions(+), 1 deletion(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index dba6dfd..037c653 100644
+index 7d07353..cefab60 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -61,6 +61,12 @@ struct NumericalParameters {
@@ -27,11 +27,11 @@ index dba6dfd..037c653 100644
  };
  
  /*!
-@@ -166,7 +172,29 @@ int main(int argc, char *argv[]) {
+@@ -167,7 +173,31 @@ int main(int argc, char *argv[]) {
                                   {"UnknownsSize", mfem_mgis::size_type{3}},
                                   {"NumberOfUniformRefinements", p.refinement},
-                                  {"Parallel", true}});
--  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(ctx, fed);
+                                  {"Parallel", true}})|or_die;
+-  auto problem = mfem_mgis::construct<mfem_mgis::PeriodicNonLinearEvolutionProblem>(ctx, fed)|or_die;
 +  auto problem_parameters = mfem_mgis::Parameters{};
 +  if (std::string_view{p.non_linear_solver} == "NewtonK0") {
 +    // the behaviour does not provide its prediction operator: the elastic
@@ -53,12 +53,14 @@ index dba6dfd..037c653 100644
 +        "error: invalid non linear solver (expected Newton or NewtonK0)");
 +    std::exit(EXIT_FAILURE);
 +  }
-+  mfem_mgis::PeriodicNonLinearEvolutionProblem problem(
-+      ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters);
++  auto problem =
++      mfem_mgis::construct<mfem_mgis::PeriodicNonLinearEvolutionProblem>(
++          ctx, fed, mfem_mgis::FIX_XMIN, problem_parameters) |
++      or_die;
    mm_opera_hpc::printMeshInformation(ctx, problem);
  
    // set problem
-@@ -237,6 +265,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -238,6 +268,8 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
    args.AddOption(&p.linear_solver_preconditioner, "",
                   "--linear-solver-preconditioner",
                   "preconditioner of the linear solver to be used");

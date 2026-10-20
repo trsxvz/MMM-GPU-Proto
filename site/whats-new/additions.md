@@ -396,13 +396,13 @@ an environment variable.
 
 ## mfem-mgis-examples and mm-opera-hpc
 
-- **mfem-mgis-examples** (31 patches): options of the examples
+- **mfem-mgis-examples** (38 patches): options of the examples
   (behaviour library, device, solvers, profiling), synchronisations on
   the host for the GPU, choice of the direct solvers, behaviour
   libraries for the CPU and the GPU chosen by `--execution`, tests on
   the GPU. Tests on the GPU are registered only when the GPU behaviour
   library is built.
-- **mm-opera-hpc** (34 patches): for the polycrystal, choice of the
+- **mm-opera-hpc** (40 patches): for the polycrystal, choice of the
   nonlinear solver (Newton, NewtonK0), of the adaptive tolerance and of
   AmgX, behaviour integrated on the GPU; for the bubble and the cermet,
   options of mfem-mgis and of the behaviour, synchronisations on the

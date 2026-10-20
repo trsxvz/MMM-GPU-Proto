@@ -1,4 +1,4 @@
-From 963fc9f3efba602d81534105376d8477818374ac Mon Sep 17 00:00:00 2001
+From 8e0c46134a96ff9f21878acb7bdbf2a874fe5011 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 11:49:47 +0200
 Subject: [PATCH] raiseOnFailureOnAnyProcess: messages of the failed processes

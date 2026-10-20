@@ -2,7 +2,7 @@
  * \file   LinearHomogenizationSchemes.cxx
  * \brief
  * \author Antoine MARTIN
- * \date   14/05/2025
+ * \date 14/05/2025
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -241,4 +241,12 @@ void declareLinearHomogenizationSchemes(pybind11::module_& m) {
         pybind11::arg("IsotropicModuli_of_the_inclusion"),
         pybind11::arg("squared_of_hydrostatic_macro_strain"),
         pybind11::arg("squared_of_equivalent_macro_strain"));
+  m.def(
+      "computeMeanSquaredHydrostaticStrain",
+      &homogenization::elasticity::computeMeanSquaredHydrostaticStrain<double>,
+      pybind11::arg("matrix_isotropic_moduli"),
+      pybind11::arg("volume_fraction"),
+      pybind11::arg("inclusion_isotropic_moduli"),
+      pybind11::arg("squared_of_hydrostatic_macro_strain"),
+      pybind11::arg("squared_of_equivalent_macro_strain"));
 }

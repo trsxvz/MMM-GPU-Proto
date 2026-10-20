@@ -2,7 +2,7 @@
  * \file   include/TFEL/FSAlgorithm/min_element.hxx
  * \brief  This file implements the min_element class.
  * \author Thomas Helfer
- * \date   30 jun 2006
+ * \date 30/06/2006
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -27,7 +27,7 @@ namespace tfel::fsalgo {
    * http://www.sgi.com/tech/stl/min_element.html
    *
    * \author Thomas Helfer
-   * \date   30 Jun 2006
+   * \date 30/06/2006
    */
   template <unsigned int N>
   struct min_element {
@@ -44,7 +44,7 @@ namespace tfel::fsalgo {
      * - ForwardIterator's value type is LessThan Comparable.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
@@ -76,7 +76,7 @@ namespace tfel::fsalgo {
      * argument type and second argument type.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator, typename BinaryPredicate>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
@@ -106,7 +106,7 @@ namespace tfel::fsalgo {
      * - ForwardIterator's value type is LessThan Comparable.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
@@ -134,7 +134,7 @@ namespace tfel::fsalgo {
      * argument type and second argument type.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator, typename BinaryPredicate>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
@@ -149,7 +149,7 @@ namespace tfel::fsalgo {
    * min_element algorithm.
    *
    * \author Thomas Helfer
-   * \date   30 Jun 2006
+   * \date 30/06/2006
    */
   template <>
   struct min_element<1u> {
@@ -158,7 +158,7 @@ namespace tfel::fsalgo {
      * \sa min_element<N>::exe_() for more details.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
@@ -174,7 +174,7 @@ namespace tfel::fsalgo {
      * \sa min_element<N>::exe_() for more details.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator, typename BinaryPredicate>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
@@ -191,7 +191,7 @@ namespace tfel::fsalgo {
      * \sa min_element<N>::exe() for more details.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
@@ -204,7 +204,7 @@ namespace tfel::fsalgo {
      * \sa min_element<N>::exe() for more details.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator, typename BinaryPredicate>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
@@ -218,7 +218,7 @@ namespace tfel::fsalgo {
    * min_element algorithm.
    *
    * \author Thomas Helfer
-   * \date   30 Jun 2006
+   * \date 30/06/2006
    */
   template <>
   struct min_element<0u> {
@@ -227,7 +227,7 @@ namespace tfel::fsalgo {
      * \sa min_element<N>::exe() for more details.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator
@@ -240,7 +240,7 @@ namespace tfel::fsalgo {
      * \sa min_element<N>::exe() for more details.
      *
      * \author Thomas Helfer
-     * \date   30 Jun 2006
+     * \date 30/06/2006
      */
     template <typename ForwardIterator, typename BinaryPredicate>
     TFEL_HOST_DEVICE static TFEL_FSALGORITHM_INLINE ForwardIterator

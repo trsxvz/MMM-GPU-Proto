@@ -702,7 +702,7 @@ namespace mfem_mgis {
       const real dt,
       const bool discardLinearSolverFailure,
       const PredictionKernels& kernels) noexcept {
-    auto& fed = p.getFiniteElementDiscretization();
+    auto fed = p.getFiniteElementDiscretization();
     auto& fespace = fed.template getFiniteElementSpace<parallel>();
     const auto& u0 = p.getUnknowns(mfem_mgis::bts);
     // the phases of the prediction are timed separately (sections `PRED::`)
@@ -713,6 +713,9 @@ namespace mfem_mgis {
           PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION) {
         if (policy.prediction_operator ==
             PredictionOperator::LAST_ITERATE_OPERATOR) {
+          if (p.areStiffnessOperatorsFromLastIterationAvailable()) {
+            return true;
+          }
           return p.integrate(
               u0, convertToIntegrationType(PredictionOperator::ELASTIC), {});
         } else {
@@ -983,11 +986,10 @@ namespace mfem_mgis {
 #ifdef MFEM_USE_MPI
 
   NonLinearEvolutionProblemImplementation<true>::
-      NonLinearEvolutionProblemImplementation(
-          Context& ctx,
-          std::shared_ptr<FiniteElementDiscretization> fed,
-          const Hypothesis h,
-          const Parameters& p)
+      NonLinearEvolutionProblemImplementation(Context& ctx,
+                                              FiniteElementDiscretization fed,
+                                              const Hypothesis h,
+                                              const Parameters& p)
       : NonLinearEvolutionProblemImplementationBase(
             ctx,
             fed,
@@ -996,14 +998,14 @@ namespace mfem_mgis {
                     p,
                     NonLinearEvolutionProblemImplementationBase::
                         getParametersList())),
-        mfem::ParNonlinearForm(&(fed->getFiniteElementSpace<true>())) {
+        mfem::ParNonlinearForm(&(fed.getFiniteElementSpace<true>())) {
     //
     auto or_raise = ctx.getThrowingFailureHandler();
     auto validator = ParametersValidator{}.add(
         NonLinearEvolutionProblemImplementationBase::getParametersList());
     validator.validate(ctx, p) | or_raise;
     //
-    if (this->fe_discretization->getMesh<true>().Dimension() !=
+    if (this->fe_discretization.getMesh<true>().Dimension() !=
         mgis::behaviour::getSpaceDimension(h)) {
       raise(
           "NonLinearEvolutionProblemImplementationBase::"
@@ -1387,22 +1389,22 @@ namespace mfem_mgis {
   }  // end of executePostProcessings
 
   Mesh<true>& NonLinearEvolutionProblemImplementation<true>::getMesh() {
-    return this->fe_discretization->getMesh<true>();
+    return this->fe_discretization.getMesh<true>();
   }  // end of getMesh
 
   const Mesh<true>& NonLinearEvolutionProblemImplementation<true>::getMesh()
       const {
-    return this->fe_discretization->getMesh<true>();
+    return this->fe_discretization.getMesh<true>();
   }  // end of getMesh
 
   FiniteElementSpace<true>&
   NonLinearEvolutionProblemImplementation<true>::getFiniteElementSpace() {
-    return this->fe_discretization->getFiniteElementSpace<true>();
+    return this->fe_discretization.getFiniteElementSpace<true>();
   }  // end of getFiniteElementSpace
 
   const FiniteElementSpace<true>&
   NonLinearEvolutionProblemImplementation<true>::getFiniteElementSpace() const {
-    return this->fe_discretization->getFiniteElementSpace<true>();
+    return this->fe_discretization.getFiniteElementSpace<true>();
   }  // end of getFiniteElementSpace
 
   bool NonLinearEvolutionProblemImplementation<true>::integrate(
@@ -1448,7 +1450,7 @@ namespace mfem_mgis {
         success = this->mgis_integrator->integrate(e, tr, ue, it);
       }
     }
-    success = isTrueOnAllProcesses(*(this->fe_discretization), success);
+    success = isTrueOnAllProcesses(this->fe_discretization, success);
     if ((success) && (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR)) {
       this->hasStiffnessOperatorsBeenComputed = true;
     }
@@ -1469,11 +1471,10 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_MPI */
 
   NonLinearEvolutionProblemImplementation<false>::
-      NonLinearEvolutionProblemImplementation(
-          Context& ctx,
-          std::shared_ptr<FiniteElementDiscretization> fed,
-          const Hypothesis h,
-          const Parameters& p)
+      NonLinearEvolutionProblemImplementation(Context& ctx,
+                                              FiniteElementDiscretization fed,
+                                              const Hypothesis h,
+                                              const Parameters& p)
       : NonLinearEvolutionProblemImplementationBase(
             ctx,
             fed,
@@ -1482,14 +1483,14 @@ namespace mfem_mgis {
                     p,
                     NonLinearEvolutionProblemImplementationBase::
                         getParametersList())),
-        mfem::NonlinearForm(&(fed->getFiniteElementSpace<false>())) {
+        mfem::NonlinearForm(&(fed.getFiniteElementSpace<false>())) {
     //
     auto or_raise = ctx.getThrowingFailureHandler();
     auto validator = ParametersValidator{}.add(
         NonLinearEvolutionProblemImplementationBase::getParametersList());
     validator.validate(ctx, p) | or_raise;
     //
-    if (this->fe_discretization->getMesh<false>().Dimension() !=
+    if (this->fe_discretization.getMesh<false>().Dimension() !=
         mgis::behaviour::getSpaceDimension(h)) {
       raise(
           "NonLinearEvolutionProblemImplementationBase::"
@@ -1771,22 +1772,22 @@ namespace mfem_mgis {
 
   Mesh<false>&
   NonLinearEvolutionProblemImplementation<false>::getMesh() noexcept {
-    return this->fe_discretization->getMesh<false>();
+    return this->fe_discretization.getMesh<false>();
   }  // end of getMesh
 
   const Mesh<false>& NonLinearEvolutionProblemImplementation<false>::getMesh()
       const noexcept {
-    return this->fe_discretization->getMesh<false>();
+    return this->fe_discretization.getMesh<false>();
   }  // end of getMesh
 
   const FiniteElementSpace<false>& NonLinearEvolutionProblemImplementation<
       false>::getFiniteElementSpace() const noexcept {
-    return this->fe_discretization->getFiniteElementSpace<false>();
+    return this->fe_discretization.getFiniteElementSpace<false>();
   }  // end of getFiniteElementSpace
 
   FiniteElementSpace<false>& NonLinearEvolutionProblemImplementation<
       false>::getFiniteElementSpace() noexcept {
-    return this->fe_discretization->getFiniteElementSpace<false>();
+    return this->fe_discretization.getFiniteElementSpace<false>();
   }  // end of getFiniteElementSpace
 
   bool NonLinearEvolutionProblemImplementation<false>::setLinearSolver(

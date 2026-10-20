@@ -1,4 +1,4 @@
-From 0658d4d10b39d0975a80d5ceec80a7a2f5935805 Mon Sep 17 00:00:00 2001
+From 1cc52c2395f45b032729a3296224562d2a1ae7be Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:49:29 +0200
 Subject: [PATCH] Options of BoomerAMG
@@ -19,9 +19,9 @@ number of iterations of the fixed point (the setting survives the setup
 of the elastic operator).
 ---
  src/FixedPointSolver.cxx       |   8 ++
- src/LinearSolverFactory.cxx    | 188 +++++++++++++++++++++++----------
+ src/LinearSolverFactory.cxx    | 197 ++++++++++++++++++++++-----------
  tests/FixedPointSolverTest.cxx |  26 +++++
- 3 files changed, 168 insertions(+), 54 deletions(-)
+ 3 files changed, 166 insertions(+), 65 deletions(-)
 
 diff --git a/src/FixedPointSolver.cxx b/src/FixedPointSolver.cxx
 index 552b32a450..af6206e77c 100644
@@ -50,7 +50,7 @@ index 552b32a450..af6206e77c 100644
        return this->Norm(r);
      };
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index 7c1600a7e0..8c1e43675b 100644
+index 9f5a35a44a..8c1e43675b 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
 @@ -6,6 +6,9 @@
@@ -120,7 +120,7 @@ index 7c1600a7e0..8c1e43675b 100644
  
  }  // end of namespace mfem_mgis::internals
  
-@@ -69,52 +73,128 @@ namespace mfem_mgis {
+@@ -69,64 +73,127 @@ namespace mfem_mgis {
  
  #ifdef MFEM_USE_MPI
  
@@ -148,7 +148,7 @@ index 7c1600a7e0..8c1e43675b 100644
 -    auto amg = std::make_unique<mfem::HypreBoomerAMG>();
 -    if (!checkParameters(ctx, opts,
 -                         std::vector<std::string>{
--                             "Strategy", Problem::SolverVerbosityLevel})) {
+-                             "Strategy","StrongThreshold", Problem::SolverVerbosityLevel})) {
 +    using Setting = internals::ConfiguredHypreBoomerAMG::Setting;
 +    const auto integer_options = std::vector<std::string>{
 +        "CoarseningType", "AggressiveCoarseningLevels", "InterpolationType",
@@ -163,6 +163,30 @@ index 7c1600a7e0..8c1e43675b 100644
 -    if (contains(opts, "Strategy")) {
 -      const auto ostrategy = get<std::string>(ctx, opts, "Strategy");
 -      if (isInvalid(ostrategy)) {
+-        return {};
+-      }
+-      if (*ostrategy == "Elasticity") {
+-        if (fespace.GetOrdering() == mfem::Ordering::byVDIM) {
+-          amg->SetElasticityOptions(&fespace);
+-        } else {
+-          // the elasticity version of BoomerAMG requires Ordering::byVDIM
+-          if (fespace.GetMyRank() == 0) {
+-            warning(ctx.log(),
+-                    "setLinearSolverParameters: strategy 'Elasticity' of "
+-                    "preconditioner HypreBoomerAMG requires unknowns ordered "
+-                    "by vector dimension (i.e. the parameter "
+-                    "'FiniteElementSpaceOrdering' must be set to 'byVDIM'), "
+-                    "using strategy 'System' instead");
+-          }
+-          amg = std::make_unique<internals::SystemHypreBoomerAMG>(fespace);
+-        }
+-      } else if (*ostrategy == "System") {
+-        amg = std::make_unique<internals::SystemHypreBoomerAMG>(fespace);
+-      } else if (*ostrategy != "None") {
+-        return ctx.registerErrorMessage(
+-            "setLinearSolverParameters: "
+-            "invalid strategy '" +
+-            *ostrategy + "' for preconditioner HypreBoomerAMG");
 +    auto settings = std::vector<Setting>{};
 +    // strategy
 +    const auto ostrategy = get_if<std::string>(
@@ -183,7 +207,12 @@ index 7c1600a7e0..8c1e43675b 100644
 +                "by vector dimension (i.e. the parameter "
 +                "'FiniteElementSpaceOrdering' must be set to 'byVDIM'), "
 +                "using strategy 'System' instead");
-+      }
+       }
+-    } else {
+-      // without the `Strategy` option, a system AMG is used for vector
+-      // unknowns
+-      if (fespace.GetVDim() > 1) {
+-        amg = std::make_unique<internals::SystemHypreBoomerAMG>(fespace);
 +    } else if ((*ostrategy != "System") && (*ostrategy != "None")) {
 +      return ctx.registerErrorMessage(
 +          "setLinearSolverParameters: "
@@ -201,54 +230,36 @@ index 7c1600a7e0..8c1e43675b 100644
 +    if (contains(opts, "StrengthThreshold")) {
 +      const auto ov = get<double>(ctx, opts, "StrengthThreshold");
 +      if (isInvalid(ov)) {
-         return {};
++        return {};
        }
--      if (*ostrategy == "Elasticity") {
--        if (fespace.GetOrdering() == mfem::Ordering::byVDIM) {
--          amg->SetElasticityOptions(&fespace);
--        } else {
--          // the elasticity version of BoomerAMG requires Ordering::byVDIM
--          if (fespace.GetMyRank() == 0) {
--            warning(ctx.log(),
--                    "setLinearSolverParameters: strategy 'Elasticity' of "
--                    "preconditioner HypreBoomerAMG requires unknowns ordered "
--                    "by vector dimension (i.e. the parameter "
--                    "'FiniteElementSpaceOrdering' must be set to 'byVDIM'), "
--                    "using strategy 'System' instead");
--          }
--          amg = std::make_unique<internals::SystemHypreBoomerAMG>(fespace);
--        }
--      } else if (*ostrategy == "System") {
--        amg = std::make_unique<internals::SystemHypreBoomerAMG>(fespace);
--      } else if (*ostrategy != "None") {
 +      settings.push_back(
 +          [v = *ov](mfem::HypreBoomerAMG& amg) { amg.SetStrengthThresh(v); });
-+    }
+     }
+-    if (contains(opts,"StrongThreshold")){
+-      const auto osth = get<double>(ctx, opts, "StrongThreshold");
+-      if (isInvalid(osth)) {
 +    for (const auto& o : integer_options) {
 +      if (!contains(opts, o)) {
 +        continue;
 +      }
 +      const auto ov = get<int>(ctx, opts, o);
 +      if (isInvalid(ov)) {
-+        return {};
-+      }
+         return {};
+       }
+-      if (*osth < 0 || *osth > 1){
 +      const auto v = *ov;
 +      if ((v < 0) || ((v == 0) && (o != "CoarseningType") &&
 +                      (o != "AggressiveCoarseningLevels") &&
 +                      (o != "InterpolationType") && (o != "RelaxationType"))) {
          return ctx.registerErrorMessage(
 -            "setLinearSolverParameters: "
--            "invalid strategy '" +
--            *ostrategy + "' for preconditioner HypreBoomerAMG");
+-            "invalid value of \"StrongThreshold\" ()" +
+-            std::to_string(*osth) + ") for preconditioner HypreBoomerAMG. Should be between 0 (included) and 1 (included)");
 +            "setLinearSolverParameters: invalid "
 +            "value for option '" +
 +            o + "' of HypreBoomerAMG");
        }
--    } else {
--      // without the `Strategy` option, a system AMG is used for vector
--      // unknowns
--      if (fespace.GetVDim() > 1) {
--        amg = std::make_unique<internals::SystemHypreBoomerAMG>(fespace);
+-      amg->SetStrengthThresh(*osth);
 +      if (o == "CoarseningType") {
 +        settings.push_back(
 +            [v](mfem::HypreBoomerAMG& amg) { amg.SetCoarsening(v); });
@@ -273,15 +284,14 @@ index 7c1600a7e0..8c1e43675b 100644
 +      } else {
 +        settings.push_back(
 +            [v](mfem::HypreBoomerAMG& amg) { amg.SetMaxLevels(v); });
-       }
-     }
++      }
++    }
 +    auto amg = std::make_unique<internals::ConfiguredHypreBoomerAMG>(settings);
 +    if (elasticity) {
 +      amg->SetElasticityOptions(&fespace);
-+    }
+     }
      if (contains(opts, Problem::SolverVerbosityLevel)) {
        const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
-       if (isInvalid(olvl)) {
 diff --git a/tests/FixedPointSolverTest.cxx b/tests/FixedPointSolverTest.cxx
 index 091eed58fb..c2b0d5daa0 100644
 --- a/tests/FixedPointSolverTest.cxx

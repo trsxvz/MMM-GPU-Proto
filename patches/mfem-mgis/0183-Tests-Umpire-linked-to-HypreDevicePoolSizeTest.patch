@@ -1,4 +1,4 @@
-From 28df40e617fb7c3c994957635d733ad6e74fb6e3 Mon Sep 17 00:00:00 2001
+From d8af07203075e31482937736c546924ab7a7f94c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 22:08:14 +0200
 Subject: [PATCH] Tests: Umpire linked to HypreDevicePoolSizeTest
@@ -12,10 +12,10 @@ from command line). The library is now found and linked explicitly.
  1 file changed, 8 insertions(+)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 1ab3295fb8..ebc5d1da48 100644
+index 39dcf04cc4..ade4fc8fbd 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1605,6 +1605,14 @@ endif()
+@@ -1608,6 +1608,14 @@ endif()
  # (no memory allocated on the GPU)
  if(MFEM_USE_MPI)
    add_test_executable(HypreDevicePoolSizeTest)

@@ -1,4 +1,4 @@
-From ca47010d926ee23c5faf3191164fd3c214523a09 Mon Sep 17 00:00:00 2001
+From 81a7ec2aa6d7ca72e85e98614815c56cd6cfe247 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 04:07:28 +0200
 Subject: [PATCH] Test of the solvers and preconditioners of Trilinos
@@ -19,10 +19,10 @@ refusals.
  create mode 100644 tests/TrilinosSolversTest.cxx
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 0707fc9330..af13b307b1 100644
+index 3fb39a7527..559c3a9485 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -1939,6 +1939,34 @@ if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
+@@ -1942,6 +1942,34 @@ if(MFEM_USE_MPI AND (MFEM_USE_PETSC STREQUAL "YES"))
    endif()
  endif()
  

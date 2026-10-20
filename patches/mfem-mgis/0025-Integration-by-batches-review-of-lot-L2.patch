@@ -1,4 +1,4 @@
-From ae191735b59992e2909af9c8853f024cfa3e6c0d Mon Sep 17 00:00:00 2001
+From af68d65ea3f687b4aabb44a3859cc80d280d3ef8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 19:10:28 +0200
 Subject: [PATCH] Integration by batches: review of lot L2
@@ -63,10 +63,10 @@ integrators).
  19 files changed, 616 insertions(+), 330 deletions(-)
 
 diff --git a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-index 56453b32d5..831a7063a7 100644
+index a1d0116ece..3a0b4d355c 100644
 --- a/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
 +++ b/include/MFEMMGIS/AbstractBehaviourIntegrator.hxx
-@@ -124,8 +124,10 @@ namespace mfem_mgis {
+@@ -121,8 +121,10 @@ namespace mfem_mgis {
       * before the integration, and the tangent operator blocks in the global
       * frame after it, at all the points at once.
       *
@@ -80,10 +80,10 @@ index 56453b32d5..831a7063a7 100644
       * \param[in] it: integration type
       * \return true on success
 diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-index e68e5e42c5..8299412e69 100644
+index ea7c74f35c..020704759b 100644
 --- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
 +++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
-@@ -68,10 +68,22 @@ namespace mfem_mgis {
+@@ -66,10 +66,22 @@ namespace mfem_mgis {
       * the integration (except for a prediction), and the tangent operator
       * blocks in the global frame after it, by the rotation functions of MGIS
       * processing all the points (see `Material::computeRotationMatrices`).
@@ -107,7 +107,7 @@ index e68e5e42c5..8299412e69 100644
       *
       * \return true on success, i.e. if the integration succeeded at all the
       * points, possibly with unreliable results
-@@ -186,6 +198,27 @@ namespace mfem_mgis {
+@@ -184,6 +196,27 @@ namespace mfem_mgis {
       */
      virtual bool performsLocalBehaviourIntegration(const size_type ip,
                                                     const IntegrationType it);
@@ -135,7 +135,7 @@ index e68e5e42c5..8299412e69 100644
      /*!
       * \brief evaluators of the material properties at the beginning of the
       * time step.
-@@ -270,6 +303,13 @@ namespace mfem_mgis {
+@@ -268,6 +301,13 @@ namespace mfem_mgis {
        std::map<std::string, QPEvaluatorResult> pqfcts_esvs_ets;
        //! \brief rotation matrices used by `integrateBatch`
        mfem::Vector rotation_matrices;
@@ -150,7 +150,7 @@ index e68e5e42c5..8299412e69 100644
      //! \brief time increment for the given time step
      real time_increment;
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
-index c03cd43a32..7010ff67a6 100644
+index f3e87fd311..dd5bb789c3 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
 @@ -28,11 +28,13 @@ namespace mfem_mgis {
@@ -171,10 +171,10 @@ index c03cd43a32..7010ff67a6 100644
    template <typename Child, Hypothesis H>
    struct FBarBehaviourIntegratorCRTPBase : BehaviourIntegratorBase {
 diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-index 68b9bdfb9c..eee87925b3 100644
+index 84ab8c207f..406a891198 100644
 --- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
-@@ -314,12 +314,11 @@ namespace mfem_mgis {
+@@ -313,12 +313,11 @@ namespace mfem_mgis {
  #endif
      const auto nnodes = e.GetDof();
      const auto thsize = this->s1.thermodynamic_forces_stride;
@@ -190,9 +190,9 @@ index 68b9bdfb9c..eee87925b3 100644
 +    // once by the integration by batches
 +    const auto rotated_thforces = this->getRotatedThermodynamicForces();
      // element offset
-     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+     const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
      Fe.SetSize(e.GetDof() * Traits::unknownsSize);
-@@ -340,13 +339,22 @@ namespace mfem_mgis {
+@@ -339,13 +338,22 @@ namespace mfem_mgis {
        const auto w = child.getIntegrationPointWeight(tr, ip);
        // offset of the integration point
        const auto o = eoffset + i;
@@ -222,7 +222,7 @@ index 68b9bdfb9c..eee87925b3 100644
      }
    }  // end of implementComputeInnerForces
 diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
-index 7e16089fb2..e0f95cd029 100644
+index 05a0d56f6c..c9aac54b59 100644
 --- a/include/MFEMMGIS/Material.hxx
 +++ b/include/MFEMMGIS/Material.hxx
 @@ -10,7 +10,6 @@
@@ -282,7 +282,7 @@ index 7e16089fb2..e0f95cd029 100644
      //! \brief destructor
      ~Material();
  
-@@ -213,31 +205,15 @@ namespace mfem_mgis {
+@@ -209,31 +201,15 @@ namespace mfem_mgis {
  
     private:
      /*!
@@ -368,7 +368,7 @@ index 558769ea6e..5ec308300b 100644
      mfem::Vector tangent_operator_blocks;
      //! \brief copy constructor (disabled)
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
-index 7a96eeeee3..d66e6711e9 100644
+index b6784ddc64..bde25f8bfb 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
 @@ -9,6 +9,7 @@
@@ -420,10 +420,10 @@ index 7a96eeeee3..d66e6711e9 100644
          for (mfem_mgis::size_type j = 0; j < ir.GetNPoints(); j++) {
            const auto o = eoffset + j;
 diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-index 5fb8dd73e9..e1377c8490 100644
+index ad4f68a0b8..f9ee48944c 100644
 --- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
 +++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
-@@ -60,8 +60,9 @@ namespace mfem_mgis {
+@@ -61,8 +61,9 @@ namespace mfem_mgis {
       * failure, for a behaviour generated by the `generic` interface, as a
       * batch of all the points, even if some of them fail, for a behaviour
       * generated by the `generic-parallel` interface, which can only be
@@ -561,7 +561,7 @@ index a58dd1cb59..d740d73c8a 100644
  
    template <size_type GradientsSize>
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
-index feeeaf3a0a..e5b82c59b8 100644
+index ffd9a9c212..6442a0293b 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
 @@ -28,11 +28,13 @@ namespace mfem_mgis {
@@ -582,7 +582,7 @@ index feeeaf3a0a..e5b82c59b8 100644
    template <typename Child>
    struct StandardBehaviourIntegratorCRTPBase : BehaviourIntegratorBase {
 diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
-index 0a9bbbbc7c..90684424fb 100644
+index 4bd236dcd9..3a454fe386 100644
 --- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 +++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
 @@ -264,12 +264,11 @@ namespace mfem_mgis {
@@ -601,7 +601,7 @@ index 0a9bbbbc7c..90684424fb 100644
 +    // once by the integration by batches
 +    const auto rotated_thforces = this->getRotatedThermodynamicForces();
      // element offset
-     const auto eoffset = this->quadrature_space->getOffset(tr.ElementNo);
+     const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
      Fe.SetSize(e.GetDof() * Traits::unknownsSize);
 @@ -290,13 +289,22 @@ namespace mfem_mgis {
        const auto w = child.getIntegrationPointWeight(tr, ip);
@@ -633,7 +633,7 @@ index 0a9bbbbc7c..90684424fb 100644
      }
    }  // end of implementComputeInnerForces
 diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
-index e182ae4675..23d058c0c7 100644
+index 1d7fa2507a..9e30dbe7b3 100644
 --- a/src/BehaviourIntegratorBase.cxx
 +++ b/src/BehaviourIntegratorBase.cxx
 @@ -5,7 +5,9 @@
@@ -646,7 +646,7 @@ index e182ae4675..23d058c0c7 100644
  #include "MGIS/Raise.hxx"
  #include "MGIS/Behaviour/Behaviour.hxx"
  #include "MGIS/Behaviour/Integrate.hxx"
-@@ -724,6 +726,7 @@ namespace mfem_mgis {
+@@ -717,6 +719,7 @@ namespace mfem_mgis {
  
    bool BehaviourIntegratorBase::performsLocalBehaviourIntegration(
        const size_type ip, const IntegrationType it) {
@@ -654,7 +654,7 @@ index e182ae4675..23d058c0c7 100644
      char error_msg[512];
      error_msg[0] = '\0';
      const auto g_offset = this->s0.gradients_stride * ip;
-@@ -795,7 +798,85 @@ namespace mfem_mgis {
+@@ -788,7 +791,85 @@ namespace mfem_mgis {
      return (r == 0) || (r == 1);
    }  // end of BehaviourIntegratorBase::performsLocalBehaviourIntegration
  
@@ -740,7 +740,7 @@ index e182ae4675..23d058c0c7 100644
      const auto orthotropic =
          this->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC;
      const auto prediction =
-@@ -804,13 +885,7 @@ namespace mfem_mgis {
+@@ -797,13 +878,7 @@ namespace mfem_mgis {
          (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR);
      const auto rotateTangentOperatorBlocks =
          orthotropic && (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR);
@@ -755,7 +755,7 @@ index e182ae4675..23d058c0c7 100644
      const auto opts = mgis::behaviour::BehaviourIntegrationOptions{
          .integration_type =
              static_cast<mgis::behaviour::IntegrationType>(static_cast<int>(it)),
-@@ -825,28 +900,70 @@ namespace mfem_mgis {
+@@ -818,28 +893,70 @@ namespace mfem_mgis {
          const auto g = mgis::behaviour::getGradientsView(this->s1);
          mgis::behaviour::rotateGradients(g, this->b, matrices);
        }
@@ -837,7 +837,7 @@ index e182ae4675..23d058c0c7 100644
    bool BehaviourIntegratorBase::cleanup(Context& ctx) noexcept {
      for (const auto& [name, e] : this->material_properties_evaluators_bts) {
        std::ignore = e;
-@@ -882,6 +999,7 @@ namespace mfem_mgis {
+@@ -875,6 +992,7 @@ namespace mfem_mgis {
    }  // end of cleanup
  
    void BehaviourIntegratorBase::revert() {
@@ -846,10 +846,10 @@ index e182ae4675..23d058c0c7 100644
    }  // end of revert
  
 diff --git a/src/Material.cxx b/src/Material.cxx
-index e1537ca06e..289bc067e8 100644
+index 03b73c927a..24d5270ef7 100644
 --- a/src/Material.cxx
 +++ b/src/Material.cxx
-@@ -144,7 +144,6 @@ namespace mfem_mgis {
+@@ -128,7 +128,6 @@ namespace mfem_mgis {
        raise("Material::setRotationMatrix: unimplemented case yet");
      }
      this->r2D = r;
@@ -857,7 +857,7 @@ index e1537ca06e..289bc067e8 100644
    }  // end of setRotationMatrix
  
    void Material::setRotationMatrix(const RotationMatrix3D &r) {
-@@ -230,7 +229,6 @@ namespace mfem_mgis {
+@@ -214,7 +213,6 @@ namespace mfem_mgis {
        raise("Material::setRotationMatrix: unimplemented case yet");
      }
      this->r3D = r;
@@ -865,7 +865,7 @@ index e1537ca06e..289bc067e8 100644
    }  // end of setRotationMatrix
  
    /*!
-@@ -294,12 +292,13 @@ namespace mfem_mgis {
+@@ -278,12 +276,13 @@ namespace mfem_mgis {
      return mgis::makePointByPointFieldView(matrices, np, 9, 9);
    }  // end of computeRotationMatrices
  
@@ -883,7 +883,7 @@ index e1537ca06e..289bc067e8 100644
      if (this->b.symmetry != mgis::behaviour::Behaviour::ORTHOTROPIC) {
        raise(std::string{method} +
              ": invalid call (behaviour is not orthotropic)");
-@@ -309,48 +308,36 @@ namespace mfem_mgis {
+@@ -293,48 +292,36 @@ namespace mfem_mgis {
      const auto nc =
          gradients ? sm.gradients_stride : sm.thermodynamic_forces_stride;
      const auto size = static_cast<std::size_t>(np) * nc;
@@ -991,10 +991,10 @@ index f857e5e72e..1a7e9e9479 100644
      return this->tangent_operator_blocks;
    }  // end of getTangentOperatorBlocks
 diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
-index 200a1f3f2c..5c7b3fd7ab 100644
+index dc6a84757c..e062815d2e 100644
 --- a/src/NonLinearEvolutionProblemImplementationBase.cxx
 +++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
-@@ -71,8 +71,13 @@ namespace mfem_mgis {
+@@ -70,8 +70,13 @@ namespace mfem_mgis {
        return true;
      }
      if (v != "PointByPoint") {
@@ -1011,7 +1011,7 @@ index 200a1f3f2c..5c7b3fd7ab 100644
      return false;
    }  // end of useBatchIntegration
 diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
-index de1d94a879..f4c8f85315 100644
+index 9882364868..73101be3e0 100644
 --- a/tests/BatchIntegrationTest.cxx
 +++ b/tests/BatchIntegrationTest.cxx
 @@ -17,11 +17,13 @@
@@ -1341,10 +1341,10 @@ index de1d94a879..f4c8f85315 100644
      testPointByPointRefusal(ctx, mesh, l);
    }
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 7722761128..1d3518a442 100644
+index fd009bdef7..ce7ccaebf8 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -816,6 +816,7 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -819,6 +819,7 @@ if(MFEM_MGIS_HAVE_TFEL)
             COMMAND BatchIntegrationTest
                     --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
                     --mesh-2d ${CMAKE_CURRENT_SOURCE_DIR}/bar.msh
@@ -1353,7 +1353,7 @@ index 7722761128..1d3518a442 100644
                     ${batch_integration_test_libraries})
  
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index 4cf510ede6..f572ca37f5 100644
+index 8a782f5284..ae376c6b6a 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -547,8 +547,15 @@ static bool checkValuesInGlobalFrame(const mfem_mgis::Material& m,
@@ -1389,7 +1389,7 @@ index 4cf510ede6..f572ca37f5 100644
   */
  static void testRotation(
      mfem_mgis::Context& ctx,
-     std::shared_ptr<const mfem_mgis::PartialQuadratureSpace> qspace,
+     const mfem_mgis::PartialQuadratureSpace& qspace,
      const char* const library) {
    using namespace mfem_mgis;
 -  for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,

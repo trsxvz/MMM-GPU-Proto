@@ -1,4 +1,4 @@
-From 2600cfda6547c885ca3dd07c493bd03309dd2478 Mon Sep 17 00:00:00 2001
+From 7cb0f8f2884d2ad030448a75bdbb27b5c0dbce86 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 03:15:26 +0200
 Subject: [PATCH] Documentation: linear solvers, preconditioners and their
@@ -266,7 +266,7 @@ index 0000000000..0beeb04469
 +The libraries which are not available (MFEM built without them, or
 +mfem-mgis built without AmgX) register nothing.
 diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
-index 3af03f601c..4ffa9a0ff3 100644
+index fe794dbd22..ca30a27853 100644
 --- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 +++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
 @@ -108,10 +108,33 @@ Known incompatibilities

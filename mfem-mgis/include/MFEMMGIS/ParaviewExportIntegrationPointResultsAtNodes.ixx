@@ -114,7 +114,8 @@ namespace mfem_mgis {
     for (const auto& d : ds) {
       auto fcts = std::make_unique<ExportedFunctions>();
       fcts->name = d.name;
-      fcts->functions = d.functions;
+      fcts->functions = std::vector<ImmutablePartialQuadratureFunctionView>(
+          d.functions.begin(), d.functions.end());
       if (this->submesh.get() == nullptr) {
         auto ores =
             makeGridFunction<parallel>(ctx, fcts->functions, p.getMesh());
@@ -141,7 +142,7 @@ namespace mfem_mgis {
       createSubMesh(Context& ctx,
                     NonLinearEvolutionProblemImplementation<parallel>& p) {
     auto or_raise = ctx.getThrowingFailureHandler();
-    auto& fed = p.getFiniteElementDiscretization();
+    auto fed = p.getFiniteElementDiscretization();
     this->submesh = fed.template getMutableSubMeshPointer<parallel>(
                         ctx, Parameter::from(this->materials_identifiers),
                         MeshDiscretization::Location::ON_MATERIALS) |

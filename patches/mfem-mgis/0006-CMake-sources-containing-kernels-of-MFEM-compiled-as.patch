@@ -1,4 +1,4 @@
-From 3c50bfa8e53d461c8779a0310863a1a555a16ab8 Mon Sep 17 00:00:00 2001
+From e07c585746f706e083535fa94b3f206060b212a2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:15:45 +0200
 Subject: [PATCH] CMake: sources containing kernels of MFEM compiled as CUDA
@@ -106,10 +106,10 @@ index aea8ca2c11..4519995052 100644
  # Find the library
  find_library(MFEM_LIBRARY mfem
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index ae6d0c8e4e..79f8454285 100644
+index d5d63fceb7..b7f9b6b9e3 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -767,6 +767,17 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -770,6 +770,17 @@ if(MFEM_MGIS_HAVE_TFEL)
          "$<TARGET_FILE:BehaviourTest>")
    endif()
  

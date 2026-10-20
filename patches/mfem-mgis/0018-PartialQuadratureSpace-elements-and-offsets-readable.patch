@@ -1,4 +1,4 @@
-From 18cfa340af7b94c2b42df32e9c588895c9a12853 Mon Sep 17 00:00:00 2001
+From 9ec18ab6e2cd724211192c8ef437ba912f4d7cd2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 15:19:08 +0200
 Subject: [PATCH] PartialQuadratureSpace: elements and offsets readable on the
@@ -22,7 +22,7 @@ two materials, and the offsets are read on the device.
  4 files changed, 183 insertions(+), 6 deletions(-)
 
 diff --git a/include/MFEMMGIS/PartialQuadratureSpace.hxx b/include/MFEMMGIS/PartialQuadratureSpace.hxx
-index 9935fdc543..26865dd7eb 100644
+index e2e44ef9c1..fc192f1eb1 100644
 --- a/include/MFEMMGIS/PartialQuadratureSpace.hxx
 +++ b/include/MFEMMGIS/PartialQuadratureSpace.hxx
 @@ -14,6 +14,7 @@
@@ -263,10 +263,10 @@ index 5d447abefd..261380b1a9 100644
      return this->pimpl->getLocation();
    }  // end of getLocation
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index e3fee48613..0f82ac8309 100644
+index 51acd79bd9..380bfd763b 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -775,15 +775,21 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -778,15 +778,21 @@ if(MFEM_MGIS_HAVE_TFEL)
      add_test(NAME MaterialArraysTest
               COMMAND MaterialArraysTest
                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube.mesh
@@ -289,7 +289,7 @@ index e3fee48613..0f82ac8309 100644
      endif()
    endif()
 diff --git a/tests/MaterialArraysTest.cxx b/tests/MaterialArraysTest.cxx
-index f0ae52ace7..651c305264 100644
+index 4ce42c2a22..0130eddaca 100644
 --- a/tests/MaterialArraysTest.cxx
 +++ b/tests/MaterialArraysTest.cxx
 @@ -217,15 +217,63 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
@@ -360,7 +360,7 @@ index f0ae52ace7..651c305264 100644
      testMaterial(ctx, qspace, library, b);
    }
    testHostAccesses(ctx, mesh, library);
-+  testQuadratureSpaceArrays(*qspace);
++  testQuadratureSpaceArrays(qspace);
 +  {
 +    // a material covering a part of the mesh
 +    auto fed2 = FiniteElementDiscretization(

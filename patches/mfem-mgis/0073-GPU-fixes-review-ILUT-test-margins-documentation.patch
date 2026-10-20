@@ -1,4 +1,4 @@
-From 2681ca09cdcad798f89a636ce0e2dd673e1cb99f Mon Sep 17 00:00:00 2001
+From d7786357adf546842dec39760e00c73311a4139b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 11:07:32 +0200
 Subject: [PATCH] GPU fixes: review (ILUT, test margins, documentation)
@@ -38,10 +38,10 @@ Subject: [PATCH] GPU fixes: review (ILUT, test margins, documentation)
  10 files changed, 116 insertions(+), 34 deletions(-)
 
 diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
-index 4a9a0f3af3..85c2fd4add 100644
+index 4662497a9c..8ec8d9e2c6 100644
 --- a/docs/source/user_guide/glossary.rst
 +++ b/docs/source/user_guide/glossary.rst
-@@ -488,7 +488,19 @@ Incomplete LU factorization (HypreILU)
+@@ -493,7 +493,19 @@ Incomplete LU factorization (HypreILU)
  +-------------------------+------------------------------------------------+
  | Key                     | Description                                    |
  +=========================+================================================+
@@ -245,10 +245,10 @@ index 7267c0a881..6320fc7b10 100644
      }
      if (level_of_fill.has_value()) {
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 9aa1f998fb..aa7956d5b7 100644
+index 18a18a9c38..f935f3a778 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -849,7 +849,9 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -852,7 +852,9 @@ if(MFEM_MGIS_HAVE_TFEL)
    # Debug and Coverage builds. Without device, the stiffness matrices and
    # their diagonals are computed by the version of the kernel for the host
    # (one iteration per element): in these builds, the kernel itself (one
@@ -259,7 +259,7 @@ index 9aa1f998fb..aa7956d5b7 100644
    set(long_debug_device_tests ON)
    if((CMAKE_BUILD_TYPE STREQUAL "Debug") OR
       (CMAKE_BUILD_TYPE STREQUAL "Coverage"))
-@@ -1056,9 +1058,12 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1059,9 +1061,12 @@ if(MFEM_MGIS_HAVE_TFEL)
    if(MFEM_USE_MPI)
      add_test_executable(HypreBoomerAMGTest)
      add_test(NAME HypreBoomerAMGTestP COMMAND mpirun -n 2 ./HypreBoomerAMGTest)

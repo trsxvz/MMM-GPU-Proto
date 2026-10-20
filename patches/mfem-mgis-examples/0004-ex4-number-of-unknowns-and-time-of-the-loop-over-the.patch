@@ -1,4 +1,4 @@
-From 3eadc67ebe2908b7bf0ac1121286b0fecb64cb12 Mon Sep 17 00:00:00 2001
+From 265ca45082832bb6ad24baae449fa574e5538461 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 03:11:45 +0200
 Subject: [PATCH] ex4: number of unknowns and time of the loop over the time
@@ -9,7 +9,7 @@ Subject: [PATCH] ex4: number of unknowns and time of the loop over the time
  1 file changed, 17 insertions(+)
 
 diff --git a/ex4/ssna303_hypre.cxx b/ex4/ssna303_hypre.cxx
-index d1eb834..122205d 100644
+index d5dcba0..87cd721 100644
 --- a/ex4/ssna303_hypre.cxx
 +++ b/ex4/ssna303_hypre.cxx
 @@ -5,6 +5,8 @@

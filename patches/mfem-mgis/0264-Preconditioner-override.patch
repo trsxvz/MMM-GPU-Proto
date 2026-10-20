@@ -1,0 +1,939 @@
+From 16ea3e9622516ef727f968303ccbc03ba418a4ae Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 16 Oct 2026 20:03:55 +0200
+Subject: [PATCH] Preconditioner override
+
+The option --preconditioner-override (-pco, declared by
+declareDefaultOptions) or else the environment variable
+MFEM_MGIS_PRECONDITIONER_OVERRIDE, read by mfem_mgis::initialize, gives a
+preconditioner which replaces the Preconditioner option of the linear
+solvers set by setLinearSolver (the ones of the program, whose other
+options are kept, or the linear solver override): a name (None, which
+removes the option), or a map with the entries Name and Options, in the
+syntax of the data of TFEL, as the linear solver override. The whole
+option is replaced, wrappers included (AssembledOperator, documented). The
+preconditioner of the Krylov solver of a program can thus be changed, the
+program keeping its tolerances. The combinations refused by the factories
+are refused with their messages; a preconditioner override can't be given
+to a linear solver built by the program (a linear solver override is then
+required). Both overrides are read by the same code (one function for the
+factory arguments), checked across the processes of MPI and reported once;
+unknown names, and None with options, are refused by
+mfem_mgis::initialize.
+
+Tests: TwoLayerCube with the preconditioner HypreDiagScale given to the
+GMRES solver of the program, the preconditioner of the HyprePCG solver of
+the program replaced by BoomerAMG, None given to MUMPS (2 processes), and
+both overrides given by the variables (CGSolver and DSmoother,
+sequential); an invalid description, an unknown name and None with
+options are refused (ExecutionSettingsTest).
+---
+ docs/source/user_guide/linear_solvers.rst     |  89 ++++---
+ .../release_notes/release_notes-1.1.0.rst     |  20 +-
+ docs/source/user_guide/tutorial.rst           |   5 +-
+ include/MFEMMGIS/Config.hxx                   |  10 +-
+ src/Config.cxx                                |  25 +-
+ src/LinearSolverOverride.cxx                  | 231 +++++++++++++++---
+ src/LinearSolverOverride.hxx                  |  88 ++++---
+ ...onLinearEvolutionProblemImplementation.cxx |  52 +++-
+ tests/CMakeLists.txt                          |  60 +++++
+ 9 files changed, 450 insertions(+), 130 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index 23af0183c5..67d3a5605e 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -46,26 +46,31 @@ method lists the registered names):
+ 
+ .. _linear_solver_override:
+ 
+-Linear solver override
+-======================
++Linear solver and preconditioner overrides
++==========================================
+ 
+ The linear solver chosen by the program can be replaced, without
+ recompiling it, by the option :code:`--linear-solver-override` (or
+ :code:`-lso`, declared by :cxx:`declareDefaultOptions`) or else by the
+-environment variable :code:`MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, read by
+-:cxx:`mfem_mgis::initialize`. The value describes the linear solver as the
+-preconditioner of a linear solver is described: its name
+-(:code:`CGSolver`), or a map with the entries :code:`Name` and
+-:code:`Options` (optional), in the syntax of the data of TFEL (the syntax
+-of the options of the domain specific languages of MFront). The values are
+-integers, reals, strings, booleans (:code:`true`, :code:`false`), lists of
+-values which are not lists nor maps (:code:`{1, 2}`), and maps
+-(:code:`{Name: "MueLu", Options: {}}`, the empty braces being an empty
+-map). The keys and the strings which are not identifiers (with spaces,
+-colons, dashes, dots...) are written between quotes; an identifier
+-without quotes is a string. A real given to a library which expects a
+-real is written with a decimal point or an exponent (:code:`1.0`, not
+-:code:`1`, which is an integer). For instance:
++environment variable :code:`MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, and its
++preconditioner by the option :code:`--preconditioner-override` (or
++:code:`-pco`) or else by the environment variable
++:code:`MFEM_MGIS_PRECONDITIONER_OVERRIDE`, read by
++:cxx:`mfem_mgis::initialize`. The value describes the linear solver or the
++preconditioner as the preconditioner of a linear solver is described: its
++name
++(:code:`CGSolver`), a map with the entries :code:`Name` and
++:code:`Options` (optional), or a map with a single entry associating the
++name with the options (:code:`{CGSolver: {RelativeTolerance: 1e-8}}`), in
++the syntax of the data of TFEL (the syntax of the options of the domain
++specific languages of MFront). The values are integers, reals, strings,
++booleans (:code:`true`, :code:`false`), lists of values which are not lists
++nor maps (:code:`{1, 2}`), and maps (:code:`{Name: "MueLu", Options: {}}`,
++the empty braces being an empty map). The keys and the strings which are
++not identifiers (with spaces, colons, dashes, dots...) are written between
++quotes; an identifier without quotes is a string. A real given to a
++library which expects a real is written with a decimal point or an
++exponent (:code:`1.0`, not :code:`1`, which is an integer). For instance:
+ 
+ .. code-block:: bash
+ 
+@@ -75,22 +80,46 @@ real is written with a decimal point or an exponent (:code:`1.0`, not
+        Preconditioner: {Name: "MueLu", Options: {Parameters:
+          {"smoother: type": "RELAXATION"}}}}}'
+ 
+-The linear solver override then replaces the linear solvers set by the
++The linear solver override replaces the linear solvers set by the
+ :cxx:`setLinearSolver` methods of all the non linear evolution problems
+ (the name and the parameters given by the program, or the linear solver
+-built by the program, are ignored), the first replacement being reported
+-on the output of MFEM. The linear solvers built by the non linear solvers
+-from their own parameters (for instance the linear solver of the elastic
+-operator of the fixed point solver) are not replaced, nor the linear
+-solvers of PETSc used with :code:`--use-petsc`. With several problems (a
+-thermomechanical coupling, for instance), they all receive the same
+-linear solver. An empty value of the option cancels the environment
+-variable. The option given twice, an invalid description, or different
+-descriptions on the processes of MPI (the environment variable is not
+-always given to the processes of the other nodes) are refused by
+-:cxx:`mfem_mgis::initialize`. The linear solver override requires
+-mfem-mgis built with the utilities of TFEL (MGIS built with TFEL). It is
+-meant for the comparisons of the linear solvers on existing programs.
++built by the program, are ignored): with several problems (a
++thermomechanical coupling, for instance), they all receive the same linear
++solver. The preconditioner override replaces the :cxx:`Preconditioner`
++option of these linear solvers (the ones of the program, whose other
++options are kept, or the linear solver override), the program keeping for
++instance the tolerances of its Krylov solver; without linear solver
++override, each problem keeps its linear solver and receives the
++preconditioner, which some problems may refuse (the :code:`Elasticity`
++strategy of :cxx:`HypreBoomerAMG` given to a thermal problem, for
++instance). :code:`None` removes the :cxx:`Preconditioner` option: the
++preconditioners given otherwise (the :code:`Configuration` of a solver of
++Ginkgo, the options of PETSc) are kept. The whole option is replaced,
++including the preconditioners which wrap another one: a program applying
++its operator without assembly, preconditioned by :cxx:`AssembledOperator`
++wrapping :cxx:`HypreBoomerAMG`, keeps this wrapper with
++:code:`{Name: AssembledOperator, Options: {Preconditioner: {Name:
++HypreBoomerAMG}}}`. The first replacements are reported on the output of
++MFEM. The combinations which the factories refuse (a Krylov solver of
++hypre with a preconditioner of another library, a direct solver with a
++preconditioner...) are refused with their messages, and a preconditioner
++override can't be given to a linear solver built by the program: a linear
++solver override is then required.
++
++The linear solvers built by the non linear solvers from their own
++parameters (for instance the linear solver of the elastic operator of the
++fixed point solver) are not replaced, nor the linear solvers of PETSc used
++with :code:`--use-petsc`. An empty value of an option cancels the
++environment variable. An option given twice, an invalid description, an
++unknown name, :code:`None` with options, or different descriptions on the
++processes of MPI (the environment variables are not always given to the
++processes of the other nodes) are refused by
++:cxx:`mfem_mgis::initialize`. The options are preferable to the
++environment variables, which apply to all the programs started meanwhile
++(the tests of a project, for instance). The overrides require mfem-mgis
++built with the utilities of TFEL (MGIS built with TFEL). They are meant
++for the comparisons of the linear solvers and of the preconditioners on
++existing programs; the non linear solver stays the one of the program.
+ 
+ Linear solvers
+ ==============
+diff --git a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+index 3483173493..17792a749d 100644
+--- a/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
++++ b/docs/source/user_guide/release_notes/release_notes-1.1.0.rst
+@@ -135,15 +135,17 @@ message. The available linear solvers and preconditioners are listed in
+ :ref:`linear_solvers`; the solvers of each library are registered by a
+ module (see :ref:`linear_solver_modules`).
+ 
+-Linear solver override
+-----------------------
+-
+-The option :code:`--linear-solver-override` (declared by
+-:cxx:`declareDefaultOptions`) or the environment variable
+-:code:`MFEM_MGIS_LINEAR_SOLVER_OVERRIDE` replaces the linear solvers set by
+-the program by a linear solver described by its name and its options,
+-in the syntax of the data of TFEL, for the comparisons of linear solvers
+-on existing programs. See :ref:`linear_solver_override`.
++Linear solver and preconditioner overrides
++------------------------------------------
++
++The options :code:`--linear-solver-override` and
++:code:`--preconditioner-override` (declared by :cxx:`declareDefaultOptions`)
++or the environment variables :code:`MFEM_MGIS_LINEAR_SOLVER_OVERRIDE` and
++:code:`MFEM_MGIS_PRECONDITIONER_OVERRIDE` replace the linear solvers and
++the preconditioners set by the program by the ones described by their names
++and their options, in the syntax of the data of TFEL, for the comparisons
++of linear solvers and preconditioners on existing programs. See
++:ref:`linear_solver_override`.
+ 
+ One option per optional library of MFEM
+ ---------------------------------------
+diff --git a/docs/source/user_guide/tutorial.rst b/docs/source/user_guide/tutorial.rst
+index 4dc3d2c6e8..785545813d 100644
+--- a/docs/source/user_guide/tutorial.rst
++++ b/docs/source/user_guide/tutorial.rst
+@@ -301,8 +301,9 @@ by ``mfem_mgis::initialize``:
+    (``-kk``, cancelled by ``--no-kokkos``).
+ 
+ These options are described in :ref:`mfem_mgis_batch_computations_execution`.
+-The option ``--linear-solver-override`` (``-lso``) replaces the linear
+-solvers chosen by the program (see :ref:`linear_solver_override`).
++The options ``--linear-solver-override`` (``-lso``) and
++``--preconditioner-override`` (``-pco``) replace the linear solvers and the
++preconditioners chosen by the program (see :ref:`linear_solver_override`).
+ 
+ If ``MFEM`` was built with support of ``PETSc`` library, the following
+ options are also added by the ``mfem_mgis::declareDefaultOptions``
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index f8ad2cf8e3..f99930b326 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -211,8 +211,11 @@ namespace mfem_mgis {
+    *
+    * The option `--linear-solver-override` (or `-lso`), or else the
+    * environment variable `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, gives a linear
+-   * solver which replaces the linear solvers set by the program (see the
+-   * user guide, linear solver override); an invalid description is refused
++   * solver which replaces the linear solvers set by the program, and the
++   * option `--preconditioner-override` (or `-pco`), or else the variable
++   * `MFEM_MGIS_PRECONDITIONER_OVERRIDE`, a preconditioner which replaces
++   * their preconditioners (see the user guide, linear solver and
++   * preconditioner overrides); an invalid description is refused
+    * (exception).
+    */
+   MFEM_MGIS_EXPORT void initialize(int& argc, MainFunctionArguments& argv);
+@@ -331,7 +334,8 @@ namespace mfem_mgis {
+    * the MFEM device (`--device`), the size of the pool of memory of hypre on
+    * the GPU (`--hypre-device-pool-size`), the computations of hypre on the
+    * host (`--hypre-on-host`), the initialization of Kokkos (`--kokkos`), the
+-   * linear solver override (`--linear-solver-override`), and the PETSc
++   * linear solver and preconditioner overrides (`--linear-solver-override`,
++   * `--preconditioner-override`), and the PETSc
+    * options (`--use-petsc`, `--petsc-configuration-file`), if PETSc is
+    * available.
+    * \param[in, out] parser: options parser
+diff --git a/src/Config.cxx b/src/Config.cxx
+index 8880a9b10a..d8c77d6e0a 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -763,14 +763,14 @@ namespace mfem_mgis {
+     static bool first = true;
+     if (first) {
+       mgis::setDefaultLogStream(mfem_mgis::getOutputStream());
+-      // the execution settings and the linear solver override are read
+-      // before the initialization of MPI, which an invalid option leaves
+-      // untouched
++      // the execution settings and the linear solver and preconditioner
++      // overrides are read before the initialization of MPI, which an
++      // invalid option leaves untouched
+       internals::readExecutionSettings(argc, argv);
+-      internals::readLinearSolverOverride(argc, argv);
++      internals::readLinearSolverOverrides(argc, argv);
+       MPI_Init(&argc, &argv);
+       try {
+-        internals::checkLinearSolverOverride(MPI_COMM_WORLD);
++        internals::checkLinearSolverOverrides(MPI_COMM_WORLD);
+       } catch (...) {
+         MPI_Finalize();
+         throw;
+@@ -806,7 +806,7 @@ namespace mfem_mgis {
+     static bool first = true;
+     if (first) {
+       internals::readExecutionSettings(argc, argv);
+-      internals::readLinearSolverOverride(argc, argv);
++      internals::readLinearSolverOverrides(argc, argv);
+       Finalizer::get().initialize(argc, argv);
+       first = false;
+     }
+@@ -895,6 +895,19 @@ namespace mfem_mgis {
+         "mfem_mgis::initialize, or else from the environment variable "
+         "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE (requires mfem-mgis built with the "
+         "utilities of TFEL).");
++    static const char* preconditioner_override = "";
++    parser.AddOption(
++        &preconditioner_override,
++        internals::preconditioner_override_short_option,
++        internals::preconditioner_override_option,
++        "Preconditioner given to the linear solvers set by the program (or "
++        "to the linear solver override), replacing their Preconditioner "
++        "option: a name (None for no preconditioner), or a map with the "
++        "entries Name and Options, in the syntax of the data of TFEL, for "
++        "instance '{Name: \"HypreBoomerAMG\", Options: {VerbosityLevel: "
++        "0}}'. Read by mfem_mgis::initialize, or else from the "
++        "environment variable MFEM_MGIS_PRECONDITIONER_OVERRIDE (requires "
++        "mfem-mgis built with the utilities of TFEL).");
+     // the device is created by `initialize`: the option is only declared
+     // here, so that the parser accepts it
+     static const char* device_configuration = "";
+diff --git a/src/LinearSolverOverride.cxx b/src/LinearSolverOverride.cxx
+index f9b8a8f515..cd4f53d1ee 100644
+--- a/src/LinearSolverOverride.cxx
++++ b/src/LinearSolverOverride.cxx
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <map>
++#include <algorithm>
+ #include <atomic>
+ #include <vector>
+ #include <cstdlib>
+@@ -17,16 +18,27 @@
+ #include "TFEL/Utilities/Data.hxx"
+ #endif /* MFEM_MGIS_HAVE_TFEL_UTILITIES */
+ #include "mfem/general/globals.hpp"
++#include "MFEMMGIS/LinearSolverFactory.hxx"
++#include "MFEMMGIS/PreconditionerFactory.hxx"
++#include "LinearSolverModules.hxx"
+ #include "LinearSolverOverride.hxx"
+ 
+ namespace mfem_mgis::internals {
+ 
+   //! \return the storage of the linear solver override
+-  static std::optional<LinearSolverOverride>& getLinearSolverOverrideStorage() {
+-    static auto o = std::optional<LinearSolverOverride>{};
++  static std::optional<FactoryArgumentOverride>&
++  getLinearSolverOverrideStorage() {
++    static auto o = std::optional<FactoryArgumentOverride>{};
+     return o;
+   }  // end of getLinearSolverOverrideStorage
+ 
++  //! \return the storage of the preconditioner override
++  static std::optional<FactoryArgumentOverride>&
++  getPreconditionerOverrideStorage() {
++    static auto o = std::optional<FactoryArgumentOverride>{};
++    return o;
++  }  // end of getPreconditionerOverrideStorage
++
+ #ifdef MFEM_MGIS_HAVE_TFEL_UTILITIES
+ 
+   /*!
+@@ -74,9 +86,10 @@ namespace mfem_mgis::internals {
+ 
+ #endif /* MFEM_MGIS_HAVE_TFEL_UTILITIES */
+ 
+-  LinearSolverOverride parseLinearSolverOverride(const std::string_view d) {
+-    const auto error = [&d](const std::string& msg) {
+-      return std::runtime_error("invalid linear solver override '" +
++  FactoryArgumentOverride parseFactoryArgumentOverride(
++      const std::string_view d, const std::string_view what) {
++    const auto error = [&d, &what](const std::string& msg) {
++      return std::runtime_error("invalid " + std::string{what} + " '" +
+                                 std::string{d} + "': " + msg);
+     };
+ #ifdef MFEM_MGIS_HAVE_TFEL_UTILITIES
+@@ -90,7 +103,7 @@ namespace mfem_mgis::internals {
+       if (p != tokenizer.end()) {
+         throw std::runtime_error("unexpected text after the description");
+       }
+-      value = convertToParameter(data, "linear solver override");
++      value = convertToParameter(data, std::string{what});
+     } catch (std::exception& e) {
+       throw error(e.what());
+     }
+@@ -98,58 +111,148 @@ namespace mfem_mgis::internals {
+     // other factories of mfem-mgis
+     auto ctx = Context{};
+     const auto o =
+-        getFactoryArgument(ctx, Parameters{{"LinearSolverOverride", value}},
+-                           "LinearSolverOverride");
++        getFactoryArgument(ctx, Parameters{{"Override", value}}, "Override");
+     if (isInvalid(o)) {
+       throw error(ctx.getErrorMessage());
+     }
+-    return LinearSolverOverride{.description = std::string{d},
+-                                .name = o->first,
+-                                .parameters = o->second};
++    return FactoryArgumentOverride{
++        .description = std::string{d}, .name = o->first, .options = o->second};
+ #else  /* MFEM_MGIS_HAVE_TFEL_UTILITIES */
+     throw error(
+         "mfem-mgis is built without the utilities of TFEL, which read the "
+         "description");
+ #endif /* MFEM_MGIS_HAVE_TFEL_UTILITIES */
+-  }  // end of parseLinearSolverOverride
++  }  // end of parseFactoryArgumentOverride
+ 
+-  void readLinearSolverOverride(const int argc,
+-                                const MainFunctionArguments argv) {
+-    auto& o = getLinearSolverOverrideStorage();
++  /*!
++   * \brief reads an override given by an option, or else by an environment
++   * variable
++   * \param[out] o: override
++   * \param[in] argc: number of arguments
++   * \param[in] argv: arguments
++   * \param[in] option: long name of the option
++   * \param[in] short_option: short name of the option
++   * \param[in] variable: environment variable
++   * \param[in] what: kind of override, for the error messages
++   */
++  static void readOverride(std::optional<FactoryArgumentOverride>& o,
++                           const int argc,
++                           const MainFunctionArguments argv,
++                           const char* const option,
++                           const char* const short_option,
++                           const char* const variable,
++                           const std::string_view what) {
+     o.reset();
+     const char* d = nullptr;
+     for (int i = 1; i < argc; ++i) {
+-      if ((std::strcmp(argv[i], linear_solver_override_option) != 0) &&
+-          (std::strcmp(argv[i], linear_solver_override_short_option) != 0)) {
++      if ((std::strcmp(argv[i], option) != 0) &&
++          (std::strcmp(argv[i], short_option) != 0)) {
+         continue;
+       }
+       if (d != nullptr) {
+-        throw std::runtime_error(std::string{"the option "} +
+-                                 linear_solver_override_option +
++        throw std::runtime_error(std::string{"the option "} + option +
+                                  " is given twice");
+       }
+       // a description never starts with '-', unlike the next option
+       if ((i + 1 == argc) || (argv[i + 1][0] == '-')) {
+         throw std::runtime_error(std::string{"no value given to the option "} +
+-                                 linear_solver_override_option);
++                                 option);
+       }
+       d = argv[i + 1];
+     }
+     if (d == nullptr) {
+-      d = std::getenv(linear_solver_override_variable);
++      d = std::getenv(variable);
+     }
+     if ((d == nullptr) || (std::strlen(d) == 0)) {
+       return;
+     }
+-    o = parseLinearSolverOverride(d);
+-  }  // end of readLinearSolverOverride
++    o = parseFactoryArgumentOverride(d, what);
++  }  // end of readOverride
+ 
++  /*!
++   * \return if a name is registered in a factory, in sequential or in
++   * parallel
++   * \param[in] sequential: names of the sequential factory
++   * \param[in] parallel: names of the parallel factory
++   * \param[in] n: name
++   */
++  static bool isRegistered(const std::vector<std::string>& sequential,
++                           const std::vector<std::string>& parallel,
++                           const std::string& n) {
++    return (std::find(sequential.begin(), sequential.end(), n) !=
++            sequential.end()) ||
++           (std::find(parallel.begin(), parallel.end(), n) != parallel.end());
++  }  // end of isRegistered
++
++  /*!
++   * \brief checks that the linear solver override and the preconditioner
++   * override are registered in the factories, so that a misspelt name is
++   * refused at the initialization, and that `None` (no preconditioner) has
++   * no options
++   */
++  static void checkOverridesNames() {
++    const auto check = [](const std::optional<FactoryArgumentOverride>& o,
++                          const std::vector<std::string>& sequential,
++                          const std::vector<std::string>& parallel,
++                          const std::string& what) {
++      if ((!o.has_value()) || (isRegistered(sequential, parallel, o->name))) {
++        return;
++      }
++      auto msg = "invalid " + what + " '" + o->description +
++                 "': unknown name '" + o->name + "'";
++      const auto hint = getUnavailableLibraryHint(o->name);
++      if (!hint.empty()) {
++        msg += " (" + hint + ")";
++      }
++      throw std::runtime_error(msg);
++    };
+ #ifdef MFEM_USE_MPI
++    const auto parallel_solvers =
++        LinearSolverFactory<true>::getFactory().getNames();
++    const auto parallel_preconditioners =
++        PreconditionerFactory<true>::getFactory().getNames();
++#else  /* MFEM_USE_MPI */
++    const auto parallel_solvers = std::vector<std::string>{};
++    const auto parallel_preconditioners = std::vector<std::string>{};
++#endif /* MFEM_USE_MPI */
++    check(getLinearSolverOverride(),
++          LinearSolverFactory<false>::getFactory().getNames(), parallel_solvers,
++          "linear solver override");
++    auto sequential_preconditioners =
++        PreconditionerFactory<false>::getFactory().getNames();
++    sequential_preconditioners.push_back("None");
++    check(getPreconditionerOverride(), sequential_preconditioners,
++          parallel_preconditioners, "preconditioner override");
++    const auto& pc = getPreconditionerOverride();
++    if (pc.has_value() && (pc->name == "None") && (!pc->options.empty())) {
++      throw std::runtime_error("invalid preconditioner override '" +
++                               pc->description +
++                               "': no options expected for 'None'");
++    }
++  }  // end of checkOverridesNames
+ 
+-  void checkLinearSolverOverride(const MPI_Comm comm) {
+-    const auto& o = getLinearSolverOverride();
+-    const auto description = o.has_value() ? o->description : std::string{};
+-    // the description of the first process
++  void readLinearSolverOverrides(const int argc,
++                                 const MainFunctionArguments argv) {
++    readOverride(getLinearSolverOverrideStorage(), argc, argv,
++                 linear_solver_override_option,
++                 linear_solver_override_short_option,
++                 linear_solver_override_variable, "linear solver override");
++    readOverride(getPreconditionerOverrideStorage(), argc, argv,
++                 preconditioner_override_option,
++                 preconditioner_override_short_option,
++                 preconditioner_override_variable, "preconditioner override");
++    checkOverridesNames();
++  }  // end of readLinearSolverOverrides
++
++#ifdef MFEM_USE_MPI
++
++  /*!
++   * \return if a description differs from the one of the first process
++   * \param[in] comm: communicator
++   * \param[in] description: description of the process
++   */
++  static bool differsFromFirstProcess(const MPI_Comm comm,
++                                      const std::string& description) {
+     auto size = static_cast<int>(description.size());
+     MPI_Bcast(&size, 1, MPI_INT, 0, comm);
+     auto first = description;
+@@ -157,21 +260,40 @@ namespace mfem_mgis::internals {
+     MPI_Bcast(first.data(), size, MPI_CHAR, 0, comm);
+     auto differ = static_cast<int>(first != description);
+     MPI_Allreduce(MPI_IN_PLACE, &differ, 1, MPI_INT, MPI_LOR, comm);
+-    if (differ != 0) {
++    return differ != 0;
++  }  // end of differsFromFirstProcess
++
++  void checkLinearSolverOverrides(const MPI_Comm comm) {
++    const auto description =
++        [](const std::optional<FactoryArgumentOverride>& o) {
++          return o.has_value() ? o->description : std::string{};
++        };
++    const auto ls =
++        differsFromFirstProcess(comm, description(getLinearSolverOverride()));
++    const auto pc =
++        differsFromFirstProcess(comm, description(getPreconditionerOverride()));
++    if (ls || pc) {
+       throw std::runtime_error(
+-          "the processes have different linear solver overrides (the "
+-          "environment variable MFEM_MGIS_LINEAR_SOLVER_OVERRIDE shall be "
+-          "given to all the processes)");
++          "the processes have different linear solver or preconditioner "
++          "overrides (the environment variables "
++          "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE and "
++          "MFEM_MGIS_PRECONDITIONER_OVERRIDE shall be given to all the "
++          "processes)");
+     }
+-  }  // end of checkLinearSolverOverride
++  }  // end of checkLinearSolverOverrides
+ 
+ #endif /* MFEM_USE_MPI */
+ 
+-  const std::optional<LinearSolverOverride>&
++  const std::optional<FactoryArgumentOverride>&
+   getLinearSolverOverride() noexcept {
+     return getLinearSolverOverrideStorage();
+   }  // end of getLinearSolverOverride
+ 
++  const std::optional<FactoryArgumentOverride>&
++  getPreconditionerOverride() noexcept {
++    return getPreconditionerOverrideStorage();
++  }  // end of getPreconditionerOverride
++
+   void reportLinearSolverOverride(const std::string_view replaced) noexcept {
+     static auto reported = std::atomic<bool>{false};
+     const auto& o = getLinearSolverOverride();
+@@ -185,17 +307,46 @@ namespace mfem_mgis::internals {
+     }
+   }  // end of reportLinearSolverOverride
+ 
+-  std::pair<std::string_view, const Parameters&> selectLinearSolver(
+-      const std::string_view n, const Parameters& p) noexcept {
+-    const auto& o = getLinearSolverOverride();
+-    if (!o.has_value()) {
+-      return {n, p};
++  /*!
++   * \brief reports, once, on the output stream of MFEM, that the
++   * preconditioner override is given to a linear solver
++   * \param[in] n: name of the linear solver
++   */
++  static void reportPreconditionerOverride(const std::string_view n) noexcept {
++    static auto reported = std::atomic<bool>{false};
++    const auto& o = getPreconditionerOverride();
++    if ((!o.has_value()) || reported.exchange(true)) {
++      return;
+     }
+     try {
+-      reportLinearSolverOverride("the linear solver '" + std::string{n} + "'");
++      mfem::out << "mfem-mgis: the preconditioner override '" << o->name
++                << "' is given to the linear solver '" << n << "'" << std::endl;
+     } catch (...) {
+     }
+-    return {o->name, o->parameters};
++  }  // end of reportPreconditionerOverride
++
++  std::pair<std::string, Parameters> selectLinearSolver(
++      const std::string_view n, const Parameters& p) {
++    const auto& ls = getLinearSolverOverride();
++    auto r = std::pair<std::string, Parameters>{n, p};
++    if (ls.has_value()) {
++      reportLinearSolverOverride("the linear solver '" + std::string{n} + "'");
++      r = {ls->name, ls->options};
++    }
++    const auto& pc = getPreconditionerOverride();
++    if (pc.has_value()) {
++      reportPreconditionerOverride(r.first);
++      // the preconditioner is replaced; `None` only removes it (the
++      // solvers which accept no preconditioner refuse the option)
++      auto& options = r.second;
++      options = remove(options, std::vector<std::string>{"Preconditioner"});
++      if (pc->name != "None") {
++        options.insert(
++            may_throw, "Preconditioner",
++            Parameters{{"Name", pc->name}, {"Options", pc->options}});
++      }
++    }
++    return r;
+   }  // end of selectLinearSolver
+ 
+ }  // end of namespace mfem_mgis::internals
+diff --git a/src/LinearSolverOverride.hxx b/src/LinearSolverOverride.hxx
+index 44a6e271e7..0e6a3d5e29 100644
+--- a/src/LinearSolverOverride.hxx
++++ b/src/LinearSolverOverride.hxx
+@@ -1,9 +1,11 @@
+ /*!
+  * \file   src/LinearSolverOverride.hxx
+- * \brief  This file declares the reading of the linear solver which
+- * replaces the linear solvers of the non linear evolution problems, given
+- * by the option `--linear-solver-override` or the environment variable
+- * `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE` (internal header)
++ * \brief  This file declares the reading of the linear solver and of the
++ * preconditioner which replace the ones of the non linear evolution
++ * problems, given by the options `--linear-solver-override` and
++ * `--preconditioner-override` or by the environment variables
++ * `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE` and `MFEM_MGIS_PRECONDITIONER_OVERRIDE`
++ * (internal header)
+  * \date   16/10/2026
+  */
+ 
+@@ -30,60 +32,81 @@ namespace mfem_mgis::internals {
+   //! \brief environment variable giving the linear solver override
+   inline constexpr const char* linear_solver_override_variable =
+       "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE";
++  //! \brief long name of the option giving the preconditioner override
++  inline constexpr const char* preconditioner_override_option =
++      "--preconditioner-override";
++  //! \brief short name of the option `preconditioner_override_option`
++  inline constexpr const char* preconditioner_override_short_option = "-pco";
++  //! \brief environment variable giving the preconditioner override
++  inline constexpr const char* preconditioner_override_variable =
++      "MFEM_MGIS_PRECONDITIONER_OVERRIDE";
+ 
+-  //! \brief linear solver replacing the ones set by `setLinearSolver`
+-  struct LinearSolverOverride {
++  //! \brief object of a factory given by the user, with its description
++  struct FactoryArgumentOverride {
+     //! \brief description, as given
+     std::string description;
+-    //! \brief name of the linear solver
++    //! \brief name of the object
+     std::string name;
+-    //! \brief parameters of the linear solver
+-    Parameters parameters;
++    //! \brief options of the object
++    Parameters options;
+   };
+ 
+   /*!
+-   * \return the linear solver described in the syntax of the data of TFEL
+-   * (the syntax of the options of the domain specific languages of MFront)
+-   * as a factory argument of mfem-mgis: a name (`CGSolver` or `"CGSolver"`),
+-   * or a map with the entries `Name` and `Options` (optional), for instance
+-   * `{Name: "BelosSolver", Options: {Solver: "CG", Preconditioner: {Name:
+-   * "MueLu"}}}`. The integers, reals, strings, booleans, lists and maps
+-   * (empty braces included) are converted to parameters.
++   * \return the object of a factory described in the syntax of the data of
++   * TFEL (the syntax of the options of the domain specific languages of
++   * MFront) as a factory argument of mfem-mgis: a name (`CGSolver` or
++   * `"CGSolver"`), or a map with the entries `Name` and `Options`
++   * (optional), for instance `{Name: "BelosSolver", Options: {Solver: "CG",
++   * Preconditioner: {Name: "MueLu"}}}`. The integers, reals, strings,
++   * booleans, lists and maps (empty braces included) are converted to
++   * parameters.
+    * \param[in] d: description
++   * \param[in] what: kind of object, for the error messages (`linear solver
++   * override`)
+    * \throws std::runtime_error if the description is invalid, or if
+    * mfem-mgis is built without the utilities of TFEL
+    */
+-  [[nodiscard]] LinearSolverOverride parseLinearSolverOverride(
+-      std::string_view d);
++  [[nodiscard]] FactoryArgumentOverride parseFactoryArgumentOverride(
++      std::string_view d, std::string_view what);
+   /*!
+    * \brief reads the linear solver override, given by the option
+    * `--linear-solver-override` (or `-lso`), or else by the environment
+-   * variable `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE` (see
+-   * `parseLinearSolverOverride`), returned afterwards by
+-   * `getLinearSolverOverride`. An empty value cancels the override.
++   * variable `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, and the preconditioner
++   * override, given by the option `--preconditioner-override` (or `-pco`),
++   * or else by the environment variable `MFEM_MGIS_PRECONDITIONER_OVERRIDE`
++   * (see `parseFactoryArgumentOverride`), returned afterwards by
++   * `getLinearSolverOverride` and `getPreconditionerOverride`. An empty
++   * value cancels an override.
+    * \param[in] argc: number of arguments
+    * \param[in] argv: arguments
+-   * \throws std::runtime_error on an invalid description, or if the option
++   * \throws std::runtime_error on an invalid description, or if an option
+    * is given twice or without value
+    */
+-  void readLinearSolverOverride(const int argc,
+-                                const MainFunctionArguments argv);
++  void readLinearSolverOverrides(const int argc,
++                                 const MainFunctionArguments argv);
+ #ifdef MFEM_USE_MPI
+   /*!
+    * \brief checks that all the processes of a communicator have the same
+-   * linear solver override (the environment variables are not always given
+-   * to the processes of the other nodes), collective
++   * overrides (the environment variables are not always given to the
++   * processes of the other nodes), collective
+    * \param[in] comm: communicator
+    * \throws std::runtime_error on all the processes if they differ
+    */
+-  void checkLinearSolverOverride(const MPI_Comm comm);
++  void checkLinearSolverOverrides(const MPI_Comm comm);
+ #endif /* MFEM_USE_MPI */
+   /*!
+    * \return the linear solver which replaces the linear solvers of the non
+    * linear evolution problems (see `setLinearSolver`), if any
+    */
+-  [[nodiscard]] const std::optional<LinearSolverOverride>&
++  [[nodiscard]] const std::optional<FactoryArgumentOverride>&
+   getLinearSolverOverride() noexcept;
++  /*!
++   * \return the preconditioner which replaces the preconditioners of the
++   * linear solvers of the non linear evolution problems (`Preconditioner`
++   * option of the linear solvers set by `setLinearSolver`), if any
++   */
++  [[nodiscard]] const std::optional<FactoryArgumentOverride>&
++  getPreconditionerOverride() noexcept;
+   /*!
+    * \brief reports, once, on the output stream of MFEM, that the linear
+    * solver override replaces a linear solver of the program
+@@ -92,13 +115,14 @@ namespace mfem_mgis::internals {
+   void reportLinearSolverOverride(std::string_view replaced) noexcept;
+   /*!
+    * \return the name and the parameters of the linear solver to build: the
+-   * linear solver override, if any (the replacement being reported, see
+-   * `reportLinearSolverOverride`), or the given ones
++   * linear solver override, if any, or else the given ones, whose option
++   * `Preconditioner` is the preconditioner override, if any. The
++   * replacements are reported once on the output stream of MFEM.
+    * \param[in] n: name of the linear solver requested by the program
+    * \param[in] p: parameters of the linear solver requested by the program
+    */
+-  [[nodiscard]] std::pair<std::string_view, const Parameters&>
+-  selectLinearSolver(std::string_view n, const Parameters& p) noexcept;
++  [[nodiscard]] std::pair<std::string, Parameters> selectLinearSolver(
++      std::string_view n, const Parameters& p);
+ 
+ }  // end of namespace mfem_mgis::internals
+ 
+diff --git a/src/NonLinearEvolutionProblemImplementation.cxx b/src/NonLinearEvolutionProblemImplementation.cxx
+index 4a00da7662..d9ee9e808f 100644
+--- a/src/NonLinearEvolutionProblemImplementation.cxx
++++ b/src/NonLinearEvolutionProblemImplementation.cxx
+@@ -1214,6 +1214,11 @@ namespace mfem_mgis {
+           "the linear solver built by the program");
+       return this->setLinearSolver(ctx, "", Parameters{});
+     }
++    if (internals::getPreconditionerOverride().has_value()) {
++      return ctx.registerErrorMessage(
++          "the preconditioner override can't be given to a linear solver "
++          "built by the program (a linear solver override is required)");
++    }
+     if (isInvalid(s)) {
+       return ctx.registerErrorMessage("invalid linear solver");
+     }
+@@ -1223,15 +1228,28 @@ namespace mfem_mgis {
+ 
+   bool NonLinearEvolutionProblemImplementation<true>::setLinearSolver(
+       Context& ctx, std::string_view n0, const Parameters& p0) noexcept {
+-    // the linear solver override given at the initialization, if any
+-    const auto [n, p] = internals::selectLinearSolver(n0, p0);
++    // the linear solver and preconditioner overrides given at the
++    // initialization, if any
++    auto selection = std::pair<std::string, Parameters>{};
++    try {
++      selection = internals::selectLinearSolver(n0, p0);
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
++    const auto& [n, p] = selection;
+     const auto& f = LinearSolverFactory<true>::getFactory();
+     auto& fespace = this->getFiniteElementSpace();
+     auto s = f.generate(ctx, n, fespace, p);
+     if (isInvalid(s)) {
+       if (internals::getLinearSolverOverride().has_value()) {
+-        return ctx.registerErrorMessage("the linear solver override '" +
+-                                        std::string{n} + "' can't be built");
++        return ctx.registerErrorMessage("the linear solver override '" + n +
++                                        "' can't be built");
++      }
++      if (internals::getPreconditionerOverride().has_value()) {
++        return ctx.registerErrorMessage(
++            "the linear solver '" + n +
++            "' can't be built with the preconditioner override '" +
++            internals::getPreconditionerOverride()->name + "'");
+       }
+       return false;
+     }
+@@ -1702,6 +1720,11 @@ namespace mfem_mgis {
+           "the linear solver built by the program");
+       return this->setLinearSolver(ctx, "", Parameters{});
+     }
++    if (internals::getPreconditionerOverride().has_value()) {
++      return ctx.registerErrorMessage(
++          "the preconditioner override can't be given to a linear solver "
++          "built by the program (a linear solver override is required)");
++    }
+     if (isInvalid(s)) {
+       return ctx.registerErrorMessage("invalid linear solver");
+     }
+@@ -1711,15 +1734,28 @@ namespace mfem_mgis {
+ 
+   bool NonLinearEvolutionProblemImplementation<false>::setLinearSolver(
+       Context& ctx, std::string_view n0, const Parameters& p0) noexcept {
+-    // the linear solver override given at the initialization, if any
+-    const auto [n, p] = internals::selectLinearSolver(n0, p0);
++    // the linear solver and preconditioner overrides given at the
++    // initialization, if any
++    auto selection = std::pair<std::string, Parameters>{};
++    try {
++      selection = internals::selectLinearSolver(n0, p0);
++    } catch (...) {
++      return registerExceptionInErrorBacktrace(ctx);
++    }
++    const auto& [n, p] = selection;
+     const auto& f = LinearSolverFactory<false>::getFactory();
+     auto& fespace = this->getFiniteElementSpace();
+     auto s = f.generate(ctx, n, fespace, p);
+     if (isInvalid(s)) {
+       if (internals::getLinearSolverOverride().has_value()) {
+-        return ctx.registerErrorMessage("the linear solver override '" +
+-                                        std::string{n} + "' can't be built");
++        return ctx.registerErrorMessage("the linear solver override '" + n +
++                                        "' can't be built");
++      }
++      if (internals::getPreconditionerOverride().has_value()) {
++        return ctx.registerErrorMessage(
++            "the linear solver '" + n +
++            "' can't be built with the preconditioner override '" +
++            internals::getPreconditionerOverride()->name + "'");
+       }
+       return false;
+     }
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index c4acd71431..fce837fc96 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -153,7 +153,58 @@ if(MFEM_MGIS_HAVE_TFEL)
+         DEPENDS BehaviourTest
+         PASS_REGULAR_EXPRESSION "${_override_regex}"
+         FAIL_REGULAR_EXPRESSION "${_override_failures}")
++      # preconditioner override alone: the GMRES solver of the program keeps
++      # its options and receives the preconditioner
++      add_test(NAME TwoLayerCube-1-PreconditionerOverrideP
++               COMMAND mpirun -n 2 ./TwoLayerCube ${_override_test_options}
++                       --parallel --preconditioner-override HypreDiagScale)
++      set_tests_properties(TwoLayerCube-1-PreconditionerOverrideP PROPERTIES
++        DEPENDS BehaviourTest
++        PASS_REGULAR_EXPRESSION
++        "preconditioner override 'HypreDiagScale' is given to the linear solver 'GMRESSolver'.*Error is lower than threshold"
++        FAIL_REGULAR_EXPRESSION "${_override_failures}")
++      # the preconditioner HypreDiagScale of the conjugate gradient of hypre
++      # requested by the program is replaced by BoomerAMG
++      add_test(NAME TwoLayerCube-1-PreconditionerOverrideReplacementP
++               COMMAND mpirun -n 2 ./TwoLayerCube
++                       --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
++                       --library $<TARGET_FILE:BehaviourTest> --test-case 1
++                       --linearsolver HyprePCG --parallel
++                       --preconditioner-override
++                       "{Name: \"HypreBoomerAMG\", Options: {VerbosityLevel: 0}}")
++      set_tests_properties(TwoLayerCube-1-PreconditionerOverrideReplacementP
++        PROPERTIES
++        DEPENDS BehaviourTest
++        PASS_REGULAR_EXPRESSION
++        "preconditioner override 'HypreBoomerAMG' is given to the linear solver 'HyprePCG'.*Error is lower than threshold"
++        FAIL_REGULAR_EXPRESSION "${_override_failures}")
++      # None, given to a direct solver which accepts no preconditioner
++      if(MFEM_MGIS_HAVE_MUMPS)
++        add_test(NAME TwoLayerCube-1-PreconditionerOverrideNoneP
++                 COMMAND mpirun -n 2 ./TwoLayerCube
++                         --mesh ${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh
++                         --library $<TARGET_FILE:BehaviourTest> --test-case 1
++                         --linearsolver MUMPSSolver --parallel
++                         --preconditioner-override None)
++        set_tests_properties(TwoLayerCube-1-PreconditionerOverrideNoneP
++          PROPERTIES
++          DEPENDS BehaviourTest
++          PASS_REGULAR_EXPRESSION
++          "preconditioner override 'None' is given to the linear solver 'MUMPSSolver'.*Error is lower than threshold"
++          FAIL_REGULAR_EXPRESSION "${_override_failures}")
++      endif(MFEM_MGIS_HAVE_MUMPS)
+     endif(MFEM_USE_MPI)
++    # both overrides, given by the variables: the preconditioner override is
++    # given to the linear solver override
++    add_test(NAME TwoLayerCube-1-LinearSolverAndPreconditionerOverrides
++             COMMAND ./TwoLayerCube ${_override_test_options} --no-parallel)
++    set_tests_properties(TwoLayerCube-1-LinearSolverAndPreconditionerOverrides
++      PROPERTIES
++      DEPENDS BehaviourTest
++      ENVIRONMENT "MFEM_MGIS_LINEAR_SOLVER_OVERRIDE={Name: \"CGSolver\", Options: {${_override_options}}};MFEM_MGIS_PRECONDITIONER_OVERRIDE=DSmoother"
++      PASS_REGULAR_EXPRESSION
++      "linear solver override 'CGSolver' replaces the linear solver 'GMRESSolver'.*preconditioner override 'DSmoother' is given to the linear solver 'CGSolver'.*Error is lower than threshold"
++      FAIL_REGULAR_EXPRESSION "${_override_failures}")
+   endif(MFEM_MGIS_HAVE_TFEL_UTILITIES)
+ 
+   # UniaxialTensileTest executable
+@@ -1499,6 +1550,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+     add_execution_settings_refusal_test(
+       linear-solver-override-twice "--linear-solver-override is given twice"
+       --linear-solver-override CGSolver --linear-solver-override CGSolver)
++    add_execution_settings_refusal_test(
++      preconditioner-override "invalid preconditioner override"
++      --preconditioner-override "{Name: \"HypreBoomerAMG\", Unknown: 1}")
++    add_execution_settings_refusal_test(
++      preconditioner-override-unknown "unknown name 'UnknownPreconditioner'"
++      --preconditioner-override UnknownPreconditioner)
++    add_execution_settings_refusal_test(
++      preconditioner-override-none "no options expected for 'None'"
++      --preconditioner-override "{Name: None, Options: {VerbosityLevel: 0}}")
+     add_execution_settings_refusal_test(
+       mode "invalid value 'xpu' for option '--execution'" --execution xpu)
+     add_execution_settings_refusal_test(
+-- 
+2.43.0
+

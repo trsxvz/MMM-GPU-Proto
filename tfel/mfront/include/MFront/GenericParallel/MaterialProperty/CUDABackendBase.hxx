@@ -3,7 +3,7 @@
  *
  * \brief  This file declares the `CUDABackendBase` class
  * \author Thomas Helfer
- * \date   07/04/2026
+ * \date 07/04/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -80,7 +80,7 @@ namespace mfront::generic_parallel::material_property {
     //! \return the programming model (`hip` or `cuda`)
     [[nodiscard]] virtual std::string getProgrammingModel() const noexcept = 0;
     /*!
-     * \brief write the global functions, if required
+     * \brief write the kernel
      *
      * \param[in] os: output stream
      * \param[in] i: interface

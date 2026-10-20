@@ -1,0 +1,62 @@
+From b1b151270513633e66e54e49aeb0c58cc2b84a13 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 12:07:37 +0200
+Subject: [PATCH] MFront: comparison to the numerical jacobian only performed
+ on the host
+
+The comparison of the jacobian to a numerical jacobian
+(@CompareToNumericalJacobian) prints its results on the standard output,
+which is not available in device code. It is now generated for the host
+only. This was the last call to a host function from device code
+reported by the compilation sweeps of all the tests of MFront, apart from
+the code written by the users of the test behaviours.
+
+The documentation of the limitations is updated: the SYCL backend is
+also tested with icpx (CPU).
+---
+ docs/web/generic-parallel-behaviour-interface.md | 7 +++++--
+ mfront/src/ImplicitCodeGeneratorBase.cxx         | 6 +++++-
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 06f33cd8e..dfd595264 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -489,9 +489,12 @@ worked around in the generated code and the headers (see the comments of
+   generated function reports an error).
+ - the slip systems of polycrystals read from a file at runtime
+   (`PolyCrystalsSlidingSystems`) are not available in device code.
++- the comparison of the jacobian to a numerical jacobian
++  (`@CompareToNumericalJacobian`) prints its results on the standard
++  output: it is only performed on the host.
+ - the `HIP` backend has not been tested on AMD GPUs.
+-- the SYCL backend has been tested with AdaptiveCpp (CPU and NVIDIA GPU),
+-  not with Intel's DPC++.
++- the SYCL backend has been tested with AdaptiveCpp (CPU and NVIDIA GPU)
++  and with Intel's `icpx` (CPU).
+ 
+ # Tests
+ 
+diff --git a/mfront/src/ImplicitCodeGeneratorBase.cxx b/mfront/src/ImplicitCodeGeneratorBase.cxx
+index 263a3e954..121240b74 100644
+--- a/mfront/src/ImplicitCodeGeneratorBase.cxx
++++ b/mfront/src/ImplicitCodeGeneratorBase.cxx
+@@ -1280,10 +1280,14 @@ namespace mfront {
+       NonLinearSystemSolverBase::writeEvaluateNumericallyComputedBlocks(
+           os, this->bd, h);
+       if (this->bd.hasAttribute(h, BehaviourData::compareToNumericalJacobian)) {
+-        os << "tfel::math::tmatrix<" << n2 << ", " << n2
++        // the results of the comparison are printed on the standard output,
++        // which is not available in device code
++        os << "#ifndef TFEL_DEVICE_CODE\n"
++           << "tfel::math::tmatrix<" << n2 << ", " << n2
+            << ", NumericType> njacobian;\n";
+         NonLinearSystemSolverBase::writeComparisonToNumericalJacobian(
+             os, this->bd, h, "njacobian");
++        os << "#endif /* TFEL_DEVICE_CODE */\n";
+       }
+     }
+     os << "}\n"
+-- 
+2.43.0
+

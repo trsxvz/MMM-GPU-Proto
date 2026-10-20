@@ -2,7 +2,7 @@
  * \file   mfront/src/GenericMaterialPropertyInterfaceBase.cxx
  * \brief
  * \author Thomas Helfer
- * \date   04/05/2022
+ * \date 04/05/2022
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
  * This project is publicly released under either the GNU GPL Licence with
@@ -257,6 +257,7 @@ namespace mfront {
                    "unable to open '" +
                        fn + "'");
     os.exceptions(std::ios::badbit | std::ios::failbit);
+    os.precision(14);
     os << "/*!\n"
        << "* \\file   " << fn << "\n"
        << "* \\brief  "
@@ -268,7 +269,7 @@ namespace mfront {
       os << "* \\author " << fd.authorName << '\n';
     }
     if (!fd.date.empty()) {
-      os << "* \\date   " << fd.date << '\n';
+      os << "* \\date " << fd.date << '\n';
     }
     if (!fd.description.empty()) {
       os << fd.description << '\n';
@@ -319,6 +320,7 @@ namespace mfront {
                    "unable to open '" +
                        fn + "'");
     os.exceptions(std::ios::badbit | std::ios::failbit);
+    os.precision(14);
     const auto& file = fd.fileName;
     const auto& author = fd.authorName;
     const auto& date = fd.date;
@@ -336,7 +338,7 @@ namespace mfront {
       os << "* \\author " << author << '\n';
     }
     if (!date.empty()) {
-      os << "* \\date   " << date << '\n';
+      os << "* \\date " << date << '\n';
     }
     os << " */\n\n";
     writeRealTypeDefinitions(os, mpd);

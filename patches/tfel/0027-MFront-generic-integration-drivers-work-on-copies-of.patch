@@ -1,0 +1,450 @@
+From b6a11eae25089cc3b9cd422d3a9063b46d25768f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 04:15:39 +0200
+Subject: [PATCH] MFront: generic integration drivers work on copies of the
+ behaviour data
+
+The drivers of the generic interface (integration, initialize functions
+and post-processings of the small strain, standard finite strain,
+Green-Lagrange and logarithmic strain behaviours) temporarily modified
+the pointers of the behaviour data given by the caller, and restored them
+afterwards. They now build a local copy of the behaviour data whose
+pointers refer to the local values (Cauchy stress, Green-Lagrange strain,
+etc.), and never modify the data of the caller. For the Cauchy stress,
+the standard finite strain drivers directly call the small strain ones.
+The results are unchanged.
+
+With nvc++ -mp=gpu at -O2, the stress written by the initialize function
+of a finite strain behaviour was lost when the fields were stored point
+by point: the save and restore of the pointers around the call led to
+wrong device code. The same construct was the trigger of the defect of
+nvcc 13.0 worked around in PointView.
+---
+ .../GreenLagrangeStrainIntegrate.hxx          |  61 +++------
+ .../MFront/GenericBehaviour/Integrate.hxx     |  50 +++-----
+ .../LogarithmicStrainIntegrate.hxx            |  61 +++------
+ ...StandardFiniteStrainBehaviourIntegrate.hxx | 118 +++++++++---------
+ 4 files changed, 116 insertions(+), 174 deletions(-)
+
+diff --git a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+index 65a48ba78..79f68a54a 100644
+--- a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
+@@ -222,20 +222,13 @@ namespace mfront::gb::green_lagrange_strain {
+             S0, s0, d, d.s0.thermodynamic_forces, F0, o.stress_measure))) {
+       return -1;
+     }
+-    auto* const gradients0_old = d.s0.gradients;
+-    auto* const gradients1_old = d.s1.gradients;
+-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
+-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
+-    d.s0.gradients = e0.begin();
+-    d.s1.gradients = e0.begin();
+-    d.s0.thermodynamic_forces = S0.begin();
+-    d.s1.thermodynamic_forces = S0.begin();
++    auto dc = d;
++    dc.s0.gradients = e0.begin();
++    dc.s1.gradients = e0.begin();
++    dc.s0.thermodynamic_forces = S0.begin();
++    dc.s1.thermodynamic_forces = S0.begin();
+     const auto r = mfront::gb::executeInitializeFunction<Behaviour>(
+-        f, d, initialize_variables, p, args...);
+-    d.s0.gradients = gradients0_old;
+-    d.s1.gradients = gradients1_old;
+-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
++        f, dc, initialize_variables, p, args...);
+     return r;
+   }  // end of executeInitializeFunction
+ 
+@@ -307,23 +300,14 @@ namespace mfront::gb::green_lagrange_strain {
+             S0, s0, d, d.s0.thermodynamic_forces, F0, sm))) {
+       return -1;
+     }
+-    auto* const gradients0_old = d.s0.gradients;
+-    auto* const gradients1_old = d.s1.gradients;
+-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
+-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
+-    auto* const K_old = d.K;
+-    d.s0.gradients = e0.begin();
+-    d.s1.gradients = e1.begin();
+-    d.s0.thermodynamic_forces = S0.begin();
+-    d.s1.thermodynamic_forces = S1.begin();
+-    d.K = K.begin();
++    auto dc = d;
++    dc.s0.gradients = e0.begin();
++    dc.s1.gradients = e1.begin();
++    dc.s0.thermodynamic_forces = S0.begin();
++    dc.s1.thermodynamic_forces = S1.begin();
++    dc.K = K.begin();
+     const auto r = mfront::gb::integrate<Behaviour>(
+-        d, o, Behaviour::STANDARDTANGENTOPERATOR, p, args...);
+-    d.s0.gradients = gradients0_old;
+-    d.s1.gradients = gradients1_old;
+-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+-    d.K = K_old;
++        dc, o, Behaviour::STANDARDTANGENTOPERATOR, p, args...);
+     if (r == -1) {
+       return r;
+     }
+@@ -430,21 +414,14 @@ namespace mfront::gb::green_lagrange_strain {
+             S1, s1, d, d.s1.thermodynamic_forces, F1, o.stress_measure))) {
+       return -1;
+     }
+-    auto* const gradients0_old = d.s0.gradients;
+-    auto* const gradients1_old = d.s1.gradients;
+-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
+-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
+-    d.s0.gradients = e0.begin();
+-    d.s1.gradients = e1.begin();
+-    d.s0.thermodynamic_forces = S0.begin();
+-    d.s1.thermodynamic_forces = S1.begin();
++    auto dc = d;
++    dc.s0.gradients = e0.begin();
++    dc.s1.gradients = e1.begin();
++    dc.s0.thermodynamic_forces = S0.begin();
++    dc.s1.thermodynamic_forces = S1.begin();
+     const auto r =
+         mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
+-            f, post_processing_variables, d, p, args...);
+-    d.s0.gradients = gradients0_old;
+-    d.s1.gradients = gradients1_old;
+-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
++            f, post_processing_variables, dc, p, args...);
+     return r;
+   }  // end of executePostProcessing
+ 
+diff --git a/mfront/include/MFront/GenericBehaviour/Integrate.hxx b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+index 0a35a0b22..061515086 100644
+--- a/mfront/include/MFront/GenericBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+@@ -601,24 +601,17 @@ namespace mfront::gb {
+       const real* const initialize_variables,
+       const tfel::material::OutOfBoundsPolicy p,
+       const ConstructorArguments&... args) {
+-    // the behaviour is initialized with the state at the beginning of the
+-    // time step
+-    auto* const gradients_old = d.s1.gradients;
+-    auto* const material_properties_old = d.s1.material_properties;
+-    auto* const external_state_variables_old = d.s1.external_state_variables;
+-    d.s1.gradients = d.s0.gradients;
+-    d.s1.material_properties = d.s0.material_properties;
+-    d.s1.external_state_variables = d.s0.external_state_variables;
+-    const auto restore = [&d, gradients_old, material_properties_old,
+-                          external_state_variables_old] {
+-      d.s1.gradients = gradients_old;
+-      d.s1.material_properties = material_properties_old;
+-      d.s1.external_state_variables = external_state_variables_old;
+-    };
++    // the behaviour is built from the state at the beginning of the time
++    // step: a copy of the behaviour data, whose gradients, material
++    // properties and external state variables at the end of the time step
++    // are the ones at the beginning of the time step
++    auto d0 = d;
++    d0.s1.gradients = d.s0.gradients;
++    d0.s1.material_properties = d.s0.material_properties;
++    d0.s1.external_state_variables = d.s0.external_state_variables;
+     const auto execute = [&]() -> int {
+-      Behaviour b(d, args...);
++      Behaviour b(d0, args...);
+       b.setOutOfBoundsPolicy(p);
+-      restore();
+       if (!b.initialize()) {
+         reportError(d, "behaviour initialisation failed");
+         return -1;
+@@ -627,7 +620,7 @@ namespace mfront::gb {
+       b.exportStateData(d.s1);
+       return EXIT_SUCCESS;
+     };
+-    return callAndReportExceptions(d, execute, restore);
++    return callAndReportExceptions(d, execute, [] {});
+   }  // end of executeInitializeFunction
+ 
+   /*!
+@@ -683,24 +676,19 @@ namespace mfront::gb {
+       mfront_gb_BehaviourData& d,
+       const tfel::material::OutOfBoundsPolicy p,
+       const ConstructorArguments&... args) {
+-    auto* const thermodynamic_forces_old = d.s0.thermodynamic_forces;
+-    auto* const internal_state_variables_old = d.s0.internal_state_variables;
+-    const auto restore = [&d, thermodynamic_forces_old,
+-                          internal_state_variables_old] {
+-      d.s0.thermodynamic_forces = thermodynamic_forces_old;
+-      d.s0.internal_state_variables = internal_state_variables_old;
+-    };
++    // the behaviour is built from the thermodynamic forces and the internal
++    // state variables at the end of the time step: a copy of the behaviour
++    // data, whose thermodynamic forces and internal state variables at the
++    // beginning of the time step are the ones at the end of the time step
++    auto d1 = d;
++    d1.s0.thermodynamic_forces = d.s1.thermodynamic_forces;
++    d1.s0.internal_state_variables = d.s1.internal_state_variables;
+     const auto execute = [&]() -> int {
+-      // a little trick to initialize the behaviour with the thermodynamic
+-      // forces and internal state variables at the end of the time step
+-      d.s0.thermodynamic_forces = d.s1.thermodynamic_forces;
+-      d.s0.internal_state_variables = d.s1.internal_state_variables;
+-      Behaviour b(d, args...);
++      Behaviour b(d1, args...);
+       b.setOutOfBoundsPolicy(p);
+       // This call sets the values of the gradients and external state
+       // variables at the end of the time step
+       b.updateExternalStateVariables();
+-      restore();
+       if (!b.initialize()) {
+         reportError(d, "behaviour initialisation failed");
+         return -1;
+@@ -717,7 +705,7 @@ namespace mfront::gb {
+       }
+       return EXIT_SUCCESS;
+     };
+-    return callAndReportExceptions(d, execute, restore);
++    return callAndReportExceptions(d, execute, [] {});
+   }  // end of executePostProcessing
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
+index 5f15eefe2..4451721a2 100644
+--- a/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/LogarithmicStrainIntegrate.hxx
+@@ -241,20 +241,13 @@ namespace mfront::gb::logarithmic_strain {
+                                          F0, lgh0, o.stress_measure))) {
+       return -1;
+     }
+-    auto* const gradients0_old = d.s0.gradients;
+-    auto* const gradients1_old = d.s1.gradients;
+-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
+-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
+-    d.s0.gradients = e0.begin();
+-    d.s1.gradients = e0.begin();
+-    d.s0.thermodynamic_forces = T0.begin();
+-    d.s1.thermodynamic_forces = T0.begin();
++    auto dc = d;
++    dc.s0.gradients = e0.begin();
++    dc.s1.gradients = e0.begin();
++    dc.s0.thermodynamic_forces = T0.begin();
++    dc.s1.thermodynamic_forces = T0.begin();
+     const auto r = mfront::gb::executeInitializeFunction<Behaviour>(
+-        f, d, initialize_variables, p, args...);
+-    d.s0.gradients = gradients0_old;
+-    d.s1.gradients = gradients1_old;
+-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
++        f, dc, initialize_variables, p, args...);
+     return r;
+   }  // end of executeInitializeFunction
+ 
+@@ -330,23 +323,14 @@ namespace mfront::gb::logarithmic_strain {
+                                          F0, lgh0, sm))) {
+       return -1;
+     }
+-    auto* const gradients0_old = d.s0.gradients;
+-    auto* const gradients1_old = d.s1.gradients;
+-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
+-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
+-    auto* const K_old = d.K;
+-    d.s0.gradients = e0.begin();
+-    d.s1.gradients = e1.begin();
+-    d.s0.thermodynamic_forces = T0.begin();
+-    d.s1.thermodynamic_forces = T1.begin();
+-    d.K = K.begin();
++    auto dc = d;
++    dc.s0.gradients = e0.begin();
++    dc.s1.gradients = e1.begin();
++    dc.s0.thermodynamic_forces = T0.begin();
++    dc.s1.thermodynamic_forces = T1.begin();
++    dc.K = K.begin();
+     const auto r = mfront::gb::integrate<Behaviour>(
+-        d, o, Behaviour::STANDARDTANGENTOPERATOR, p, args...);
+-    d.s0.gradients = gradients0_old;
+-    d.s1.gradients = gradients1_old;
+-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+-    d.K = K_old;
++        dc, o, Behaviour::STANDARDTANGENTOPERATOR, p, args...);
+     if (r == -1) {
+       return r;
+     }
+@@ -466,21 +450,14 @@ namespace mfront::gb::logarithmic_strain {
+                                          F1, lgh1, sm))) {
+       return -1;
+     }
+-    auto* const gradients0_old = d.s0.gradients;
+-    auto* const gradients1_old = d.s1.gradients;
+-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
+-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
+-    d.s0.gradients = e0.begin();
+-    d.s1.gradients = e1.begin();
+-    d.s0.thermodynamic_forces = T0.begin();
+-    d.s1.thermodynamic_forces = T1.begin();
++    auto dc = d;
++    dc.s0.gradients = e0.begin();
++    dc.s1.gradients = e1.begin();
++    dc.s0.thermodynamic_forces = T0.begin();
++    dc.s1.thermodynamic_forces = T1.begin();
+     const auto r =
+         mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
+-            f, post_processing_variables, d, p, args...);
+-    d.s0.gradients = gradients0_old;
+-    d.s1.gradients = gradients1_old;
+-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
++            f, post_processing_variables, dc, p, args...);
+     return r;
+   }  // end of executePostProcessing
+ 
+diff --git a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
+index 11ad443fa..865f0c9ef 100644
+--- a/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/StandardFiniteStrainBehaviourIntegrate.hxx
+@@ -174,25 +174,26 @@ namespace mfront::gb::finite_strain {
+       reportError(d, "invalid choice for the stress measure");
+       return -1;
+     }
++    if (sm == StressMeasure::CAUCHY) {
++      return mfront::gb::executeInitializeFunction<Behaviour>(
++          f, d, initialize_variables, p, args...);
++    }
++    // the behaviour works with the Cauchy stress: the initialize function is
++    // executed with a copy of the behaviour data referring to a local Cauchy
++    // stress
++    auto F0 = tfel::math::tensor<N, real>{};
+     auto s0 = tfel::math::stensor<N, real>{};
+-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
+-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
+-    if (sm != StressMeasure::CAUCHY) {
+-      auto F0 = tfel::math::tensor<N, real>{};
+-      if ((!internals::getDeformationGradient<Behaviour>(
+-              F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
+-          (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
+-                                             F0, sm))) {
+-        return -1;
+-      }
+-      d.s0.thermodynamic_forces = s0.begin();
+-      d.s1.thermodynamic_forces = s0.begin();
++    if ((!internals::getDeformationGradient<Behaviour>(
++            F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
++        (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
++                                           F0, sm))) {
++      return -1;
+     }
+-    const auto r = mfront::gb::executeInitializeFunction<Behaviour>(
+-        f, d, initialize_variables, p, args...);
+-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+-    return r;
++    auto dc = d;
++    dc.s0.thermodynamic_forces = s0.begin();
++    dc.s1.thermodynamic_forces = s0.begin();
++    return mfront::gb::executeInitializeFunction<Behaviour>(
++        f, dc, initialize_variables, p, args...);
+   }  // end of executeInitializeFunction
+ 
+   /*!
+@@ -252,27 +253,26 @@ namespace mfront::gb::finite_strain {
+       reportError(d, "invalid choice for consistent tangent operator");
+       return -1;
+     }
++    if (sm == StressMeasure::CAUCHY) {
++      return mfront::gb::integrate<Behaviour>(d, o, smf, p, args...);
++    }
++    // the behaviour works with the Cauchy stress: the behaviour is
++    // integrated with a copy of the behaviour data referring to local Cauchy
++    // stresses, and the stress at the end of the time step is converted
++    auto F0 = tfel::math::tensor<N, real>{};
+     auto s0 = tfel::math::stensor<N, real>{};
+-    auto s1 = tfel::math::stensor<N, real>{};
+-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
+-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
+-    if (sm != StressMeasure::CAUCHY) {
+-      auto F0 = tfel::math::tensor<N, real>{};
+-      if ((!internals::getDeformationGradient<Behaviour>(
+-              F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
+-          (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
+-                                             F0, sm))) {
+-        return -1;
+-      }
+-      s1 = s0;
+-      d.s0.thermodynamic_forces = s0.begin();
+-      d.s1.thermodynamic_forces = s1.begin();
++    if ((!internals::getDeformationGradient<Behaviour>(
++            F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
++        (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
++                                           F0, sm))) {
++      return -1;
+     }
+-    const auto r = mfront::gb::integrate<Behaviour>(d, o, smf, p, args...);
+-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+-    if ((r == -1) || (o.isPredictionRequested()) ||
+-        (sm == StressMeasure::CAUCHY)) {
++    auto s1 = s0;
++    auto dc = d;
++    dc.s0.thermodynamic_forces = s0.begin();
++    dc.s1.thermodynamic_forces = s1.begin();
++    const auto r = mfront::gb::integrate<Behaviour>(dc, o, smf, p, args...);
++    if ((r == -1) || (o.isPredictionRequested())) {
+       return r;
+     }
+     auto F1 = tfel::math::tensor<N, real>{};
+@@ -341,32 +341,32 @@ namespace mfront::gb::finite_strain {
+       reportError(d, "invalid choice for the stress measure");
+       return -1;
+     }
++    if (sm == StressMeasure::CAUCHY) {
++      return mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
++          f, post_processing_variables, d, p, args...);
++    }
++    // the behaviour works with the Cauchy stress: the post-processing is
++    // executed with a copy of the behaviour data referring to local Cauchy
++    // stresses
++    auto F0 = tfel::math::tensor<N, real>{};
++    auto F1 = tfel::math::tensor<N, real>{};
+     auto s0 = tfel::math::stensor<N, real>{};
+     auto s1 = tfel::math::stensor<N, real>{};
+-    auto* const thermodynamic_forces0_old = d.s0.thermodynamic_forces;
+-    auto* const thermodynamic_forces1_old = d.s1.thermodynamic_forces;
+-    if (sm != StressMeasure::CAUCHY) {
+-      auto F0 = tfel::math::tensor<N, real>{};
+-      auto F1 = tfel::math::tensor<N, real>{};
+-      if ((!internals::getDeformationGradient<Behaviour>(
+-              F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
+-          (!internals::getDeformationGradient<Behaviour>(
+-              F1, d, d.s1.gradients, d.s1.internal_state_variables)) ||
+-          (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
+-                                             F0, sm)) ||
+-          (!internals::convertToCauchyStress(s1, d, d.s1.thermodynamic_forces,
+-                                             F1, sm))) {
+-        return -1;
+-      }
+-      d.s0.thermodynamic_forces = s0.begin();
+-      d.s1.thermodynamic_forces = s1.begin();
++    if ((!internals::getDeformationGradient<Behaviour>(
++            F0, d, d.s0.gradients, d.s0.internal_state_variables)) ||
++        (!internals::getDeformationGradient<Behaviour>(
++            F1, d, d.s1.gradients, d.s1.internal_state_variables)) ||
++        (!internals::convertToCauchyStress(s0, d, d.s0.thermodynamic_forces,
++                                           F0, sm)) ||
++        (!internals::convertToCauchyStress(s1, d, d.s1.thermodynamic_forces,
++                                           F1, sm))) {
++      return -1;
+     }
+-    const auto r =
+-        mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
+-            f, post_processing_variables, d, p, args...);
+-    d.s0.thermodynamic_forces = thermodynamic_forces0_old;
+-    d.s1.thermodynamic_forces = thermodynamic_forces1_old;
+-    return r;
++    auto dc = d;
++    dc.s0.thermodynamic_forces = s0.begin();
++    dc.s1.thermodynamic_forces = s1.begin();
++    return mfront::gb::executePostProcessing<Behaviour, use_initial_state>(
++        f, post_processing_variables, dc, p, args...);
+   }  // end of executePostProcessing
+ 
+   /*!
+-- 
+2.43.0
+

@@ -1,4 +1,4 @@
-From 407aed9749997f0ad984842f75de3b29e06755ad Mon Sep 17 00:00:00 2001
+From a8ce1ae30785f303e32c0419b49fa8ded1c62d92 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 04:01:39 +0200
 Subject: [PATCH] MFront sources depend on libTFELMFront, real type everywhere
@@ -132,10 +132,10 @@ index c0a171fecc..197f155c41 100644
        COMMENT "mfront source ${mfront_file}")
      set(${name}_dependencies_SOURCES
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 162de02776..1e117606ea 100644
+index 516cf9c060..43d9fd68f3 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -904,7 +904,8 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -907,7 +907,8 @@ if(MFEM_MGIS_HAVE_TFEL)
                  "--configuration-file=${_configuration}"
                  ${batch_integration_test_behaviours}
          WORKING_DIRECTORY "${_directory}"
@@ -145,7 +145,7 @@ index 162de02776..1e117606ea 100644
          COMMENT "MFront: generic-parallel behaviour (${_backend})")
        add_custom_target(GenericParallelBehaviour-${_backend}
                          DEPENDS "${_library}" "${_uo2_library}")
-@@ -1166,10 +1167,11 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -1169,10 +1170,11 @@ if(MFEM_MGIS_HAVE_TFEL)
          OUTPUT "${_library}"
          COMMAND "${MFRONT}" --obuild --interface=generic-parallel
                  --configuration-file=config-kokkos.json

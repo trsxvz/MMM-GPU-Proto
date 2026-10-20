@@ -1,0 +1,66 @@
+From 6a3e30d940fb0ef3e698afde7d5192fbbbcc5b51 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 18:15:20 +0200
+Subject: [PATCH] generic interface for material properties: message of the
+ physical upper bound, errno, documentation of the bounds status
+
+The message of a violated physical upper bound said below instead of
+over, and errno was not restored when an upper bound was violated with
+the strict policy. The documentation of the bounds status now describes
+its sign as implemented: negative if the evaluation failed (physical
+bound, or bound with the strict policy), positive with the warning
+policy.
+---
+ .../MFront/GenericMaterialProperty/OutputStatus.h  | 14 ++++++++------
+ .../src/GenericMaterialPropertyInterfaceBase.cxx   |  3 ++-
+ 2 files changed, 10 insertions(+), 7 deletions(-)
+
+diff --git a/mfront/include/MFront/GenericMaterialProperty/OutputStatus.h b/mfront/include/MFront/GenericMaterialProperty/OutputStatus.h
+index 1c46750aa..2104cf7fc 100644
+--- a/mfront/include/MFront/GenericMaterialProperty/OutputStatus.h
++++ b/mfront/include/MFront/GenericMaterialProperty/OutputStatus.h
+@@ -62,12 +62,14 @@ typedef struct {
+    * This status has the following meaning:
+    * - zero means that no argument was outside its bounds or its physical
+    * bounds.
+-   * - a negative values means that one argument went beyond its physical
+-   * bounds.
+-   *   The absolute value gives the rank of this argument (here the rank starts
+-   * at 1).
+-   * - a positive value means that one argument went beyond its bounds.
+-   *   The value gives the rank of this argument (here the rank starts at 1).
++   * - a negative value means that the evaluation failed because one
++   *   argument went beyond its physical bounds, or beyond its bounds with
++   *   the strict out of bounds policy. The absolute value gives the rank of
++   *   this argument (here the rank starts at 1).
++   * - a positive value means that one argument went beyond its bounds with
++   *   the warning out of bounds policy: the result must be used with
++   *   caution. The value gives the rank of this argument (here the rank
++   *   starts at 1).
+    */
+   int bounds_status;
+   //! \brief error message
+diff --git a/mfront/src/GenericMaterialPropertyInterfaceBase.cxx b/mfront/src/GenericMaterialPropertyInterfaceBase.cxx
+index 70889fcd4..960a6860d 100644
+--- a/mfront/src/GenericMaterialPropertyInterfaceBase.cxx
++++ b/mfront/src/GenericMaterialPropertyInterfaceBase.cxx
+@@ -132,7 +132,7 @@ namespace mfront {
+     } else if (b.boundsType == VariableBoundsDescription::UPPER) {
+       os << "if(" << v.name << " > " << v.type << "(" << b.upperBound << ")){\n"
+          << "mfront_report(\"" << v.name
+-         << " is below its physical upper bound (\" + " << to_string << " + \">"
++         << " is over its physical upper bound (\" + " << to_string << " + \">"
+          << b.upperBound << ").\\n\");\n"
+          << "mfront_output_status->status = -1;\n"
+          << "mfront_output_status->bounds_status = -" << i << ";\n"
+@@ -196,6 +196,7 @@ namespace mfront {
+          << to_string << " + \">" << b.upperBound << ").\\n\");\n"
+          << "mfront_output_status->status = -1;\n"
+          << "mfront_output_status->bounds_status = -" << i << ";\n"
++         << "errno = mfront_errno_old;\n"
+          << "return std::nan(\"\");\n"
+          << "} else if (mfront_out_of_bounds_policy==" << iucname
+          << "_WARNING_POLICY){\n"
+-- 
+2.43.0
+

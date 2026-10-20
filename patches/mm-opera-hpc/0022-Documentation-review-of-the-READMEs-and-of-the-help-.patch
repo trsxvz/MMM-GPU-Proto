@@ -1,4 +1,4 @@
-From 7bebe29c0667abe801b516f76bfb51993211beea Mon Sep 17 00:00:00 2001
+From 1271066bb0a04ddfe79b2579b279aae08b66d352 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:05:38 +0200
 Subject: [PATCH] Documentation: review of the READMEs and of the help of the
@@ -189,7 +189,7 @@ index 65e447a..92c9477 100644
  ### Run it
  
 diff --git a/cermet/cermet.cxx b/cermet/cermet.cxx
-index bfa02a9..74f6ea8 100644
+index 427f41a..76b0648 100644
 --- a/cermet/cermet.cxx
 +++ b/cermet/cermet.cxx
 @@ -86,15 +86,15 @@ static void parseCommandLineOptions(mfem::OptionsParser &args,
@@ -329,10 +329,10 @@ index b38432e..09bccc5 100644
  
  [^1]: JOSIEN, Marc. Mérope: A microstructure generator for simulation of heterogeneous materials. Journal of Computational Science, 2024, vol. 81, p. 102359.
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index c3fe689..967bff7 100644
+index db30c1e..44e7f90 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
-@@ -405,7 +405,7 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -397,7 +397,7 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
                   "EisenstatWalker1 or EisenstatWalker2");
    args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
                   "--adaptive-linear-solver-initial-tolerance",
@@ -341,7 +341,7 @@ index c3fe689..967bff7 100644
    args.AddOption(&p.elastic_operator_linear_solver, "",
                   "--elastic-operator-linear-solver",
                   "linear solver of the elastic operator of NewtonK0: "
-@@ -435,9 +435,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -427,9 +427,9 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
    args.AddOption(&p.verbosity_level, "-v", "--verbosity-level",
                   "choose the verbosity level");
    args.AddOption(&p.duration, "-d", "--duration",

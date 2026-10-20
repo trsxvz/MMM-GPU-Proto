@@ -1,4 +1,4 @@
-From 09e5c7b0e0e770728e5c43a835362498926b55d3 Mon Sep 17 00:00:00 2001
+From d956d5545e60bf1242bdce08262a9edb37c947be Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:15:49 +0200
 Subject: [PATCH] ex5: behaviour library and device options
@@ -12,7 +12,7 @@ particular the device (--device).
  1 file changed, 21 insertions(+), 3 deletions(-)
 
 diff --git a/ex5/SatohTest.cxx b/ex5/SatohTest.cxx
-index 24c93e8..3a9e8bc 100644
+index 7430df3..1326d97 100644
 --- a/ex5/SatohTest.cxx
 +++ b/ex5/SatohTest.cxx
 @@ -11,6 +11,7 @@

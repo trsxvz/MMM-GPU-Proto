@@ -1,4 +1,4 @@
-From 33e1bb8aceeaf2cc1846f1c19126b35928d36bca Mon Sep 17 00:00:00 2001
+From e465f133008ee0891ee4f23821a290dbfcfcaac2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 12:27:19 +0200
 Subject: [PATCH] ex8: MueLu as preconditioner, choice of its smoother
@@ -72,7 +72,7 @@ index a55af94..8ab5bf2 100644
  - `rjh_plate-newton-k0` runs the simulation by kernels with the mechanical problem solved by the `NewtonK0` method (option `-nlsMc NewtonK0`: the tangent systems are solved by GMRES preconditioned by the elastic operator, factorized by MUMPS at each resolution of the mechanical problem instead of the tangent operator at each iteration), compared to the same reference;
  - `rjh_plate-gpu` runs the first simulation on the GPU, MUMPS computing on the CPU (`--execution mixed --linear-solver-device cpu`), and `rjh_plate-mixed-gpu` the same with the finite elements computed on the CPU too, if the `MFEM_MGIS_EXAMPLES_GPU_TESTS` option is set and the behaviour libraries are built for the GPU (see the main README);
 diff --git a/ex8/Thermomechanical.cxx b/ex8/Thermomechanical.cxx
-index 5c5cf12..eecf74e 100644
+index 093772a..639fe82 100644
 --- a/ex8/Thermomechanical.cxx
 +++ b/ex8/Thermomechanical.cxx
 @@ -60,6 +60,13 @@ void common_parameters(mfem::OptionsParser& args, TestParameters& p) {
@@ -90,7 +90,7 @@ index 5c5cf12..eecf74e 100644
                   "--matrix-symmetry-mechanics",
                   "Symmetry of the matrices of the mechanical problem given "
 diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
-index 2aeac94..5e5d400 100644
+index aceb41d..c7b05cd 100644
 --- a/ex8/headers/Setup.hxx
 +++ b/ex8/headers/Setup.hxx
 @@ -40,6 +40,14 @@ struct TestParameters {

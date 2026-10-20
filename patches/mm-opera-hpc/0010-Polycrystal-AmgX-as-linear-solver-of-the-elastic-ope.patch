@@ -1,4 +1,4 @@
-From 357ca2e02a02c46244deca536245b0b14be36191 Mon Sep 17 00:00:00 2001
+From 82c0f3ecb161b75a1853bd71b36918911703deee Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 23:44:01 +0200
 Subject: [PATCH] Polycrystal: AmgX as linear solver of the elastic operator of
@@ -12,7 +12,7 @@ commas) and --amgx-single-precision.
  1 file changed, 97 insertions(+), 1 deletion(-)
 
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index b1bc82d..52e8c3b 100644
+index aeb93c4..066c2ca 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
 @@ -8,6 +8,7 @@
@@ -61,7 +61,7 @@ index b1bc82d..52e8c3b 100644
          {"TangentLinearSolver",
           mfem_mgis::Parameters{{"CGSolver", tangent_linear_solver_options}}}};
      for (const auto &[k, v] : non_linear_solver_options) {
-@@ -331,6 +347,17 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
+@@ -323,6 +339,17 @@ static void parseCommandLineArguments(mfem::OptionsParser &args,
    args.AddOption(&p.adaptive_linear_solver_initial_tolerance, "",
                   "--adaptive-linear-solver-initial-tolerance",
                   "initial adaptive tolerance, the default one if negative");
@@ -79,7 +79,7 @@ index b1bc82d..52e8c3b 100644
    args.AddOption(&p.order, "-o", "--order",
                   "Finite element order (polynomial degree).");
    args.AddOption(&p.refinement, "-r", "--refinement",
-@@ -458,6 +485,75 @@ static void setupMaterials(
+@@ -450,6 +477,75 @@ static void setupMaterials(
    }
  }
  

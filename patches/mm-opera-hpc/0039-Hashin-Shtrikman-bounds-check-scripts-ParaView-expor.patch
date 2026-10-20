@@ -1,4 +1,4 @@
-From 48f31a07ae9f5741b22e724ed9ce9a6d28c71401 Mon Sep 17 00:00:00 2001
+From 5ac8a70c76c0f9957a99825a1ec8dfa37047d60a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 17 Oct 2026 01:10:14 +0200
 Subject: [PATCH] Hashin-Shtrikman bounds, check scripts, ParaView exports,
@@ -114,10 +114,10 @@ index b58dd97..3ec6932 100644
  ## Mesh generation
  
 diff --git a/polycrystal/UniaxialPolycrystal.cxx b/polycrystal/UniaxialPolycrystal.cxx
-index 64b6668..528dbc5 100644
+index 3e56688..bfde63a 100644
 --- a/polycrystal/UniaxialPolycrystal.cxx
 +++ b/polycrystal/UniaxialPolycrystal.cxx
-@@ -706,7 +706,8 @@ static void addOptionalPostProcessings(
+@@ -698,7 +698,8 @@ static void addOptionalPostProcessings(
                                                             mfem_mgis::real dt) {
        static int count = 0;
        exporter->SetCycle(count++);
@@ -125,7 +125,7 @@ index 64b6668..528dbc5 100644
 +      // the fields are the ones of the end of the time step
 +      exporter->SetTime(t + dt);
        const int nMat =
-           getMaterialsAttributes(*(p.getFiniteElementDiscretizationPointer()))
+           getMaterialsAttributes(p.getFiniteElementDiscretization())
                .Max();
 diff --git a/polycrystal/check_polycrystal_restults.py b/polycrystal/check_polycrystal_restults.py
 index 55089c1..1f08be6 100644

@@ -1,0 +1,59 @@
+From 5366d00c07768af9aa8b90725f2f8f27983f1ea0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sat, 17 Oct 2026 03:05:44 +0200
+Subject: [PATCH] UniaxialTensileTest: option --prediction
+
+By default, the increment of the imposed displacement is concentrated in
+the elements next to the loaded boundary. With 4 uniform refinements or
+more, their strain increment is far beyond the elastic limit and the
+Newton solver does not converge when the loading is reversed. The option
+--prediction uses the elastic prediction, as ssna303 does.
+---
+ tests/UniaxialTensileTest.cxx | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/tests/UniaxialTensileTest.cxx b/tests/UniaxialTensileTest.cxx
+index 93104e8522..8ff97bf705 100644
+--- a/tests/UniaxialTensileTest.cxx
++++ b/tests/UniaxialTensileTest.cxx
+@@ -89,6 +89,14 @@ struct TestParameters {
+   bool parallel = false;
+ #endif
+   bool post_processing = true;
++  /*!
++   * predict the increment of the unknowns with the elastic operator. By
++   * default, the increment of the imposed displacement is concentrated in
++   * the elements next to the boundary Xmax: on fine meshes, their strain
++   * increment is far beyond the elastic limit and the Newton solver may not
++   * converge, in particular when the loading is reversed.
++   */
++  bool prediction = false;
+   /*!
+    * give the displacement gradient instead of the deformation gradient to a
+    * finite strain behaviour
+@@ -147,6 +155,10 @@ static TestParameters parseCommandLineOptions(int argc, char** argv) {
+   args.AddOption(&p.post_processing, "-pp", "--post-processing", "-no-pp",
+                  "--no-post-processing",
+                  "Export or not the results to Paraview.");
++  args.AddOption(&p.prediction, "-pred", "--prediction", "-no-pred",
++                 "--no-prediction",
++                 "Predict the increment of the unknowns with the elastic "
++                 "operator at the beginning of each time step.");
+   args.AddOption(&p.displacement_gradient, "-dg", "--displacement-gradient",
+                  "-no-dg", "--no-displacement-gradient",
+                  "Give the displacement gradient instead of the deformation "
+@@ -520,6 +532,11 @@ int main(int argc, char** argv) {
+                                       p.stagnation_relative_tolerance);
+   }
+   problem.setSolverParameters(ctx, solver_parameters) | or_die;
++  if (p.prediction) {
++    problem.setPredictionPolicy(
++        {.strategy =
++             mfem_mgis::PredictionStrategy::BEGINNING_OF_TIME_STEP_PREDICTION});
++  }
+   // name of the outputs, distinct for the cases with the displacement
+   // gradient, which may run at the same time
+   const auto name =
+-- 
+2.43.0
+

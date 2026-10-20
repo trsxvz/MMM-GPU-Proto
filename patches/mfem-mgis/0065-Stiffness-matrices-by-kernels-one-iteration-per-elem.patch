@@ -1,4 +1,4 @@
-From 9feb3c3cadf3391937147d9e01d56f26cb932b2d Mon Sep 17 00:00:00 2001
+From a74c0c4c0d243bd3e43459d33f2410d6a8e887ce Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 07:10:12 +0200
 Subject: [PATCH] Stiffness matrices by kernels: one iteration per element on

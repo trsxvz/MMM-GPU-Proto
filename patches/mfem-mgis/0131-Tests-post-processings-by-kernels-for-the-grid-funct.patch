@@ -1,4 +1,4 @@
-From 11fe8f88f34e7de7e88cbddbf78341946acbd14c Mon Sep 17 00:00:00 2001
+From 2fa0159847f46250d3d499fa8d0c351d5c40725e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 11:57:16 +0200
 Subject: [PATCH] Tests: post-processings by kernels for the grid functions and
@@ -16,10 +16,10 @@ by element.
  1 file changed, 24 insertions(+)
 
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 24c679ae70..145ce5e7aa 100644
+index 7c0003b7ed..4565b1fa52 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -526,6 +526,15 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -529,6 +529,15 @@ if(MFEM_MGIS_HAVE_TFEL)
  
    add_point_wise_model_test_2()
  
@@ -35,7 +35,7 @@ index 24c679ae70..145ce5e7aa 100644
    # L2ProjectionTest executable
    add_test_executable(L2ProjectionTest)
  
-@@ -535,9 +544,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -538,9 +547,14 @@ if(MFEM_MGIS_HAVE_TFEL)
      set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/bar.msh" "--linearsolver"
                 "${nsolver}")
      add_test(NAME ${test} COMMAND ./L2ProjectionTest ${params} "--parallel" "0")
@@ -50,7 +50,7 @@ index 24c679ae70..145ce5e7aa 100644
      endif(MFEM_USE_MPI)
    endfunction()
  
-@@ -568,9 +582,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -571,9 +585,14 @@ if(MFEM_MGIS_HAVE_TFEL)
      set(test "GridFunctionTest")
      set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/bar.msh")
      add_test(NAME ${test} COMMAND ./GridFunctionTest ${params} "--parallel" "0")
@@ -65,7 +65,7 @@ index 24c679ae70..145ce5e7aa 100644
      endif(MFEM_USE_MPI)
    endfunction()
  
-@@ -584,9 +603,14 @@ if(MFEM_MGIS_HAVE_TFEL)
+@@ -587,9 +606,14 @@ if(MFEM_MGIS_HAVE_TFEL)
      set(params "--mesh" "${CMAKE_CURRENT_SOURCE_DIR}/${mesh}")
      add_test(NAME ${test} COMMAND ./GridFunctionOnSubMeshTest ${params}
                                    "--parallel" "0")
