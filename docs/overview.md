@@ -26,7 +26,7 @@ Each library only knows the interface of the previous one.
 | | TFEL/MFront | MGIS | mfem-mgis |
 |---|---|---|---|
 | Role | code of one material point, processing of a batch of points | material data, loading of the libraries, dispatch | finite elements, solvers, orchestration |
-| GPU code | kernels of the batch functions (one backend per generated library) | none in the compiled library; copies and end of step by headers compiled by the caller (`FieldOperations`: kernels of CUDA, HIP, Kokkos, SYCL and OpenMP offload, parallel algorithms of C++ on the host or offloaded by `nvc++ -stdpar=gpu`) | kernels of mfem-mgis (gradients, internal forces, tangent, prediction, post-processings), assembly and solvers of MFEM, hypre, AmgX and cuDSS |
+| GPU code | kernels of the batch functions (one backend per generated library) | none in the compiled library; copies and end of step by headers compiled by the caller (`FieldOperations`: kernels of CUDA, HIP, Kokkos, RAJA, SYCL and OpenMP offload, parallel algorithms of C++ on the host or offloaded by `nvc++ -stdpar=gpu`) | kernels of mfem-mgis (gradients, internal forces, tangent, prediction, post-processings), assembly and solvers of MFEM, hypre, AmgX and cuDSS |
 | Memory | does not allocate the data of the points; allocates once per device the copies of the shared data and the state and statistics blocks, reused from one call to the next (and, with SYCL, the copies of the inaccessible values) | uses the arrays of the caller, or a memory resource given by the caller | owns the data, decides where they live |
 | Exposed interface | versioned C structures, description symbols | `MaterialDataManager`, batch functions | nonlinear forms of MFEM |
 
@@ -46,7 +46,7 @@ function processes all these points in one call.
    written once, in templates usable on the host and on the GPU. Each
    backend only writes its parallel loop.
 4. **Portability by backend.** A generated library targets one backend:
-   CUDA, HIP, C++ parallel algorithms, Kokkos, SYCL or OpenMP. Several
+   CUDA, HIP, C++ parallel algorithms, Kokkos, RAJA, SYCL or OpenMP. Several
    libraries of the same behaviour can be loaded together. The choice
    between CPU and GPU is then made at run time.
 5. **The caller chooses the memory.** TFEL chooses neither the GPU nor the
@@ -68,7 +68,7 @@ function processes all these points in one call.
 
 - **Batch**: set of integration points processed by one call.
 - **Backend**: programming model targeted by a generated library
-  (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl`, `openmp`).
+  (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp`).
 - **Field**: values of a variable on all the points of a batch, given by
   a pointer and strides. A zero stride between points denotes a uniform
   value.
@@ -76,7 +76,8 @@ function processes all these points in one call.
   (`host`, `device` or `any`). It is fixed at compile time.
 - **Location** of the arrays: where the caller has placed them (host, GPU
   or shared memory). MGIS compares it with the memory space.
-- **Execution queue**: CUDA or HIP stream, SYCL queue, Kokkos instance.
+- **Execution queue**: CUDA or HIP stream, SYCL queue, Kokkos instance,
+  resource of camp (RAJA).
 - **Synchronous**: the function returns once the computation is finished.
   **Asynchronous**: it returns as soon as the computation is submitted to
   the queue. The caller synchronizes the queue before reading the results.
@@ -85,7 +86,7 @@ function processes all these points in one call.
 
 | Part | Status | Details |
 |---|---|---|
-| TFEL/MFront: `generic-parallel` interface of behaviours and models | done, validated on 14 configurations | [tfel.md](tfel.md) |
+| TFEL/MFront: `generic-parallel` interface of behaviours and models | done, validated on 15 configurations | [tfel.md](tfel.md) |
 | TFEL/MFront: `generic-parallel` interface of material properties | extended (execution options, asynchronous, new backends) | [tfel.md](tfel.md#generic-parallel-interface-of-material-properties) |
 | TFEL/MFront: GPU code and fixes | done | [tfel.md](tfel.md#gpu-code-in-tfel-and-mfront) |
 | MGIS: batches of behaviours, models and material properties | done | [mgis.md](mgis.md) |

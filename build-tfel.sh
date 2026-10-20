@@ -8,15 +8,18 @@
 # hipcc 5.7 with the CUDA 12.9 of the HPC SDK; build/tfel and install/tfel).
 # generic-parallel configurations: cuda-nvcc, hip-hipcc (nvidia
 # platform), stlpar-parunseq-gcc, stlpar-parunseq-nvhpc-gpu (nvc++ from the
-# HPC SDK), kokkos (CUDA + OpenMP), sycl-default-acpp and sycl-gpu-acpp
-# (AdaptiveCpp), openmp-host-gcc, openmp-offload-nvhpc-gpu (nvc++ -mp=gpu),
-# stlpar-parunseq-clang (clang 20 from the LLVM of spack: its library is in
-# LD_LIBRARY_PATH, so the clang of the system cannot be used),
+# HPC SDK), kokkos (CUDA + OpenMP), raja (CUDA + OpenMP, RAJA of the
+# environment mmm-raja, mmm-gpu only, if installed), sycl-default-acpp and
+# sycl-gpu-acpp (AdaptiveCpp), openmp-host-gcc, openmp-offload-nvhpc-gpu
+# (nvc++ -mp=gpu), stlpar-parunseq-clang (clang 20 from the LLVM of spack:
+# its library is in LD_LIBRARY_PATH, so the clang of the system cannot be
+# used),
 # cuda-clang and hip-clang (same clang, with CUDA 12.9: clang 20 does not
 # know CUDA 13), stlpar-parunseq-icpx and sycl-default-icpx (oneAPI
 # 2026.1, SYCL on CPU); TDLS enabled. To change the configurations of an
 # existing build directory:
 # cmake -Dgeneric-parallel-configurations="..." -U "tfel-substitutions*" .
+# (with -DRAJA_DIR=<installation of RAJA>/lib/cmake/raja when adding raja).
 # The tests run in the environment of scripts/env.sh.
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
@@ -36,6 +39,14 @@ case "${PROTO_ENVIRONMENT:-mmm-gpu}" in
     CUDA=/home/t/Bureau/spack-mmm-externals/cuda-13.0.2
     CUDA_TOOLKIT=$CUDA
     KOKKOS=$V
+    # RAJA and its camp built with OpenMP (deps/spack/mmm-raja), if
+    # installed by deps/spack/install-mmm-raja.sh
+    RAJA=$P/deps/spack/mmm-raja/.spack-env/view
+    if [ ! -d "$RAJA/lib/cmake/raja" ]; then
+      echo "no raja configuration: RAJA is not installed" \
+        "(deps/spack/install-mmm-raja.sh)"
+      RAJA=
+    fi
     ACPP=$V/bin/acpp
     CLANGXX=$V/bin/clang++
     BUILD=$P/build/tfel-mmm-gpu
@@ -60,6 +71,14 @@ CONFIGURATIONS="$CONFIGURATIONS;stlpar-parunseq-gcc;stlpar-parunseq-nvhpc-gpu"
 CONFIGURATIONS="$CONFIGURATIONS;stlpar-parunseq-clang;stlpar-parunseq-icpx;kokkos"
 CONFIGURATIONS="$CONFIGURATIONS;sycl-default-acpp;sycl-gpu-acpp;sycl-default-icpx"
 CONFIGURATIONS="$CONFIGURATIONS;openmp-host-gcc;openmp-offload-nvhpc-gpu"
+RAJA_OPTIONS=()
+if [ -n "${RAJA:-}" ]; then
+  CONFIGURATIONS="$CONFIGURATIONS;raja"
+  # installation of RAJA itself, not the view: its include directory and the
+  # run path written in the generated libraries only hold RAJA and camp
+  RAJA_CONFIG=$(readlink -f "$RAJA/lib/cmake/raja/raja-config.cmake")
+  RAJA_OPTIONS=(-DRAJA_DIR="$(dirname "$RAJA_CONFIG")")
+fi
 mkdir -p "$BUILD"
 cd "$BUILD"
 if [ ! -f CMakeCache.txt ]; then
@@ -70,7 +89,7 @@ if [ ! -f CMakeCache.txt ]; then
     -Denable-fortran=OFF -Denable-testing=ON \
     -Denable-tdls=ON -Dtdls_DIR=/home/t/Documents/GitHub/tdls/build-install/lib/cmake/tdls \
     -Dgeneric-parallel-configurations="$CONFIGURATIONS" \
-    -DKokkos_ROOT="$KOKKOS" \
+    -DKokkos_ROOT="$KOKKOS" "${RAJA_OPTIONS[@]}" \
     -DTFEL_NVHPC_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/25.11/compilers/bin/nvc++ \
     -DTFEL_ACPP_COMPILER="$ACPP" \
     -DTFEL_CLANGXX_COMPILER="$CLANGXX" \

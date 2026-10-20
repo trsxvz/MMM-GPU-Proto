@@ -32,15 +32,15 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
   (Runge-Kutta DSLs and material properties included), type of the
   tangent operator checked before its conversion;
 - `generic-parallel` interface for behaviours and models: CUDA, HIP, C++
-  standard parallelism, Kokkos, SYCL and OpenMP (host and offloading)
-  backends, standalone models, finite strain behaviours, initialize
+  standard parallelism, Kokkos, RAJA, SYCL and OpenMP (host and
+  offloading) backends, standalone models, finite strain behaviours, initialize
   functions, post-processings, rotation of all the tangent operator
   blocks, versioned C data structures, symbols of the interface, of the
   backend and of the memory space, execution options shared by the
   backends, asynchronous execution, error reporting without cost on
   success, shared data copied on each device, statistics;
-- `generic-parallel` interface for material properties: fixes, Kokkos and
-  OpenMP backends, properties using data or other laws, execution options
+- `generic-parallel` interface for material properties: fixes, Kokkos,
+  RAJA and OpenMP backends, properties using data or other laws, execution options
   as last argument (version 2 of the functions), asynchronous evaluation,
   statistics, symbols, statuses in reused blocks, status of the `Warning`
   policy, physical bounds;
@@ -64,5 +64,8 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
   interfaces refusing `float`, `IsAssignableTo` for floating point types,
   MTest checking the numerical type, convergence criteria bounded at the
   generation with warnings, documentation;
+- RAJA backend (patch 0126): execution policy given as an option and
+  checked before being copied in the generated code, resource of camp as
+  queue, `raja` and `raja-host` configurations, tests;
 - documentation: the pages and comments of the changed code, checked
   against it.

@@ -69,3 +69,8 @@ if(_tfel-enable-generic-parallel-kokkos-configuration)
   install_configuration_file(config-kokkos.json)
   install_configuration_file(config-kokkos-host.json)
 endif(_tfel-enable-generic-parallel-kokkos-configuration)
+
+if(_tfel-enable-generic-parallel-raja-configuration)
+  install_configuration_file(config-raja.json)
+  install_configuration_file(config-raja-host.json)
+endif(_tfel-enable-generic-parallel-raja-configuration)

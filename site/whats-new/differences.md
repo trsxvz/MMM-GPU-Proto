@@ -11,7 +11,7 @@ and `docs/upstream-integration.md`.
 
 | Library | Official base | What changes | Patches |
 |---|---|---|---|
-| TFEL/MFront | master `ff0959ece` (12/10/2026) | `generic-parallel` interface for behaviours and models (6 backends, 14 configurations), extended interface for material properties, GPU code in TFEL and in the generated code, single precision (DSL option `real_type`), corrections of the existing code | 126 |
+| TFEL/MFront | master `ff0959ece` (12/10/2026) | `generic-parallel` interface for behaviours and models (7 backends, 15 configurations), extended interface for material properties, GPU code in TFEL and in the generated code, single precision (DSL option `real_type`), corrections of the existing code | 126 |
 | MGIS | master `e8ef4b4` (13/10/2026) | batches of behaviours, models and material properties, execution policy, location of the arrays, memory resources, views and layouts, end of step on the GPU, single precision (option `MGIS_REAL_TYPE`), corrections | 79 |
 | mfem-mgis | master `20dcdf0a9b` (16/10/2026) | batch integration on CPU and GPU (data at integration points in the memory of MFEM), kernels for gradients, internal forces and tangent operator (assembled or matrix free; mechanics and stationary thermal problems), prediction by kernels, `FixedPoint` solver (fixed point, accelerations of MTest, NewtonK0), inexact Newton, BoomerAMG options, matrix free smoothers, reuse of the MUMPS analysis, cuDSS direct solver on the GPU, ordered assembly of the tangent operator (same results at each run on the GPU), execution settings, kernels compiled for CUDA or HIP (AMD GPU: compilation checked, not run), float or double precision given by MFEM, solvers and preconditioners of the major libraries (PETSc, Ginkgo, hypre, SuperLU_DIST, STRUMPACK, MUMPS, oneMKL, MAGMA, Trilinos), overrides of the linear solver, of the preconditioner and of the nonlinear solver given at run time, corrections | 267 |
 | mfem-mgis-examples | master `600da70` of the reference repository of the examples | options of the examples (behaviour library, device, solvers, profiling), synchronisations on the host for the GPU, choice of the direct solvers, behaviour libraries for CPU and GPU chosen by `--execution`, tests on the GPU, examples in single precision, refinement of all the examples, ex5 in parallel | 36 |
@@ -86,7 +86,7 @@ state of the branches, file by file, rather than by picking commits.
    first set of backends: CUDA, HIP, C++ parallel algorithms and OpenMP
    on the host. The data contract is versioned from this contribution
    on, so that MGIS can check it.
-5. Additional backends and compilers: Kokkos, SYCL, `nvc++` offloading
+5. Additional backends and compilers: Kokkos, RAJA, SYCL, `nvc++` offloading
    (`stdpar` and OpenMP), clang CUDA and HIP. Most compiler workarounds
    go into this contribution.
 6. Extensions of the interface for material properties.

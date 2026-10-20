@@ -217,6 +217,7 @@ set(TFELMFront_SOURCES
     GenericParallel/MaterialProperty/HIPBackend.cxx
     GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
     GenericParallel/MaterialProperty/KokkosBackend.cxx
+    GenericParallel/MaterialProperty/RAJABackend.cxx
     GenericParallel/MaterialProperty/OpenMPBackend.cxx
     GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
     GenericParallel/MaterialProperty/SYCLBackend.cxx
@@ -226,6 +227,7 @@ set(TFELMFront_SOURCES
     GenericParallel/Behaviour/BackendFactory.cxx
     GenericParallel/Behaviour/GPUBackend.cxx
     GenericParallel/Behaviour/KokkosBackend.cxx
+    GenericParallel/Behaviour/RAJABackend.cxx
     GenericParallel/Behaviour/OpenMPBackend.cxx
     GenericParallel/Behaviour/ParallelSTLBackend.cxx
     GenericParallel/Behaviour/SYCLBackend.cxx

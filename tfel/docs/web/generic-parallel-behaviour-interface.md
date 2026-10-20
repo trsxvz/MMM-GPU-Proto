@@ -15,9 +15,8 @@ eqnPrefixTemplate: "($$i$$)"
 The `generic-parallel` interface integrates a behaviour, or executes a
 standalone model, over a batch of integration points, on GPUs or on CPUs,
 with one of the following backends: `CUDA`, `HIP`, parallel algorithms of
-the C++ standard library, Kokkos, SYCL and OpenMP. It follows the design of
-the
-[`generic-parallel` interface for material
+the C++ standard library, Kokkos, RAJA, SYCL and OpenMP. It follows the
+design of the [`generic-parallel` interface for material
 properties](generic-parallel-material-property-interface.html): backends
 selected by an option, configuration files, libraries suffixed by the name
 of the backend. The options shared by the backends of both interfaces have
@@ -133,8 +132,8 @@ generated for them. The `<name>_mfront_interface` symbol is equal to
 `GenericParallel`, for the behaviours and for the standalone models, so
 that a library of this interface can't be taken for a library of the
 `generic` interface. The `<name>_generic_parallel_backend` symbol gives the
-backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or
-`openmp`). The `<name>_generic_parallel_memory_space` symbol (a `const
+backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`
+or `openmp`). The `<name>_generic_parallel_memory_space` symbol (a `const
 char*`) tells the calling code where the fields must be located:
 
 - `host`: the computations are performed on the host, the fields must be
@@ -151,7 +150,8 @@ char*`) tells the calling code where the fields must be located:
 This memory space is set when the library is compiled, since the target of
 some programming models is selected by the compiler (C++ parallel
 algorithms and OpenMP with `nvc++`) or by the configuration of a library
-(execution space of Kokkos). See `MFront/GenericParallel/MemorySpace.hxx`.
+(execution space of Kokkos, execution policy of RAJA). See
+`MFront/GenericParallel/MemorySpace.hxx`.
 
 The data structures are declared in
 `MFront/GenericParallelBehaviour/BatchData.h`. Their version is given by the
@@ -371,10 +371,12 @@ typedef struct mfront_gpb_ExecutionOptions {
 
 The meaning of `queue` depends on the backend (see the section of each
 backend). A null queue denotes the default stream of the `CUDA` and `HIP`
-backends and the default instance of the execution space of the `Kokkos`
-backend. The `SYCL` backend requires a queue: the arguments are reported
-as invalid (status `-2`) otherwise. The queue is not used by the `stlpar`
-and `openmp` backends.
+backends, the default instance of the execution space of the `Kokkos`
+backend, and, for the `RAJA` backend, the default stream of the current
+device with `CUDA` and `HIP` and the default resource of camp otherwise.
+The `SYCL` backend requires a queue: the arguments are reported as invalid
+(status `-2`) otherwise. The queue is not used by the `stlpar` and `openmp`
+backends.
 
 By default (`statistics` is null), the computations are synchronous: the
 function returns once they are completed and reports the statistics of the
@@ -397,14 +399,14 @@ typedef struct mfront_gpb_BatchStatistics {
 ~~~~
 
 The computations may then be asynchronous: the function returns once they
-are submitted to the queue (`CUDA`, `HIP` and `Kokkos` backends, `SYCL`
-backend if no field is copied). The calling code must synchronize the queue
-before reading the outputs and the statistics. The output status only
+are submitted to the queue (`CUDA`, `HIP`, `Kokkos` and `RAJA` backends,
+`SYCL` backend if no field is copied). The calling code must synchronize the
+queue before reading the outputs and the statistics. The output status only
 reports invalid arguments and runtime errors. This allows to submit the
-integration of several batches, and other computations such as the
-assembly of a finite element system, before a single synchronization. The
-other backends wait for the completion of the computations and accumulate
-the statistics on the host.
+integration of several batches, and other computations such as the assembly
+of a finite element system, before a single synchronization. The other
+backends wait for the completion of the computations and accumulate the
+statistics on the host.
 
 The computations are always executed after the computations previously
 submitted to the queue, if any, which may compute the inputs. With the `SYCL`
@@ -439,15 +441,16 @@ them unchanged with all the backends.
 
 The devices only write in the statistics when an event occurs at a point
 (failure, unreliable result, decrease of the time step scaling factor), by
-atomic operations (`CUDA`, `HIP`, `SYCL` and `Kokkos` backends): the
+atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA` backends): the
 reporting of the statistics then costs nothing when the computations
 succeed. The `OpenMP` backend and the C++ parallel algorithms merge the
 statistics of the points by a parallel reduction, whose result, a few
 integers, is copied to the host at each call. In synchronous mode, the
-`CUDA`, `HIP`, `SYCL` and `Kokkos` backends hold the statistics in a block
-of memory accessible by the host and by the device (managed memory, shared
-USM memory, `Kokkos::SharedSpace`), initialized and read by the host: no
-data is transferred between the host and the device when no event occurs.
+`CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA` backends hold the statistics in a
+block of memory accessible by the host and by the device (managed memory,
+shared USM memory, `Kokkos::SharedSpace`, managed memory of the resources of
+camp), initialized and read by the host: no data is transferred between the
+host and the device when no event occurs.
 Those blocks are allocated at the first call on a device and reused by the
 following calls (see `mfront::generic_parallel::StatusBlockPool`), as the
 statistics of the material properties. With `CUDA` and `HIP`, on
@@ -457,9 +460,10 @@ during a synchronous call.
 
 The stack size of the threads of a GPU is a property of the context of the
 device, shared by all the computations of the process. It is increased if
-needed by the `CUDA`, `HIP` and `Kokkos` backends, and by the other backends
-if the `device_stack_size` option is given. If `preserve_stack_size` is not
-null, the stack size is never modified and a runtime error is reported if
+needed by the `CUDA`, `HIP`, `Kokkos` and `RAJA` backends, and by the other
+backends if the `device_stack_size` option is given. If
+`preserve_stack_size` is not null, the stack size is never modified and a
+runtime error is reported if
 it is too small: the calling code is then responsible for the stack size.
 
 ## Parameters
@@ -571,6 +575,8 @@ by the `MFRONT_INCLUDE_PATH` environment variable, then in this directory.
 | `config-sycl-default-acpp-2.json`       | `sycl`   | AdaptiveCpp's `acpp`, no data transfer                |
 | `config-kokkos.json`                    | `kokkos` | compiler of Kokkos, default execution space           |
 | `config-kokkos-host.json`               | `kokkos` | compiler of Kokkos, default host execution space      |
+| `config-raja.json`                      | `raja`   | `nvcc` if RAJA uses CUDA, default execution policy    |
+| `config-raja-host.json`                 | `raja`   | `nvcc` if RAJA uses CUDA, default host policy         |
 | `config-openmp-host-gcc.json`           | `openmp` | `g++`, threads of the host                            |
 | `config-openmp-offload-nvhpc-gpu.json`  | `openmp` | `nvc++ -mp=gpu`, NVIDIA GPU                           |
 
@@ -697,6 +703,61 @@ Options:
   instance `Kokkos::DefaultHostExecutionSpace` (`kokkos-host`
   configuration). The execution space is copied in the generated code: it
   must be the name of a type, made of identifiers separated by `::`.
+
+## RAJA backend (`raja`)
+
+The behaviour is integrated by `RAJA::forall` with the given execution
+policy, the statistics being updated by the atomic operations of RAJA. In
+synchronous mode, they are held by a block of managed memory allocated by
+the resource of camp associated with the execution policy, one per device,
+kept until the end of the process. The queue may point to a resource of
+camp matching the execution policy (`camp::resources::Cuda`,
+`camp::resources::Hip` or `camp::resources::Host`). A null queue denotes
+the default stream of the current device with `CUDA` and `HIP`, as for the
+`CUDA` and `HIP` backends, and the default resource of camp otherwise (the
+default resource of camp for `CUDA` and `HIP` is a stream created by camp
+on the device 0). The fields must be accessible from the execution policy.
+The computations are asynchronous with an asynchronous execution policy
+(such as the default one on GPUs). RAJA needs no initialization.
+
+The generated libraries are compiled by `nvcc` with extended lambdas
+(`--extended-lambda`, same host compiler as `TFEL`) if RAJA is built with
+`CUDA`, by the `C++` compiler of `TFEL` otherwise, and are linked with the
+shared library of RAJA (and with the one of camp if camp is a shared
+library: a static camp, the default, is included in the library of RAJA).
+RAJA must be a shared library (`+shared` with `spack`), so that the calling
+code and the generated libraries share the same instance of RAJA. With
+`CUDA`, they use the shared `CUDA` runtime (`-cudart shared`), as the
+calling code must. On GPUs, the stack size of the threads is increased if
+needed, as for the `CUDA` and `HIP` backends. The `raja` configuration does
+not support a RAJA built with `HIP`: the `HIP` policies are handled by the
+headers, but not tested.
+
+The `raja` and `raja-host` configurations use the compiler, the
+compilation flags and the linker flags deduced from the RAJA installation
+found by `cmake` (`TFEL_RAJA_CXX_COMPILER`, `TFEL_RAJA_CXX_FLAGS` and
+`TFEL_RAJA_LINKER_FLAGS` substitutions, see the [`TFEL/Config`
+page](tfel-config.html)).
+
+Options:
+
+- `execution_policy`: `mfront::generic_parallel::raja::DefaultExecutionPolicy`
+  by default, defined in `MFront/GenericParallel/RAJAExecutionPolicy.hxx`:
+  `RAJA::cuda_exec_async<128>` in code compiled for `CUDA`,
+  `RAJA::hip_exec_async<128>` in code compiled for `HIP`,
+  `RAJA::omp_parallel_for_exec` if RAJA is built with OpenMP,
+  `RAJA::seq_exec` otherwise. The `raja-host` configuration uses
+  `mfront::generic_parallel::raja::DefaultHostExecutionPolicy` (the parallel
+  loop of OpenMP if RAJA is built with OpenMP, the sequential loop
+  otherwise). The execution policy is copied in the generated code: it must
+  be the name of a type, made of qualified identifiers, integers, the
+  boolean literals and template arguments (for instance
+  `RAJA::cuda_exec<256, true>`). The memory space of the library is
+  `device` for the policies of `CUDA` and `HIP`, `host` otherwise. The
+  policies of OpenMP target and `SYCL` are refused at compile time: the
+  resources of camp associated with them can't allocate the managed memory
+  holding the statistics, and the `raja` configuration only compiles for
+  `CUDA` and for the host.
 
 ## SYCL backend (`sycl`)
 
@@ -842,6 +903,9 @@ The following rules apply to the code blocks written by the user:
   - with the `Kokkos` backend, in the memory space of the execution space
     (Kokkos uses one device per process). The copy is freed when Kokkos is
     finalized;
+  - with the `RAJA` backend, in the memory of the resource used when no
+    queue is given (memory of the current device for the policies of `CUDA`
+    and `HIP`, one copy per device);
   - otherwise, on the heap, which must be accessible by the device when the
     computations are offloaded (unified or managed memory, as with the
     `stlpar` backend of `nvc++`).
@@ -909,7 +973,8 @@ The following points are specific to device code:
 
 The configurations have been tested with `nvcc` 13.0, `hipcc` 5.7 and 7.2
 on top of `nvcc` (NVIDIA platform), `clang` 20 (with `CUDA` 12.9), `g++`
-14, `icpx` 2026.1, `nvc++` 25.11, Kokkos 5.0 and 5.2 and AdaptiveCpp 25.10.
+14, `icpx` 2026.1, `nvc++` 25.11, Kokkos 5.0 and 5.2, RAJA 2026.07 and
+AdaptiveCpp 25.10.
 Some compiler defects found during these tests are
 worked around in the generated code and the headers (see the comments of
 the headers of `MFront/GenericParallelBehaviour` and
@@ -958,9 +1023,14 @@ built with `TDLS` support. The definitions shared by `compare-all.sh` and
 The tests of a configuration are in the directory of the same name. Some
 directories test the other configuration files of a configuration: the
 `kokkos-host` directory tests the `kokkos` configuration with the
-`config-kokkos-host.json` file, the `sycl-default-acpp-2` directory tests
-the `sycl-default-acpp` configuration with the
-`config-sycl-default-acpp-2.json` file (no data transfer), and the
+`config-kokkos-host.json` file, the `raja-host` directory tests the `raja`
+configuration with the `config-raja-host.json` file, the
+`sycl-default-acpp-2` directory tests the `sycl-default-acpp` configuration
+with the `config-sycl-default-acpp-2.json` file (no data transfer), and the
 `sycl-default-acpp-omp` directory also tests the `sycl-default-acpp`
 configuration, with the computations performed on the CPU by the OpenMP
-backend of AdaptiveCpp (`ACPP_VISIBILITY_MASK=omp`).
+backend of AdaptiveCpp (`ACPP_VISIBILITY_MASK=omp`). The `raja-options`
+directory checks that the `execution_policy` option of the `raja` backend
+accepts the valid execution policies and refuses the invalid ones, the
+policy being copied in the generated code
+(`check-execution-policies.sh` script, generation of the sources only).

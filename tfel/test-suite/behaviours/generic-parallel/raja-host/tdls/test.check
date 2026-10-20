@@ -1,0 +1,11 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::raja",
+            "mfront::linear_system_solver::tdls"};
+
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+// behaviours using the TDLS linear system solver
+@Command "sh ../../build-libraries.sh @mfront@ config-raja-host.json ImplicitNortonTDLS";
+@Command "@TFEL_RAJA_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@ -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl @TFEL_RAJA_LINKER_FLAGS@";
+@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-raja.so";
+
+@CleanFiles {"compare"};
+@CleanDirectories {"include", "src", "reference"};

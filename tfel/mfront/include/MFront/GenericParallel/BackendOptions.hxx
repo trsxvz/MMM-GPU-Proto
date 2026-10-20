@@ -63,6 +63,21 @@ namespace mfront::generic_parallel {
   MFRONT_VISIBILITY_EXPORT std::string getKokkosExecutionSpace(
       const tfel::utilities::DataMap&);
   /*!
+   * \brief declare the `execution_policy` option of the RAJA backends
+   * \param[in,out] v: validator of the options of a backend
+   */
+  MFRONT_VISIBILITY_EXPORT void declareRAJAExecutionPolicyOption(
+      tfel::utilities::DataMapValidator&);
+  /*!
+   * \return the RAJA execution policy given by the `execution_policy`
+   * option (`mfront::generic_parallel::raja::DefaultExecutionPolicy` by
+   * default), which must be a C++ type made of qualified identifiers,
+   * integers and template arguments (for instance `RAJA::cuda_exec<128>`)
+   * \param[in] opts: options of a backend
+   */
+  MFRONT_VISIBILITY_EXPORT std::string getRAJAExecutionPolicy(
+      const tfel::utilities::DataMap&);
+  /*!
    * \brief declare the `data_transfer_policy` option of the SYCL backends
    * \param[in,out] v: validator of the options of a backend
    */

@@ -215,7 +215,7 @@ resource must therefore allocate memory readable by the host, that is,
 shared memory. If the arrays are on a GPU only, the caller gives all of
 them.
 
-MGIS provides four resources, as headers that the calling code compiles
+MGIS provides five resources, as headers that the calling code compiles
 with its own GPU tool (`MGIS/MemoryResources/`):
 
 | Header | Memory |
@@ -224,6 +224,7 @@ with its own GPU tool (`MGIS/MemoryResources/`):
 | `HIPManagedMemoryResource.hxx` | HIP managed memory |
 | `SYCLSharedMemoryResource.hxx` | SYCL shared memory, of a given queue |
 | `KokkosSharedSpaceMemoryResource.hxx` | `Kokkos::SharedSpace` |
+| `RAJAManagedMemoryResource.hxx` | managed memory of a resource of camp (RAJA) |
 
 Cost: one pointer per array and one virtual call per allocation. Nothing
 per computation.
@@ -234,8 +235,9 @@ per computation.
 properties:
 
 - `queue`: execution queue, of a type specific to the backend
-  (`cudaStream_t`, `hipStream_t`, pointer to a `sycl::queue` or to an
-  instance of the Kokkos execution space). Null designates the default
+  (`cudaStream_t`, `hipStream_t`, pointer to a `sycl::queue`, to an
+  instance of the Kokkos execution space or to a resource of camp for
+  RAJA). Null designates the default
   queue.
 - `preserve_stack_size`: forbids modifying the stack size of the GPU
   threads.
@@ -338,7 +340,7 @@ its contract already describes each field by two strides.
 - **End of time step on GPU**: `update`, `revert` and `updateValues` take
   copy operations (`FieldOperations`), just as allocations go through a
   `std::pmr::memory_resource`. MGIS knows which arrays to copy, the caller
-  provides the copy. Headers for CUDA, HIP, SYCL, Kokkos, OpenMP and the
+  provides the copy. Headers for CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP and the
   parallel algorithms of C++ (`ParallelSTLFieldOperations`, on the host or
   on an NVIDIA GPU with `nvc++ -stdpar=gpu`), compiled by the caller with
   its toolchain.

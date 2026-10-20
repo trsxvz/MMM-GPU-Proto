@@ -26,6 +26,9 @@ the caller, etc.): the test must detect it.
   HIP 7.2.3 (NVIDIA platform), MFEM 4.10 with hypre 3.2.0, and the
   studied solvers (PETSc, SUNDIALS, SuperLU_DIST, STRUMPACK, Ginkgo,
   AmgX, cuDSS, MUMPS), OpenMPI 5. See `deps/spack/README.md`.
+- Spack environment `mmm-raja`: RAJA 2026.07.0 and camp 2026.07.1, built
+  with CUDA 13.0.2 (`sm_120`) and OpenMP, for the `raja` configuration of
+  TFEL. It is separate from `mmm-gpu`, whose camp has no OpenMP.
 - `scripts/env.sh` gives the complete environment of all the scripts.
 - The heterogeneous memory management (HMM) of the NVIDIA drivers lets the
   GPU read the ordinary memory of the host. It therefore hides the location
@@ -56,11 +59,39 @@ the tool `compare.cxx` compares them on varied batches:
 values compared with the expected values, uniform and strided arguments,
 bounds and policies, properties calling other properties or defined
 by data, execution options (non-blocking CUDA and HIP stream,
-Kokkos instance, missing SYCL queue), asynchronous evaluation.
+Kokkos instance, resource of camp on a stream created by the test for
+RAJA, missing SYCL queue), asynchronous evaluation.
 
 The test of the stream is discriminating: a slow kernel writes the arguments on the
 stream of the caller just before the evaluation. The values are only correct
 if the property waits for this kernel. With the default stream, the test fails.
+
+### `raja` configuration
+
+The `raja` configuration is built alone in `build/tfel-raja` (installed in
+`install/tfel-raja`, script `scratch/raja/build-tfel.sh`) and added to
+`build/tfel-mmm-gpu` (`scratch/raja/reconfigure-main-tfel.sh`). The script
+`scratch/raja/run-tests.sh` runs its tests with the TFEL of
+`install/tfel-raja`:
+
+- `behaviours/raja`: comparisons with the `generic` interface on the GPU
+  (default policy `RAJA::cuda_exec_async<128>`), with the TDLS sub-test;
+- `behaviours/raja-host`: the same comparisons on the host (OpenMP loop of
+  RAJA), the libraries being compiled by nvcc;
+- `behaviours/raja-options`: valid execution policies copied in the
+  generated code, invalid ones refused (injected expressions, unbalanced
+  templates, invalid tokens). The script fails if `mfront` is replaced by
+  `/bin/true`, which accepts everything;
+- `material-properties/raja` and `raja-host`: the shared test of the
+  material properties, with an explicit resource of camp, the asynchronous
+  evaluation and the preserved stack size on the GPU.
+
+Results on 20/10, all green: `behaviours/raja` 711 comparisons OK
+(including the preserved stack size), `behaviours/raja-host` 657
+comparisons OK (the preserved stack size is only checked for the libraries
+computing on the device), `raja-options` OK, material properties 170
+assertions (`raja`) and 164 assertions (`raja-host`), without failure.
+Logs in `scratch/raja/` (`run-tests-5.log`), untracked.
 
 ### Sweeps
 
@@ -147,9 +178,10 @@ Python bindings (96 tests), including the tests of the layout in each binding
 blocks of the tangent in Fortran in both layouts, strides of the
 numpy arrays and strided arrays refused in Python). The script `scripts/check-mgis-gpu-headers.sh` compiles the
 GPU headers of MGIS (copy operations and memory resources) with the
-CUDA, HIP, SYCL, Kokkos, OpenMP offload and `nvc++ -stdpar=gpu` toolchains
-of the prototype, and runs them on the GPU
-(`reproducers/mgis-gpu-headers/check.cxx`): six successes on 19/10.
+CUDA, HIP, SYCL, Kokkos, OpenMP offload, `nvc++ -stdpar=gpu` and RAJA
+toolchains of the prototype, and runs them on the GPU
+(`reproducers/mgis-gpu-headers/check.cxx`): seven successes on 20/10. RAJA
+is skipped if TFEL is built without the `raja` configuration.
 
 The CUDA tests require the CMake option `enable-generic-parallel-cuda-tests`,
 the tests of `nvc++ -stdpar=gpu` the option

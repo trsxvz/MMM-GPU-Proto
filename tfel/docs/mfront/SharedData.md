@@ -16,8 +16,8 @@ type must then be trivially copyable. The following restrictions apply:
 
 - shared data are not supported in behaviour variables
   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
-- the copies are never freed (one copy per device with the `cuda` and
-  `hip` backends, one copy per device and context with the `sycl`
+- the copies are never freed (one copy per device with the `cuda`, `hip`
+  and `raja` backends, one copy per device and context with the `sycl`
   backend, one copy on the heap with the `stlpar` and `openmp` backends),
   except with the `kokkos` backend, which frees its copy when Kokkos is
   finalized. With the `stlpar` and `openmp` backends, the heap must be

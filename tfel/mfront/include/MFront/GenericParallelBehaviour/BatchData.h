@@ -66,7 +66,8 @@ typedef struct mfront_gpb_ExecutionOptions {
   /*!
    * \brief queue on which the computations are submitted. Its meaning
    * depends on the backend (`cudaStream_t` or `hipStream_t`, pointer to a
-   * `sycl::queue` or to an instance of a Kokkos execution space). A null
+   * `sycl::queue`, to an instance of a Kokkos execution space or to a
+   * resource of camp matching the execution policy of RAJA). A null
    * pointer denotes the default queue, if meaningful for the backend: a
    * queue must be given to the `sycl` backend (invalid arguments otherwise).
    */
@@ -83,8 +84,8 @@ typedef struct mfront_gpb_ExecutionOptions {
    * host with the `stlpar` and `openmp` backends, which accumulate them on
    * the host). With the automatic data transfers of the `sycl` backend,
    * statistics which are not accessible by the device are copied, as the
-   * fields. The computations may then be asynchronous (CUDA, HIP and
-   * Kokkos backends, SYCL backend if no field is transferred): the function
+   * fields. The computations may then be asynchronous (CUDA, HIP, Kokkos
+   * and RAJA backends, SYCL backend if no field is transferred): the function
    * returns once they are submitted to the queue, and the caller must
    * synchronize the queue before reading the outputs and the statistics
    * (see `mfront_gpb_report`). The output status only reports invalid

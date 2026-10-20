@@ -10,6 +10,7 @@
 #include <vector>
 #include <iostream>
 #include <string>
+#include <stdexcept>
 #include <type_traits>
 #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
 #include <Kokkos_Core.hpp>
@@ -17,6 +18,9 @@
 #include <cuda_runtime.h>
 #endif /* KOKKOS_ENABLE_CUDA */
 #endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+#ifdef MFRONT_GPMP_TEST_USE_RAJA
+#include "MFront/GenericParallel/RAJAExecutionPolicy.hxx"
+#endif /* MFRONT_GPMP_TEST_USE_RAJA */
 
 #include "TFEL/Tests/TestCase.hxx"
 #include "TFEL/Tests/TestProxy.hxx"
@@ -25,11 +29,13 @@
 #include "MFront/GenericMaterialProperty/MaterialProperty.h"
 
 // This test is shared by the backends based on the C++ programming model
-// (`stlpar`, `openmp`, `kokkos`), selected by the `MFRONT_GPMP_TEST_BACKEND`
-// macro (`stlpar` by default). The arrays are allocated by `std::vector`
-// (on the host, or in managed memory with `nvc++ -gpu=mem:managed`), or in
-// the shared memory space of Kokkos if the `MFRONT_GPMP_TEST_USE_KOKKOS`
-// macro is defined.
+// (`stlpar`, `openmp`, `kokkos`, `raja`), selected by the
+// `MFRONT_GPMP_TEST_BACKEND` macro (`stlpar` by default). The arrays are
+// allocated by `std::vector` (on the host, or in managed memory with
+// `nvc++ -gpu=mem:managed`), in the shared memory space of Kokkos if the
+// `MFRONT_GPMP_TEST_USE_KOKKOS` macro is defined, or in the managed memory
+// of the resource of camp of the execution policy of RAJA if the
+// `MFRONT_GPMP_TEST_USE_RAJA` macro is defined.
 #ifndef MFRONT_GPMP_TEST_BACKEND
 #define MFRONT_GPMP_TEST_BACKEND stlpar
 #endif /* MFRONT_GPMP_TEST_BACKEND */
@@ -67,6 +73,57 @@ struct TestAllocator {
   }
   void deallocate(T* const p, const std::size_t) noexcept {
     Kokkos::kokkos_free<Kokkos::SharedSpace>(p);
+  }
+  template <typename T2>
+  bool operator==(const TestAllocator<T2>&) const noexcept {
+    return true;
+  }
+};
+#elif defined(MFRONT_GPMP_TEST_USE_RAJA)
+// execution policy of the material properties (`execution_policy` option of
+// the backend)
+#ifndef MFRONT_GPMP_TEST_RAJA_EXECUTION_POLICY
+#define MFRONT_GPMP_TEST_RAJA_EXECUTION_POLICY \
+  mfront::generic_parallel::raja::DefaultExecutionPolicy
+#endif /* MFRONT_GPMP_TEST_RAJA_EXECUTION_POLICY */
+//! \return the resource of camp used by the material properties when the
+//! queue is null (default stream of the current device with CUDA)
+static auto getTestResource() {
+  return mfront::generic_parallel::raja::getDefaultResource<
+      MFRONT_GPMP_TEST_RAJA_EXECUTION_POLICY>();
+}
+/*!
+ * \return a resource given explicitly by the execution options: a resource
+ * on a stream created here with CUDA (not the default stream, see
+ * `test15`), the default resource otherwise
+ */
+static auto makeExplicitTestResource() {
+  using Resource = decltype(getTestResource());
+#if defined(RAJA_CUDA_ACTIVE)
+  if constexpr (std::is_same_v<Resource, camp::resources::Cuda>) {
+    auto stream = cudaStream_t{};
+    if (cudaStreamCreate(&stream) != cudaSuccess) {
+      throw std::runtime_error("cudaStreamCreate failed");
+    }
+    return camp::resources::Cuda::CudaFromStream(stream);
+  }
+#endif
+  return getTestResource();
+}
+//! \brief allocator in the managed memory of the resource of camp
+template <typename T>
+struct TestAllocator {
+  using value_type = T;
+  TestAllocator() = default;
+  template <typename T2>
+  TestAllocator(const TestAllocator<T2>&) noexcept {}
+  T* allocate(const std::size_t n) {
+    auto r = getTestResource();
+    return r.template allocate<T>(n, camp::resources::MemoryAccess::Managed);
+  }
+  void deallocate(T* const p, const std::size_t) noexcept {
+    auto r = getTestResource();
+    r.deallocate(p, camp::resources::MemoryAccess::Managed);
   }
   template <typename T2>
   bool operator==(const TestAllocator<T2>&) const noexcept {
@@ -406,14 +463,18 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test15() {
     // execution options given explicitly: instance of the execution space
-    // with Kokkos, no queue otherwise
+    // with Kokkos, resource of camp with RAJA (on a stream created by the
+    // test with CUDA), no queue otherwise
     constexpr auto eps = double{1e-2};
-#ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+#if defined(MFRONT_GPMP_TEST_USE_KOKKOS)
     auto space = MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE{};
     const auto options = mfront_gpmp_ExecutionOptions{.queue = &space};
-#else  /* MFRONT_GPMP_TEST_USE_KOKKOS */
+#elif defined(MFRONT_GPMP_TEST_USE_RAJA)
+    auto resource = makeExplicitTestResource();
+    const auto options = mfront_gpmp_ExecutionOptions{.queue = &resource};
+#else
     const auto options = mfront_gpmp_ExecutionOptions{};
-#endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+#endif
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(4);
     const auto T = test_vector<double>{300, 500, 300, 800};
@@ -426,6 +487,17 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
     }
+#if defined(MFRONT_GPMP_TEST_USE_RAJA) && defined(RAJA_CUDA_ACTIVE)
+    // destruction of the stream created by makeExplicitTestResource. The
+    // generic lambda makes the discarded branch dependent: it is not
+    // checked with a resource of the host, which has no stream.
+    [this](const auto& r) {
+      using Resource = std::remove_cvref_t<decltype(r)>;
+      if constexpr (std::is_same_v<Resource, camp::resources::Cuda>) {
+        TFEL_TESTS_ASSERT(cudaStreamDestroy(r.get_stream()) == cudaSuccess);
+      }
+    }(resource);
+#endif
   }
 
   void test16() {
@@ -435,14 +507,18 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     constexpr auto eps = double{1e-2};
     auto statistics = test_vector<mfront_gpmp_Statistics>(1);
     mfront_gpmp_initializeStatistics(statistics.data());
-#ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+#if defined(MFRONT_GPMP_TEST_USE_KOKKOS)
     auto space = MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE{};
     const auto options = mfront_gpmp_ExecutionOptions{
         .queue = &space, .statistics = statistics.data()};
-#else  /* MFRONT_GPMP_TEST_USE_KOKKOS */
+#elif defined(MFRONT_GPMP_TEST_USE_RAJA)
+    auto resource = getTestResource();
+    const auto options = mfront_gpmp_ExecutionOptions{
+        .queue = &resource, .statistics = statistics.data()};
+#else
     const auto options =
         mfront_gpmp_ExecutionOptions{.statistics = statistics.data()};
-#endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+#endif
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(4);
     const auto T = test_vector<double>{300, -1, 500, 800};
@@ -452,9 +528,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
                             args_strides.data(), 1, 4, policy, &options);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
-#ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+#if defined(MFRONT_GPMP_TEST_USE_KOKKOS)
     space.fence();
-#endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+#elif defined(MFRONT_GPMP_TEST_USE_RAJA)
+    resource.wait();
+#endif
     Inconel600_YoungModulus_generic_parallel_report(&output, statistics.data(),
                                                     policy);
     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
@@ -468,9 +546,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test17() {
     // stack size of the threads of the device preserved by the execution
-    // options. With a CUDA execution space of Kokkos, an error is reported
-    // if it is too small for the kernel. On the host, the option has no
-    // effect.
+    // options. With a CUDA execution space of Kokkos or an execution policy
+    // of RAJA for CUDA, an error is reported if it is too small for the
+    // kernel. On the host, the option has no effect.
     constexpr auto eps = double{1e-2};
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(2);
@@ -500,6 +578,25 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     }
 #endif /* defined(MFRONT_GPMP_TEST_USE_KOKKOS) && \
           defined(KOKKOS_ENABLE_CUDA) */
+#if defined(MFRONT_GPMP_TEST_USE_RAJA) && defined(RAJA_CUDA_ACTIVE)
+    if constexpr (mfront::generic_parallel::raja::isDeviceExecutionPolicy<
+                      MFRONT_GPMP_TEST_RAJA_EXECUTION_POLICY>) {
+      auto initial_stack_size = std::size_t{};
+      TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&initial_stack_size,
+                                           cudaLimitStackSize) == cudaSuccess);
+      // the kernels require at least 1024 bytes (see
+      // mfront::generic_parallel::gpu::ensureStackSize)
+      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize, 256) ==
+                        cudaSuccess);
+      Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
+                              args_strides.data(), 1, 2, policy, &preserve);
+      TFEL_TESTS_CHECK_EQUAL(output.status, -6);
+      TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
+          "the stack size of the threads of the device must be at least"));
+      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
+                                           initial_stack_size) == cudaSuccess);
+    }
+#endif /* defined(MFRONT_GPMP_TEST_USE_RAJA) && defined(RAJA_CUDA_ACTIVE) */
     // the stack size has been increased by the previous evaluations
     Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
                             args_strides.data(), 1, 2, policy, &preserve);

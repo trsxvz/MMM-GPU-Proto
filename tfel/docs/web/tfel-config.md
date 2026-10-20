@@ -144,3 +144,20 @@ installation found by `cmake`.
   directories, `OpenMP` flags, and `-ccbin` for `nvcc_wrapper`).
 - `TFEL_KOKKOS_LINKER_FLAGS`: linker flags of `Kokkos` (`-lkokkoscore`
   and its directory, and `-cudart shared` if `Kokkos` uses `CUDA`).
+
+### Substitutions related to `RAJA`
+
+Those substitutions are defined if the `raja` configuration is listed in
+the `generic-parallel-configurations` variable of `cmake`. They are deduced
+from the `RAJA` and `camp` targets of the `RAJA` installation found by
+`cmake`, and from the features of RAJA given by its configuration header
+(`RAJA/config.hpp`).
+
+- `TFEL_RAJA_CXX_COMPILER`: `nvcc` if RAJA is built with `CUDA`, the `C++`
+  compiler of `TFEL` otherwise.
+- `TFEL_RAJA_CXX_FLAGS`: compilation flags (include directories of RAJA
+  and camp, `OpenMP` flags if RAJA is built with `OpenMP`, and, with
+  `nvcc`, `-x cu`, extended lambdas and the host compiler of `TFEL`).
+- `TFEL_RAJA_LINKER_FLAGS`: linker flags (`-lRAJA` and its directory,
+  `-lcamp` and its directory if camp is a shared library, `OpenMP` flags,
+  and `-cudart shared` if RAJA is built with `CUDA`).

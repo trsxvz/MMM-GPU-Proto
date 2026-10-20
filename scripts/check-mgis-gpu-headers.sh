@@ -7,7 +7,9 @@
 # the flags of the openmp and stlpar backends are written here (GPU options
 # of the configurations of nvc++ of TFEL, without -march=native).
 # usage: scripts/check-mgis-gpu-headers.sh [cuda] [hip] [sycl] [kokkos] [openmp]
-#        [stlpar]
+#        [stlpar] [raja]
+# Without argument, all the backends are checked, raja only if TFEL is built
+# with the raja configuration.
 set -u
 PROTO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$PROTO/scripts/env.sh" > /dev/null
@@ -24,7 +26,7 @@ subst() {
 INC="-I$PROTO/build/mgis/include -I$PROTO/mgis/include"
 LIBS="-L$MGIS_LIB -lMFrontGenericInterface"
 export LD_LIBRARY_PATH="$MGIS_LIB:$LD_LIBRARY_PATH"
-BACKENDS=${*:-cuda hip sycl kokkos openmp stlpar}
+BACKENDS=${*:-cuda hip sycl kokkos openmp stlpar raja}
 status=0
 for b in $BACKENDS; do
   exe="$OUT/check-$b"
@@ -42,6 +44,16 @@ for b in $BACKENDS; do
     stlpar)
       # GPU options of the stlpar-parunseq-nvhpc-gpu configuration of TFEL
       cmd="$(subst TFEL_NVHPC_COMPILER) -std=c++20 -O2 -stdpar=gpu -gpu=mem:managed,nordc -DMGIS_CHECK_STLPAR $INC $SRC -o $exe $LIBS" ;;
+    raja)
+      # compiler and flags of the raja configuration of TFEL (nvcc for a
+      # RAJA built with CUDA). This configuration is optional (see
+      # build-tfel.sh): it is skipped if absent, unless explicitly requested.
+      if [ -z "$(subst TFEL_RAJA_CXX_COMPILER)" ]; then
+        echo "raja: skipped (TFEL built without the raja configuration)"
+        [ $# -eq 0 ] || status=1
+        continue
+      fi
+      cmd="$(subst TFEL_RAJA_CXX_COMPILER) -std=c++20 -O2 $(subst TFEL_RAJA_CXX_FLAGS) -DMGIS_CHECK_RAJA $INC $SRC -o $exe $(subst TFEL_RAJA_LINKER_FLAGS) $LIBS" ;;
     *)
       echo "unknown backend '$b'" >&2; status=1; continue ;;
   esac

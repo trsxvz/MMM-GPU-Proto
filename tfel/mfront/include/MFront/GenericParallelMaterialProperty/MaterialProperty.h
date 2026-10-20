@@ -37,12 +37,12 @@ extern "C" {
  *
  * The device only updates them when an event occurs at a point (failure or
  * bound violated with the warning policy), with integer atomic operations
- * (`cuda`, `hip`, `sycl` and `kokkos` backends), whose cost is null when the
- * evaluation succeeds. The `stlpar` and `openmp` backends merge the
- * statuses of the points by a reduction, whose result is copied to the
- * host at each call. They are
- * initialized by `mfront_gpmp_initializeStatistics` and analysed by the
- * `<name>_generic_parallel_report` function exported by the libraries.
+ * (`cuda`, `hip`, `sycl`, `kokkos` and `raja` backends), whose cost is null
+ * when the evaluation succeeds. The `stlpar` and `openmp` backends merge the
+ * statuses of the points by a reduction, whose result is copied to the host
+ * at each call. They are initialized by `mfront_gpmp_initializeStatistics`
+ * and analysed by the `<name>_generic_parallel_report` function exported by
+ * the libraries.
  */
 typedef struct mfront_gpmp_Statistics {
   /*!
@@ -137,7 +137,8 @@ typedef struct mfront_gpmp_ExecutionOptions {
   /*!
    * \brief queue on which the computations are submitted. Its meaning
    * depends on the backend (`cudaStream_t` or `hipStream_t`, pointer to a
-   * `sycl::queue` or to an instance of a Kokkos execution space), as for the
+   * `sycl::queue`, to an instance of a Kokkos execution space or to a
+   * resource of camp matching the execution policy of RAJA), as for the
    * behaviours. A null pointer denotes the default queue, if meaningful for
    * the backend: a queue must be given to the `sycl` backend.
    */
@@ -154,8 +155,8 @@ typedef struct mfront_gpmp_ExecutionOptions {
    * backends, which merge the statuses of the points on the host). With
    * the automatic data transfers of the `sycl` backend, statistics which
    * are not accessible by the device are copied, as the values. The
-   * evaluation may then be asynchronous (CUDA, HIP and Kokkos backends,
-   * SYCL backend if no array is copied), as the integration of the
+   * evaluation may then be asynchronous (CUDA, HIP, Kokkos and RAJA
+   * backends, SYCL backend if no array is copied), as the integration of the
    * behaviours: the function returns once the computations are submitted
    * to the queue, and the output status only reports invalid arguments and
    * runtime errors. With the `sycl` backend,
@@ -170,8 +171,9 @@ typedef struct mfront_gpmp_ExecutionOptions {
    * \brief if not null, the stack size of the threads of the device is
    * never modified and a runtime error is reported if it is too small.
    * Otherwise, the stack size is increased if the kernel requires it
-   * (`cuda`, `hip` and `kokkos` backends) or if the `device_stack_size`
-   * option of the backend is given (other backends), as for the behaviours.
+   * (`cuda`, `hip`, `kokkos` and `raja` backends) or if the
+   * `device_stack_size` option of the backend is given (other backends), as
+   * for the behaviours.
    */
   int preserve_stack_size;
 } mfront_gpmp_ExecutionOptions;

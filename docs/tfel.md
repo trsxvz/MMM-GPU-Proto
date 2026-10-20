@@ -59,7 +59,7 @@ It also exports description symbols, read at loading time:
 | Symbol | Value | Role |
 |---|---|---|
 | `<behaviour>_mfront_interface` | `GenericParallel` | distinguish a batch library from a `generic` library |
-| `<behaviour>_generic_parallel_backend` | `cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp` | know where and how the behaviour computes |
+| `<behaviour>_generic_parallel_backend` | `cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl` or `openmp` | know where and how the behaviour computes |
 | `<behaviour>_generic_parallel_api_version` | `MFRONT_GPB_API_VERSION` (2) | reject a library with an incompatible contract |
 | `<behaviour>_generic_parallel_memory_space` | `host`, `device` or `any` | know where to place the data (see [Memory space](#memory-space)) |
 
@@ -164,6 +164,7 @@ one uses the idiomatic primitive of its programming model.
 | `cuda`, `hip` | one thread per point, warp vote, atomic operations only when an event occurs | stream (`cudaStream_t`, `hipStream_t`) | yes | `number_of_threads_per_block` (128 by default) |
 | `stlpar` | `std::transform_reduce` on a counting iterator | none | no | `execution_policy`, `device_stack_size` |
 | `kokkos` | `Kokkos::parallel_for`, atomic operations only when an event occurs | instance of the execution space | yes | `execution_space` |
+| `raja` | `RAJA::forall`, atomic operations only when an event occurs | resource of camp of the execution policy | yes | `execution_policy` |
 | `sycl` | `parallel_for` and atomic updates | `sycl::queue`, mandatory | yes, if no value is copied and if the queue is in order | `data_transfer_policy`, `device_stack_size` |
 | `openmp` | `target teams distribute parallel for` or `parallel for` | none | no | `offload`, `device_stack_size` |
 
@@ -192,6 +193,22 @@ A few choices deserve an explanation:
   `Kokkos::SharedSpace`, as for material properties. The `OpenACC` and
   `OpenMPTarget` backends of Kokkos do not have this space: a static
   assertion reports it.
+- RAJA needs no initialisation. The execution policy is a type of RAJA
+  (`RAJA::cuda_exec_async<128>` by default in code compiled for CUDA, the
+  OpenMP loop on the host). A null queue denotes the default stream of the
+  current GPU, as for `cuda` and `hip`: the default resource of camp is a
+  stream created by camp on the GPU 0, wrong with one GPU per MPI process.
+  The statistics of a synchronous computation are in managed memory
+  allocated by the resource of camp, and the shared data are copied once
+  per GPU. The policies of OpenMP target and SYCL are refused at
+  compilation: camp cannot allocate managed memory for them, and the `raja`
+  configuration only compiles for CUDA and the host. RAJA must be a shared
+  library, as Kokkos. RAJA is built with
+  CUDA and OpenMP in its own spack environment (`deps/spack/mmm-raja`): its
+  camp needs OpenMP, while the camp of `mmm-gpu` (used by Umpire) does not
+  have it. With CUDA, nvcc compiles all the sources of the library,
+  including those shared with the `generic` interface, as `nvcc_wrapper`
+  does for Kokkos.
 - The `stlpar` backend also serves the GPU with `nvc++ -stdpar=gpu`. The
   libraries linked to TBB (gcc, clang, icpx) stay loaded until the end of
   the process (`-Wl,-z,nodelete`): the TBB threads were still running when
@@ -225,6 +242,7 @@ fixed at compile time, from the backend, the compiler and the memory mode
 | `stlpar`, `openmp` on the host | `host` |
 | `nvc++ -stdpar=gpu`, `nvc++ -mp=gpu` | `device`, or `any` with unified memory |
 | `kokkos` | `host` if the execution space accesses host memory, `device` otherwise |
+| `raja` | `device` for the policies of CUDA and HIP, `host` otherwise |
 | `sycl` | `any` with automatic transfers, `device` otherwise |
 
 `device` means that the computations cannot read the ordinary memory of the
@@ -257,9 +275,10 @@ is replayed with the `generic` library of the same behaviour.
 **With atomic operations, error reporting costs nothing in case of
 success.** The kernels write into the statistics only if an event occurs
 at a point. On CUDA and HIP, a warp vote avoids any atomic operation in the
-warps without an event. In synchronous mode, the `cuda`, `hip`, `sycl` and
-`kokkos` backends keep the statistics in memory blocks accessible by the
-host and the GPU, allocated at the first call and then reused
+warps without an event. In synchronous mode, the `cuda`, `hip`, `sycl`,
+`kokkos` and `raja` backends keep the statistics in memory blocks
+accessible by the host and the GPU, allocated at the first call and then
+reused
 (`MFront/GenericParallel/StatusBlockPool.hxx`). The `stlpar` and `openmp`
 backends merge the statuses of the points by a reduction: its result, a few
 integers, is copied to the host at each call. The host initialises a block
@@ -275,11 +294,11 @@ status describes the result.
 
 If they give statistics, the statistics are accumulated in this structure,
 which must be accessible by the GPU (and by the host for `stlpar` and
-`openmp`, which accumulate on the host). The `cuda`, `hip`, `kokkos` and
-`sycl` (without copy) backends then return as soon as the computation is
-submitted. The caller synchronises the queue, then `mfront_gpb_report`
-(`BatchData.h`) fills the output status as a synchronous computation does,
-message included. It is the counterpart of `<name>_generic_parallel_report`
+`openmp`, which accumulate on the host). The `cuda`, `hip`, `kokkos`,
+`raja` and `sycl` (without copy) backends then return as soon as the
+computation is submitted. The caller synchronises the queue, then
+`mfront_gpb_report` (`BatchData.h`) fills the output status as a
+synchronous computation does, message included. It is the counterpart of `<name>_generic_parallel_report`
 of material properties. Several batches and the assembly can thus be
 submitted before a single synchronisation.
 
@@ -288,9 +307,10 @@ submitted before a single synchronisation.
 Some behaviours require a larger stack than the default value of NVIDIA
 GPUs (1 KB). The `cuda` and `hip` backends compute the required size from
 the attributes of the kernel
-(`MFront/GenericParallel/GPUStackSize.hxx`). Kokkos uses a probe kernel
-that is never launched (`MFront/GenericParallel/KokkosStackSize.hxx`).
-These two headers serve behaviours and material properties. `nvc++` and
+(`MFront/GenericParallel/GPUStackSize.hxx`). Kokkos and RAJA use a probe
+kernel that is never launched (`MFront/GenericParallel/KokkosStackSize.hxx`,
+`MFront/GenericParallel/RAJAExecutionPolicy.hxx`). These headers serve
+behaviours and material properties. `nvc++` and
 AdaptiveCpp give no access to this size: the `device_stack_size` option
 sets it through the CUDA runtime loaded in the process
 (`MFront/GenericParallel/DeviceStackSize.hxx`). The stack size is common to
@@ -336,8 +356,8 @@ possibilities as the one of behaviours.
 
 ### What changed
 
-- **Backends**: `kokkos` and `openmp` added to the existing backends
-  (`cuda`, `hip`, `stlpar`, `sycl`).
+- **Backends**: `kokkos`, `raja` and `openmp` added to the existing
+  backends (`cuda`, `hip`, `stlpar`, `sycl`).
 - **Properties defined by data or calling other material laws**: usable on
   CUDA and HIP.
 - **Execution options as last argument** (version 2 of the functions,
@@ -354,10 +374,10 @@ possibilities as the one of behaviours.
   first of them and the number of out-of-bounds points with the `Warning`
   policy. Each kernel computes the status of its point and merges it into
   the statistics (`mfront_gpmp_Statistics`) only when an event occurs:
-  atomic operations for CUDA, HIP, SYCL and Kokkos, reduction for the
+  atomic operations for CUDA, HIP, SYCL, Kokkos and RAJA, reduction for the
   parallel algorithms and OpenMP, as for behaviours. Zero cost in case of
   success with atomic operations.
-- **Stack of the threads**: CUDA, HIP and Kokkos adapt it to the kernel,
+- **Stack of the threads**: CUDA, HIP, Kokkos and RAJA adapt it to the kernel,
   with the headers of behaviours. `preserve_stack_size` therefore has the
   same effect everywhere.
 - **SYCL transfers**: the copy class of behaviours
@@ -374,7 +394,7 @@ possibilities as the one of behaviours.
   and with AdaptiveCpp (limit of 2^31 points lifted).
 - **Asynchronous evaluation.** If the options give statistics, initialised
   by `mfront_gpmp_initializeStatistics`, the function returns as soon as
-  the computation is submitted (`cuda`, `hip`, `kokkos`, `sycl` without
+  the computation is submitted (`cuda`, `hip`, `kokkos`, `raja`, `sycl` without
   copy). Once the computation is finished, the exported function
   `<name>_generic_parallel_report` analyses the statistics and fills the
   output status. The synchronous evaluation calls the same function: the
@@ -411,7 +431,7 @@ variables in order, the output after the arguments.
 | Empty batch | accepted without check | accepted without check |
 | Exception of the runtime of the backend | `-3` (backend error) | `-6` (backend error) |
 | Automatic SYCL transfers | `SYCLDeviceCopies.hxx` | same class |
-| Merge of the statuses of the points | atomic (CUDA, HIP, SYCL, Kokkos), reduction (parallel algorithms, OpenMP) | identical |
+| Merge of the statuses of the points | atomic (CUDA, HIP, SYCL, Kokkos, RAJA), reduction (parallel algorithms, OpenMP) | identical |
 | Number of failed points, first failed point | yes | yes |
 | Stack of the threads | adapted to the kernel, `preserve_stack_size` | identical |
 | Memory space, backend, version | exported symbols | exported symbols |
@@ -572,7 +592,7 @@ in its header, slip systems built at compile time. The functions of
 
 ## Configurations and compilers
 
-TFEL is built and tested with 14 configurations of the behaviour interface
+TFEL is built and tested with 15 configurations of the behaviour interface
 (`build-tfel.sh`). The configuration files are in
 `tfel/mfront/configuration-files/`.
 
@@ -583,6 +603,7 @@ TFEL is built and tested with 14 configurations of the behaviour interface
 | `stlpar-parunseq-gcc`, `-clang`, `-icpx` | g++ 14, clang 20, icpx 2026.1 | CPU, TBB |
 | `stlpar-parunseq-nvhpc-gpu` | nvc++ 25.11 | NVIDIA GPU |
 | `kokkos` | Kokkos 5.2 | NVIDIA GPU and CPU (OpenMP) |
+| `raja` | RAJA 2026.07, nvcc 13.0 | NVIDIA GPU and CPU (OpenMP) |
 | `sycl-default-acpp`, `sycl-gpu-acpp` | AdaptiveCpp 25.10 | CPU, NVIDIA GPU |
 | `sycl-default-icpx` | icpx 2026.1 | CPU |
 | `openmp-host-gcc` | g++ 14 | CPU |

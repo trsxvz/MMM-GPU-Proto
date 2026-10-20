@@ -115,8 +115,8 @@ namespace mfront::generic_parallel::material_property {
     const auto kernel =
         handleStrides ? "mfront_kernel" : "mfront_kernel_without_strides";
     // the captured variables are declared by `writeKernels`: the extended
-    // lambdas of nvcc, used by Kokkos, can't have initializers in their
-    // captures
+    // lambdas of nvcc, used by Kokkos and RAJA, can't have initializers in
+    // their captures
     os << "auto " << kernel << " = [mfront_output";
     if (handleStrides) {
       os << ", mfront_output_stride";

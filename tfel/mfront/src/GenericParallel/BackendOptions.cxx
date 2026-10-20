@@ -80,6 +80,67 @@ namespace mfront::generic_parallel {
     return s;
   }  // end of getKokkosExecutionSpace
 
+  void declareRAJAExecutionPolicyOption(tfel::utilities::DataMapValidator& v) {
+    v.addDataTypeValidator<std::string>("execution_policy");
+  }  // end of declareRAJAExecutionPolicyOption
+
+  std::string getRAJAExecutionPolicy(const tfel::utilities::DataMap& opts) {
+    if (!contains(opts, "execution_policy")) {
+      return "mfront::generic_parallel::raja::DefaultExecutionPolicy";
+    }
+    // the execution policy is written in the generated code: it must be
+    // made of qualified identifiers, integers, template arguments separated
+    // by commas, and spaces
+    const auto p = get<std::string>(opts, "execution_policy");
+    auto valid = !p.empty();
+    auto depth = 0;
+    auto token = std::string{};
+    auto check_token = [&valid, &token] {
+      if (token.empty()) {
+        return;
+      }
+      // integers and booleans, for instance the number of threads per block
+      // and the asynchronous flag of `RAJA::cuda_exec<128, true>`
+      const auto is_literal =
+          (token.find_first_not_of("0123456789") == std::string::npos) ||
+          (token == "true") || (token == "false");
+      if ((!is_literal) &&
+          (!tfel::utilities::CxxTokenizer::isValidIdentifier(token, false))) {
+        valid = false;
+      }
+      token.clear();
+    };
+    for (auto pos = std::string::size_type{}; valid && (pos != p.size());
+         ++pos) {
+      const auto c = p[pos];
+      if ((c == ':') && (pos + 1 != p.size()) && (p[pos + 1] == ':')) {
+        check_token();
+        ++pos;
+      } else if ((c == '<') || (c == ',') || (c == ' ')) {
+        check_token();
+        if (c == '<') {
+          ++depth;
+        } else if ((c == ',') && (depth == 0)) {
+          valid = false;
+        }
+      } else if (c == '>') {
+        check_token();
+        if (depth == 0) {
+          valid = false;
+        }
+        --depth;
+      } else {
+        token += c;
+      }
+    }
+    check_token();
+    if ((!valid) || (depth != 0)) {
+      tfel::raise("getRAJAExecutionPolicy: invalid execution policy '" + p +
+                  "'");
+    }
+    return p;
+  }  // end of getRAJAExecutionPolicy
+
   void declareDataTransferPolicyOption(tfel::utilities::DataMapValidator& v) {
     v.addDataTypeValidator<std::string>("data_transfer_policy");
   }  // end of declareDataTransferPolicyOption

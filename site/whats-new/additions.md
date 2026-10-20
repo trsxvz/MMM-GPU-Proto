@@ -176,11 +176,12 @@ without changing CPU results:
 
 ### Configurations
 
-TFEL is built and tested with 14 configurations of the behaviour
+TFEL is built and tested with 15 configurations of the behaviour
 interface (`build-tfel.sh`): CUDA with nvcc and clang, HIP with hipcc
 and clang (NVIDIA platform of HIP), `stlpar` with g++, clang, icpx and
-`nvc++` on the GPU, Kokkos, SYCL with AdaptiveCpp (CPU and GPU) and
-icpx, OpenMP on the host with g++ and OpenMP offloading with `nvc++`.
+`nvc++` on the GPU, Kokkos, RAJA (nvcc, GPU and OpenMP on the host),
+SYCL with AdaptiveCpp (CPU and GPU) and icpx, OpenMP on the host with g++
+and OpenMP offloading with `nvc++`.
 The `hip` backend also compiles behaviours for an AMD GPU (gfx90a,
 compilation and linking only).
 
@@ -224,7 +225,7 @@ compilation and linking only).
   code path.
 - **End of step on the GPU.** `update`, `revert` and `updateValues` take
   copy operations (`FieldOperations`), with headers for CUDA, HIP, SYCL,
-  Kokkos, OpenMP and the parallel algorithms of C++ (on the host, or on
+  Kokkos, RAJA, OpenMP and the parallel algorithms of C++ (on the host, or on
   the GPU with `nvc++ -stdpar=gpu`) compiled by the caller. `make_unchecked_view` and
   `updateInputValues` let a caller such as mfem-mgis keep the data of
   its materials on the GPU.

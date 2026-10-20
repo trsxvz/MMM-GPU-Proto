@@ -67,7 +67,11 @@
  * allocated in shared USM memory (or in host memory if the
  * `MFRONT_GPB_COMPARE_USE_HOST_MEMORY` macro is defined) and the
  * computations are performed on the device selected by the default SYCL
- * selector.
+ * selector. The `raja` configuration needs no macro: this file is compiled
+ * by `nvcc` if RAJA is built with CUDA (data in managed memory, null queue,
+ * i.e. the default stream of the current device), by the C++ compiler
+ * otherwise. The preserved stack size is only checked for the libraries
+ * computing on the device.
  *
  * \date   05/10/2026
  */
@@ -579,6 +583,19 @@ static Sizes readSizes(const std::string& lib,
 }
 
 /*!
+ * \return the memory space of a function of a library (`host`, `device` or
+ * `any`), empty if the symbol is not found
+ * \param[in] lib: library
+ * \param[in] f: tested function
+ */
+static std::string_view getMemorySpace(const std::string& lib,
+                                       const FunctionName& f) {
+  const auto* const m = static_cast<const char* const*>(
+      findSymbol(lib, f, "generic_parallel_memory_space"));
+  return std::string_view{m != nullptr ? *m : ""};
+}
+
+/*!
  * \brief check that the version of the data structures exported by the
  * library is the one of `MFront/GenericParallelBehaviour/BatchData.h`, and
  * that the library exports the memory space of the fields
@@ -591,9 +608,7 @@ static void checkVersion(const std::string& lib, const FunctionName& f) {
   if ((v == nullptr) || (*v != MFRONT_GPB_API_VERSION)) {
     fail("invalid version of the data structures in library '" + lib + "'");
   }
-  const auto* const m = static_cast<const char* const*>(
-      findSymbol(lib, f, "generic_parallel_memory_space"));
-  const auto memory_space = std::string_view{m != nullptr ? *m : ""};
+  const auto memory_space = getMemorySpace(lib, f);
   if ((memory_space != "host") && (memory_space != "device") &&
       (memory_space != "any")) {
     fail("invalid memory space in library '" + lib + "'");
@@ -1474,7 +1489,12 @@ static bool testIntegration(const Test& t) {
   ok = testSYCLQueues(t, fg, fb, Kt + o0) && ok;
 #endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
 #if defined(GPU_API)
-  ok = testPreserveStackSize(t, fb, Kt + o0) && ok;
+  // the stack size of the threads of the device only concerns the libraries
+  // computing on the device, not those computing on the host compiled by a
+  // GPU compiler (`config-raja-host.json` with a RAJA built with CUDA)
+  if (getMemorySpace(t.batch_library, t.name) == "device") {
+    ok = testPreserveStackSize(t, fb, Kt + o0) && ok;
+  }
 #endif /* defined(GPU_API) */
   return ok;
 }  // end of testIntegration

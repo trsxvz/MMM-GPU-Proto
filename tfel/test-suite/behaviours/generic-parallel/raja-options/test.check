@@ -1,0 +1,8 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::raja"};
+
+// execution policies accepted and refused by the `execution_policy` option
+// of the raja backend (generation of the sources only): the policy is copied
+// in the generated code
+@Command "sh check-execution-policies.sh @mfront@";
+
+@CleanDirectories {"include", "src"};

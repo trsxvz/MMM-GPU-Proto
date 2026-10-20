@@ -25,7 +25,7 @@ namespace mfront::generic_parallel::material_property {
   /*!
    * \brief This intermediate class helps implementing various closely related
    * backends which define the kernel as a lambda function. Those backends
-   * include `ParallelSTL`, `SYCL`, `Kokkos` and `OpenMP`
+   * include `ParallelSTL`, `SYCL`, `Kokkos`, `RAJA` and `OpenMP`
    */
   struct MFRONT_VISIBILITY_EXPORT CxxProgrammingModelBackendBase : BackendBase {
     //! \brief default constructor
@@ -133,7 +133,7 @@ namespace mfront::generic_parallel::material_property {
      * \return the specifiers written between the captures and the parameters
      * of the lambda functions implementing the kernels (for instance, the
      * host and device annotations of the extended lambdas required by Kokkos
-     * with the CUDA execution space)
+     * with the CUDA execution space and by RAJA with the policies of CUDA)
      */
     [[nodiscard]] virtual std::string getKernelSpecifiers() const;
     /*!

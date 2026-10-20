@@ -24,6 +24,15 @@ Content:
   routines of the double type on float arrays (ParaSails, Gaussian
   elimination 98, 99, 198 and 199 of BoomerAMG, Schwarz, FSAI, MGR, AIR,
   GSMG, LOBPCG, AME);
+- `mmm-raja/spack.yaml`: RAJA 2026.07.0 for CUDA (sm_120) and OpenMP, for
+  the `raja` backend of TFEL and MGIS (`deps/spack/install-mmm-raja.sh`,
+  then `build-tfel.sh`). RAJA with OpenMP needs a camp built with OpenMP,
+  while the camp of `mmm-gpu` (a dependency of Umpire) is built without
+  it: adding RAJA to `mmm-gpu`, whose packages are unified, would build
+  Umpire, hypre and MFEM again. The environment shares the spack instance,
+  the externals and the configuration of `mmm-gpu`; only RAJA and its camp
+  are built (a few seconds). RAJA 2025.12.2 and older do not support
+  CUDA 13;
 - `ci-cpu/spack.yaml` and `ci-cpu-float/spack.yaml`: environments of the
   CI on the CPU (`.github/workflows/ci.yml`,
   [docs/plan-ci-site.md](../../docs/plan-ci-site.md)), in double (MFEM 4.10

@@ -4,9 +4,12 @@
  * GPU programming model: field operations (MGIS/FieldOperations) and memory
  * resources (MGIS/MemoryResources). The backend is chosen by one of the
  * macros MGIS_CHECK_CUDA, MGIS_CHECK_HIP, MGIS_CHECK_SYCL, MGIS_CHECK_KOKKOS,
- * MGIS_CHECK_OPENMP and MGIS_CHECK_STLPAR (parallel algorithms of the C++
- * standard library compiled by nvc++ -stdpar=gpu, with the memory and the
- * managed memory resource of CUDA) (see scripts/check-mgis-gpu-headers.sh).
+ * MGIS_CHECK_OPENMP, MGIS_CHECK_STLPAR (parallel algorithms of the C++
+ * standard library compiled by nvc++ -stdpar=gpu) and MGIS_CHECK_RAJA (loops
+ * of RAJA compiled by nvcc for CUDA), the last two with the memory of CUDA
+ * (see scripts/check-mgis-gpu-headers.sh). The memory resource is the one of
+ * the backend (managed memory of CUDA with nvc++, of the resource of camp
+ * with RAJA).
  *
  * The field operations copy and fill views located in the memory of the
  * device only: contiguous copy, transposition between the point by point and
@@ -38,6 +41,10 @@
 #include "MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx"
 #elif defined(MGIS_CHECK_OPENMP)
 #include "MGIS/FieldOperations/OpenMPFieldOperations.hxx"
+#elif defined(MGIS_CHECK_RAJA)
+#include <cuda_runtime.h>
+#include "MGIS/FieldOperations/RAJAFieldOperations.hxx"
+#include "MGIS/MemoryResources/RAJAManagedMemoryResource.hxx"
 #elif defined(MGIS_CHECK_STLPAR)
 #include <cuda_runtime.h>
 #include "MGIS/FieldOperations/ParallelSTLFieldOperations.hxx"
@@ -67,7 +74,8 @@ struct Backend {
 #endif
   real* allocate(const size_type n) {
     void* p = nullptr;
-#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR) || \
+    defined(MGIS_CHECK_RAJA)
     if (cudaMalloc(&p, n * sizeof(real)) != cudaSuccess) {
       throw std::runtime_error("cudaMalloc failed");
     }
@@ -89,7 +97,8 @@ struct Backend {
     return static_cast<real*>(p);
   }
   void free(real* const p) {
-#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR) || \
+    defined(MGIS_CHECK_RAJA)
     static_cast<void>(cudaFree(p));
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipFree(p));
@@ -103,7 +112,8 @@ struct Backend {
   }
   void toDevice(real* const d, const std::vector<real>& h) {
     [[maybe_unused]] const auto s = h.size() * sizeof(real);
-#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR) || \
+    defined(MGIS_CHECK_RAJA)
     static_cast<void>(cudaMemcpy(d, h.data(), s, cudaMemcpyHostToDevice));
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipMemcpy(d, h.data(), s, hipMemcpyHostToDevice));
@@ -123,7 +133,8 @@ struct Backend {
   std::vector<real> toHost(const real* const d, const size_type n) {
     auto h = std::vector<real>(n);
     [[maybe_unused]] const auto s = n * sizeof(real);
-#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR) || \
+    defined(MGIS_CHECK_RAJA)
     static_cast<void>(cudaMemcpy(h.data(), d, s, cudaMemcpyDeviceToHost));
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipMemcpy(h.data(), d, s, hipMemcpyDeviceToHost));
@@ -142,7 +153,8 @@ struct Backend {
     return h;
   }
   void synchronize() {
-#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
+#if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR) || \
+    defined(MGIS_CHECK_RAJA)
     static_cast<void>(cudaDeviceSynchronize());
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipDeviceSynchronize());
@@ -175,6 +187,15 @@ struct Backend {
 #elif defined(MGIS_CHECK_STLPAR)
   mgis::field_operations::ParallelSTLFieldOperations<> operations() {
     return mgis::field_operations::ParallelSTLFieldOperations<>{};
+  }
+#elif defined(MGIS_CHECK_RAJA)
+  // default execution policy: the one of CUDA (code compiled by nvcc)
+  mgis::field_operations::RAJAFieldOperations<> operations() {
+    static_assert(
+        RAJA::type_traits::is_cuda_policy<
+            mgis::field_operations::RAJADefaultExecutionPolicy>::value,
+        "the default execution policy of RAJA is not the one of CUDA");
+    return mgis::field_operations::RAJAFieldOperations<>{};
   }
 #endif
 };
@@ -221,6 +242,9 @@ static void test(Backend& backend) {
   {
 #if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
     auto r = mgis::memory_resources::CUDAManagedMemoryResource{};
+#elif defined(MGIS_CHECK_RAJA)
+    // managed memory of the default resource of camp (CUDA)
+    auto r = mgis::memory_resources::RAJAManagedMemoryResource<>{};
 #elif defined(MGIS_CHECK_HIP)
     auto r = mgis::memory_resources::HIPManagedMemoryResource{};
 #elif defined(MGIS_CHECK_SYCL)

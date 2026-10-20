@@ -18,6 +18,7 @@
 #include "MFront/GenericParallel/MaterialProperty/HIPBackend.hxx"
 #include "MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx"
 #include "MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx"
+#include "MFront/GenericParallel/MaterialProperty/RAJABackend.hxx"
 #include "MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx"
 #include "MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx"
 #include "MFront/GenericParallel/MaterialProperty/BackendFactory.hxx"
@@ -41,6 +42,9 @@ namespace mfront::generic_parallel::material_property {
     });
     this->add("openmp", [](const DataMap& opts) {
       return std::make_unique<OpenMPBackend>(opts);
+    });
+    this->add("raja", [](const DataMap& opts) {
+      return std::make_unique<RAJABackend>(opts);
     });
     this->add("stlpar", [](const DataMap& opts) {
       return std::make_unique<ParallelSTLBackend>(opts);

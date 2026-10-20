@@ -548,6 +548,7 @@ set(_tfel-generic-parallel_supported_configurations
     "sycl-default-acpp"
     "sycl-gpu-acpp"
     "kokkos"
+    "raja"
     "openmp-host-gcc"
     "openmp-offload-nvhpc-gpu")
 
@@ -611,6 +612,34 @@ if(TFEL_REQUIRES_HIP)
    message(FATAL_ERROR "unsupported value of HIP_PLATFORM. Expected 'amd' or 'nvidia', got '${HIP_PLATFORM}'")
  endif()
 endif(TFEL_REQUIRES_HIP)
+
+# features of RAJA for the `raja` configuration, read in its configuration
+# header (`RAJA_ENABLE_CUDA`, `RAJA_ENABLE_HIP`, `RAJA_ENABLE_OPENMP`): the
+# generated libraries are compiled by nvcc if RAJA is built with CUDA
+if(_tfel-enable-generic-parallel-raja-configuration)
+  find_package(RAJA REQUIRED)
+  get_target_property(_raja_include_directories RAJA
+                      INTERFACE_INCLUDE_DIRECTORIES)
+  set(_raja_features)
+  foreach(_directory IN LISTS _raja_include_directories)
+    if(EXISTS "${_directory}/RAJA/config.hpp")
+      file(STRINGS "${_directory}/RAJA/config.hpp" _raja_directory_features
+           REGEX "^#define RAJA_ENABLE_(CUDA|CLANG_CUDA|HIP|OPENMP) *$")
+      list(APPEND _raja_features ${_raja_directory_features})
+    endif()
+  endforeach()
+  string(REGEX REPLACE "#define RAJA_ENABLE_([A-Z_]+) *" "\\1"
+         _raja_features "${_raja_features}")
+  list(REMOVE_DUPLICATES _raja_features)
+  if(("HIP" IN_LIST _raja_features) OR ("CLANG_CUDA" IN_LIST _raja_features))
+    message(FATAL_ERROR "the 'raja' configuration does not support a RAJA "
+            "built with HIP or with clang as CUDA compiler")
+  endif()
+  if("CUDA" IN_LIST _raja_features)
+    set(TFEL_REQUIRES_CUDA ON)
+  endif()
+  message(STATUS "RAJA features: ${_raja_features}")
+endif()
 
 if(TFEL_REQUIRES_CUDA)
   find_package(CUDAToolkit REQUIRED)
@@ -742,4 +771,90 @@ if(_tfel-enable-generic-parallel-kokkos-configuration)
   message(STATUS "Kokkos compiler: ${Kokkos_CXX_COMPILER}")
   message(STATUS "Kokkos flags: ${TFEL_KOKKOS_CXX_FLAGS}")
   message(STATUS "Kokkos linker flags: ${TFEL_KOKKOS_LINKER_FLAGS}")
+endif()
+
+if(_tfel-enable-generic-parallel-raja-configuration)
+  # the generated libraries are compiled by nvcc if RAJA is built with CUDA
+  # (extended lambdas, same host compiler as TFEL, shared CUDA runtime, as
+  # the calling code), by the C++ compiler of TFEL otherwise, with the
+  # include directories of RAJA and camp. They are linked with the shared
+  # library of RAJA, and with the one of camp if camp is a shared library
+  # (a static camp, the default, is included in the library of RAJA).
+  get_target_property(_camp_include_directories camp
+                      INTERFACE_INCLUDE_DIRECTORIES)
+  # the generated libraries and the calling code share the same instance of
+  # RAJA, as for Kokkos
+  get_target_property(_raja_type RAJA TYPE)
+  if(NOT _raja_type STREQUAL "SHARED_LIBRARY")
+    message(FATAL_ERROR "the 'raja' configuration requires RAJA built as a "
+            "shared library")
+  endif()
+  get_target_property(_raja_library RAJA LOCATION)
+  get_filename_component(_raja_library_directory "${_raja_library}"
+                         DIRECTORY)
+  set(_raja_flags)
+  set(_raja_linker_flags)
+  if("CUDA" IN_LIST _raja_features)
+    # MFront gives `-fPIC` to the compiler of the C++ sources: nvcc forwards
+    # the options it does not know to the host compiler, as with CMake. The
+    # sources shared with the `generic` interface are also compiled by nvcc:
+    # the calls to host functions from host and device functions are not
+    # errors (`-diag-error 20011,20014` of the `cuda-nvcc` configuration), as
+    # with Kokkos.
+    set(TFEL_RAJA_CXX_COMPILER "${TFEL_NVCC_COMPILER}")
+    list(APPEND _raja_flags "-forward-unknown-to-host-compiler"
+         "-x" "cu" "-arch=native" "--extended-lambda"
+         "--expt-relaxed-constexpr" "-diag-suppress" "20012,20208,2810,3189"
+         "-ccbin" "${CMAKE_CXX_COMPILER}")
+    list(APPEND _raja_linker_flags "-ccbin" "${CMAKE_CXX_COMPILER}"
+         "-cudart" "shared" "-L${CUDAToolkit_LIBRARY_DIR}"
+         "-Xlinker" "-rpath,${CUDAToolkit_LIBRARY_DIR}"
+         "-L${_raja_library_directory}"
+         "-Xlinker" "-rpath,${_raja_library_directory}")
+  else()
+    set(TFEL_RAJA_CXX_COMPILER "${CMAKE_CXX_COMPILER}")
+    list(APPEND _raja_flags "-fPIC")
+    list(APPEND _raja_linker_flags "-L${_raja_library_directory}"
+         "-Wl,-rpath,${_raja_library_directory}")
+  endif()
+  if("OPENMP" IN_LIST _raja_features)
+    find_package(OpenMP REQUIRED COMPONENTS CXX)
+    separate_arguments(_raja_openmp_flags UNIX_COMMAND "${OpenMP_CXX_FLAGS}")
+    foreach(_flag IN LISTS _raja_openmp_flags)
+      if("CUDA" IN_LIST _raja_features)
+        list(APPEND _raja_flags "-Xcompiler=${_flag}")
+        list(APPEND _raja_linker_flags "-Xcompiler=${_flag}")
+      else()
+        list(APPEND _raja_flags "${_flag}")
+        list(APPEND _raja_linker_flags "${_flag}")
+      endif()
+    endforeach()
+  endif()
+  foreach(_directory IN LISTS _raja_include_directories
+                              _camp_include_directories)
+    list(APPEND _raja_flags "-I${_directory}")
+  endforeach()
+  list(REMOVE_DUPLICATES _raja_flags)
+  list(APPEND _raja_linker_flags "-lRAJA")
+  get_target_property(_camp_type camp TYPE)
+  if(_camp_type STREQUAL "SHARED_LIBRARY")
+    get_target_property(_camp_library camp LOCATION)
+    get_filename_component(_camp_library_directory "${_camp_library}"
+                           DIRECTORY)
+    if("CUDA" IN_LIST _raja_features)
+      list(APPEND _raja_linker_flags "-L${_camp_library_directory}"
+           "-Xlinker" "-rpath,${_camp_library_directory}" "-lcamp")
+    else()
+      list(APPEND _raja_linker_flags "-L${_camp_library_directory}"
+           "-Wl,-rpath,${_camp_library_directory}" "-lcamp")
+    endif()
+  endif()
+  list(JOIN _raja_flags " " TFEL_RAJA_CXX_FLAGS)
+  list(JOIN _raja_linker_flags " " TFEL_RAJA_LINKER_FLAGS)
+  add_tfel_substitution(TFEL_RAJA_CXX_COMPILER "${TFEL_RAJA_CXX_COMPILER}")
+  add_tfel_substitution(TFEL_RAJA_CXX_FLAGS "${TFEL_RAJA_CXX_FLAGS}")
+  add_tfel_substitution(TFEL_RAJA_LINKER_FLAGS "${TFEL_RAJA_LINKER_FLAGS}")
+  message(STATUS "RAJA compiler: ${TFEL_RAJA_CXX_COMPILER}")
+  message(STATUS "RAJA flags: ${TFEL_RAJA_CXX_FLAGS}")
+  message(STATUS "RAJA linker flags: ${TFEL_RAJA_LINKER_FLAGS}")
 endif()

@@ -1,0 +1,13 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::raja"};
+
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+// libraries of the reference (`generic` interface, host compiler) and of the
+// tested configuration (see build-libraries.sh)
+@Command "sh ../build-libraries.sh @mfront@ config-raja.json";
+@Command "@TFEL_RAJA_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@ -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_RAJA_LINKER_FLAGS@";
+// comparisons with the `generic` interface, which gives the reference
+// results (see compare-all.sh)
+@Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-raja.so";
+
+@CleanFiles {"compare"};
+@CleanDirectories {"include", "src", "reference"};
