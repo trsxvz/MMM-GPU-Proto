@@ -67,7 +67,7 @@ namespace mfront::gpb::stlpar {
     const auto r = std::transform_reduce(
         policy, CountingIterator{0}, CountingIterator{n},
         BatchStatistics{.rdt = rdt0}, CombineStatistics{}, f);
-    return report(s, o, r);
+    return report(s, o, rdt0, r);
   }  // end of apply
 
   /*!

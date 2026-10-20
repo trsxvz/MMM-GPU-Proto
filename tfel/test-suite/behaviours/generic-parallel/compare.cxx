@@ -1394,10 +1394,8 @@ static bool testIntegration(const Test& t) {
     ok = testInvalidComputationOptions(t, fb, Kt + o0) && ok;
   }
   for (const auto K0 : {Kt, -1., 0.}) {
-    // models have no tangent operator, hence no prediction
-    if ((s.K == 0) && (K0 < -0.25)) {
-      continue;
-    }
+    // models have no tangent operator: with a prediction, they are executed
+    // and update the state, as with the `generic` interface
     for (const auto storage : storages) {
       // first step from the initial state, second step from its results
       auto ref = t.initial;
@@ -1694,6 +1692,36 @@ static bool testRotation(const Test& t) {
           by_component ? "by component" : "by point", o.status, diff, ms,
           pass ? "OK" : "FAILED");
     }
+  }
+  // asynchronous rotation: the rotations never lower the time step scaling
+  // factor, so that the statistics are not modified on all the backends,
+  // even if their time step scaling factor is greater than one
+  {
+    const auto source = BatchField(src, n, ns, false);
+    const auto destination =
+        BatchField(std::vector<double>(n * ns), n, ns, false);
+    const auto matrices = BatchField(rotations, n, 9, false);
+    auto* const statistics = allocate<mfront_gpb_BatchStatistics>(1);
+    mfront_gpb_initializeBatchStatistics(statistics, 2);
+    auto d = mfront_gpb_RotationData{};
+    d.number_of_points = n;
+    d.destination = destination.field();
+    d.source = source.const_field();
+    d.rotation_matrices = matrices.const_field();
+    d.execution.queue = queue();
+    d.execution.statistics = statistics;
+    auto o = mfront_gpb_OutputStatus{};
+    fb(&o, &d);
+    synchronize();
+    const auto rdt = mfront_gpb_getTimeStepScalingFactor(statistics);
+    const auto pass = (o.status == 1) &&
+                      (statistics->number_of_failures == 0) &&
+                      (statistics->number_of_unreliable_results == 0) &&
+                      (rdt == 2);
+    deallocate(statistics);
+    ok = pass && ok;
+    std::printf("rotation with statistics: status=%2d | rdt %g | %s\n",
+                o.status, rdt, pass ? "OK" : "FAILED");
   }
   return ok;
 }  // end of testRotation

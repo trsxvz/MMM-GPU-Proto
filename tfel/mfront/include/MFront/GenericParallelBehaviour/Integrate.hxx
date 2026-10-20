@@ -637,6 +637,23 @@ namespace mfront::gpb {
   }  // end of record
 
   /*!
+   * \return if the state at the end of the time step is updated when a
+   * prediction is requested. The behaviours do not update it, as in the
+   * `generic` interface. The models do: the `generic` interface of the
+   * models executes them whatever the type of computation (see
+   * `ModelIntegrator`).
+   * \tparam Integrator: integration strategy
+   */
+  template <typename Integrator>
+  TFEL_HOST_DEVICE constexpr bool updatesStateOnPrediction() noexcept {
+    if constexpr (requires { Integrator::updates_state_on_prediction; }) {
+      return Integrator::updates_state_on_prediction;
+    } else {
+      return false;
+    }
+  }  // end of updatesStateOnPrediction
+
+  /*!
    * \brief integrate the behaviour at the `i`-th point of a batch.
    *
    * \tparam Behaviour: class implementing the behaviour
@@ -670,7 +687,8 @@ namespace mfront::gpb {
         if (o.isPredictionRequested() || o.isTangentOperatorRequested()) {
           v.scatterTangentOperator();
         }
-        if (!o.isPredictionRequested()) {
+        if ((!o.isPredictionRequested()) ||
+            (updatesStateOnPrediction<Integrator>())) {
           v.scatterState();
           v.scatterEnergies();
         }
@@ -750,10 +768,12 @@ namespace mfront::gpb {
    * \brief accumulate the statistics of a batch
    * \param[in,out] s: accumulated statistics
    * \param[in] r: statistics of a batch
+   * \param[in] merge_rdt: if false, the time step scaling factor of the
+   * accumulated statistics is not modified
    */
   constexpr void accumulate(AtomicBatchStatistics& s,
-                            const BatchStatistics& r) noexcept {
-    const auto rdt = toOrderedKey(r.rdt);
+                            const BatchStatistics& r,
+                            const bool merge_rdt = true) noexcept {
     const auto first_failure_index =
         static_cast<unsigned long long>(r.first_failure_index);
     s.number_of_failures += r.number_of_failures;
@@ -761,7 +781,10 @@ namespace mfront::gpb {
                                 ? first_failure_index
                                 : s.first_failure_index;
     s.number_of_unreliable_results += r.number_of_unreliable_results;
-    s.rdt = rdt < s.rdt ? rdt : s.rdt;
+    if (merge_rdt) {
+      const auto rdt = toOrderedKey(r.rdt);
+      s.rdt = rdt < s.rdt ? rdt : s.rdt;
+    }
   }  // end of accumulate
 
   //! \brief function object combining two statistics
@@ -811,15 +834,21 @@ namespace mfront::gpb {
    * \return the status
    * \param[in,out] s: output status
    * \param[in] o: execution options
+   * \param[in] rdt0: initial value of the time step scaling factor of the
+   * batch
    * \param[in] r: statistics of the batch
    */
   inline int report(OutputStatus& s,
                     const ExecutionOptions& o,
+                    const real rdt0,
                     const BatchStatistics& r) noexcept {
     if (o.statistics == nullptr) {
       return report(s, r);
     }
-    accumulate(*(o.statistics), r);
+    // as with the backends updating the statistics by atomic operations,
+    // the time step scaling factor of the statistics is only lowered by the
+    // points which decreased the initial value of the batch
+    accumulate(*(o.statistics), r, r.rdt < rdt0);
     return s.status;
   }  // end of report
 

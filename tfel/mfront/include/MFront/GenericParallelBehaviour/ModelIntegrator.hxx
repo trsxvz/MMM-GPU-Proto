@@ -28,6 +28,12 @@ namespace mfront::gpb {
    */
   struct ModelIntegrator {
     /*!
+     * \brief the model is executed and the state at the end of the time
+     * step is updated whatever the computation options, as in the `generic`
+     * interface of the models (see `updatesStateOnPrediction`)
+     */
+    static constexpr bool updates_state_on_prediction = true;
+    /*!
      * \return the sizes of the data of a point
      * \tparam PointTraits: description of the data of a point
      */
@@ -42,14 +48,14 @@ namespace mfront::gpb {
      * factor is set to 0.1, as in the `generic` interface for models. On the
      * host, the exceptions thrown by the model are reported as failures.
      *
-     * A model has no prediction operator: if a prediction is requested, the
-     * model is not executed and, as for behaviours, the state is not
-     * updated.
+     * A model has no prediction operator: as in the `generic` interface of
+     * the models, the model is also executed if a prediction is requested.
      *
      * \tparam Model: class implementing the model
      * \tparam ParametersType: type of the structure holding the parameters
      * \param[in,out] d: behaviour data
-     * \param[in] o: computation options
+     * \param[in] o: computation options, not used: the model is executed
+     * whatever the type of computation
      * \param[in] p: out of bounds policy, which is the default policy of the
      * model, applied by the model itself
      * \param[in] parameters: values of the parameters
@@ -57,12 +63,9 @@ namespace mfront::gpb {
     template <typename Model, typename ParametersType>
     TFEL_HOST_DEVICE static int integrate(
         mfront::gb::BehaviourData& d,
-        const ComputationOptions& o,
+        const ComputationOptions&,
         const tfel::material::OutOfBoundsPolicy,
         const ParametersType& parameters) {
-      if (o.isPredictionRequested()) {
-        return 1;
-      }
       // on the host, the exceptions thrown by the model (bounds checks,
       // material laws) are reported as failures
       const auto status =

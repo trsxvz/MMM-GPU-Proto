@@ -93,7 +93,7 @@ namespace mfront::gpb::openmp {
         rdt = r.rdt < rdt ? r.rdt : rdt;
       }
     }
-    return report(s, o,
+    return report(s, o, rdt0,
                   BatchStatistics{.number_of_failures = number_of_failures,
                                   .first_failure_index = first_failure_index,
                                   .number_of_unreliable_results =

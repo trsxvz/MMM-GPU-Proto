@@ -5570,3 +5570,24 @@ formula as MTest). All the others give the Newton solution to within
   configurations changed by PR #1067, pass on the new base (behaviours and
   material properties). The complete validation is made with the next two
   steps.
+
+### 2026-10-20, models executed in prediction, one definition of the time step scaling factor
+
+- The models of the `generic-parallel` interface are now executed when a
+  prediction is requested, and the state at the end of the time step is
+  updated, as with the `generic` interface, which executes the models
+  whatever the type of computation. They were skipped. The comparison
+  with the `generic` interface now also covers the models with a
+  prediction.
+- On all the backends, the time step scaling factor of the statistics of
+  the behaviours is the minimum of its initial value and of the factors of
+  the points which are lower than the initial value of the batch. The
+  backends updating the statistics by atomic operations already did so.
+  The `stlpar`, `openmp` and `openacc` backends merged the factor of the
+  batch even if no point lowered it: statistics initialized above the
+  factor of the batch were lowered, for instance to `1` by the rotations.
+  A rotation with statistics initialized at `2` now leaves them unchanged
+  on all the backends (tested by the comparison).
+- Tests: comparisons of the behaviours with the `generic` interface on
+  `stlpar-parunseq-gcc`, `openmp-host-gcc`, `openacc-nvhpc-multicore`
+  (674 comparisons each) and `cuda-nvcc` (726), all green, at `-O3`.

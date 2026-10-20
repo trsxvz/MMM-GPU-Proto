@@ -432,14 +432,12 @@ operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`, and
 generated functions do in synchronous mode (status, numbers of points,
 index of the first failure, time step scaling factor and error message),
 as the `<name>_generic_parallel_report` functions of the material
-properties. The rotations never fail. The `stlpar`, `openmp` and `openacc`
-backends merge the time step scaling factor of the batch (the `rdt` member
-of the batch data for the integration, `1` for the rotations) with the one
-of the statistics, even if no event occurs, whereas the other backends only
-update the statistics when an event occurs (see below). The statistics
-must thus be initialized with a time step scaling factor not greater than
-the one of the batches (`1` for the rotations): the rotations then leave
-them unchanged with all the backends.
+properties. On all the backends, the time step scaling factor of the
+statistics is the minimum of the value given to
+`mfront_gpb_initializeBatchStatistics` and of the factors of the points
+which are lower than the initial value of the batch (the `rdt` member of
+the batch data). The rotations never fail and never lower the time step
+scaling factor: they leave the statistics unchanged.
 
 The devices only write in the statistics when an event occurs at a point
 (failure, unreliable result, decrease of the time step scaling factor), by
@@ -525,8 +523,9 @@ function).
 
 As with the `generic` interface, the time step scaling factor is set to
 `0.1` at the points where the model fails. A model has no prediction
-operator: if a prediction is requested, the model is not executed and the
-state at the end of the time step is not updated. In device code, a bound
+operator: as with the `generic` interface, the model is executed and the
+state at the end of the time step is updated whatever the type of
+computation. In device code, a bound
 which is not satisfied makes the model fail and string parameters are not
 supported.
 

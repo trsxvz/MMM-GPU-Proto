@@ -54,7 +54,10 @@ typedef struct mfront_gpb_BatchStatistics {
    * \brief minimum of the time step scaling factors, stored as an unsigned
    * integer with the same ordering (see
    * `mfront_gpb_getTimeStepScalingFactor`), so that the device can update
-   * it with an integer atomic operation
+   * it with an integer atomic operation. On all backends, this is the
+   * minimum of the value given to `mfront_gpb_initializeBatchStatistics`
+   * and of the factors of the points which are lower than the initial value
+   * of the batch (`rdt` member of `mfront_gpb_BatchData`).
    */
   unsigned long long rdt;
 } mfront_gpb_BatchStatistics;
@@ -266,10 +269,8 @@ typedef struct mfront_gpb_RotationData {
   mfront_gpb_ConstField rotation_matrices;
   /*!
    * \brief options of the execution of the computations. The rotations
-   * never fail: the statistics, if given, are not modified if their time
-   * step scaling factor is not greater than `1`. Otherwise, the `stlpar`
-   * and `openmp` backends set it to `1`, since they merge the time step
-   * scaling factor of the batch with the one of the statistics.
+   * never fail and never lower the time step scaling factor: the
+   * statistics, if given, are not modified.
    */
   mfront_gpb_ExecutionOptions execution;
 } mfront_gpb_RotationData;
