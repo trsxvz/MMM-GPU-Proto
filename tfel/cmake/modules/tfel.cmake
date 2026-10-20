@@ -550,7 +550,9 @@ set(_tfel-generic-parallel_supported_configurations
     "kokkos"
     "raja"
     "openmp-host-gcc"
-    "openmp-offload-nvhpc-gpu")
+    "openmp-offload-nvhpc-gpu"
+    "openacc-nvhpc-gpu"
+    "openacc-nvhpc-multicore")
 
 foreach(conf ${generic-parallel-configurations})
   if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
@@ -703,7 +705,9 @@ if((_tfel-enable-generic-parallel-stlpar-parunseq-gcc-configuration) OR
 endif()
 
 if((_tfel-enable-generic-parallel-stlpar-parunseq-nvhpc-gpu-configuration) OR
-   (_tfel-enable-generic-parallel-openmp-offload-nvhpc-gpu-configuration))
+   (_tfel-enable-generic-parallel-openmp-offload-nvhpc-gpu-configuration) OR
+   (_tfel-enable-generic-parallel-openacc-nvhpc-gpu-configuration) OR
+   (_tfel-enable-generic-parallel-openacc-nvhpc-multicore-configuration))
   define_tfel_cxx_compiler("nvhpc")
 endif()
 

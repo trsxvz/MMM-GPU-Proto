@@ -1,0 +1,20 @@
+dsl_options: {
+  disable_runtime_checks: false
+},
+interfaces_options: {
+  generic-parallel: {
+    backend: {openacc: {
+        device_stack_size: 16384
+      }
+    }
+  }
+},
+compilation_options : {
+  cxx : {
+    compiler: "@TFEL_NVHPC_COMPILER@",
+    compilation_flags: "-O2 -acc=gpu -gpu=mem:unified -std=c++@TFEL_CXX_STANDARD@ -march=native"
+  }
+},
+linking_options : {
+  linker_flags: "-acc=gpu -gpu=mem:unified"
+}

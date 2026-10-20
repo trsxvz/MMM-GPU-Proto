@@ -38,11 +38,11 @@ extern "C" {
  * The device only updates them when an event occurs at a point (failure or
  * bound violated with the warning policy), with integer atomic operations
  * (`cuda`, `hip`, `sycl`, `kokkos` and `raja` backends), whose cost is null
- * when the evaluation succeeds. The `stlpar` and `openmp` backends merge the
- * statuses of the points by a reduction, whose result is copied to the host
- * at each call. They are initialized by `mfront_gpmp_initializeStatistics`
- * and analysed by the `<name>_generic_parallel_report` function exported by
- * the libraries.
+ * when the evaluation succeeds. The `stlpar`, `openmp` and `openacc`
+ * backends merge the statuses of the points by a reduction, whose result is
+ * copied to the host at each call. They are initialized by
+ * `mfront_gpmp_initializeStatistics` and analysed by the
+ * `<name>_generic_parallel_report` function exported by the libraries.
  */
 typedef struct mfront_gpmp_Statistics {
   /*!
@@ -151,8 +151,9 @@ typedef struct mfront_gpmp_ExecutionOptions {
    *
    * Otherwise, the statistics are accumulated in the given structure,
    * initialized by `mfront_gpmp_initializeStatistics` and accessible by the
-   * device as the values (and by the host with the `stlpar` and `openmp`
-   * backends, which merge the statuses of the points on the host). With
+   * device as the values (and by the host with the `stlpar`, `openmp` and
+   * `openacc` backends, which merge the statuses of the points on the
+   * host). With
    * the automatic data transfers of the `sycl` backend, statistics which
    * are not accessible by the device are copied, as the values. The
    * evaluation may then be asynchronous (CUDA, HIP, Kokkos and RAJA

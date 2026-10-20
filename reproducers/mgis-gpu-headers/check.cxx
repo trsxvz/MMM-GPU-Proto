@@ -4,12 +4,13 @@
  * GPU programming model: field operations (MGIS/FieldOperations) and memory
  * resources (MGIS/MemoryResources). The backend is chosen by one of the
  * macros MGIS_CHECK_CUDA, MGIS_CHECK_HIP, MGIS_CHECK_SYCL, MGIS_CHECK_KOKKOS,
- * MGIS_CHECK_OPENMP, MGIS_CHECK_STLPAR (parallel algorithms of the C++
- * standard library compiled by nvc++ -stdpar=gpu) and MGIS_CHECK_RAJA (loops
- * of RAJA compiled by nvcc for CUDA), the last two with the memory of CUDA
- * (see scripts/check-mgis-gpu-headers.sh). The memory resource is the one of
- * the backend (managed memory of CUDA with nvc++, of the resource of camp
- * with RAJA).
+ * MGIS_CHECK_OPENMP, MGIS_CHECK_OPENACC (compiled by nvc++ -acc=gpu),
+ * MGIS_CHECK_STLPAR (parallel algorithms of the C++ standard library compiled
+ * by nvc++ -stdpar=gpu) and MGIS_CHECK_RAJA (loops of RAJA compiled by nvcc
+ * for CUDA), the last two with the memory of CUDA (see
+ * scripts/check-mgis-gpu-headers.sh). The memory resource is the one of the
+ * backend (managed memory of CUDA with nvc++, of the resource of camp with
+ * RAJA). OpenMP and OpenACC have no memory resource.
  *
  * The field operations copy and fill views located in the memory of the
  * device only: contiguous copy, transposition between the point by point and
@@ -41,6 +42,8 @@
 #include "MGIS/MemoryResources/KokkosSharedSpaceMemoryResource.hxx"
 #elif defined(MGIS_CHECK_OPENMP)
 #include "MGIS/FieldOperations/OpenMPFieldOperations.hxx"
+#elif defined(MGIS_CHECK_OPENACC)
+#include "MGIS/FieldOperations/OpenACCFieldOperations.hxx"
 #elif defined(MGIS_CHECK_RAJA)
 #include <cuda_runtime.h>
 #include "MGIS/FieldOperations/RAJAFieldOperations.hxx"
@@ -90,6 +93,8 @@ struct Backend {
         n * sizeof(real));
 #elif defined(MGIS_CHECK_OPENMP)
     p = omp_target_alloc(n * sizeof(real), omp_get_default_device());
+#elif defined(MGIS_CHECK_OPENACC)
+    p = acc_malloc(n * sizeof(real));
 #endif
     if (p == nullptr) {
       throw std::runtime_error("allocation failed");
@@ -108,6 +113,8 @@ struct Backend {
     Kokkos::kokkos_free<Kokkos::DefaultExecutionSpace::memory_space>(p);
 #elif defined(MGIS_CHECK_OPENMP)
     omp_target_free(p, omp_get_default_device());
+#elif defined(MGIS_CHECK_OPENACC)
+    acc_free(p);
 #endif
   }
   void toDevice(real* const d, const std::vector<real>& h) {
@@ -128,6 +135,8 @@ struct Backend {
 #elif defined(MGIS_CHECK_OPENMP)
     omp_target_memcpy(d, h.data(), s, 0, 0, omp_get_default_device(),
                       omp_get_initial_device());
+#elif defined(MGIS_CHECK_OPENACC)
+    acc_memcpy_to_device(d, const_cast<real*>(h.data()), s);
 #endif
   }
   std::vector<real> toHost(const real* const d, const size_type n) {
@@ -149,6 +158,8 @@ struct Backend {
 #elif defined(MGIS_CHECK_OPENMP)
     omp_target_memcpy(h.data(), d, s, 0, 0, omp_get_initial_device(),
                       omp_get_default_device());
+#elif defined(MGIS_CHECK_OPENACC)
+    acc_memcpy_from_device(h.data(), const_cast<real*>(d), s);
 #endif
     return h;
   }
@@ -183,6 +194,10 @@ struct Backend {
 #elif defined(MGIS_CHECK_OPENMP)
   mgis::field_operations::OpenMPFieldOperations operations() {
     return mgis::field_operations::OpenMPFieldOperations{};
+  }
+#elif defined(MGIS_CHECK_OPENACC)
+  mgis::field_operations::OpenACCFieldOperations operations() {
+    return mgis::field_operations::OpenACCFieldOperations{};
   }
 #elif defined(MGIS_CHECK_STLPAR)
   mgis::field_operations::ParallelSTLFieldOperations<> operations() {
@@ -237,7 +252,7 @@ static void test(Backend& backend) {
   const auto pc2 = backend.toHost(c, sc.size());
   check((pc2[(n + 5) + 3] == 2.5) && (pc2[3] == values[3 * nc]),
         "invalid fill of a component");
-#if !defined(MGIS_CHECK_OPENMP)
+#if !defined(MGIS_CHECK_OPENMP) && !defined(MGIS_CHECK_OPENACC)
   // memory resource: memory written by the device, read by the host
   {
 #if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR)
@@ -301,6 +316,9 @@ int main() {
     check(!backend.queue.get_device().is_cpu(), "the SYCL device is the host");
 #elif defined(MGIS_CHECK_OPENMP)
     check(omp_get_num_devices() > 0, "no OpenMP device");
+#elif defined(MGIS_CHECK_OPENACC)
+    check(acc_get_num_devices(acc_device_nvidia) > 0,
+          "no NVIDIA device for OpenACC");
 #endif
     // with CUDA, HIP and the parallel algorithms of nvc++, the views are in
     // the memory of the device only (cudaMalloc, hipMalloc): operations made

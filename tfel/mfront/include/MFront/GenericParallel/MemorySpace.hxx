@@ -39,8 +39,9 @@ namespace mfront::generic_parallel {
 
   /*!
    * \return the memory space of the computations offloaded by `nvc++` (C++
-   * parallel algorithms with `-stdpar=gpu`, OpenMP with `-mp=gpu`): with the
-   * unified memory mode, the device accesses the whole memory of the host.
+   * parallel algorithms with `-stdpar=gpu`, OpenMP with `-mp=gpu`, OpenACC
+   * with `-acc=gpu`): with the unified memory mode, the device accesses the
+   * whole memory of the host.
    */
   constexpr const char* getNVHPCOffloadMemorySpace() noexcept {
 #if defined(__NVCOMPILER_GPU_UNIFIED_MEM)
@@ -67,6 +68,23 @@ namespace mfront::generic_parallel {
     return device_memory_space;
 #endif
   }  // end of getOpenMPOffloadMemorySpace
+
+  /*!
+   * \return the memory space of the computations of OpenACC: the one of the
+   * computations offloaded by `nvc++` if the code is compiled for a GPU
+   * (`-acc=gpu`), the memory of the host if it is compiled for the cores of
+   * the host only (`-acc=multicore`). With the other compilers, the device
+   * is only known at runtime: the fields must be accessible by the device.
+   */
+  constexpr const char* getOpenACCMemorySpace() noexcept {
+#if defined(__NVCOMPILER_OPENACC_GPU)
+    return getNVHPCOffloadMemorySpace();
+#elif defined(__NVCOMPILER_OPENACC_MULTICORE)
+    return host_memory_space;
+#else
+    return device_memory_space;
+#endif
+  }  // end of getOpenACCMemorySpace
 
 }  // end of namespace mfront::generic_parallel
 

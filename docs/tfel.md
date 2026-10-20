@@ -59,7 +59,7 @@ It also exports description symbols, read at loading time:
 | Symbol | Value | Role |
 |---|---|---|
 | `<behaviour>_mfront_interface` | `GenericParallel` | distinguish a batch library from a `generic` library |
-| `<behaviour>_generic_parallel_backend` | `cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl` or `openmp` | know where and how the behaviour computes |
+| `<behaviour>_generic_parallel_backend` | `cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp` or `openacc` | know where and how the behaviour computes |
 | `<behaviour>_generic_parallel_api_version` | `MFRONT_GPB_API_VERSION` (2) | reject a library with an incompatible contract |
 | `<behaviour>_generic_parallel_memory_space` | `host`, `device` or `any` | know where to place the data (see [Memory space](#memory-space)) |
 
@@ -167,6 +167,7 @@ one uses the idiomatic primitive of its programming model.
 | `raja` | `RAJA::forall`, atomic operations only when an event occurs | resource of camp of the execution policy | yes | `execution_policy` |
 | `sycl` | `parallel_for` and atomic updates | `sycl::queue`, mandatory | yes, if no value is copied and if the queue is in order | `data_transfer_policy`, `device_stack_size` |
 | `openmp` | `target teams distribute parallel for` or `parallel for` | none | no | `offload`, `device_stack_size` |
+| `openacc` | `parallel loop` with reductions | none | no | `device_stack_size` |
 
 A few choices deserve an explanation:
 
@@ -209,6 +210,22 @@ A few choices deserve an explanation:
   have it. With CUDA, nvcc compiles all the sources of the library,
   including those shared with the `generic` interface, as `nvcc_wrapper`
   does for Kokkos.
+- OpenACC targets the device chosen by the compiler: the GPU with
+  `nvc++ -acc=gpu`, the cores of the host with `nvc++ -acc=multicore`. The
+  memory space follows from the compilation macros
+  (`__NVCOMPILER_OPENACC_GPU`, `__NVCOMPILER_OPENACC_MULTICORE`), and
+  `TFEL_DEVICE_CODE` is defined with `-acc=gpu`, as with `-mp=gpu`. The
+  OpenACC runtime of `nvc++` uses the CUDA driver without the CUDA runtime:
+  the stack size is set through the driver on the context of OpenACC
+  (`MFront/GenericParallel/OpenACCStackSize.hxx`). The shared data are
+  copied by `acc_malloc` once per device. The minimum reductions of OpenACC
+  on `long long` and `unsigned long long` return 1 on the GPU with nvc++
+  25.11 (`reproducers/nvhpc-openacc-min-reduction`): the indices are
+  reduced as `size_t` or `unsigned long`. With the separate and managed
+  memory modes, nvc++ 25.11 fails to compile the headers of TFEL for
+  OpenACC (undefined global variable for an empty function object in the
+  device code, `reproducers/nvhpc-openacc-managed-global`): the
+  `openacc-nvhpc-gpu` configuration uses `-gpu=mem:unified` (HMM).
 - The `stlpar` backend also serves the GPU with `nvc++ -stdpar=gpu`. The
   libraries linked to TBB (gcc, clang, icpx) stay loaded until the end of
   the process (`-Wl,-z,nodelete`): the TBB threads were still running when
@@ -240,7 +257,9 @@ fixed at compile time, from the backend, the compiler and the memory mode
 |---|---|
 | `cuda`, `hip` | `device` |
 | `stlpar`, `openmp` on the host | `host` |
-| `nvc++ -stdpar=gpu`, `nvc++ -mp=gpu` | `device`, or `any` with unified memory |
+| `nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, `nvc++ -acc=gpu` | `device`, or `any` with unified memory |
+| `openacc` with `nvc++ -acc=multicore` | `host` |
+| `openacc` with other compilers | `device` |
 | `kokkos` | `host` if the execution space accesses host memory, `device` otherwise |
 | `raja` | `device` for the policies of CUDA and HIP, `host` otherwise |
 | `sycl` | `any` with automatic transfers, `device` otherwise |
@@ -276,15 +295,14 @@ is replayed with the `generic` library of the same behaviour.
 success.** The kernels write into the statistics only if an event occurs
 at a point. On CUDA and HIP, a warp vote avoids any atomic operation in the
 warps without an event. In synchronous mode, the `cuda`, `hip`, `sycl`,
-`kokkos` and `raja` backends keep the statistics in memory blocks
-accessible by the host and the GPU, allocated at the first call and then
-reused
-(`MFront/GenericParallel/StatusBlockPool.hxx`). The `stlpar` and `openmp`
-backends merge the statuses of the points by a reduction: its result, a few
-integers, is copied to the host at each call. The host initialises a block
-and reads it after the synchronisation: without an event, no data goes
-between the host and the GPU. Measurement, on an elastic behaviour and 1000
-points: the synchronous CUDA call goes from 135 to 29 µs.
+`kokkos` and `raja` backends keep the statistics in memory blocks accessible
+by the host and the GPU, allocated at the first call and then reused
+(`MFront/GenericParallel/StatusBlockPool.hxx`). The `stlpar`, `openmp` and
+`openacc` backends merge the statuses of the points by a reduction: its
+result, a few integers, is copied to the host at each call. The host
+initialises a block and reads it after the synchronisation: without an
+event, no data goes between the host and the GPU. Measurement, on an elastic
+behaviour and 1000 points: the synchronous CUDA call goes from 135 to 29 µs.
 
 ### Synchronous and asynchronous
 
@@ -293,8 +311,8 @@ synchronous. The function returns once the computation is finished and the
 status describes the result.
 
 If they give statistics, the statistics are accumulated in this structure,
-which must be accessible by the GPU (and by the host for `stlpar` and
-`openmp`, which accumulate on the host). The `cuda`, `hip`, `kokkos`,
+which must be accessible by the GPU (and by the host for `stlpar`, `openmp`
+and `openacc`, which accumulate on the host). The `cuda`, `hip`, `kokkos`,
 `raja` and `sycl` (without copy) backends then return as soon as the
 computation is submitted. The caller synchronises the queue, then
 `mfront_gpb_report` (`BatchData.h`) fills the output status as a
@@ -356,8 +374,8 @@ possibilities as the one of behaviours.
 
 ### What changed
 
-- **Backends**: `kokkos`, `raja` and `openmp` added to the existing
-  backends (`cuda`, `hip`, `stlpar`, `sycl`).
+- **Backends**: `kokkos`, `raja`, `openmp` and `openacc` added to the
+  existing backends (`cuda`, `hip`, `stlpar`, `sycl`).
 - **Properties defined by data or calling other material laws**: usable on
   CUDA and HIP.
 - **Execution options as last argument** (version 2 of the functions,
@@ -375,8 +393,8 @@ possibilities as the one of behaviours.
   policy. Each kernel computes the status of its point and merges it into
   the statistics (`mfront_gpmp_Statistics`) only when an event occurs:
   atomic operations for CUDA, HIP, SYCL, Kokkos and RAJA, reduction for the
-  parallel algorithms and OpenMP, as for behaviours. Zero cost in case of
-  success with atomic operations.
+  parallel algorithms, OpenMP and OpenACC, as for behaviours. Zero cost in
+  case of success with atomic operations.
 - **Stack of the threads**: CUDA, HIP, Kokkos and RAJA adapt it to the kernel,
   with the headers of behaviours. `preserve_stack_size` therefore has the
   same effect everywhere.
@@ -431,7 +449,7 @@ variables in order, the output after the arguments.
 | Empty batch | accepted without check | accepted without check |
 | Exception of the runtime of the backend | `-3` (backend error) | `-6` (backend error) |
 | Automatic SYCL transfers | `SYCLDeviceCopies.hxx` | same class |
-| Merge of the statuses of the points | atomic (CUDA, HIP, SYCL, Kokkos, RAJA), reduction (parallel algorithms, OpenMP) | identical |
+| Merge of the statuses of the points | atomic (CUDA, HIP, SYCL, Kokkos, RAJA), reduction (parallel algorithms, OpenMP, OpenACC) | identical |
 | Number of failed points, first failed point | yes | yes |
 | Stack of the threads | adapted to the kernel, `preserve_stack_size` | identical |
 | Memory space, backend, version | exported symbols | exported symbols |
@@ -592,7 +610,7 @@ in its header, slip systems built at compile time. The functions of
 
 ## Configurations and compilers
 
-TFEL is built and tested with 15 configurations of the behaviour interface
+TFEL is built and tested with 17 configurations of the behaviour interface
 (`build-tfel.sh`). The configuration files are in
 `tfel/mfront/configuration-files/`.
 
@@ -608,6 +626,7 @@ TFEL is built and tested with 15 configurations of the behaviour interface
 | `sycl-default-icpx` | icpx 2026.1 | CPU |
 | `openmp-host-gcc` | g++ 14 | CPU |
 | `openmp-offload-nvhpc-gpu` | nvc++ 25.11 | NVIDIA GPU |
+| `openacc-nvhpc-gpu`, `openacc-nvhpc-multicore` | nvc++ 25.11 | NVIDIA GPU (unified memory), CPU |
 
 The `hip` backend also compiles behaviours for an AMD GPU: when MFEM is
 compiled with HIP, mfem-mgis generates them with the compiler and the

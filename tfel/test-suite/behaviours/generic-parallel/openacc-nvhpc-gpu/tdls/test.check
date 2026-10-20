@@ -1,0 +1,11 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::openacc-nvhpc-gpu",
+            "mfront::linear_system_solver::tdls"};
+
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+// behaviours using the TDLS linear system solver
+@Command "sh ../../build-libraries.sh @mfront@ config-openacc-nvhpc-gpu.json ImplicitNortonTDLS";
+@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -acc=gpu -gpu=mem:unified --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-openacc.so";
+
+@CleanFiles {"compare"};
+@CleanDirectories {"include", "src", "reference"};

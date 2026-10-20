@@ -40,13 +40,13 @@ previous ones. The technical details are in [tfel.md](tfel.md).
    synchronous or asynchronous computation, errors without cost in case of
    success, memory space symbol, shared data copied on each GPU, tests and
    documentation.
-5. **Additional backends and compilers**: Kokkos, RAJA, SYCL, offload of
-   `nvc++` (`stdpar` and OpenMP), clang CUDA and HIP. Most of the compiler
-   workarounds go into this contribution.
-6. **Extensions of the interface of the material properties**: Kokkos, RAJA
-   and OpenMP backends, properties defined by data or calling other laws on
-   CUDA and HIP, execution options as last argument with the same meaning
-   for all the backends (version 2 of the functions), asynchronous
+5. **Additional backends and compilers**: Kokkos, RAJA, SYCL, OpenACC,
+   offload of `nvc++` (`stdpar` and OpenMP), clang CUDA and HIP. Most of the
+   compiler workarounds go into this contribution.
+6. **Extensions of the interface of the material properties**: Kokkos, RAJA,
+   OpenMP and OpenACC backends, properties defined by data or calling other
+   laws on CUDA and HIP, execution options as last argument with the same
+   meaning for all the backends (version 2 of the functions), asynchronous
    evaluation and report function, symbols of backend, version and memory
    space, code of the kernels shared by the backends, statuses in reused
    blocks, status 1 with the `Warning` policy.

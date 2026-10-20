@@ -29,9 +29,9 @@ Patches, by subject (independently of their numbers; the details are in
   evaluations on views, HDF5 files and C, Fortran and Python bindings
   following the layout;
 - end of time step on the arrays of the calling code (`FieldOperations`,
-  headers for CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP and the parallel
-  algorithms of C++, with tests compiled by `nvc++ -stdpar=gpu`), view
-  without the check of the values held on the host
+  headers for CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP, OpenACC and the
+  parallel algorithms of C++, with tests compiled by `nvc++ -stdpar=gpu`),
+  view without the check of the values held on the host
   (`make_unchecked_view`), update of the inputs of a state only
   (`updateInputValues`);
 - profiling: synchronization function called around the timed sections

@@ -11,9 +11,9 @@
 # HPC SDK), kokkos (CUDA + OpenMP), raja (CUDA + OpenMP, RAJA of the
 # environment mmm-raja, mmm-gpu only, if installed), sycl-default-acpp and
 # sycl-gpu-acpp (AdaptiveCpp), openmp-host-gcc, openmp-offload-nvhpc-gpu
-# (nvc++ -mp=gpu), stlpar-parunseq-clang (clang 20 from the LLVM of spack:
-# its library is in LD_LIBRARY_PATH, so the clang of the system cannot be
-# used),
+# (nvc++ -mp=gpu), openacc-nvhpc-gpu and openacc-nvhpc-multicore (nvc++ -acc=gpu
+# and -acc=multicore), stlpar-parunseq-clang (clang 20 from the LLVM of spack:
+# its library is in LD_LIBRARY_PATH, so the clang of the system cannot be used),
 # cuda-clang and hip-clang (same clang, with CUDA 12.9: clang 20 does not
 # know CUDA 13), stlpar-parunseq-icpx and sycl-default-icpx (oneAPI
 # 2026.1, SYCL on CPU); TDLS enabled. To change the configurations of an
@@ -71,6 +71,7 @@ CONFIGURATIONS="$CONFIGURATIONS;stlpar-parunseq-gcc;stlpar-parunseq-nvhpc-gpu"
 CONFIGURATIONS="$CONFIGURATIONS;stlpar-parunseq-clang;stlpar-parunseq-icpx;kokkos"
 CONFIGURATIONS="$CONFIGURATIONS;sycl-default-acpp;sycl-gpu-acpp;sycl-default-icpx"
 CONFIGURATIONS="$CONFIGURATIONS;openmp-host-gcc;openmp-offload-nvhpc-gpu"
+CONFIGURATIONS="$CONFIGURATIONS;openacc-nvhpc-gpu;openacc-nvhpc-multicore"
 RAJA_OPTIONS=()
 if [ -n "${RAJA:-}" ]; then
   CONFIGURATIONS="$CONFIGURATIONS;raja"

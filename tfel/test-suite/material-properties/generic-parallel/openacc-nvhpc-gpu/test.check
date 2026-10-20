@@ -1,0 +1,15 @@
+@Requires {"mfront::material_property::generic-parallel_interface::supported_configuration::openacc-nvhpc-gpu"};
+
+@Environment {"LD_LIBRARY_PATH": "src"};
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-gpu.json ../PoissonRatioTest.mfront";
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-gpu.json ../Inconel600_YoungModulus.mfront";
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-gpu.json ../Inconel600_YoungModulus-qt.mfront";
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-gpu.json ../UO2_YoungModulus_Martin1989.mfront";
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-gpu.json ../LinearDataInterpolationTest.mfront";
+@Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-openacc-nvhpc-gpu.json ../MaterialLawCallTest.mfront";
+@Command "@mfront@ --obuild --configuration-file=config-openacc-nvhpc-gpu.json";
+@Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -acc=gpu -gpu=mem:unified --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openacc ../test-cxx.cxx -o test-openacc -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openacc -lGenericParallelInconel600-openacc -lGenericParallelMaterialLaw-openacc";
+@Command "./test-openacc test-openacc-openacc-nvhpc-gpu";
+
+@CleanFiles {"test-openacc"};
+@CleanDirectories {"include", "src"};

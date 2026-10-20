@@ -81,16 +81,16 @@ typedef struct mfront_gpb_ExecutionOptions {
    *
    * Otherwise, the statistics are accumulated in the given structure, which
    * must be accessible by the device as the fields of the batch (and by the
-   * host with the `stlpar` and `openmp` backends, which accumulate them on
-   * the host). With the automatic data transfers of the `sycl` backend,
+   * host with the `stlpar`, `openmp` and `openacc` backends, which accumulate
+   * them on the host). With the automatic data transfers of the `sycl` backend,
    * statistics which are not accessible by the device are copied, as the
-   * fields. The computations may then be asynchronous (CUDA, HIP, Kokkos
-   * and RAJA backends, SYCL backend if no field is transferred): the function
+   * fields. The computations may then be asynchronous (CUDA, HIP, Kokkos and
+   * RAJA backends, SYCL backend if no field is transferred): the function
    * returns once they are submitted to the queue, and the caller must
-   * synchronize the queue before reading the outputs and the statistics
-   * (see `mfront_gpb_report`). The output status only reports invalid
-   * arguments and runtime errors. With the `sycl` backend, the statistics
-   * require an in-order queue (invalid arguments otherwise).
+   * synchronize the queue before reading the outputs and the statistics (see
+   * `mfront_gpb_report`). The output status only reports invalid arguments and
+   * runtime errors. With the `sycl` backend, the statistics require an in-order
+   * queue (invalid arguments otherwise).
    */
   mfront_gpb_BatchStatistics* statistics;
   /*!

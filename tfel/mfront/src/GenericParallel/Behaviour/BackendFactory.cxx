@@ -17,6 +17,7 @@
 #include "MFront/GenericParallel/Behaviour/GPUBackend.hxx"
 #include "MFront/GenericParallel/Behaviour/KokkosBackend.hxx"
 #include "MFront/GenericParallel/Behaviour/OpenMPBackend.hxx"
+#include "MFront/GenericParallel/Behaviour/OpenACCBackend.hxx"
 #include "MFront/GenericParallel/Behaviour/RAJABackend.hxx"
 #include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
 #include "MFront/GenericParallel/Behaviour/SYCLBackend.hxx"
@@ -41,6 +42,9 @@ namespace mfront::generic_parallel::behaviour {
     });
     this->add("openmp", [](const DataMap& opts) {
       return std::make_unique<OpenMPBackend>(opts);
+    });
+    this->add("openacc", [](const DataMap& opts) {
+      return std::make_unique<OpenACCBackend>(opts);
     });
     this->add("raja", [](const DataMap& opts) {
       return std::make_unique<RAJABackend>(opts);

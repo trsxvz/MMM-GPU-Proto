@@ -41,10 +41,10 @@ namespace tfel::utilities {
    * its default constructor, which can be used in host and device code.
    *
    * This function returns a copy of this object when compiling for GPUs
-   * with `nvc++ -stdpar=gpu` or `nvc++ -mp=gpu`, which do not allow device
-   * code to access global variables (unless the unified memory mode is
-   * used). The returned value shall thus be bound to a constant reference,
-   * for instance:
+   * with `nvc++ -stdpar=gpu`, `nvc++ -mp=gpu` or `nvc++ -acc=gpu`, which do
+   * not allow device code to access global variables (unless the unified
+   * memory mode is used). The returned value shall thus be bound to a
+   * constant reference, for instance:
    *
    * \code{.cpp}
    * const auto& o = getConstantObject<T>();
@@ -53,7 +53,8 @@ namespace tfel::utilities {
    * \tparam T: type of the object, which must be default constructible at
    * compile time
    */
-#if (defined __NVCOMPILER_STDPAR_GPU) || (defined __NVCOMPILER_OPENMP_GPU)
+#if (defined __NVCOMPILER_STDPAR_GPU) || (defined __NVCOMPILER_OPENMP_GPU) || \
+    (defined __NVCOMPILER_OPENACC_GPU)
   template <typename T>
   TFEL_HOST_DEVICE constexpr T getConstantObject() noexcept {
     return T{};

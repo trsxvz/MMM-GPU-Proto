@@ -4,10 +4,10 @@
 # operations, memory resources) are checked on the device.
 # The compilers and their flags are the ones of the configurations of the
 # generic-parallel interface of TFEL (substitutions of build/tfel-<env>);
-# the flags of the openmp and stlpar backends are written here (GPU options
-# of the configurations of nvc++ of TFEL, without -march=native).
+# the flags of the openmp, openacc and stlpar backends are written here (GPU
+# options of the configurations of nvc++ of TFEL, without -march=native).
 # usage: scripts/check-mgis-gpu-headers.sh [cuda] [hip] [sycl] [kokkos] [openmp]
-#        [stlpar] [raja]
+#        [openacc] [stlpar] [raja]
 # Without argument, all the backends are checked, raja only if TFEL is built
 # with the raja configuration.
 set -u
@@ -26,7 +26,7 @@ subst() {
 INC="-I$PROTO/build/mgis/include -I$PROTO/mgis/include"
 LIBS="-L$MGIS_LIB -lMFrontGenericInterface"
 export LD_LIBRARY_PATH="$MGIS_LIB:$LD_LIBRARY_PATH"
-BACKENDS=${*:-cuda hip sycl kokkos openmp stlpar raja}
+BACKENDS=${*:-cuda hip sycl kokkos openmp openacc stlpar raja}
 status=0
 for b in $BACKENDS; do
   exe="$OUT/check-$b"
@@ -41,6 +41,8 @@ for b in $BACKENDS; do
       cmd="$(subst TFEL_KOKKOS_CXX_COMPILER) -std=c++20 -O2 $(subst TFEL_KOKKOS_CXX_FLAGS) -DMGIS_CHECK_KOKKOS $INC $SRC -o $exe $(subst TFEL_KOKKOS_LINKER_FLAGS) $LIBS" ;;
     openmp)
       cmd="$(subst TFEL_NVHPC_COMPILER) -std=c++20 -O2 -mp=gpu -DMGIS_CHECK_OPENMP $INC $SRC -o $exe $LIBS" ;;
+    openacc)
+      cmd="$(subst TFEL_NVHPC_COMPILER) -std=c++20 -O2 -acc=gpu -DMGIS_CHECK_OPENACC $INC $SRC -o $exe $LIBS" ;;
     stlpar)
       # GPU options of the stlpar-parunseq-nvhpc-gpu configuration of TFEL
       cmd="$(subst TFEL_NVHPC_COMPILER) -std=c++20 -O2 -stdpar=gpu -gpu=mem:managed,nordc -DMGIS_CHECK_STLPAR $INC $SRC -o $exe $LIBS" ;;

@@ -15,7 +15,8 @@ eqnPrefixTemplate: "($$i$$)"
 The `generic-parallel` interface integrates a behaviour, or executes a
 standalone model, over a batch of integration points, on GPUs or on CPUs,
 with one of the following backends: `CUDA`, `HIP`, parallel algorithms of
-the C++ standard library, Kokkos, RAJA, SYCL and OpenMP. It follows the
+the C++ standard library, Kokkos, RAJA, SYCL, OpenMP and OpenACC. It
+follows the
 design of the [`generic-parallel` interface for material
 properties](generic-parallel-material-property-interface.html): backends
 selected by an option, configuration files, libraries suffixed by the name
@@ -132,9 +133,9 @@ generated for them. The `<name>_mfront_interface` symbol is equal to
 `GenericParallel`, for the behaviours and for the standalone models, so
 that a library of this interface can't be taken for a library of the
 `generic` interface. The `<name>_generic_parallel_backend` symbol gives the
-backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`
-or `openmp`). The `<name>_generic_parallel_memory_space` symbol (a `const
-char*`) tells the calling code where the fields must be located:
+backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`,
+`openmp` or `openacc`). The `<name>_generic_parallel_memory_space` symbol
+(a `const char*`) tells the calling code where the fields must be located:
 
 - `host`: the computations are performed on the host, the fields must be
   accessible by the host;
@@ -149,7 +150,8 @@ char*`) tells the calling code where the fields must be located:
 
 This memory space is set when the library is compiled, since the target of
 some programming models is selected by the compiler (C++ parallel
-algorithms and OpenMP with `nvc++`) or by the configuration of a library
+algorithms, OpenMP and OpenACC with `nvc++`) or by the configuration of a
+library
 (execution space of Kokkos, execution policy of RAJA). See
 `MFront/GenericParallel/MemorySpace.hxx`.
 
@@ -375,8 +377,8 @@ backends, the default instance of the execution space of the `Kokkos`
 backend, and, for the `RAJA` backend, the default stream of the current
 device with `CUDA` and `HIP` and the default resource of camp otherwise.
 The `SYCL` backend requires a queue: the arguments are reported as invalid
-(status `-2`) otherwise. The queue is not used by the `stlpar` and `openmp`
-backends.
+(status `-2`) otherwise. The queue is not used by the `stlpar`, `openmp` and
+`openacc` backends.
 
 By default (`statistics` is null), the computations are synchronous: the
 function returns once they are completed and reports the statistics of the
@@ -384,10 +386,10 @@ batch in the output status.
 
 If `statistics` is not null, the statistics are accumulated in the given
 structure, which must be accessible by the device as the fields (and by
-the host with the `stlpar` and `openmp` backends, which accumulate them on
-the host). With the automatic data transfers of the `SYCL` backend,
-statistics which are not accessible by the device are copied, as the
-fields:
+the host with the `stlpar`, `openmp` and `openacc` backends, which
+accumulate them on the host). With the automatic data transfers of the
+`SYCL` backend, statistics which are not accessible by the device are
+copied, as the fields:
 
 ~~~~{.cxx}
 typedef struct mfront_gpb_BatchStatistics {
@@ -430,10 +432,10 @@ operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`, and
 generated functions do in synchronous mode (status, numbers of points,
 index of the first failure, time step scaling factor and error message),
 as the `<name>_generic_parallel_report` functions of the material
-properties. The rotations never fail. The `stlpar` and `openmp` backends
-merge the time step scaling factor of the batch (the `rdt` member of the
-batch data for the integration, `1` for the rotations) with the one of the
-statistics, even if no event occurs, whereas the other backends only
+properties. The rotations never fail. The `stlpar`, `openmp` and `openacc`
+backends merge the time step scaling factor of the batch (the `rdt` member
+of the batch data for the integration, `1` for the rotations) with the one
+of the statistics, even if no event occurs, whereas the other backends only
 update the statistics when an event occurs (see below). The statistics
 must thus be initialized with a time step scaling factor not greater than
 the one of the batches (`1` for the rotations): the rotations then leave
@@ -443,9 +445,9 @@ The devices only write in the statistics when an event occurs at a point
 (failure, unreliable result, decrease of the time step scaling factor), by
 atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA` backends): the
 reporting of the statistics then costs nothing when the computations
-succeed. The `OpenMP` backend and the C++ parallel algorithms merge the
-statistics of the points by a parallel reduction, whose result, a few
-integers, is copied to the host at each call. In synchronous mode, the
+succeed. The `OpenMP` and `OpenACC` backends and the C++ parallel algorithms
+merge the statistics of the points by a parallel reduction, whose result, a
+few integers, is copied to the host at each call. In synchronous mode, the
 `CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA` backends hold the statistics in a
 block of memory accessible by the host and by the device (managed memory,
 shared USM memory, `Kokkos::SharedSpace`, managed memory of the resources of
@@ -579,6 +581,8 @@ by the `MFRONT_INCLUDE_PATH` environment variable, then in this directory.
 | `config-raja-host.json`                 | `raja`   | `nvcc` if RAJA uses CUDA, default host policy         |
 | `config-openmp-host-gcc.json`           | `openmp` | `g++`, threads of the host                            |
 | `config-openmp-offload-nvhpc-gpu.json`  | `openmp` | `nvc++ -mp=gpu`, NVIDIA GPU                           |
+| `config-openacc-nvhpc-gpu.json`         | `openacc` | `nvc++ -acc=gpu`, NVIDIA GPU, unified memory         |
+| `config-openacc-nvhpc-multicore.json`   | `openacc` | `nvc++ -acc=multicore`, cores of the host            |
 
 The `sycl-gpu-acpp` configuration installs the files of the
 `sycl-default-acpp` configuration: it only adds tests of the material
@@ -823,14 +827,63 @@ Options:
   GPU when the computations are offloaded to an NVIDIA GPU through the CUDA
   runtime (16384 bytes in the `openmp-offload-nvhpc-gpu` configuration).
 
+## OpenACC backend (`openacc`)
+
+The points are processed by a `parallel loop` construct of OpenACC, on the
+device selected by the compiler and by the OpenACC runtime: a GPU with
+`nvc++ -acc=gpu` (`openacc-nvhpc-gpu` configuration), the cores of the host
+with `nvc++ -acc=multicore` (`openacc-nvhpc-multicore` configuration). The
+statistics of the batch are computed by reductions, as with the `OpenMP`
+backend, and the computations are synchronous: the queue of the execution
+options is not used.
+
+The memory space of the library is deduced from the compilation options
+(`mfront::generic_parallel::getOpenACCMemorySpace`): the one of the
+computations offloaded by `nvc++` with `-acc=gpu` (`device`, or `any` with
+the unified memory mode), `host` with `-acc=multicore` only, `device` with
+the other compilers, whose device is only known at runtime. The
+`openacc-nvhpc-gpu` configuration uses the unified memory mode of `nvc++`
+(`-acc=gpu -gpu=mem:unified`, which requires the heterogeneous memory
+management of the NVIDIA driver or a hardware coherent platform): with the
+separate and managed memory modes, `nvc++` 25.11 fails to compile the
+headers of `TFEL` for OpenACC (the device code refers to an undefined global
+variable created for an empty function object, such as the lambdas given to
+the loops over the components of the tensors), whereas `-mp=gpu` compiles
+them. As with the `OpenMP` backend, a program compiled by `nvc++ -acc=gpu`
+which loads libraries compiled by other compilers must be linked with
+`libnvhpcmanaux` (`-lnvhpcmanaux`): `nvc++` allocates the dynamic memory
+with its own allocator, and the memory freed by the other libraries must go
+through its `free` function.
+
+The OpenACC runtime of `nvc++` uses the CUDA driver without the CUDA
+runtime. The stack size of the threads of the GPU is therefore set through
+the driver, on the CUDA context of OpenACC
+(`MFront/GenericParallel/OpenACCStackSize.hxx`): the `NV_ACC_CUDA_STACKSIZE`
+environment variable of `nvc++` only sets it when the device is
+initialized.
+
+The minimum reductions of OpenACC on `long long` and `unsigned long long`
+integers are wrong on NVIDIA GPUs with `nvc++` 25.11 (they return `1`, at
+`-O0` as at `-O2`); the maximum reductions and the minimum reductions on
+`unsigned long`, `long`, `unsigned int`, `double` and `float` are right. The
+index of the first failed point is reduced as a `size_t`, and the material
+properties reduce their indices as `unsigned long` when this type has the
+size of `unsigned long long`.
+
+Options:
+
+- `device_stack_size`: minimal stack size, in bytes, of the threads of the
+  GPU when the computations are performed by an NVIDIA GPU (16384 bytes in
+  the `openacc-nvhpc-gpu` configuration).
+
 # Writing behaviours compatible with GPUs
 
-The code generated by `MFront` is compatible with GPUs. Device specific
-code is selected by the `TFEL_DEVICE_CODE` macro, which is defined when
-device code is compiled: the behaviour of the other interfaces on CPUs is
-not changed. With compilers translating host and device code in a single
-pass (`nvc++ -stdpar=gpu` and `nvc++ -mp=gpu`, generic compiler of
-AdaptiveCpp), this macro is defined in the whole translation unit: the
+The code generated by `MFront` is compatible with GPUs. Device specific code
+is selected by the `TFEL_DEVICE_CODE` macro, which is defined when device
+code is compiled: the behaviour of the other interfaces on CPUs is not
+changed. With compilers translating host and device code in a single pass
+(`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu` and `nvc++ -acc=gpu`, generic compiler
+of AdaptiveCpp), this macro is defined in the whole translation unit: the
 host code of the libraries built by those compilers then follows the rules
 of device code (no exceptions, eigenvectors of multiple eigenvalues computed
 by the Jacobi algorithm, etc.). The results may thus differ from the ones of
@@ -906,6 +959,8 @@ The following rules apply to the code blocks written by the user:
   - with the `RAJA` backend, in the memory of the resource used when no
     queue is given (memory of the current device for the policies of `CUDA`
     and `HIP`, one copy per device);
+  - with the `OpenACC` backend, in the memory of the current device of
+    OpenACC (`acc_malloc`), one copy per device;
   - otherwise, on the heap, which must be accessible by the device when the
     computations are offloaded (unified or managed memory, as with the
     `stlpar` backend of `nvc++`).
@@ -973,8 +1028,8 @@ The following points are specific to device code:
 
 The configurations have been tested with `nvcc` 13.0, `hipcc` 5.7 and 7.2
 on top of `nvcc` (NVIDIA platform), `clang` 20 (with `CUDA` 12.9), `g++`
-14, `icpx` 2026.1, `nvc++` 25.11, Kokkos 5.0 and 5.2, RAJA 2026.07 and
-AdaptiveCpp 25.10.
+14, `icpx` 2026.1, `nvc++` 25.11 (also for OpenACC), Kokkos 5.0 and 5.2,
+RAJA 2026.07 and AdaptiveCpp 25.10.
 Some compiler defects found during these tests are
 worked around in the generated code and the headers (see the comments of
 the headers of `MFront/GenericParallelBehaviour` and

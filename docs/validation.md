@@ -93,6 +93,29 @@ computing on the device), `raja-options` OK, material properties 170
 assertions (`raja`) and 164 assertions (`raja-host`), without failure.
 Logs in `scratch/raja/` (`run-tests-5.log`), untracked.
 
+### `openacc` configurations
+
+The `openacc-nvhpc-gpu` (`nvc++ -acc=gpu -gpu=mem:unified`) and
+`openacc-nvhpc-multicore` (`nvc++ -acc=multicore`) configurations are added
+to `build/tfel-mmm-gpu` (`scratch/openacc/reconfigure-main-tfel.sh`). The
+script `scratch/openacc/run-tests.sh` runs their tests with the TFEL of
+`install/tfel-mmm-gpu`: comparisons of the behaviours with the `generic`
+interface (with the TDLS sub-test), and the shared test of the material
+properties (with, on the GPU, the stack size preserved through the CUDA
+driver, and on the cores of the host, the evaluation without runtime
+checks). The reproducers `reproducers/nvhpc-openacc-min-reduction` and
+`reproducers/nvhpc-openacc-managed-global` show the two defects of `nvc++`
+25.11 worked around by the backend and by the configuration. The GPU
+configuration relies on the heterogeneous memory management of the
+driver: it is not run with `uvm_disable_hmm=1`.
+
+Results on 20/10, all green: behaviours `openacc-nvhpc-gpu` 657
+comparisons OK (with the TDLS sub-test, 1666 s), `openacc-nvhpc-multicore`
+all the comparisons OK (1667 s), material properties 171 assertions on the
+GPU (including the stack size lowered through the driver, status `-6`) and
+all the assertions on the cores of the host (with the evaluation without
+runtime checks). Logs in `scratch/openacc/` (`run-tests-*.log`), untracked.
+
 ### Sweeps
 
 The test behaviours of MFront (`tfel/mfront/tests`) are much more numerous
@@ -178,9 +201,10 @@ Python bindings (96 tests), including the tests of the layout in each binding
 blocks of the tangent in Fortran in both layouts, strides of the
 numpy arrays and strided arrays refused in Python). The script `scripts/check-mgis-gpu-headers.sh` compiles the
 GPU headers of MGIS (copy operations and memory resources) with the
-CUDA, HIP, SYCL, Kokkos, OpenMP offload, `nvc++ -stdpar=gpu` and RAJA
-toolchains of the prototype, and runs them on the GPU
-(`reproducers/mgis-gpu-headers/check.cxx`): seven successes on 20/10. RAJA
+CUDA, HIP, SYCL, Kokkos, OpenMP offload, OpenACC, `nvc++ -stdpar=gpu` and
+RAJA toolchains of the prototype, and runs them on the GPU
+(`reproducers/mgis-gpu-headers/check.cxx`): seven successes on 20/10 for
+all but OpenACC, then OpenACC alone (`nvc++ -acc=gpu`) the same day. RAJA
 is skipped if TFEL is built without the `raja` configuration.
 
 The CUDA tests require the CMake option `enable-generic-parallel-cuda-tests`,

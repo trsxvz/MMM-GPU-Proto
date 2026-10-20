@@ -1,0 +1,14 @@
+interfaces_options: {
+  generic-parallel: {
+    backend: "openacc"
+  }
+},
+compilation_options : {
+  cxx : {
+    compiler: "@TFEL_NVHPC_COMPILER@",
+    compilation_flags: "-O2 -acc=multicore -std=c++@TFEL_CXX_STANDARD@ -march=native"
+  }
+},
+linking_options : {
+  linker_flags: "-acc=multicore"
+}

@@ -7,8 +7,8 @@ Jacobians are compared by blocks. Blocks for which the comparison
 failed are reported on the standard output. The comparison is thus only
 performed on the host: it is skipped in device code, and in the whole
 library with the compilers translating host and device code in a single
-pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, generic compiler of
-AdaptiveCpp).
+pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, `nvc++ -acc=gpu`, generic
+compiler of AdaptiveCpp).
 
 The comparison criterion value can be changed used the
 `@JacobianComparisonCriterion` keyword.

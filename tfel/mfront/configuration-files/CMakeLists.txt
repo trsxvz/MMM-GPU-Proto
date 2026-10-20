@@ -45,6 +45,14 @@ if(_tfel-enable-generic-parallel-openmp-offload-nvhpc-gpu-configuration)
   install_configuration_file(config-openmp-offload-nvhpc-gpu.json)
 endif(_tfel-enable-generic-parallel-openmp-offload-nvhpc-gpu-configuration)
 
+if(_tfel-enable-generic-parallel-openacc-nvhpc-gpu-configuration)
+  install_configuration_file(config-openacc-nvhpc-gpu.json)
+endif(_tfel-enable-generic-parallel-openacc-nvhpc-gpu-configuration)
+
+if(_tfel-enable-generic-parallel-openacc-nvhpc-multicore-configuration)
+  install_configuration_file(config-openacc-nvhpc-multicore.json)
+endif(_tfel-enable-generic-parallel-openacc-nvhpc-multicore-configuration)
+
 if(_tfel-enable-generic-parallel-stlpar-parunseq-icpx-configuration)
   install_configuration_file(config-stlpar-parunseq-icpx.json)
 endif(_tfel-enable-generic-parallel-stlpar-parunseq-icpx-configuration)

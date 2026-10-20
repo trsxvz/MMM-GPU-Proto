@@ -41,8 +41,8 @@ In addition, the `generic-parallel` interface also exports:
 - symbols describing the material property (names of the inputs, list of
   parameters, default values, etc.),
 - the `<name>_generic_parallel_backend` symbol, which gives the backend of
-  the library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl` or
-  `openmp`), and the `<name>_generic_parallel_api_version` symbol (an
+  the library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp`
+  or `openacc`), and the `<name>_generic_parallel_api_version` symbol (an
   `unsigned short`), equal to the `MFRONT_GPMP_API_VERSION` macro of
   `MFront/GenericParallelMaterialProperty/MaterialProperty.h`, which is
   incremented at each incompatible change of the generated functions,
@@ -125,7 +125,8 @@ the execution options of the behaviours:
   execution space (default instance if null), pointer to a resource of camp
   matching the execution policy of RAJA (default stream of the current
   device with `CUDA` and `HIP`, default resource otherwise, if null). It is
-  not used by the C++ parallel algorithms and `OpenMP`. The evaluation is
+  not used by the C++ parallel algorithms, `OpenMP` and `OpenACC`. The
+  evaluation is
   ordered after the computations previously submitted to the queue, which
   may compute the arguments. With the `SYCL` backend, an out-of-order queue
   gives no order between the kernels: an asynchronous evaluation then
@@ -153,7 +154,8 @@ are submitted to the queue (`CUDA`, `HIP`, `Kokkos` and `RAJA` backends,
 invalid arguments and runtime errors. The statistics
 (`mfront_gpmp_Statistics`) are initialized by
 `mfront_gpmp_initializeStatistics` and must be accessible by the device as
-the values. With the C++ parallel algorithms and `OpenMP`, which merge the
+the values. With the C++ parallel algorithms, `OpenMP` and `OpenACC`, which
+merge the
 statuses of the points by a reduction, the statistics are also updated by
 the host. With the automatic data transfers of the `SYCL` backend,
 statistics which are not accessible by the device are copied, as the
@@ -179,7 +181,7 @@ Inconel600_YoungModulus_generic_parallel_report(&output, statistics, policy);
 A synchronous evaluation calls the same report function on statistics
 held by blocks of memory reused from one call to another (`CUDA`, `HIP`,
 `SYCL`, `Kokkos` and `RAJA` backends) or by a local variable (C++ parallel
-algorithms and `OpenMP`).
+algorithms, `OpenMP` and `OpenACC`).
 
 The statistics have the same structure as the ones of the behaviours: the
 number of points where the evaluation failed, the first of them, the
@@ -187,7 +189,8 @@ number of points where a bound is violated with the warning policy, and
 the first check which failed (see below). The kernels compute the status
 of each point and merge it in the statistics only when an event occurs:
 with integer atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA`
-backends), or by a reduction (C++ parallel algorithms and `OpenMP`), as
+backends), or by a reduction (C++ parallel algorithms, `OpenMP` and
+`OpenACC`), as
 for the behaviours. With the atomic operations, the reporting of the
 errors costs nothing when the evaluation succeeds. A reduction combines
 the statuses of all the points and copies its result, a few integers, to
@@ -220,7 +223,8 @@ The following statuses are specific to this interface:
   submission or execution of a kernel, stack size of the threads of the
   device), or invalid parameters. The exceptions thrown by the runtimes
   of the backends based on C++ programming models (`SYCL`, `Kokkos`, `RAJA`,
-  C++ parallel algorithms, `OpenMP`) are reported with this status, as the
+  C++ parallel algorithms, `OpenMP`, `OpenACC`) are reported with this
+  status, as the
   errors of the `CUDA` and `HIP` runtimes. The status `-2` of the
   `generic` interface (exception thrown by the evaluation) is not used:
   the kernels do not throw;
@@ -403,8 +407,8 @@ in the same way, with the memory accessible by the host and the device of
 the backend (managed memory, shared USM memory, `Kokkos::SharedSpace`,
 managed memory of the resources of camp). Those blocks are never freed,
 except with the `Kokkos` backend, which frees them when Kokkos is finalized.
-The C++ parallel algorithms and `OpenMP` merge the statuses of the points by
-a reduction.
+The C++ parallel algorithms, `OpenMP` and `OpenACC` merge the statuses of
+the points by a reduction.
 
 Before launching a kernel, the stack size of the threads is increased if
 the kernel requires it, as for the behaviours (see the
@@ -736,6 +740,26 @@ configuration). See the page of the [`generic-parallel` interface for
 behaviours](generic-parallel-behaviour-interface.html) for the constraints
 of `nvc++ -mp=gpu`.
 
+## `OpenACC` backend
+
+The `OpenACC` backend evaluates the material property with a `parallel
+loop` construct, on the device selected by the compiler and the OpenACC
+runtime: a GPU with `nvc++ -acc=gpu`, the cores of the host with
+`nvc++ -acc=multicore` (see the `config-openacc-nvhpc-gpu.json` and
+`config-openacc-nvhpc-multicore.json` configuration files). On a GPU, the
+arguments and the output must be accessible from it: the
+`openacc-nvhpc-gpu` configuration uses the unified memory mode of `nvc++`
+(`-gpu=mem:unified`), see the page of the behaviours. The memory space of
+the library is deduced from the compilation options, as for the behaviours.
+The evaluation is synchronous: the queue of the execution options is not
+used. The statuses of the points are merged by a reduction; the indices are
+reduced as `unsigned long`, the minimum reductions of OpenACC on
+`unsigned long long` being wrong on NVIDIA GPUs with `nvc++` 25.11. The
+`device_stack_size` option sets the stack size of the threads of the GPU
+through the CUDA driver (16384 in the `openacc-nvhpc-gpu` configuration).
+See the page of the [`generic-parallel` interface for
+behaviours](generic-parallel-behaviour-interface.html).
+
 # Tests
 
 Unlike other material property interfaces, the tests for the
@@ -783,6 +807,10 @@ The following tests configurations are currently supported:
   threads of the host.
 - `openmp-offload-nvhpc-gpu`: compilation with `nvc++ -mp=gpu`,
   computations offloaded to an NVIDIA GPU.
+- `openacc-nvhpc-gpu`: compilation with `nvc++ -acc=gpu`, computations
+  performed by an NVIDIA GPU.
+- `openacc-nvhpc-multicore`: compilation with `nvc++ -acc=multicore`,
+  computations performed by the cores of the host.
 
 ### Notes
 

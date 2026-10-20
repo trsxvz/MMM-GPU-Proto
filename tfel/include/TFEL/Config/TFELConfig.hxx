@@ -375,14 +375,16 @@
  *
  * Some compilers translate host and device code in a single pass: in this
  * case, the device code is selected in the whole translation unit. This is
- * the case of `nvc++ -stdpar=gpu` and `nvc++ -mp=gpu`, which may offload any
- * function called by a parallel algorithm of the standard library or in an
- * OpenMP `target` region, and of the generic compiler of AdaptiveCpp
- * (`SSCP`), which generates device code at runtime.
+ * the case of `nvc++ -stdpar=gpu`, `nvc++ -mp=gpu` and `nvc++ -acc=gpu`,
+ * which may offload any function called by a parallel algorithm of the
+ * standard library, in an OpenMP `target` region or in an OpenACC compute
+ * construct, and of the generic compiler of AdaptiveCpp (`SSCP`), which
+ * generates device code at runtime.
  */
 #if (defined __CUDA_ARCH__) || (defined __HIP_DEVICE_COMPILE__) ||         \
     (defined __SYCL_DEVICE_ONLY__) || (defined __NVCOMPILER_STDPAR_GPU) || \
     (defined __NVCOMPILER_OPENMP_GPU) ||                                   \
+    (defined __NVCOMPILER_OPENACC_GPU) ||                                  \
     (defined __ACPP_ENABLE_LLVM_SSCP_TARGET__)
 #ifndef TFEL_DEVICE_CODE
 #define TFEL_DEVICE_CODE 1
@@ -404,11 +406,11 @@
  *
  * As `TFEL_DEVICE_CODE`, the copy is used in the whole translation unit by
  * the compilers translating host and device code in a single pass (`nvc++
- * -stdpar=gpu`, `nvc++ -mp=gpu`, AdaptiveCpp's generic compiler). A
- * reference bound to the copy is only valid until the end of the full
- * expression, and the address of the copy can't be taken. The type of the
- * copy is not const qualified for scalar types, but it is const qualified
- * for class types, such as quantities.
+ * -stdpar=gpu`, `nvc++ -mp=gpu`, `nvc++ -acc=gpu`, AdaptiveCpp's generic
+ * compiler). A reference bound to the copy is only valid until the end of
+ * the full expression, and the address of the copy can't be taken. The type
+ * of the copy is not const qualified for scalar types, but it is const
+ * qualified for class types, such as quantities.
  */
 #ifdef TFEL_DEVICE_CODE
 #define TFEL_STATIC_VARIABLE(v) (decltype(v){v})

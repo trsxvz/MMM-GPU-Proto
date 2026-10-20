@@ -2003,8 +2003,8 @@ profile performance bottlenecks. The total time spend in various
 portions of the generated code will be stored and displayed when the
 calling process exits. Profiling is disabled in device code, and in the
 whole library with the compilers translating host and device code in a
-single pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, generic compiler of
-AdaptiveCpp).
+single pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, `nvc++ -acc=gpu`,
+generic compiler of AdaptiveCpp).
 
 ## Example
 
@@ -2129,9 +2129,10 @@ type must then be trivially copyable. The following restrictions apply:
 
 - shared data are not supported in behaviour variables
   (`@BehaviourVariable`, `@BehaviourVariableFactory`).
-- the copies are never freed (one copy per device with the `cuda`, `hip`
-  and `raja` backends, one copy per device and context with the `sycl`
-  backend, one copy on the heap with the `stlpar` and `openmp` backends),
+- the copies are never freed (one copy per device with the `cuda`, `hip`,
+  `raja` and `openacc` backends, one copy per device and context with the
+  `sycl` backend, one copy on the heap with the `stlpar` and `openmp`
+  backends),
   except with the `kokkos` backend, which frees its copy when Kokkos is
   finalized. With the `stlpar` and `openmp` backends, the heap must be
   accessible by the device when the computations are offloaded (unified

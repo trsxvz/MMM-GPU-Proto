@@ -29,9 +29,9 @@ The `TFEL/Config/TFELConfig.hxx` header defines the following macros:
 - `TFEL_DEVICE_CODE` is defined when device code is compiled: device
   compilation pass of `CUDA` and `HIP` sources, device compilation of
   `SYCL` sources. Some compilers translate host and device code in a
-  single pass: `nvc++ -stdpar=gpu`, `nvc++ -mp=gpu` and the generic
-  compiler of AdaptiveCpp. With those compilers, `TFEL_DEVICE_CODE` is
-  defined in the whole translation unit.
+  single pass: `nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`, `nvc++ -acc=gpu` and
+  the generic compiler of AdaptiveCpp. With those compilers,
+  `TFEL_DEVICE_CODE` is defined in the whole translation unit.
 - `TFEL_NO_REPORT_CONTRACT_VIOLATION` is defined when contract violations
   can't be reported, in particular in device code and in the whole `SYCL`
   sources.

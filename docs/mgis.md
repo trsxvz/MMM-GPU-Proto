@@ -333,17 +333,17 @@ its contract already describes each field by two strides.
   caller. All the functions of the manager exist on a view. Those of the
   manager call those of the view: a single code path. Without a policy,
   they take a workspace (`BehaviourIntegrationWorkSpace`), one per thread.
-  No `ThreadPool` on a view: CPU parallelism goes through the `openmp` and
-  `stlpar` backends.
+  No `ThreadPool` on a view: CPU parallelism goes through the `openmp`,
+  `openacc` and `stlpar` backends.
 - **Rotations and material properties**: overloads on views. The overloads
   on arrays go through them.
 - **End of time step on GPU**: `update`, `revert` and `updateValues` take
   copy operations (`FieldOperations`), just as allocations go through a
   `std::pmr::memory_resource`. MGIS knows which arrays to copy, the caller
-  provides the copy. Headers for CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP and the
-  parallel algorithms of C++ (`ParallelSTLFieldOperations`, on the host or
-  on an NVIDIA GPU with `nvc++ -stdpar=gpu`), compiled by the caller with
-  its toolchain.
+  provides the copy. Headers for CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP,
+  OpenACC and the parallel algorithms of C++ (`ParallelSTLFieldOperations`,
+  on the host or on an NVIDIA GPU with `nvc++ -stdpar=gpu`), compiled by the
+  caller with its toolchain.
 - **Unchecked view and update of the inputs only**: `make_unchecked_view`
   returns the view of a manager like `make_view`, without checking that
   the values kept on the host (uniform values, local storage, mass

@@ -48,8 +48,10 @@ behaviour, functions that process a whole batch of points.
 | `cuda`, `hip` | one thread per point, warp vote, atomics only on an event | stream | yes |
 | `stlpar` | `std::transform_reduce` over a counting iterator | none | no |
 | `kokkos` | `Kokkos::parallel_for`, atomics only on an event | execution space instance | yes |
+| `raja` | `RAJA::forall`, atomics only on an event | resource of camp | yes |
 | `sycl` | `parallel_for` and atomic updates | `sycl::queue`, required | yes, if no value is copied and the queue is in order |
 | `openmp` | `target teams distribute parallel for` or `parallel for` | none | no |
+| `openacc` | `parallel loop` with reductions | none | no |
 
 - **Execution options** with the same meaning for all backends: queue,
   statistics of an asynchronous computation, and a flag that forbids
@@ -90,8 +92,8 @@ behaviour, functions that process a whole batch of points.
 This interface already existed in TFEL. The prototype extends it to
 offer the same possibilities as the interface for behaviours:
 
-- `kokkos` and `openmp` backends, added to `cuda`, `hip`, `stlpar` and
-  `sycl`;
+- `kokkos`, `raja`, `openmp` and `openacc` backends, added to `cuda`,
+  `hip`, `stlpar` and `sycl`;
 - properties defined by data or calling other laws, usable on CUDA and
   HIP;
 - execution options as last argument, with the same members and meaning
@@ -176,12 +178,13 @@ without changing CPU results:
 
 ### Configurations
 
-TFEL is built and tested with 15 configurations of the behaviour
+TFEL is built and tested with 17 configurations of the behaviour
 interface (`build-tfel.sh`): CUDA with nvcc and clang, HIP with hipcc
 and clang (NVIDIA platform of HIP), `stlpar` with g++, clang, icpx and
 `nvc++` on the GPU, Kokkos, RAJA (nvcc, GPU and OpenMP on the host),
-SYCL with AdaptiveCpp (CPU and GPU) and icpx, OpenMP on the host with g++
-and OpenMP offloading with `nvc++`.
+SYCL with AdaptiveCpp (CPU and GPU) and icpx, OpenMP on the host with g++,
+OpenMP offloading with `nvc++` and OpenACC with `nvc++` (GPU and cores of
+the host).
 The `hip` backend also compiles behaviours for an AMD GPU (gfx90a,
 compilation and linking only).
 
@@ -225,10 +228,10 @@ compilation and linking only).
   code path.
 - **End of step on the GPU.** `update`, `revert` and `updateValues` take
   copy operations (`FieldOperations`), with headers for CUDA, HIP, SYCL,
-  Kokkos, RAJA, OpenMP and the parallel algorithms of C++ (on the host, or on
-  the GPU with `nvc++ -stdpar=gpu`) compiled by the caller. `make_unchecked_view` and
-  `updateInputValues` let a caller such as mfem-mgis keep the data of
-  its materials on the GPU.
+  Kokkos, RAJA, OpenMP, OpenACC and the parallel algorithms of C++ (on the
+  host, or on the GPU with `nvc++ -stdpar=gpu`) compiled by the caller.
+  `make_unchecked_view` and `updateInputValues` let a caller such as
+  mfem-mgis keep the data of its materials on the GPU.
 - **No heap allocation** in the usual synchronous calls once the arrays
   are allocated, checked by a test that counts the calls to
   `operator new`.

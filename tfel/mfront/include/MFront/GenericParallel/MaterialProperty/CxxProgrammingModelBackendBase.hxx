@@ -25,7 +25,7 @@ namespace mfront::generic_parallel::material_property {
   /*!
    * \brief This intermediate class helps implementing various closely related
    * backends which define the kernel as a lambda function. Those backends
-   * include `ParallelSTL`, `SYCL`, `Kokkos`, `RAJA` and `OpenMP`
+   * include `ParallelSTL`, `SYCL`, `Kokkos`, `RAJA`, `OpenMP` and `OpenACC`
    */
   struct MFRONT_VISIBILITY_EXPORT CxxProgrammingModelBackendBase : BackendBase {
     //! \brief default constructor

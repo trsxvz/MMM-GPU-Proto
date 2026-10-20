@@ -32,18 +32,18 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
   (Runge-Kutta DSLs and material properties included), type of the
   tangent operator checked before its conversion;
 - `generic-parallel` interface for behaviours and models: CUDA, HIP, C++
-  standard parallelism, Kokkos, RAJA, SYCL and OpenMP (host and
-  offloading) backends, standalone models, finite strain behaviours, initialize
+  standard parallelism, Kokkos, RAJA, SYCL, OpenMP (host and offloading)
+  and OpenACC backends, standalone models, finite strain behaviours, initialize
   functions, post-processings, rotation of all the tangent operator
   blocks, versioned C data structures, symbols of the interface, of the
   backend and of the memory space, execution options shared by the
   backends, asynchronous execution, error reporting without cost on
   success, shared data copied on each device, statistics;
-- `generic-parallel` interface for material properties: fixes, Kokkos,
-  RAJA and OpenMP backends, properties using data or other laws, execution options
-  as last argument (version 2 of the functions), asynchronous evaluation,
-  statistics, symbols, statuses in reused blocks, status of the `Warning`
-  policy, physical bounds;
+- `generic-parallel` interface for material properties: fixes, Kokkos, RAJA,
+  OpenMP and OpenACC backends, properties using data or other laws,
+  execution options as last argument (version 2 of the functions),
+  asynchronous evaluation, statistics, symbols, statuses in reused blocks,
+  status of the `Warning` policy, physical bounds;
 - tests of both interfaces against the `generic` interface for all the
   configurations (TDLS, isotropic DSLs, parameters changed at run time,
   static variables), and documentation (web pages, keyword pages,
@@ -67,5 +67,9 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
 - RAJA backend (patch 0126): execution policy given as an option and
   checked before being copied in the generated code, resource of camp as
   queue, `raja` and `raja-host` configurations, tests;
+- OpenACC backend (patch 0127): `parallel loop` with reductions, memory
+  space deduced from the compilation macros, stack size set through the
+  CUDA driver, `openacc-nvhpc-gpu` and `openacc-nvhpc-multicore`
+  configurations, tests;
 - documentation: the pages and comments of the changed code, checked
   against it.

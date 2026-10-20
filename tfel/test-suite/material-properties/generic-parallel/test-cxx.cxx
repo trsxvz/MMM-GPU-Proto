@@ -21,6 +21,11 @@
 #ifdef MFRONT_GPMP_TEST_USE_RAJA
 #include "MFront/GenericParallel/RAJAExecutionPolicy.hxx"
 #endif /* MFRONT_GPMP_TEST_USE_RAJA */
+#ifdef __NVCOMPILER_OPENACC_GPU
+#include <dlfcn.h>
+#include <openacc.h>
+#include "MFront/GenericParallel/OpenACCStackSize.hxx"
+#endif /* __NVCOMPILER_OPENACC_GPU */
 
 #include "TFEL/Tests/TestCase.hxx"
 #include "TFEL/Tests/TestProxy.hxx"
@@ -29,7 +34,7 @@
 #include "MFront/GenericMaterialProperty/MaterialProperty.h"
 
 // This test is shared by the backends based on the C++ programming model
-// (`stlpar`, `openmp`, `kokkos`, `raja`), selected by the
+// (`stlpar`, `openmp`, `openacc`, `kokkos`, `raja`), selected by the
 // `MFRONT_GPMP_TEST_BACKEND` macro (`stlpar` by default). The arrays are
 // allocated by `std::vector` (on the host, or in managed memory with
 // `nvc++ -gpu=mem:managed`), in the shared memory space of Kokkos if the
@@ -138,6 +143,52 @@ using TestAllocator = std::allocator<T>;
 //! \brief array of values given to the material properties
 template <typename T>
 using test_vector = std::vector<T, TestAllocator<T>>;
+
+#ifdef __NVCOMPILER_OPENACC_GPU
+/*!
+ * \brief get or set the stack size of the threads of the GPU of OpenACC
+ * through the CUDA driver, on the context of OpenACC (the OpenACC runtime of
+ * `nvc++` does not load the CUDA runtime)
+ * \return true on success
+ * \param[in,out] s: stack size, in bytes
+ * \param[in] set: if true, the stack size is set, otherwise it is read
+ */
+static bool accessOpenACCStackSize(std::size_t& s, const bool set) {
+  // `CU_LIMIT_STACK_SIZE` in `CUlimit` and `CUDA_SUCCESS` in `CUresult`
+  constexpr int stack_size_limit = 0;
+  constexpr int success = 0;
+  using PushCurrent = int (*)(void*);
+  using PopCurrent = int (*)(void**);
+  using GetLimit = int (*)(std::size_t*, int);
+  using SetLimit = int (*)(int, std::size_t);
+  auto* const context = acc_get_current_cuda_context();
+  auto* const h = ::dlopen("libcuda.so.1", RTLD_LAZY | RTLD_NOLOAD);
+  if ((context == nullptr) || (h == nullptr)) {
+    if (h != nullptr) {
+      ::dlclose(h);
+    }
+    return false;
+  }
+  const auto push =
+      reinterpret_cast<PushCurrent>(::dlsym(h, "cuCtxPushCurrent_v2"));
+  const auto pop =
+      reinterpret_cast<PopCurrent>(::dlsym(h, "cuCtxPopCurrent_v2"));
+  const auto get_limit =
+      reinterpret_cast<GetLimit>(::dlsym(h, "cuCtxGetLimit"));
+  const auto set_limit =
+      reinterpret_cast<SetLimit>(::dlsym(h, "cuCtxSetLimit"));
+  auto r = (push != nullptr) && (pop != nullptr) && (get_limit != nullptr) &&
+           (set_limit != nullptr) && (push(context) == success);
+  if (r) {
+    r = set ? (set_limit(stack_size_limit, s) == success)
+            : (get_limit(&s, stack_size_limit) == success);
+    void* previous = nullptr;
+    r = (pop(&previous) == success) && r;
+  }
+  ::dlclose(h);
+  return r;
+}
+#endif /* __NVCOMPILER_OPENACC_GPU */
 
 struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
   Iconel600YoungModulusTest()
@@ -546,9 +597,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
 
   void test17() {
     // stack size of the threads of the device preserved by the execution
-    // options. With a CUDA execution space of Kokkos or an execution policy
-    // of RAJA for CUDA, an error is reported if it is too small for the
-    // kernel. On the host, the option has no effect.
+    // options. With a CUDA execution space of Kokkos, an execution policy of
+    // RAJA for CUDA or OpenACC on an NVIDIA GPU, an error is reported if it
+    // is too small for the kernel. On the host, the option has no effect.
     constexpr auto eps = double{1e-2};
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(2);
@@ -597,6 +648,30 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
                                            initial_stack_size) == cudaSuccess);
     }
 #endif /* defined(MFRONT_GPMP_TEST_USE_RAJA) && defined(RAJA_CUDA_ACTIVE) */
+#ifdef __NVCOMPILER_OPENACC_GPU
+    // stack size of the threads of the GPU of OpenACC, set through the CUDA
+    // driver on the context of OpenACC (see `OpenACCStackSize.hxx`)
+    {
+      auto initial_stack_size = std::size_t{};
+      TFEL_TESTS_ASSERT(accessOpenACCStackSize(initial_stack_size, false));
+      // a size larger than the current one is refused if the stack size
+      // must be preserved, the current one is accepted
+      TFEL_TESTS_ASSERT(!mfront::generic_parallel::openacc::setMinimalStackSize(
+          initial_stack_size + 1, true));
+      TFEL_TESTS_ASSERT(mfront::generic_parallel::openacc::setMinimalStackSize(
+          initial_stack_size, true));
+      // the kernels require 16384 bytes (`device_stack_size` option of the
+      // `openacc-nvhpc-gpu` configuration)
+      auto small_stack_size = std::size_t{256};
+      TFEL_TESTS_ASSERT(accessOpenACCStackSize(small_stack_size, true));
+      Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
+                              args_strides.data(), 1, 2, policy, &preserve);
+      TFEL_TESTS_CHECK_EQUAL(output.status, -6);
+      TFEL_TESTS_ASSERT(std::string(output.msg).starts_with(
+          "unable to set the stack size of the threads"));
+      TFEL_TESTS_ASSERT(accessOpenACCStackSize(initial_stack_size, true));
+    }
+#endif /* __NVCOMPILER_OPENACC_GPU */
     // the stack size has been increased by the previous evaluations
     Inconel600_YoungModulus(&output, E.data(), 1, args.data(),
                             args_strides.data(), 1, 2, policy, &preserve);
