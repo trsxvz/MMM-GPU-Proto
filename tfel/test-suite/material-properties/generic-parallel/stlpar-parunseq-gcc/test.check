@@ -18,6 +18,9 @@
 @Command "sh ../build-libraries.sh @mfront@ config-stlpar-parunseq-gcc.json";
 @Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
 @Command "sh ../compare-all.sh ./compare stlpar";
+// reading the file of parameters does not change errno (`generic` interface)
+@Command "@TFEL_GXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -O2 --std=c++@TFEL_CXX_STANDARD@ ../test-parameters-errno.cxx -o test-parameters-errno -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericUO2";
+@Command "./test-parameters-errno test-parameters-errno-stlpar-parunseq-gcc";
 // library also containing the functions of the `generic` interface
 @Command "sh ../check-generic-functions.sh @mfront@ config-stlpar-parunseq-gcc.json ./compare stlpar";
 
@@ -30,5 +33,5 @@
 // the name of a material property must not contain `_generic_parallel`
 @Command "sh ../check-refused-name.sh @mfront@ config-stlpar-parunseq-gcc.json";
 
-@CleanFiles {"test-stlpar", "test-invalid-parameters", "compare", "UO2_YoungModulus_Martin1989-parameters.txt", "test-no-runtime-checks"};
+@CleanFiles {"test-stlpar", "test-invalid-parameters", "test-parameters-errno", "compare", "UO2_YoungModulus_Martin1989-parameters.txt", "test-no-runtime-checks"};
 @CleanDirectories {"include", "src", "refused-name", "generic-functions"};

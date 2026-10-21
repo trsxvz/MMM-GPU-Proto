@@ -67,7 +67,10 @@ their justifications are in `docs/tfel.md` of the prototype):
   properties, Poisson ratio of the stress update algorithm of the
   isotropic DSLs (and the test Plasticity8, which depends on it), DDIF2
   brick (non constant fracture stresses and energies, checks of the
-  options), error normalization factor of `rkCastem`.
+  options), error normalization factor of `rkCastem`. Patch 0137: line of
+  the errors of the files of parameters, `errno` restored after reading
+  the file of parameters of a material property, option `shall_fail` of
+  `tfel-check` refusing a command which succeeds;
 - single precision (patches 0109 to 0117): DSL option `real_type`
   (numerical type of the `generic` and `generic-parallel` interfaces,
   symbols `<f>_real_size`, API versions shifted for `float`), other
@@ -96,6 +99,9 @@ their justifications are in `docs/tfel.md` of the prototype):
   option (patches 0132 and 0134 to 0136): code evaluating a material
   property at a point written once, libraries also containing the
   functions of the `generic` interface, with one set of parameters and,
-  for a behaviour, one out of bounds policy;
+  for a behaviour, one out of bounds policy (release notes: patch 0138);
+- workaround of a defect of nvc++ `-stdpar=gpu` (patch 0139): the
+  execution of an initialize function at a point is not inlined in the
+  reduction kernel;
 - documentation: the pages and comments of the changed code, checked
   against it.

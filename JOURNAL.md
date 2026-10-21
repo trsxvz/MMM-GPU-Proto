@@ -204,6 +204,7 @@ described in [docs/](docs/overview.md).
 | [2026-10-21, TFEL onto master 1dc3ac594](#2026-10-21-tfel-onto-master-1dc3ac594) |
 | [2026-10-21, common contract of the behaviours and of the models](#2026-10-21-common-contract-of-the-behaviours-and-of-the-models) |
 | [2026-10-21, interfaces built on the generic interfaces, `generic_functions` option](#2026-10-21-interfaces-built-on-the-generic-interfaces-generic_functions-option) |
+| [2026-10-21, fixes found by the validation of the common contract](#2026-10-21-fixes-found-by-the-validation-of-the-common-contract) |
 
 ## Entries
 
@@ -5887,3 +5888,48 @@ formula as MTest). All the others give the Newton solution to within
   others failed for lack of memory on the GPU, shared with the `-O3`
   matrix and with the desktop, and pass when run alone (see the next
   entry).
+
+### 2026-10-21, fixes found by the validation of the common contract
+
+- nvc++ 25.11 (`-stdpar=gpu`, -O1 and -O2): the execution of the
+  initialize function of a finite strain behaviour
+  (`SaintVenantKirchhoffElasticity`, the three stress measures), inlined
+  in the kernel of `std::transform_reduce`, reads the inputs of the
+  function at their address truncated to 32 bits. compute-sanitizer gives
+  an illegal read at the low 32 bits of the address of the inputs of
+  each point. The pointers seen by the kernel are right, and reading the
+  inputs first, from local copies or by indices does not help. The
+  defect appeared when the statistics reduced by the kernel grew from 32
+  to 40 bytes (two keys), before the `generic_functions` option.
+  Workaround: the computation of a point by the executor of the
+  initialize functions is a member function which, with nvc++
+  `-stdpar=gpu` only, is not inlined (`MFRONT_GPB_NVHPC_STDPAR_NOINLINE`).
+  The results are identical to the `generic` interface. The reproducer
+  is the test itself (`results/nvhpc-bugs/README.md`).
+- Files of parameters: the line given in the errors was always the first
+  one, for the material properties and for the behaviours (the counter
+  was never incremented). For the material properties, `errno` was not
+  restored after reading the file: a subnormal value made the first
+  evaluation of the `generic` interface fail with the status `-3`, the
+  value being right. Tests: the errors of the tests of the
+  `generic-parallel` interfaces are on the third line of the file and
+  their messages are checked; a new test reads a subnormal value with the
+  `generic` interface. It fails before the fix and passes after.
+- `tfel-check`: a command with `shall_fail: true` which succeeded was
+  reported as a success. Only one test of TFEL uses this option, and it
+  still passes.
+- mfem-mgis: `DirectSolverReuseAnalysisTestP3-cudss-cuda` failed for
+  lack of GPU memory. hypre reserves a pool of 4 GiB per process
+  (Umpire), about 5 GB per process with cuDSS: three processes and the
+  1 GB used by the desktop do not fit on a GPU of 16 GiB. The test sets
+  `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE` to 1 GiB. `HypreMGRTestP-gpu` failed
+  for lack of memory while the `-O3` matrix ran on the GPU, and passes
+  alone.
+- Results: 6986 tests of TFEL; `-O3` tests of the configurations
+  `stlpar-parunseq-gcc` and `stlpar-parunseq-nvhpc-gpu`, for the
+  behaviours and the material properties: 4/4
+  (`results/generic-parallel-tests-2026-10-21-fixes-O3.txt`); 58 tests of
+  MGIS and 360 of mfem-mgis, all green. The fixes of the files of
+  parameters were also run with the development tree on the other CPU
+  configurations (six for the behaviours, seven for the material
+  properties).

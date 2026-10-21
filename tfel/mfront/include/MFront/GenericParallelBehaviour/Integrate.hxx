@@ -39,6 +39,19 @@
 #include "MFront/GenericParallel/StatisticsKeys.hxx"
 #include "MFront/GenericParallelBehaviour/BatchData.h"
 
+/*!
+ * \brief attribute of the computations at a point which must not be inlined
+ * in the reduction kernels of `nvc++ -stdpar=gpu`. With nvc++ 25.11, the
+ * execution of an initialize function of some finite strain behaviours,
+ * inlined in the kernel of `std::transform_reduce`, reads the inputs at an
+ * address truncated to 32 bits (illegal memory access).
+ */
+#if defined(__NVCOMPILER_STDPAR_GPU)
+#define MFRONT_GPB_NVHPC_STDPAR_NOINLINE __attribute__((noinline))
+#else
+#define MFRONT_GPB_NVHPC_STDPAR_NOINLINE
+#endif
+
 namespace mfront::gpb {
 
   //! \brief a simple alias
@@ -1214,6 +1227,14 @@ namespace mfront::gpb {
       : PointFunctionData<PointTraits, ParametersType> {
     //! \return the statistics of the execution at the `i`-th point
     TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
+      return this->execute(i);
+    }
+    /*!
+     * \return the statistics of the execution at the `i`-th point (see
+     * `MFRONT_GPB_NVHPC_STDPAR_NOINLINE`)
+     */
+    MFRONT_GPB_NVHPC_STDPAR_NOINLINE TFEL_HOST_DEVICE BatchStatistics
+    execute(const size_type i) const {
       using Integrator = typename PointTraits::Integrator;
       const auto& d = this->data;
       const auto o = getComputationOptions(d);

@@ -893,6 +893,43 @@ and `<name>_generic_parallel_api_version` symbols. The configuration files
 are shared with the `generic-parallel` interface for material properties.
 The name of a behaviour or of a model can't contain `_generic_parallel`.
 
+## Libraries of the `generic-parallel` interfaces also containing the functions of the `generic` interface
+
+The `generic-parallel` interfaces for material properties, behaviours and
+models are built on their `generic` interface: the code evaluating a
+material property at a point is written once for the `generic`, `Cyrano`
+and `generic-parallel` interfaces, and the interface of the models
+derives from the `generic` one.
+
+With the `generic_functions` option of the interface, the generated
+library also contains the functions of the `generic` interface:
+
+~~~~{.cxx}
+interfaces_options: {
+  generic-parallel: {
+    generic_functions: true
+  }
+}
+~~~~
+
+Such a library exports `Generic` as interface and can be used as a
+library of the `generic` interface (by `MTest` or `MGIS` for instance).
+Its functions of batches of points are detected by the
+`<name>_generic_parallel_api_version` symbol. It has one set of
+parameters, shared by both kinds of functions, and, for a behaviour, one
+out of bounds policy. See the pages of the interfaces for
+[material properties](generic-parallel-material-property-interface.html)
+and for [behaviours](generic-parallel-behaviour-interface.html).
+
+The configuration files associated with the `icpx` compiler
+(`stlpar-parunseq-icpx` and `sycl-default-icpx`) request a precise
+floating point model (`-fp-model=precise`, the default one being fast).
+This model also restores the support of `errno` by the mathematical
+functions, so that the functions of a point report the statuses `-3` as
+the `generic` interface. With `nvc++`, the mathematical functions only
+set `errno` with the `-Mnobuiltin` option, which the configuration files
+do not give.
+
 ## Writing behaviours usable on GPUs
 
 - the `TFEL_DEVICE_CODE` macro is defined when device code is compiled.
@@ -1243,3 +1280,11 @@ code:
 - isotropic DSLs: with the `use_stress_update_algorithm` option, the code
   evaluating a non constant Poisson ratio at the beginning of the time
   step did not compile with `@UseQt true`.
+- files of parameters of the material properties and of the behaviours:
+  the line given in the error messages was always the first one. For
+  the material properties, `errno` was not restored after the reading of
+  this file: a value setting `errno` when converted (a subnormal number)
+  made the first evaluation of the `generic` interface fail with the
+  status `-3`.
+- `tfel-check`: a command with the `shall_fail` option set to `true`
+  which succeeded was reported as a success.

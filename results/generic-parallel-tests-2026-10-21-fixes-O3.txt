@@ -1,0 +1,4 @@
+behaviours           stlpar-parunseq-gcc              SUCCESS   429 s (2 passed, 0 skipped)
+behaviours           stlpar-parunseq-nvhpc-gpu        SUCCESS  1862 s (2 passed, 0 skipped)
+material-properties  stlpar-parunseq-gcc              SUCCESS    19 s (1 passed, 0 skipped)
+material-properties  stlpar-parunseq-nvhpc-gpu        SUCCESS    87 s (1 passed, 0 skipped)

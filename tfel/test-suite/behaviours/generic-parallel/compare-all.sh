@@ -203,6 +203,11 @@ echo "hardening_factor abc" > BehaviourVariableTestPlasticity-parameters.txt
 run BehaviourVariableTest_Tridimensional \
   --material-properties=1e9,300e6,200e9,0.3 --invalid-parameters=true
 rm -f BehaviourVariableTestPlasticity-parameters.txt
+# invalid number of tokens on the third line: the error gives this line
+printf '# parameters\n\nYoungModulus 1 2\n' > IsotropicLinearHardeningPlasticity-parameters.txt
+run IsotropicLinearHardeningPlasticity_Tridimensional --invalid-parameters=true \
+  "--invalid-parameters-message=error at line '3'"
+rm -f IsotropicLinearHardeningPlasticity-parameters.txt
 run ExternalModelCallerTest_Tridimensional --amplitude=0 \
   --initial-internal-state-variables=1,2 --tangent-operator=0
 # standalone models, treated as behaviours without gradients: the outputs

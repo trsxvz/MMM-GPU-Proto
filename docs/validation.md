@@ -55,7 +55,9 @@ the tool `compare.cxx` compares them on varied batches:
   first unreliable point, initial time step factor of the batch (option
   `--time-step-scaling-factor`, case `0.5` in `compare-all.sh`);
 - invalid file of parameters of a behaviour and of a behaviour variable
-  (`-6`, option `--invalid-parameters`);
+  (`-6`, option `--invalid-parameters`), and line of the error (option
+  `--invalid-parameters-message`, invalid number of values on the third
+  line);
 - refusal of the names containing `_generic_parallel`, for a behaviour and
   for a model (`check-refused-name.sh`);
 - libraries built with the `generic_functions` option
@@ -98,8 +100,11 @@ of `runtime.hxx`) on `stlpar-parunseq-gcc`, `cuda-nvcc`, `hip-hipcc`,
 `openacc-nvhpc-multicore`. The CUDA and HIP tests check the limit of the
 grid (`-5` beyond 2^31 - 1 blocks, without reading the arrays). The
 `stlpar-parunseq-gcc` configuration also checks the error reported for an
-invalid file of parameters (`-6`, `test-invalid-parameters.cxx`) and the
-refusal of a name containing `_generic_parallel`
+invalid file of parameters (`-6`, `test-invalid-parameters.cxx`, error
+on the third line of the file and given in the message), the reading of
+a file of parameters which does not change `errno`
+(`test-parameters-errno.cxx`, `generic` interface, subnormal value) and
+the refusal of a name containing `_generic_parallel`
 (`check-refused-name.sh`). All the configurations check the libraries
 built with the `generic_functions` option (`check-generic-functions.sh`):
 the function of a point is compared with the `generic` interface, and a
@@ -214,7 +219,11 @@ sweeps 547 OK each, 58 tests of MGIS, and 358 of the 360 tests of
 mfem-mgis in the whole suite. The behaviours failed with
 `stlpar-parunseq-nvhpc-gpu` (defect of nvc++, worked around afterwards),
 and two tests of mfem-mgis on the GPU failed for lack of memory, and pass
-when run alone.
+when run alone. With the fixes found by this validation (same day): 6986
+tests of TFEL, `-O3` tests of `stlpar-parunseq-gcc` and
+`stlpar-parunseq-nvhpc-gpu` 4/4
+(`results/generic-parallel-tests-2026-10-21-fixes-O3.txt`), 58 tests of
+MGIS and 360 of mfem-mgis, all green.
 
 The tracked sweeps in `results/compile-sweep-*-2026-10-06.tsv` give
 the state of the morning of 06/10: 504 OK, 36 blocking user codes, 1 call

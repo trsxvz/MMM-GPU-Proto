@@ -1,0 +1,35 @@
+From 79979467af6a1615aeb65b6ff3949f2a69aef636 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 21 Oct 2026 06:54:20 +0200
+Subject: [PATCH] Test of cuDSS with three processes on the GPU: smaller pools
+ of hypre
+
+Three pools of hypre of the default size (4 GiB each), with the memory of
+cuDSS, nearly fill a GPU of 16 GiB: DirectSolverReuseAnalysisTestP3-cudss-cuda
+failed for lack of memory (cudaErrorMemoryAllocation in
+SparseMatrix::BooleanMult) when other processes used about 1 GiB of the
+GPU. The test sets MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE to 1 GiB.
+---
+ tests/CMakeLists.txt | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index bae1203c00..eda3901f79 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -1864,6 +1864,12 @@ if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_CUDSS)
+                          DirectSolverReuseAnalysisTestP-cudss-cuda-hypre-on-host
+                          PROPERTIES RESOURCE_LOCK gpu TIMEOUT 120
+                                     ENVIRONMENT OMP_NUM_THREADS=1)
++    # three pools of hypre of the default size (4 GiB each), with the
++    # memory of cuDSS, nearly fill a GPU of 16 GiB: the test failed for
++    # lack of memory when other processes used the GPU
++    set_tests_properties(DirectSolverReuseAnalysisTestP3-cudss-cuda
++                         PROPERTIES ENVIRONMENT
++                         "OMP_NUM_THREADS=1;MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1")
+   endif()
+ endif()
+ 
+-- 
+2.43.0
+

@@ -1864,6 +1864,12 @@ if(MFEM_USE_MPI AND MFEM_MGIS_HAVE_CUDSS)
                          DirectSolverReuseAnalysisTestP-cudss-cuda-hypre-on-host
                          PROPERTIES RESOURCE_LOCK gpu TIMEOUT 120
                                     ENVIRONMENT OMP_NUM_THREADS=1)
+    # three pools of hypre of the default size (4 GiB each), with the
+    # memory of cuDSS, nearly fill a GPU of 16 GiB: the test failed for
+    # lack of memory when other processes used the GPU
+    set_tests_properties(DirectSolverReuseAnalysisTestP3-cudss-cuda
+                         PROPERTIES ENVIRONMENT
+                         "OMP_NUM_THREADS=1;MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE=1")
   endif()
 endif()
 

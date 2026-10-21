@@ -1,0 +1,65 @@
+From 1bd273dd7539dd904a661d7286c3c7720764be37 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 21 Oct 2026 11:30:21 +0200
+Subject: [PATCH] generic-parallel behaviours: initialize functions computed
+ out of line with nvc++ -stdpar=gpu
+
+With nvc++ 25.11 (-stdpar=gpu, -O1 and -O2), the execution of the
+initialize function of some finite strain behaviours, inlined in the
+kernel of std::transform_reduce, reads the inputs of the function at
+their address truncated to 32 bits: illegal memory access, found by
+compute-sanitizer, for SaintVenantKirchhoffElasticity (the three stress
+measures). The kernel sees the right pointers, and reading the inputs
+first, from local copies or by indices does not help. The defect
+appeared when the statistics reduced by the kernel grew from 32 to 40
+bytes.
+
+The computation of a point by InitializeFunctionExecutor is moved in a
+member function which, with nvc++ -stdpar=gpu only, is not inlined
+(MFRONT_GPB_NVHPC_STDPAR_NOINLINE). The other compilers are unchanged.
+---
+ .../GenericParallelBehaviour/Integrate.hxx    | 21 +++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index ba7c6d3ea..1d2ff1c33 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -39,6 +39,19 @@
+ #include "MFront/GenericParallel/StatisticsKeys.hxx"
+ #include "MFront/GenericParallelBehaviour/BatchData.h"
+ 
++/*!
++ * \brief attribute of the computations at a point which must not be inlined
++ * in the reduction kernels of `nvc++ -stdpar=gpu`. With nvc++ 25.11, the
++ * execution of an initialize function of some finite strain behaviours,
++ * inlined in the kernel of `std::transform_reduce`, reads the inputs at an
++ * address truncated to 32 bits (illegal memory access).
++ */
++#if defined(__NVCOMPILER_STDPAR_GPU)
++#define MFRONT_GPB_NVHPC_STDPAR_NOINLINE __attribute__((noinline))
++#else
++#define MFRONT_GPB_NVHPC_STDPAR_NOINLINE
++#endif
++
+ namespace mfront::gpb {
+ 
+   //! \brief a simple alias
+@@ -1214,6 +1227,14 @@ namespace mfront::gpb {
+       : PointFunctionData<PointTraits, ParametersType> {
+     //! \return the statistics of the execution at the `i`-th point
+     TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
++      return this->execute(i);
++    }
++    /*!
++     * \return the statistics of the execution at the `i`-th point (see
++     * `MFRONT_GPB_NVHPC_STDPAR_NOINLINE`)
++     */
++    MFRONT_GPB_NVHPC_STDPAR_NOINLINE TFEL_HOST_DEVICE BatchStatistics
++    execute(const size_type i) const {
+       using Integrator = typename PointTraits::Integrator;
+       const auto& d = this->data;
+       const auto o = getComputationOptions(d);
+-- 
+2.43.0
+

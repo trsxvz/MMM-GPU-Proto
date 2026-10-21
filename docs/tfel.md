@@ -685,6 +685,14 @@ Miscellaneous:
 
 - linker options after the object files in the generated Makefiles *(in
   the base)*;
+- files of parameters of the material properties and of the behaviours:
+  the line given in the errors was always the first one; for the material
+  properties, `errno` was not restored after the reading of this file, so
+  that a value setting `errno` when converted (a subnormal number) made
+  the first evaluation of the `generic` interface fail with the status
+  `-3`;
+- `tfel-check`: a command with the option `shall_fail` which succeeded
+  was reported as a success;
 - test behaviour `DigitSeparatorTest`: uninitialised derivative of the flow
   rule;
 - CUDA test of material properties that wrote into host memory from a

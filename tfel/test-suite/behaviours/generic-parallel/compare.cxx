@@ -908,6 +908,8 @@ struct Options {
    * invalid: the integration must be refused (see `testInvalidParameters`)
    */
   bool invalid_parameters = false;
+  //! \brief text expected in the message of an invalid file of parameters
+  std::string invalid_parameters_message = "can't convert";
   /*!
    * \brief if true, the batch library also contains the functions of the
    * `generic` interface (`generic_functions` option of the `generic-parallel`
@@ -968,6 +970,8 @@ static Options parseOptions(const int argc,
       r.other_device = v == "true";
     } else if (o == "--invalid-parameters") {
       r.invalid_parameters = v == "true";
+    } else if (o == "--invalid-parameters-message") {
+      r.invalid_parameters_message = v;
     } else if (o == "--generic-functions") {
       r.generic_functions = v == "true";
     } else if (o == "--time-step-scaling-factor") {
@@ -1242,7 +1246,9 @@ static bool testSYCLQueues(const Test& t,
  * \return true if an invalid file of parameters is reported as invalid
  * parameters (status `-6`) for the whole batch, nothing being computed.
  * The file, written by the calling script, is read by the parameters
- * initializers at the first call: this call must be the first one.
+ * initializers at the first call: this call must be the first one. The
+ * message must contain the text given by `--invalid-parameters-message`
+ * (`can't convert` by default).
  * \param[in] t: test
  */
 static bool testInvalidParameters(const Test& t) {
@@ -1260,7 +1266,8 @@ static bool testInvalidParameters(const Test& t) {
       (st.th1 == t.initial.th1) && (st.isv1 == t.initial.isv1);
   const auto pass =
       (o.status == -6) && (o.number_of_failures == 0) && unchanged &&
-      (std::string_view{o.msg}.find("can't convert") != std::string_view::npos);
+      (std::string_view{o.msg}.find(t.options.invalid_parameters_message) !=
+       std::string_view::npos);
   std::printf("%-12s %-12s status=%2d | %s | %s\n", "invalid", "parameters",
               o.status, o.msg, pass ? "OK" : "FAILED");
   return pass;
@@ -1690,6 +1697,7 @@ int main(const int argc, const char* const* const argv) {
          "[--initial-internal-state-variables=values] "
          "[--speed-of-sound=mass_density] [--energies=true] "
          "[--other-device=true] [--invalid-parameters=true] "
+         "[--invalid-parameters-message=text] "
          "[--generic-functions=true] [--time-step-scaling-factor=value] "
          "[--tangent-operator=type] "
          "[--perturbation-of-internal-state-variables=amplitude] "

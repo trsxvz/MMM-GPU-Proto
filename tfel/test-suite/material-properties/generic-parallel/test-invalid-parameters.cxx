@@ -51,7 +51,9 @@ struct InvalidParametersTest : public tfel::tests::TestCase {
     const auto file = std::string{"UO2_YoungModulus_Martin1989-parameters.txt"};
     {
       auto out = std::ofstream{file};
-      out << "f0 abc\n";
+      // the invalid value is on the third line, after a comment and an
+      // empty line: the error gives this line
+      out << "# parameters\n\nf0 abc\n";
     }
     // nothing is computed: the output and the statuses of the points are
     // not modified
@@ -70,6 +72,8 @@ struct InvalidParametersTest : public tfel::tests::TestCase {
     TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
     TFEL_TESTS_ASSERT(std::string{output.msg}.find(
                           "can't convert 'abc' to floating point value") !=
+                      std::string::npos);
+    TFEL_TESTS_ASSERT(std::string{output.msg}.find("error at line '3'") !=
                       std::string::npos);
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_CHECK_EQUAL(E[i], 3.);
