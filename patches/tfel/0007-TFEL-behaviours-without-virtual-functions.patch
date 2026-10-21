@@ -1,4 +1,4 @@
-From 0cdcb5a166817f0da9b3e58f2f98abc8eebb64d2 Mon Sep 17 00:00:00 2001
+From d49925ed41d3149de4a6d538c953e2cc8ea4c20a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:04:52 +0200
 Subject: [PATCH] TFEL: behaviours without virtual functions
@@ -175,7 +175,7 @@ index 576ae7557..84067e93d 100644
  
  }  // end of namespace tfel::material
 diff --git a/mfront/include/MFront/GenericBehaviour/Integrate.hxx b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
-index 1eb9cc062..6d2161de0 100644
+index 1d000a342..0dfb6f9b7 100644
 --- a/mfront/include/MFront/GenericBehaviour/Integrate.hxx
 +++ b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
 @@ -18,6 +18,7 @@
@@ -186,7 +186,7 @@ index 1eb9cc062..6d2161de0 100644
  #include "TFEL/Math/General/IEEE754.hxx"
  #include "TFEL/Math/t2tot2.hxx"
  #include "TFEL/Math/t2tost2.hxx"
-@@ -303,6 +304,7 @@ namespace mfront::gb {
+@@ -305,6 +306,7 @@ namespace mfront::gb {
    int integrate(mfront_gb_BehaviourData& d,
                  const typename Behaviour::SMFlag f,
                  const tfel::material::OutOfBoundsPolicy p) {

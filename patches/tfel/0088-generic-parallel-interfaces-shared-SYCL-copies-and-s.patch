@@ -1,4 +1,4 @@
-From d4fe3f402c04c34e973f9cb3b75821d102e6c61e Mon Sep 17 00:00:00 2001
+From 55944aa79cb46158fcbda55c12e837b164fa8eca Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 19:38:21 +0200
 Subject: [PATCH] generic-parallel interfaces: shared SYCL copies and stack

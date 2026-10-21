@@ -1,0 +1,47 @@
+From 014fb1cda87c5a857c83ba608f74da92ea132b6a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 21 Oct 2026 04:25:02 +0200
+Subject: [PATCH] Libraries with the functions of the generic interface:
+ rotations of a point compared to the rotations of a batch
+
+---
+ tests/GenericParallelGenericFunctionsTest.cxx | 23 +++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/tests/GenericParallelGenericFunctionsTest.cxx b/tests/GenericParallelGenericFunctionsTest.cxx
+index d7241c7..ae2211c 100644
+--- a/tests/GenericParallelGenericFunctionsTest.cxx
++++ b/tests/GenericParallelGenericFunctionsTest.cxx
+@@ -100,6 +100,29 @@ static void testBehaviour(const std::string& library) {
+             (bo.rotate_thermodynamic_forces_ptr != nullptr) &&
+             (bo.batch_rotate_thermodynamic_forces_ptr != nullptr),
+         "both kinds of rotation functions expected");
++  // rotation of the gradients point by point (the same behaviour without
++  // its functions of batches of points) compared to the rotation of a batch
++  auto pbo = bo;
++  pbo.batch_rotate_gradients_ptr = nullptr;
++  pbo.batch_rotate_thermodynamic_forces_ptr = nullptr;
++  pbo.batch_rotate_tangent_operator_blocks_ptr = nullptr;
++  pbo.batch_b = nullptr;
++  pbo.batch_report = nullptr;
++  pbo.batch_api_version = 0;
++  const auto c = 0.6, sn = 0.8;
++  // rotation around the z axis, column-major storage
++  const auto rotation = std::vector<mgis::real>{c, -sn, 0, sn, c, 0, 0, 0, 1};
++  constexpr auto ng = std::size_t{4};
++  auto g = std::vector<mgis::real>(6 * ng);
++  for (std::size_t i = 0; i != g.size(); ++i) {
++    g[i] = 1e-3 * static_cast<mgis::real>(i + 1);
++  }
++  const auto g0 = g;
++  auto pg = g;
++  rotateGradients(g, bo, rotation);
++  rotateGradients(pg, pbo, rotation);
++  check(difference(g, g0) > 1e-6, "the rotation changed nothing");
++  check(difference(g, pg) < 1e-15, "invalid rotation of the gradients");
+ }  // end of testBehaviour
+ 
+ /*!
+-- 
+2.43.0
+

@@ -27,7 +27,7 @@ int main(const int argc, const char* const* const argv) {
   const auto n = static_cast<std::size_t>(std::atol(argv[2]));
   const auto calls = std::atoi(argv[3]);
   auto* const l = dlopen(argv[1], RTLD_NOW);
-  const auto f = reinterpret_cast<Function>(dlsym(l, "Elasticity_Tridimensional"));
+  const auto f = reinterpret_cast<Function>(dlsym(l, "Elasticity_Tridimensional_generic_parallel"));
   if (f == nullptr) {
     std::printf("%s\n", dlerror());
     return EXIT_FAILURE;

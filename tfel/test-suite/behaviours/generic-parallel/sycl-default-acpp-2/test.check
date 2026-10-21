@@ -13,5 +13,8 @@
 // data shared by all the integration points (@SharedData)
 @Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so PolyCrystalSharedDataTest_Tridimensional --material-properties=145200,145200,145200,0.3,0.3,0.3,55846,55846,55846,10,40,0,75.5,9.77,19.34,1,36.68,55846 --amplitude=1e-4 --tangent-operator=1";
 
+// the name of a behaviour or of a model must not contain `_generic_parallel`
+@Command "sh ../check-refused-name.sh @mfront@ config-sycl-default-acpp-2.json";
+
 @CleanFiles {"compare"};
-@CleanDirectories {"include", "src", "reference"};
+@CleanDirectories {"include", "src", "reference", "refused-name"};

@@ -1,4 +1,4 @@
-From afee59dfff4a666ad43fd7a0c57ea2b10e995b2d Mon Sep 17 00:00:00 2001
+From a6df80a8e15ffd4b5655cb9ddebe54d1c8398792 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 19:51:20 +0200
 Subject: [PATCH] Generic interfaces: displacement gradient for finite strain

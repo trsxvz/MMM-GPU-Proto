@@ -1,0 +1,10 @@
+@DSL Default;
+@Behaviour InvalidNameTest_generic_parallel;
+@Description {
+  "The name of a behaviour must not contain `_generic_parallel`: "
+  "the generic-parallel interface refuses this behaviour."
+}
+
+@Integrator {
+  sig = 0 * (eto + deto);
+}

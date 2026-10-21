@@ -1,4 +1,4 @@
-From 6b6879f117202e942652e8374956b8dfad89d3c6 Mon Sep 17 00:00:00 2001
+From 4f83478684ec000a8c338a22a69239e046594bd2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:48:00 +0200
 Subject: [PATCH] MFront rkCastem: Young modulus as stress error normalization

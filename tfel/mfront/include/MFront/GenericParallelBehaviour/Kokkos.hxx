@@ -43,12 +43,14 @@ namespace mfront::gpb::kokkos {
         const auto r = this->f(i);
         if (r.number_of_failures != 0) {
           Kokkos::atomic_add(&(this->statistics->number_of_failures), 1ull);
-          Kokkos::atomic_min(&(this->statistics->first_failure_index),
-                             static_cast<unsigned long long>(i));
+          Kokkos::atomic_min(&(this->statistics->first_failure),
+                             r.first_failure);
         }
         if (r.number_of_unreliable_results != 0) {
           Kokkos::atomic_add(&(this->statistics->number_of_unreliable_results),
                              1ull);
+          Kokkos::atomic_min(&(this->statistics->first_unreliable_result),
+                             r.first_unreliable_result);
         }
         const auto rdt = toOrderedKey(r.rdt);
         if (rdt < this->initial_rdt) {
@@ -107,7 +109,7 @@ namespace mfront::gpb::kokkos {
             const real rdt0,
             const PointFunction& f) {
     if (!Kokkos::is_initialized()) {
-      return report(s, -3, "Kokkos is not initialized");
+      return report(s, -7, "Kokkos is not initialized");
     }
     if (n == 0) {
       return s.status;
@@ -115,7 +117,7 @@ namespace mfront::gpb::kokkos {
     const auto e = mfront::generic_parallel::kokkos::ensureStackSize<
         ExecutionSpace>(f, o.preserve_stack_size != 0);
     if (!e.empty()) {
-      return report(s, -3, e);
+      return report(s, -7, e);
     }
     const auto space = o.queue == nullptr
                            ? ExecutionSpace{}
@@ -143,9 +145,9 @@ namespace mfront::gpb::kokkos {
     });
     auto* const statistics = block.get();
     if (statistics == nullptr) {
-      return report(s, -3, "unable to allocate the statistics of the batch");
+      return report(s, -7, "unable to allocate the statistics of the batch");
     }
-    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
+    mfront_gpb_initializeStatistics(statistics, rdt0);
     Kokkos::parallel_for(
         "mfront::gpb::kokkos::apply", range,
         internals::AtomicUpdate<PointFunction>{f, statistics, rdt_key});

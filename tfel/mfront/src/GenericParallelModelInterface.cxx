@@ -55,7 +55,14 @@ namespace mfront {
 
   void GenericParallelModelInterface::setOptions(const DataMap& opts) {
     using generic_parallel::behaviour::BackendFactory;
-    if (auto b = BackendFactory::get().generate(opts); b != nullptr) {
+    // options of the interface, the other ones being the ones of the backend
+    auto backend_options = opts;
+    if (contains(opts, "generic_functions")) {
+      this->generic_functions = get<bool>(opts, "generic_functions");
+      backend_options.erase("generic_functions");
+    }
+    if (auto b = BackendFactory::get().generate(backend_options);
+        b != nullptr) {
       this->backend = std::move(b);
     }
   }  // end of setOptions
@@ -71,9 +78,6 @@ namespace mfront {
                        k + "'");
     return {false, current};
   }  // end of treatKeyword
-
-  void GenericParallelModelInterface::declareReservedNames(
-      std::set<std::string>&) {}  // end of declareReservedNames
 
   std::string GenericParallelModelInterface::getLibraryName(
       const ModelDescription& md) const {
@@ -92,6 +96,9 @@ namespace mfront {
 
   void GenericParallelModelInterface::writeOutputFiles(
       const FileDescription& fd, const ModelDescription& md) {
+    GenericParallelBehaviourInterface::checkName(
+        "GenericParallelModelInterface::writeOutputFiles",
+        md.library + md.className);
     this->writeHeaderFile(fd, md);
     this->writeSourceFile(fd, md);
   }  // end of writeOutputFiles
@@ -122,7 +129,11 @@ namespace mfront {
     os << "#ifndef " << hg << "\n"
        << "#define " << hg << "\n\n"
        << "#include\"TFEL/Config/TFELConfig.hxx\"\n"
-       << "#include\"MFront/GenericParallelBehaviour/BatchData.h\"\n\n";
+       << "#include\"MFront/GenericParallelBehaviour/BatchData.h\"\n";
+    if (this->generic_functions) {
+      os << "#include\"MFront/GenericBehaviour/BehaviourData.h\"\n";
+    }
+    os << '\n';
     writeExportDirectives(os, false);
     os << "#ifdef __cplusplus\n"
        << "extern \"C\"{\n"
@@ -137,6 +148,11 @@ namespace mfront {
          << "MFRONT_SHAREDOBJ int\n"
          << name << "_setParameter(const char *const, const double);\n\n";
     }
+    {
+      GenericParallelBehaviourInterface bi;
+      GenericParallelBehaviourInterface::writeReportFunctionDeclaration(
+          os, bi.getFunctionNameBasis(name));
+    }
     for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
       os << "/*!\n"
          << " * \\brief execute the " << name
@@ -146,10 +162,25 @@ namespace mfront {
          << " * \\param[in] d: batch data\n"
          << " * \\return the status, also stored in the output status\n"
          << " */\n"
-         << "MFRONT_SHAREDOBJ int " << name << "_"
-         << ModellingHypothesis::toString(h)
+         << "MFRONT_SHAREDOBJ int "
+         << GenericParallelBehaviourInterface::getBatchFunctionName(
+                name + "_" + ModellingHypothesis::toString(h))
          << "(mfront_gpb_OutputStatus* const,\n"
          << "const mfront_gpb_BatchData* const);\n\n";
+    }
+    if (this->generic_functions) {
+      // functions of the `generic` interface
+      for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
+        os << "/*!\n"
+           << " * \\brief execute the " << name << " model at a point for the "
+           << ModellingHypothesis::toString(h)
+           << " modelling hypothesis, as the `generic` interface\n"
+           << " * \\param[in,out] d: data of the point\n"
+           << " */\n"
+           << "MFRONT_SHAREDOBJ int " << name << "_"
+           << ModellingHypothesis::toString(h)
+           << "(mfront_gb_BehaviourData* const);\n\n";
+      }
     }
     os << "#ifdef __cplusplus\n"
        << "}\n"
@@ -202,7 +233,9 @@ namespace mfront {
     const auto hypotheses =
         std::set<ModellingHypothesis::Hypothesis>{mhs.begin(), mhs.end()};
     const auto bd = convertToBehaviourDescription(md);
-    GenericBehaviourSymbolsGenerator sg;
+    const auto sgp = GenericParallelBehaviourInterface::makeSymbolsGenerator(
+        this->generic_functions);
+    auto& sg = *sgp;
     // the symbols are the ones of a behaviour of the `generic-parallel`
     // interface: in particular, the interface name tells that the entry
     // points integrate a batch
@@ -271,6 +304,8 @@ namespace mfront {
     os << "#ifdef __cplusplus\n"
        << "extern \"C\"{\n"
        << "#endif /* __cplusplus */\n\n";
+    GenericParallelBehaviourInterface::writeReportFunction(
+        os, bi.getFunctionNameBasis(name));
     const auto initializer = getGenericModelParametersInitializerName(md);
     if (hasGenericModelParametersInitializer(md)) {
       os << "MFRONT_SHAREDOBJ int\n"
@@ -292,12 +327,8 @@ namespace mfront {
          << "return 0;\n"
          << "} // end of " << name << "_setParameter\n\n";
     }
-    for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
-      const auto f = name + "_" + ModellingHypothesis::toString(h);
-      GenericParallelBehaviourInterface::writeBatchFunctionBeginning(
-          os, f, "const mfront_gpb_BatchData* const mfront_batch_data",
-          ", mfront_batch_data");
-      os << "using mfront_point_traits = " << point_traits << ";\n";
+    // values of the parameters, read on the host
+    auto write_parameters = [&os, &md, &initializer, &parameters] {
       if (hasGenericModelParametersInitializer(md)) {
         os << "const auto& mfront_initializer = mfront::gm::" << initializer
            << "::get();\n"
@@ -315,6 +346,15 @@ namespace mfront {
       } else {
         os << "const auto mfront_parameters = " << parameters << "{};\n";
       }
+    };
+    for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
+      const auto f = GenericParallelBehaviourInterface::getBatchFunctionName(
+          name + "_" + ModellingHypothesis::toString(h));
+      GenericParallelBehaviourInterface::writeBatchFunctionBeginning(
+          os, f, "const mfront_gpb_BatchData* const mfront_batch_data",
+          ", mfront_batch_data");
+      os << "using mfront_point_traits = " << point_traits << ";\n";
+      write_parameters();
       // the bounds are checked by the model with its default out of bounds
       // policy, as in the `generic` interface
       os << "const auto mfront_policy = tfel::material::"
@@ -324,6 +364,31 @@ namespace mfront {
           "mfront::gm::" + md.className + ", mfront_point_traits",
           "mfront_status", "mfront_data, mfront_parameters, mfront_policy");
       GenericParallelBehaviourInterface::writeBatchFunctionEnd(os, f);
+    }
+    if (this->generic_functions) {
+      // functions of the `generic` interface, with the same parameters as
+      // the functions of batches of points
+      for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
+        const auto f = name + "_" + ModellingHypothesis::toString(h);
+        os << "MFRONT_SHAREDOBJ int " << f
+           << "(mfront_gb_BehaviourData* const d){\n"
+           << "try{\n";
+        write_parameters();
+        os << "const mfront::gm::" << md.className
+           << " m(*d, mfront_parameters);\n"
+           << "if(!m.execute(*d)){\n"
+           << "mfront::gb::reportError(*d, \"model execution failed\");\n"
+           << "*(d->rdt) = 0.1;\n"
+           << "return -1;\n"
+           << "}\n"
+           << "} catch(...){\n"
+           << "mfront::gb::reportFailureByException(*d);\n"
+           << "*(d->rdt) = 0.1;\n"
+           << "return -1;\n"
+           << "}\n"
+           << "return 1;\n"
+           << "} // end of " << f << "\n\n";
+      }
     }
     os << "#ifdef __cplusplus\n"
        << "}\n"
@@ -336,7 +401,14 @@ namespace mfront {
     const auto name = md.library + md.className;
     auto entry_points = std::vector<std::string>{};
     for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
-      entry_points.push_back(name + "_" + ModellingHypothesis::toString(h));
+      entry_points.push_back(
+          GenericParallelBehaviourInterface::getBatchFunctionName(
+              name + "_" + ModellingHypothesis::toString(h)));
+    }
+    if (this->generic_functions) {
+      for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
+        entry_points.push_back(name + "_" + ModellingHypothesis::toString(h));
+      }
     }
     GenericParallelBehaviourInterface::describeLibrary(
         td, this->getLibraryName(md), this->getSourceFileName(name),

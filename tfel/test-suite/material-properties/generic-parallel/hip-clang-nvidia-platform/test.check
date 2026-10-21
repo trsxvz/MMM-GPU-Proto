@@ -17,6 +17,8 @@
 @Command "sh ../build-libraries.sh @mfront@ config-hip-clang-nvidia-platform.json";
 @Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I@TFEL_HIP_INCLUDE_DIR@ -D__HIP_PLATFORM_NVIDIA__ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
 @Command "sh ../compare-all.sh ./compare hip --tolerance=1e-13";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-hip-clang-nvidia-platform.json ./compare hip --tolerance=1e-13";
 
 @CleanFiles {"compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "generic-functions"};

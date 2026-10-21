@@ -1,4 +1,4 @@
-From 7b53c33608fe06fe3f045d9d20b25d5852a0cf0e Mon Sep 17 00:00:00 2001
+From 3cbf349c24146335e42f9d338510c1e7c330ae44 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 19:51:20 +0200
 Subject: [PATCH] Green-Lagrange tensor computed from the displacement gradient

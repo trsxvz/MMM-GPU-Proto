@@ -1,4 +1,4 @@
-From 4fafcb2ef22539f8ed9a6a376375fae1ec3fc41f Mon Sep 17 00:00:00 2001
+From 7b3e192785755ff5bea78217ad098236dc6cb61b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:43:32 +0200
 Subject: [PATCH] MFront: static variables given to the material properties in

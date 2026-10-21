@@ -18,7 +18,7 @@
 #include <memory>
 #include "TFEL/Utilities/CxxTokenizer.hxx"
 #include "MFront/MFrontConfig.hxx"
-#include "MFront/AbstractMaterialPropertyInterface.hxx"
+#include "MFront/GenericMaterialPropertyInterfaceBase.hxx"
 
 namespace mfront {
 
@@ -29,18 +29,14 @@ namespace mfront {
   }
 
   /*!
-   * \brief a base class for material properties' interfaces such as the
-   * `cyrano` and `generic` interfaces.
+   * \brief the `generic-parallel` interface for material properties, built
+   * on the `generic` interface: the code evaluating a material property at
+   * a point is written by `GenericMaterialPropertyInterfaceBase` (see
+   * `writePointEvaluation`), the backends writing the batch function and its
+   * kernels.
    */
   struct MFRONT_VISIBILITY_EXPORT GenericParallelMaterialPropertyInterface
-      : public AbstractMaterialPropertyInterface {
-    //! \brief list of types used by the interface
-    struct TypesDescription {
-      std::string real_type;
-      std::string integer_type;
-      std::string out_of_bounds_policy_type;
-      std::string output_status_type;
-    };
+      : public GenericMaterialPropertyInterfaceBase {
     //! \return the interface name
     static std::string getName();
     //! \brief default constructor
@@ -54,21 +50,21 @@ namespace mfront {
      * \param[in] l: library description
      * \param[in] mpd: material property description
      */
-    virtual void getLibraryDescription(
+    void getLibraryDescription(
         TargetsDescription& d,
         LibraryDescription&,
-        const MaterialPropertyDescription&) const;
+        const MaterialPropertyDescription&) const override;
     /*!
      * \return the name of the generated function
      * \param[in] mpd : material property description
      */
-    virtual std::string getFunctionName(
-        const MaterialPropertyDescription&) const;
+    [[nodiscard]] std::string getFunctionName(
+        const MaterialPropertyDescription&) const override;
     //
     void setOptions(const DataMap&) override;
     void getTargetsDescription(
         TargetsDescription&, const MaterialPropertyDescription&) const override;
-    std::pair<bool, tokens_iterator> treatKeyword(
+    [[nodiscard]] std::pair<bool, tokens_iterator> treatKeyword(
         const std::string&,
         const std::vector<std::string>&,
         tokens_iterator,
@@ -76,12 +72,14 @@ namespace mfront {
     void writeOutputFiles(const MaterialPropertyDescription&,
                           const FileDescription&) const override;
     //
-    virtual TypesDescription getTypesDescription() const;
-    virtual std::vector<std::string> getInterfaceHeaderFiles() const;
-    virtual std::string getInterfaceInternalNamespace() const;
-    virtual std::string getInterfaceNameInCamelCase() const;
-    virtual std::string getInterfaceNameInUpperCase() const;
-    virtual std::string getOutOfBoundsPolicyEnumerationPrefix() const;
+    [[nodiscard]] TypesDescription getTypesDescription() const override;
+    [[nodiscard]] std::vector<std::string> getInterfaceHeaderFiles()
+        const override;
+    [[nodiscard]] virtual std::string getInterfaceInternalNamespace() const;
+    [[nodiscard]] std::string getInterfaceNameInCamelCase() const override;
+    [[nodiscard]] std::string getInterfaceNameInUpperCase() const override;
+    [[nodiscard]] std::string getOutOfBoundsPolicyEnumerationPrefix()
+        const override;
     //! \brief destructor
     ~GenericParallelMaterialPropertyInterface() override;
 
@@ -90,29 +88,58 @@ namespace mfront {
     using AbstractBackend =
         ::mfront::generic_parallel::material_property::AbstractBackend;
 
-    virtual std::string getInterfaceName() const;
+    [[nodiscard]] std::string getInterfaceName() const override;
 
     //! \return the name of the header file
-    virtual std::string getHeaderFileName(const std::string&) const;
+    [[nodiscard]] std::string getHeaderFileName(
+        const std::string&) const override;
     //! \return the name of the source file
-    virtual std::string getSourceFileName(const std::string&) const;
+    [[nodiscard]] std::string getSourceFileName(
+        const std::string&) const override;
     /*!
      * \brief generate the output files
      * \param[in] mpd: material property description
      * \param[in] fd: mfront file description
      */
-    virtual void writeHeaderFile(const MaterialPropertyDescription&,
-                                 const FileDescription&) const;
+    void writeHeaderFile(const MaterialPropertyDescription&,
+                         const FileDescription&) const override;
     /*!
      * \brief generate the output files
      * \param[in] mpd: material property description
      * \param[in] fd:  mfront file description
      */
-    virtual void writeSrcFile(const MaterialPropertyDescription&,
-                              const FileDescription&) const;
+    void writeSrcFile(const MaterialPropertyDescription&,
+                      const FileDescription&) const override;
+    //! \return the name of the source file of the function of a point
+    [[nodiscard]] virtual std::string getPointwiseSourceFileName(
+        const std::string&) const;
+    /*!
+     * \brief write the source file of the function evaluating the material
+     * property at a point with the conventions of the `generic` interface
+     * (`generic_functions` option)
+     * \param[in] mpd: material property description
+     * \param[in] fd: mfront file description
+     */
+    virtual void writePointwiseSourceFile(const MaterialPropertyDescription&,
+                                          const FileDescription&) const;
+    /*!
+     * \return the names and the types of the function of the `generic`
+     * interface
+     */
+    [[nodiscard]] static PointwiseFunctionDescription
+    getGenericPointwiseFunctionDescription();
 
     //! \brief backend to be used
     std::unique_ptr<const AbstractBackend> backend;
+    /*!
+     * \brief if true, the library also contains the function of the
+     * `generic` interface evaluating the material property at a point
+     * (`generic_functions` option, false by default). The library then
+     * exports `Generic` as interface: the function of a point is available,
+     * as in a library of the `generic` interface, as well as the functions of
+     * batches of points.
+     */
+    bool generic_functions = false;
 
   };  // end of MfrontGenericParallelMaterialPropertyInterface
 

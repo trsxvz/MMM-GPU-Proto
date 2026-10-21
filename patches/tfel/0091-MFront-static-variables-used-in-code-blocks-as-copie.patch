@@ -1,4 +1,4 @@
-From b7a72efee37a01174f97be4a420a858131abf4b2 Mon Sep 17 00:00:00 2001
+From 53e1dec5ad8b139d18b1aadf2be7e4166d9c665e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 01:22:58 +0200
 Subject: [PATCH] MFront: static variables used in code blocks as copies built

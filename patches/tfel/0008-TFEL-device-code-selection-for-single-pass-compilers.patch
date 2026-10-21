@@ -1,4 +1,4 @@
-From 23acccd57264092d7a5fff4e1897efa0fd538281 Mon Sep 17 00:00:00 2001
+From 4f4303018844854125f89a40e9a74f152f68e377 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:04:58 +0200
 Subject: [PATCH] TFEL: device code selection for single pass compilers

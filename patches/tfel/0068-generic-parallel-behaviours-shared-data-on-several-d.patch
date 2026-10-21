@@ -1,4 +1,4 @@
-From 8e53a5ce683ec11dcb9a27e42f1deceec925960d Mon Sep 17 00:00:00 2001
+From 5930e88f170b6b3e2b4718d9cdf364dcaf002fbf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 00:36:49 +0200
 Subject: [PATCH] generic-parallel behaviours: shared data on several devices,

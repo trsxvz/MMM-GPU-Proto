@@ -149,6 +149,28 @@ namespace mfront {
     }
   }  // end of writeGetOutOfBoundsPolicyFunctionImplementation
 
+  void
+  BehaviourInterfaceBase::writeSharedGetOutOfBoundsPolicyFunctionImplementation(
+      std::ostream& out,
+      const BehaviourDescription& bd,
+      const std::string& name) const {
+    if (allowRuntimeModificationOfTheOutOfBoundsPolicy(bd)) {
+      out << "TFEL_VISIBILITY_LOCAL inline tfel::material::OutOfBoundsPolicy&\n"
+          << this->getFunctionNameBasis(name) << "_getOutOfBoundsPolicy(){\n"
+          << "static auto policy = tfel::material::"  //
+          << getDefaultOutOfBoundsPolicyAsString(bd) << ";\n"
+          << "return policy;\n"
+          << "}\n\n";
+    } else {
+      out << "TFEL_VISIBILITY_LOCAL inline constexpr "
+          << "tfel::material::OutOfBoundsPolicy\n"
+          << this->getFunctionNameBasis(name) << "_getOutOfBoundsPolicy(){\n"
+          << "return tfel::material::"  //
+          << getDefaultOutOfBoundsPolicyAsString(bd) << ";\n"
+          << "}\n\n";
+    }
+  }  // end of writeSharedGetOutOfBoundsPolicyFunctionImplementation
+
   void BehaviourInterfaceBase::writeSetOutOfBoundsPolicyFunctionImplementation(
       std::ostream& out,
       const BehaviourDescription& bd,

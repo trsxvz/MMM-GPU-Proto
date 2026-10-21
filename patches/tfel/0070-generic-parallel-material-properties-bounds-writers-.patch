@@ -1,4 +1,4 @@
-From 6c32f445a0e20bcf0c6d422490ac8784a526d86c Mon Sep 17 00:00:00 2001
+From 58b9403b1e6bb6e84bde2ba5f84931fa2629d901 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 03:28:42 +0200
 Subject: [PATCH] generic-parallel material properties: bounds writers without

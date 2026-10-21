@@ -57,48 +57,57 @@ namespace mfront::gpb::openmp {
             const std::size_t device_stack_size = 0) {
     // the statistics are reduced member by member
     auto number_of_failures = size_type{};
-    auto first_failure_index = no_failure_index;
+    auto first_failure = ::mfront::generic_parallel::no_event;
     auto number_of_unreliable_results = size_type{};
+    auto first_unreliable_result = ::mfront::generic_parallel::no_event;
     auto rdt = rdt0;
     if constexpr (offload) {
       if (!mfront::generic_parallel::setMinimalCUDAStackSize(
               device_stack_size, o.preserve_stack_size != 0)) {
-        return report(s, -3,
+        return report(s, -7,
                       mfront::generic_parallel::stack_size_error_message);
       }
 #pragma omp target teams distribute parallel for map(to : f)        \
     reduction(+ : number_of_failures, number_of_unreliable_results) \
-    reduction(min : first_failure_index, rdt)
+    reduction(min : first_failure, first_unreliable_result, rdt)
       for (size_type i = 0; i < n; ++i) {
         const auto r = f(i);
         number_of_failures += r.number_of_failures;
-        first_failure_index = r.first_failure_index < first_failure_index
-                                  ? r.first_failure_index
-                                  : first_failure_index;
+        first_failure =
+            r.first_failure < first_failure ? r.first_failure : first_failure;
         number_of_unreliable_results += r.number_of_unreliable_results;
+        first_unreliable_result =
+            r.first_unreliable_result < first_unreliable_result
+                ? r.first_unreliable_result
+                : first_unreliable_result;
         rdt = r.rdt < rdt ? r.rdt : rdt;
       }
     } else {
       static_cast<void>(device_stack_size);
 #pragma omp parallel for reduction(+ : number_of_failures,           \
                                        number_of_unreliable_results) \
-    reduction(min : first_failure_index, rdt)
+    reduction(min : first_failure, first_unreliable_result, rdt)
       for (size_type i = 0; i < n; ++i) {
         const auto r = f(i);
         number_of_failures += r.number_of_failures;
-        first_failure_index = r.first_failure_index < first_failure_index
-                                  ? r.first_failure_index
-                                  : first_failure_index;
+        first_failure =
+            r.first_failure < first_failure ? r.first_failure : first_failure;
         number_of_unreliable_results += r.number_of_unreliable_results;
+        first_unreliable_result =
+            r.first_unreliable_result < first_unreliable_result
+                ? r.first_unreliable_result
+                : first_unreliable_result;
         rdt = r.rdt < rdt ? r.rdt : rdt;
       }
     }
-    return report(s, o, rdt0,
-                  BatchStatistics{.number_of_failures = number_of_failures,
-                                  .first_failure_index = first_failure_index,
-                                  .number_of_unreliable_results =
-                                      number_of_unreliable_results,
-                                  .rdt = rdt});
+    return report(
+        s, o, rdt0,
+        BatchStatistics{
+            .number_of_failures = number_of_failures,
+            .first_failure = first_failure,
+            .number_of_unreliable_results = number_of_unreliable_results,
+            .first_unreliable_result = first_unreliable_result,
+            .rdt = rdt});
   }  // end of apply
 
   /*!

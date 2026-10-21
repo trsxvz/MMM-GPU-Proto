@@ -19,6 +19,7 @@
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_GPU_HXX
 
 #include <mutex>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -50,8 +51,8 @@ namespace mfront::gpb::gpu {
       if (e == MFRONT_GPB_GPU_API(Success)) {
         return false;
       }
-      if (s.status != -3) {
-        report(s, -3, MFRONT_GPB_GPU_API(GetErrorString)(e));
+      if (s.status != -7) {
+        report(s, -7, MFRONT_GPB_GPU_API(GetErrorString)(e));
       }
       return true;
     }  // end of failed
@@ -73,7 +74,7 @@ namespace mfront::gpb::gpu {
         return false;
       }
       if (r.required_stack_size != 0) {
-        report(s, -3, r.getErrorMessage());
+        report(s, -7, r.getErrorMessage());
         return false;
       }
       return true;
@@ -132,17 +133,17 @@ namespace mfront::gpb::gpu {
       const auto i = static_cast<size_type>(blockIdx.x) * blockDim.x +
                      static_cast<size_type>(threadIdx.x);
       auto failures = 0u;
-      auto first_failure_index =
-          static_cast<unsigned long long>(no_failure_index);
+      auto first_failure = ::mfront::generic_parallel::no_event;
       auto unreliable_results = 0u;
+      auto first_unreliable_result = ::mfront::generic_parallel::no_event;
       auto rdt = rdt0;
       if (i < n) {
         const auto r = f(i);
         failures = static_cast<unsigned int>(r.number_of_failures);
-        first_failure_index =
-            static_cast<unsigned long long>(r.first_failure_index);
+        first_failure = r.first_failure;
         unreliable_results =
             static_cast<unsigned int>(r.number_of_unreliable_results);
+        first_unreliable_result = r.first_unreliable_result;
         rdt = toOrderedKey(r.rdt);
       }
       // the statistics are only reduced and updated if a point of the warp
@@ -153,18 +154,20 @@ namespace mfront::gpb::gpu {
         return;
       }
       failures = warpSum(failures);
-      first_failure_index = warpMin(first_failure_index);
+      first_failure = warpMin(first_failure);
       unreliable_results = warpSum(unreliable_results);
+      first_unreliable_result = warpMin(first_unreliable_result);
       rdt = warpMin(rdt);
       if (threadIdx.x % warpSize == 0) {
         if (failures != 0) {
           atomicAdd(&(s->number_of_failures),
                     static_cast<unsigned long long>(failures));
-          atomicMin(&(s->first_failure_index), first_failure_index);
+          atomicMin(&(s->first_failure), first_failure);
         }
         if (unreliable_results != 0) {
           atomicAdd(&(s->number_of_unreliable_results),
                     static_cast<unsigned long long>(unreliable_results));
+          atomicMin(&(s->first_unreliable_result), first_unreliable_result);
         }
         if (rdt < rdt0) {
           atomicMin(&(s->rdt), rdt);
@@ -232,6 +235,12 @@ namespace mfront::gpb::gpu {
     const auto ws = static_cast<unsigned int>(warp_size);
     const auto nthreads = ((threads_per_block + ws - 1) / ws) * ws;
     const auto nblocks = (n + nthreads - 1) / nthreads;
+    // as for the material properties, the number of blocks must fit in the
+    // grid of the device
+    if (nblocks >
+        static_cast<decltype(nblocks)>(std::numeric_limits<int>::max())) {
+      return report(s, -5, "too many points for the grid of the device");
+    }
     const auto stream = static_cast<Stream>(o.queue);
     const auto rdt_key = toOrderedKey(rdt0);
     if (o.statistics != nullptr) {
@@ -251,9 +260,9 @@ namespace mfront::gpb::gpu {
     });
     auto* const statistics = block.get();
     if (statistics == nullptr) {
-      return report(s, -3, "unable to allocate the statistics of the batch");
+      return report(s, -7, "unable to allocate the statistics of the batch");
     }
-    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
+    mfront_gpb_initializeStatistics(statistics, rdt0);
     k<<<nblocks, nthreads, 0, stream>>>(f, n, statistics, rdt_key);
     if (failed(s, MFRONT_GPB_GPU_API(GetLastError)()) ||
         failed(s, MFRONT_GPB_GPU_API(StreamSynchronize)(stream))) {

@@ -5,7 +5,7 @@ why. It is meant for readers who want to understand or review these
 changes. The use of the interfaces, with their complete examples, is
 documented in the TFEL tree (see [the last section](#documentation-in-the-tfel-tree)).
 
-- Base: TFEL master `fdeb6abf8` (20/10/2026, merge of PR #1067; branch of the prototype rebased on this version, previously on `d24a5cfe8` of the same day and on `ff0959ece` of 12/10/2026).
+- Base: TFEL master `1dc3ac594` (20/10/2026, merge of PR #1064). The branch of the prototype is rebased on this version. It was previously based on `fdeb6abf8` (merge of PR #1067) and `d24a5cfe8` of 20/10/2026, and on `ff0959ece` of 12/10/2026.
 - Modified sources: `tfel/` (copy of the last commit, without the history of
   TFEL). Patch series: `patches/tfel/` (`git am --keep-cr`).
 - Planned split into upstream contributions: [upstream-integration.md](upstream-integration.md).
@@ -16,12 +16,13 @@ documented in the TFEL tree (see [the last section](#documentation-in-the-tfel-t
 2. [Generic-parallel interface of behaviours and models](#generic-parallel-interface-of-behaviours-and-models)
 3. [Generic-parallel interface of material properties](#generic-parallel-interface-of-material-properties)
 4. [Comparison between behaviours and material properties](#comparison-between-behaviours-and-material-properties)
-5. [GPU code in TFEL and MFront](#gpu-code-in-tfel-and-mfront)
-6. [Fixes of the existing code](#fixes-of-the-existing-code)
-7. [Incompatibilities](#incompatibilities)
-8. [Configurations and compilers](#configurations-and-compilers)
-9. [Documentation in the TFEL tree](#documentation-in-the-tfel-tree)
-10. [Single precision](#single-precision)
+5. [Interfaces built on the generic interfaces](#interfaces-built-on-the-generic-interfaces)
+6. [GPU code in TFEL and MFront](#gpu-code-in-tfel-and-mfront)
+7. [Fixes of the existing code](#fixes-of-the-existing-code)
+8. [Incompatibilities](#incompatibilities)
+9. [Configurations and compilers](#configurations-and-compilers)
+10. [Documentation in the TFEL tree](#documentation-in-the-tfel-tree)
+11. [Single precision](#single-precision)
 
 ## Organisation of the changes
 
@@ -44,23 +45,32 @@ TFEL.
 
 ### Generated functions and symbols
 
-For each behaviour and each modelling hypothesis, the library exports:
+For each behaviour and each modelling hypothesis, the library exports the
+functions of the `generic` interface followed by `_generic_parallel`:
 
-- the integration function of a batch, `<behaviour>_<Hypothesis>`;
+- the integration function of a batch,
+  `<behaviour>_<Hypothesis>_generic_parallel`;
 - one function per initialize function,
-  `<behaviour>_<Hypothesis>_InitializeFunction_<name>`;
-- one function per post-processing, `<behaviour>_<Hypothesis>_PostProcessing_<name>`;
+  `<behaviour>_<Hypothesis>_InitializeFunction_<name>_generic_parallel`;
+- one function per post-processing,
+  `<behaviour>_<Hypothesis>_PostProcessing_<name>_generic_parallel`;
 - for an orthotropic behaviour, the rotations of the gradients, of the
   thermodynamic forces and of the blocks of the tangent operator (suffixed
-  by the stress measure or the finite strain tangent operator).
+  by the stress measure or the finite strain tangent operator);
+- `<behaviour>_generic_parallel_report`, which analyses the statistics of
+  asynchronous computations.
+
+This is the naming of the material properties (`S_generic_parallel`,
+`S_generic_parallel_report`). MFront refuses a behaviour or a model whose
+name contains `_generic_parallel`.
 
 It also exports description symbols, read at loading time:
 
 | Symbol | Value | Role |
 |---|---|---|
-| `<behaviour>_mfront_interface` | `GenericParallel` | distinguish a batch library from a `generic` library |
+| `<behaviour>_mfront_interface` | `GenericParallel`, or `Generic` with the `generic_functions` option | tell if the functions of a point are available |
 | `<behaviour>_generic_parallel_backend` | `cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp` or `openacc` | know where and how the behaviour computes |
-| `<behaviour>_generic_parallel_api_version` | `MFRONT_GPB_API_VERSION` (2) | reject a library with an incompatible contract |
+| `<behaviour>_generic_parallel_api_version` | `MFRONT_GPB_API_VERSION` (3) | tell if the functions of batches are available, reject an incompatible contract |
 | `<behaviour>_generic_parallel_memory_space` | `host`, `device` or `any` | know where to place the data (see [Memory space](#memory-space)) |
 
 These symbols let the caller check everything at loading time, without
@@ -156,7 +166,8 @@ pointers without any message in GPU code.
 
 Each backend provides a single primitive: apply a function object to the
 points of the batch and reduce the statistics (number of failures, of
-unreliable results, smallest time step factor, first failed point). Each
+unreliable results, smallest time step factor, first failed point and
+first unreliable point). Each
 one uses the idiomatic primitive of its programming model.
 
 | Backend | Primitive | Execution queue | Asynchronous | Options |
@@ -279,11 +290,16 @@ structure (`mfront_gpb_OutputStatus`):
 | `1` | success at all points |
 | `0` | success, but the time step factor is lower than 0.99 at some points |
 | `-1` | failure of the computation at some points |
-| `-2` | invalid arguments, nothing is computed |
-| `-3` | backend error (allocation, launch of a kernel, etc.) |
+| `-5` | invalid arguments, nothing is computed |
+| `-6` | invalid parameters (parameters file which can't be read), nothing is computed |
+| `-7` | backend error (allocation, launch of a kernel, exception on the host) |
 
-In case of failure, the structure gives the number of failed points and
-**the index of the first one**. This index does not depend on the order of
+These errors of the batch are the ones of the material properties. In
+case of failure, the structure gives the number of failed points and
+**the index of the first one**, and also the number of unreliable points
+(time step factor lower than 0.99) and the index of the first one. The
+statistics hold opaque keys (index of the point on 48 bits), decoded by
+the report function of the library. This index does not depend on the order of
 the computations (atomic minimum or reduction). An optional array gives the
 status of each point.
 
@@ -315,9 +331,9 @@ which must be accessible by the GPU (and by the host for `stlpar`, `openmp`
 and `openacc`, which accumulate on the host). The `cuda`, `hip`, `kokkos`,
 `raja` and `sycl` (without copy) backends then return as soon as the
 computation is submitted. The caller synchronises the queue, then
-`mfront_gpb_report` (`BatchData.h`) fills the output status as a
-synchronous computation does, message included. It is the counterpart of `<name>_generic_parallel_report`
-of material properties. Several batches and the assembly can thus be
+`<behaviour>_generic_parallel_report`, exported by the library, fills the
+output status as a synchronous computation does, message included, as for
+the material properties. Several batches and the assembly can thus be
 submitted before a single synchronisation.
 
 ### Stack of the GPU threads
@@ -386,8 +402,10 @@ for TFEL 5.2 (version 3 of the functions, `MFRONT_GPMP_API_VERSION`).
   statuses of the points and the execution options. The function with
   contiguous arrays (suffix `2`) is removed. The names end with
   `_generic_parallel`, and the name of a material property can't contain
-  this suffix. Such a library has no function `S` of the `generic`
-  interface: it is recognized by the symbol
+  this suffix. Without the `generic_functions` option (see
+  [Interfaces built on the generic interfaces](#interfaces-built-on-the-generic-interfaces)),
+  such a library has no function `S` of the `generic` interface. Its
+  functions of batches are always recognized by the symbol
   `S_generic_parallel_api_version`. The SYCL queue, an argument specific to
   this backend inserted in the middle of the others, goes through the
   execution options: the signature is the same everywhere.
@@ -453,7 +471,7 @@ comparator (`compare.cxx`) evaluates each test material property with the
 policies, contiguous, strided and uniform values, synchronous and
 asynchronous evaluations: values, statuses of the points and summary. The
 values are compared exactly with `g++`, `clang++` and `nvc++` on the host,
-up to 1e-13 with `icpx` (fast floating point model by default) and on GPUs.
+up to 1e-13 with `icpx` and on GPUs.
 A test property with bounds and physical bounds on two arguments and on
 its output (`BoundsOrderTest`) checks the retained check: first failure,
 otherwise last warning, rank of the output after the arguments. The
@@ -480,21 +498,71 @@ side of the caller for the material laws is proposed for TFEL 6.0.
 | Call | batch structure | batch structure |
 | Execution options | queue, statistics, stack | same members |
 | Synchronous or asynchronous | chosen by the caller | chosen by the caller |
-| Asynchronous report | `mfront_gpb_report` (C function of `BatchData.h`) | `<name>_generic_parallel_report` (symbol, it decodes the keys and names the variable) |
+| Asynchronous report | `<name>_generic_parallel_report` (symbol, it decodes the keys) | `<name>_generic_parallel_report` (symbol, it decodes the keys and names the variable) |
 | Empty batch | accepted without check | accepted without check |
-| Errors of the batch | `-2` (arguments), `-3` (backend) | `-5` (arguments), `-6` (parameters), `-7` (backend) |
+| Errors of the batch | `-5` (arguments), `-6` (parameters), `-7` (backend) | identical |
 | Automatic SYCL transfers | `SYCLDeviceCopies.hxx` | same class |
 | Merge of the statuses of the points | atomic (CUDA, HIP, SYCL, Kokkos, RAJA), reduction (parallel algorithms, OpenMP, OpenACC) | identical |
-| Number of failed points, first failed point | yes | yes, and first unreliable point |
+| Number of failed points, first failed point | yes, and first unreliable point | identical |
 | Stack of the threads | adapted to the kernel, `preserve_stack_size` | identical |
 | Memory space, backend, version | exported symbols | exported symbols |
 | Optional array of the statuses per point | yes | yes |
 
-The errors of the batch of the behaviours will take the codes of the
-material properties (`-5`, `-6`, `-7`) when the behaviours are aligned on
-the same interface (next step of the rework). The statistics of the
-behaviours carry the time step factor, those of material properties the
-key of the first unreliable point.
+The statistics of the behaviours carry the time step factor after the
+members shared with the material properties; the output status of the
+material properties carries the check retained at the reported point.
+
+## Interfaces built on the generic interfaces
+
+The three `generic-parallel` interfaces are built on their `generic`
+interface, so that the code at one point is written once:
+
+- material properties: the code evaluating a material property at a
+  point (order of the checks, out of bounds policies, macro disabling the
+  bounds checks, body) is written by
+  `GenericMaterialPropertyInterfaceBase::writePointEvaluation`, used by the
+  `generic`, `cyrano` and `generic-parallel` interfaces. Each one reports
+  the checks in its own way: messages with the values for `generic` and
+  `cyrano`, identifiers of the checks in the kernels. The statuses, the
+  messages and the values of `generic` and `cyrano` are unchanged. A
+  differential test compares the libraries generated before and after the
+  change: about 740 000 calls on 60 material properties, with the three
+  policies, values below, on and above each bound, `NaN`, a wrong number
+  of arguments and an invalid file of parameters. It finds no
+  difference;
+- models: `GenericParallelModelInterface` derives from
+  `GenericModelInterface`, whose model class is generated for the device;
+- behaviours: as before, `GenericParallelBehaviourInterface` derives from
+  `GenericBehaviourInterface`; the functions of the `generic` interface
+  are written by `writeGenericFunctions`, whose options select the files,
+  the symbols and the linkage of the out of bounds policy. The sources
+  generated by the `generic` interface for the behaviours and the models
+  are unchanged (compared byte for byte on about 1450 files, apart from
+  the paths of TDLS, which differ between the two builds compared).
+
+With the `generic_functions` option of the interface (configuration
+file: `interfaces_options: {generic-parallel: {generic_functions: true}}`),
+a library also contains the functions of the `generic` interface and
+exports `Generic` as interface. It can be used as a library of the
+`generic` interface (MTest, MGIS). Its functions of batches are detected
+by `<name>_generic_parallel_api_version`. It has one set of parameters
+shared by all its functions and, for a behaviour, one out of bounds
+policy (for a material property, the policy is an argument of each call).
+They have a hidden visibility, so that libraries of several backends
+loaded in the same process stay independent. The functions of a point of
+the material properties and of the behaviours are written in a separate
+source. This source is compiled by the C++ compiler of the configuration:
+the compiler of the backend for the backends based on C++ programming
+models, the C++ compiler for CUDA and HIP. The functions of a point of
+the models are written in the source of the batch functions. The
+behaviour class then has the constructors of both interfaces
+(`AbstractBehaviourInterface::getInterfacesOfAdditionalBehaviourConstructors`).
+Limits: with the compilers translating host and device code in a single
+pass (nvc++ for the GPU, generic compiler of AdaptiveCpp), the functions
+of a point follow the rules of device code; `errno` is set by the
+mathematical functions with `icpx` only with `-fp-model=precise` (given by
+its configuration files) and with `nvc++` only with `-Mnobuiltin` (not
+given).
 
 ## GPU code in TFEL and MFront
 
@@ -562,16 +630,28 @@ These defects were found along the way. Each one is fixed in its own
 commit and covered by an existing or new test. Some change the results on
 CPU: that was the goal.
 
+Some of these fixes are now in the official repository, through pull
+requests made from this work. They are part of the base and are listed
+here for the record, marked *(in the base)*: the integration drivers of
+the `generic` interface (#1064), the code generated by the
+`generic-parallel` interface of material properties and its SYCL backend
+(#1066, #1067), the values written with 14 digits (#1069) and the build
+of the generated libraries (#1062).
+
 `generic` interface of behaviours:
 
-- status checked after a finite strain integration;
-- moduli of the `DTAU_DDF` operator with the Hencky strain;
-- end of time step state given to the post-processings;
-- initialize functions of the Green-Lagrange and Hencky strategies;
-- speed of sound with the prediction operator;
-- pointers restored after an exception;
-- stress of the initialize functions for all stress measures;
-- exceptions of the constructor of the behaviour reported as failures;
+- status checked after a finite strain integration *(in the base)*;
+- moduli of the `DTAU_DDF` operator with the Hencky strain *(in the
+  base)*;
+- end of time step state given to the post-processings *(in the base)*;
+- initialize functions of the Green-Lagrange and Hencky strategies *(in
+  the base)*;
+- speed of sound with the prediction operator *(in the base)*;
+- pointers restored after an exception *(in the base)*;
+- stress of the initialize functions for all stress measures *(in the
+  base)*;
+- exceptions of the constructor of the behaviour reported as failures
+  *(in the base)*;
 - rotations: offsets, scalars and vectors fixed; rotation of all the
   blocks of the tangent operator (arrays of variables, pairs of variables
   without a TFEL type).
@@ -590,7 +670,8 @@ Models and material properties:
   the sign of the rank of the variable (negative when the evaluation
   fails, including for a bound with the `Strict` policy, as the code does
   and as the tests of MGIS expect);
-- `generic-parallel` interface of material properties: code generated with
+- `generic-parallel` interface of material properties *(in the base)*:
+  code generated with
   the checks disabled, SYCL memory freed after each call, pointers of the
   arguments copied into the kernels (the array of the caller may not be
   readable by the GPU), extent of the strided fields and values between
@@ -602,11 +683,12 @@ Models and material properties:
 
 Miscellaneous:
 
-- linker options after the object files in the generated Makefiles;
+- linker options after the object files in the generated Makefiles *(in
+  the base)*;
 - test behaviour `DigitSeparatorTest`: uninitialised derivative of the flow
   rule;
 - CUDA test of material properties that wrote into host memory from a
-  kernel (hidden by heterogeneous memory management);
+  kernel (hidden by heterogeneous memory management) *(in the base)*;
 - Runge-Kutta algorithms: the modifiers of the stiffness kept, in a static
   lambda, the name of the first behaviour processed by a call to MFront;
   with several behaviours in the same call, the others referred to the
@@ -635,13 +717,23 @@ Miscellaneous:
 ## Incompatibilities
 
 The support of GPU code changes a few programming interfaces. The list is
-in the release notes of TFEL (`tfel/docs/web/release-notes-5.2.md`, section
+in the release notes of TFEL (`tfel/docs/web/release-notes/release-notes-5.2.md`, section
 "Known incompatibilities"): `MechanicalBehaviour` without virtual
 functions, functions of `BoundsCheck`, `LogarithmicStrainHandler` defined
 in its header, slip systems built at compile time. The functions of
 `generic-parallel` material properties, new in TFEL 5.2, differ from those
 of the master (version 3, see
-[above](#generic-parallel-interface-of-material-properties)).
+[above](#generic-parallel-interface-of-material-properties)). Those of the
+behaviours and of the models, absent from the master, changed in the
+prototype on 21/10 (version 3 of `BatchData.h`). Their names are followed
+by `_generic_parallel`. The statistics hold opaque keys:
+`mfront_gpb_BatchStatistics` becomes `mfront_gpb_Statistics`, and
+`mfront_gpb_initializeBatchStatistics` becomes
+`mfront_gpb_initializeStatistics`. `mfront_gpb_getStatus` is removed. The `statuses` come
+after `s1` in the data of a batch. The report function is exported by the
+library instead of `mfront_gpb_report`. The errors of the batch are `-5`,
+`-6` and `-7` instead of `-2` and `-3`. The configuration files of `icpx`
+request `-fp-model=precise`.
 
 ## Configurations and compilers
 
@@ -695,7 +787,7 @@ Each statement was checked in the code.
 - `tfel/docs/web/generic-parallel-material-property-interface.md`: use of
   the interface of material properties (prototypes, execution options,
   asynchronous evaluation, statuses, backends).
-- `tfel/docs/web/release-notes-5.2.md`: behaviours on GPU,
+- `tfel/docs/web/release-notes/release-notes-5.2.md`: behaviours on GPU,
   incompatibilities, new features of `TFEL/Math`, `TFEL/Utilities` and
   `TFEL/Material`, fixes.
 - Other updated pages: `generic` interface (rotations of all the blocks,
@@ -734,4 +826,4 @@ are bounded at generation time, with a warning, and MFront warns when the
 criterion of a behaviour is looser than 1e-5. In double, the generated
 code only changes by the size symbol. The choices (decisions D1 to D9) and
 the measurements are in [plan-precision.md](plan-precision.md); patches
-0112 to 0120.
+0109 to 0117.

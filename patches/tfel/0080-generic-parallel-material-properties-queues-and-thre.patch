@@ -1,4 +1,4 @@
-From 969f81f5921672370b0ef5c63fc64661f9de9c68 Mon Sep 17 00:00:00 2001
+From 69af96eddbc81807d71bab201c34fd1210f9e29f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 15:42:30 +0200
 Subject: [PATCH] generic-parallel material properties: queues and thread

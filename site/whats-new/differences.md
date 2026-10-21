@@ -11,8 +11,8 @@ and `docs/upstream-integration.md`.
 
 | Library | Official base | What changes | Patches |
 |---|---|---|---|
-| TFEL/MFront | master `fdeb6abf8` (20/10/2026) | `generic-parallel` interface for behaviours and models (8 backends, 17 configurations), extended interface for material properties, GPU code in TFEL and in the generated code, single precision (DSL option `real_type`), corrections of the existing code | 130 |
-| MGIS | master `a30dbf5` (20/10/2026) | batches of behaviours, models and material properties, execution policy, location of the arrays, memory resources, views and layouts, end of step on the GPU, single precision (option `MGIS_REAL_TYPE`), corrections | 79 |
+| TFEL/MFront | master `1dc3ac594` (20/10/2026) | `generic-parallel` interface for behaviours and models (8 backends, 17 configurations), extended interface for material properties, GPU code in TFEL and in the generated code, single precision (DSL option `real_type`), libraries also containing the functions of the `generic` interface, corrections of the existing code | 136 |
+| MGIS | master `a30dbf5` (20/10/2026) | batches of behaviours, models and material properties, execution policy, location of the arrays, memory resources, views and layouts, end of step on the GPU, single precision (option `MGIS_REAL_TYPE`), functions of a point and of batches loaded from the same library (`generic_functions` option of TFEL), corrections | 86 |
 | mfem-mgis | master `b63d1958ac` (20/10/2026) | batch integration on CPU and GPU (data at integration points in the memory of MFEM), kernels for gradients, internal forces and tangent operator (assembled or matrix free; mechanics and stationary thermal problems), prediction by kernels, `FixedPoint` solver (fixed point, accelerations of MTest, NewtonK0), inexact Newton, BoomerAMG options, matrix free smoothers, reuse of the MUMPS analysis, cuDSS direct solver on the GPU, ordered assembly of the tangent operator (same results at each run on the GPU), execution settings, kernels compiled for CUDA or HIP (AMD GPU: compilation checked, not run), float or double precision given by MFEM, solvers and preconditioners of the major libraries (PETSc, Ginkgo, hypre, SuperLU_DIST, STRUMPACK, MUMPS, oneMKL, MAGMA, Trilinos), overrides of the linear solver, of the preconditioner and of the nonlinear solver given at run time, corrections | 273 |
 | mfem-mgis-examples | master `f256bd8` of the reference repository of the examples | options of the examples (behaviour library, device, solvers, profiling), synchronisations on the host for the GPU, choice of the direct solvers, behaviour libraries for CPU and GPU chosen by `--execution`, tests on the GPU, examples in single precision, refinement of all the examples, ex5 in parallel | 38 |
 | mm-opera-hpc | main `f3fc124` of its reference repository | polycrystal: choice of the nonlinear solver (Newton, NewtonK0), of the adaptive tolerance and of AmgX, behaviour integrated on the GPU; bubble and cermet: options of mfem-mgis and of the behaviour, synchronisations on the host, profiling of the post-processings, direct solvers, behaviour libraries for CPU and GPU chosen by `--execution`, tests on the GPU, cases in single precision | 40 |
@@ -68,8 +68,10 @@ root.
 
 ## How the changes are to be proposed upstream
 
-The changes are not yet proposed to the official repositories.
-`docs/upstream-integration.md` splits them into contributions that can
+Most changes are not yet proposed to the official repositories. Some
+fixes are already merged there and are part of the bases (TFEL pull
+requests #1062, #1064, #1066, #1067 and #1069).
+`docs/upstream-integration.md` splits the others into contributions that can
 each be reviewed and tested alone. Some commits of the prototype mix
 several subjects, so the contributions will be rebuilt from the final
 state of the branches, file by file, rather than by picking commits.
@@ -77,7 +79,8 @@ state of the branches, file by file, rather than by picking commits.
 ### TFEL, seven contributions in dependency order
 
 1. Corrections of the existing code, without GPU code. They may change
-   results on CPU. Each one is covered by an existing or a new test.
+   results on CPU. Each one is covered by an existing or a new test. Some
+   of them are already in the official repository.
 2. GPU code in TFEL (mathematical and material headers). CPU results do
    not change.
 3. Generated code compatible with the GPU in MFront. Results of the
@@ -85,7 +88,10 @@ state of the branches, file by file, rather than by picking commits.
 4. The `generic-parallel` interface for behaviours and models, with a
    first set of backends: CUDA, HIP, C++ parallel algorithms and OpenMP
    on the host. The data contract is versioned from this contribution
-   on, so that MGIS can check it.
+   on, so that MGIS can check it. It uses the conventions of version 3 of
+   the functions of the material properties: names followed by
+   `_generic_parallel`, report function exported by each library, errors
+   of the batch `-5`, `-6` and `-7`.
 5. Additional backends and compilers: Kokkos, RAJA, SYCL, OpenACC, `nvc++`
    offloading (`stdpar` and OpenMP), clang CUDA and HIP. Most compiler
    workarounds go into this contribution.
@@ -95,6 +101,11 @@ state of the branches, file by file, rather than by picking commits.
    `float`, MTest checking the type, convergence criteria bounded at the
    generation. In double, the generated code only changes by its size
    symbol.
+
+Later, without changing the published functions: the three
+`generic-parallel` interfaces built on their `generic` interface, then the
+`generic_functions` option, which adds the functions of the `generic`
+interface to a library of the `generic-parallel` interface.
 
 Each contribution is checked with the full TFEL test suite (`ctest`),
 the `generic-parallel` comparisons for its configurations at `-O3`, no

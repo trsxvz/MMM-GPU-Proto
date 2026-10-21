@@ -16,6 +16,8 @@
 @Command "sh ../build-libraries.sh @mfront@ config-openmp-offload-nvhpc-gpu.json";
 @Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -mp=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl -lnvhpcmanaux";
 @Command "sh ../compare-all.sh ./compare openmp --tolerance=1e-13";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-openmp-offload-nvhpc-gpu.json ./compare openmp --tolerance=1e-13";
 
 @CleanFiles {"test-openmp", "compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "generic-functions"};

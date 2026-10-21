@@ -58,16 +58,26 @@ properties computed by batches, on CPU or on GPU.
 ## Loading
 
 When a behaviour is loaded (`mgis::behaviour::load`), MGIS reads the
-description symbols of the library. For a `generic-parallel` library, it
-checks the version of the data contract and reads the backend and the
-memory space. They are stored in the description of the behaviour
-(`interface`, `backend`, `memory_space`). `isGenericParallelBehaviour`
-tells whether a behaviour computes by batches.
+description symbols of the library and makes two independent tests, as
+for the material properties. The functions of batches exist if the library
+exports `<name>_generic_parallel_api_version`: version 3 of the data
+contract is checked, the backend and the memory space are read (member
+`batch_api_version`). The functions of a point exist if the library
+exports `Generic` as interface. They are stored in the description of the
+behaviour (`interface`, `backend`, `memory_space`, `batch_api_version`).
+`isGenericParallelBehaviour` tells whether a behaviour has the functions
+of batches. A library of the `generic-parallel` interface built with the
+`generic_functions` option has both: both are loaded, the functions of a
+point being used by the functions acting on one point and the functions of
+batches by the functions acting on a material data manager. A library with
+none of them is refused.
 
 MGIS keeps its own copy of the C structures of TFEL
 (`MGIS/Behaviour/BatchDataView.hxx`), as for the `generic` interface: it
-does not depend on TFEL at compile time. A test checks that the memory
-layout of these copies is identical to the one of TFEL.
+does not depend on TFEL at compile time. A test checks that the offset of
+each member of these copies is the one of TFEL. The report function of the
+library (`<name>_generic_parallel_report`, member `batch_report`) analyses
+the statistics of asynchronous computations: MGIS no longer decodes them.
 
 Before this work, a `generic-parallel` library was loaded without error.
 Its batch functions were then called with the arguments of one point:
@@ -285,7 +295,8 @@ const auto r = pending.getResult();
   models, `PendingBatchEvaluation` for material properties.
 - Once the queue is synchronised by the caller, `getResult` returns the
   result of the synchronous function, index of the first failed point
-  included. MGIS cannot synchronise the queue itself: it does not depend on
+  included, given by the report function of the library (an asynchronous
+  computation on a non empty batch requires it). MGIS cannot synchronise the queue itself: it does not depend on
   any GPU library.
 - The pending computation keeps the memory written or read by the GPU: the
   status of the computation (statistics of behaviours, statuses of material
@@ -406,9 +417,12 @@ MGIS distinguishes two cases, like TFEL:
 
 The functions for one point (`integrate` on a view of one point,
 `integrate_debug`, initialize functions and post-processings of one point,
-rotations of one point, C bindings) refuse a batch library with a message.
-They used to call a null pointer. The detailed diagnosis of a point is done
-with the `generic` library of the same behaviour.
+rotations of one point, C bindings) refuse a library without the functions
+of a point (a `generic-parallel` library built without the
+`generic_functions` option) with a message. They used to call a null
+pointer. The detailed diagnosis of a point is done with the `generic`
+library of the same behaviour, or with the same library if it was built
+with the `generic_functions` option.
 
 ## Fixes of existing defects
 
@@ -470,9 +484,9 @@ These defects were found along the way and fixed in separate commits:
   of MGIS). The other backends are tested in TFEL: MGIS only passes
   pointers, a queue and a memory space.
 - **No status per point**: the optional array of TFEL is not exposed.
-- **Bindings**: the C bindings refuse batch libraries; the Python and
-  Fortran bindings do not know the batch functions. All three expose the
-  layout of the managers, not the views.
+- **Bindings**: the C bindings refuse the libraries without the functions
+  of a point; the Python and Fortran bindings do not know the batch
+  functions. All three expose the layout of the managers, not the views.
 
 ## Example
 
@@ -541,4 +555,4 @@ Compiled by `nvc++`, the Norton behaviour differs from the reference by
 3.1e-5 on the stresses and 1.5e-3 on the tangent operator at the onset of
 the flow, on the GPU as on the host and without contraction: the float
 tolerances of `GenericParallelCUDATest` depend on the compiler. Details in
-[plan-precision.md](plan-precision.md); patches 0064 to 0070.
+[plan-precision.md](plan-precision.md); patches 0062 to 0068.

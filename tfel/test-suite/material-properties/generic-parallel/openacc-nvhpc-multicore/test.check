@@ -21,6 +21,8 @@
 @Command "sh ../build-libraries.sh @mfront@ config-openacc-nvhpc-multicore.json";
 @Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -acc=multicore --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
 @Command "sh ../compare-all.sh ./compare openacc";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-openacc-nvhpc-multicore.json ./compare openacc";
 
 @CleanFiles {"test-openacc", "test-no-runtime-checks", "compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "generic-functions"};

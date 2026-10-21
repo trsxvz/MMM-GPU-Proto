@@ -23,6 +23,8 @@
 @Command "sh ../build-libraries.sh @mfront@ config-sycl-default-acpp.json";
 @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
 @Command "sh ../compare-all.sh ./compare sycl";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-sycl-default-acpp.json ./compare sycl";
 @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
 @Command "sh ../compare-all.sh ./compare-host sycl";
 
@@ -32,4 +34,4 @@
 @Command "./test-no-runtime-checks test-no-runtime-checks-sycl-default-acpp";
 
 @CleanFiles {"test-sycl", "compare", "compare-host", "test-no-runtime-checks", "no-runtime-checks.json"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "generic-functions"};

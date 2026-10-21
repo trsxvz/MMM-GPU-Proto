@@ -1,0 +1,33 @@
+From e28f3cdfcb577ed1e53f7b0c8598a5fd49e3a4ce Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 21 Oct 2026 04:25:59 +0200
+Subject: [PATCH] generic_functions option: test of a material property with
+ the runtime checks disabled
+
+---
+ .../generic-parallel/check-generic-functions.sh      | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/test-suite/material-properties/generic-parallel/check-generic-functions.sh b/test-suite/material-properties/generic-parallel/check-generic-functions.sh
+index 2a8f0614e..d0c1911a0 100644
+--- a/test-suite/material-properties/generic-parallel/check-generic-functions.sh
++++ b/test-suite/material-properties/generic-parallel/check-generic-functions.sh
+@@ -70,3 +70,15 @@ if [ "$(uname)" = Linux ] && command -v nm > /dev/null 2>&1; then
+   done
+ fi
+ sh "$directory/compare-all.sh" "$compare" "$backend" --generic-functions=true "$@"
++# runtime checks disabled, as with the `generic` interface (no check of the
++# number of arguments, of the parameters, of the bounds and of the results)
++mkdir -p no-runtime-checks
++cd no-runtime-checks
++"$mfront" --obuild --search-path="$directory" --interface=generic \
++  --interface=generic-parallel --configuration-file="$configuration" \
++  --configuration-file="$PWD/../config-generic-functions.json" \
++  --dsl-option=disable_runtime_checks:true \
++  "$directory/Inconel600_YoungModulus.mfront"
++"$compare" src/libGenericInconel600.so \
++  "src/libGenericParallelInconel600-$backend.so" Inconel600_YoungModulus \
++  --generic-functions=true "$@"
+-- 
+2.43.0
+

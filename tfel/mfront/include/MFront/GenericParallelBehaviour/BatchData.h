@@ -14,7 +14,6 @@
 #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
 #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
 
-#include <stdio.h>
 #include <string.h>
 #include "MFront/GenericBehaviour/Types.h"
 
@@ -23,7 +22,7 @@
  * the generated libraries (`<name>_generic_parallel_api_version` symbol).
  * It is incremented at each incompatible change of those structures.
  */
-#define MFRONT_GPB_API_VERSION 2
+#define MFRONT_GPB_API_VERSION 3
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,34 +32,43 @@ extern "C" {
  * \brief statistics of the computations on a batch, accumulated on the
  * device when the computations are asynchronous (see
  * `mfront_gpb_ExecutionOptions`). They must be initialized by
- * `mfront_gpb_initializeBatchStatistics`, on the host. They can then be
- * copied in device memory.
+ * `mfront_gpb_initializeStatistics`, on the host. They can then be
+ * copied in device memory. They are analysed by the
+ * `<name>_generic_parallel_report` function of the library which computed
+ * them. The first members are the ones of the statistics of the material
+ * properties (`mfront_gpmp_Statistics`).
  *
  * The devices only update the statistics when an event occurs at a point
  * (failure, unreliable result, decrease of the time step scaling factor).
  */
-typedef struct mfront_gpb_BatchStatistics {
+typedef struct mfront_gpb_Statistics {
   //! \brief number of points where the integration failed
   unsigned long long number_of_failures;
   /*!
-   * \brief index of the first point where the integration failed, or the
-   * maximal value of the type if no point failed. This index does not
-   * depend on the order of the computations.
+   * \brief opaque key of the first point where the integration failed, or
+   * `~0` if no point failed. This key does not depend on the order of the
+   * computations. Only the report function of the library decodes it.
    */
-  unsigned long long first_failure_index;
+  unsigned long long first_failure;
   //! \brief number of points where the time step scaling factor is too low
   unsigned long long number_of_unreliable_results;
+  /*!
+   * \brief opaque key of the first point where the time step scaling
+   * factor is too low, or `~0` if there is no such point
+   */
+  unsigned long long first_unreliable_result;
   /*!
    * \brief minimum of the time step scaling factors, stored as an unsigned
    * integer with the same ordering (see
    * `mfront_gpb_getTimeStepScalingFactor`), so that the device can update
    * it with an integer atomic operation. On all backends, this is the
-   * minimum of the value given to `mfront_gpb_initializeBatchStatistics`
-   * and of the factors of the points which are lower than the initial value
-   * of the batch (`rdt` member of `mfront_gpb_BatchData`).
+   * minimum of the value given to `mfront_gpb_initializeStatistics`, which
+   * must be the initial value of the time step scaling factor of the batch
+   * (`rdt` member of `mfront_gpb_BatchData`), and of the factors of the
+   * points which are lower than this value.
    */
   unsigned long long rdt;
-} mfront_gpb_BatchStatistics;
+} mfront_gpb_Statistics;
 
 /*!
  * \brief options of the execution of the computations on a batch
@@ -91,11 +99,11 @@ typedef struct mfront_gpb_ExecutionOptions {
    * RAJA backends, SYCL backend if no field is transferred): the function
    * returns once they are submitted to the queue, and the caller must
    * synchronize the queue before reading the outputs and the statistics (see
-   * `mfront_gpb_report`). The output status only reports invalid arguments and
-   * runtime errors. With the `sycl` backend, the statistics require an in-order
-   * queue (invalid arguments otherwise).
+   * `<name>_generic_parallel_report`). The output status only reports the
+   * errors of the batch. With the `sycl` backend, the statistics require an
+   * in-order queue (invalid arguments otherwise).
    */
-  mfront_gpb_BatchStatistics* statistics;
+  mfront_gpb_Statistics* statistics;
   /*!
    * \brief if not null, the stack size of the threads of the device is
    * never modified and a runtime error is reported if it is too small.
@@ -232,6 +240,10 @@ typedef struct mfront_gpb_BatchData {
   mfront_gpb_Field rdts;
   //! \brief speed of sound (output, only used if requested by the options)
   mfront_gpb_Field speed_of_sound;
+  //! \brief state at the beginning of the time step
+  mfront_gpb_InitialState s0;
+  //! \brief state at the end of the time step
+  mfront_gpb_State s1;
   /*!
    * \brief status of each integration point (output, optional):
    *
@@ -241,10 +253,6 @@ typedef struct mfront_gpb_BatchData {
    * - `1`: the integration succeeded.
    */
   int* statuses;
-  //! \brief state at the beginning of the time step
-  mfront_gpb_InitialState s0;
-  //! \brief state at the end of the time step
-  mfront_gpb_State s1;
   //! \brief options of the execution of the computations
   mfront_gpb_ExecutionOptions execution;
 } mfront_gpb_BatchData;
@@ -283,8 +291,15 @@ typedef struct mfront_gpb_RotationData {
  * - `0`: the integration succeeded at all points, but the time step scaling
  *   factor is lower than 0.99 at some points;
  * - `-1`: the integration failed at some points;
- * - `-2`: invalid arguments, nothing was computed;
- * - `-3`: runtime error of the backend (allocation, kernel launch, etc.).
+ * - `-5`: invalid arguments, nothing was computed;
+ * - `-6`: invalid parameters, nothing was computed;
+ * - `-7`: runtime error of the backend (allocation, kernel launch,
+ *   exception thrown on the host, etc.).
+ *
+ * The codes `1`, `0` and `-1` are the ones of the reported point: the first
+ * point where the integration failed, otherwise the first point where the
+ * time step scaling factor is too low. Those codes are the ones of the
+ * `generic` interface.
  */
 typedef struct mfront_gpb_OutputStatus {
   //! \brief status
@@ -300,6 +315,11 @@ typedef struct mfront_gpb_OutputStatus {
   mfront_gb_size_type first_failure_index;
   //! \brief number of points where the time step scaling factor is too low
   mfront_gb_size_type number_of_unreliable_results;
+  /*!
+   * \brief index of the first point where the time step scaling factor is
+   * too low, or the maximal value of the type if there is no such point
+   */
+  mfront_gb_size_type first_unreliable_result_index;
   //! \brief minimum of the time step scaling factors over the batch
   mfront_gb_real rdt;
   //! \brief error message
@@ -309,30 +329,31 @@ typedef struct mfront_gpb_OutputStatus {
 /*!
  * \brief initialize the statistics of a batch
  * \param[out] s: statistics
- * \param[in] rdt: initial value of the time step scaling factor
+ * \param[in] rdt: initial value of the time step scaling factor of the
+ * batch (`rdt` member of `mfront_gpb_BatchData`)
  *
  * \note the ordered key of the time step scaling factor is built from its
  * value converted to `double`, whatever the numerical type of the
  * interface, so that its 64 bits are defined
  */
-static inline void mfront_gpb_initializeBatchStatistics(
-    mfront_gpb_BatchStatistics* const s, const mfront_gb_real rdt) {
+static inline void mfront_gpb_initializeStatistics(
+    mfront_gpb_Statistics* const s, const double rdt) {
   const unsigned long long sign = 0x8000000000000000ull;
-  const double v = rdt;
   unsigned long long b;
-  memcpy(&b, &v, sizeof(b));
+  memcpy(&b, &rdt, sizeof(b));
   s->number_of_failures = 0;
-  s->first_failure_index = ~0ull;
+  s->first_failure = ~0ull;
   s->number_of_unreliable_results = 0;
+  s->first_unreliable_result = ~0ull;
   s->rdt = (b & sign) ? ~b : (b | sign);
-} /* end of mfront_gpb_initializeBatchStatistics */
+} /* end of mfront_gpb_initializeStatistics */
 
 /*!
  * \return the minimum of the time step scaling factors
  * \param[in] s: statistics
  */
 static inline mfront_gb_real mfront_gpb_getTimeStepScalingFactor(
-    const mfront_gpb_BatchStatistics* const s) {
+    const mfront_gpb_Statistics* const s) {
   const unsigned long long sign = 0x8000000000000000ull;
   const unsigned long long b = (s->rdt & sign) ? (s->rdt & ~sign) : ~(s->rdt);
   double rdt;
@@ -341,45 +362,48 @@ static inline mfront_gb_real mfront_gpb_getTimeStepScalingFactor(
 } /* end of mfront_gpb_getTimeStepScalingFactor */
 
 /*!
- * \return the status associated with the statistics of a batch, as defined
- * for the `status` member of `mfront_gpb_OutputStatus` (`1`, `0` or `-1`)
- * \param[in] s: statistics
+ * \brief type of the functions integrating a behaviour, or executing a
+ * model, over a batch of integration points
+ * (`<name>_<hypothesis>_generic_parallel` functions)
  */
-static inline int mfront_gpb_getStatus(
-    const mfront_gpb_BatchStatistics* const s) {
-  if (s->number_of_failures != 0) {
-    return -1;
-  }
-  return s->number_of_unreliable_results != 0 ? 0 : 1;
-} /* end of mfront_gpb_getStatus */
+typedef int (*mfront_gpb_BatchBehaviourPtr)(mfront_gpb_OutputStatus* const,
+                                            const mfront_gpb_BatchData* const);
 
 /*!
- * \brief fill an output status from the statistics of a batch: status,
- * numbers of points, index of the first failure, time step scaling factor
- * and error message, as the generated functions do for synchronous
- * computations. This function is meant to be called once asynchronous
- * computations are completed.
- * \return the status
- * \param[out] o: output status
- * \param[in] s: statistics
+ * \brief type of the functions executing an initialize function over a
+ * batch of integration points
+ * (`<name>_<hypothesis>_InitializeFunction_<f>_generic_parallel` functions)
  */
-static inline int mfront_gpb_report(mfront_gpb_OutputStatus* const o,
-                                    const mfront_gpb_BatchStatistics* const s) {
-  o->status = mfront_gpb_getStatus(s);
-  o->number_of_failures = (mfront_gb_size_type)s->number_of_failures;
-  o->first_failure_index = (mfront_gb_size_type)s->first_failure_index;
-  o->number_of_unreliable_results =
-      (mfront_gb_size_type)s->number_of_unreliable_results;
-  o->rdt = mfront_gpb_getTimeStepScalingFactor(s);
-  o->msg[0] = '\0';
-  if (o->status == -1) {
-    snprintf(o->msg, sizeof(o->msg),
-             "computations failed at %llu integration points, the first one "
-             "being the point %llu",
-             s->number_of_failures, s->first_failure_index);
-  }
-  return o->status;
-} /* end of mfront_gpb_report */
+typedef int (*mfront_gpb_BatchInitializeFunctionPtr)(
+    mfront_gpb_OutputStatus* const,
+    const mfront_gpb_BatchData* const,
+    const mfront_gpb_ConstField* const);
+
+/*!
+ * \brief type of the functions executing a post-processing over a batch of
+ * integration points
+ * (`<name>_<hypothesis>_PostProcessing_<f>_generic_parallel` functions)
+ */
+typedef int (*mfront_gpb_BatchPostProcessingPtr)(
+    mfront_gpb_OutputStatus* const,
+    const mfront_gpb_Field* const,
+    const mfront_gpb_BatchData* const);
+
+/*!
+ * \brief type of the rotation functions over a batch of integration points
+ * (`<name>_<hypothesis>_rotate<X>_generic_parallel` functions)
+ */
+typedef int (*mfront_gpb_BatchRotationPtr)(
+    mfront_gpb_OutputStatus* const, const mfront_gpb_RotationData* const);
+
+/*!
+ * \brief type of the function analysing the statistics of a batch, once
+ * the computations are completed (`<name>_generic_parallel_report`
+ * function), and reporting the result in an output status, as a
+ * synchronous computation does
+ */
+typedef int (*mfront_gpb_ReportPtr)(mfront_gpb_OutputStatus* const,
+                                    const mfront_gpb_Statistics* const);
 
 #ifdef __cplusplus
 }  // end of extern "C"
@@ -390,7 +414,7 @@ static inline int mfront_gpb_report(mfront_gpb_OutputStatus* const o,
 namespace mfront::gpb {
 
   //! \brief a simple alias
-  using AtomicBatchStatistics = ::mfront_gpb_BatchStatistics;
+  using AtomicBatchStatistics = ::mfront_gpb_Statistics;
   //! \brief a simple alias
   using ExecutionOptions = ::mfront_gpb_ExecutionOptions;
   //! \brief a simple alias

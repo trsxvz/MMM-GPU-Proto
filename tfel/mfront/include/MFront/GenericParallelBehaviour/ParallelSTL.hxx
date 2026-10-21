@@ -62,7 +62,7 @@ namespace mfront::gpb::stlpar {
             const std::size_t device_stack_size = 0) {
     if (!mfront::generic_parallel::setMinimalCUDAStackSize(
             device_stack_size, o.preserve_stack_size != 0)) {
-      return report(s, -3, mfront::generic_parallel::stack_size_error_message);
+      return report(s, -7, mfront::generic_parallel::stack_size_error_message);
     }
     const auto r = std::transform_reduce(
         policy, CountingIterator{0}, CountingIterator{n},

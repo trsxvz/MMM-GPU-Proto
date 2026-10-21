@@ -1,4 +1,4 @@
-From 0c635bc869720f4312a71431b2e9fde3bce86df6 Mon Sep 17 00:00:00 2001
+From 7b52939c140b653a85c7c1040b6bc7eb44e52162 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:07:34 +0200
 Subject: [PATCH] MFront: static variables of the Runge-Kutta DSLs in device

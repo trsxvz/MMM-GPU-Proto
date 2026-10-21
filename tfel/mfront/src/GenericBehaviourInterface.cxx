@@ -254,6 +254,18 @@ namespace mfront {
 
   void GenericBehaviourInterface::endTreatment(
       const BehaviourDescription& bd, const FileDescription& fd) const {
+    const auto name = bd.getLibrary() + bd.getClassName();
+    this->writeGenericFunctions(
+        bd, fd,
+        GenericFunctionsOptions{.header_file = name + "-generic.hxx",
+                                .header_guard = this->getHeaderGuard(bd),
+                                .source_file = name + "-generic.cxx"});
+  }  // end of endTreatment
+
+  void GenericBehaviourInterface::writeGenericFunctions(
+      const BehaviourDescription& bd,
+      const FileDescription& fd,
+      const GenericFunctionsOptions& o) const {
     auto raise = [](const std::string& m) {
       tfel::raise("GenericBehaviourInterface::endTreatment: " + m);
     };
@@ -261,7 +273,7 @@ namespace mfront {
     tfel::system::systemCall::mkdir("include/MFront/GenericBehaviour");
     const auto mhs = this->getModellingHypothesesToBeTreated(bd);
     const auto name = bd.getLibrary() + bd.getClassName();
-    const auto header = name + "-generic.hxx";
+    const auto& header = o.header_file;
     const auto type = bd.getBehaviourType();
     const auto is_finite_strain_through_strain_measure =
         (type == BehaviourDescription::STANDARDSTRAINBASEDBEHAVIOUR) &&
@@ -279,7 +291,7 @@ namespace mfront {
         << "* \\date " << fd.date << '\n'
         << "*/\n\n";
 
-    const auto hg = this->getHeaderGuard(bd);
+    const auto& hg = o.header_guard;
     out << "#ifndef " << hg << "\n"
         << "#define " << hg << "\n\n";
     writeRealTypeDefinitions(out, bd);
@@ -330,7 +342,7 @@ namespace mfront {
     out << "#endif /* " << hg << " */\n";
     out.close();
 
-    const auto src = name + "-generic.cxx";
+    const auto& src = o.source_file;
     out.open("src/" + src);
     if (!out) {
       raise("could not open file '" + src + "'");
@@ -411,7 +423,12 @@ namespace mfront {
 
     out << "#include\"MFront/GenericBehaviour/" << header << "\"\n\n";
 
-    this->writeGetOutOfBoundsPolicyFunctionImplementation(out, bd, name);
+    if (o.shared_out_of_bounds_policy) {
+      this->writeSharedGetOutOfBoundsPolicyFunctionImplementation(out, bd,
+                                                                  name);
+    } else {
+      this->writeGetOutOfBoundsPolicyFunctionImplementation(out, bd, name);
+    }
 
     this->writeGenericBehaviourTraits(out, bd, mhs);
 
@@ -419,22 +436,26 @@ namespace mfront {
         << "extern \"C\"{\n"
         << "#endif /* __cplusplus */\n\n";
 
-    GenericBehaviourSymbolsGenerator sg;
-    sg.generateGeneralSymbols(out, *this, bd, fd, mhs, name);
-    if (!bd.areAllMechanicalDataSpecialised(mhs)) {
-      const auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
-      sg.generateSymbols(out, *this, bd, fd, name, uh);
-    }
-    for (const auto& h : mhs) {
-      if (bd.hasSpecialisedMechanicalData(h)) {
-        sg.generateSymbols(out, *this, bd, fd, name, h);
+    if (o.symbols) {
+      GenericBehaviourSymbolsGenerator sg;
+      sg.generateGeneralSymbols(out, *this, bd, fd, mhs, name);
+      if (!bd.areAllMechanicalDataSpecialised(mhs)) {
+        const auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
+        sg.generateSymbols(out, *this, bd, fd, name, uh);
+      }
+      for (const auto& h : mhs) {
+        if (bd.hasSpecialisedMechanicalData(h)) {
+          sg.generateSymbols(out, *this, bd, fd, name, h);
+        }
       }
     }
 
     writeRotationFunctionsImplementations(out, *this, bd, name);
-    this->writeSetOutOfBoundsPolicyFunctionImplementation(out, bd, name);
-    // parameters
-    this->writeSetParametersFunctionsImplementations(out, bd, name);
+    if (o.symbols) {
+      this->writeSetOutOfBoundsPolicyFunctionImplementation(out, bd, name);
+      // parameters
+      this->writeSetParametersFunctionsImplementations(out, bd, name);
+    }
     // behaviour implementations
     for (const auto h : mhs) {
       const auto& d = bd.getBehaviourData(h);
@@ -616,7 +637,7 @@ namespace mfront {
         << "}\n"
         << "#endif /* __cplusplus */\n\n";
     out.close();
-  }  // end of endTreatment
+  }  // end of writeGenericFunctions
 
   static std::string as_string(const SupportedTypes::TypeFlag& f) {
     if (f == SupportedTypes::SCALAR) {

@@ -12,10 +12,24 @@ case "$mfront" in
   /*) ;;
   */*) mfront=$PWD/$mfront ;;
 esac
-case "$configuration" in
-  /*) ;;
-  *) configuration=$PWD/$configuration ;;
-esac
+# the configuration file is looked for in the current directory, then in
+# the configuration files installed with TFEL, as MFront does
+find_configuration() {
+  if [ -f "$1" ]; then
+    echo "$PWD/$1"
+    return
+  fi
+  prefix=$(cd "$(dirname "$(command -v "$mfront")")/.." && pwd)
+  for d in "$prefix"/share/tfel*/mfront/configuration-files; do
+    if [ -f "$d/$1" ]; then
+      echo "$d/$1"
+      return
+    fi
+  done
+  echo "configuration file '$1' not found" >&2
+  exit 1
+}
+configuration=$(find_configuration "$configuration")
 directory=$(cd "$(dirname "$0")" && pwd)
 file=$directory/InvalidNameTest_generic_parallel.mfront
 mkdir -p refused-name

@@ -16,6 +16,7 @@
 #include <memory>
 #include <string_view>
 #include "MFront/GenericBehaviourInterface.hxx"
+#include "MFront/GenericBehaviourSymbolsGenerator.hxx"
 
 namespace mfront {
 
@@ -60,6 +61,52 @@ namespace mfront {
                                             std::string_view,
                                             std::string_view);
     /*!
+     * \return the name of a function of batches of points: the name of the
+     * function of the `generic` interface followed by `_generic_parallel`.
+     * This function is shared with the `generic-parallel` interface for
+     * models.
+     * \param[in] f: name of the function of the `generic` interface
+     */
+    static std::string getBatchFunctionName(std::string_view);
+    /*!
+     * \brief write the declaration of the `<base>_generic_parallel_report`
+     * function, which analyses the statistics of a batch once the
+     * computations are completed. This function is shared with the
+     * `generic-parallel` interface for models.
+     * \param[out] os: output stream
+     * \param[in] base: basis of the names of the functions
+     */
+    static void writeReportFunctionDeclaration(std::ostream&, std::string_view);
+    /*!
+     * \brief write the implementation of the
+     * `<base>_generic_parallel_report` function (see
+     * `writeReportFunctionDeclaration`)
+     * \param[out] os: output stream
+     * \param[in] base: basis of the names of the functions
+     */
+    static void writeReportFunction(std::ostream&, std::string_view);
+    /*!
+     * \return the generator of the symbols of a library. A library also
+     * containing the functions of the `generic` interface
+     * (`generic_functions` option) exports `Generic` as interface, so that
+     * its functions of a point are detected as in a library of the `generic`
+     * interface. This function is shared with the `generic-parallel`
+     * interface for models.
+     * \param[in] generic_functions: true if the library also contains the
+     * functions of the `generic` interface
+     */
+    [[nodiscard]] static std::unique_ptr<GenericBehaviourSymbolsGenerator>
+    makeSymbolsGenerator(const bool);
+    /*!
+     * \brief throw an exception if the given name contains
+     * `_generic_parallel`, which ends the names of the functions of batches
+     * of points and of their metadata. This function is shared with the
+     * `generic-parallel` interface for models.
+     * \param[in] m: calling method
+     * \param[in] n: name of the behaviour or of the model
+     */
+    static void checkName(std::string_view, std::string_view);
+    /*!
      * \brief write the end of a function started by
      * `writeBatchFunctionBeginning`
      * \param[out] os: output stream
@@ -100,6 +147,10 @@ namespace mfront {
     void getTargetsDescription(TargetsDescription&,
                                const BehaviourDescription&) override;
     [[nodiscard]] std::string getLibraryName(
+        const BehaviourDescription&) const override;
+    [[nodiscard]] std::map<std::string,
+                           std::shared_ptr<AbstractBehaviourInterface>>
+    getInterfacesOfAdditionalBehaviourConstructors(
         const BehaviourDescription&) const override;
     //! \brief destructor
     ~GenericParallelBehaviourInterface() override;
@@ -150,8 +201,30 @@ namespace mfront {
                                         const BehaviourDescription&,
                                         const std::string&,
                                         const Hypothesis) const;
+    /*!
+     * \return the name of the source file of the functions of the `generic`
+     * interface (`generic_functions` option)
+     * \param[in] name: name of the behaviour, including the library
+     */
+    [[nodiscard]] virtual std::string getPointwiseSourceFileName(
+        const std::string&) const;
+    /*!
+     * \return the name of the header declaring the functions of the
+     * `generic` interface (`generic_functions` option), in the
+     * `MFront/GenericBehaviour` directory
+     * \param[in] name: name of the behaviour, including the library
+     */
+    [[nodiscard]] virtual std::string getPointwiseHeaderFileName(
+        const std::string&) const;
     //! \brief backend
     std::unique_ptr<generic_parallel::behaviour::AbstractBackend> backend;
+    /*!
+     * \brief if true, the library also contains the functions of the
+     * `generic` interface (`generic_functions` option, false by default):
+     * integration, initialize functions, post-processings and rotations of
+     * a point. The library then exports `Generic` as interface.
+     */
+    bool generic_functions = false;
   };  // end of struct GenericParallelBehaviourInterface
 
 }  // end of namespace mfront

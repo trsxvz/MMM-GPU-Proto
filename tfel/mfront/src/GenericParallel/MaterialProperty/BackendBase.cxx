@@ -17,6 +17,7 @@
 #include "MFront/VariableDescription.hxx"
 #include "MFront/MaterialPropertyDescription.hxx"
 #include "MFront/MaterialPropertyParametersHandler.hxx"
+#include "MFront/GenericMaterialPropertyInterfaceBase.hxx"
 #include "MFront/GenericParallelMaterialPropertyInterface.hxx"
 #include "MFront/GenericParallelMaterialProperty/PointStatus.hxx"
 #include "MFront/GenericParallel/MaterialProperty/BackendBase.hxx"
@@ -24,36 +25,33 @@
 namespace mfront::generic_parallel::material_property {
 
   /*
-   * Identifiers of the checks performed by the kernels, stored in the keys
-   * of the statistics (see `mfront::gpmp::makeKey`). The physical bounds and
-   * the bounds are numbered variable by variable, the output being after
-   * the arguments, the upper bound before the lower bound.
+   * The identifiers of the checks performed by the kernels, stored in the
+   * keys of the statistics (see `mfront::gpmp::makeKey`), are given by the
+   * `generic` interface, which writes the code evaluating a material
+   * property at a point (see
+   * `GenericMaterialPropertyInterfaceBase::writePointEvaluation`). The
+   * physical bounds and the bounds are numbered variable by variable, the
+   * output being after the arguments, the upper bound before the lower
+   * bound.
    */
+  using GenericBase = ::mfront::GenericMaterialPropertyInterfaceBase;
 
   //! \brief identifier of the check of the finiteness of the result
-  static constexpr unsigned long long invalid_result_check = 0;
+  static constexpr unsigned long long invalid_result_check =
+      GenericBase::invalid_result_check;
 
-  /*!
-   * \return the identifier of the check of a physical bound
-   * \param[in] i: index of the variable
-   * \param[in] upper: true for the upper bound
-   */
+  //! \return the identifier of the check of a physical bound
   static unsigned long long getPhysicalBoundCheck(const std::size_t i,
                                                   const bool upper) {
-    return 1 + 2 * i + (upper ? 0 : 1);
+    return GenericBase::getPhysicalBoundCheck(i, upper);
   }  // end of getPhysicalBoundCheck
 
-  /*!
-   * \return the identifier of the check of a bound
-   * \param[in] mpd: material property description
-   * \param[in] i: index of the variable
-   * \param[in] upper: true for the upper bound
-   */
+  //! \return the identifier of the check of a bound
   static unsigned long long getBoundCheck(
       const MaterialPropertyDescription& mpd,
       const std::size_t i,
       const bool upper) {
-    return 1 + 2 * (mpd.inputs.size() + 1) + 2 * i + (upper ? 0 : 1);
+    return GenericBase::getBoundCheck(mpd, i, upper);
   }  // end of getBoundCheck
 
   /*!
@@ -79,87 +77,6 @@ namespace mfront::generic_parallel::material_property {
            types.real_type + ">::quiet_NaN();\n" +
            "return mfront_status;\n";
   }  // end of getFailureEnd
-
-  /*!
-   * \brief write the check of the physical bounds of a variable in a
-   * kernel: the evaluation fails at this point
-   * \param[in] os: output stream
-   * \param[in] v: variable
-   * \param[in] i: index of the variable (the output is after the inputs)
-   * \param[in] failure: code ending the evaluation at this point
-   */
-  static void writePhysicalBounds(std::ostream& os,
-                                  const VariableDescription& v,
-                                  const std::size_t i,
-                                  const std::string_view failure) {
-    if (!v.hasPhysicalBounds()) {
-      return;
-    }
-    const auto& b = v.getPhysicalBounds();
-    auto write = [&os, &v, i, failure](const char* const op, const auto value,
-                                       const bool upper) {
-      os << "if(" << v.name << " " << op << " " << v.type << "(" << value
-         << ")){\n"
-         << "mfront_status.report(" << getPhysicalBoundCheck(i, upper)
-         << "ull, true);\n"
-         << failure << "}\n";
-    };
-    if ((b.boundsType == VariableBoundsDescription::LOWER) ||
-        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
-      write("<", b.lowerBound, false);
-    }
-    if ((b.boundsType == VariableBoundsDescription::UPPER) ||
-        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
-      write(">", b.upperBound, true);
-    }
-  }  // end of writePhysicalBounds
-
-  /*!
-   * \brief write the check of the bounds of a variable in a kernel: the
-   * evaluation fails at this point with the strict policy, and the result
-   * must be used with caution with the warning policy. As with the
-   * `generic` interface, an unknown policy is treated as the `None` policy.
-   * \param[in] os: output stream
-   * \param[in] prefix: prefix of the out of bounds policies
-   * \param[in] mpd: material property description
-   * \param[in] v: variable
-   * \param[in] i: index of the variable (the output is after the inputs)
-   * \param[in] failure: code ending the evaluation at this point
-   */
-  static void writeBounds(std::ostream& os,
-                          const std::string& prefix,
-                          const MaterialPropertyDescription& mpd,
-                          const VariableDescription& v,
-                          const std::size_t i,
-                          const std::string_view failure) {
-    if (!v.hasBounds()) {
-      return;
-    }
-    const auto& b = v.getBounds();
-    auto write = [&os, &prefix, &mpd, &v, i, failure](
-                     const char* const op, const auto value, const bool upper) {
-      const auto c = getBoundCheck(mpd, i, upper);
-      os << "if(" << v.name << " " << op << " " << v.type << "(" << value
-         << ")){\n"
-         << "if (mfront_out_of_bounds_policy == " << prefix
-         << "_STRICT_POLICY){\n"
-         << "mfront_status.report(" << c << "ull, true);\n"
-         << failure << "}\n"
-         << "if (mfront_out_of_bounds_policy == " << prefix
-         << "_WARNING_POLICY){\n"
-         << "mfront_status.report(" << c << "ull, false);\n"
-         << "}\n"
-         << "}\n";
-    };
-    if ((b.boundsType == VariableBoundsDescription::LOWER) ||
-        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
-      write("<", b.lowerBound, false);
-    }
-    if ((b.boundsType == VariableBoundsDescription::UPPER) ||
-        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
-      write(">", b.upperBound, true);
-    }
-  }  // end of writeBounds
 
   /*!
    * \brief write the code reporting an invalid result (not finite) in a
@@ -424,7 +341,10 @@ namespace mfront::generic_parallel::material_property {
     const auto types = i.getTypesDescription();
     os << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel_report("
        << types.output_status_type << "* const mfront_output_status,\n"
-       << "const mfront_gpmp_Statistics* const mfront_statistics){\n";
+       << "const mfront_gpmp_Statistics* const mfront_statistics){\n"
+       << "if (mfront_output_status == nullptr) {\n"
+       << "return -5;\n"
+       << "}\n";
     writeErrorReporting(os);
     writeOutputStatusInitialization(os, i);
     // the messages are built in a `try` block
@@ -522,7 +442,10 @@ namespace mfront::generic_parallel::material_property {
     // signature
     os << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel("
        << types.output_status_type << "* const mfront_output_status,\n"
-       << "const mfront_gpmp_BatchData* const mfront_batch)\n{\n";
+       << "const mfront_gpmp_BatchData* const mfront_batch)\n{\n"
+       << "if (mfront_output_status == nullptr) {\n"
+       << "return -5;\n"
+       << "}\n";
     writeErrorReporting(os);
     // errno is restored on every return. It is not used to detect the
     // errors: it is thread-local, does not exist on GPUs, and may be modified
@@ -677,27 +600,26 @@ namespace mfront::generic_parallel::material_property {
     }
     // output
     os << "auto " << mpd.output.name << " = " << mpd.output.type << "{};\n";
-    // bounds of the arguments: physical bounds first
-    if ((checks) &&
-        ((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs)))) {
-      os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
-      for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
-        writePhysicalBounds(os, mpd.inputs[idx], idx, failure);
-      }
-      for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
-        writeBounds(os, prefix, mpd, mpd.inputs[idx], idx, failure);
-      }
-      os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
-    }
-    os << mpd.f.body;
-    // bounds of the output and invalid results
+    // evaluation at the point, written as for the `generic` interface: a
+    // failed check ends the evaluation at this point (the output is `NaN`)
+    GenericBase::writePointEvaluation(
+        os, mpd,
+        GenericBase::PointEvaluationOptions{
+            .bounds_check_macro = "NO_" + iucname + "_BOUNDS_CHECK",
+            .out_of_bounds_policy_prefix = prefix,
+            .failure =
+                [&failure](std::ostream& out,
+                           const GenericBase::BoundCheck& c) {
+                  out << "mfront_status.report(" << c.identifier
+                      << "ull, true);\n"
+                      << failure;
+                },
+            .warning =
+                [](std::ostream& out, const GenericBase::BoundCheck& c) {
+                  out << "mfront_status.report(" << c.identifier
+                      << "ull, false);\n";
+                }});
     if (checks) {
-      if ((mpd.output.hasPhysicalBounds()) || (mpd.output.hasBounds())) {
-        os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
-        writePhysicalBounds(os, mpd.output, mpd.inputs.size(), failure);
-        writeBounds(os, prefix, mpd, mpd.output, mpd.inputs.size(), failure);
-        os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
-      }
       writeInvalidResultCheck(os, mpd);
     }
     os << getOutputValue(handleStrides) << " = " << mpd.output.name

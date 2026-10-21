@@ -1,4 +1,4 @@
-From 6a7aa0c718d69c437532dc83a6f111bc61fe40a1 Mon Sep 17 00:00:00 2001
+From c2a6d9fb1d3f1b6dffc26b794d630e08e2503d8b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 20:56:58 +0200
 Subject: [PATCH] real_type: the mfront interface of the material laws accepted

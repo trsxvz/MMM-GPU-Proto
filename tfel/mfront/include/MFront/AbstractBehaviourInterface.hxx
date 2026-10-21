@@ -113,6 +113,19 @@ namespace mfront {
      */
     [[nodiscard]] virtual bool requiresDeviceCompatibleBehaviourClass() const;
     /*!
+     * \return other interfaces, indexed by their names, whose constructors
+     * shall also be written in the behaviour class, because this interface
+     * also writes their functions (for instance, the `generic-parallel`
+     * interface writing the functions of the `generic` interface). The
+     * constructors of an interface used to generate the behaviour are not
+     * written twice. Empty by default.
+     * \param[in] bd: behaviour description
+     */
+    [[nodiscard]] virtual std::map<std::string,
+                                   std::shared_ptr<AbstractBehaviourInterface>>
+    getInterfacesOfAdditionalBehaviourConstructors(
+        const BehaviourDescription&) const;
+    /*!
      * \return the list of modelling hypotheses treated by the interface
      * \param[in] mb : behaviour description
      */

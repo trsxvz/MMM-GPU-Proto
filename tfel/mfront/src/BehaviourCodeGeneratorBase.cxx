@@ -11,6 +11,7 @@
  * project under specific licensing conditions.
  */
 
+#include <set>
 #include <vector>
 #include <string>
 #include <ostream>
@@ -2513,14 +2514,30 @@ namespace mfront {
     write_body("");
     os << "}\n\n";
     // constructor specific to interfaces
-    for (const auto& i : this->interfaces) {
-      if (i.second->isBehaviourConstructorRequired(h, this->bd)) {
-        i.second->writeBehaviourConstructorHeader(os, this->bd, h, init);
+    auto write_constructor = [this, &os, &h, &init, &write_body](
+                                 const AbstractBehaviourInterface& i) {
+      if (i.isBehaviourConstructorRequired(h, this->bd)) {
+        i.writeBehaviourConstructorHeader(os, this->bd, h, init);
         os << "\n{\n";
-        write_body(
-            i.second->getParametersSourceInBehaviourConstructor(this->bd, h));
-        i.second->writeBehaviourConstructorBody(os, this->bd, h);
+        write_body(i.getParametersSourceInBehaviourConstructor(this->bd, h));
+        i.writeBehaviourConstructorBody(os, this->bd, h);
         os << "}\n\n";
+      }
+    };
+    for (const auto& i : this->interfaces) {
+      write_constructor(*(i.second));
+    }
+    // constructors of the other interfaces whose functions are written by
+    // the interfaces used, if they are not used themselves
+    auto additional = std::set<std::string>{};
+    for (const auto& i : this->interfaces) {
+      for (const auto& [n, a] :
+           i.second->getInterfacesOfAdditionalBehaviourConstructors(this->bd)) {
+        if ((this->interfaces.count(n) != 0) ||
+            (!additional.insert(n).second)) {
+          continue;
+        }
+        write_constructor(*a);
       }
     }
   }

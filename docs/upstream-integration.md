@@ -17,7 +17,8 @@ previous ones. The technical details are in [tfel.md](tfel.md).
 1. **Fixes of the existing code**, without GPU code. These are the fixes
    listed in [tfel.md](tfel.md#fixes-of-the-existing-code). They can
    change the results on CPU, since they are fixes. Each one is covered by
-   an existing or new test.
+   an existing or new test. Those marked *(in the base)* in tfel.md are
+   already in the official repository.
 2. **GPU code in TFEL** (mathematical and material headers): host and GPU
    annotations, `TFEL_DEVICE_CODE` for the single pass compilers,
    behaviours without virtual functions, `TrivialGenTypeBase`,
@@ -64,7 +65,19 @@ previous ones. The technical details are in [tfel.md](tfel.md).
 
 The data contract of the behaviours
 (`MFront/GenericParallelBehaviour/BatchData.h`) is versioned from the
-fourth contribution on, so that MGIS can check it.
+fourth contribution on, so that MGIS can check it. It uses the conventions
+of version 3 of the functions of the material properties: names followed
+by `_generic_parallel`, report function exported by each library, errors
+of the batch `-5`, `-6` and `-7`. The header of the keys of the
+statistics (`MFront/GenericParallel/StatisticsKeys.hxx`), shared by both
+interfaces, comes with the first of the two contributions.
+
+Later, without changing the published functions: the three
+`generic-parallel` interfaces built on their `generic` interface, with the
+code at one point written once. Then the `generic_functions` option, which
+adds the functions of the `generic` interface to a library of the
+`generic-parallel` interface (patches 0132 and 0134 to 0136). The name of
+the option is to be agreed.
 
 ### Checks for each contribution
 
@@ -86,13 +99,16 @@ contract they read. The details are in [mgis.md](mgis.md).
 2. **Batches of behaviours and models**: loading and checks, copies of the
    structures of TFEL and test of their layout, integration without copy,
    initialize functions, post-processings, rotations, automatic switch
-   of the existing functions, execution policy, refusal of the one point
-   functions.
+   of the existing functions, execution policy, refusal of the functions
+   of a point for a library which does not provide them, version 3 of the
+   data structures (report function of the library, errors of the batch
+   `-5`, `-6` and `-7`).
 3. **Memory**: location of the arrays checked against the memory space of
    the libraries, refusal of host accesses to the arrays placed on a GPU,
    memory resources and their headers.
 4. **Material properties**: loading of the `generic-parallel` properties
-   and function `evaluate`.
+   (two independent tests for the functions of batches and of a point,
+   version 3 of the functions) and function `evaluate`.
 5. **Layouts and copy operations**: layout of the arrays of a manager
    (`MaterialDataManagerInitializer::layout`), copy operations
    (`FieldOperations`), view without check of the values kept on the host
@@ -103,9 +119,14 @@ contract they read. The details are in [mgis.md](mgis.md).
 6. **Profiling**: synchronisation function called around the measured
    sections, to wait for the kernels launched on a GPU.
 7. **Documentation**: web page of the batches and release notes.
-8. **Float precision** (option `MGIS_REAL_TYPE`, patches 0064 to 0070):
+8. **Float precision** (option `MGIS_REAL_TYPE`, patches 0062 to 0068):
    type checked when loading each entry point, tests in float on the CPU
    and with CUDA, documentation. It follows contribution 7 of TFEL.
+
+Later, with the `generic_functions` option of TFEL: the functions of
+batches and of a point of the behaviours detected by two independent
+tests, a library without any of them refused, and the tests of the
+libraries containing both (patches 0081, 0082 and 0084 to 0086).
 
 The GPU tests of MGIS need an NVIDIA GPU. They are disabled by default
 (options `enable-generic-parallel-cuda-tests` and

@@ -1,4 +1,4 @@
-From d941ed0c413491bcde418326844b2b90ec92ca2c Mon Sep 17 00:00:00 2001
+From db4b2696c8d711f95edb3b86bbe4e568aa2a7bba Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:10:27 +0200
 Subject: [PATCH] TFEL: Jacobi algorithm for multiple eigenvalues in device

@@ -16,6 +16,8 @@
 @Command "sh ../build-libraries.sh @mfront@ config-stlpar-parunseq-icpx.json";
 @Command "@TFEL_ICPX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
 @Command "sh ../compare-all.sh ./compare stlpar --tolerance=1e-13";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-stlpar-parunseq-icpx.json ./compare stlpar --tolerance=1e-13";
 
 @CleanFiles {"test-stlpar", "compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "generic-functions"};

@@ -1,4 +1,4 @@
-From 86b57c50a0d25493d0e49c3d0f5c00630ef25f98 Mon Sep 17 00:00:00 2001
+From 28dea84ef93ef5fb4dcf5e70695e035ec18d7d7d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:28:41 +0200
 Subject: [PATCH] generic-parallel: Kokkos and SYCL backends, GPU offloading

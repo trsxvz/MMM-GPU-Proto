@@ -16,6 +16,8 @@
 @Command "sh ../build-libraries.sh @mfront@ config-raja.json";
 @Command "@TFEL_RAJA_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@ -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_RAJA_LINKER_FLAGS@";
 @Command "sh ../compare-all.sh ./compare raja --tolerance=1e-13";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-raja.json ./compare raja --tolerance=1e-13";
 
 @CleanFiles {"test-raja", "compare"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "generic-functions"};

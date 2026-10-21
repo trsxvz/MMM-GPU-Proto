@@ -19,6 +19,7 @@
 #include <array>
 #include <cstddef>
 #include <type_traits>
+#include <cstdio>
 #include <cstring>
 #include <exception>
 #include <mutex>
@@ -35,6 +36,7 @@
 #include "MFront/GenericBehaviour/State.hxx"
 #include "MFront/GenericBehaviour/BehaviourData.hxx"
 #include "MFront/GenericBehaviour/Integrate.hxx"
+#include "MFront/GenericParallel/StatisticsKeys.hxx"
 #include "MFront/GenericParallelBehaviour/BatchData.h"
 
 namespace mfront::gpb {
@@ -705,6 +707,31 @@ namespace mfront::gpb {
   inline constexpr auto no_failure_index = ~size_type{};
 
   /*!
+   * \return the key of the statistics associated with an event at a point
+   * (see `MFront/GenericParallel/StatisticsKeys.hxx`). The behaviours and the
+   * models have no check to retain at a point: the identifier of the check
+   * is null.
+   * \param[in] i: index of the point
+   */
+  TFEL_HOST_DEVICE constexpr unsigned long long makeKey(
+      const size_type i) noexcept {
+    return ::mfront::generic_parallel::makeKey(
+        static_cast<unsigned long long>(i), 0);
+  }  // end of makeKey
+
+  /*!
+   * \return the index of the point of a key, or `no_failure_index` if no
+   * event occurred
+   * \param[in] k: key
+   */
+  constexpr size_type getPointIndex(const unsigned long long k) noexcept {
+    if (k == ::mfront::generic_parallel::no_event) {
+      return no_failure_index;
+    }
+    return static_cast<size_type>(::mfront::generic_parallel::getPointIndex(k));
+  }  // end of getPointIndex
+
+  /*!
    * \brief statistics on the integration of a batch, combined by
    * parallel reductions
    */
@@ -716,26 +743,35 @@ namespace mfront::gpb {
      */
     TFEL_HOST_DEVICE static constexpr BatchStatistics from(
         const size_type i, const PointResult& r) noexcept {
+      constexpr auto none = ::mfront::generic_parallel::no_event;
       return {.number_of_failures = r.status == -1 ? 1u : 0u,
-              .first_failure_index = r.status == -1 ? i : no_failure_index,
+              .first_failure = r.status == -1 ? makeKey(i) : none,
               .number_of_unreliable_results = r.status == 0 ? 1u : 0u,
+              .first_unreliable_result = r.status == 0 ? makeKey(i) : none,
               .rdt = r.rdt};
     }
     //! \brief combine two statistics
     TFEL_HOST_DEVICE friend constexpr BatchStatistics combine(
         const BatchStatistics& a, const BatchStatistics& b) noexcept {
-      return {
-          .number_of_failures = a.number_of_failures + b.number_of_failures,
-          .first_failure_index = a.first_failure_index < b.first_failure_index
-                                     ? a.first_failure_index
-                                     : b.first_failure_index,
-          .number_of_unreliable_results =
-              a.number_of_unreliable_results + b.number_of_unreliable_results,
-          .rdt = a.rdt < b.rdt ? a.rdt : b.rdt};
+      return {.number_of_failures = a.number_of_failures + b.number_of_failures,
+              .first_failure = a.first_failure < b.first_failure
+                                   ? a.first_failure
+                                   : b.first_failure,
+              .number_of_unreliable_results = a.number_of_unreliable_results +
+                                              b.number_of_unreliable_results,
+              .first_unreliable_result =
+                  a.first_unreliable_result < b.first_unreliable_result
+                      ? a.first_unreliable_result
+                      : b.first_unreliable_result,
+              .rdt = a.rdt < b.rdt ? a.rdt : b.rdt};
     }
     size_type number_of_failures = 0;
-    size_type first_failure_index = no_failure_index;
+    //! \brief key of the first failure (see `makeKey`)
+    unsigned long long first_failure = ::mfront::generic_parallel::no_event;
     size_type number_of_unreliable_results = 0;
+    //! \brief key of the first unreliable result (see `makeKey`)
+    unsigned long long first_unreliable_result =
+        ::mfront::generic_parallel::no_event;
     real rdt = 1;
   };
 
@@ -743,8 +779,8 @@ namespace mfront::gpb {
    * \return an unsigned integer whose ordering is the same as the ordering
    * of the given floating point values. This allows to compute the minimum
    * of floating point values with an integer atomic operation. This is the
-   * encoding of the time step scaling factor in `mfront_gpb_BatchStatistics`
-   * (see `mfront_gpb_initializeBatchStatistics`), available in device code.
+   * encoding of the time step scaling factor in `mfront_gpb_Statistics`
+   * (see `mfront_gpb_initializeStatistics`), available in device code.
    */
   TFEL_HOST_DEVICE constexpr unsigned long long toOrderedKey(
       const double v) noexcept {
@@ -756,12 +792,12 @@ namespace mfront::gpb {
   //! \return the statistics updated by atomic operations
   inline BatchStatistics getBatchStatistics(
       const AtomicBatchStatistics& s) noexcept {
-    return {
-        .number_of_failures = static_cast<size_type>(s.number_of_failures),
-        .first_failure_index = static_cast<size_type>(s.first_failure_index),
-        .number_of_unreliable_results =
-            static_cast<size_type>(s.number_of_unreliable_results),
-        .rdt = mfront_gpb_getTimeStepScalingFactor(&s)};
+    return {.number_of_failures = static_cast<size_type>(s.number_of_failures),
+            .first_failure = s.first_failure,
+            .number_of_unreliable_results =
+                static_cast<size_type>(s.number_of_unreliable_results),
+            .first_unreliable_result = s.first_unreliable_result,
+            .rdt = mfront_gpb_getTimeStepScalingFactor(&s)};
   }  // end of getBatchStatistics
 
   /*!
@@ -774,13 +810,14 @@ namespace mfront::gpb {
   constexpr void accumulate(AtomicBatchStatistics& s,
                             const BatchStatistics& r,
                             const bool merge_rdt = true) noexcept {
-    const auto first_failure_index =
-        static_cast<unsigned long long>(r.first_failure_index);
     s.number_of_failures += r.number_of_failures;
-    s.first_failure_index = first_failure_index < s.first_failure_index
-                                ? first_failure_index
-                                : s.first_failure_index;
+    s.first_failure =
+        r.first_failure < s.first_failure ? r.first_failure : s.first_failure;
     s.number_of_unreliable_results += r.number_of_unreliable_results;
+    s.first_unreliable_result =
+        r.first_unreliable_result < s.first_unreliable_result
+            ? r.first_unreliable_result
+            : s.first_unreliable_result;
     if (merge_rdt) {
       const auto rdt = toOrderedKey(r.rdt);
       s.rdt = rdt < s.rdt ? rdt : s.rdt;
@@ -814,15 +851,46 @@ namespace mfront::gpb {
   }  // end of report
 
   /*!
-   * \brief fill an output status from the statistics of a batch (see
-   * `mfront_gpb_report`)
+   * \brief fill an output status from the statistics of a batch: status,
+   * numbers of points, indices of the first failure and of the first
+   * unreliable result, time step scaling factor and error message. This is
+   * the analysis performed by the `<name>_generic_parallel_report` functions.
    * \return the status
+   * \param[out] s: output status
+   * \param[in] r: statistics
    */
   inline int report(OutputStatus& s, const BatchStatistics& r) noexcept {
-    auto a = AtomicBatchStatistics{};
-    mfront_gpb_initializeBatchStatistics(&a, r.rdt);
-    accumulate(a, r);
-    return mfront_gpb_report(&s, &a);
+    // the keys built by the kernels of the behaviours have a null check
+    // (see `makeKey`): other keys come from other statistics
+    auto is_invalid = [](const unsigned long long k) {
+      return (k != ::mfront::generic_parallel::no_event) &&
+             (::mfront::generic_parallel::getCheck(k) != 0);
+    };
+    if (is_invalid(r.first_failure) || is_invalid(r.first_unreliable_result)) {
+      s.number_of_failures = 0;
+      s.first_failure_index = no_failure_index;
+      s.number_of_unreliable_results = 0;
+      s.first_unreliable_result_index = no_failure_index;
+      s.rdt = 1;
+      return report(s, -5, "invalid statistics (unknown check)");
+    }
+    s.number_of_failures = r.number_of_failures;
+    s.first_failure_index = getPointIndex(r.first_failure);
+    s.number_of_unreliable_results = r.number_of_unreliable_results;
+    s.first_unreliable_result_index = getPointIndex(r.first_unreliable_result);
+    s.rdt = r.rdt;
+    s.msg[0] = '\0';
+    if (r.number_of_failures != 0) {
+      s.status = -1;
+      std::snprintf(s.msg, sizeof(s.msg),
+                    "computations failed at %llu integration points, the "
+                    "first one being the point %llu",
+                    static_cast<unsigned long long>(r.number_of_failures),
+                    static_cast<unsigned long long>(s.first_failure_index));
+    } else {
+      s.status = r.number_of_unreliable_results != 0 ? 0 : 1;
+    }
+    return s.status;
   }  // end of report
 
   /*!
@@ -853,6 +921,26 @@ namespace mfront::gpb {
   }  // end of report
 
   /*!
+   * \brief analyse the statistics of a batch once the computations are
+   * completed (body of the `<name>_generic_parallel_report` functions)
+   * \return the status
+   * \param[out] s: output status
+   * \param[in] statistics: statistics of the batch, read on the host
+   */
+  inline int reportStatistics(
+      OutputStatus& s, const AtomicBatchStatistics* const statistics) noexcept {
+    if (statistics == nullptr) {
+      s.number_of_failures = 0;
+      s.first_failure_index = no_failure_index;
+      s.number_of_unreliable_results = 0;
+      s.first_unreliable_result_index = no_failure_index;
+      s.rdt = 1;
+      return report(s, -5, "no statistics given");
+    }
+    return report(s, getBatchStatistics(*statistics));
+  }  // end of reportStatistics
+
+  /*!
    * \brief initialize an output status: success, no failure
    * \param[out] s: output status
    * \param[in] rdt: time step scaling factor
@@ -862,6 +950,7 @@ namespace mfront::gpb {
     s.number_of_failures = 0;
     s.first_failure_index = no_failure_index;
     s.number_of_unreliable_results = 0;
+    s.first_unreliable_result_index = no_failure_index;
     s.rdt = rdt;
     s.msg[0] = '\0';
   }  // end of initialize
@@ -879,6 +968,13 @@ namespace mfront::gpb {
     constexpr auto sizes = PointDataSizes{PointTraits::value};
     initialize(s, d.rdt);
     const auto n = d.number_of_points;
+    // the index of a point is stored in 48 bits of the keys of the
+    // statistics
+    if (static_cast<unsigned long long>(n) >
+        ::mfront::generic_parallel::maximal_number_of_points) {
+      report(s, -5, "too many points");
+      return false;
+    }
     if (n == 0) {
       // nothing is read or written: the fields of an empty batch may be
       // null (for example, the data of an empty `std::vector`)
@@ -887,7 +983,7 @@ namespace mfront::gpb {
     auto check_input = [&s](const ConstField& f, const size_type size,
                             const std::string_view name) {
       if ((size != 0) && (f.values == nullptr)) {
-        report(s, -2, name);
+        report(s, -5, name);
         return false;
       }
       return true;
@@ -904,7 +1000,7 @@ namespace mfront::gpb {
       }
       for (std::size_t v = 0; v != variables_sizes.size(); ++v) {
         if ((variables_sizes[v] != 0) && (by_variable[v].values == nullptr)) {
-          report(s, -2, name);
+          report(s, -5, name);
           return false;
         }
       }
@@ -919,11 +1015,11 @@ namespace mfront::gpb {
         return true;
       }
       if ((required) && (f.values == nullptr)) {
-        report(s, -2, name);
+        report(s, -5, name);
         return false;
       }
       if ((f.values != nullptr) && (f.point_stride == 0) && (n > 1)) {
-        report(s, -2, name);
+        report(s, -5, name);
         return false;
       }
       return true;
@@ -1003,7 +1099,7 @@ namespace mfront::gpb {
                     Integrator::checkComputationOptions(o);
                   }) {
       if (!Integrator::checkComputationOptions(getComputationOptions(d))) {
-        report(s, -2, "invalid computation options");
+        report(s, -5, "invalid computation options");
         return false;
       }
     }
@@ -1035,7 +1131,7 @@ namespace mfront::gpb {
                    const size_type n,
                    const std::string_view name) noexcept {
     if ((n != 0) && (f.values == nullptr)) {
-      report(s, -2, name);
+      report(s, -5, name);
       return false;
     }
     return true;
@@ -1235,10 +1331,15 @@ namespace mfront::gpb {
   inline bool checkRotationData(OutputStatus& s,
                                 const RotationData& d) noexcept {
     initialize(s, 1);
+    if (static_cast<unsigned long long>(d.number_of_points) >
+        ::mfront::generic_parallel::maximal_number_of_points) {
+      report(s, -5, "too many points");
+      return false;
+    }
     if ((d.number_of_points != 0) &&
         ((d.destination.values == nullptr) || (d.source.values == nullptr) ||
          (d.rotation_matrices.values == nullptr))) {
-      report(s, -2, "invalid rotation data");
+      report(s, -5, "invalid rotation data");
       return false;
     }
     return true;
@@ -1444,13 +1545,14 @@ namespace mfront::gpb {
   /*!
    * \brief call the given function and convert exceptions to an error
    * status. This is meant for the host part of the generated functions.
+   * \return the status, `-5` (invalid argument) if no output status is given
    * \param[out] s: output status
    * \param[in] f: function
    */
   template <typename Function>
   int handleExceptions(OutputStatus* const s, Function&& f) noexcept {
     if (s == nullptr) {
-      return -2;
+      return -5;
     }
     // the output status is complete even if an exception is thrown before
     // the batch data are checked
@@ -1458,9 +1560,9 @@ namespace mfront::gpb {
     try {
       return f();
     } catch (std::exception& e) {
-      return report(*s, -3, e.what());
+      return report(*s, -7, e.what());
     } catch (...) {
-      return report(*s, -3, "unknown exception");
+      return report(*s, -7, "unknown exception");
     }
   }  // end of handleExceptions
 

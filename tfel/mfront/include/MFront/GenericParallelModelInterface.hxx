@@ -14,7 +14,7 @@
 #define LIB_MFRONT_GENERICPARALLELMODELINTERFACE_HXX
 
 #include <memory>
-#include "MFront/AbstractModelInterface.hxx"
+#include "MFront/GenericModelInterface.hxx"
 #include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
 
 namespace mfront {
@@ -27,9 +27,11 @@ namespace mfront {
    * state variables and its inputs are the external state variables. The
    * generated functions execute the model over a batch of points, with the
    * backends and the batch data of the `generic-parallel` interface for
-   * behaviours.
+   * behaviours. The interface is built on the `generic` interface for
+   * models, whose model class is generated for the device (see
+   * `writeGenericModelClass`).
    */
-  struct GenericParallelModelInterface final : public AbstractModelInterface {
+  struct GenericParallelModelInterface final : public GenericModelInterface {
     //! \return the name of the interface
     [[nodiscard]] static std::string getName();
     //! \brief constructor
@@ -41,7 +43,6 @@ namespace mfront {
         const std::vector<std::string>&,
         tokens_iterator,
         const tokens_iterator) override;
-    void declareReservedNames(std::set<std::string>&) override;
     void writeOutputFiles(const FileDescription&,
                           const ModelDescription&) override;
     void getTargetsDescription(TargetsDescription&,
@@ -49,19 +50,31 @@ namespace mfront {
     //! \brief destructor
     ~GenericParallelModelInterface() override;
 
-   private:
     //! \return the name of the generated library
-    [[nodiscard]] std::string getLibraryName(const ModelDescription&) const;
+    [[nodiscard]] std::string getLibraryName(
+        const ModelDescription&) const override;
+
+   private:
     //! \return the name of the header file
     [[nodiscard]] std::string getHeaderFileName(const std::string&) const;
     //! \return the name of the source file
     [[nodiscard]] std::string getSourceFileName(const std::string&) const;
     //! \brief write the header file
-    void writeHeaderFile(const FileDescription&, const ModelDescription&);
+    void writeHeaderFile(const FileDescription&,
+                         const ModelDescription&) override;
     //! \brief write the source file
-    void writeSourceFile(const FileDescription&, const ModelDescription&);
+    void writeSourceFile(const FileDescription&,
+                         const ModelDescription&) override;
     //! \brief backend
     std::unique_ptr<generic_parallel::behaviour::AbstractBackend> backend;
+    /*!
+     * \brief if true, the library also contains the functions of the
+     * `generic` interface executing the model at a point
+     * (`generic_functions` option, false by default), written in the same
+     * source as the functions of batches of points: both share the values
+     * of the parameters. The library then exports `Generic` as interface.
+     */
+    bool generic_functions = false;
   };  // end of struct GenericParallelModelInterface
 
 }  // end of namespace mfront

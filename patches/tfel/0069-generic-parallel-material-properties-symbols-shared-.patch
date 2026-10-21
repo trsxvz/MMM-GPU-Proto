@@ -1,4 +1,4 @@
-From 34e0bed266b5d50ac4f3fa6633684f9706d6b676 Mon Sep 17 00:00:00 2001
+From 3cdaa65db020dffc84776a1c5b96a38bcd7b1315 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 00:36:49 +0200
 Subject: [PATCH] generic-parallel material properties: symbols, shared kernel

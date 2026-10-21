@@ -43,8 +43,9 @@ law.
   followed is split into work packages (`docs/plan-mfem-mgis-detailed.md`).
 - **mfem-mgis-examples** and **mm-opera-hpc**: all examples and all
   cases (polycrystal, cermet, bubble) run by batches and on the GPU.
-- The changes are not yet proposed to the official repositories. How
-  they are split into contributions is described in
+- Most changes are not yet proposed to the official repositories. Some
+  fixes are already merged there and are part of the bases. How the
+  others are split into contributions is described in
   `docs/upstream-integration.md`.
 
 ## The chain and the role of each library

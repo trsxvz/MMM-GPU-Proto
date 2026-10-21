@@ -93,6 +93,18 @@ namespace mfront {
 
     virtual void writeGetOutOfBoundsPolicyFunctionImplementation(
         std::ostream&, const BehaviourDescription&, const std::string&) const;
+    /*!
+     * \brief write the function giving the out of bounds policy, with an
+     * external linkage (`inline` function) and a hidden visibility
+     * (`TFEL_VISIBILITY_LOCAL`): several sources of a library defining this
+     * function in the same way share the same policy, but different
+     * libraries loaded in the same process do not.
+     * \param[out] out: output stream
+     * \param[in] bd: behaviour description
+     * \param[in] name: name of the behaviour
+     */
+    void writeSharedGetOutOfBoundsPolicyFunctionImplementation(
+        std::ostream&, const BehaviourDescription&, const std::string&) const;
 
     virtual void writeSetOutOfBoundsPolicyFunctionImplementation(
         std::ostream&, const BehaviourDescription&, const std::string&) const;

@@ -1,11 +1,11 @@
 # Patches
 
-Series of patches giving this tree from TFEL master, commit `fdeb6abf8`
+Series of patches giving this tree from TFEL master, commit `1dc3ac594`
 (20/10/2026):
 
 ```bash
 git clone <official TFEL repository> tfel && cd tfel
-git checkout fdeb6abf8
+git checkout 1dc3ac594
 git am --keep-cr /path/to/patches/*.patch
 ```
 
@@ -13,7 +13,7 @@ git am --keep-cr /path/to/patches/*.patch
 behaviours), without which some patches do not apply.
 
 Patches, by subject (independently of their numbers; the details and
-their justifications are in `docs/tfel.md` of the prototype, in French):
+their justifications are in `docs/tfel.md` of the prototype):
 
 - device code in the headers of TFEL: mathematical and material headers,
   finite strain tools, rotations, constant objects (slip systems),
@@ -74,6 +74,12 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
   interfaces refusing `float`, `IsAssignableTo` for floating point types,
   MTest checking the numerical type, convergence criteria bounded at the
   generation with warnings, documentation;
+- displacement gradient (patches 0118 to 0122): Green-Lagrange tensor
+  computed from the displacement gradient, `LogarithmicStrainHandler`
+  built from the Green-Lagrange tensor and divided differences without
+  cancellation, displacement gradient given to the finite strain
+  behaviours by the `generic` interfaces, axial deformation gradient of
+  plane stress computed by the behaviour;
 - RAJA backend (patch 0123): execution policy given as an option and
   checked before being copied in the generated code, resource of camp as
   queue, `raja` and `raja-host` configurations, tests;
@@ -81,5 +87,15 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
   space deduced from the compilation macros, stack size set through the
   CUDA driver, `openacc-nvhpc-gpu` and `openacc-nvhpc-multicore`
   configurations, tests;
+- common contract of the behaviours and of the models (patches 0131 and
+  0133): functions named after the ones of the `generic` interface
+  followed by `_generic_parallel`, version 3 of the data structures,
+  report function exported by each library, errors of the batch `-5`,
+  `-6` and `-7`;
+- interfaces built on the `generic` interfaces and `generic_functions`
+  option (patches 0132 and 0134 to 0136): code evaluating a material
+  property at a point written once, libraries also containing the
+  functions of the `generic` interface, with one set of parameters and,
+  for a behaviour, one out of bounds policy;
 - documentation: the pages and comments of the changed code, checked
   against it.

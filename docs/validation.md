@@ -51,6 +51,19 @@ the tool `compare.cxx` compares them on varied batches:
 - initialize functions, post-processings, rotations, models,
   parameters modified at run time, deliberate failures (index of the first
   failing point, statuses per point), asynchronous computation;
+- report function of the library after each asynchronous computation,
+  first unreliable point, initial time step factor of the batch (option
+  `--time-step-scaling-factor`, case `0.5` in `compare-all.sh`);
+- invalid file of parameters of a behaviour and of a behaviour variable
+  (`-6`, option `--invalid-parameters`);
+- refusal of the names containing `_generic_parallel`, for a behaviour and
+  for a model (`check-refused-name.sh`);
+- libraries built with the `generic_functions` option
+  (`check-generic-functions.sh`, option `--generic-functions` of
+  `compare.cxx`): interface `Generic`, functions of a point compared with
+  the functions of batches, shared parameters and out of bounds policy.
+  All the configurations run it, except `raja-options` and
+  `sycl-default-acpp-2`;
 - TDLS solver in the implicit behaviours (sub-test `tdls`).
 
 ### Tests of the interface of the material properties
@@ -87,7 +100,13 @@ grid (`-5` beyond 2^31 - 1 blocks, without reading the arrays). The
 `stlpar-parunseq-gcc` configuration also checks the error reported for an
 invalid file of parameters (`-6`, `test-invalid-parameters.cxx`) and the
 refusal of a name containing `_generic_parallel`
-(`check-refused-name.sh`).
+(`check-refused-name.sh`). All the configurations check the libraries
+built with the `generic_functions` option (`check-generic-functions.sh`):
+the function of a point is compared with the `generic` interface, and a
+parameter changed by `S_setParameter` is used by both kinds of functions.
+The property generated with the runtime checks disabled is also built
+with this option, including when the configuration file already sets
+`disable_runtime_checks`.
 
 The test of the stream is discriminating: a slow kernel writes the arguments on the
 stream of the caller just before the evaluation. The values are only correct
@@ -187,6 +206,15 @@ version 3 of the functions of the material properties (21/10,
 (21 configurations of the behaviours and 20 of the material properties,
 `results/generic-parallel-tests-2026-10-20-step2-O3.txt`), nvcc and clang
 sweeps 542 OK each, 57 tests of MGIS and 360 of mfem-mgis, all green.
+After the rebase on `1dc3ac594`, the common contract of the behaviours and
+the `generic_functions` option (21/10, `validate3.sh 2026-10-21-step5`):
+6986 tests of TFEL, `-O3` matrix 40/41
+(`results/generic-parallel-tests-2026-10-21-step5-O3.txt`), nvcc and clang
+sweeps 547 OK each, 58 tests of MGIS, and 358 of the 360 tests of
+mfem-mgis in the whole suite. The behaviours failed with
+`stlpar-parunseq-nvhpc-gpu` (defect of nvc++, worked around afterwards),
+and two tests of mfem-mgis on the GPU failed for lack of memory, and pass
+when run alone.
 
 The tracked sweeps in `results/compile-sweep-*-2026-10-06.tsv` give
 the state of the morning of 06/10: 504 OK, 36 blocking user codes, 1 call
@@ -211,12 +239,13 @@ untracked.
 ## MGIS
 
 MGIS is built in `build/mgis` against the TFEL of the prototype. Its
-tests (`ctest`, 54 tests on 19/10) include the original ones and:
+tests (`ctest`, 58 tests on 21/10) include the original ones and:
 
 | Test | What is checked |
 |---|---|
-| `GenericParallelLoadTest` | loading, cross refusals of the point and batch functions, memory layout of the copies of the structures of TFEL (size, alignment and offset of each member, initialization of the statistics of the material properties) |
-| `GenericParallelIntegrateTest` | batches on CPU (`stlpar`) compared with the point by point computation: integration, ranges, partial failures, initialize functions, post-processings, 2D and 3D rotations, finite strain, speed of sound, all the kinds of external variables, model, execution policies, memory locations and resources |
+| `GenericParallelLoadTest` | loading, cross refusals of the point and batch functions, memory layout of the copies of the structures of TFEL (size, alignment and offset of each member, initialization of the statistics of the behaviours and of the material properties), report function loaded, and refused for a `generic` library |
+| `GenericParallelIntegrateTest` | batches on CPU (`stlpar`) compared with the point by point computation: integration, ranges, partial failures, initialize functions, post-processings, 2D and 3D rotations, finite strain, speed of sound, all the kinds of external variables, model, execution policies, memory locations and resources; asynchronous computation refused for a library without report function |
+| `GenericParallelGenericFunctionsTest` | libraries also containing the functions of the `generic` interface (`generic_functions` option): both kinds of functions loaded from the same library, integration of a behaviour and rotations of an orthotropic behaviour point by point compared with the batch, value of a material property at a point compared with the batch |
 | `GenericParallelEvaluateTest` | material properties on CPU: loading, values, bounds and policies, locations, invalid arguments, execution policy; refusal of a version of the functions which is not supported, of an invalid memory space and of a library without the symbol of the version (symbols of `GenericParallelInvalidMaterialProperties.cxx`) |
 | `GenericParallelCUDATest` | same checks on GPU (`cuda`), data in managed memory, memory resource, non-default stream, model and material properties; uniform value kept on the host refused by `make_view`, given by `make_unchecked_view` |
 | `MaterialDataViewTest` | views: `FieldView` and its contracts, `getPoints`; integration, initialize functions and post-processings on views in four layouts (point by point, component by component, with or without a stride larger than needed), identical bit for bit to the manager, with a workspace, with the synchronous and asynchronous policies and through `integrate_debug`, each computation starting from a copy of the state before the computation; the eight integration types, predictions included; speed of sound; model; stored and dissipated energies; empty sets; view without blocks of the tangent; `make_view`; host operations; `update`, `revert`, `updateValues` (with and without context); variables of a state view, blocks of the tangent, extraction; expected refusals, for both interfaces |

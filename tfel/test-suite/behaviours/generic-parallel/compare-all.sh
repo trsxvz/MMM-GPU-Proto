@@ -61,6 +61,11 @@ run ImplicitNortonWithEnergies_Tridimensional --material-properties=150e9,0.3 \
 # internal state variables, standard bounds with the strict policy
 run ImplicitNortonWithEnergies_Tridimensional --material-properties=150e9,0.3 \
   --perturbation-of-internal-state-variables=1e-4 --out-of-bounds-policy=Strict
+# unreliable results (time step scaling factor lower than 0.99) at the points
+# where the integration succeeds, failures at the other ones
+run ImplicitNortonWithEnergies_Tridimensional --material-properties=150e9,0.3 \
+  --perturbation-of-internal-state-variables=1e-4 --out-of-bounds-policy=Strict \
+  --time-step-scaling-factor=0.5
 # Runge-Kutta algorithm (no consistent tangent operator)
 run Norton_rk42_Tridimensional --material-properties=150e9,0.3,8e-67,8.2 \
   --amplitude=1e-4 --tangent-operator=3
@@ -188,6 +193,15 @@ run BehaviourVariableTest_Tridimensional \
 echo "hardening_factor 2" > BehaviourVariableTestPlasticity-parameters.txt
 run BehaviourVariableTest_Tridimensional \
   --material-properties=1e9,300e6,200e9,0.3 --amplitude=3e-3
+rm -f BehaviourVariableTestPlasticity-parameters.txt
+# invalid file of parameters, of the behaviour and of a behaviour variable:
+# the integration is refused (status -6)
+echo "YoungModulus abc" > IsotropicLinearHardeningPlasticity-parameters.txt
+run IsotropicLinearHardeningPlasticity_Tridimensional --invalid-parameters=true
+rm -f IsotropicLinearHardeningPlasticity-parameters.txt
+echo "hardening_factor abc" > BehaviourVariableTestPlasticity-parameters.txt
+run BehaviourVariableTest_Tridimensional \
+  --material-properties=1e9,300e6,200e9,0.3 --invalid-parameters=true
 rm -f BehaviourVariableTestPlasticity-parameters.txt
 run ExternalModelCallerTest_Tridimensional --amplitude=0 \
   --initial-internal-state-variables=1,2 --tangent-operator=0

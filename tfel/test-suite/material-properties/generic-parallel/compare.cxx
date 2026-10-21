@@ -26,7 +26,16 @@
  * for an invalid result.
  *
  * usage: compare generic_library batch_library function [--tolerance=t]
- * [--domain=min:max]
+ * [--domain=min:max] [--generic-functions=true]
+ *
+ * With the `--generic-functions=true` option, the batch library also
+ * contains the function of the `generic` interface (`generic_functions`
+ * option of the `generic-parallel` interface): it must export `Generic` as
+ * interface, its function of a point is compared to the one of the
+ * `generic` library (status, bounds status, error number and message
+ * equal, values up to the tolerance), and a parameter changed by its
+ * `setParameter` function must be used by its function of a point and by
+ * its functions of batches of points (single set of parameters).
  *
  * The values are compared exactly, or up to the relative tolerance given by
  * the `--tolerance` option when the libraries are not compiled by the same
@@ -51,6 +60,7 @@
 #include <vector>
 #include <iterator>
 #include <algorithm>
+#include <cstring>
 #include <string_view>
 #include "../../behaviours/generic-parallel/runtime.hxx"
 #include "MFront/GenericMaterialProperty/MaterialProperty.h"
@@ -59,6 +69,20 @@
 //! \brief maximal value of the indices, meaning no point
 static constexpr auto no_index =
     std::numeric_limits<mfront_gmp_size_type>::max();
+
+/*!
+ * \return a symbol of a library, or null if the library does not export
+ * it
+ * \param[in] lib: library
+ * \param[in] s: name of the symbol
+ */
+static const void* findSymbol(const std::string& lib, const std::string& s) {
+  auto* const l = dlopen(lib.c_str(), RTLD_NOW | RTLD_LOCAL);
+  if (l == nullptr) {
+    fail(dlerror());
+  }
+  return dlsym(l, s.c_str());
+}
 
 //! \brief layout of the data of a batch
 enum struct Layout { CONTIGUOUS, STRIDED, UNIFORM_ARGUMENT, ONE_POINT };
@@ -108,6 +132,8 @@ struct Array {
 //! \brief functions compared
 struct Functions {
   mfront_gmp_MaterialPropertyPtr generic;
+  //! \brief function of a point of the batch library, if any
+  mfront_gmp_MaterialPropertyPtr pointwise = nullptr;
   mfront_gpmp_BatchMaterialPropertyPtr batch;
   mfront_gpmp_ReportPtr report;
   std::size_t nargs;
@@ -180,6 +206,7 @@ static bool compare(const Functions& f,
     }
   }
   // reference
+  auto pointwise_mismatches = std::size_t{};
   auto ref_values = std::vector<double>(n);
   auto ref_statuses = std::vector<int>(n);
   auto ref_bounds = std::vector<int>(n);
@@ -192,6 +219,24 @@ static bool compare(const Functions& f,
     ref_values[i] = f.generic(&s, args.data(), f.nargs, p);
     ref_statuses[i] = s.status;
     ref_bounds[i] = s.bounds_status;
+    // function of a point of the batch library
+    if (f.pointwise != nullptr) {
+      auto s2 = mfront_gmp_OutputStatus{};
+      const auto v2 = f.pointwise(&s2, args.data(), f.nargs, p);
+      if ((s2.status != s.status) || (s2.bounds_status != s.bounds_status) ||
+          (s2.c_error_number != s.c_error_number) ||
+          (std::strcmp(s2.msg, s.msg) != 0) ||
+          (!areEqual(v2, ref_values[i], tolerance))) {
+        if (pointwise_mismatches < 5) {
+          std::printf(
+              "function of a point, point %zu: status %d (expected "
+              "%d), value %.17g (expected %.17g), message '%s' "
+              "(expected '%s')\n",
+              i, s2.status, s.status, v2, ref_values[i], s2.msg, s.msg);
+        }
+        ++pointwise_mismatches;
+      }
+    }
   }
   // batch
   constexpr auto sentinel = double{-12345};
@@ -309,7 +354,7 @@ static bool compare(const Functions& f,
       }
     }
   }
-  ok = ok && (mismatches == 0);
+  ok = ok && (mismatches == 0) && (pointwise_mismatches == 0);
   std::printf("%-8s %-16s %-12s | failures %4zu, unreliable %4zu | %s\n",
               getName(p), getName(l),
               asynchronous ? "asynchronous" : "synchronous",
@@ -320,8 +365,9 @@ static bool compare(const Functions& f,
 
 int main(const int argc, const char* const* const argv) {
   if (argc < 4) {
-    fail("usage: compare generic_library batch_library function "
-         "[--tolerance=t]");
+    fail(
+        "usage: compare generic_library batch_library function "
+        "[--tolerance=t] [--domain=min:max] [--generic-functions=true]");
   }
   [[maybe_unused]] const auto runtime = Runtime{};
   const auto generic_library = std::string{argv[1]};
@@ -330,9 +376,12 @@ int main(const int argc, const char* const* const argv) {
   auto tolerance = 0.;
   auto minimum = -std::numeric_limits<double>::max();
   auto maximum = std::numeric_limits<double>::max();
+  auto generic_functions = false;
   for (int a = 4; a != argc; ++a) {
     const auto option = std::string_view{argv[a]};
-    if (option.starts_with("--tolerance=")) {
+    if (option == "--generic-functions=true") {
+      generic_functions = true;
+    } else if (option.starts_with("--tolerance=")) {
       tolerance = std::stod(std::string{option.substr(12)});
     } else if (option.starts_with("--domain=")) {
       const auto d = std::string{option.substr(9)};
@@ -357,9 +406,21 @@ int main(const int argc, const char* const* const argv) {
           load(generic_library, function + "_nargs"))};
   f.minimum = minimum;
   f.maximum = maximum;
+  auto ok = true;
+  if (generic_functions) {
+    // the library exports `Generic` as interface, as a library of the
+    // `generic` interface
+    const auto interface = std::string_view{*static_cast<const char* const*>(
+        load(batch_library, function + "_mfront_interface"))};
+    if (interface != "Generic") {
+      std::printf("invalid interface '%s'\n", std::string{interface}.c_str());
+      ok = false;
+    }
+    f.pointwise = reinterpret_cast<mfront_gmp_MaterialPropertyPtr>(
+        load(batch_library, function));
+  }
   std::printf("%s (%zu argument(s))\n", function.c_str(), f.nargs);
   auto rng = std::mt19937{5};
-  auto ok = true;
   for (const auto p : {GENERIC_MATERIALPROPERTY_NONE_POLICY,
                        GENERIC_MATERIALPROPERTY_WARNING_POLICY,
                        GENERIC_MATERIALPROPERTY_STRICT_POLICY}) {
@@ -371,6 +432,35 @@ int main(const int argc, const char* const* const argv) {
       for (const auto asynchronous : {false, true}) {
         ok = compare(f, 1031, l, p, asynchronous, tolerance, rng) && ok;
       }
+    }
+  }
+  if (generic_functions) {
+    // single set of parameters: a parameter changed by the `setParameter`
+    // function of the batch library is used by its function of a point and
+    // by its functions of batches of points, compared to the `generic`
+    // library where the same parameter is changed
+    const auto* const nparams = static_cast<const unsigned short*>(
+        findSymbol(generic_library, function + "_nParameters"));
+    if ((nparams != nullptr) && (*nparams != 0)) {
+      using SetParameter = int (*)(const char* const, const double);
+      const auto* const names = static_cast<const char* const*>(
+          load(generic_library, function + "_Parameters"));
+      const auto* const values = static_cast<const double*>(
+          findSymbol(generic_library,
+                     function + "_" + names[0] + "_ParameterDefaultValue"));
+      const auto value = values == nullptr ? 2. : 2 * *values;
+      for (const auto& l : {generic_library, batch_library}) {
+        const auto set =
+            reinterpret_cast<SetParameter>(load(l, function + "_setParameter"));
+        if (set(names[0], value) == 0) {
+          fail("can't set the parameter '" + std::string{names[0]} + "'");
+        }
+      }
+      std::printf("parameter '%s' set to %g\n", names[0], value);
+      ok = compare(f, 1031, Layout::CONTIGUOUS,
+                   GENERIC_MATERIALPROPERTY_NONE_POLICY, false, tolerance,
+                   rng) &&
+           ok;
     }
   }
   return ok ? EXIT_SUCCESS : EXIT_FAILURE;

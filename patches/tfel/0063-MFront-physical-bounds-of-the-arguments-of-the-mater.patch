@@ -1,4 +1,4 @@
-From 84926c6853f4be5da31008ac070061251ef7e8c3 Mon Sep 17 00:00:00 2001
+From 3326f7c8de6aadfd18c89db2419cddc9c20ca42c Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 03:31:02 +0200
 Subject: [PATCH] MFront: physical bounds of the arguments of the material

@@ -1,0 +1,45 @@
+From 80ca3c0a71608958d29a28ecfb4f834be3c4383b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 21 Oct 2026 04:40:16 +0200
+Subject: [PATCH] generic_functions option: runtime checks disabled with the
+ configuration files setting the option
+
+---
+ .../check-generic-functions.sh                 | 18 ++++++++++++++----
+ 1 file changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/test-suite/material-properties/generic-parallel/check-generic-functions.sh b/test-suite/material-properties/generic-parallel/check-generic-functions.sh
+index d0c1911a0..98ad85079 100644
+--- a/test-suite/material-properties/generic-parallel/check-generic-functions.sh
++++ b/test-suite/material-properties/generic-parallel/check-generic-functions.sh
+@@ -71,13 +71,23 @@ if [ "$(uname)" = Linux ] && command -v nm > /dev/null 2>&1; then
+ fi
+ sh "$directory/compare-all.sh" "$compare" "$backend" --generic-functions=true "$@"
+ # runtime checks disabled, as with the `generic` interface (no check of the
+-# number of arguments, of the parameters, of the bounds and of the results)
++# number of arguments, of the parameters, of the bounds and of the results).
++# Some configuration files set this option to `false`, which conflicts with
++# the option given on the command line: a copy of the configuration file
++# setting it to `true` is then used (see build-no-runtime-checks.sh).
+ mkdir -p no-runtime-checks
+ cd no-runtime-checks
++if grep -q 'disable_runtime_checks' "$configuration"; then
++  sed 's/disable_runtime_checks: *false/disable_runtime_checks: true/' \
++    "$configuration" > no-runtime-checks.json
++  option=""
++else
++  cp "$configuration" no-runtime-checks.json
++  option="--dsl-option=disable_runtime_checks:true"
++fi
+ "$mfront" --obuild --search-path="$directory" --interface=generic \
+-  --interface=generic-parallel --configuration-file="$configuration" \
+-  --configuration-file="$PWD/../config-generic-functions.json" \
+-  --dsl-option=disable_runtime_checks:true \
++  --interface=generic-parallel --configuration-file=no-runtime-checks.json \
++  --configuration-file="$PWD/../config-generic-functions.json" $option \
+   "$directory/Inconel600_YoungModulus.mfront"
+ "$compare" src/libGenericInconel600.so \
+   "src/libGenericParallelInconel600-$backend.so" Inconel600_YoungModulus \
+-- 
+2.43.0
+

@@ -1,4 +1,4 @@
-From cce99f3bdcec86511995941dc09cf94706839bd9 Mon Sep 17 00:00:00 2001
+From 7a61dad229633b08e46dfdf0924fc7cbc614091e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 02:34:20 +0200
 Subject: [PATCH] MFront: Poisson ratio of the stress update algorithm of the
@@ -78,7 +78,7 @@ index 000000000..757b6ed2f
 +  df_dp = stress{};
 +}
 diff --git a/mfront/tests/behaviours/generic/CMakeLists.txt b/mfront/tests/behaviours/generic/CMakeLists.txt
-index c2ed39862..f1276d75b 100644
+index 46ed5848b..a6c6f8208 100644
 --- a/mfront/tests/behaviours/generic/CMakeLists.txt
 +++ b/mfront/tests/behaviours/generic/CMakeLists.txt
 @@ -190,6 +190,7 @@ if(enable-mfront-quantity-tests)
@@ -89,7 +89,7 @@ index c2ed39862..f1276d75b 100644
         PlasticityWithoutAutomaticTemperatureDeclaration
         StrainHardeningCreep3
         StrainHardeningCreep5
-@@ -819,6 +820,7 @@ if(enable-mfront-quantity-tests)
+@@ -840,6 +841,7 @@ if(enable-mfront-quantity-tests)
    test_generic(plasticity5 plasticity.ref)
    test_generic(plasticity6)
    test_generic(plasticity7 plasticity.ref)

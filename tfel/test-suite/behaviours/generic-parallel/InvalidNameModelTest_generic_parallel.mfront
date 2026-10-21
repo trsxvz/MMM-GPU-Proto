@@ -1,0 +1,13 @@
+@DSL Model;
+@Model InvalidNameModelTest_generic_parallel;
+@Description {
+  "The name of a model must not contain `_generic_parallel`: "
+  "the generic-parallel interface refuses this model."
+}
+
+@Output s;
+s.setEntryName("TestOutput");
+
+@Function compute {
+  s = 1;
+}

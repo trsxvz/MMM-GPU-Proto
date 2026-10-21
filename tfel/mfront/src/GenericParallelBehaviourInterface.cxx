@@ -38,6 +38,24 @@
 
 namespace mfront {
 
+  /*!
+   * \brief symbols generator of a library of the `generic-parallel`
+   * interface which also contains the functions of the `generic` interface
+   * (`generic_functions` option): the library exports `Generic` as
+   * interface, so that the functions of a point are detected as in a library
+   * of the `generic` interface
+   */
+  struct GenericFunctionsSymbolsGenerator final
+      : public GenericBehaviourSymbolsGenerator {
+    void writeInterfaceNameSymbols(std::ostream& out,
+                                   const BehaviourInterfaceBase& i,
+                                   const BehaviourDescription&,
+                                   const FileDescription&,
+                                   const std::string& name) const override {
+      writeInterfaceSymbol(out, i.getFunctionNameBasis(name), "Generic");
+    }  // end of writeInterfaceNameSymbols
+  };  // end of GenericFunctionsSymbolsGenerator
+
   //! \brief sizes of the data of an integration point
   struct GenericParallelBehaviourPointDataSizes {
     int gradients = 0;
@@ -240,7 +258,9 @@ namespace mfront {
   /*!
    * \brief write the initialisation of the values of the parameters from
    * the parameters initializers, which are only available on the host (see
-   * `mfront_get_parameters_values`)
+   * `mfront_get_parameters_values`). The parameters initializers read the
+   * parameters files at the first call: an error is reported as invalid
+   * parameters (status `-6`), as for the material properties.
    * \param[out] os: output stream
    * \param[in] bd: behaviour description
    * \param[in] h: modelling hypothesis
@@ -250,7 +270,14 @@ namespace mfront {
       const BehaviourDescription& bd,
       const tfel::material::ModellingHypothesis::Hypothesis h) {
     os << "auto mfront_parameters = " << getParametersStructureName(bd, h)
-       << "{Behaviour::mfront_get_parameters_values()};\n";
+       << "{};\n"
+       << "try {\n"
+       << "static_cast<Behaviour::mfront_parameters_values&>("
+       << "mfront_parameters) = Behaviour::mfront_get_parameters_values();\n"
+       << "} catch (std::exception& mfront_exception) {\n"
+       << "return mfront::gpb::report(mfront_status, -6, "
+       << "mfront_exception.what());\n"
+       << "}\n";
   }  // end of writeParametersInitialisation
 
   /*!
@@ -369,10 +396,53 @@ namespace mfront {
 
   void GenericParallelBehaviourInterface::setOptions(const DataMap& opts) {
     using generic_parallel::behaviour::BackendFactory;
-    if (auto b = BackendFactory::get().generate(opts); b != nullptr) {
+    // options of the interface, the other ones being the ones of the backend
+    auto backend_options = opts;
+    if (contains(opts, "generic_functions")) {
+      this->generic_functions = get<bool>(opts, "generic_functions");
+      backend_options.erase("generic_functions");
+    }
+    if (auto b = BackendFactory::get().generate(backend_options);
+        b != nullptr) {
       this->backend = std::move(b);
     }
   }  // end of setOptions
+
+  std::map<std::string, std::shared_ptr<AbstractBehaviourInterface>>
+  GenericParallelBehaviourInterface::
+      getInterfacesOfAdditionalBehaviourConstructors(
+          const BehaviourDescription&) const {
+    if (!this->generic_functions) {
+      return {};
+    }
+    // the functions of the `generic` interface construct the behaviour from
+    // the data of a point
+    return {{GenericBehaviourInterface::getName(),
+             std::make_shared<GenericBehaviourInterface>()}};
+  }  // end of getInterfacesOfAdditionalBehaviourConstructors
+
+  std::unique_ptr<GenericBehaviourSymbolsGenerator>
+  GenericParallelBehaviourInterface::makeSymbolsGenerator(
+      const bool generic_functions) {
+    if (generic_functions) {
+      return std::make_unique<GenericFunctionsSymbolsGenerator>();
+    }
+    return std::make_unique<GenericBehaviourSymbolsGenerator>();
+  }  // end of makeSymbolsGenerator
+
+  std::string GenericParallelBehaviourInterface::getPointwiseHeaderFileName(
+      const std::string& name) const {
+    // the header differs from the one of the `generic` interface, which may
+    // be used in the same call of MFront for other modelling hypotheses
+    return name + "-generic-parallel-" + this->backend->getName() +
+           "-generic.hxx";
+  }  // end of getPointwiseHeaderFileName
+
+  std::string GenericParallelBehaviourInterface::getPointwiseSourceFileName(
+      const std::string& name) const {
+    return name + "-generic-parallel-" + this->backend->getName() +
+           "-generic.cxx";
+  }  // end of getPointwiseSourceFileName
 
   void GenericParallelBehaviourInterface::writeBatchFunctionBeginning(
       std::ostream& os,
@@ -385,7 +455,7 @@ namespace mfront {
        << "return mfront::gpb::handleExceptions(mfront_output_status, "
        << "[mfront_output_status" << captures << "] {\n"
        << "if (mfront_batch_data == nullptr) {\n"
-       << "return mfront::gpb::report(*mfront_output_status, -2, "
+       << "return mfront::gpb::report(*mfront_output_status, -5, "
        << "\"no batch data given\");\n"
        << "}\n"
        << "mfront::gpb::initialize(*mfront_output_status, "
@@ -398,6 +468,47 @@ namespace mfront {
        << "auto& mfront_status = *mfront_output_status;\n"
        << "const auto& mfront_data = *mfront_batch_data;\n";
   }  // end of writeBatchFunctionBeginning
+
+  std::string GenericParallelBehaviourInterface::getBatchFunctionName(
+      const std::string_view f) {
+    return std::string{f} + "_generic_parallel";
+  }  // end of getBatchFunctionName
+
+  void GenericParallelBehaviourInterface::writeReportFunctionDeclaration(
+      std::ostream& os, const std::string_view base) {
+    os << "/*!\n"
+       << " * \\brief analyse the statistics of a batch once the computations "
+       << "are completed, and report the result as a synchronous computation "
+       << "does\n"
+       << " * \\param[out] s: output status\n"
+       << " * \\param[in] statistics: statistics given by the execution "
+       << "options, read on the host\n"
+       << " * \\return the status, also stored in the output status\n"
+       << " */\n"
+       << "MFRONT_SHAREDOBJ int " << base << "_generic_parallel_report("
+       << "mfront_gpb_OutputStatus* const,\n"
+       << "const mfront_gpb_Statistics* const);\n\n";
+  }  // end of writeReportFunctionDeclaration
+
+  void GenericParallelBehaviourInterface::writeReportFunction(
+      std::ostream& os, const std::string_view base) {
+    os << "MFRONT_SHAREDOBJ int " << base << "_generic_parallel_report("
+       << "mfront_gpb_OutputStatus* const mfront_output_status,\n"
+       << "const mfront_gpb_Statistics* const mfront_statistics){\n"
+       << "if (mfront_output_status == nullptr) {\n"
+       << "return -5;\n"
+       << "}\n"
+       << "return mfront::gpb::reportStatistics(*mfront_output_status, "
+       << "mfront_statistics);\n"
+       << "} // end of " << base << "_generic_parallel_report\n\n";
+  }  // end of writeReportFunction
+
+  void GenericParallelBehaviourInterface::checkName(const std::string_view m,
+                                                    const std::string_view n) {
+    tfel::raise_if(n.find("_generic_parallel") != std::string_view::npos,
+                   std::string{m} + ": the name '" + std::string{n} +
+                       "' must not contain '_generic_parallel'");
+  }  // end of checkName
 
   void GenericParallelBehaviourInterface::writeBatchFunctionEnd(
       std::ostream& os, const std::string_view f) {
@@ -435,18 +546,22 @@ namespace mfront {
     const auto is_hypotheses_selection =
         (k == "@SelectedModellingHypothesis") ||
         (k == "@SelectedModellingHypotheses");
+    // MTest files generated on failure by the functions of the `generic`
+    // interface of the library (`generic_functions` option), as by the
+    // `generic` interface
+    const auto is_mtest_file_generation = k == "@GenerateMTestFileOnFailure";
     if (!i.empty()) {
       if (std::find(i.begin(), i.end(), getName()) == i.end()) {
         return {false, current};
       }
-      if (!is_hypotheses_selection) {
+      if ((!is_hypotheses_selection) && (!is_mtest_file_generation)) {
         tfel::raise(
             "GenericParallelBehaviourInterface::treatKeyword: "
             "unsupported keyword '" +
             k + "'");
       }
     }
-    if (is_hypotheses_selection) {
+    if ((is_hypotheses_selection) || (is_mtest_file_generation)) {
       return GenericBehaviourInterface::treatKeyword(bd, k, {}, current, end);
     }
     return {false, current};
@@ -517,12 +632,29 @@ namespace mfront {
     const auto name = bd.getLibrary() + bd.getClassName();
     auto entry_points = std::vector<std::string>{};
     for (const auto h : this->getModellingHypothesesToBeTreated(bd)) {
-      entry_points.push_back(this->getFunctionNameForHypothesis(name, h));
+      entry_points.push_back(
+          getBatchFunctionName(this->getFunctionNameForHypothesis(name, h)));
     }
     describeLibrary(
         d, this->getLibraryName(bd), this->getSourceFileName(name),
         "MFront/GenericParallelBehaviour/" + this->getHeaderFileName(name),
         entry_points);
+    if (this->generic_functions) {
+      auto generic_entry_points = std::vector<std::string>{};
+      for (const auto h : this->getModellingHypothesesToBeTreated(bd)) {
+        generic_entry_points.push_back(
+            this->getFunctionNameForHypothesis(name, h));
+      }
+      describeLibrary(d, this->getLibraryName(bd),
+                      this->getPointwiseSourceFileName(name),
+                      "MFront/GenericBehaviour/" +
+                          this->getPointwiseHeaderFileName(name),
+                      generic_entry_points);
+      if (this->shallGenerateMTestFileOnFailure(bd)) {
+        insert_if(d.getLibrary(this->getLibraryName(bd)).link_libraries,
+                  tfel::getLibraryInstallName("MTestFileGenerator"));
+      }
+    }
   }  // end of getTargetsDescription
 
   /*!
@@ -555,11 +687,30 @@ namespace mfront {
 
   void GenericParallelBehaviourInterface::endTreatment(
       const BehaviourDescription& bd, const FileDescription& fd) const {
+    checkName("GenericParallelBehaviourInterface::endTreatment",
+              this->getFunctionNameBasis(bd.getLibrary() + bd.getClassName()));
     checkSharedDataOfBehaviourVariables(bd);
     tfel::system::systemCall::mkdir("include/MFront");
     tfel::system::systemCall::mkdir("include/MFront/GenericParallelBehaviour");
     this->writeHeaderFile(bd, fd);
     this->writeSourceFile(bd, fd);
+    if (this->generic_functions) {
+      // functions of the `generic` interface: the symbols and the functions
+      // changing the parameters and the out of bounds policy are the ones
+      // of the source of the functions of batches of points, the policy
+      // being shared by both sources
+      const auto name = bd.getLibrary() + bd.getClassName();
+      this->writeGenericFunctions(
+          bd, fd,
+          GenericFunctionsOptions{
+              .header_file = this->getPointwiseHeaderFileName(name),
+              .header_guard = GenericBehaviourInterface{}.getHeaderGuard(bd) +
+                              "_GENERIC_PARALLEL_" +
+                              makeUpperCase(this->backend->getName()),
+              .source_file = this->getPointwiseSourceFileName(name),
+              .symbols = false,
+              .shared_out_of_bounds_policy = true});
+    }
   }  // end of endTreatment
 
   void GenericParallelBehaviourInterface::writeHeaderFile(
@@ -594,6 +745,7 @@ namespace mfront {
        << "#endif /* __cplusplus */\n\n";
     this->writeSetOutOfBoundsPolicyFunctionDeclaration(os, name);
     this->writeSetParametersFunctionsDeclarations(os, bd, name);
+    writeReportFunctionDeclaration(os, this->getFunctionNameBasis(name));
     for (const auto h : this->getModellingHypothesesToBeTreated(bd)) {
       os << "/*!\n"
          << " * \\brief integrate the behaviour over a batch of integration "
@@ -603,7 +755,7 @@ namespace mfront {
          << " * \\return the status, also stored in the output status\n"
          << " */\n"
          << "MFRONT_SHAREDOBJ int "
-         << this->getFunctionNameForHypothesis(name, h)
+         << getBatchFunctionName(this->getFunctionNameForHypothesis(name, h))
          << "(mfront_gpb_OutputStatus* const,\n"
          << "const mfront_gpb_BatchData* const);\n\n";
       const auto& d = bd.getBehaviourData(h);
@@ -618,8 +770,8 @@ namespace mfront {
            << " * \\return the status, also stored in the output status\n"
            << " */\n"
            << "MFRONT_SHAREDOBJ int "
-           << this->getFunctionNameForHypothesis(name, h)
-           << "_InitializeFunction_" << ifct.first
+           << getBatchFunctionName(this->getFunctionNameForHypothesis(name, h) +
+                                   "_InitializeFunction_" + ifct.first)
            << "(mfront_gpb_OutputStatus* const,\n"
            << "const mfront_gpb_BatchData* const,\n"
            << "const mfront_gpb_ConstField* const);\n\n";
@@ -634,8 +786,9 @@ namespace mfront {
            << " * \\return the status, also stored in the output status\n"
            << " */\n"
            << "MFRONT_SHAREDOBJ int "
-           << this->getFunctionNameForHypothesis(name, h) << "_PostProcessing_"
-           << pp.first << "(mfront_gpb_OutputStatus* const,\n"
+           << getBatchFunctionName(this->getFunctionNameForHypothesis(name, h) +
+                                   "_PostProcessing_" + pp.first)
+           << "(mfront_gpb_OutputStatus* const,\n"
            << "const mfront_gpb_Field* const,\n"
            << "const mfront_gpb_BatchData* const);\n\n";
       }
@@ -648,7 +801,8 @@ namespace mfront {
            << " * \\return the status, also stored in the output status\n"
            << " */\n"
            << "MFRONT_SHAREDOBJ int "
-           << this->getFunctionNameForHypothesis(name, h) << "_" << f.name
+           << getBatchFunctionName(this->getFunctionNameForHypothesis(name, h) +
+                                   "_" + f.name)
            << "(mfront_gpb_OutputStatus* const,\n"
            << "const mfront_gpb_RotationData* const);\n\n";
       }
@@ -694,7 +848,12 @@ namespace mfront {
     this->backend->writeSpecificIncludes(os);
     os << "#include\"MFront/GenericParallelBehaviour/"
        << this->getHeaderFileName(name) << "\"\n\n";
-    this->writeGetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
+    if (this->generic_functions) {
+      // the policy is shared with the functions of the `generic` interface
+      this->writeSharedGetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
+    } else {
+      this->writeGetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
+    }
     this->writeGenericBehaviourTraits(os, bd, mhs);
     os << "namespace {\n\n";
     writeMethodCallers(os, bd, mhs);
@@ -737,7 +896,10 @@ namespace mfront {
     os << "#ifdef __cplusplus\n"
        << "extern \"C\"{\n"
        << "#endif /* __cplusplus */\n\n";
-    GenericBehaviourSymbolsGenerator sg;
+    // a library also containing the functions of the `generic` interface
+    // exports `Generic` as interface
+    const auto sgp = makeSymbolsGenerator(this->generic_functions);
+    auto& sg = *sgp;
     sg.generateGeneralSymbols(os, *this, bd, fd, mhs, name);
     this->backend->writeSymbols(os, this->getFunctionNameBasis(name));
     if (!bd.areAllMechanicalDataSpecialised(mhs)) {
@@ -751,6 +913,7 @@ namespace mfront {
     }
     this->writeSetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
     this->writeSetParametersFunctionsImplementations(os, bd, name);
+    writeReportFunction(os, this->getFunctionNameBasis(name));
     // write a function of the generated library
     // \param[in] h: modelling hypothesis
     // \param[in] f: name of the function
@@ -793,7 +956,7 @@ namespace mfront {
     };
     for (const auto h : mhs) {
       const auto f = this->getFunctionNameForHypothesis(name, h);
-      write_function(h, f,
+      write_function(h, getBatchFunctionName(f),
                      "const mfront_gpb_BatchData* const mfront_batch_data",
                      ", mfront_batch_data", [this, &os] {
                        this->backend->writeCall(
@@ -805,7 +968,8 @@ namespace mfront {
       for (const auto& [ifct, c] : d.getInitializeFunctions()) {
         const auto n = getNumberOfValues(
             c, CodeBlock::used_initialize_function_variables, h);
-        write_function(h, f + "_InitializeFunction_" + ifct,
+        write_function(h,
+                       getBatchFunctionName(f + "_InitializeFunction_" + ifct),
                        "const mfront_gpb_BatchData* const mfront_batch_data,\n"
                        "const mfront_gpb_ConstField* const mfront_inputs",
                        ", mfront_batch_data, mfront_inputs",
@@ -826,7 +990,7 @@ namespace mfront {
         const auto n =
             getNumberOfValues(c, CodeBlock::used_postprocessing_variables, h);
         write_function(
-            h, f + "_PostProcessing_" + pp,
+            h, getBatchFunctionName(f + "_PostProcessing_" + pp),
             "const mfront_gpb_Field* const mfront_outputs,\n"
             "const mfront_gpb_BatchData* const mfront_batch_data",
             ", mfront_outputs, mfront_batch_data", [this, &os, &bd, &pp, n] {
@@ -856,7 +1020,8 @@ namespace mfront {
       const Hypothesis h) const {
     const auto fn = this->getFunctionNameForHypothesis(name, h);
     for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
-      os << "MFRONT_SHAREDOBJ int " << fn << "_" << f.name
+      const auto bf = getBatchFunctionName(fn + "_" + f.name);
+      os << "MFRONT_SHAREDOBJ int " << bf
          << "(mfront_gpb_OutputStatus* const mfront_output_status,\n"
          << "const mfront_gpb_RotationData* const mfront_rotation_data){\n"
          << "return mfront::gpb::handleExceptions(mfront_output_status, "
@@ -864,7 +1029,7 @@ namespace mfront {
          << "auto& mfront_status = *mfront_output_status;\n"
          << "if (mfront_rotation_data == nullptr) {\n"
          << "mfront::gpb::initialize(mfront_status, 1);\n"
-         << "return mfront::gpb::report(mfront_status, -2, "
+         << "return mfront::gpb::report(mfront_status, -5, "
          << "\"no rotation data given\");\n"
          << "}\n"
          // an empty batch is accepted without any check, as for the
@@ -878,7 +1043,7 @@ namespace mfront {
                                getPointRotationName(bd, h, f), "mfront_status",
                                "mfront_data");
       os << "});\n"
-         << "} // end of " << fn << "_" << f.name << "\n\n";
+         << "} // end of " << bf << "\n\n";
     }
   }  // end of writeRotationFunctions
 

@@ -1,4 +1,4 @@
-From 8e80b8370497e3365c86cac75ea66bf6df8845f8 Mon Sep 17 00:00:00 2001
+From bba20da5090ea274444dd1479289e1bfe9fdedb9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
 Subject: [PATCH] TFEL: consistent host and device annotations, device code of

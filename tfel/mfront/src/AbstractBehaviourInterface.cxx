@@ -27,6 +27,12 @@ namespace mfront {
     return false;
   }  // end of requiresDeviceCompatibleBehaviourClass
 
+  std::map<std::string, std::shared_ptr<AbstractBehaviourInterface>>
+  AbstractBehaviourInterface::getInterfacesOfAdditionalBehaviourConstructors(
+      const BehaviourDescription&) const {
+    return {};
+  }  // end of getInterfacesOfAdditionalBehaviourConstructors
+
   AbstractBehaviourInterface::~AbstractBehaviourInterface() = default;
 
 }  // end of namespace mfront

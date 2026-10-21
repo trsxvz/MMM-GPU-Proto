@@ -8,6 +8,11 @@
 // comparisons with the `generic` interface, which gives the reference
 // results (see compare-all.sh)
 @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-openmp.so";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-openmp-offload-nvhpc-gpu.json ./compare openmp";
+
+// the name of a behaviour or of a model must not contain `_generic_parallel`
+@Command "sh ../check-refused-name.sh @mfront@ config-openmp-offload-nvhpc-gpu.json";
 
 @CleanFiles {"compare"};
-@CleanDirectories {"include", "src", "reference"};
+@CleanDirectories {"include", "src", "reference", "refused-name", "generic-functions"};

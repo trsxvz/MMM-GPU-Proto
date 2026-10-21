@@ -1,4 +1,4 @@
-From 4ff5213458fe2543aae3040f449380f993d7303c Mon Sep 17 00:00:00 2001
+From a64d95064a111564413913cf1c9859f458d174cc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 22:05:21 +0200
 Subject: [PATCH] generic-parallel models: executed when a prediction is

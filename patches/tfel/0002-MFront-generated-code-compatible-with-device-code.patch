@@ -1,4 +1,4 @@
-From 09ae2cf329a7f4cd398e79f20c3e36c28b4bb515 Mon Sep 17 00:00:00 2001
+From 01c821cce821bdd2f30b9c86760e0d5ccc9f37a2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:36 +0200
 Subject: [PATCH] MFront: generated code compatible with device code

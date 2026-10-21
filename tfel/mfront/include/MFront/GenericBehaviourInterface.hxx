@@ -94,6 +94,38 @@ namespace mfront {
     ~GenericBehaviourInterface() override;
 
    protected:
+    //! \brief options of the generation of the functions of this interface
+    struct GenericFunctionsOptions {
+      //! \brief name of the header declaring the functions
+      std::string header_file;
+      //! \brief header guard
+      std::string header_guard;
+      //! \brief name of the source file
+      std::string source_file;
+      /*!
+       * \brief if true, the source file also defines the symbols describing
+       * the behaviour and the functions changing the parameters and the out
+       * of bounds policy
+       */
+      bool symbols = true;
+      /*!
+       * \brief if true, the function giving the out of bounds policy has an
+       * external linkage, so that the policy is shared with the other
+       * sources of the library defining this function in the same way
+       */
+      bool shared_out_of_bounds_policy = false;
+    };
+    /*!
+     * \brief write the header and the source file of the functions of this
+     * interface (integration, initialize functions, post-processings and
+     * rotations of a point)
+     * \param[in] bd: behaviour description
+     * \param[in] fd: file description
+     * \param[in] o: options
+     */
+    void writeGenericFunctions(const BehaviourDescription&,
+                               const FileDescription&,
+                               const GenericFunctionsOptions&) const;
     /*!
      * \brief write the generation of an MTest file for the given hypothesis
      * \param[out] out: output stream

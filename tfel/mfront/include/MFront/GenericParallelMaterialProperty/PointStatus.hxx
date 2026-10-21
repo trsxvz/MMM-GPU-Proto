@@ -15,46 +15,19 @@
 #define LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_POINTSTATUS_HXX
 
 #include "TFEL/Config/TFELConfig.hxx"
+#include "MFront/GenericParallel/StatisticsKeys.hxx"
 #include "MFront/GenericParallelMaterialProperty/MaterialProperty.h"
 
 namespace mfront::gpmp {
 
-  //! \brief value of a key meaning that no event occurred
-  inline constexpr unsigned long long no_event = ~0ull;
-  /*!
-   * \brief number of bits of the identifier of a check in a key. The other
-   * bits hold the index of the point.
-   */
-  inline constexpr unsigned int check_bits = 16;
-  //! \brief maximal number of checks of a material property
-  inline constexpr unsigned long long maximal_number_of_checks =
-      (1ull << check_bits) - 1;
-  //! \brief maximal number of points of a batch
-  inline constexpr unsigned long long maximal_number_of_points =
-      (1ull << (64 - check_bits)) - 1;
-
-  /*!
-   * \return the key of an event: the minimum of the keys gives the first
-   * point concerned, whatever the order of the computations
-   * \param[in] i: index of the point
-   * \param[in] c: identifier of the check retained at this point
-   */
-  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long makeKey(
-      const unsigned long long i, const unsigned long long c) noexcept {
-    return (i << check_bits) | c;
-  }  // end of makeKey
-
-  //! \return the index of the point of a key
-  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getPointIndex(
-      const unsigned long long k) noexcept {
-    return k >> check_bits;
-  }  // end of getPointIndex
-
-  //! \return the identifier of the check of a key
-  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getCheck(
-      const unsigned long long k) noexcept {
-    return k & maximal_number_of_checks;
-  }  // end of getCheck
+  // keys of the statistics (see `MFront/GenericParallel/StatisticsKeys.hxx`)
+  using ::mfront::generic_parallel::check_bits;
+  using ::mfront::generic_parallel::getCheck;
+  using ::mfront::generic_parallel::getPointIndex;
+  using ::mfront::generic_parallel::makeKey;
+  using ::mfront::generic_parallel::maximal_number_of_checks;
+  using ::mfront::generic_parallel::maximal_number_of_points;
+  using ::mfront::generic_parallel::no_event;
 
   /*!
    * \brief status of the evaluation of a material property at a point,

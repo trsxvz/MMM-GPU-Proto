@@ -57,7 +57,11 @@ namespace mfront {
     using tfel::utilities::DataStructure;
     auto validator = tfel::utilities::DataMapValidator{};
     validator.addDataTypeValidator<DataStructure>("backend");
+    validator.addDataTypeValidator<bool>("generic_functions");
     validator.validate(opts);
+    if (contains(opts, "generic_functions")) {
+      this->generic_functions = get<bool>(opts, "generic_functions");
+    }
     if (getVerboseMode() >= VERBOSE_DEBUG) {
       getLogStream()
           << "GenericParallelMaterialPropertyInterface::setOptions: begin\n";
@@ -95,6 +99,11 @@ namespace mfront {
 
   std::vector<std::string>
   GenericParallelMaterialPropertyInterface::getInterfaceHeaderFiles() const {
+    if (this->generic_functions) {
+      return {"MFront/GenericMaterialProperty/Types.h",
+              "MFront/GenericMaterialProperty/MaterialProperty.h",
+              "MFront/GenericParallelMaterialProperty/MaterialProperty.h"};
+    }
     return {"MFront/GenericMaterialProperty/Types.h",
             "MFront/GenericParallelMaterialProperty/MaterialProperty.h"};
   }  // end of getInterfaceHeaderFiles
@@ -154,6 +163,10 @@ namespace mfront {
     insert_if(l.link_libraries, "m");
 #endif /* !((defined _WIN32) && (defined _MSC_VER)) */
     insert_if(l.epts, name + "_generic_parallel");
+    if (this->generic_functions) {
+      insert_if(l.sources, this->getPointwiseSourceFileName(name));
+      insert_if(l.epts, name);
+    }
     d.headers.push_back(this->getHeaderFileName(name));
   }  // end of getLibraryDescription
 
@@ -194,10 +207,37 @@ namespace mfront {
            this->backend->getSourceFileExtension();
   }
 
+  std::string
+  GenericParallelMaterialPropertyInterface::getPointwiseSourceFileName(
+      const std::string& name) const {
+    const auto i = this->getInterfaceName();
+    return name + '-' + i + '-' + this->backend->getName() + "-generic.cxx";
+  }
+
+  GenericMaterialPropertyInterfaceBase::PointwiseFunctionDescription
+  GenericParallelMaterialPropertyInterface::
+      getGenericPointwiseFunctionDescription() {
+    auto d = PointwiseFunctionDescription{};
+    d.types.real_type = "mfront_gmp_real";
+    d.types.integer_type = "mfront_gmp_size_type";
+    d.types.out_of_bounds_policy_type = "mfront_gmp_OutOfBoundsPolicy";
+    d.types.output_status_type = "mfront_gmp_OutputStatus";
+    // the parameters handler is the one of the functions of batches of
+    // points: the library has one set of parameters
+    d.interface_namespace = "generic_parallel";
+    // each part of the library follows the macro of its interface
+    d.bounds_check_macro = "NO_GENERIC_BOUNDS_CHECK";
+    d.out_of_bounds_policy_prefix = "GENERIC_MATERIALPROPERTY";
+    return d;
+  }  // end of getGenericPointwiseFunctionDescription
+
   void GenericParallelMaterialPropertyInterface::writeOutputFiles(
       const MaterialPropertyDescription& mpd, const FileDescription& fd) const {
     this->writeHeaderFile(mpd, fd);
     this->writeSrcFile(mpd, fd);
+    if (this->generic_functions) {
+      this->writePointwiseSourceFile(mpd, fd);
+    }
   }  // end of writeOutputFiles
 
   void GenericParallelMaterialPropertyInterface::writeHeaderFile(
@@ -255,6 +295,16 @@ namespace mfront {
        << "#endif /* __cplusplus */\n\n";
 
     this->backend->writeCDeclarations(os, *this, mpd);
+
+    if (this->generic_functions) {
+      // function of a point, as declared by the `generic` interface
+      const auto gtypes = getGenericPointwiseFunctionDescription().types;
+      os << "MFRONT_SHAREDOBJ " << gtypes.real_type << "\n"
+         << name << "(" << gtypes.output_status_type << "* const,"
+         << "const " << gtypes.real_type << "* const,"
+         << "const " << gtypes.integer_type << ","
+         << "const " << gtypes.out_of_bounds_policy_type << ");\n\n";
+    }
 
     writeParametersSetterFunctionDeclaration(
         os, mpd,
@@ -342,10 +392,14 @@ namespace mfront {
     }
     this->backend->writeSpecificIncludesInSourceFile(os, *this, mpd);
 
+    // the parameters handler has a hidden visibility: libraries of several
+    // backends for the same material property, loaded in the same process,
+    // have their own parameters
     writeMaterialPropertyParametersHandler(os, mpd,
                                            {.material_property_name = name,
                                             .floating_point_type = "double",
-                                            .interface_namespace = nname});
+                                            .interface_namespace = nname,
+                                            .hidden_visibility = true});
 
     this->backend->writeGlobalFunctions(os, *this, mpd, fd);
 
@@ -364,7 +418,12 @@ namespace mfront {
     writeRealSizeSymbol(os, name, types.real_type);
     writeTFELVersionSymbol(os, name);
     writeUnitSystemSymbol(os, name, mpd);
-    writeInterfaceSymbol(os, name, this->getInterfaceNameInCamelCase());
+    // a library containing the function of a point exports `Generic` as
+    // interface, as a library of the `generic` interface
+    writeInterfaceSymbol(os, name,
+                         this->generic_functions
+                             ? std::string{"Generic"}
+                             : this->getInterfaceNameInCamelCase());
     // backend and version of the generated functions, as for the behaviours,
     // the version being shifted for a numerical type other than double (see
     // `MFront/GenericMaterialProperty/Types.h`)
@@ -406,6 +465,81 @@ namespace mfront {
                         "writeSrcFile: end\n";
     }
   }  // end of GenericParallelMaterialPropertyInterface::writeSrcFile
+
+  void GenericParallelMaterialPropertyInterface::writePointwiseSourceFile(
+      const MaterialPropertyDescription& mpd, const FileDescription& fd) const {
+    const auto name = this->getFunctionName(mpd);
+    const auto fn = "src/" + this->getPointwiseSourceFileName(name);
+    const auto d = getGenericPointwiseFunctionDescription();
+    std::ofstream os{fn};
+    tfel::raise_if(!os,
+                   "GenericParallelMaterialPropertyInterface::"
+                   "writePointwiseSourceFile: unable to open '" +
+                       fn + "'");
+    os.exceptions(std::ios::badbit | std::ios::failbit);
+    os.precision(14);
+    os << "/*!\n"
+       << "* \\file   " << fn << '\n'
+       << "* \\brief  "
+       << "this file implements the function of the generic interface\n"
+       << "*         evaluating the " << name << " MaterialLaw at a point.\n"
+       << "*         File generated by " << MFrontHeader::getVersionName()
+       << " "
+       << "version " << MFrontHeader::getVersionNumber() << '\n';
+    if (!fd.authorName.empty()) {
+      os << "* \\author " << fd.authorName << '\n';
+    }
+    if (!fd.date.empty()) {
+      os << "* \\date " << fd.date << '\n';
+    }
+    os << " */\n\n";
+    writeRealTypeDefinitions(os, mpd);
+    // the header of the library is not included: it may hold declarations
+    // specific to the compiler of the backend
+    writeExportDirectives(os);
+    os << "#include<algorithm>\n"
+       << "#include<iterator>\n"
+       << "#include<iostream>\n"
+       << "#include<sstream>\n"
+       << "#include<fstream>\n"
+       << "#include<cstring>\n"
+       << "#include<cstdlib>\n"
+       << "#include<cerrno>\n"
+       << "#include<string>\n"
+       << "#include<vector>\n"
+       << "#include<locale>\n"
+       << "#include<cmath>\n"
+       << "#include\"TFEL/Config/TFELTypes.hxx\"\n"
+       << "#include\"TFEL/PhysicalConstants.hxx\"\n"
+       << "#include\"TFEL/Math/General/IEEE754.hxx\"\n"
+       << "#include\"TFEL/Math/General/DerivativeType.hxx\"\n"
+       << "#include\"MFront/GenericMaterialProperty/MaterialProperty.h\"\n";
+    if (useQuantities(mpd)) {
+      os << "#include\"TFEL/Math/qt.hxx\"\n"
+         << "#include\"TFEL/Math/Quantity/qtIO.hxx\"\n";
+    }
+    os << '\n';
+    if (!mpd.includes.empty()) {
+      os << mpd.includes << "\n\n";
+    }
+    // same definition of the parameters handler as in the source of the
+    // functions of batches of points: the library has a single instance of
+    // the parameters, changed by `<name>_setParameter`
+    writeMaterialPropertyParametersHandler(
+        os, mpd,
+        {.material_property_name = name,
+         .floating_point_type = "double",
+         .interface_namespace = d.interface_namespace,
+         .hidden_visibility = true});
+    os << "#ifdef __cplusplus\n"
+       << "extern \"C\"{\n"
+       << "#endif /* __cplusplus */\n\n";
+    writePointwiseFunction(os, mpd, fd, name, d);
+    os << "#ifdef __cplusplus\n"
+       << "} // end of extern \"C\"\n"
+       << "#endif /* __cplusplus */\n\n";
+    os.close();
+  }  // end of writePointwiseSourceFile
 
   GenericParallelMaterialPropertyInterface::
       ~GenericParallelMaterialPropertyInterface() = default;

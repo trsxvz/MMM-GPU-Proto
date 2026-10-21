@@ -1,4 +1,4 @@
-From 9d94d42740d46e403159216b0f8ac13057273c0b Mon Sep 17 00:00:00 2001
+From 9f6d27220fe514b4350073d82f62aec5a597f343 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 06:33:54 +0200
 Subject: [PATCH] TFEL: tensor accessors usable in device code

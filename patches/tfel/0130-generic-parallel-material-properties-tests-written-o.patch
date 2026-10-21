@@ -1,4 +1,4 @@
-From a67b37c0a4ee35a39b2cc4669d7703dca36ceb36 Mon Sep 17 00:00:00 2001
+From 93a135a2813b48811aced5101bbe074860a4feb9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 23:44:43 +0200
 Subject: [PATCH] generic-parallel material properties: tests written once,
@@ -39,8 +39,8 @@ Subject: [PATCH] generic-parallel material properties: tests written once,
  .../InvalidNameTest_generic_parallel.mfront   |  12 +
  .../generic-parallel/batch.hxx                |  76 ++
  .../generic-parallel/build-libraries.sh       |  26 +
- .../build-no-runtime-checks.sh                |  32 +
- .../generic-parallel/check-refused-name.sh    |  29 +
+ .../build-no-runtime-checks.sh                |  50 ++
+ .../generic-parallel/check-refused-name.sh    |  43 ++
  .../generic-parallel/compare-all.sh           |  44 ++
  .../generic-parallel/compare.cxx              | 377 ++++++++++
  .../generic-parallel/cuda-clang/test.check    |   7 +
@@ -72,7 +72,7 @@ Subject: [PATCH] generic-parallel material properties: tests written once,
  .../generic-parallel/test-sycl-usm.cxx        | 466 +------------
  .../generic-parallel/test-sycl.cxx            | 536 +++-----------
  .../generic-parallel/tests.hxx                | 654 ++++++++++++++++++
- 39 files changed, 2328 insertions(+), 2641 deletions(-)
+ 39 files changed, 2360 insertions(+), 2641 deletions(-)
  create mode 100644 test-suite/behaviours/generic-parallel/runtime.hxx
  create mode 100644 test-suite/material-properties/generic-parallel/BoundsOrderTest.mfront
  create mode 100644 test-suite/material-properties/generic-parallel/InvalidNameTest_generic_parallel.mfront
@@ -719,10 +719,10 @@ index 000000000..64e04fe44
 +  --interface=generic-parallel --configuration-file="$configuration" $files
 diff --git a/test-suite/material-properties/generic-parallel/build-no-runtime-checks.sh b/test-suite/material-properties/generic-parallel/build-no-runtime-checks.sh
 new file mode 100644
-index 000000000..359d10375
+index 000000000..0d89889d3
 --- /dev/null
 +++ b/test-suite/material-properties/generic-parallel/build-no-runtime-checks.sh
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,50 @@
 +# Generation and compilation of the `Inconel600_YoungModulus` material
 +# property with the runtime checks disabled (`disable_runtime_checks` DSL
 +# option), in the current directory, with the configuration file of the
@@ -741,6 +741,24 @@ index 000000000..359d10375
 +  /*) ;;
 +  */*) mfront=$PWD/$mfront ;;
 +esac
++# the configuration file is looked for in the current directory, then in
++# the configuration files installed with TFEL, as MFront does
++find_configuration() {
++  if [ -f "$1" ]; then
++    echo "$PWD/$1"
++    return
++  fi
++  prefix=$(cd "$(dirname "$(command -v "$mfront")")/.." && pwd)
++  for d in "$prefix"/share/tfel*/mfront/configuration-files; do
++    if [ -f "$d/$1" ]; then
++      echo "$d/$1"
++      return
++    fi
++  done
++  echo "configuration file '$1' not found" >&2
++  exit 1
++}
++configuration=$(find_configuration "$configuration")
 +directory=$(cd "$(dirname "$0")" && pwd)
 +file=$directory/Inconel600_YoungModulus.mfront
 +if grep -q 'disable_runtime_checks' "$configuration"; then
@@ -757,10 +775,10 @@ index 000000000..359d10375
 +"$mfront" --obuild --configuration-file=no-runtime-checks.json
 diff --git a/test-suite/material-properties/generic-parallel/check-refused-name.sh b/test-suite/material-properties/generic-parallel/check-refused-name.sh
 new file mode 100644
-index 000000000..dbb702755
+index 000000000..8a1f1773f
 --- /dev/null
 +++ b/test-suite/material-properties/generic-parallel/check-refused-name.sh
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,43 @@
 +# Check that the `generic-parallel` interface refuses a material property
 +# whose name contains `_generic_parallel`, the suffix of the generated
 +# functions, whereas the `generic` interface accepts it.
@@ -775,10 +793,24 @@ index 000000000..dbb702755
 +  /*) ;;
 +  */*) mfront=$PWD/$mfront ;;
 +esac
-+case "$configuration" in
-+  /*) ;;
-+  *) configuration=$PWD/$configuration ;;
-+esac
++# the configuration file is looked for in the current directory, then in
++# the configuration files installed with TFEL, as MFront does
++find_configuration() {
++  if [ -f "$1" ]; then
++    echo "$PWD/$1"
++    return
++  fi
++  prefix=$(cd "$(dirname "$(command -v "$mfront")")/.." && pwd)
++  for d in "$prefix"/share/tfel*/mfront/configuration-files; do
++    if [ -f "$d/$1" ]; then
++      echo "$d/$1"
++      return
++    fi
++  done
++  echo "configuration file '$1' not found" >&2
++  exit 1
++}
++configuration=$(find_configuration "$configuration")
 +directory=$(cd "$(dirname "$0")" && pwd)
 +file=$directory/InvalidNameTest_generic_parallel.mfront
 +mkdir -p refused-name

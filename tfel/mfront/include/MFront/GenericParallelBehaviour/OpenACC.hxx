@@ -59,36 +59,46 @@ namespace mfront::gpb::openacc {
             const real rdt0,
             const PointFunction& f,
             const std::size_t device_stack_size = 0) {
-    // the statistics are reduced member by member. The minimum reduction of
-    // the index of the first failure is performed on `size_type`, an alias
-    // of `size_t`: the minimum reductions on `unsigned long long` are wrong
-    // on NVIDIA GPUs with `nvc++` 25.11 (see the material properties).
+    // the statistics are reduced member by member. The minimum reductions
+    // of the keys of the first failure and of the first unreliable result
+    // are performed on `size_type`, an alias of `size_t` of 64 bits: the
+    // minimum reductions on `unsigned long long` are wrong on NVIDIA GPUs
+    // with `nvc++` 25.11 (see the material properties).
+    static_assert(sizeof(size_type) == sizeof(unsigned long long));
+    constexpr auto none =
+        static_cast<size_type>(::mfront::generic_parallel::no_event);
     auto number_of_failures = size_type{};
-    auto first_failure_index = no_failure_index;
+    auto first_failure = none;
     auto number_of_unreliable_results = size_type{};
+    auto first_unreliable_result = none;
     auto rdt = rdt0;
     if (!mfront::generic_parallel::openacc::setMinimalStackSize(
             device_stack_size, o.preserve_stack_size != 0)) {
-      return report(s, -3, mfront::generic_parallel::stack_size_error_message);
+      return report(s, -7, mfront::generic_parallel::stack_size_error_message);
     }
 #pragma acc parallel loop copyin(f)                                 \
     reduction(+ : number_of_failures, number_of_unreliable_results) \
-        reduction(min : first_failure_index, rdt)
+        reduction(min : first_failure, first_unreliable_result, rdt)
     for (size_type i = 0; i < n; ++i) {
       const auto r = f(i);
+      const auto ff = static_cast<size_type>(r.first_failure);
+      const auto fu = static_cast<size_type>(r.first_unreliable_result);
       number_of_failures += r.number_of_failures;
-      first_failure_index = r.first_failure_index < first_failure_index
-                                ? r.first_failure_index
-                                : first_failure_index;
+      first_failure = ff < first_failure ? ff : first_failure;
       number_of_unreliable_results += r.number_of_unreliable_results;
+      first_unreliable_result =
+          fu < first_unreliable_result ? fu : first_unreliable_result;
       rdt = r.rdt < rdt ? r.rdt : rdt;
     }
-    return report(s, o, rdt0,
-                  BatchStatistics{.number_of_failures = number_of_failures,
-                                  .first_failure_index = first_failure_index,
-                                  .number_of_unreliable_results =
-                                      number_of_unreliable_results,
-                                  .rdt = rdt});
+    return report(
+        s, o, rdt0,
+        BatchStatistics{
+            .number_of_failures = number_of_failures,
+            .first_failure = static_cast<unsigned long long>(first_failure),
+            .number_of_unreliable_results = number_of_unreliable_results,
+            .first_unreliable_result =
+                static_cast<unsigned long long>(first_unreliable_result),
+            .rdt = rdt});
   }  // end of apply
 
   /*!

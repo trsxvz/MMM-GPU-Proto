@@ -7,8 +7,10 @@
  * Two time steps of a random loading are computed: the second one starts from
  * the results of the first one. The first step is computed synchronously and
  * the second one asynchronously: the statistics of the batch are then given
- * by the execution options (see `mfront_gpb_ExecutionOptions`) and read
- * after the synchronization of the device. All the combinations of the
+ * by the execution options (see `mfront_gpb_ExecutionOptions`) and analysed
+ * by the report function of the library
+ * (`<behaviour>_generic_parallel_report`) after the synchronization of the
+ * device. All the combinations of the
  * following cases are tested:
  *
  * - type of computation: consistent tangent operator (or the type of
@@ -421,6 +423,14 @@ static void checkVersion(const std::string& lib, const FunctionName& f) {
  * \param[in] f: function taking the behaviour data and the index of the
  * point, and returning the status
  */
+/*!
+ * \brief initial value of the time step scaling factor of the points
+ * (`--time-step-scaling-factor` option, `1` by default). A value lower than
+ * `0.99` makes the integration of all the points unreliable (status `0`),
+ * except the ones where it fails.
+ */
+static double initial_time_step_scaling_factor = 1;
+
 template <typename Function>
 static void forEachReferencePoint(States& st,
                                   const Sizes& s,
@@ -440,7 +450,7 @@ static void forEachReferencePoint(States& st,
       std::copy_n(K.begin(), fs.finite_strain ? 3 : 1, st.K.begin() + i * s.K);
     }
     d.K = s.K != 0 ? st.K.data() + i * s.K : K.data();
-    st.rdt[i] = 1;
+    st.rdt[i] = initial_time_step_scaling_factor;
     d.rdt = st.rdt.data() + i;
     d.speed_of_sound = st.speed_of_sound.data() + i;
     d.s0.gradients = st.g0.data() + i * s.g;
@@ -600,7 +610,7 @@ struct BatchFields {
     d.options[0] = K0;
     d.options[1] = fs.stress_measure;
     d.options[2] = fs.tangent_operator;
-    d.rdt = 1;
+    d.rdt = initial_time_step_scaling_factor;
     d.tangent_operators = this->K.field();
     d.rdts = this->rdt.field();
     d.statuses = this->status;
@@ -689,9 +699,10 @@ static mfront_gpb_OutputStatus measure(double& ms, const Function& f) {
 
 /*!
  * \brief batch integration with the `generic-parallel` interface
- * \param[in] asynchronous: if true, the statistics of the batch are given
- * by the execution options and the device is synchronized after the call.
- * The returned output status is then built from those statistics.
+ * \param[in] report: if not null, the statistics of the batch are given by
+ * the execution options and the device is synchronized after the call. The
+ * returned output status is then built by this function from those
+ * statistics.
  * \param[in] q: queue passed to the behaviour
  */
 static mfront_gpb_OutputStatus integrateBatch(States& st,
@@ -702,15 +713,15 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
                                               const double K0,
                                               const Storage storage,
                                               BatchFunction f,
-                                              const bool asynchronous,
+                                              const mfront_gpb_ReportPtr report,
                                               double& ms,
                                               void* const q = queue()) {
   auto b = BatchFields(st, s, fs, n, dt, K0, storage);
   b.data.execution.queue = q;
   auto* const statistics =
-      asynchronous ? allocate<mfront_gpb_BatchStatistics>(1) : nullptr;
+      report != nullptr ? allocate<mfront_gpb_Statistics>(1) : nullptr;
   if (statistics != nullptr) {
-    mfront_gpb_initializeBatchStatistics(statistics, b.data.rdt);
+    mfront_gpb_initializeStatistics(statistics, b.data.rdt);
     b.data.execution.statistics = statistics;
   }
   auto o = measure(ms, [&b, f, statistics](mfront_gpb_OutputStatus& r) {
@@ -722,7 +733,7 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
   if (statistics != nullptr) {
     // the output status only reports the submission of the computations
     if (o.status == 1) {
-      mfront_gpb_report(&o, statistics);
+      report(&o, statistics);
     }
     deallocate(statistics);
   }
@@ -843,10 +854,16 @@ static bool isConsistent(const mfront_gpb_OutputStatus& o,
       first_failure != status.end()
           ? static_cast<std::size_t>(first_failure - status.begin())
           : ~std::size_t{};
+  const auto first_unreliable = std::find(status.begin(), status.end(), 0);
+  const auto first_unreliable_result_index =
+      first_unreliable != status.end()
+          ? static_cast<std::size_t>(first_unreliable - status.begin())
+          : ~std::size_t{};
   const auto expected = nfailures != 0 ? -1 : (nunreliable != 0 ? 0 : 1);
   return (o.status == expected) && (o.number_of_failures == nfailures) &&
          (o.first_failure_index == first_failure_index) &&
-         (o.number_of_unreliable_results == nunreliable);
+         (o.number_of_unreliable_results == nunreliable) &&
+         (o.first_unreliable_result_index == first_unreliable_result_index);
 }
 
 //! \brief function tested
@@ -886,6 +903,18 @@ struct Options {
    * (see `testOtherDevice`)
    */
   bool other_device = false;
+  /*!
+   * \brief if true, the file of parameters written by the calling script is
+   * invalid: the integration must be refused (see `testInvalidParameters`)
+   */
+  bool invalid_parameters = false;
+  /*!
+   * \brief if true, the batch library also contains the functions of the
+   * `generic` interface (`generic_functions` option of the `generic-parallel`
+   * interface): it must export `Generic` as interface, and its functions of
+   * a point are also compared to its functions of batches of points
+   */
+  bool generic_functions = false;
   //! \brief type of the tangent operator (consistent tangent operator by
   //! default)
   double tangent_operator = 4;
@@ -937,6 +966,12 @@ static Options parseOptions(const int argc,
       r.energies = v == "true";
     } else if (o == "--other-device") {
       r.other_device = v == "true";
+    } else if (o == "--invalid-parameters") {
+      r.invalid_parameters = v == "true";
+    } else if (o == "--generic-functions") {
+      r.generic_functions = v == "true";
+    } else if (o == "--time-step-scaling-factor") {
+      initial_time_step_scaling_factor = std::stod(v);
     } else if (o == "--speed-of-sound") {
       r.mass_density = std::stod(v);
     } else if (o == "--initial-internal-state-variables") {
@@ -974,6 +1009,42 @@ struct Test {
   //! \brief time increment
   double dt;
 };
+
+/*!
+ * \return the report function of the library of the `generic-parallel`
+ * interface, which analyses the statistics of a batch
+ * \param[in] t: test
+ */
+static mfront_gpb_ReportPtr loadReportFunction(const Test& t) {
+  return reinterpret_cast<mfront_gpb_ReportPtr>(
+      load(t.batch_library, t.name.behaviour + "_generic_parallel_report"));
+}
+
+/*!
+ * \return true if the report function of the library treats the
+ * statistics of a batch where nothing happened as a success, keeping the
+ * initial value of the time step scaling factor, and null statistics as an
+ * invalid argument (status `-5`)
+ * \param[in] t: test
+ */
+static bool testReportFunction(const Test& t) {
+  const auto report = loadReportFunction(t);
+  auto statistics = mfront_gpb_Statistics{};
+  mfront_gpb_initializeStatistics(&statistics, 0.5);
+  auto o1 = mfront_gpb_OutputStatus{};
+  const auto r1 = report(&o1, &statistics);
+  auto o2 = mfront_gpb_OutputStatus{};
+  const auto r2 = report(&o2, nullptr);
+  const auto pass =
+      (r1 == 1) && (o1.status == 1) && (o1.number_of_failures == 0) &&
+      (o1.first_failure_index == ~mfront_gb_size_type{}) &&
+      (o1.number_of_unreliable_results == 0) &&
+      (o1.first_unreliable_result_index == ~mfront_gb_size_type{}) &&
+      (o1.rdt == 0.5) && (r2 == -5) && (o2.status == -5);
+  std::printf("%-12s %-12s status=%2d/%2d | rdt %g | %s\n", "report",
+              "function", o1.status, o2.status, o1.rdt, pass ? "OK" : "FAILED");
+  return pass;
+}
 
 //! \brief print the results of a comparison
 static bool print(const char* const what,
@@ -1021,7 +1092,7 @@ static bool testEmptyBatch(BatchFunction f,
 
 /*!
  * \return true if an invalid stress measure given to a finite strain
- * behaviour is reported as an invalid argument (status `-2`) for the whole
+ * behaviour is reported as an invalid argument (status `-5`) for the whole
  * batch, and not as an integration failure at every point. General
  * behaviours, which do not use those options, are not tested.
  * \param[in] t: test
@@ -1044,7 +1115,7 @@ static bool testInvalidComputationOptions(const Test& t,
   auto o = mfront_gpb_OutputStatus{};
   f(&o, &b.data);
   synchronize();
-  const auto pass = o.status == -2;
+  const auto pass = o.status == -5;
   std::printf("%-12s %-12s status=%2d | %s\n", "invalid", "options", o.status,
               pass ? "OK" : "FAILED");
   return pass;
@@ -1077,7 +1148,7 @@ static bool testOtherDevice(const Test& t,
   auto ms = 0.;
   integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
   const auto o = integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point,
-                                fb, false, ms, q);
+                                fb, nullptr, ms, q);
   const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
   const auto pass = (ref.status == batch.status) &&
                     isConsistent(o, batch.status) && (dth < tolerance);
@@ -1090,7 +1161,7 @@ static bool testOtherDevice(const Test& t,
 /*!
  * \return true if the stack size of the threads, preserved by the
  * execution options, is not modified and reported as too small (status
- * `-3`). The kernels require at least 1024 bytes (see
+ * `-7`). The kernels require at least 1024 bytes (see
  * `mfront::generic_parallel::gpu::ensureStackSize`).
  * \param[in] t: test
  * \param[in] fb: batch function
@@ -1113,7 +1184,7 @@ static bool testPreserveStackSize(const Test& t,
   check(GPU_API(DeviceGetLimit)(&stack_size, GPU_API(LimitStackSize)));
   check(GPU_API(DeviceSetLimit)(GPU_API(LimitStackSize), initial));
   const auto pass =
-      (o.status == -3) && (stack_size < 1024) &&
+      (o.status == -7) && (stack_size < 1024) &&
       (std::string_view{o.msg}.starts_with(
           "the stack size of the threads of the device must be at least"));
   std::printf("%-12s %-12s status=%2d | %s\n", "preserved", "stack size",
@@ -1125,8 +1196,8 @@ static bool testPreserveStackSize(const Test& t,
 #if defined(MFRONT_GPB_COMPARE_USE_SYCL)
 /*!
  * \return true if the queues given by the execution options are treated as
- * documented: a null queue is an invalid argument (status `-2`), an
- * asynchronous integration requires an in-order queue (status `-2`
+ * documented: a null queue is an invalid argument (status `-5`), an
+ * asynchronous integration requires an in-order queue (status `-5`
  * otherwise), and a synchronous integration on an out-of-order queue gives
  * the results of the reference.
  * \param[in] t: test
@@ -1143,20 +1214,20 @@ static bool testSYCLQueues(const Test& t,
   auto ms = 0.;
   auto st1 = t.initial;
   const auto o1 = integrateBatch(st1, s, fs, t.n, t.dt, K0, Storage::by_point,
-                                 fb, false, ms, nullptr);
+                                 fb, nullptr, ms, nullptr);
   // out-of-order queue sharing the device and the context of the queue of
   // the other tests, hence the allocations of the fields
   auto q = ::sycl::queue{getQueue().get_context(), getQueue().get_device()};
   auto st2 = t.initial;
   const auto o2 = integrateBatch(st2, s, fs, t.n, t.dt, K0, Storage::by_point,
-                                 fb, true, ms, &q);
+                                 fb, loadReportFunction(t), ms, &q);
   auto ref = t.initial;
   auto batch = t.initial;
   integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
-  const auto o3 = integrateBatch(batch, s, fs, t.n, t.dt, K0,
-                                 Storage::by_point, fb, false, ms, &q);
+  const auto o3 = integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point,
+                                 fb, nullptr, ms, &q);
   const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
-  const auto pass = (o1.status == -2) && (o2.status == -2) &&
+  const auto pass = (o1.status == -5) && (o2.status == -5) &&
                     (ref.status == batch.status) &&
                     isConsistent(o3, batch.status) && (dth < tolerance);
   std::printf(
@@ -1168,14 +1239,43 @@ static bool testSYCLQueues(const Test& t,
 #endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
 
 /*!
+ * \return true if an invalid file of parameters is reported as invalid
+ * parameters (status `-6`) for the whole batch, nothing being computed.
+ * The file, written by the calling script, is read by the parameters
+ * initializers at the first call: this call must be the first one.
+ * \param[in] t: test
+ */
+static bool testInvalidParameters(const Test& t) {
+  const auto fb = reinterpret_cast<BatchFunction>(
+      load(t.batch_library, t.function + "_generic_parallel"));
+  auto st = t.initial;
+  auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n, t.dt,
+                       t.options.tangent_operator, Storage::by_point);
+  b.data.execution.queue = queue();
+  auto o = mfront_gpb_OutputStatus{};
+  fb(&o, &b.data);
+  synchronize();
+  b.copyResults(st);
+  const auto unchanged =
+      (st.th1 == t.initial.th1) && (st.isv1 == t.initial.isv1);
+  const auto pass =
+      (o.status == -6) && (o.number_of_failures == 0) && unchanged &&
+      (std::string_view{o.msg}.find("can't convert") != std::string_view::npos);
+  std::printf("%-12s %-12s status=%2d | %s | %s\n", "invalid", "parameters",
+              o.status, o.msg, pass ? "OK" : "FAILED");
+  return pass;
+}
+
+/*!
  * \brief compare two time steps integrated by both interfaces, for all
  * types of computation and storages of the fields
  */
 static bool testIntegration(const Test& t) {
   const auto fg =
       reinterpret_cast<GenericFunction>(load(t.generic_library, t.function));
-  const auto fb =
-      reinterpret_cast<BatchFunction>(load(t.batch_library, t.function));
+  const auto fb = reinterpret_cast<BatchFunction>(
+      load(t.batch_library, t.function + "_generic_parallel"));
+  const auto report = loadReportFunction(t);
   const auto& s = t.sizes;
   const auto& fs = t.options.finite_strain;
   const auto n = t.n;
@@ -1184,6 +1284,7 @@ static bool testIntegration(const Test& t) {
   const auto o0 = speed_of_sound ? 100. : 0.;
   const auto Kt = t.options.tangent_operator;
   auto ok = testEmptyBatch(fb, fs, Kt + o0);
+  ok = testReportFunction(t) && ok;
   if (fs.finite_strain) {
     ok = testInvalidComputationOptions(t, fb, Kt + o0) && ok;
   }
@@ -1197,7 +1298,7 @@ static bool testIntegration(const Test& t) {
       auto ms1 = 0., ms2 = 0.;
       integrateReference(ref, s, fs, n, t.dt, Kt + o0, fg);
       const auto o1 = integrateBatch(batch, s, fs, n, t.dt, Kt + o0, storage,
-                                     fb, false, ms1);
+                                     fb, nullptr, ms1);
       // the test is meaningless if the integration fails at all points
       const auto pass1 = (ref.status == batch.status) &&
                          isConsistent(o1, batch.status) &&
@@ -1218,7 +1319,7 @@ static bool testIntegration(const Test& t) {
       }
       integrateReference(ref, s, fs, n, t.dt, K0 + o0, fg);
       const auto o2 = integrateBatch(batch, s, fs, n, t.dt, K0 + o0, storage,
-                                     fb, true, ms2);
+                                     fb, report, ms2);
       const auto nfailures =
           std::count(ref.status.begin(), ref.status.end(), -1);
       const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
@@ -1314,7 +1415,7 @@ static bool testInitializeFunction(const Test& t) {
   const auto fg = reinterpret_cast<GenericInitializeFunction>(
       load(t.generic_library, t.function));
   const auto fb = reinterpret_cast<BatchInitializeFunction>(
-      load(t.batch_library, t.function));
+      load(t.batch_library, t.function + "_generic_parallel"));
   const auto& s = t.sizes;
   const auto ni = t.number_of_values;
   auto rng = std::mt19937{1};
@@ -1366,8 +1467,8 @@ static bool testPostProcessing(const Test& t) {
               const mfront_gpb_BatchData*);
   const auto fg = reinterpret_cast<GenericPostProcessing>(
       load(t.generic_library, t.function));
-  const auto fb =
-      reinterpret_cast<BatchPostProcessing>(load(t.batch_library, t.function));
+  const auto fb = reinterpret_cast<BatchPostProcessing>(
+      load(t.batch_library, t.function + "_generic_parallel"));
   const auto& s = t.sizes;
   const auto no = t.number_of_values;
   auto ok = true;
@@ -1416,8 +1517,8 @@ static bool testRotation(const Test& t) {
       int (*)(mfront_gpb_OutputStatus*, const mfront_gpb_RotationData*);
   const auto fg =
       reinterpret_cast<GenericRotation>(load(t.generic_library, t.function));
-  const auto fb =
-      reinterpret_cast<BatchRotation>(load(t.batch_library, t.function));
+  const auto fb = reinterpret_cast<BatchRotation>(
+      load(t.batch_library, t.function + "_generic_parallel"));
   const auto n = t.n;
   const auto ns = t.number_of_values;
   auto rng = std::mt19937{3};
@@ -1495,8 +1596,8 @@ static bool testRotation(const Test& t) {
     const auto destination =
         BatchField(std::vector<double>(n * ns), n, ns, false);
     const auto matrices = BatchField(rotations, n, 9, false);
-    auto* const statistics = allocate<mfront_gpb_BatchStatistics>(1);
-    mfront_gpb_initializeBatchStatistics(statistics, 2);
+    auto* const statistics = allocate<mfront_gpb_Statistics>(1);
+    mfront_gpb_initializeStatistics(statistics, 2);
     auto d = mfront_gpb_RotationData{};
     d.number_of_points = n;
     d.destination = destination.field();
@@ -1508,10 +1609,13 @@ static bool testRotation(const Test& t) {
     fb(&o, &d);
     synchronize();
     const auto rdt = mfront_gpb_getTimeStepScalingFactor(statistics);
+    // the report function analyses the statistics as for an integration
+    auto o2 = mfront_gpb_OutputStatus{};
+    loadReportFunction(t)(&o2, statistics);
     const auto pass = (o.status == 1) &&
                       (statistics->number_of_failures == 0) &&
                       (statistics->number_of_unreliable_results == 0) &&
-                      (rdt == 2);
+                      (rdt == 2) && (o2.status == 1) && (o2.rdt == 2);
     deallocate(statistics);
     ok = pass && ok;
     std::printf("rotation with statistics: status=%2d | rdt %g | %s\n",
@@ -1585,7 +1689,8 @@ int main(const int argc, const char* const* const argv) {
          "[--finite-strain=stress_measure,tangent_operator] "
          "[--initial-internal-state-variables=values] "
          "[--speed-of-sound=mass_density] [--energies=true] "
-         "[--other-device=true] "
+         "[--other-device=true] [--invalid-parameters=true] "
+         "[--generic-functions=true] [--time-step-scaling-factor=value] "
          "[--tangent-operator=type] "
          "[--perturbation-of-internal-state-variables=amplitude] "
          "[--out-of-bounds-policy=policy] "
@@ -1697,17 +1802,40 @@ int main(const int argc, const char* const* const argv) {
                     [&] { return 1e-3 * (1 + u(rng)) / 2; });
     }
   }
-  const auto ok = [&t] {
-    switch (t.mode) {
-      case Mode::INITIALIZE_FUNCTION:
-        return testInitializeFunction(t);
-      case Mode::POST_PROCESSING:
-        return testPostProcessing(t);
-      case Mode::ROTATION:
-        return testRotation(t);
-      default:
-        return testIntegration(t);
+  const auto run = [](const Test& test) {
+    if (test.options.invalid_parameters) {
+      return testInvalidParameters(test);
     }
-  }();
+    switch (test.mode) {
+      case Mode::INITIALIZE_FUNCTION:
+        return testInitializeFunction(test);
+      case Mode::POST_PROCESSING:
+        return testPostProcessing(test);
+      case Mode::ROTATION:
+        return testRotation(test);
+      default:
+        return testIntegration(test);
+    }
+  };
+  auto ok = run(t);
+  if (t.options.generic_functions) {
+    // the library exports `Generic` as interface, as a library of the
+    // `generic` interface
+    const auto* const interface = static_cast<const char* const*>(
+        findSymbol(t.batch_library, t.name, "mfront_interface"));
+    const auto generic =
+        (interface != nullptr) && (std::string_view{*interface} == "Generic");
+    std::printf("interface of the batch library: %s | %s\n",
+                interface != nullptr ? *interface : "none",
+                generic ? "OK" : "FAILED");
+    // the functions of a point of the batch library are compared to its
+    // functions of batches of points, which have just been compared to the
+    // reference: the parameters and the out of bounds policy, changed above
+    // in the batch library, are shared by both kinds of functions
+    std::printf("functions of a point of the batch library:\n");
+    auto tp = t;
+    tp.generic_library = t.batch_library;
+    ok = generic && run(tp) && ok;
+  }
   return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

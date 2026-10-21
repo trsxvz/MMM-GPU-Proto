@@ -1,4 +1,4 @@
-From d1af3f4c9b9d908352c8f359a74d9444f2e842f5 Mon Sep 17 00:00:00 2001
+From a71f70b70f5fafec81f0a08b96c547d04db7ef60 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 04:00:31 +0200
 Subject: [PATCH] Float bounds: warnings for double only, tests with

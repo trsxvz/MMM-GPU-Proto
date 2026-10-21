@@ -180,12 +180,14 @@ namespace mfront::gpb::sycl {
         const auto r = this->f(i[0]);
         if (r.number_of_failures != 0) {
           AtomicCounter{this->statistics->number_of_failures}.fetch_add(1);
-          AtomicCounter{this->statistics->first_failure_index}.fetch_min(
-              static_cast<unsigned long long>(i[0]));
+          AtomicCounter{this->statistics->first_failure}.fetch_min(
+              r.first_failure);
         }
         if (r.number_of_unreliable_results != 0) {
           AtomicCounter{this->statistics->number_of_unreliable_results}
               .fetch_add(1);
+          AtomicCounter{this->statistics->first_unreliable_result}.fetch_min(
+              r.first_unreliable_result);
         }
         const auto rdt = toOrderedKey(r.rdt);
         if (rdt < this->initial_rdt) {
@@ -249,11 +251,11 @@ namespace mfront::gpb::sycl {
       return s.status;
     }
     if (o.queue == nullptr) {
-      return report(s, -2, "no SYCL queue given");
+      return report(s, -5, "no SYCL queue given");
     }
     if (!mfront::generic_parallel::setMinimalCUDAStackSize(
             device_stack_size, o.preserve_stack_size != 0)) {
-      return report(s, -3, mfront::generic_parallel::stack_size_error_message);
+      return report(s, -7, mfront::generic_parallel::stack_size_error_message);
     }
     auto& q = *static_cast<::sycl::queue*>(o.queue);
     // the kernel must be executed after the computations already submitted
@@ -262,7 +264,7 @@ namespace mfront::gpb::sycl {
     // synchronous and the queue is synchronized before the kernel.
     if (!q.is_in_order()) {
       if (o.statistics != nullptr) {
-        return report(s, -2,
+        return report(s, -5,
                       "asynchronous computations require an in-order SYCL "
                       "queue");
       }
@@ -284,9 +286,9 @@ namespace mfront::gpb::sycl {
         [&q] { return ::sycl::malloc_shared<AtomicBatchStatistics>(1, q); });
     auto* const statistics = block.get();
     if (statistics == nullptr) {
-      return report(s, -3, "unable to allocate the statistics of the batch");
+      return report(s, -7, "unable to allocate the statistics of the batch");
     }
-    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
+    mfront_gpb_initializeStatistics(statistics, rdt0);
     q.parallel_for(range, Kernel{f, statistics, rdt_key}).wait_and_throw();
     return report(s, getBatchStatistics(*statistics));
   }  // end of apply
@@ -369,7 +371,7 @@ namespace mfront::gpb::sycl {
                            Function&& call) {
       if (d.execution.queue == nullptr) {
         initialize(s, d.rdt);
-        return report(s, -2, "no SYCL queue given");
+        return report(s, -5, "no SYCL queue given");
       }
       auto& q = *static_cast<::sycl::queue*>(d.execution.queue);
       auto dd = DeviceBatchData<PointTraits>(q, d, transfers);
@@ -480,7 +482,7 @@ namespace mfront::gpb::sycl {
                   const Apply& apply) {
     if (d.execution.queue == nullptr) {
       initialize(s, 1);
-      return report(s, -2, "no SYCL queue given");
+      return report(s, -5, "no SYCL queue given");
     }
     constexpr auto n = static_cast<size_type>(PointRotation::size);
     auto copies =

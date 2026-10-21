@@ -1,4 +1,4 @@
-From f5fc8773fd2c2dad8450036ef4ae867fcf8b228e Mon Sep 17 00:00:00 2001
+From 05213395482bb0f567e6fca9b786c24050b3c15f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 23:06:55 +0200
 Subject: [PATCH] TFEL: device code selected in the whole translation unit with

@@ -1,4 +1,4 @@
-From 75582e6188b73b7a41851c9c4c21cedeb2e50d8f Mon Sep 17 00:00:00 2001
+From bcc36d0894354543799e5b8cf6c14b4793203d05 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:58:57 +0200
 Subject: [PATCH] MFront: configuration files searched where they are installed

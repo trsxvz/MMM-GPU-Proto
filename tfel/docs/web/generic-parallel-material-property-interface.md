@@ -250,7 +250,8 @@ otherwise `0`. The statuses of the points follow the conventions of the
 The errors of the batch are specific to this interface. Nothing is then
 computed:
 
-- `-5`: invalid arguments: no data of the batch, no output values, no
+- `-5`: invalid arguments: no output status (returned value only), no
+  data of the batch, no output values, no
   array of arguments or no values for an argument, invalid number of
   arguments, uniform output with several points, more than
   \(2^{48}-1\) points, more blocks of threads than the grid of the device
@@ -310,6 +311,54 @@ of the batch (pointers, uniform output, number of points, queue of the
 `SYCL` backend) remain: they cost little on the host and avoid invalid
 memory accesses. The statuses of the points, if requested, are then null,
 and the report function returns `0`.
+
+## Library also containing the functions of the `generic` interface
+
+With the `generic_functions` option of the interface, the generated
+library also contains the function of the `generic` interface, `S`,
+which evaluates the material property at a point:
+
+~~~~{.cxx}
+interfaces_options: {
+  generic-parallel: {
+    generic_functions: true
+  }
+}
+~~~~
+
+The library keeps its name (`GenericParallel<library>-<backend>`) and
+exports `Generic` as interface (`S_mfront_interface` symbol): it can be
+used as a library of the `generic` interface, by `MTest` or `MGIS` for
+instance, and its functions of batches of points are detected by the
+`S_generic_parallel_api_version` symbol. The library has one set of
+parameters, changed by `S_setParameter`, used by the function of a point
+and by the functions of batches of points.
+
+The function of a point is the one of the `generic` interface: same
+checks, same statuses (including `-2` for an exception and `-3` for an
+error of the `C` library), same error messages, the bounds checks being
+disabled by the `NO_GENERIC_BOUNDS_CHECK` macro. It is written in a
+separate source file, compiled by the `C++` compiler of the configuration
+(the compiler of the backend for the backends based on `C++` programming
+models, the `C++` compiler for the `CUDA` and `HIP` backends): its results
+are the ones of the `generic` interface up to the rounding differences
+between compilers. With the compilers which translate host and device
+code in a single pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`,
+`nvc++ -acc=gpu`, generic compiler of AdaptiveCpp), the device code is
+selected in the whole translation unit (`TFEL_DEVICE_CODE` macro): a
+material property called by the material property (`@MaterialLaw`) is
+then the one of device code, which returns `NaN` out of its physical
+bounds, as for the functions of batches of points.
+
+The configuration files of `icpx` delivered with `TFEL` request a strict
+floating point model (`-fp-model=precise`, the default model of `icpx`
+being fast), which also restores the support of `errno` by the
+mathematical functions, so that the statuses `-3` are reported as with
+the `generic` interface. With `nvc++`, `errno` is only set by the
+mathematical functions with the `-Mnobuiltin` option, which the
+configuration files delivered with `TFEL` do not give (it may slow down
+the computations on the host): the functions of a point then do not
+report the statuses `-3`.
 
 # Backends
 
@@ -870,11 +919,16 @@ Each configuration runs:
   are performed on the host by a compiler which neither contracts nor
   reorders the floating point operations by default (`g++`, `clang++`,
   `nvc++` with OpenACC on the cores of the host, `acpp` on the host), and
-  up to a relative tolerance of \(10^{-13}\) otherwise (`icpx`, whose
-  default floating point model is not strict, and computations on a
-  device). The comparisons include a material property with bounds and
+  up to a relative tolerance of \(10^{-13}\) otherwise (`icpx` and
+  computations on a device). The comparisons include a material property with bounds and
   physical bounds on two arguments and on its output
-  (`BoundsOrderTest.mfront`), which checks the retained check.
+  (`BoundsOrderTest.mfront`), which checks the retained check;
+- the same comparisons for libraries built with the `generic_functions`
+  option (`check-generic-functions.sh`): the library must export
+  `Generic` as interface, its function of a point must give the statuses,
+  the bounds statuses, the error numbers, the messages and the values of
+  the `generic` interface, and a parameter changed by its `setParameter`
+  function must be used by all its functions.
 
 The following tests configurations are currently supported:
 

@@ -16,6 +16,8 @@
 @Command "sh ../build-libraries.sh @mfront@ config-cuda-nvcc.json";
 @Command "@TFEL_NVCC_COMPILER@ -O2 --std=c++@TFEL_CXX_STANDARD@ -arch=native -x cu -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
 @Command "sh ../compare-all.sh ./compare cuda --tolerance=1e-13";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-cuda-nvcc.json ./compare cuda --tolerance=1e-13";
 
 // compilation with the runtime checks disabled
 @Command "sh ../build-no-runtime-checks.sh @mfront@ config-cuda-nvcc.json";
@@ -23,4 +25,4 @@
 @Command "./test-no-runtime-checks test-no-runtime-checks-cuda-nvcc";
 
 @CleanFiles {"compare", "test-no-runtime-checks", "no-runtime-checks.json"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "generic-functions"};

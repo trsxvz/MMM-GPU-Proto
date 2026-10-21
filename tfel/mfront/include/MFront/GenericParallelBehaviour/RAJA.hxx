@@ -40,13 +40,15 @@ namespace mfront::gpb::raja {
         if (r.number_of_failures != 0) {
           RAJA::atomicAdd<RAJA::auto_atomic>(
               &(this->statistics->number_of_failures), 1ull);
-          RAJA::atomicMin<RAJA::auto_atomic>(
-              &(this->statistics->first_failure_index),
-              static_cast<unsigned long long>(i));
+          RAJA::atomicMin<RAJA::auto_atomic>(&(this->statistics->first_failure),
+                                             r.first_failure);
         }
         if (r.number_of_unreliable_results != 0) {
           RAJA::atomicAdd<RAJA::auto_atomic>(
               &(this->statistics->number_of_unreliable_results), 1ull);
+          RAJA::atomicMin<RAJA::auto_atomic>(
+              &(this->statistics->first_unreliable_result),
+              r.first_unreliable_result);
         }
         const auto rdt = toOrderedKey(r.rdt);
         if (rdt < this->initial_rdt) {
@@ -117,7 +119,7 @@ namespace mfront::gpb::raja {
         mfront::generic_parallel::raja::ensureStackSize<ExecutionPolicy>(
             f, o.preserve_stack_size != 0);
     if (!e.empty()) {
-      return report(s, -3, e);
+      return report(s, -7, e);
     }
     auto resource =
         mfront::generic_parallel::raja::getResource<ExecutionPolicy>(o.queue);
@@ -138,9 +140,9 @@ namespace mfront::gpb::raja {
         });
     auto* const statistics = block.get();
     if (statistics == nullptr) {
-      return report(s, -3, "unable to allocate the statistics of the batch");
+      return report(s, -7, "unable to allocate the statistics of the batch");
     }
-    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
+    mfront_gpb_initializeStatistics(statistics, rdt0);
     RAJA::forall<ExecutionPolicy>(
         resource, range,
         internals::AtomicUpdate<PointFunction>{f, statistics, rdt_key});

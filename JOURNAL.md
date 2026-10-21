@@ -102,6 +102,108 @@ described in [docs/](docs/overview.md).
 | [2026-10-08 (night, end), first failing point of the material properties (R12)](#2026-10-08-night-end-first-failing-point-of-the-material-properties-r12) |
 | [2026-10-08 (night, closing), final audit of TFEL and MGIS (R13)](#2026-10-08-night-closing-final-audit-of-tfel-and-mgis-r13) |
 | [2026-10-08 (end), choices for mfem-mgis (D2)](#2026-10-08-end-choices-for-mfem-mgis-d2) |
+| [2026-10-09, views API of MGIS (D2, step 1)](#2026-10-09-views-api-of-mgis-d2-step-1) |
+| [2026-10-09 (continued), reviews of the views API and fixes](#2026-10-09-continued-reviews-of-the-views-api-and-fixes) |
+| [2026-10-09 (night), MGIS frozen, list of solvers, spack environment](#2026-10-09-night-mgis-frozen-list-of-solvers-spack-environment) |
+| [2026-10-09 (night, continued), detailed plan of mfem-mgis and review](#2026-10-09-night-continued-detailed-plan-of-mfem-mgis-and-review) |
+| [2026-10-09 (night, end), compilation of the environment](#2026-10-09-night-end-compilation-of-the-environment) |
+| [2026-10-09 (morning), MFEM 4.10, GPU-aware OpenMPI, monitored builds](#2026-10-09-morning-mfem-410-gpu-aware-openmpi-monitored-builds) |
+| [2026-10-09 (noon), MFEM 4.10 installed, work package L0 started](#2026-10-09-noon-mfem-410-installed-work-package-l0-started) |
+| [2026-10-09 (afternoon), review of work package L0 and fixes](#2026-10-09-afternoon-review-of-work-package-l0-and-fixes) |
+| [2026-10-09 (afternoon), profiling and GPU](#2026-10-09-afternoon-profiling-and-gpu) |
+| [2026-10-09 (afternoon), second review of the fixes of work package L0](#2026-10-09-afternoon-second-review-of-the-fixes-of-work-package-l0) |
+| [2026-10-09 (afternoon), reference times, end of work package L0](#2026-10-09-afternoon-reference-times-end-of-work-package-l0) |
+| [2026-10-09 (afternoon), work package L1: data at the points in the memory of MFEM](#2026-10-09-afternoon-work-package-l1-data-at-the-points-in-the-memory-of-mfem) |
+| [2026-10-09 (afternoon), review of work package L1 and fixes](#2026-10-09-afternoon-review-of-work-package-l1-and-fixes) |
+| [2026-10-09 (late afternoon), second review of work package L1](#2026-10-09-late-afternoon-second-review-of-work-package-l1) |
+| [2026-10-09 (evening), work package L2: behaviours integrated by batches on CPU](#2026-10-09-evening-work-package-l2-behaviours-integrated-by-batches-on-cpu) |
+| [2026-10-09 (night), work package L3 started: gradients and internal forces by kernels](#2026-10-09-night-work-package-l3-started-gradients-and-internal-forces-by-kernels) |
+| [2026-10-09 (night), work package L3: tangent by kernels, geometry, review](#2026-10-09-night-work-package-l3-tangent-by-kernels-geometry-review) |
+| [2026-10-09 (night), work package L3: direct assembly of the tangent, first computations on GPU](#2026-10-09-night-work-package-l3-direct-assembly-of-the-tangent-first-computations-on-gpu) |
+| [2026-10-09 (night), work package L3: tangent pattern built from the elements](#2026-10-09-night-work-package-l3-tangent-pattern-built-from-the-elements) |
+| [2026-10-09 (evening), minimal GPU slice: behaviour integrated on the GPU](#2026-10-09-evening-minimal-gpu-slice-behaviour-integrated-on-the-gpu) |
+| [2026-10-09 (evening), prediction by kernels, beam in 4 s on GPU](#2026-10-09-evening-prediction-by-kernels-beam-in-4-s-on-gpu) |
+| [2026-10-09 (night), independent review of work packages L3, L4 (prediction) and L6 (GPU slice)](#2026-10-09-night-independent-review-of-work-packages-l3-l4-prediction-and-l6-gpu-slice) |
+| [2026-10-09 (night), polycrystal on GPU](#2026-10-09-night-polycrystal-on-gpu) |
+| [2026-10-09 (night), end of step on the GPU](#2026-10-09-night-end-of-step-on-the-gpu) |
+| [2026-10-09 (night), Nsight Systems profile of the beam on GPU](#2026-10-09-night-nsight-systems-profile-of-the-beam-on-gpu) |
+| [2026-10-10 (night), action of the tangent without assembly](#2026-10-10-night-action-of-the-tangent-without-assembly) |
+| [2026-10-10 (night), preconditioner on the assembled tangent](#2026-10-10-night-preconditioner-on-the-assembled-tangent) |
+| [2026-10-10 (night), fixes from the second review of work packages L3 and L6](#2026-10-10-night-fixes-from-the-second-review-of-work-packages-l3-and-l6) |
+| [2026-10-10 (night), kernels of the derivatives and fused action](#2026-10-10-night-kernels-of-the-derivatives-and-fused-action) |
+| [2026-10-10 (night), fixed point solver (work package L5)](#2026-10-10-night-fixed-point-solver-work-package-l5) |
+| [2026-10-10 (night), fixes from the review of 1bbcb877d8](#2026-10-10-night-fixes-from-the-review-of-1bbcb877d8) |
+| [2026-10-10 (night), accelerations of MTest](#2026-10-10-night-accelerations-of-mtest) |
+| [2026-10-10 (night), BoomerAMG options, prediction by K0, review of L5](#2026-10-10-night-boomeramg-options-prediction-by-k0-review-of-l5) |
+| [2026-10-10 (night), NewtonK0, internal forces, short review](#2026-10-10-night-newtonk0-internal-forces-short-review) |
+| [2026-10-10 (night), NewtonK0 on the polycrystal, review K0](#2026-10-10-night-newtonk0-on-the-polycrystal-review-k0) |
+| [2026-10-10 (night), inexact Newton, review K0b](#2026-10-10-night-inexact-newton-review-k0b) |
+| [2026-10-10 (morning), heat transfer by kernels, review C](#2026-10-10-morning-heat-transfer-by-kernels-review-c) |
+| [2026-10-10 (morning), thermal measurements, Jacobians by kernel](#2026-10-10-morning-thermal-measurements-jacobians-by-kernel) |
+| [2026-10-11 (night), review Y of the AmgX wrapper](#2026-10-11-night-review-y-of-the-amgx-wrapper) |
+| [2026-10-11 (night), transfers between the host and the GPU (L7.3)](#2026-10-11-night-transfers-between-the-host-and-the-gpu-l73) |
+| [2026-10-11 (night), scaling of the beam](#2026-10-11-night-scaling-of-the-beam) |
+| [2026-10-11 (night), FBar by kernels (L7.9)](#2026-10-11-night-fbar-by-kernels-l79) |
+| [2026-10-11 (night), boundary conditions independent of the unknowns (L7.6)](#2026-10-11-night-boundary-conditions-independent-of-the-unknowns-l76) |
+| [2026-10-11 (morning), ssna303 and stop for lack of memory](#2026-10-11-morning-ssna303-and-stop-for-lack-of-memory) |
+| [2026-10-11 (morning), Faltus regularisation by kernels (end of L7.9)](#2026-10-11-morning-faltus-regularisation-by-kernels-end-of-l79) |
+| [2026-10-11 (morning), order of the integration rules (L4)](#2026-10-11-morning-order-of-the-integration-rules-l4) |
+| [2026-10-11 (morning), FBar by kernels without storing K'](#2026-10-11-morning-fbar-by-kernels-without-storing-k) |
+| [2026-10-11 (morning), positions of the entries and matrices without forming B](#2026-10-11-morning-positions-of-the-entries-and-matrices-without-forming-b) |
+| [2026-10-11 (morning), global matrix and inverses of the Jacobians](#2026-10-11-morning-global-matrix-and-inverses-of-the-jacobians) |
+| [2026-10-11 (late morning), global matrix with kept pattern and exchanges](#2026-10-11-late-morning-global-matrix-with-kept-pattern-and-exchanges) |
+| [2026-10-11 (noon), documentation of the batch path (L10)](#2026-10-11-noon-documentation-of-the-batch-path-l10) |
+| [2026-10-11 (early afternoon), other integrators of the form by kernels](#2026-10-11-early-afternoon-other-integrators-of-the-form-by-kernels) |
+| [2026-10-11 (afternoon), ex8 entirely by kernels, on CPU and on GPU](#2026-10-11-afternoon-ex8-entirely-by-kernels-on-cpu-and-on-gpu) |
+| [2026-10-11 (mid-afternoon), ex8 entirely on the GPU](#2026-10-11-mid-afternoon-ex8-entirely-on-the-gpu) |
+| [2026-10-11 (late afternoon), validations and solvers of the mechanics of ex8](#2026-10-11-late-afternoon-validations-and-solvers-of-the-mechanics-of-ex8) |
+| [2026-10-11 (late afternoon), GPU backends of the generic-parallel interface](#2026-10-11-late-afternoon-gpu-backends-of-the-generic-parallel-interface) |
+| [2026-10-11 (evening), Kokkos initialised by mfem-mgis (option enable-kokkos)](#2026-10-11-evening-kokkos-initialised-by-mfem-mgis-option-enable-kokkos) |
+| [2026-10-11 (evening), cermet and bubble of mm-opera-hpc, host memory on the GPU](#2026-10-11-evening-cermet-and-bubble-of-mm-opera-hpc-host-memory-on-the-gpu) |
+| [2026-10-11 (evening), post-processings by kernels (work package L8)](#2026-10-11-evening-post-processings-by-kernels-work-package-l8) |
+| [2026-10-11 (evening), ex8: BoomerAMG with the elasticity options](#2026-10-11-evening-ex8-boomeramg-with-the-elasticity-options) |
+| [2026-10-11 (evening), ex8: symmetric matrices for MUMPS](#2026-10-11-evening-ex8-symmetric-matrices-for-mumps) |
+| [2026-10-11 (evening), ex8: solver of the heat transfer on the GPU, ParaSails](#2026-10-11-evening-ex8-solver-of-the-heat-transfer-on-the-gpu-parasails) |
+| [2026-10-11 (evening), upstream integration of mfem-mgis](#2026-10-11-evening-upstream-integration-of-mfem-mgis) |
+| [2026-10-12 (night), examples ex1, ex2, ex3, ex5, ex6 and ex7 by batches and on the GPU](#2026-10-12-night-examples-ex1-ex2-ex3-ex5-ex6-and-ex7-by-batches-and-on-the-gpu) |
+| [2026-10-12 (night), fixes of MFront found by the reviews](#2026-10-12-night-fixes-of-mfront-found-by-the-reviews) |
+| [2026-10-12 (night), hypre on the host with the device on the GPU](#2026-10-12-night-hypre-on-the-host-with-the-device-on-the-gpu) |
+| [2026-10-12 (night), validations](#2026-10-12-night-validations) |
+| [2026-10-12 (morning), reuse of the MUMPS analysis](#2026-10-12-morning-reuse-of-the-mumps-analysis) |
+| [2026-10-12 (morning), cuDSS on the GPU](#2026-10-12-morning-cudss-on-the-gpu) |
+| [2026-10-12 and 13, ordered assembly of the tangent](#2026-10-12-and-13-ordered-assembly-of-the-tangent) |
+| [2026-10-13, measurements of the pressure and of the post-processings, ordered GPU suite](#2026-10-13-measurements-of-the-pressure-and-of-the-post-processings-ordered-gpu-suite) |
+| [2026-10-14, float on the GPU: diagnosis of the divergence of the beam](#2026-10-14-float-on-the-gpu-diagnosis-of-the-divergence-of-the-beam) |
+| [2026-10-14, cases in float, polycrystal, site and CI on the CPU](#2026-10-14-cases-in-float-polycrystal-site-and-ci-on-the-cpu) |
+| [2026-10-14, ParaSails in float and Newton criterion at the floor of the residual](#2026-10-14-parasails-in-float-and-newton-criterion-at-the-floor-of-the-residual) |
+| [2026-10-14, review of the Newton criterion, translation into English](#2026-10-14-review-of-the-newton-criterion-translation-into-english) |
+| [2026-10-14 (evening), defects of hypre and of ROCm reported](#2026-10-14-evening-defects-of-hypre-and-of-rocm-reported) |
+| [2026-10-14 (night), displacement gradient for the finite strain behaviours](#2026-10-14-night-displacement-gradient-for-the-finite-strain-behaviours) |
+| [2026-10-14 (night), CUDA and HIP levels of the continuous integration](#2026-10-14-night-cuda-and-hip-levels-of-the-continuous-integration) |
+| [2026-10-14 (late night), plane stress of the finite strain behaviours](#2026-10-14-late-night-plane-stress-of-the-finite-strain-behaviours) |
+| [2026-10-15, linear solvers of the major libraries: phase 0](#2026-10-15-linear-solvers-of-the-major-libraries-phase-0) |
+| [2026-10-15, linear solvers of the major libraries: PETSc](#2026-10-15-linear-solvers-of-the-major-libraries-petsc) |
+| [2026-10-15, linear solvers of the major libraries: Ginkgo](#2026-10-15-linear-solvers-of-the-major-libraries-ginkgo) |
+| [2026-10-15, linear solvers of the major libraries: hypre completions, SuperLU_DIST and STRUMPACK](#2026-10-15-linear-solvers-of-the-major-libraries-hypre-completions-superlu_dist-and-strumpack) |
+| [2026-10-15, linear solvers of the major libraries: MFEM completions and MUMPS](#2026-10-15-linear-solvers-of-the-major-libraries-mfem-completions-and-mumps) |
+| [2026-10-15, non linear solver of KINSOL (end of phase 1)](#2026-10-15-non-linear-solver-of-kinsol-end-of-phase-1) |
+| [2026-10-15, separate environment of the solver libraries (phase 2)](#2026-10-15-separate-environment-of-the-solver-libraries-phase-2) |
+| [2026-10-15, MAGMA: sparse solvers and nodal blocks (phase 3)](#2026-10-15-magma-sparse-solvers-and-nodal-blocks-phase-3) |
+| [2026-10-15, end of phase 1: MUMPS, AmgX, MGR of hypre, SNES of PETSc](#2026-10-15-end-of-phase-1-mumps-amgx-mgr-of-hypre-snes-of-petsc) |
+| [2026-10-15, Trilinos (phase 4, in progress) and benchmark of the linear solvers](#2026-10-15-trilinos-phase-4-in-progress-and-benchmark-of-the-linear-solvers) |
+| [2026-10-15, rigid body modes for the algebraic multigrid of PETSc](#2026-10-15-rigid-body-modes-for-the-algebraic-multigrid-of-petsc) |
+| [2026-10-15, second pass of the campaign: GAMG, BoomerAMG and PETSc on the host](#2026-10-15-second-pass-of-the-campaign-gamg-boomeramg-and-petsc-on-the-host) |
+| [2026-10-15, large elasticity systems and recommendations (phase 5)](#2026-10-15-large-elasticity-systems-and-recommendations-phase-5) |
+| [2026-10-16, AmgX: nodal blocks and a symmetric aggregation cycle](#2026-10-16-amgx-nodal-blocks-and-a-symmetric-aggregation-cycle) |
+| [2026-10-16, Trilinos (phase 4)](#2026-10-16-trilinos-phase-4) |
+| [2026-10-16, execution options named after the phases, nonlinear solver override](#2026-10-16-execution-options-named-after-the-phases-nonlinear-solver-override) |
+| [2026-10-20, rebase of all the repositories onto the official masters](#2026-10-20-rebase-of-all-the-repositories-onto-the-official-masters) |
+| [2026-10-20, TFEL and mfem-mgis onto the new official masters](#2026-10-20-tfel-and-mfem-mgis-onto-the-new-official-masters) |
+| [2026-10-20, models executed in prediction, one definition of the time step scaling factor](#2026-10-20-models-executed-in-prediction-one-definition-of-the-time-step-scaling-factor) |
+| [2026-10-21, version 3 of the functions of the material properties](#2026-10-21-version-3-of-the-functions-of-the-material-properties) |
+| [2026-10-21, TFEL onto master 1dc3ac594](#2026-10-21-tfel-onto-master-1dc3ac594) |
+| [2026-10-21, common contract of the behaviours and of the models](#2026-10-21-common-contract-of-the-behaviours-and-of-the-models) |
+| [2026-10-21, interfaces built on the generic interfaces, `generic_functions` option](#2026-10-21-interfaces-built-on-the-generic-interfaces-generic_functions-option) |
 
 ## Entries
 
@@ -5656,3 +5758,132 @@ formula as MTest). All the others give the Newton solution to within
   of mfem-mgis, all green. The tests written after the review were run on
   the 20 configurations of the material properties with the development
   tree.
+
+### 2026-10-21, TFEL onto master 1dc3ac594
+
+- TFEL master has merged #1064 (defects of the integration drivers of the
+  `generic` interface). The branch of the prototype is rebased onto
+  `1dc3ac594`. One commit is in conflict: the device capable integration
+  drivers, in four files (`Integrate`, `GreenLagrangeStrainIntegrate`,
+  `LogarithmicStrainIntegrate`, `StandardFiniteStrainBehaviourIntegrate`).
+  The drivers of the prototype are kept, with the tests of #1064
+  (`IntegrationDriversTest.cxx` and its behaviours).
+- The fixes of #1064 were already in the drivers of the prototype. They
+  concern eight defects, among them the `DTAU_DDF` operator of the Hencky
+  strain, the state given to the post-processings, the initialize
+  functions of finite strain behaviours, the speed of sound, the
+  exceptions of the constructor and the results exported with a smaller
+  time step. The test `generic-IntegrationDriversTest` of #1064, one case
+  per defect, passes on the rebased tree.
+- Pitfall: a first trial failed to compile because the shell exported the
+  `LD_LIBRARY_PATH` of another TFEL, whose `libTFELMFront` was loaded by
+  the new `mfront`. MFront and the tests of TFEL are run with
+  `env -u LD_LIBRARY_PATH`.
+- `check-refused-name.sh` and `build-no-runtime-checks.sh` now look for
+  the configuration file in the installation of TFEL too, as MFront does.
+
+### 2026-10-21, common contract of the behaviours and of the models
+
+- The functions of batches of the behaviours and of the models are named
+  after the functions of the `generic` interface followed by
+  `_generic_parallel` (integration, initialize functions,
+  post-processings, rotations), as the material properties. MFront
+  refuses a behaviour or a model whose name contains `_generic_parallel`.
+- Version 3 of the data structures (`BatchData.h`):
+  `mfront_gpb_Statistics` holds the members of the statistics of the
+  material properties (opaque keys of the first failure and of the first
+  unreliable result, index of the point on 48 bits), followed by the time
+  step factor. The output status gives the first unreliable point. The
+  statuses of the points come right after the state at the end of the
+  time step (`s1`) in the data of a batch.
+- Errors of the batch: `-5` (arguments, null output status included),
+  `-6` (parameters file which can't be read), `-7` (backend). The codes of
+  the points are unchanged.
+- Each library exports `<base>_generic_parallel_report`, which fills the
+  output status after an asynchronous computation, in place of the inline
+  function `mfront_gpb_report` of the header. The report function
+  refuses the keys whose check is not null, which do not come from a
+  behaviour (`-5`).
+- Tests: the comparator of the behaviours calls the report function after
+  each asynchronous computation, checks the first unreliable point, and
+  has two new options: `--invalid-parameters` (error `-6`, for a
+  behaviour and for a behaviour variable) and
+  `--time-step-scaling-factor` (case `0.5` in `compare-all.sh`). A test
+  checks the refusal of the names containing `_generic_parallel` for a
+  behaviour and for a model.
+- MGIS: copies `mgis_bv_Batch<X>` of the structures, checked member by
+  member (`offsetof`); the result of a pending computation is given by
+  the report function of the library; an asynchronous computation is
+  refused if the library does not export this function.
+- An independent review found no blocking defect. Fixed: the error of the
+  grid of the CUDA and HIP kernels is `-5`; the report function with a
+  null output status returns `-5`.
+- The targeted pass of the behaviours (20 configurations, every test
+  behaviour) found no failure.
+
+### 2026-10-21, interfaces built on the generic interfaces, `generic_functions` option
+
+- Material properties: `GenericMaterialPropertyInterfaceBase` writes the
+  evaluation at a point once (physical bounds and bounds of the arguments,
+  body, bounds of the output), for the `generic` and Cyrano interfaces and
+  for the kernels of `generic-parallel`. Each check calls a report
+  function given by the caller: messages built with the values for
+  `generic` and Cyrano, `mfront_status.report(check, failure)` in the
+  kernels. `GenericParallelMaterialPropertyInterface` derives from this
+  base.
+- The sharing is done in the code generator, not in a generated function:
+  `generic` builds its messages with `std::string`, which device code does
+  not have. A differential test checks that the code of `generic` and of
+  Cyrano is unchanged: the libraries generated by the MFront of the
+  previous step and of this step are loaded together and called on the
+  same inputs (below, at and above each bound, `NaN`, three policies, an
+  unknown policy, a wrong number of arguments). 739 782 calls, no
+  difference on the value (bit for bit), the output status and `errno`.
+  A modified message is detected.
+- Models: `GenericParallelModelInterface` derives from
+  `GenericModelInterface`, which is no longer `final`.
+- Behaviours: the generated sources of the `generic` interface are
+  identical before and after the change.
+- `generic_functions` option (name to be discussed), for material
+  properties, behaviours and models: the `generic-parallel` library also
+  contains the functions of the `generic` interface, and
+  `_mfront_interface` is `Generic`. One set of parameters (and, for a
+  behaviour, one out of bounds policy) is shared by the two families of
+  functions, with a hidden visibility (otherwise two libraries of two backends loaded in the same
+  process would share them). The functions of a point of the material
+  properties are in a separate source, compiled by the C++ compiler of the
+  configuration. The behaviour class gets the constructor of the `generic`
+  interface, written once even if `generic` is also requested.
+- MGIS detects the two families by two independent tests: the functions
+  of batches if their version is exported, the functions of a point if
+  `_mfront_interface` is `Generic`. A library with neither is refused.
+  The test `GenericParallelGenericFunctionsTest` compares, at each point,
+  the functions of a point with the functions of batches of the same
+  library (integration, rotations, material properties).
+- Configuration files of icpx: icpx gets
+  `-fp-model=precise` in the `stlpar` and `sycl` configurations (its
+  default model is fast). This also restores `errno` in the mathematical
+  functions, so the functions of a point report the statuses `-3` as the
+  `generic` interface. With nvc++, `errno` is only set with
+  `-Mnobuiltin`, which may slow down the computations on the host: this
+  option is not added, and the missing statuses `-3` are documented.
+- An independent review found no blocking defect, two important points
+  (hidden visibility, header of the library with the functions of a
+  point) and six minor ones, fixed. New test: a material property with
+  the runtime checks disabled, also when the configuration file sets the
+  option.
+- Pitfall: a test of MGIS did not compile after a change (a variable
+  declared twice), and the failure was hidden by a redirection of the
+  output of `make`; `ctest` then ran the previous binary. Builds of tests
+  are run without hiding their output.
+- Results (`validate3.sh 2026-10-21-step5`): 6986 tests of TFEL; `-O3`
+  matrix 40/41 (`results/generic-parallel-tests-2026-10-21-step5-O3.txt`):
+  the 20 configurations of the material properties and 20 of the 21
+  configurations of the behaviours pass. The behaviours fail with
+  `stlpar-parunseq-nvhpc-gpu` (initialize functions of a finite strain
+  behaviour, defect of nvc++, see the next entry). nvcc and clang sweeps:
+  547 OK each (the 542 of the previous validation and the 5 test
+  behaviours added by #1064). 58 tests of MGIS. mfem-mgis: 358 of 360 tests pass in the whole suite; the two
+  others failed for lack of memory on the GPU, shared with the `-O3`
+  matrix and with the desktop, and pass when run alone (see the next
+  entry).

@@ -1,4 +1,4 @@
-From f274f909263bfc7d80a74e95441a661aa2d06e7a Mon Sep 17 00:00:00 2001
+From dc66af6fcb072ff98004bef21680adb95685768a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 03:12:32 +0200
 Subject: [PATCH] generic-parallel: raja backend

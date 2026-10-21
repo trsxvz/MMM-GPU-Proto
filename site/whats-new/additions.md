@@ -17,13 +17,17 @@ MFront had a `generic` interface that integrates a behaviour at one
 point. The new `generic-parallel` interface generates, for the same
 behaviour, functions that process a whole batch of points.
 
-- **Generated functions.** For each behaviour and each modelling
-  hypothesis: the integration of a batch, one function per initialize
-  function, one function per post-processing, and, for an orthotropic
-  behaviour, the rotations of the gradients, of the thermodynamic
-  forces and of all the blocks of the tangent operator.
+- **Generated functions**, named after the functions of the `generic`
+  interface followed by `_generic_parallel`. For each behaviour and each
+  modelling hypothesis: the integration of a batch, one function per
+  initialize function, one function per post-processing, and, for an
+  orthotropic behaviour, the rotations of the gradients, of the
+  thermodynamic forces and of all the blocks of the tangent operator.
+  One report function per library analyses the statistics of
+  asynchronous computations.
 - **Description symbols**, read at load time: interface
-  (`GenericParallel`), backend, API version and memory space. The
+  (`GenericParallel`, or `Generic` with the `generic_functions` option),
+  backend, API version and memory space. The
   caller can check everything when loading, without compiling against
   TFEL.
 - **Versioned C data contract** (`MFront/GenericParallelBehaviour/BatchData.h`).
@@ -40,7 +44,7 @@ behaviour, functions that process a whole batch of points.
   the parameters. The integration drivers of the `generic` interface
   were split into a host and device core and the historical host
   functions, so both interfaces share the same cores.
-- **Six backends**, each with one primitive: apply a function object to
+- **Eight backends**, each with one primitive: apply a function object to
   the points of the batch and reduce the statistics.
 
 | Backend | Primitive | Execution queue | Asynchronous |
@@ -62,21 +66,23 @@ behaviour, functions that process a whole batch of points.
 - **Statuses and errors**: success, success with a time step factor
   below 0.99 at some points, failure at some points (with the number of
   failing points and the index of the first one, independent of the
-  order of computation), invalid arguments, backend error. An optional
+  order of computation), the same for the unreliable points, and the
+  errors of the batch of the material properties: invalid arguments
+  (`-5`), invalid parameters (`-6`), backend error (`-7`). An optional
   array gives the status of each point.
 - **Error reporting at no cost on success**: kernels write into the
   statistics only when an event occurs at a point. In synchronous mode,
-  the `cuda`, `hip`, `sycl` and `kokkos` backends keep the statistics in
+  the `cuda`, `hip`, `sycl`, `kokkos` and `raja` backends keep the statistics in
   reused blocks accessible by host and GPU. Measured on an elastic
   behaviour and 1000 points: the synchronous CUDA call goes from 135 to
   29 µs.
 - **Synchronous or asynchronous computation**: with statistics given in
-  the options, the `cuda`, `hip`, `kokkos` and `sycl` backends return as
+  the options, the `cuda`, `hip`, `kokkos`, `raja` and `sycl` backends return as
   soon as the computation is submitted; after synchronising the queue,
-  `mfront_gpb_report` fills the output status. Several batches and the
+  the report function of the library fills the output status. Several batches and the
   assembly can be submitted before a single synchronisation.
 - **Stack size of GPU threads**, computed from the attributes of the
-  kernel (CUDA, HIP), from a probe kernel (Kokkos), or set through the
+  kernel (CUDA, HIP), from a probe kernel (Kokkos, RAJA), or set through the
   CUDA runtime (`nvc++`, AdaptiveCpp).
 - **Coverage**: everything the `generic` interface can do. Small strain
   and general behaviours (thermal, cohesive zones), finite strain with
@@ -120,6 +126,22 @@ offer the same possibilities as the interface for behaviours:
 - number of points of type `size_t` in CUDA, HIP and Kokkos kernels and
   with AdaptiveCpp, at most 2^48 - 1 points (the limit of 2^31 points is
   lifted).
+
+### Interfaces built on the `generic` interfaces
+
+- **Code at one point written once**: the evaluation of a material
+  property at a point is written by the base of the `generic` interface
+  and used by the `generic`, `cyrano` and `generic-parallel` interfaces
+  (statuses, messages and values of `generic` unchanged, checked by a
+  differential test); the interface of the models derives from the
+  `generic` one.
+- **`generic_functions` option**: a library of the `generic-parallel`
+  interface also contains the functions of the `generic` interface, for
+  material properties, behaviours and models. It exports `Generic` as
+  interface. It has one set of parameters and, for a behaviour, one out
+  of bounds policy (for a material property, the policy is an argument of
+  each call).
+  MGIS loads both kinds of functions from such a library.
 
 ### GPU code in TFEL and MFront
 
@@ -200,10 +222,13 @@ compilation and linking only).
 
 ## MGIS
 
-- **Loading.** MGIS recognises a `generic-parallel` library, checks the
-  version of the data contract, and reads the backend and the memory
-  space. It keeps its own copy of the C structures of TFEL, with a test
-  that checks their memory layout is identical.
+- **Loading.** MGIS makes two independent tests: the functions of
+  batches exist if the library exports their version (version of the data
+  contract checked, backend and memory space read), the functions of a
+  point if the library exports `Generic` as interface. A library with
+  none of them is refused. The report function of the library is loaded.
+  MGIS keeps its own copy of the C structures of TFEL, with a test that
+  checks the offset of each member.
 - **Automatic switch.** The existing functions (`integrate`,
   `executeInitializeFunction`, `executePostProcessing`, rotations)
   switch to batch computation by themselves. The calling code does not
@@ -222,8 +247,9 @@ compilation and linking only).
   that read the arrays on the host refuse arrays placed on a GPU instead
   of crashing. A `MaterialDataManager` can allocate its arrays with a
   standard memory resource (`std::pmr::memory_resource*`). MGIS provides
-  four resources as headers compiled by the caller: CUDA managed memory,
-  HIP managed memory, SYCL shared memory and `Kokkos::SharedSpace`.
+  five resources as headers compiled by the caller: CUDA managed memory,
+  HIP managed memory, SYCL shared memory, `Kokkos::SharedSpace` and the
+  managed memory of a resource of camp (RAJA).
 - **Execution policy** (`mgis::BatchExecutionPolicy`), common to
   behaviours, models and material properties: queue, and protection of
   the GPU stack size. Synchronous by default.

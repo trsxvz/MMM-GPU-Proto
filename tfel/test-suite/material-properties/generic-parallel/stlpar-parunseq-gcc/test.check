@@ -18,6 +18,8 @@
 @Command "sh ../build-libraries.sh @mfront@ config-stlpar-parunseq-gcc.json";
 @Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
 @Command "sh ../compare-all.sh ./compare stlpar";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-stlpar-parunseq-gcc.json ./compare stlpar";
 
 // compilation with the runtime checks disabled
 @Command "@mfront@ --interface=generic-parallel --dsl-option=disable_runtime_checks:true --configuration-file=config-stlpar-parunseq-gcc.json ../Inconel600_YoungModulus.mfront";
@@ -29,4 +31,4 @@
 @Command "sh ../check-refused-name.sh @mfront@ config-stlpar-parunseq-gcc.json";
 
 @CleanFiles {"test-stlpar", "test-invalid-parameters", "compare", "UO2_YoungModulus_Martin1989-parameters.txt", "test-no-runtime-checks"};
-@CleanDirectories {"include", "src", "refused-name"};
+@CleanDirectories {"include", "src", "refused-name", "generic-functions"};

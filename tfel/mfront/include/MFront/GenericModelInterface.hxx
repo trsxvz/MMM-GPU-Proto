@@ -73,9 +73,10 @@ namespace mfront {
    *
    * This interface is based on the on-the-fly conversion of the
    * model description in a behaviour description and using the interface for
-   * behaviours.
+   * behaviours. The `generic-parallel` interface for models is built on it
+   * (see `GenericParallelModelInterface`).
    */
-  struct GenericModelInterface final : public AbstractModelInterface {
+  struct GenericModelInterface : public AbstractModelInterface {
     //! \return the name of the interface
     [[nodiscard]] static std::string getName();
     //! \brief constructor
@@ -83,7 +84,8 @@ namespace mfront {
     //
     void setOptions(const DataMap &) override;
     //! \return the name of the generated library
-    [[nodiscard]] std::string getLibraryName(const ModelDescription &) const;
+    [[nodiscard]] virtual std::string getLibraryName(
+        const ModelDescription&) const;
     [[nodiscard]] std::pair<bool, tokens_iterator> treatKeyword(
         const std::string &,
         const std::vector<std::string> &,

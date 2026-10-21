@@ -20,8 +20,10 @@
 @Command "sh ../build-libraries.sh @mfront@ config-sycl-default-acpp-2.json";
 @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
 @Command "sh ../compare-all.sh ./compare sycl --tolerance=1e-13";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-sycl-default-acpp-2.json ./compare sycl --tolerance=1e-13";
 @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
 @Command "sh ../compare-all.sh ./compare-host sycl --tolerance=1e-13";
 
 @CleanFiles {"test-sycl-device", "test-sycl-usm-1-1", "compare", "compare-host"};
-@CleanDirectories {"include", "src"};
+@CleanDirectories {"include", "src", "generic-functions"};

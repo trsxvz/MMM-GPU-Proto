@@ -1,4 +1,4 @@
-From 521949c0d23828a7e8d317037e81a66eacf4363c Mon Sep 17 00:00:00 2001
+From 784cf5e61b4878e51b59d65a9858bd765def1b11 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 07:48:12 +0200
 Subject: [PATCH] generic-parallel: openacc backend

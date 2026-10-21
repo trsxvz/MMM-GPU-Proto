@@ -10,6 +10,8 @@
 // comparisons with the `generic` interface, which gives the reference
 // results (see compare-all.sh)
 @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-sycl.so";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-sycl-default-acpp.json ./compare sycl";
 
 // automatic transfers of the fields allocated in host memory
 @Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
@@ -18,5 +20,8 @@
 @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure";
 @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain --material-properties=150e9,0.3";
 
+// the name of a behaviour or of a model must not contain `_generic_parallel`
+@Command "sh ../check-refused-name.sh @mfront@ config-sycl-default-acpp.json";
+
 @CleanFiles {"compare", "compare-host"};
-@CleanDirectories {"include", "src", "reference"};
+@CleanDirectories {"include", "src", "reference", "refused-name", "generic-functions"};

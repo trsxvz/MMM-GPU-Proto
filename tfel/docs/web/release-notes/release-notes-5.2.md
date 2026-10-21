@@ -867,7 +867,8 @@ standalone model, over a batch of integration points, on GPUs or on CPUs,
 with the backends of the interface for material properties. See [this page
 for details](generic-parallel-behaviour-interface.html).
 
-The generated libraries provide:
+The generated libraries provide, under the names of the functions of the
+`generic` interface followed by `_generic_parallel`:
 
 - the integration of a batch, the initialize functions and the
   post-processings over a batch;
@@ -876,16 +877,21 @@ The generated libraries provide:
 
 The data structures exchanged with the generated functions are declared
 in `MFront/GenericParallelBehaviour/BatchData.h`. Their version is given
-by the `MFRONT_GPB_API_VERSION` macro. The values of the variables at all
-the points are described by fields, which support several layouts (point
-by point, component by component, uniform values), and the material
-properties and the external state variables can be given variable by
-variable. The computations may be asynchronous: the statistics of the
-batch are then accumulated on the device and analysed by the
-`mfront_gpb_report` function. The libraries export the
+by the `MFRONT_GPB_API_VERSION` macro (`3`). The values of the variables
+at all the points are described by fields, which support several layouts
+(point by point, component by component, uniform values), and the
+material properties and the external state variables can be given
+variable by variable. The computations may be asynchronous: the
+statistics of the batch are then accumulated on the device and analysed
+by the `<name>_generic_parallel_report` function exported by the library.
+The output status, the statistics, the execution options and the errors
+of the batch (`-5` invalid arguments, `-6` invalid parameters, `-7`
+runtime error of the backend) are the ones of the material properties,
+the time step scaling factor being added. The libraries export the
 `<name>_generic_parallel_backend`, `<name>_generic_parallel_memory_space`
 and `<name>_generic_parallel_api_version` symbols. The configuration files
 are shared with the `generic-parallel` interface for material properties.
+The name of a behaviour or of a model can't contain `_generic_parallel`.
 
 ## Writing behaviours usable on GPUs
 

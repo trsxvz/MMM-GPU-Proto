@@ -1,4 +1,4 @@
-From d90ac322c99561249c8398f574b2ddc0e6aa7bb5 Mon Sep 17 00:00:00 2001
+From a4f71a701069936e835854d7225ada3ef62eb47f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 15:20:25 +0200
 Subject: [PATCH] MFront: same definition of the behaviour class in host and

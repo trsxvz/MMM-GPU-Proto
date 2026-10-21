@@ -1,4 +1,4 @@
-From cf6e2327ff4ff64ecb7fa3e71a959a45e1cfd942 Mon Sep 17 00:00:00 2001
+From f477f6a6cc26211568d9bb6464a636c7c4bf3931 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 23:00:05 +0200
 Subject: [PATCH] Plane stress: axial deformation gradient computed by the

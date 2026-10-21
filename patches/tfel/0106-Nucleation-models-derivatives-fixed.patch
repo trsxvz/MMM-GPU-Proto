@@ -1,4 +1,4 @@
-From a2883b1217a4550328cffccb71b70add98283ea4 Mon Sep 17 00:00:00 2001
+From 68e7661389562c6f5a4016ced20b25842322a794 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:57:43 +0200
 Subject: [PATCH] Nucleation models: derivatives fixed
