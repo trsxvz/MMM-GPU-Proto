@@ -2,6 +2,7 @@
 
 @Environment {"LD_LIBRARY_PATH": "src"};
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../PoissonRatioTest.mfront";
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../BoundsOrderTest.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../Inconel600_YoungModulus.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../Inconel600_YoungModulus-qt.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-sycl-default-acpp.json ../UO2_YoungModulus_Martin1989.mfront";
@@ -21,5 +22,12 @@
 @Command "@TFEL_ACPP_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ ../test-sycl-device.cxx -o test-sycl-device -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-sycl -lGenericParallelInconel600-sycl -lGenericParallelMaterialLaw-sycl";
 @Command "./test-sycl-device test-sycl-device-default-acpp";
 
-@CleanFiles {"test-sycl"};
+// comparison with the `generic` interface (see compare.cxx)
+@Command "sh ../build-libraries.sh @mfront@ config-sycl-default-acpp.json";
+@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+@Command "sh ../compare-all.sh ./compare sycl --tolerance=1e-13";
+@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
+@Command "sh ../compare-all.sh ./compare-host sycl --tolerance=1e-13";
+
+@CleanFiles {"test-sycl", "compare", "compare-host"};
 @CleanDirectories {"include", "src"};

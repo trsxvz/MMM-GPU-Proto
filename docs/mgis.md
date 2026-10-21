@@ -142,10 +142,18 @@ auto r = evaluate(values, mp, inputs);                    // default queue
 auto r = evaluate(policy, values, mp, inputs, location);  // chosen queue
 ```
 
-At loading time, MGIS reads the interface, the version of the functions,
-the backend and the memory space. It loads the function for a set of
-points (`batch_fct`) instead of the function for one point (`fct`).
-`evaluate` evaluates a property on a set of points. Each input is uniform
+At loading time, MGIS makes two independent tests. If the library exports
+the version of the functions of batches of points
+(`<name>_generic_parallel_api_version`, version 3), MGIS checks it, reads
+the backend and the memory space, and loads the function for a batch of
+points (`batch_fct`) and the report function of the statistics
+(`batch_report_fct`). If the property comes from the `generic` interface,
+MGIS loads the function for one point (`fct`). A library with none of
+these functions is refused. The structures of the functions of batches
+(`mgis_mp_BatchData`, `mgis_mp_BatchOutputStatus`, etc.) are copies of
+those of TFEL, checked member by member by a test.
+
+`evaluate` evaluates a property on a batch of points. Each input is uniform
 (one value) or given per point. Like `integrate`, `evaluate` makes a single
 call for a `generic-parallel` property and computes point by point on the
 host otherwise.
@@ -153,13 +161,17 @@ host otherwise.
 The result (`MaterialPropertyEvaluationResult`) is the same for both
 interfaces, like `BehaviourIntegrationResult` for behaviours: status and
 rank of the out-of-bounds variable (meaning of the `generic` interface),
-index of the first failed point, message. A `generic-parallel` property
-only returns the statuses `1`, `0`, `-1` and `-4`. The others (invalid
-arguments, backend error) throw an exception, at submission time for an
-asynchronous evaluation. The point by point computation stops at the first
-failure, the batch computes all points: the reported index is the same. At
-loading time, MGIS also reads the report function of the statistics
-(`batch_report_fct`).
+index of the first failed point, message. For a `generic-parallel`
+property, the message also gives the reported point and the numbers of
+failed points and of unreliable results. Such a property only returns the
+statuses `1`, `0`, `-1` and `-4`. The errors of the batch (`-5` invalid
+arguments, `-6` invalid parameters, `-7` backend error) throw an
+exception, at submission time for an asynchronous evaluation. The point by
+point computation stops at the first failure, the batch computes all
+points (`NaN` where a bound makes the evaluation fail): the reported index,
+status and rank are the same, except that the rank is null for a result
+which is not finite (`-4`). Without failure, they describe the first point
+where the result is unreliable.
 
 ## Memory
 

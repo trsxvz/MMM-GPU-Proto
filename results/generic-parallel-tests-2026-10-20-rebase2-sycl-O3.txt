@@ -1,0 +1,8 @@
+behaviours           sycl-default-acpp                SUCCESS   911 s (2 passed, 0 skipped)
+behaviours           sycl-default-acpp-2              SUCCESS    56 s (1 passed, 0 skipped)
+behaviours           sycl-default-acpp-omp            SUCCESS  1228 s (2 passed, 0 skipped)
+behaviours           sycl-default-icpx                SUCCESS  1841 s (2 passed, 0 skipped)
+material-properties  sycl-default-acpp                SUCCESS    19 s (1 passed, 0 skipped)
+material-properties  sycl-default-icpx                SUCCESS    11 s (1 passed, 0 skipped)
+material-properties  sycl-gpu-acpp                    SUCCESS    23 s (1 passed, 0 skipped)
+material-properties  sycl-gpu-acpp-2                  SUCCESS    15 s (1 passed, 0 skipped)

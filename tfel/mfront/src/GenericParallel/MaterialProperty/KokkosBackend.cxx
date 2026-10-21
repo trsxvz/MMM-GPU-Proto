@@ -52,14 +52,11 @@ namespace mfront::generic_parallel::material_property {
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
       const MaterialPropertyDescription& mpd,
-      const FileDescription& fd,
-      const bool treatStrides) const {
+      const FileDescription& fd) const {
     const auto types = i.getTypesDescription();
-    os << "if (!Kokkos::is_initialized()) {\n"
-       << "mfront_output_status->status = -6;\n"
-       << "mfront_report(\"Kokkos is not initialized\");\n"
-       << "return;\n"
-       << "}\n"
+    os << "if (!Kokkos::is_initialized()) {\n";
+    writeBatchError(os, -7, "\"Kokkos is not initialized\"");
+    os << "}\n"
        << "using mfront_execution_space = " << this->execution_space
        << ";\n"
        // instance of the execution space given by the execution options
@@ -81,7 +78,7 @@ namespace mfront::generic_parallel::material_property {
           "});\n"
           "return mfront_ptr;");
     }
-    this->writeKernels(os, i, mpd, fd, treatStrides);
+    this->writeKernels(os, i, mpd, fd);
     auto write_loop = [&os, &types](const std::string_view npoints,
                                     const bool handleStrides) {
       const auto kernel = std::string{
@@ -91,11 +88,9 @@ namespace mfront::generic_parallel::material_property {
          << "::mfront::generic_parallel::kokkos::ensureStackSize<"
          << "mfront_execution_space>(" << kernel
          << ", mfront_options.preserve_stack_size != 0);\n"
-         << "if (!mfront_stack_size_error.empty()) {\n"
-         << "mfront_output_status->status = -6;\n"
-         << "mfront_report(mfront_stack_size_error);\n"
-         << "return;\n"
-         << "}\n";
+         << "if (!mfront_stack_size_error.empty()) {\n";
+      writeBatchError(os, -7, "mfront_stack_size_error");
+      os << "}\n";
       os << "// loop over the points\n"
          << "Kokkos::parallel_for(\"mfront_kernel\", "
          << "Kokkos::RangePolicy<mfront_execution_space, "
@@ -108,7 +103,7 @@ namespace mfront::generic_parallel::material_property {
          << "mfront_space.fence();\n"
          << "}\n";
     };
-    this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
+    this->writeKernelSelection(os, i, mpd, write_loop);
   }  // end of writeKernelCall
 
   bool KokkosBackend::mergesPointStatusesInKernels() const {

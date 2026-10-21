@@ -30,6 +30,8 @@ else
 fi
 git -C tfel rev-list --objects "$tree" "${exclude[@]}" | cut -d' ' -f1 |
   git -C tfel pack-objects -q --stdout | git index-pack --stdin > /dev/null
-git rm -r -q --cached --ignore-unmatch tfel
+# only the index is modified (`--cached`): `-f` allows a second
+# synchronization before the commit
+git rm -r -q --cached -f --ignore-unmatch tfel
 git read-tree --prefix=tfel/ "$tree"
 echo "tfel/ synchronized with $(git -C tfel log -1 --format='%h %s')"

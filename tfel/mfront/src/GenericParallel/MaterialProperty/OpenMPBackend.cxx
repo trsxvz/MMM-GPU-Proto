@@ -51,8 +51,7 @@ namespace mfront::generic_parallel::material_property {
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
       const MaterialPropertyDescription& mpd,
-      const FileDescription& fd,
-      const bool treatStrides) const {
+      const FileDescription& fd) const {
     const auto types = i.getTypesDescription();
     // the queue of the execution options is not used: the computations are
     // performed by the OpenMP threads or the default device of OpenMP
@@ -65,7 +64,7 @@ namespace mfront::generic_parallel::material_property {
       // behaviours
       writeLocalStatisticsDeclaration(os);
     }
-    this->writeKernels(os, i, mpd, fd, treatStrides);
+    this->writeKernels(os, i, mpd, fd);
     auto write_loop = [this, &os, &types, checks](
                           const std::string_view npoints,
                           const bool handleStrides) {
@@ -77,15 +76,16 @@ namespace mfront::generic_parallel::material_property {
          << npoints << ");\n";
       if (checks) {
         os << "auto mfront_number_of_failures = 0ull;\n"
-           << "auto mfront_first_failure_index = ::mfront::gpmp::no_event;\n"
+           << "auto mfront_first_failure = ::mfront::gpmp::no_event;\n"
            << "auto mfront_number_of_unreliable_results = 0ull;\n"
-           << "auto mfront_first_violation = ::mfront::gpmp::no_event;\n";
+           << "auto mfront_first_unreliable_result = "
+           << "::mfront::gpmp::no_event;\n";
       }
       const auto reductions = std::string{
           checks ? " reduction(+ : mfront_number_of_failures, "
                    "mfront_number_of_unreliable_results) "
-                   "reduction(min : mfront_first_failure_index, "
-                   "mfront_first_violation)"
+                   "reduction(min : mfront_first_failure, "
+                   "mfront_first_unreliable_result)"
                  : ""};
       if (this->offload) {
         os << "#pragma omp target teams distribute parallel for "
@@ -98,19 +98,19 @@ namespace mfront::generic_parallel::material_property {
       if (checks) {
         os << "const auto mfront_point_status = " << kernel << "(mfront_i);\n"
            << "if (mfront_point_status.hasEvent()) {\n"
-           << "if (mfront_point_status.failure) {\n"
+           << "const auto mfront_key = ::mfront::gpmp::makeKey("
+           << "static_cast<unsigned long long>(mfront_i), "
+           << "mfront_point_status.check);\n"
+           << "if (mfront_point_status.isFailure()) {\n"
            << "mfront_number_of_failures += 1;\n"
-           << "const auto mfront_ui = static_cast<unsigned long long>("
-           << "mfront_i);\n"
-           << "mfront_first_failure_index = "
-           << "(mfront_ui < mfront_first_failure_index) ? mfront_ui : "
-           << "mfront_first_failure_index;\n"
+           << "mfront_first_failure = (mfront_key < mfront_first_failure) ? "
+           << "mfront_key : mfront_first_failure;\n"
            << "} else {\n"
            << "mfront_number_of_unreliable_results += 1;\n"
+           << "mfront_first_unreliable_result = "
+           << "(mfront_key < mfront_first_unreliable_result) ? "
+           << "mfront_key : mfront_first_unreliable_result;\n"
            << "}\n"
-           << "mfront_first_violation = "
-           << "(mfront_point_status.violation < mfront_first_violation) ? "
-           << "mfront_point_status.violation : mfront_first_violation;\n"
            << "}\n";
       } else {
         os << kernel << "(mfront_i);\n";
@@ -120,14 +120,14 @@ namespace mfront::generic_parallel::material_property {
         os << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
            << "mfront_gpmp_Statistics{"
            << ".number_of_failures = mfront_number_of_failures, "
-           << ".first_failure_index = mfront_first_failure_index, "
+           << ".first_failure = mfront_first_failure, "
            << ".number_of_unreliable_results = "
            << "mfront_number_of_unreliable_results, "
-           << ".first_violation = mfront_first_violation});\n";
+           << ".first_unreliable_result = mfront_first_unreliable_result});\n";
       }
       os << "}\n";
     };
-    this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
+    this->writeKernelSelection(os, i, mpd, write_loop);
   }  // end of writeKernelCall
 
   std::string OpenMPBackend::getMemorySpace() const {

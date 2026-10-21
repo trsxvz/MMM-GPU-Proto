@@ -62,6 +62,33 @@ by data, execution options (non-blocking CUDA and HIP stream,
 Kokkos instance, resource of camp on a stream created by the test for
 RAJA, missing SYCL queue), asynchronous evaluation.
 
+The tests of the semantics are written once (`tests.hxx`, data of a batch
+built by `batch.hxx`) and shared by the backends whose arrays are
+accessible by the host: statuses of the points, failures and unreliable
+results in the same batch, invalid results, errors of the batch (null
+pointers, wrong number of arguments, uniform output with several points,
+more than 2^48 - 1 points, null statistics given to the report function),
+empty batch, uniform and strided values. Each backend adds its own tests
+(queues, asynchronous evaluation, stack, memory of the device). A
+comparator (`compare.cxx`, run by `compare-all.sh`) evaluates each test
+property with the `generic` interface at each point and with the batch,
+for the three policies, contiguous, strided and uniform values,
+synchronous and asynchronous evaluations: values, statuses of the points
+and summary. The values are compared exactly with `g++`, `clang++` and
+`nvc++` on the host, up to 1e-13 with `icpx` and on GPUs. The
+property with bounds and physical bounds on two arguments and on its
+output (`BoundsOrderTest`) checks the retained check, in `tests.hxx` and in
+the comparisons. The property generated with the runtime checks disabled
+is run by `test-no-runtime-checks.cxx` (memory, queue and synchronization
+of `runtime.hxx`) on `stlpar-parunseq-gcc`, `cuda-nvcc`, `hip-hipcc`,
+`sycl-default-icpx`, `sycl-default-acpp`, `openmp-host-gcc` and
+`openacc-nvhpc-multicore`. The CUDA and HIP tests check the limit of the
+grid (`-5` beyond 2^31 - 1 blocks, without reading the arrays). The
+`stlpar-parunseq-gcc` configuration also checks the error reported for an
+invalid file of parameters (`-6`, `test-invalid-parameters.cxx`) and the
+refusal of a name containing `_generic_parallel`
+(`check-refused-name.sh`).
+
 The test of the stream is discriminating: a slow kernel writes the arguments on the
 stream of the caller just before the evaluation. The values are only correct
 if the property waits for this kernel. With the default stream, the test fails.
@@ -154,7 +181,12 @@ official masters (TFEL `d24a5cfe8`, MGIS `a30dbf5`, mfem-mgis
 tests of TFEL, 57 of MGIS, 360 of mfem-mgis, 25 of the examples, 9 of
 mm-opera-hpc and 143 of `cases/`, all green; the `-O3` matrix
 (`results/generic-parallel-tests-2026-10-20-rebase-O3.txt`), the sweeps
-and the suite of mfem-mgis on the GPU are run afterwards.
+and the suite of mfem-mgis on the GPU are run afterwards. After the
+version 3 of the functions of the material properties (21/10,
+`validate3.sh 2026-10-20-step2`): 6980 tests of TFEL, `-O3` matrix 41/41
+(21 configurations of the behaviours and 20 of the material properties,
+`results/generic-parallel-tests-2026-10-20-step2-O3.txt`), nvcc and clang
+sweeps 542 OK each, 57 tests of MGIS and 360 of mfem-mgis, all green.
 
 The tracked sweeps in `results/compile-sweep-*-2026-10-06.tsv` give
 the state of the morning of 06/10: 504 OK, 36 blocking user codes, 1 call
@@ -183,9 +215,9 @@ tests (`ctest`, 54 tests on 19/10) include the original ones and:
 
 | Test | What is checked |
 |---|---|
-| `GenericParallelLoadTest` | loading, cross refusals of the point and batch functions, memory layout of the copies of the structures of TFEL |
+| `GenericParallelLoadTest` | loading, cross refusals of the point and batch functions, memory layout of the copies of the structures of TFEL (size, alignment and offset of each member, initialization of the statistics of the material properties) |
 | `GenericParallelIntegrateTest` | batches on CPU (`stlpar`) compared with the point by point computation: integration, ranges, partial failures, initialize functions, post-processings, 2D and 3D rotations, finite strain, speed of sound, all the kinds of external variables, model, execution policies, memory locations and resources |
-| `GenericParallelEvaluateTest` | material properties on CPU: loading, values, bounds and policies, locations, invalid arguments, execution policy |
+| `GenericParallelEvaluateTest` | material properties on CPU: loading, values, bounds and policies, locations, invalid arguments, execution policy; refusal of a version of the functions which is not supported, of an invalid memory space and of a library without the symbol of the version (symbols of `GenericParallelInvalidMaterialProperties.cxx`) |
 | `GenericParallelCUDATest` | same checks on GPU (`cuda`), data in managed memory, memory resource, non-default stream, model and material properties; uniform value kept on the host refused by `make_view`, given by `make_unchecked_view` |
 | `MaterialDataViewTest` | views: `FieldView` and its contracts, `getPoints`; integration, initialize functions and post-processings on views in four layouts (point by point, component by component, with or without a stride larger than needed), identical bit for bit to the manager, with a workspace, with the synchronous and asynchronous policies and through `integrate_debug`, each computation starting from a copy of the state before the computation; the eight integration types, predictions included; speed of sound; model; stored and dissipated energies; empty sets; view without blocks of the tangent; `make_view`; host operations; `update`, `revert`, `updateValues` (with and without context); variables of a state view, blocks of the tangent, extraction; expected refusals, for both interfaces |
 | `MaterialDataManagerLayoutTest` | manager stored component by component identical bit for bit to the point by point layout: integration on ranges, empty sets, thread pool (errors included), policies, `revert`; initialization and post-processing in all their forms; end of step of the material properties and external variables (external arrays, local arrays, uniform values, update policies); conversions of finite strain on views and on the manager, in 3D and in plane strain, Piola-Kirchhoff stress compared with its definition; views of the variables, *strided coalesced* views; `MaterialFunctionManager`; `save` and `restore`; `updateInputValues` (inputs updated, arrays of the states not copied) |
@@ -199,7 +231,9 @@ tests (`ctest`, 54 tests on 19/10) include the original ones and:
 
 The tests of the C and Fortran bindings are built by the CMake target `check`,
 not by `build-tests`: without it, `ctest` runs old
-executables again.
+executables again. The same holds for the libraries generated by MFront
+for the tests: after a change of MFront, `ctest` alone loads the old
+libraries (refused by MGIS when the version of the functions changed).
 
 The build `build/mgis-full` adds HDF5 and the C, Fortran and
 Python bindings (96 tests), including the tests of the layout in each binding

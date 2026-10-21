@@ -60,28 +60,61 @@ namespace mfront::generic_parallel::material_property {
     [[nodiscard]] static bool isBoundsCheckingRequired(
         const MaterialPropertyDescription&);
     /*!
-     * \brief write the beginning of a C function computing the material
-     * property on a set of points: signature, error reporting
-     * (`mfront_report`), initialization of the output status, checks of the
-     * arguments and of the strides. The function returns if there is no
-     * point. If strides are treated, the strides of the arguments are copied
-     * in the `mfront_strides` array, and `mfront_areAllArgumentsUniform`
-     * states if all the arguments are uniform. The execution options are
-     * copied in `mfront_options` (default options if the pointer given by
-     * the calling code is null), and `mfront_asynchronous` states if the
-     * statistics are given by the calling code (asynchronous evaluation).
+     * \brief write the beginning of the C function computing the material
+     * property on a batch of points (`<name>_generic_parallel`): signature,
+     * error reporting (`mfront_report`), initialization of the output
+     * status and checks of the batch data. The function returns if there is
+     * no point. The body of the function is enclosed in a `try` block,
+     * closed by `writeCFunctionEnd`.
+     *
+     * The data of the batch are copied in local variables:
+     * `mfront_npoints`, `mfront_output` (or `mfront_output_host`, see
+     * `handlesDataTransfer`), `mfront_output_stride`, `mfront_args` (or
+     * `mfront_args_host`), an array of the pointers to the values of the
+     * arguments, `mfront_strides`, the array of their strides,
+     * `mfront_out_of_bounds_policy`, `mfront_statuses` and
+     * `mfront_options`. `mfront_asynchronous` states if the statistics are
+     * given by the calling code.
      *
      * \param[in] os: output stream
      * \param[in] i: interface
      * \param[in] mpd: material property description
-     * \param[in] treatStrides: if true, the function takes the strides of
-     * the output and of the arguments. Otherwise, its name ends with `2`.
      */
     void writeCFunctionBeginning(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&,
-        const bool) const;
+        const MaterialPropertyDescription&) const;
+    /*!
+     * \brief write the end of the C function computing the material
+     * property on a batch of points: the status is returned, and the `try`
+     * block opened by `writeCFunctionBeginning` is closed (an unexpected
+     * exception gives the status `-7`)
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     */
+    static void writeCFunctionEnd(
+        std::ostream&,
+        const GenericParallelMaterialPropertyInterface&,
+        const MaterialPropertyDescription&);
+    /*!
+     * \brief write the end of the `try` block of the C function: the
+     * exceptions thrown on the host (for instance by the runtime of the
+     * backend) must not cross the boundary of the C function and are
+     * reported as runtime errors (status `-7`)
+     * \param[in] os: output stream
+     */
+    static void writeHostExceptionsHandling(std::ostream&);
+    /*!
+     * \brief write the code reporting an error of the batch in the output
+     * status and returning the status
+     * \param[in] os: output stream
+     * \param[in] status: status (`-5`, `-6` or `-7`)
+     * \param[in] message: expression giving the error message
+     */
+    static void writeBatchError(std::ostream&,
+                                const int,
+                                const std::string_view);
     /*!
      * \brief write the body of a kernel, which evaluates the material
      * property at the point `mfront_idx`. The kernel reads the arguments in
@@ -112,15 +145,13 @@ namespace mfront::generic_parallel::material_property {
     /*!
      * \brief write the selection of the kernel called at each point.
      *
-     * If strides are treated, a single point is evaluated if all the
-     * arguments are uniform and the output stride is null, the kernel
-     * without strides is used if all the strides are equal to one, and the
-     * kernel handling strides otherwise.
+     * A batch of one point is evaluated by the kernel without strides, as
+     * a batch whose strides are all equal to one. The kernel handling
+     * strides is used otherwise.
      *
      * \param[in] os: output stream
      * \param[in] i: interface
      * \param[in] mpd: material property description
-     * \param[in] treatStrides: boolean stating if strides are treated
      * \param[in] write_call: function writing the evaluation of the given
      * number of points (`1` or `mfront_npoints`) by the kernel handling
      * strides if its second argument is true, or by the kernel without
@@ -130,7 +161,6 @@ namespace mfront::generic_parallel::material_property {
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&,
-        const bool,
         const std::function<void(std::string_view, bool)>&) const;
     /*!
      * \brief write the analysis of the results, once the kernels are
@@ -219,15 +249,14 @@ namespace mfront::generic_parallel::material_property {
      * \brief return if the backend shall handle the data transfer from a host
      * to a device
      *
-     * If this method returns true, the argument of the C function
-     * implementations containing pointers to values of the arguments
-     * is named `mfront_args_host`. The backend shall
-     * then define a pointer named `mfront_args` to the beginning of an
-     * internal array of pointers. The output argument is then named
-     * `mfront_output_host`, and the backend shall define a pointer named
-     * `mfront_output`.
+     * If this method returns true, the array of the pointers to the values
+     * of the arguments given by the calling code is named
+     * `mfront_args_host`. The backend shall then define an array of pointers
+     * named `mfront_args`. The pointer to the output values given by the
+     * calling code is then named `mfront_output_host`, and the backend shall
+     * define a pointer named `mfront_output`.
      *
-     * If this method returns false, those arguments are directly named
+     * If this method returns false, those variables are directly named
      * `mfront_args` and `mfront_output`.
      *
      * \note by default, no data transfer is handled

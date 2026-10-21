@@ -196,7 +196,8 @@ namespace mfront {
        << " material property which can be\n"
        << " * called in device code. This implementation does not use\n"
        << " * exceptions nor errno: an invalid value (NaN) is returned if\n"
-       << " * a physical bound is not satisfied.\n"
+       << " * a physical bound is not satisfied and, as by the implementation\n"
+       << " * of the host, if the result is not finite.\n"
        << " */\n";
     if (mpd.inputs.empty()) {
       os << "template <typename mfront_ValueType = double>\n"
@@ -259,6 +260,16 @@ namespace mfront {
         use_qt ? mpd.output.name + ".getValue()" : mpd.output.name;
     if (!areRuntimeChecksDisabled(mpd)) {
       write_physical_bounds_check(mpd.output, output);
+    }
+    // as the implementation of the host, a result which is not finite is
+    // replaced by NaN, unless the runtime checks are disabled or the
+    // material law has no argument
+    if ((!areRuntimeChecksDisabled(mpd)) && (!mpd.inputs.empty())) {
+      os << "#ifndef MFRONT_NOERRNO_HANDLING\n"
+         << "if(!tfel::math::ieee754::isfinite(" << output << ")){\n"
+         << "return " << nan << ";\n"
+         << "}\n"
+         << "#endif /* MFRONT_NOERRNO_HANDLING */\n";
     }
     os << "return " << output << ";\n";
   }  // end of writeDeviceMaterialPropertyBody

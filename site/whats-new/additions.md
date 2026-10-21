@@ -96,20 +96,30 @@ offer the same possibilities as the interface for behaviours:
   `hip`, `stlpar` and `sycl`;
 - properties defined by data or calling other laws, usable on CUDA and
   HIP;
-- execution options as last argument, with the same members and meaning
-  as for behaviours (version 2 of the functions): the signature is now
-  the same for all backends;
-- output status and statistics modelled on behaviours (number of
-  failing points, first failing point, number of points out of bounds
-  with the `Warning` policy), merged only on an event;
+- one function per property, `<name>_generic_parallel`, taking the data
+  of a batch (version 3 of the functions): number of points, output and
+  arguments with a stride, out-of-bounds policy, optional statuses of the
+  points, and execution options with the same members and meaning as for
+  behaviours. The signature is the same for all backends;
+- the same evaluation at each point as the `generic` interface: same
+  checks, same status per point, `NaN` where the evaluation fails;
+- output status and statistics modelled on behaviours (numbers of
+  failing points and of points out of bounds with the `Warning` policy,
+  first point of each kind), merged only on an event;
+- errors of the batch shared by the three kinds of objects: `-5`
+  (invalid arguments), `-6` (invalid parameters), `-7` (runtime error of
+  the backend);
 - asynchronous evaluation, with an exported report function
   `<name>_generic_parallel_report`;
+- tests written once for all the backends, and a comparison with the
+  `generic` interface at each point;
 - symbols for backend, function version and memory space;
 - statistics of synchronous evaluations taken from a pool of reused
   blocks, and waiting on the stream or Kokkos instance used instead of
   the whole device;
 - number of points of type `size_t` in CUDA, HIP and Kokkos kernels and
-  with AdaptiveCpp (the limit of 2^31 points is lifted).
+  with AdaptiveCpp, at most 2^48 - 1 points (the limit of 2^31 points is
+  lifted).
 
 ### GPU code in TFEL and MFront
 
@@ -201,9 +211,11 @@ compilation and linking only).
   arrays of the `MaterialDataManager`.
 - **Models** of the `generic-parallel` interface are used exactly like
   behaviours.
-- **Material properties**: loading of `generic-parallel` properties and
-  an `evaluate` function on a set of points, each input uniform or
-  given per point.
+- **Material properties**: loading of `generic-parallel` properties
+  (version 3 of the functions, two independent tests: functions of
+  batches if the library exports their version, function of one point
+  for the `generic` interface) and an `evaluate` function on a batch of
+  points, each input uniform or given per point.
 - **Memory.** The caller declares where its arrays are
   (`HOST`, `DEVICE` or `SHARED`). MGIS compares this location with the
   memory space of the library, so it needs no list of backends. Functions

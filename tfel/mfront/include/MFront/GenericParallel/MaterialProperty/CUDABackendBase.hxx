@@ -86,8 +86,8 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] i: interface
      * \param[in] mpd: material property description
      * \param[in] fd: file description
-     * \param[in] treatStrides: if true, the kernel handles the strides of the
-     * output and of the arguments. Otherwise, the name of the kernel ends
+     * \param[in] handleStrides: if true, the kernel handles the strides of
+     * the output and of the arguments. Otherwise, the name of the kernel ends
      * with `_without_strides`.
      */
     virtual void writeGlobalFunctions2(
@@ -97,38 +97,17 @@ namespace mfront::generic_parallel::material_property {
         const FileDescription&,
         const bool) const;
     /*!
-     * \brief write the C implementations of the material property
+     * \brief write the calls to the kernels inside the body of the material
+     * property (see `writeKernelSelection`)
      *
      * \param[in] os: output stream
      * \param[in] i: interface
      * \param[in] mpd: material property description
-     * \param[in] fd: file description
-     * \param[in] treatStrides: if true, the function handles the strides of
-     * the output and of the arguments. Otherwise, the arguments and the
-     * output are contiguous arrays and the name of the function ends with
-     * `2`.
-     */
-    virtual void writeCImplementations2(
-        std::ostream&,
-        const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&,
-        const FileDescription&,
-        const bool) const;
-    /*!
-     * \brief write the call to the kernel inside the body of the material
-     * property
-     *
-     * \param[in] os: output stream
-     * \param[in] i: interface
-     * \param[in] mpd: material property description
-     * \param[in] treatStrides: boolean stating if strides are treated (see
-     * `writeKernelSelection`)
      */
     virtual void writeKernelCall(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&,
-        const bool) const;
+        const MaterialPropertyDescription&) const;
     /*!
      * \brief number of threads per block, rounded up to a multiple of the
      * warp size at runtime (128 by default, as for the behaviours)

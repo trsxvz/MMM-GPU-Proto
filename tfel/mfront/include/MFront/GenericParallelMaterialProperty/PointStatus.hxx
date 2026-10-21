@@ -19,8 +19,42 @@
 
 namespace mfront::gpmp {
 
-  //! \brief value of an index or of an identifier of a check meaning none
+  //! \brief value of a key meaning that no event occurred
   inline constexpr unsigned long long no_event = ~0ull;
+  /*!
+   * \brief number of bits of the identifier of a check in a key. The other
+   * bits hold the index of the point.
+   */
+  inline constexpr unsigned int check_bits = 16;
+  //! \brief maximal number of checks of a material property
+  inline constexpr unsigned long long maximal_number_of_checks =
+      (1ull << check_bits) - 1;
+  //! \brief maximal number of points of a batch
+  inline constexpr unsigned long long maximal_number_of_points =
+      (1ull << (64 - check_bits)) - 1;
+
+  /*!
+   * \return the key of an event: the minimum of the keys gives the first
+   * point concerned, whatever the order of the computations
+   * \param[in] i: index of the point
+   * \param[in] c: identifier of the check retained at this point
+   */
+  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long makeKey(
+      const unsigned long long i, const unsigned long long c) noexcept {
+    return (i << check_bits) | c;
+  }  // end of makeKey
+
+  //! \return the index of the point of a key
+  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getPointIndex(
+      const unsigned long long k) noexcept {
+    return k >> check_bits;
+  }  // end of getPointIndex
+
+  //! \return the identifier of the check of a key
+  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getCheck(
+      const unsigned long long k) noexcept {
+    return k & maximal_number_of_checks;
+  }  // end of getCheck
 
   /*!
    * \brief status of the evaluation of a material property at a point,
@@ -28,36 +62,49 @@ namespace mfront::gpmp {
    * statistics of the evaluation only if an event occurred, so that the
    * cost of the reporting is null when the evaluation succeeds. The
    * reductions merge the statuses of all the points.
+   *
+   * The status and the retained check follow the `generic` interface: the
+   * first check which makes the evaluation fail ends it, and, otherwise, the
+   * last bound violated with the warning policy is retained.
    */
   struct PointStatus {
-    //! \brief true if the evaluation failed
-    bool failure = false;
-    //! \brief true if a bound is violated with the warning policy
-    bool unreliable = false;
     /*!
-     * \brief identifier of the first check which failed (see the
-     * `first_violation` member of `mfront_gpmp_Statistics`)
+     * \brief status of the point, with the meaning of the status of the
+     * `generic` interface: `0` (success), `1` (bound violated with the
+     * warning policy), `-1` (physical bound, or bound with the strict
+     * policy) or `-4` (invalid result)
      */
-    unsigned long long violation = no_event;
+    int status = 0;
+    //! \brief identifier of the check retained at this point
+    unsigned long long check = no_event;
     /*!
-     * \brief report a check which failed
+     * \brief report a violated bound
      * \param[in] c: identifier of the check
      * \param[in] f: true if the evaluation fails, false if the result is
      * computed but must be used with caution
      */
     TFEL_HOST_DEVICE constexpr void report(const unsigned long long c,
                                            const bool f) noexcept {
-      this->violation = (c < this->violation) ? c : this->violation;
-      if (f) {
-        this->failure = true;
-      } else {
-        this->unreliable = true;
-      }
+      this->status = f ? -1 : 1;
+      this->check = c;
     }  // end of report
+    /*!
+     * \brief report an invalid result
+     * \param[in] c: identifier of the check
+     */
+    TFEL_HOST_DEVICE constexpr void reportInvalidResult(
+        const unsigned long long c) noexcept {
+      this->status = -4;
+      this->check = c;
+    }  // end of reportInvalidResult
     //! \return true if an event occurred
     [[nodiscard]] TFEL_HOST_DEVICE constexpr bool hasEvent() const noexcept {
-      return this->violation != no_event;
+      return this->status != 0;
     }  // end of hasEvent
+    //! \return true if the evaluation failed
+    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool isFailure() const noexcept {
+      return this->status < 0;
+    }  // end of isFailure
   };   // end of struct PointStatus
 
   /*!
@@ -68,12 +115,14 @@ namespace mfront::gpmp {
    */
   [[nodiscard]] TFEL_HOST_DEVICE constexpr Statistics makeStatistics(
       const unsigned long long i, const PointStatus& s) noexcept {
+    const auto failure = s.isFailure();
+    const auto unreliable = s.status == 1;
     return Statistics{
-        .number_of_failures = s.failure ? 1ull : 0ull,
-        .first_failure_index = s.failure ? i : no_event,
-        .number_of_unreliable_results =
-            ((!s.failure) && (s.unreliable)) ? 1ull : 0ull,
-        .first_violation = s.violation};
+        .number_of_failures = failure ? 1ull : 0ull,
+        .first_failure = failure ? makeKey(i, s.check) : no_event,
+        .number_of_unreliable_results = unreliable ? 1ull : 0ull,
+        .first_unreliable_result =
+            unreliable ? makeKey(i, s.check) : no_event};
   }  // end of makeStatistics
 
   /*!
@@ -85,14 +134,14 @@ namespace mfront::gpmp {
       const Statistics& a, const Statistics& b) noexcept {
     return Statistics{
         .number_of_failures = a.number_of_failures + b.number_of_failures,
-        .first_failure_index = (a.first_failure_index < b.first_failure_index)
-                                   ? a.first_failure_index
-                                   : b.first_failure_index,
+        .first_failure = (a.first_failure < b.first_failure) ? a.first_failure
+                                                             : b.first_failure,
         .number_of_unreliable_results =
             a.number_of_unreliable_results + b.number_of_unreliable_results,
-        .first_violation = (a.first_violation < b.first_violation)
-                               ? a.first_violation
-                               : b.first_violation};
+        .first_unreliable_result =
+            (a.first_unreliable_result < b.first_unreliable_result)
+                ? a.first_unreliable_result
+                : b.first_unreliable_result};
   }  // end of merge
 
 }  // end of namespace mfront::gpmp

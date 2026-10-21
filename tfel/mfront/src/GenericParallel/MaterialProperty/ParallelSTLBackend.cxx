@@ -57,8 +57,7 @@ namespace mfront::generic_parallel::material_property {
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
       const MaterialPropertyDescription& mpd,
-      const FileDescription& fd,
-      const bool treatStrides) const {
+      const FileDescription& fd) const {
     const auto types = i.getTypesDescription();
     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
     // the queue of the execution options is not used: the C++ parallel
@@ -69,7 +68,7 @@ namespace mfront::generic_parallel::material_property {
       // behaviours
       writeLocalStatisticsDeclaration(os);
     }
-    this->writeKernels(os, i, mpd, fd, treatStrides);
+    this->writeKernels(os, i, mpd, fd);
     auto write_kernel_call = [&os, this, &types, requiresBoundsCheck](
                                  const std::string_view npoints,
                                  const bool handleStrides) {
@@ -93,9 +92,9 @@ namespace mfront::generic_parallel::material_property {
       os << "const auto mfront_reduced_statistics = std::transform_reduce("
          << this->execution_policy << ", " << range << ", "
          << "mfront_gpmp_Statistics{.number_of_failures = 0, "
-         << ".first_failure_index = ::mfront::gpmp::no_event, "
+         << ".first_failure = ::mfront::gpmp::no_event, "
          << ".number_of_unreliable_results = 0, "
-         << ".first_violation = ::mfront::gpmp::no_event}, "
+         << ".first_unreliable_result = ::mfront::gpmp::no_event}, "
          << "[](const mfront_gpmp_Statistics& mfront_a, "
          << "const mfront_gpmp_Statistics& mfront_b) {\n"
          << "return ::mfront::gpmp::merge(mfront_a, mfront_b);\n"
@@ -108,7 +107,7 @@ namespace mfront::generic_parallel::material_property {
          << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
          << "mfront_reduced_statistics);\n";
     };
-    this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
+    this->writeKernelSelection(os, i, mpd, write_kernel_call);
   }  // end of writeKernelCall
 
   std::string ParallelSTLBackend::getMemorySpace() const {

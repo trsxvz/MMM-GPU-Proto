@@ -59,8 +59,7 @@ namespace mfront::generic_parallel::material_property {
     void writeKernelCall(std::ostream&,
                          const GenericParallelMaterialPropertyInterface&,
                          const MaterialPropertyDescription&,
-                         const FileDescription&,
-                         const bool) const override;
+                         const FileDescription&) const override;
     //! \brief offload the computations to the default device
     bool offload = true;
     //! \brief minimal stack size of the threads of the device (0 if not set)

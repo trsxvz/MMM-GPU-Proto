@@ -69,19 +69,16 @@ namespace mfront::generic_parallel::material_property {
     void writeKernelCall(std::ostream&,
                          const GenericParallelMaterialPropertyInterface&,
                          const MaterialPropertyDescription&,
-                         const FileDescription&,
-                         const bool) const override;
+                         const FileDescription&) const override;
     bool handlesDataTransfer() const override;
     void writeDataTransfersToDevice(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&,
-        const bool) const override;
+        const MaterialPropertyDescription&) const override;
     void writeDataTransfersToHost(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&,
-        const bool) const override;
+        const MaterialPropertyDescription&) const override;
     /*!
      * \brief enumeration giving if data transfer are handled
      */

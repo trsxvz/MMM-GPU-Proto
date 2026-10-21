@@ -1,0 +1,12 @@
+@DSL MaterialProperty;
+@Law InvalidNameTest_generic_parallel;
+@Description {
+  "The name of a material property must not contain `_generic_parallel`: "
+  "the generic-parallel interface refuses this material property."
+}
+
+@Output y;
+
+@Function {
+  y = 1;
+}

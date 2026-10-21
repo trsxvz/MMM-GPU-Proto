@@ -49,20 +49,17 @@ namespace mfront::generic_parallel::material_property {
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
       const MaterialPropertyDescription& mpd,
-      const FileDescription& fd,
-      const bool treatStrides) const {
+      const FileDescription& fd) const {
     const auto types = i.getTypesDescription();
     // the queue of the execution options is not used: the computations are
     // performed on the current device of OpenACC
     if (this->device_stack_size != 0) {
       os << "if (!mfront::generic_parallel::openacc::setMinimalStackSize("
          << this->device_stack_size
-         << ", mfront_options.preserve_stack_size != 0)) {\n"
-         << "mfront_output_status->status = -6;\n"
-         << "mfront_report("
-         << "mfront::generic_parallel::stack_size_error_message);\n"
-         << "return;\n"
-         << "}\n";
+         << ", mfront_options.preserve_stack_size != 0)) {\n";
+      writeBatchError(os, -7,
+                      "mfront::generic_parallel::stack_size_error_message");
+      os << "}\n";
     }
     const auto checks = this->isBoundsCheckingRequired(mpd);
     if (checks) {
@@ -70,7 +67,7 @@ namespace mfront::generic_parallel::material_property {
       // behaviours
       writeLocalStatisticsDeclaration(os);
     }
-    this->writeKernels(os, i, mpd, fd, treatStrides);
+    this->writeKernels(os, i, mpd, fd);
     auto write_loop = [this, &os, &types, checks](
                           const std::string_view npoints,
                           const bool handleStrides) {
@@ -85,21 +82,21 @@ namespace mfront::generic_parallel::material_property {
         // type has the size of `unsigned long long`: the minimum reductions
         // of OpenACC on `unsigned long long` are wrong on NVIDIA GPUs with
         // `nvc++` 25.11
-        os << "using mfront_index_type = std::conditional_t<"
+        os << "using mfront_key_type = std::conditional_t<"
            << "sizeof(unsigned long) == sizeof(unsigned long long), "
            << "unsigned long, unsigned long long>;\n"
            << "auto mfront_number_of_failures = 0ull;\n"
-           << "auto mfront_first_failure_index = "
-           << "static_cast<mfront_index_type>(::mfront::gpmp::no_event);\n"
+           << "auto mfront_first_failure = "
+           << "static_cast<mfront_key_type>(::mfront::gpmp::no_event);\n"
            << "auto mfront_number_of_unreliable_results = 0ull;\n"
-           << "auto mfront_first_violation = "
-           << "static_cast<mfront_index_type>(::mfront::gpmp::no_event);\n";
+           << "auto mfront_first_unreliable_result = "
+           << "static_cast<mfront_key_type>(::mfront::gpmp::no_event);\n";
       }
       const auto reductions =
           std::string{checks ? " reduction(+ : mfront_number_of_failures, "
                                "mfront_number_of_unreliable_results) "
-                               "reduction(min : mfront_first_failure_index, "
-                               "mfront_first_violation)"
+                               "reduction(min : mfront_first_failure, "
+                               "mfront_first_unreliable_result)"
                              : ""};
       os << "#pragma acc parallel loop copyin(" << kernel << ")" << reductions
          << "\n";
@@ -108,21 +105,20 @@ namespace mfront::generic_parallel::material_property {
       if (checks) {
         os << "const auto mfront_point_status = " << kernel << "(mfront_i);\n"
            << "if (mfront_point_status.hasEvent()) {\n"
-           << "if (mfront_point_status.failure) {\n"
+           << "const auto mfront_key = static_cast<mfront_key_type>("
+           << "::mfront::gpmp::makeKey("
+           << "static_cast<unsigned long long>(mfront_i), "
+           << "mfront_point_status.check));\n"
+           << "if (mfront_point_status.isFailure()) {\n"
            << "mfront_number_of_failures += 1;\n"
-           << "const auto mfront_ui = static_cast<mfront_index_type>("
-           << "mfront_i);\n"
-           << "mfront_first_failure_index = "
-           << "(mfront_ui < mfront_first_failure_index) ? mfront_ui : "
-           << "mfront_first_failure_index;\n"
+           << "mfront_first_failure = (mfront_key < mfront_first_failure) ? "
+           << "mfront_key : mfront_first_failure;\n"
            << "} else {\n"
            << "mfront_number_of_unreliable_results += 1;\n"
+           << "mfront_first_unreliable_result = "
+           << "(mfront_key < mfront_first_unreliable_result) ? "
+           << "mfront_key : mfront_first_unreliable_result;\n"
            << "}\n"
-           << "const auto mfront_violation = static_cast<mfront_index_type>("
-           << "mfront_point_status.violation);\n"
-           << "mfront_first_violation = "
-           << "(mfront_violation < mfront_first_violation) ? "
-           << "mfront_violation : mfront_first_violation;\n"
            << "}\n";
       } else {
         os << kernel << "(mfront_i);\n";
@@ -132,16 +128,17 @@ namespace mfront::generic_parallel::material_property {
         os << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
            << "mfront_gpmp_Statistics{"
            << ".number_of_failures = mfront_number_of_failures, "
-           << ".first_failure_index = "
-           << "static_cast<unsigned long long>(mfront_first_failure_index), "
+           << ".first_failure = "
+           << "static_cast<unsigned long long>(mfront_first_failure), "
            << ".number_of_unreliable_results = "
            << "mfront_number_of_unreliable_results, "
-           << ".first_violation = "
-           << "static_cast<unsigned long long>(mfront_first_violation)});\n";
+           << ".first_unreliable_result = "
+           << "static_cast<unsigned long long>("
+           << "mfront_first_unreliable_result)});\n";
       }
       os << "}\n";
     };
-    this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
+    this->writeKernelSelection(os, i, mpd, write_loop);
   }  // end of writeKernelCall
 
   std::string OpenACCBackend::getMemorySpace() const {

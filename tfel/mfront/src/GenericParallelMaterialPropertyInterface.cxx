@@ -153,8 +153,7 @@ namespace mfront {
 #if !((defined _WIN32) && (defined _MSC_VER))
     insert_if(l.link_libraries, "m");
 #endif /* !((defined _WIN32) && (defined _MSC_VER)) */
-    insert_if(l.epts, name);
-    insert_if(l.epts, name + '2');
+    insert_if(l.epts, name + "_generic_parallel");
     d.headers.push_back(this->getHeaderFileName(name));
   }  // end of getLibraryDescription
 
@@ -170,10 +169,15 @@ namespace mfront {
       const MaterialPropertyDescription& mpd) const {
     const auto& material = mpd.material;
     const auto& className = mpd.className;
-    if (material.empty()) {
-      return className;
-    }
-    return material + "_" + className;
+    const auto name =
+        material.empty() ? className : material + "_" + className;
+    // the names of the batch functions and of their metadata end with
+    // `_generic_parallel`
+    tfel::raise_if(name.find("_generic_parallel") != std::string::npos,
+                   "GenericParallelMaterialPropertyInterface::getFunctionName: "
+                   "the name of the material property ('" +
+                       name + "') must not contain '_generic_parallel'");
+    return name;
   }
 
   std::string GenericParallelMaterialPropertyInterface::getHeaderFileName(

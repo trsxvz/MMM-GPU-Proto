@@ -8,24 +8,36 @@
 # tests: behaviours (default) or material-properties. DEVTEST_OPTIMIZATION_LEVEL
 # (for instance -O1 or -O3) replaces -O2 in the configuration file and in the
 # commands of the test. DEVTEST_BEHAVIOURS (names of the test behaviours)
-# restricts the built behaviours, for targeted tests.
+# restricts the built behaviours, for targeted tests. DEVTEST_TREE and
+# DEVTEST_BUILD select another development tree and its build directory.
+# The tests are copied with the layout of the installed test-suite
+# (<kind>/generic-parallel/<configuration>): the comparison of the material
+# properties includes a header of the tests of the behaviours.
 set -u
 c=$1
 conf=${c%%/*}
 pattern=${2:-.}
 P=$HOME/Documents/GitHub/mfem-mgis-gpu-proto
-D=$P/tfel-dev
+D=${DEVTEST_TREE:-$P/tfel-dev}
+BUILD=${DEVTEST_BUILD:-$P/scratch/build-dev2}
 kind=${DEVTEST_KIND:-behaviours}
-if [ "$kind" = behaviours ]; then
-  T=$P/scratch/devtest/$c
-else
-  T=$P/scratch/devtest/$kind/$c
-fi
+case "$kind" in
+  behaviours | material-properties) ;;
+  *)
+    echo "invalid kind of tests '$kind'" >&2
+    exit 1
+    ;;
+esac
+# the copy is deleted with a literal prefix, before sourcing scripts/env.sh
+# (the slashes of the configuration are replaced)
+rm -rf -- "$HOME/Documents/GitHub/mfem-mgis-gpu-proto/scratch/devtest/$kind-${c//\//-}"
+T=$P/scratch/devtest/$kind-${c//\//-}
 source "$P/scripts/env.sh" > /dev/null 2>&1
 export MAKEFLAGS=${MAKEFLAGS:--j3}
-rm -rf "$T" && mkdir -p "$(dirname "$T")"
-cp -r "$D/test-suite/$kind/generic-parallel" "$T"
-cd "$T/$c" || exit 1
+mkdir -p "$T/behaviours" "$T/material-properties"
+cp -r "$D/test-suite/behaviours/generic-parallel" "$T/behaviours/"
+cp -r "$D/test-suite/material-properties/generic-parallel" "$T/material-properties/"
+cd "$T/$kind/generic-parallel/$c" || exit 1
 # substitutions of tfel-check, as KEY%value pairs
 subst=$(grep '^tfel-substitutions:STRING=' "$PROTO_TFEL_BUILD/CMakeCache.txt" | cut -d= -f2-)
 # additional substitutions, as KEY%value pairs separated by semicolons
@@ -58,8 +70,8 @@ fi
 cat > mfront-dev.sh << EOF
 #!/bin/bash
 INCLUDES="$dev_includes \${INCLUDES:-}" \\
-LD_LIBRARY_PATH=\$(find "$P/scratch/build-dev2" -name "*.so" -printf "%h\n" | sort -u | paste -sd:):\${LD_LIBRARY_PATH:-} \\
-  exec "$P/scratch/build-dev2/mfront/src/mfront" "\$@"
+LD_LIBRARY_PATH=\$(find "$BUILD" -name "*.so" -printf "%h\n" | sort -u | paste -sd:):\${LD_LIBRARY_PATH:-} \\
+  exec "$BUILD/mfront/src/mfront" "\$@"
 EOF
 chmod +x mfront-dev.sh
 # reference library built with the headers of the development tree too (see

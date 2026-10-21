@@ -22,7 +22,10 @@ Patches, by subject (independently of their numbers; the details are in
   asynchronous computations;
 - material properties of the `generic-parallel` interface: loading,
   `evaluate`, execution policies, asynchronous evaluations, statistics and
-  statuses;
+  statuses. Patch 0079 follows version 3 of the functions of TFEL: copies
+  `mgis_mp_Batch<X>` of the data structures, checked member by member,
+  loading by two independent tests (functions of batches if their version
+  is exported, function of one point for the `generic` interface);
 - views and layouts: `FieldView` and `MaterialDataView`, layout of the
   arrays of the material data managers (point by point or component by
   component), views on the variables of a state, rotations and

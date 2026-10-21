@@ -1,7 +1,10 @@
 #!/bin/bash
 # Runs the installed tests of the generic-parallel interface (behaviours
 # and material properties) for all the configurations, in a disposable
-# copy (scratch/tc by default), with the environment of scripts/env.sh.
+# copy (scratch/tc by default), with the environment of scripts/env.sh. The
+# copy has the layout of the installed test-suite
+# (<kind>/generic-parallel/<configuration>): the comparison of the material
+# properties includes a header of the tests of the behaviours.
 # Usage: scripts/run-generic-parallel-tests.sh [configuration pattern]
 # Variables:
 # - GPB_OPTIMIZATION_LEVEL (for example -O1 or -O3): replaces -O2 in the
@@ -16,13 +19,26 @@ export MAKEFLAGS=${MAKEFLAGS:--j6}
 T=${GPB_TESTS_DIRECTORY:-$PROTO/scratch/tc}
 level=${GPB_OPTIMIZATION_LEVEL:-}
 configurations=$PROTO_TFEL_INSTALL/share/tfel/mfront/configuration-files
-rm -rf "$T" && mkdir -p "$T"
-cp -r "$PROTO_TFEL_INSTALL/share/tfel/test-suite/behaviours/generic-parallel" "$T/behaviours"
-cp -r "$PROTO_TFEL_INSTALL/share/tfel/test-suite/material-properties/generic-parallel" "$T/material-properties"
+# an existing directory is only deleted if it is in scratch/ or if this
+# script created it
+case "$T" in
+  "$PROTO"/scratch/?*) ;;
+  *)
+    if [ -e "$T" ] && [ ! -f "$T/.generic-parallel-tests-copy" ]; then
+      echo "$T exists and is not a copy made by this script" >&2
+      exit 1
+    fi
+    ;;
+esac
+rm -rf -- "$T"
+mkdir -p "$T/behaviours" "$T/material-properties"
+touch "$T/.generic-parallel-tests-copy"
+cp -r "$PROTO_TFEL_INSTALL/share/tfel/test-suite/behaviours/generic-parallel" "$T/behaviours/"
+cp -r "$PROTO_TFEL_INSTALL/share/tfel/test-suite/material-properties/generic-parallel" "$T/material-properties/"
 pattern=${1:-.}
 status=0
 for kind in behaviours material-properties; do
-  for d in "$T/$kind"/*/; do
+  for d in "$T/$kind/generic-parallel"/*/; do
     [ -f "$d/test.check" ] || continue
     name=$(basename "$d")
     echo "$name" | grep -qE "$pattern" || continue

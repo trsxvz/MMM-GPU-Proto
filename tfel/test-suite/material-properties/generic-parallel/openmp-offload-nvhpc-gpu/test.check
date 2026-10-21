@@ -2,6 +2,7 @@
 
 @Environment {"LD_LIBRARY_PATH": "src"};
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../PoissonRatioTest.mfront";
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../BoundsOrderTest.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../Inconel600_YoungModulus.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../Inconel600_YoungModulus-qt.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openmp-offload-nvhpc-gpu.json ../UO2_YoungModulus_Martin1989.mfront";
@@ -11,5 +12,10 @@
 @Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -mp=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openmp ../test-cxx.cxx -o test-openmp -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openmp -lGenericParallelInconel600-openmp -lGenericParallelMaterialLaw-openmp";
 @Command "./test-openmp test-openmp-openmp-offload-nvhpc-gpu";
 
-@CleanFiles {"test-openmp"};
+// comparison with the `generic` interface (see compare.cxx)
+@Command "sh ../build-libraries.sh @mfront@ config-openmp-offload-nvhpc-gpu.json";
+@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -mp=gpu -gpu=mem:managed --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl -lnvhpcmanaux";
+@Command "sh ../compare-all.sh ./compare openmp --tolerance=1e-13";
+
+@CleanFiles {"test-openmp", "compare"};
 @CleanDirectories {"include", "src"};

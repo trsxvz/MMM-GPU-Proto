@@ -58,11 +58,9 @@ namespace mfront::generic_parallel::material_property {
       const MaterialPropertyDescription&) const {
     // SYCL has no default queue: the queue gives the device and the context
     // of the unified shared memory of the calling code
-    os << "if (mfront_options.queue == nullptr) {\n"
-       << "mfront_output_status->status = -5;\n"
-       << "mfront_report(\"no SYCL queue given\");\n"
-       << "return;\n"
-       << "}\n"
+    os << "if (mfront_options.queue == nullptr) {\n";
+    writeBatchError(os, -5, "\"no SYCL queue given\"");
+    os << "}\n"
        << "auto* const mfront_queue = "
        << "static_cast<::sycl::queue*>(mfront_options.queue);\n"
        // the kernel must be executed after the computations already
@@ -71,12 +69,11 @@ namespace mfront::generic_parallel::material_property {
        // evaluation is synchronous and the queue is synchronized before the
        // kernel, as for the behaviours.
        << "if (!mfront_queue->is_in_order()) {\n"
-       << "if (mfront_asynchronous) {\n"
-       << "mfront_output_status->status = -5;\n"
-       << "mfront_report(\"asynchronous evaluations require an in-order SYCL "
-       << "queue\");\n"
-       << "return;\n"
-       << "}\n"
+       << "if (mfront_asynchronous) {\n";
+    writeBatchError(os, -5,
+                    "\"asynchronous evaluations require an in-order SYCL "
+                    "queue\"");
+    os << "}\n"
        << "mfront_queue->wait_and_throw();\n"
        << "}\n";
   }  // end of writeExecutionPreparation
@@ -85,8 +82,7 @@ namespace mfront::generic_parallel::material_property {
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
       const MaterialPropertyDescription& mpd,
-      const FileDescription& fd,
-      const bool treatStrides) const {
+      const FileDescription& fd) const {
     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
     writeDeviceStackSizeSetting(os, this->device_stack_size);
     if (requiresBoundsCheck) {
@@ -105,7 +101,7 @@ namespace mfront::generic_parallel::material_property {
            << "}\n";
       }
     }
-    this->writeKernels(os, i, mpd, fd, treatStrides);
+    this->writeKernels(os, i, mpd, fd);
     auto write_kernel_call = [&os, this](const std::string_view npoints,
                                          const bool handleStrides) {
       os << "// loop over the points\n";
@@ -130,7 +126,7 @@ namespace mfront::generic_parallel::material_property {
            << "}\n";
       }
     };
-    this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
+    this->writeKernelSelection(os, i, mpd, write_kernel_call);
   }  // end of writeKernelCall
 
   bool SYCLBackend::mergesPointStatusesInKernels() const {
@@ -165,14 +161,14 @@ namespace mfront::generic_parallel::material_property {
   void SYCLBackend::writeDataTransfersToDevice(
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
-      const MaterialPropertyDescription& mpd,
-      const bool treatStrides) const {
+      const MaterialPropertyDescription& mpd) const {
     if (!this->handlesDataTransfer()) {
       return;
     }
     // the arrays which are not accessible by the device are copied in
-    // device memory, as for the behaviours. The output is also copied, so
-    // that the points where the evaluation fails keep their values
+    // device memory, as for the behaviours. The output is copied in both
+    // directions, so that the values between two values of a strided output
+    // are kept
     const auto types = i.getTypesDescription();
     const auto ns = std::string{"::mfront::generic_parallel::sycl::"};
     os << "auto mfront_copies = " << ns << "DeviceCopies{*mfront_queue, "
@@ -181,13 +177,10 @@ namespace mfront::generic_parallel::material_property {
       os << "auto mfront_args_storage = std::array<const " << types.real_type
          << "*, " << mpd.inputs.size() << ">{};\n";
       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
-        const auto stride = treatStrides ? "mfront_args_strides[" +
-                                               std::to_string(idx) + "]"
-                                         : std::string{"1"};
         os << "{\n"
            << "auto mfront_values = " << ns << "StridedArray<const "
            << types.real_type << ">{mfront_args_host[" << idx << "], "
-           << stride << ", 1};\n"
+           << "mfront_strides[" << idx << "], 1};\n"
            << "mfront_copies.transfer(mfront_values, 1, false);\n"
            << "mfront_args_storage[" << idx << "] = mfront_values.values;\n"
            << "}\n";
@@ -195,17 +188,18 @@ namespace mfront::generic_parallel::material_property {
       os << "const auto* const mfront_args = mfront_args_storage.data();\n";
     }
     os << "auto mfront_output_values = " << ns << "StridedArray<"
-       << types.real_type << ">{mfront_output_host, "
-       << (treatStrides ? "mfront_output_stride" : "1") << ", 1};\n"
+       << types.real_type << ">{mfront_output_host, mfront_output_stride, "
+       << "1};\n"
        << "mfront_copies.transfer(mfront_output_values, 1, true);\n"
-       << "auto* const mfront_output = mfront_output_values.values;\n";
+       << "auto* const mfront_output = mfront_output_values.values;\n"
+       // statuses of the points, if requested
+       << "mfront_copies.transfer(mfront_statuses, mfront_npoints, true);\n";
   }  // end of writeDataTransfersToDevice
 
   void SYCLBackend::writeDataTransfersToHost(
       std::ostream&,
       const GenericParallelMaterialPropertyInterface&,
-      const MaterialPropertyDescription&,
-      const bool) const {}
+      const MaterialPropertyDescription&) const {}
 
   std::string SYCLBackend::getMemorySpace() const {
     // with automatic transfers, the arguments and the output which are not

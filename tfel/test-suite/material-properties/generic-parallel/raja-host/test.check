@@ -2,6 +2,7 @@
 
 @Environment {"LD_LIBRARY_PATH": "src"};
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-raja-host.json ../PoissonRatioTest.mfront";
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-raja-host.json ../BoundsOrderTest.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-raja-host.json ../Inconel600_YoungModulus.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-raja-host.json ../Inconel600_YoungModulus-qt.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-raja-host.json ../UO2_YoungModulus_Martin1989.mfront";
@@ -11,5 +12,10 @@
 @Command "@TFEL_RAJA_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=raja -DMFRONT_GPMP_TEST_USE_RAJA -DMFRONT_GPMP_TEST_RAJA_EXECUTION_POLICY=mfront::generic_parallel::raja::DefaultHostExecutionPolicy -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-raja -L@TFEL_LIBRARY_DIR@ -lTFELTests -Lsrc -lGenericParallelUO2-raja -lGenericParallelInconel600-raja -lGenericParallelMaterialLaw-raja @TFEL_RAJA_LINKER_FLAGS@";
 @Command "./test-raja test-raja-raja-host";
 
-@CleanFiles {"test-raja"};
+// comparison with the `generic` interface (see compare.cxx)
+@Command "sh ../build-libraries.sh @mfront@ config-raja-host.json";
+@Command "@TFEL_RAJA_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@ -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_RAJA_LINKER_FLAGS@";
+@Command "sh ../compare-all.sh ./compare raja";
+
+@CleanFiles {"test-raja", "compare"};
 @CleanDirectories {"include", "src"};

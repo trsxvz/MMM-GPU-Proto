@@ -67,18 +67,7 @@ namespace mfront::generic_parallel::material_property {
       const GenericParallelMaterialPropertyInterface& i,
       const MaterialPropertyDescription& mpd,
       const FileDescription& fd) const {
-    for (const auto b : {true, false}) {
-      this->writeCImplementations2(os, i, mpd, fd, b);
-    }
-  }  // end of writeCImplementations
-
-  void CxxProgrammingModelBackendBase::writeCImplementations2(
-      std::ostream& os,
-      const GenericParallelMaterialPropertyInterface& i,
-      const MaterialPropertyDescription& mpd,
-      const FileDescription& fd,
-      const bool treatStrides) const {
-    this->writeCFunctionBeginning(os, i, mpd, treatStrides);
+    this->writeCFunctionBeginning(os, i, mpd);
     // the runtime of the backend (data transfers, submission of the kernels)
     // may throw exceptions, which must not cross the boundary of the C
     // function. They are reported as runtime errors of the backend, as the
@@ -86,24 +75,16 @@ namespace mfront::generic_parallel::material_property {
     os << "try{\n";
     this->writeExecutionPreparation(os, i, mpd);
     if (this->handlesDataTransfer()) {
-      this->writeDataTransfersToDevice(os, i, mpd, treatStrides);
+      this->writeDataTransfersToDevice(os, i, mpd);
     }
-    this->writeKernelCall(os, i, mpd, fd, treatStrides);
+    this->writeKernelCall(os, i, mpd, fd);
     this->writeResultsAnalysis(os, i, mpd);
     if (this->handlesDataTransfer()) {
-      this->writeDataTransfersToHost(os, i, mpd, treatStrides);
+      this->writeDataTransfersToHost(os, i, mpd);
     }
-    os << "} catch(std::exception& mfront_cxx_exception){\n"
-       << "mfront_output_status->status = -6;\n"
-       << "mfront_report(mfront_cxx_exception.what());\n"
-       << "return;\n"
-       << "} catch(...){\n"
-       << "mfront_output_status->status = -6;\n"
-       << "mfront_report(\"unknown exception\");\n"
-       << "return;\n"
-       << "}\n";
-    os << "} // end of " << i.getFunctionName(mpd) << "\n\n";
-  }  // end of writeCImplementations2
+    writeHostExceptionsHandling(os);
+    writeCFunctionEnd(os, i, mpd);
+  }  // end of writeCImplementations
 
   void CxxProgrammingModelBackendBase::writeKernel(
       std::ostream& os,
@@ -127,6 +108,7 @@ namespace mfront::generic_parallel::material_property {
     if ((handleStrides) && (!mpd.inputs.empty())) {
       os << ", mfront_strides";
     }
+    os << ", mfront_statuses";
     if (isBoundsCheckingRequired(mpd)) {
       os << ", mfront_out_of_bounds_policy";
       if (this->mergesPointStatusesInKernels()) {
@@ -153,21 +135,20 @@ namespace mfront::generic_parallel::material_property {
   void CxxProgrammingModelBackendBase::writeDataTransfersToHost(
       std::ostream&,
       const GenericParallelMaterialPropertyInterface&,
-      const MaterialPropertyDescription&,
-      const bool) const {}  // end of writeOutputDataTransfer
+      const MaterialPropertyDescription&) const {
+  }  // end of writeDataTransfersToHost
 
   void CxxProgrammingModelBackendBase::writeDataTransfersToDevice(
       std::ostream&,
       const GenericParallelMaterialPropertyInterface&,
-      const MaterialPropertyDescription&,
-      const bool) const {}  // end of writeStateVariablesDataTransfer
+      const MaterialPropertyDescription&) const {
+  }  // end of writeDataTransfersToDevice
 
   void CxxProgrammingModelBackendBase::writeKernels(
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
       const MaterialPropertyDescription& mpd,
-      const FileDescription& fd,
-      const bool treatStrides) const {
+      const FileDescription& fd) const {
     // variables captured by the kernels. The pointers to the arguments are
     // copied, since the array of those pointers given by the calling code
     // is generally not accessible by the device (for example, an array on
@@ -189,9 +170,7 @@ namespace mfront::generic_parallel::material_property {
          << nname << "::" << hn << "::get" << hn << "());\n";
     }
     this->writeKernel(os, i, mpd, fd, false);
-    if (treatStrides) {
-      this->writeKernel(os, i, mpd, fd, true);
-    }
+    this->writeKernel(os, i, mpd, fd, true);
   }  // end of writeKernels
 
   std::string CxxProgrammingModelBackendBase::getKernelSpecifiers() const {

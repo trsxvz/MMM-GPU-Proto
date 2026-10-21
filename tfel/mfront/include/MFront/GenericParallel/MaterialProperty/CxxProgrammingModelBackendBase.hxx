@@ -69,24 +69,6 @@ namespace mfront::generic_parallel::material_property {
 
    protected:
     /*!
-     * \brief write the C implementations of the material property
-     *
-     * \param[in] os: output stream
-     * \param[in] i: interface
-     * \param[in] mpd: material property description
-     * \param[in] fd: file description
-     * \param[in] treatStrides: if true, the function handles the strides of
-     * the output and of the arguments. Otherwise, the arguments and the
-     * output are contiguous arrays and the name of the function ends with
-     * `2`.
-     */
-    virtual void writeCImplementations2(
-        std::ostream&,
-        const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&,
-        const FileDescription&,
-        const bool) const;
-    /*!
      * \brief write a kernel as a lambda function inside the body of the
      * material property
      *
@@ -106,7 +88,7 @@ namespace mfront::generic_parallel::material_property {
      * \brief write the declarations of the variables captured by the kernels
      * (copies of the pointers to the arguments, named `mfront_arg0`,
      * `mfront_arg1`, etc., and values of the parameters) and the kernels
-     * (without strides and, if strides are treated, with strides).
+     * (without strides and with strides).
      *
      * If bounds checking is required and if the backend merges the statuses
      * of the points in the kernels, the statistics `mfront_statistics` must
@@ -117,20 +99,25 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] i: interface
      * \param[in] mpd: material property description
      * \param[in] fd: file description
-     * \param[in] treatStrides: boolean stating if strides are treated
      */
     void writeKernels(std::ostream&,
                       const GenericParallelMaterialPropertyInterface&,
                       const MaterialPropertyDescription&,
-                      const FileDescription&,
-                      const bool) const;
-    //
+                      const FileDescription&) const;
+    /*!
+     * \brief write the declaration of the kernels (see `writeKernels`) and
+     * the evaluation of the batch of points
+     *
+     * \param[in] os: output stream
+     * \param[in] i: interface
+     * \param[in] mpd: material property description
+     * \param[in] fd: file description
+     */
     virtual void writeKernelCall(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&,
-        const FileDescription&,
-        const bool) const = 0;
+        const FileDescription&) const = 0;
     /*!
      * \return the specifiers written between the captures and the parameters
      * of the lambda functions implementing the kernels (for instance, the
@@ -163,28 +150,22 @@ namespace mfront::generic_parallel::material_property {
      * \param[in] os: output stream
      * \param[in] i: interface
      * \param[in] mpd: material property description
-     * \param[in] treatStrides: boolean stating if one shall add
-     * support for strides
      */
     virtual void writeDataTransfersToDevice(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&,
-        const bool) const;
+        const MaterialPropertyDescription&) const;
     /*!
      * \brief write the code transferring the data to the host
      *
      * \param[in] os: output stream
      * \param[in] i: interface
      * \param[in] mpd: material property description
-     * \param[in] treatStrides: boolean stating if one shall add
-     * support for strides
      */
     virtual void writeDataTransfersToHost(
         std::ostream&,
         const GenericParallelMaterialPropertyInterface&,
-        const MaterialPropertyDescription&,
-        const bool) const;
+        const MaterialPropertyDescription&) const;
   };  // end of CxxProgrammingModelBackendBase
 
 }  // end of namespace mfront::generic_parallel::material_property

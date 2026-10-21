@@ -41,9 +41,19 @@ their justifications are in `docs/tfel.md` of the prototype, in French):
   success, shared data copied on each device, statistics;
 - `generic-parallel` interface for material properties: fixes, Kokkos, RAJA,
   OpenMP and OpenACC backends, properties using data or other laws,
-  execution options as last argument (version 2 of the functions),
   asynchronous evaluation, statistics, symbols, statuses in reused blocks,
-  status of the `Warning` policy, physical bounds;
+  status of the `Warning` policy, physical bounds. Patch 0129 gives
+  version 3 of the functions: one function per property taking the data
+  of a batch, evaluation at each point identical to the `generic`
+  interface (statuses of the points, `NaN` where it fails), output status
+  and statistics modelled on the behaviours, errors of the batch `-5`,
+  `-6` and `-7`. Patch 0130 writes the tests once for all the backends
+  and compares them with the `generic` interface at each point. Patch
+  0128: the device implementation of a material law returns `NaN` for a
+  result which is not finite;
+- `generic-parallel` interface for behaviours (patches 0126 and 0127):
+  models executed when a prediction is computed, one definition of the
+  time step scaling factor of the statistics;
 - tests of both interfaces against the `generic` interface for all the
   configurations (TDLS, isotropic DSLs, parameters changed at run time,
   static variables), and documentation (web pages, keyword pages,

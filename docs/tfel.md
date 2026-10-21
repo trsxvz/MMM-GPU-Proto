@@ -370,7 +370,8 @@ The interface covers everything the `generic` interface can do:
 
 This interface existed in TFEL. It evaluates a material property on a set
 of points. The prototype extends it so that it offers the same
-possibilities as the one of behaviours.
+possibilities as the one of behaviours, and gives it the interface planned
+for TFEL 5.2 (version 3 of the functions, `MFRONT_GPMP_API_VERSION`).
 
 ### What changed
 
@@ -378,90 +379,122 @@ possibilities as the one of behaviours.
   existing backends (`cuda`, `hip`, `stlpar`, `sycl`).
 - **Properties defined by data or calling other material laws**: usable on
   CUDA and HIP.
-- **Execution options as last argument** (version 2 of the functions,
-  `MFRONT_GPMP_API_VERSION`). They have the members of the options of
-  behaviours, with the same meaning: queue, statistics of an asynchronous
-  evaluation, preservation of the stack. A null pointer gives the default
-  options. The SYCL queue was an argument specific to this backend,
-  inserted in the middle of the others: the signature depended on the
-  backend. It now goes through the options, and the signature is the same
-  everywhere.
+- **One function per material property `S`**:
+  `int S_generic_parallel(mfront_gpmp_OutputStatus*, const mfront_gpmp_BatchData*)`.
+  The data of the batch give the number of points, the output and the
+  arguments (pointer and stride), the out-of-bounds policy, the optional
+  statuses of the points and the execution options. The function with
+  contiguous arrays (suffix `2`) is removed. The names end with
+  `_generic_parallel`, and the name of a material property can't contain
+  this suffix. Such a library has no function `S` of the `generic`
+  interface: it is recognized by the symbol
+  `S_generic_parallel_api_version`. The SYCL queue, an argument specific to
+  this backend inserted in the middle of the others, goes through the
+  execution options: the signature is the same everywhere.
+- **Same evaluation as `generic` at each point**: same checks, same status
+  at each point (`0`, `1`, `-1`, `-4`, written in the optional array of the
+  statuses), same retained check (first failure, otherwise last warning).
+  The output is `NaN` where the evaluation fails, the computed value where
+  it is not finite.
 - **Output status and statistics modelled on behaviours.** The output
-  status (`mfront_gpmp_OutputStatus`) gives, in addition to the status and
-  the rank of the out-of-bounds variable, the number of failed points, the
-  first of them and the number of out-of-bounds points with the `Warning`
-  policy. Each kernel computes the status of its point and merges it into
-  the statistics (`mfront_gpmp_Statistics`) only when an event occurs:
-  atomic operations for CUDA, HIP, SYCL, Kokkos and RAJA, reduction for the
-  parallel algorithms, OpenMP and OpenACC, as for behaviours. Zero cost in
-  case of success with atomic operations.
-- **Stack of the threads**: CUDA, HIP, Kokkos and RAJA adapt it to the kernel,
-  with the headers of behaviours. `preserve_stack_size` therefore has the
-  same effect everywhere.
+  status (`mfront_gpmp_OutputStatus`) gives the numbers of failed points
+  and of points out of their bounds with the `Warning` policy, and the
+  first point of each kind. Its status is the error of the batch, otherwise
+  the status of the first failed point, otherwise the status of the first
+  unreliable point. The statistics (`mfront_gpmp_Statistics`) hold two
+  opaque keys (index of the point and retained check), decoded only by the
+  report function of the library. Each kernel merges the status of its
+  point only when an event occurs: atomic operations for CUDA, HIP, SYCL,
+  Kokkos and RAJA, reduction for the parallel algorithms, OpenMP and
+  OpenACC, as for behaviours.
+- **Errors of the batch** shared by the three types of objects: `-5`
+  (invalid arguments), `-6` (invalid parameters), `-7` (runtime error of
+  the backend, including an exception of its runtime on the host). An
+  empty batch is accepted without check. `errno` is restored at each
+  return.
+- **Statistics given**: on all the backends, the output status only
+  reports the errors of the batch, and the report function
+  `S_generic_parallel_report` gives the result once the computations are
+  finished. The backends with a queue may return as soon as the
+  computation is submitted. The synchronous evaluation calls the same
+  function: the analysis is written only once.
+- **Stack of the threads**: CUDA, HIP, Kokkos and RAJA adapt it to the
+  kernel, with the headers of behaviours. `preserve_stack_size` therefore
+  has the same effect everywhere.
 - **SYCL transfers**: the copy class of behaviours
   (`MFront/GenericParallel/SYCLDeviceCopies.hxx`) also serves material
-  properties. The statistics of an asynchronous evaluation are copied if
-  needed. The output is copied on the way in: a failed point keeps its
-  value. A USM allocation of any type is accessible, as for behaviours. The
-  errors of the kernel are propagated (`wait_and_throw`).
-- **Exceptions of the runtimes**: reported by the status `-6`, as the
-  errors of the CUDA and HIP runtimes. The status `-2` is no longer used.
-- **Empty set**: accepted without check, as an empty batch. `errno` is
-  restored at each return.
+  properties. The statuses of the points and the statistics are copied if
+  needed. The output is copied in both directions: the values between two
+  values of a strided output are kept. A USM allocation of any type is
+  accessible, as for behaviours. The errors of the kernel are propagated
+  (`wait_and_throw`).
 - **Number of points**: type `size_t` in the CUDA, HIP and Kokkos kernels
-  and with AdaptiveCpp (limit of 2^31 points lifted).
-- **Asynchronous evaluation.** If the options give statistics, initialised
-  by `mfront_gpmp_initializeStatistics`, the function returns as soon as
-  the computation is submitted (`cuda`, `hip`, `kokkos`, `raja`, `sycl` without
-  copy). Once the computation is finished, the exported function
-  `<name>_generic_parallel_report` analyses the statistics and fills the
-  output status. The synchronous evaluation calls the same function: the
-  analysis is written only once.
+  and with AdaptiveCpp, at most 2^48 - 1 points (the index is stored in the
+  keys of the statistics).
 - **Symbols**: backend, version of the functions, memory space, as for
   behaviours.
 - **Reused blocks**: the statistics of a synchronous evaluation come from a
   pool of blocks, without allocation per call; waiting on the stream
   instead of the whole GPU (CUDA, HIP); waiting on the instance used
   instead of the whole of Kokkos.
-- **Status 1 with the `Warning` policy**: a violated bound now gives the
-  status 1 (result computed, to be used with caution), as the `generic`
-  interface does. The status used to stay zero.
 
-The status and the rank of the variable keep the meaning of the `generic`
-interface of material properties: `0` success, `1` bound violated with the
-`Warning` policy (positive rank), `-1` physical bound violated or bound
-violated with the `Strict` policy (negative rank), `-4` non-finite result.
-The interface adds `-5` (invalid arguments, missing SYCL queue,
-asynchronous evaluation on an out-of-order SYCL queue), `-6` (backend
-error, including an exception of its runtime) and `-7` (inconsistent
-uniform output). When several checks fail, the first one in the following
-order is reported: non-finite result, physical bounds, bounds, the
-variables in order, the output after the arguments.
+Deliberate differences with the `generic` interface: no status `-2` or
+`-3` at a point (no exception, no `errno` in device code), a null rank of
+the variable for `-4`, a message without the values, no MTest file.
+
+### Tests
+
+The tests of the semantics are written once
+(`test-suite/material-properties/generic-parallel/tests.hxx`) and shared by
+the backends whose arrays are accessible by the host; each backend adds its
+own tests (queues, asynchronous evaluation, stack, memory of the device). A
+comparator (`compare.cxx`) evaluates each test material property with the
+`generic` interface at each point and with the batch, for the three
+policies, contiguous, strided and uniform values, synchronous and
+asynchronous evaluations: values, statuses of the points and summary. The
+values are compared exactly with `g++`, `clang++` and `nvc++` on the host,
+up to 1e-13 with `icpx` (fast floating point model by default) and on GPUs.
+A test property with bounds and physical bounds on two arguments and on
+its output (`BoundsOrderTest`) checks the retained check: first failure,
+otherwise last warning, rank of the output after the arguments. The
+property generated with the runtime checks disabled is run on the four
+backends of TFEL master (`stlpar`, `cuda`, `hip`, `sycl`) and on `openmp`
+and `openacc`. The error reported for an invalid file of parameters
+(`-6`), the limit of the grid of the CUDA and HIP kernels (`-5` beyond
+2^31 - 1 blocks) and the refusal of a name containing `_generic_parallel`
+are also checked.
+
+One difference with the `generic` interface remains open. A material
+property calling another one (`@MaterialLaw`) uses, in device code, the
+implementation of the called property of the `mfront::device` namespace.
+This implementation returns `NaN` outside the physical bounds of the called
+property, whereas the `generic` interface does not check them: on a device,
+the evaluation then fails with the status `-4`. The comparison of this test
+property keeps the temperatures in the physical bounds. A check on the
+side of the caller for the material laws is proposed for TFEL 6.0.
 
 ## Comparison between behaviours and material properties
 
 | | Behaviours and models | Material properties |
 |---|---|---|
-| Call | batch structure | arguments and strides |
+| Call | batch structure | batch structure |
 | Execution options | queue, statistics, stack | same members |
 | Synchronous or asynchronous | chosen by the caller | chosen by the caller |
-| Asynchronous report | `mfront_gpb_report` (C function of `BatchData.h`) | `<name>_generic_parallel_report` (symbol, it names the out-of-bounds variable) |
+| Asynchronous report | `mfront_gpb_report` (C function of `BatchData.h`) | `<name>_generic_parallel_report` (symbol, it decodes the keys and names the variable) |
 | Empty batch | accepted without check | accepted without check |
-| Exception of the runtime of the backend | `-3` (backend error) | `-6` (backend error) |
+| Errors of the batch | `-2` (arguments), `-3` (backend) | `-5` (arguments), `-6` (parameters), `-7` (backend) |
 | Automatic SYCL transfers | `SYCLDeviceCopies.hxx` | same class |
 | Merge of the statuses of the points | atomic (CUDA, HIP, SYCL, Kokkos, RAJA), reduction (parallel algorithms, OpenMP, OpenACC) | identical |
-| Number of failed points, first failed point | yes | yes |
+| Number of failed points, first failed point | yes | yes, and first unreliable point |
 | Stack of the threads | adapted to the kernel, `preserve_stack_size` | identical |
 | Memory space, backend, version | exported symbols | exported symbols |
-| Optional array of the statuses per point | yes | no |
+| Optional array of the statuses per point | yes | yes |
 
-One difference remains: the optional array of the statuses per point. It is
-not added to material properties (option set aside). MGIS exposes it for
-neither of the two interfaces.
-
-The statistics cannot have exactly the same structure. Those of behaviours
-carry the time step factor, those of material properties the first failed
-check, which is used to name the variable in the message.
+The errors of the batch of the behaviours will take the codes of the
+material properties (`-5`, `-6`, `-7`) when the behaviours are aligned on
+the same interface (next step of the rework). The statistics of the
+behaviours carry the time step factor, those of material properties the
+key of the first unreliable point.
 
 ## GPU code in TFEL and MFront
 
@@ -606,7 +639,9 @@ in the release notes of TFEL (`tfel/docs/web/release-notes-5.2.md`, section
 "Known incompatibilities"): `MechanicalBehaviour` without virtual
 functions, functions of `BoundsCheck`, `LogarithmicStrainHandler` defined
 in its header, slip systems built at compile time. The functions of
-`generic-parallel` material properties take one more argument (version 2).
+`generic-parallel` material properties, new in TFEL 5.2, differ from those
+of the master (version 3, see
+[above](#generic-parallel-interface-of-material-properties)).
 
 ## Configurations and compilers
 

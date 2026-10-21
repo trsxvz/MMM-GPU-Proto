@@ -2,6 +2,7 @@
 
 @Environment {"LD_LIBRARY_PATH": "src"};
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-multicore.json ../PoissonRatioTest.mfront";
+@Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-multicore.json ../BoundsOrderTest.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-multicore.json ../Inconel600_YoungModulus.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-multicore.json ../Inconel600_YoungModulus-qt.mfront";
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-multicore.json ../UO2_YoungModulus_Martin1989.mfront";
@@ -16,5 +17,10 @@
 @Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -acc=multicore --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openacc ../test-no-runtime-checks.cxx -o test-no-runtime-checks -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelInconel600-openacc";
 @Command "./test-no-runtime-checks test-no-runtime-checks-openacc-nvhpc-multicore";
 
-@CleanFiles {"test-openacc", "test-no-runtime-checks"};
+// comparison with the `generic` interface (see compare.cxx)
+@Command "sh ../build-libraries.sh @mfront@ config-openacc-nvhpc-multicore.json";
+@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -acc=multicore --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+@Command "sh ../compare-all.sh ./compare openacc";
+
+@CleanFiles {"test-openacc", "test-no-runtime-checks", "compare"};
 @CleanDirectories {"include", "src"};

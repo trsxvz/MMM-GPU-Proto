@@ -25,10 +25,29 @@ the notions shared by both interfaces (memory spaces, queues, stack size
 of the threads of the devices, configuration files delivered with
 `TFEL`).
 
-# Prototypes of the generated functions
+# Generated functions
 
-The `generic-parallel` interface for material properties generates two
-functions. Those functions can be used:
+For a material property `S` (the name of the function of the `generic`
+interface, `<material>_<law>` or `<law>`), the `generic-parallel`
+interface generates two functions, declared by the generated header:
+
+~~~~{.cxx}
+// evaluation of the material property on a batch of points
+int S_generic_parallel(mfront_gpmp_OutputStatus* const,
+                       const mfront_gpmp_BatchData* const);
+// analysis of the statistics of an evaluation (see below)
+int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
+                              const mfront_gpmp_Statistics* const);
+~~~~
+
+Both functions return the status of the output status. The data
+structures are declared in
+`MFront/GenericParallelMaterialProperty/MaterialProperty.h`, with the
+types of the pointers to those functions
+(`mfront_gpmp_BatchMaterialPropertyPtr` and `mfront_gpmp_ReportPtr`).
+The name of a material property can't contain `_generic_parallel`.
+
+Those functions can be used:
 
 - directly by including the generated headers and linking with the
   generated library.
@@ -38,91 +57,91 @@ functions. Those functions can be used:
 
 In addition, the `generic-parallel` interface also exports:
 
-- symbols describing the material property (names of the inputs, list of
-  parameters, default values, etc.),
-- the `<name>_generic_parallel_backend` symbol, which gives the backend of
-  the library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp`
-  or `openacc`), and the `<name>_generic_parallel_api_version` symbol (an
-  `unsigned short`), equal to the `MFRONT_GPMP_API_VERSION` macro of
-  `MFront/GenericParallelMaterialProperty/MaterialProperty.h`, which is
-  incremented at each incompatible change of the generated functions,
-- the `<name>_generic_parallel_memory_space` symbol (a `const char*`),
-  which tells where the arguments and the output must be located (`host`,
-  `device` or `any`, as for the behaviours). The name of the backend does
-  not suffice: for instance, the `stlpar` backend computes on the host or
-  on a GPU depending on the compiler. This memory space is set when the
-  library is compiled (see `MFront/GenericParallel/MemorySpace.hxx`),
-- the `<name>_generic_parallel_report` function, which analyses the
-  statistics of an evaluation (see below),
+- the symbols describing the material property exported by the `generic`
+  interface (names of the inputs, list of parameters, default values,
+  etc.), and the `S_mfront_interface` symbol, equal to `GenericParallel`.
+  The library does not contain the function `S` of the `generic`
+  interface;
+- the `S_generic_parallel_api_version` symbol (an `unsigned short`),
+  equal to the `MFRONT_GPMP_API_VERSION` macro (`3`), shifted by 1000 for
+  a material property generated with another numerical type than `double`
+  (`real_type` DSL option). This symbol tells
+  that the library contains the functions of batches of points. It only
+  changes with an incompatible change of those functions: a calling code
+  must refuse any version it does not know;
+- the `S_generic_parallel_backend` symbol, which gives the backend of the
+  library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp` or
+  `openacc`), for information;
+- the `S_generic_parallel_memory_space` symbol (a `const char*`), which
+  tells where the values and the statuses of the points must be located
+  (`host`, `device` or `any`, as for the behaviours). The statistics must
+  also be readable by the host (see below). The
+  name of the backend does not suffice: for instance, the `stlpar` backend
+  computes on the host or on a GPU depending on the compiler. This memory
+  space is set when the library is compiled (see
+  `MFront/GenericParallel/MemorySpace.hxx`);
 - a function allowing to modify at runtime the value of the parameters
   of the material property, if modification of parameters is allowed
   (see the `parameters_as_static_variables` DSL option).
 
-## First prototype supporting data with strides
+## Data of a batch
 
-The first generated function matches the following prototype:
+The data of a batch are given by the `mfront_gpmp_BatchData` structure:
 
 ~~~~{.cxx}
-void (*)(mfront_gpmp_OutputStatus* const,    // output status
-         mfront_gmp_real* const,             // output values
-         const mfront_gmp_size_type,         // output stride
-         const mfront_gmp_real* const* const,  // values of the arguments
-         const mfront_gmp_size_type* const,  // strides of the arguments
-         const mfront_gmp_size_type,         // number of arguments
-         const mfront_gmp_size_type,         // number of points
-         const mfront_gmp_OutOfBoundsPolicy,  // out of bounds policy
-         const mfront_gpmp_ExecutionOptions* const);  // execution options
+typedef struct mfront_gpmp_BatchData {
+  mfront_gmp_size_type number_of_points;
+  mfront_gpmp_Field output;                 // output values
+  const mfront_gpmp_ConstField* arguments;  // array read on the host
+  mfront_gmp_size_type number_of_arguments;
+  mfront_gmp_OutOfBoundsPolicy out_of_bounds_policy;
+  int* statuses;                            // optional, code of each point
+  mfront_gpmp_ExecutionOptions execution;
+} mfront_gpmp_BatchData;
 ~~~~
 
-The output status (`mfront_gpmp_OutputStatus`) is described below. The
+The output and each argument are given by a pointer to their first value
+(`values`) and by the stride between two points (`point_stride`): the
+value at the `i`-th point is `values[i * point_stride]`. A null stride
+means that the argument is uniform. The stride of the output can only be
+null for a batch of one point. The array of the arguments is read on the
+host, and may be null if the material property has no argument. The
 `mfront_gmp_OutOfBoundsPolicy` enumeration type is described in the page
 dedicated to the [`generic` interface for material
 properties](generic-material-property-interface.html). The
 `mfront_gmp_real` type is by default an alias to double precision
 floating point numbers.
 
+The evaluation at each point is the evaluation of the `generic`
+interface: same checks, same status. When several checks fail at a point,
+the first check making the evaluation fail is retained, otherwise the
+last bound violated with the warning policy, as with the `generic`
+interface. At a point where the evaluation fails (status `-1`), the
+output is `NaN`. At a point where the result is not finite (status
+`-4`), the output is the computed value. If the `statuses` array is
+given, the status of each point is written in it: `0`, `1`, `-1` or
+`-4`, with the meaning of the status of the `generic` interface. It is
+located in the memory space of the library, as the values, and is not
+written if an error of the batch is detected before the submission of
+the computations.
+
 Contrary to the `generic` interface, `errno` is not used to detect
 errors: it is thread-local and does not exist on GPUs. A result which is
-not finite (`nan` or infinite) at one point at least is reported by the
-status `-4`.
+not finite (`nan` or infinite) is reported by the status `-4`. The value
+of `errno` is restored before returning.
 
-If the number of points is null, no computation is made.
+An empty batch is accepted without any check, as an empty batch by the
+behaviours: nothing is read, written or submitted, and the status is
+`0`. The arrays and the queue may then be null.
 
-A null stride means that the associated argument is uniform. The stride
-of the output can be null only if the number of points is one and if all
-the strides of the arguments are null. Otherwise, the status `-7` is
-reported.
-
-All the backends treat the case where all the strides are equal to one,
-and the case of a uniform output (one point, all the strides being null),
-as special cases, with an optimized implementation.
-
-## Second prototype
-
-The second generated function matches the following prototype:
-
-~~~~{.cxx}
-void (*)(mfront_gpmp_OutputStatus* const,    // output status
-         mfront_gmp_real* const,             // output values
-         const mfront_gmp_real* const* const,  // values of the arguments
-         const mfront_gmp_size_type,         // number of arguments
-         const mfront_gmp_size_type,         // number of points
-         const mfront_gmp_OutOfBoundsPolicy,  // out of bounds policy
-         const mfront_gpmp_ExecutionOptions* const);  // execution options
-~~~~
-
-This function assumes that the values of the arguments and the values of
-the output are stored contiguously in memory. In other words, this
-prototype is equivalent to the first prototype when all strides are
-equal to one.
+All the backends treat a batch of one point, and the case where all the
+strides are equal to one, with a kernel without strides.
 
 ## Execution options
 
-The last argument of both functions gives the options of the execution
-(`mfront_gpmp_ExecutionOptions`, declared in
-`MFront/GenericParallelMaterialProperty/MaterialProperty.h`), or is null
-for the default options. It has the same meaning on all the backends, as
-the execution options of the behaviours:
+The `execution` member of the data of the batch gives the options of the
+execution (`mfront_gpmp_ExecutionOptions`). It has the same meaning on
+all the backends, as the execution options of the behaviours:
 
 - `queue`: queue on which the computations are submitted: `cudaStream_t` or
   `hipStream_t` (the default stream if null), pointer to a `sycl::queue`
@@ -131,17 +150,16 @@ the execution options of the behaviours:
   matching the execution policy of RAJA (default stream of the current
   device with `CUDA` and `HIP`, default resource otherwise, if null). It is
   not used by the C++ parallel algorithms, `OpenMP` and `OpenACC`. The
-  evaluation is
-  ordered after the computations previously submitted to the queue, which
-  may compute the arguments. With the `SYCL` backend, an out-of-order queue
-  gives no order between the kernels: an asynchronous evaluation then
-  requires an in-order queue (`sycl::property::queue::in_order`), and is
-  refused with an out-of-order queue (status `-5`). A synchronous evaluation
-  synchronizes an out-of-order queue before the kernel.
-- `statistics`: statistics of an asynchronous evaluation, or null for a
-  synchronous evaluation (see below).
+  evaluation is ordered after the computations previously submitted to the
+  queue, which may compute the arguments. With the `SYCL` backend, an
+  out-of-order queue gives no order between the kernels: an evaluation
+  with statistics then requires an in-order queue
+  (`sycl::property::queue::in_order`), and is refused with an out-of-order
+  queue (status `-5`). An evaluation without statistics synchronizes an
+  out-of-order queue before the kernel.
+- `statistics`: statistics of the evaluation, or null (see below).
 - `preserve_stack_size`: if not null, the stack size of the threads of the
-  device is never modified and a runtime error (status `-6`) is reported
+  device is never modified and a runtime error (status `-7`) is reported
   if it is too small. Otherwise, as for the behaviours, the `CUDA` and
   `HIP` backends, the `Kokkos` backend on a `CUDA` or `HIP` execution
   space, and the `RAJA` backend with an execution policy of `CUDA` or
@@ -152,91 +170,102 @@ If no statistics are given, the evaluation is synchronous: the function
 returns once the values are computed, and the output status reports the
 result.
 
-Otherwise, the evaluation may be asynchronous, as the integration of the
-behaviours with statistics: the function returns once the computations
-are submitted to the queue (`CUDA`, `HIP`, `Kokkos` and `RAJA` backends,
-`SYCL` backend if no value is copied), and the output status only reports
-invalid arguments and runtime errors. The statistics
+Otherwise, on all the backends, the output status only reports the errors
+of the batch (statuses `-5`, `-6` and `-7`), and the
+`S_generic_parallel_report` function gives the result once the
+computations are completed. The backends with a queue (`CUDA`, `HIP`,
+`SYCL`, `Kokkos` and `RAJA`) may return once the computations are
+submitted to the queue: the calling code synchronizes its queue before
+calling the report function. The C++ parallel algorithms, `OpenMP` and
+`OpenACC` return once the computations are completed. The statistics
 (`mfront_gpmp_Statistics`) are initialized by
-`mfront_gpmp_initializeStatistics` and must be accessible by the device as
-the values. With the C++ parallel algorithms, `OpenMP` and `OpenACC`, which
-merge the
-statuses of the points by a reduction, the statistics are also updated by
-the host. With the automatic data transfers of the `SYCL` backend,
-statistics which are not accessible by the device are copied, as the
-values. Once the computations are completed, the
-`<name>_generic_parallel_report` function reads them on the host and
-reports the result as a synchronous evaluation does:
+`mfront_gpmp_initializeStatistics`. They must be accessible by the host
+and by the device where the computations are performed, for instance in
+managed or shared memory if the memory space of the library is `device`:
+the kernels update them, and the report function reads them on the host
+(the C++ parallel algorithms, `OpenMP` and `OpenACC` also merge the
+statuses of the points in them on the host). With the automatic data
+transfers of the `SYCL`
+backend, statistics which are not accessible by the device are copied,
+as the values, and the evaluation is then synchronous:
 
 ~~~~{.cxx}
 // statistics in managed memory
 mfront_gpmp_Statistics* statistics = nullptr;
 cudaMallocManaged(&statistics, sizeof(mfront_gpmp_Statistics));
 mfront_gpmp_initializeStatistics(statistics);
-const auto options =
-    mfront_gpmp_ExecutionOptions{.queue = stream, .statistics = statistics};
-// submission of the computations
-Inconel600_YoungModulus(&output, E, 1, args.data(), args_strides.data(), 1,
-                        npoints, policy, &options);
+auto d = mfront_gpmp_BatchData{/* ... */};
+d.execution = mfront_gpmp_ExecutionOptions{.queue = stream,
+                                           .statistics = statistics};
+// submission of the computations: only the errors of the batch are
+// reported here
+auto output = mfront_gpmp_OutputStatus{};
+Inconel600_YoungModulus_generic_parallel(&output, &d);
 // ... other computations submitted to the stream ...
 cudaStreamSynchronize(stream);
-Inconel600_YoungModulus_generic_parallel_report(&output, statistics, policy);
+const auto status =
+    Inconel600_YoungModulus_generic_parallel_report(&output, statistics);
 ~~~~
 
+The report function is only meaningful if the evaluation returned `0`.
 A synchronous evaluation calls the same report function on statistics
 held by blocks of memory reused from one call to another (`CUDA`, `HIP`,
 `SYCL`, `Kokkos` and `RAJA` backends) or by a local variable (C++ parallel
-algorithms, `OpenMP` and `OpenACC`).
+algorithms, `OpenMP` and `OpenACC`): the output status is the same.
 
 The statistics have the same structure as the ones of the behaviours: the
-number of points where the evaluation failed, the first of them, the
-number of points where a bound is violated with the warning policy, and
-the first check which failed (see below). The kernels compute the status
-of each point and merge it in the statistics only when an event occurs:
-with integer atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA`
-backends), or by a reduction (C++ parallel algorithms, `OpenMP` and
-`OpenACC`), as
-for the behaviours. With the atomic operations, the reporting of the
-errors costs nothing when the evaluation succeeds. A reduction combines
-the statuses of all the points and copies its result, a few integers, to
-the host at each call. If the runtime checks are disabled
-(`disable_runtime_checks` DSL option), the statistics are never updated.
+number of points where the evaluation failed, the number of points where
+a bound is violated with the warning policy, and two keys giving the
+first point of each kind and the check retained at this point. The keys
+are opaque: the minimum of the keys gives the first point, whatever the
+order of the computations, and only the report function of the same
+library decodes them. A structure of statistics is used for one material
+property and one batch. The kernels compute the status of each point and
+merge it in the statistics only when an event occurs: with integer atomic
+operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA` backends), or by a
+reduction (C++ parallel algorithms, `OpenMP` and `OpenACC`), as for the
+behaviours. With the atomic operations, the reporting of the errors costs
+nothing when the evaluation succeeds. A reduction combines the statuses of
+all the points and copies its result, a few integers, to the host at each
+call.
 
 ## Output status
 
 The output status (`mfront_gpmp_OutputStatus`) summarizes the evaluation
-of all the points. Its `status` and `bounds_status` members follow the
-conventions of the `generic` interface for material properties:
+of the batch. Its `status` member is the error of the batch, if any,
+otherwise the status of the first point where the evaluation failed,
+otherwise the status of the first point where the result is unreliable,
+otherwise `0`. The statuses of the points follow the conventions of the
+`generic` interface for material properties:
 
 - `0`: the result has been evaluated at all points;
 - `1`: an argument or the result is out of its bounds at some points,
   with the warning policy. The result is evaluated at all points but must
-  be used with caution. `bounds_status` gives the rank of the variable
-  (starting at one, the output being after the arguments);
+  be used with caution;
 - `-1`: an argument or the result is out of its physical bounds, or out
-  of its bounds with the strict policy, at some points. The result is not
-  evaluated at those points. `bounds_status` gives the opposite of the
-  rank of the variable;
+  of its bounds with the strict policy, at some points. The output is
+  `NaN` at those points;
 - `-4`: the result is not finite (`nan` or infinite) at some points.
 
-The following statuses are specific to this interface:
+The errors of the batch are specific to this interface. Nothing is then
+computed:
 
-- `-5`: invalid arguments (number of points, number of arguments,
-  negative stride, no queue given to the `SYCL` backend, asynchronous
-  evaluation with an out-of-order `SYCL` queue);
-- `-6`: runtime error of the backend (allocation, data transfer,
+- `-5`: invalid arguments: no data of the batch, no output values, no
+  array of arguments or no values for an argument, invalid number of
+  arguments, uniform output with several points, more than
+  \(2^{48}-1\) points, more blocks of threads than the grid of the device
+  can hold with the `CUDA` and `HIP` backends (\(2^{31}-1\) blocks), no
+  queue given to the `SYCL` backend, statistics with an out-of-order
+  `SYCL` queue, or no statistics given to the report function;
+- `-6`: invalid parameters;
+- `-7`: runtime error of the backend: allocation, data transfer,
   submission or execution of a kernel, stack size of the threads of the
-  device), or invalid parameters. The exceptions thrown by the runtimes
-  of the backends based on C++ programming models (`SYCL`, `Kokkos`, `RAJA`,
-  C++ parallel algorithms, `OpenMP`, `OpenACC`) are reported with this
-  status, as the
-  errors of the `CUDA` and `HIP` runtimes. The status `-2` of the
-  `generic` interface (exception thrown by the evaluation) is not used:
-  the kernels do not throw;
-- `-7`: uniform output (null stride) with several points or with non
-  uniform arguments.
+  device, or exceptions thrown on the host by the runtimes of the backends
+  based on C++ programming models (`SYCL`, `Kokkos`, `RAJA`, C++ parallel
+  algorithms, `OpenMP`, `OpenACC`). No exception goes through the
+  generated functions: an unexpected exception also gives `-7`.
 
-As for the behaviours, the output status also gives:
+The output status also gives:
 
 - `number_of_failures`: the number of points where the evaluation failed
   (status `-1` or `-4`);
@@ -244,24 +273,43 @@ As for the behaviours, the output status also gives:
   value of its type. The `generic` interface of the same material
   property, called at this point, gives the detailed error;
 - `number_of_unreliable_results`: the number of points where a bound is
-  violated with the warning policy.
+  violated with the warning policy;
+- `first_unreliable_result_index`: the index of the first of them, or the
+  maximal value of its type;
+- `bounds_status`: for the statuses `-1` and `1`, the rank of the
+  variable of the check retained at the reported point (starting at one,
+  the output being after the arguments), negative if the evaluation failed
+  (physical bound, or bound with the strict policy), positive otherwise
+  (bound with the warning policy), as with the `generic` interface. It is
+  null otherwise;
+- `msg`: a message describing the reported point (check, index, numbers of
+  points). It never gives the values, which the `generic` interface gives
+  at this point. Its text is not part of the interface.
 
-When several checks fail, the first one in the following order is
-reported: invalid result, physical bounds, then bounds, the variables
-being taken in order, the output after the arguments. The error message
-describes this check, with the number of points concerned.
+The following differences with the `generic` interface are deliberate:
+there is no status `-2` (exception) or `-3` (`errno`) at a point (the
+kernels do not throw and `errno` does not exist on GPUs), the bounds
+status of a point where the result is not finite is null (the `generic`
+interface keeps the bounds status of a bound violated with the warning
+policy), the message does not give the values, and no `MTest` file is
+written when the evaluation fails.
+
+A material property calling another material property (`@MaterialLaw`)
+uses, in device code, the implementation of the called material property
+generated in the `mfront::device` namespace (see the [`generic-parallel`
+interface for behaviours](generic-parallel-behaviour-interface.html)).
+This implementation returns `NaN` if a physical bound of the called
+material property is not satisfied, whereas the `generic` interface does
+not check those bounds: on a device, the evaluation then fails with the
+status `-4`, while the `generic` interface computes the value.
 
 If the runtime checks are disabled (`disable_runtime_checks` DSL option),
-the number of points, the number of arguments, the signs of the strides,
-the parameters, the bounds and the results are not checked. The uniform
-outputs are still checked (status `-7`).
-
-An empty set of points is accepted without any check, as an empty batch
-by the behaviours: nothing is read, written or submitted, and the status
-is `0`. The arrays and the queue may then be null.
-
-The value of `errno` is restored before returning. It is not used to
-detect the errors: it is thread-local and does not exist on GPUs.
+as with the `generic` interface, the number of arguments, the parameters,
+the bounds and the results are not checked. The checks of the structure
+of the batch (pointers, uniform output, number of points, queue of the
+`SYCL` backend) remain: they cost little on the host and avoid invalid
+memory accesses. The statuses of the points, if requested, are then null,
+and the report function returns `0`.
 
 # Backends
 
@@ -280,7 +328,7 @@ follows:
 $ mfront --obuild --configuration-file=config-cuda-XXXX.json \
          --interface=generic-parallel UO2_ShearModulus.mfront
 The following library has been built :
-- libGenericParallelUO2-cuda.so :  UO2_ShearModulus UO2_ShearModulus2
+- libGenericParallelUO2-cuda.so :  UO2_ShearModulus_generic_parallel
 ~~~~
 
 where the configuration file `config-cuda-XXXX.json` provide the
@@ -293,12 +341,9 @@ configuration files may be installed: `config-cuda-nvcc.json` and
 delivered with
 `TFEL`](generic-parallel-behaviour-interface.html#configuration-files-delivered-with-tfel)).
 
-`UO2_ShearModulus` implements the first prototype, while
-`UO2_ShearModulus2` implements the second.
-
-The following code shows how to call the function `UO2_ShearModulus`. In
-this example, the porosity is assumed to be uniform and has thus a
-stride equal to zero. For the sake of simplicity, memory allocation on
+The following code shows how to call the function
+`UO2_ShearModulus_generic_parallel`. In this example, the porosity is
+assumed to be uniform and has thus a stride equal to zero. For the sake of simplicity, memory allocation on
 the host and on the device are handled by the [Thrust
 library](https://developer.nvidia.com/thrust).
 
@@ -311,20 +356,28 @@ thrust::device_vector<double> d_T(T);
 thrust::device_vector<double> d_f(f);
 thrust::device_vector<double> d_G(T.size());
 
+const auto args = std::array<mfront_gpmp_ConstField, 2u>{
+    mfront_gpmp_ConstField{.values = thrust::raw_pointer_cast(d_T.data()),
+                           .point_stride = 1},
+    mfront_gpmp_ConstField{.values = thrust::raw_pointer_cast(d_f.data()),
+                           .point_stride = 0}};
+const auto d = mfront_gpmp_BatchData{
+    .number_of_points = 4,
+    .output = mfront_gpmp_Field{.values = thrust::raw_pointer_cast(d_G.data()),
+                                .point_stride = 1},
+    .arguments = args.data(),
+    .number_of_arguments = args.size(),
+    .out_of_bounds_policy = GENERIC_MATERIALPROPERTY_NONE_POLICY};
 auto output = mfront_gpmp_OutputStatus{};
-const auto policy = GENERIC_MATERIALPROPERTY_NONE_POLICY;
-const auto args = std::array<double *, 2u>{thrust::raw_pointer_cast(d_T.data()),
-                                     thrust::raw_pointer_cast(d_f.data())};
-const auto args_stride = std::array<mfront_gmp_size_type, 2u>{1, 0};
-UO2_ShearModulus(&output, thrust::raw_pointer_cast(d_G.data()), 1,
-                 args.data(), args_stride.data(), 2, 4, policy, nullptr);
+const auto status = UO2_ShearModulus_generic_parallel(&output, &d);
 G = d_G;
 ~~~~
 
 The following remarks can be made:
 
 - the user is responsible for consistently passing pointers to memory
-  allocated on the device to the `UO2_ShearModulus` function, including
+  allocated on the device to the `UO2_ShearModulus_generic_parallel`
+  function, including
   uniform values. Shared memory can also be used.
 - The [Thrust library](https://developer.nvidia.com/thrust) is not used
   by the `CUDA` backend. It is only used in the example for simplicity.
@@ -436,14 +489,18 @@ The `HIP` backend is similar to the `CUDA` backend.
 ### Example of usage
 
 ~~~~{.cxx}
-auto output = mfront_gpmp_OutputStatus{};
 auto E = createManagedData(4);
 const auto T = createManagedData({300, 500, 300, 800});
-const auto policy = mfront_gmp_OutOfBoundsPolicy{};
-const auto args = std::array<const double *, 1u>{T.get()};
-const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
-Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
-                        args_strides.data(), 1, 4, policy, nullptr);
+const auto args = std::array<mfront_gpmp_ConstField, 1u>{
+    mfront_gpmp_ConstField{.values = T.get(), .point_stride = 1}};
+const auto d = mfront_gpmp_BatchData{
+    .number_of_points = 4,
+    .output = mfront_gpmp_Field{.values = E.get(), .point_stride = 1},
+    .arguments = args.data(),
+    .number_of_arguments = args.size(),
+    .out_of_bounds_policy = GENERIC_MATERIALPROPERTY_NONE_POLICY};
+auto output = mfront_gpmp_OutputStatus{};
+Inconel600_YoungModulus_generic_parallel(&output, &d);
 ~~~~
 
 where `createManagedData` is a simple wrapper around `hipMallocManaged`
@@ -462,26 +519,28 @@ follows:
 $ mfront --obuild --configuration-file=config-stlpar-parunseq-gcc.json \
          --interface=generic-parallel UO2_ShearModulus.mfront
 The following library has been built :
-- libGenericParallelUO2-stlpar.so :  UO2_ShearModulus UO2_ShearModulus2
+- libGenericParallelUO2-stlpar.so :  UO2_ShearModulus_generic_parallel
 ~~~~
 
 where the configuration file `config-stlpar-parunseq-gcc.json` provide the required
 information to compile the generated source files and also selects the
 execution policy to be used (see below).
 
-`UO2_ShearModulus` implements the first prototype, while
-`UO2_ShearModulus2` implements the second.
-
 ~~~~{.cxx}
 auto G = std::vector<double>(4);
 const auto T = std::vector<double>{300, 500, 300, 800};
 const auto f = std::vector<double>{0.1};
+const auto args = std::array<mfront_gpmp_ConstField, 2u>{
+    mfront_gpmp_ConstField{.values = T.data(), .point_stride = 1},
+    mfront_gpmp_ConstField{.values = f.data(), .point_stride = 0}};
+const auto d = mfront_gpmp_BatchData{
+    .number_of_points = 4,
+    .output = mfront_gpmp_Field{.values = G.data(), .point_stride = 1},
+    .arguments = args.data(),
+    .number_of_arguments = args.size(),
+    .out_of_bounds_policy = GENERIC_MATERIALPROPERTY_NONE_POLICY};
 auto output = mfront_gpmp_OutputStatus{};
-const auto policy = GENERIC_MATERIALPROPERTY_NONE_POLICY;
-const auto args = std::array<const double *, 2u>{T.data(), f.data()};
-const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 0};
-UO2_ShearModulus(&output, G.data(), 1, args.data(), args_strides.data(), 2, 4,
-                 policy, nullptr);
+UO2_ShearModulus_generic_parallel(&output, &d);
 ~~~~
 
 #### Example of configuration file for `g++`
@@ -612,22 +671,28 @@ const auto T = usm_vector({300, -300, 500, -500, 300, -300, 800, -800}, Q);
 auto d_E = to_device(E, Q); // function transferring data to the device
 auto d_T = to_device(T, Q);
 //
-const auto policy = mfront_gmp_OutOfBoundsPolicy{};
-const auto args = std::array<const double *, 1u>{d_T.get()};
-const auto args_strides = std::array<mfront_gmp_size_type, 1u>{2};
-const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
-Inconel600_YoungModulus(&output, d_E.get(), 3, args.data(),
-                        args_strides.data(), 1, 4, policy, &options);
+// strided argument and output
+const auto args = std::array<mfront_gpmp_ConstField, 1u>{
+    mfront_gpmp_ConstField{.values = d_T.get(), .point_stride = 2}};
+const auto d = mfront_gpmp_BatchData{
+    .number_of_points = 4,
+    .output = mfront_gpmp_Field{.values = d_E.get(), .point_stride = 3},
+    .arguments = args.data(),
+    .number_of_arguments = args.size(),
+    .out_of_bounds_policy = GENERIC_MATERIALPROPERTY_NONE_POLICY,
+    .statuses = nullptr,
+    .execution = mfront_gpmp_ExecutionOptions{.queue = &Q}};
+Inconel600_YoungModulus_generic_parallel(&output, &d);
 ~~~~
 
 ### Queue
 
 `SYCL` has no default queue: the queue must be given by the execution
 options. It gives the device and the context of the unified shared memory
-of the calling code. An asynchronous evaluation requires an in-order queue
-(`sycl::property::queue::in_order`). With an out-of-order queue, a
-synchronous evaluation waits for the computations already submitted to
-the queue before the kernel is launched.
+of the calling code. An evaluation with statistics requires an in-order
+queue (`sycl::property::queue::in_order`). With an out-of-order queue, an
+evaluation without statistics waits for the computations already
+submitted to the queue before the kernel is launched.
 
 ### Backend options
 
@@ -644,20 +709,20 @@ Two policies regarding data transfer between host and device are
 available:
 
 - `automatic` (or `auto`, default): the arrays which are not accessible
-  by the device are copied in device memory: the arguments, the output and
-  the statistics of an asynchronous evaluation. An array is accessible if
+  by the device are copied in device memory: the arguments, the output,
+  the statuses of the points and the statistics. An array is accessible if
   it is allocated by `SYCL` (unified shared memory of any kind: device,
-  shared or host) or if the device is the host. The output is copied too,
-  so that the values which are not computed (points where the evaluation
-  fails, values between two values of a strided output) are kept. The
-  output and the statistics are copied back once the kernel is completed:
-  the evaluation is then synchronous. This policy is shared with the
+  shared or host) or if the device is the host. The output is copied in
+  both directions, so that the values between two values of a strided
+  output are kept. The output, the statuses and the statistics are copied
+  back once the kernel is completed: the evaluation is then synchronous
+  if an array is copied. This policy is shared with the
   behaviours (`MFront/GenericParallel/SYCLDeviceCopies.hxx`).
 - `none`: this policy assumes that the data are accessible by the device.
 
 The errors of the kernels of a synchronous evaluation are delivered to
 the asynchronous handler of the queue (`sycl::event::wait_and_throw`), as
-for the behaviours: they are reported with the status `-6` if this handler
+for the behaviours: they are reported with the status `-7` if this handler
 throws them, as the handlers of most calling codes do.
 
 > **Providing data on the device**
@@ -785,6 +850,31 @@ cmake -Dgeneric-parallel-configurations="cuda-nvcc;cuda-clang"
 
 The same list selects the configuration files installed with `TFEL` and
 the tests of the `generic-parallel` interface for behaviours.
+
+Each configuration runs:
+
+- the tests of the semantics of the generated functions shared by all the
+  backends whose arrays are accessible by the host
+  (`test-suite/material-properties/generic-parallel/tests.hxx`): statuses
+  of the points, failures and unreliable results in the same batch,
+  invalid results, errors of the batch, uniform and strided values,
+  report function;
+- the tests specific to the backend (queues, asynchronous evaluations,
+  stack size of the threads of the device, memory of the device);
+- the comparison of the evaluation on batches of points with the
+  evaluation of the `generic` interface at each point (`compare.cxx`):
+  values, statuses of the points and summary, for the three out of bounds
+  policies, contiguous, strided and uniform values, and synchronous and
+  asynchronous evaluations. Both libraries are compiled by the tested
+  configuration. The values are compared exactly when the computations
+  are performed on the host by a compiler which neither contracts nor
+  reorders the floating point operations by default (`g++`, `clang++`,
+  `nvc++` with OpenACC on the cores of the host, `acpp` on the host), and
+  up to a relative tolerance of \(10^{-13}\) otherwise (`icpx`, whose
+  default floating point model is not strict, and computations on a
+  device). The comparisons include a material property with bounds and
+  physical bounds on two arguments and on its output
+  (`BoundsOrderTest.mfront`), which checks the retained check.
 
 The following tests configurations are currently supported:
 

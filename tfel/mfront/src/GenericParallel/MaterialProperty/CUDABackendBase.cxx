@@ -63,16 +63,17 @@ namespace mfront::generic_parallel::material_property {
       const GenericParallelMaterialPropertyInterface& i,
       const MaterialPropertyDescription& mpd,
       const FileDescription& fd,
-      const bool treatStrides) const {
+      const bool handleStrides) const {
     const auto name = i.getFunctionName(mpd);
     const auto types = i.getTypesDescription();
-    const auto kernel =
-        "mfront_" + name + "_kernel" + (treatStrides ? "" : "_without_strides");
+    const auto kernel = "mfront_" + name + "_kernel" +
+                        (handleStrides ? "" : "_without_strides");
     os << "__global__ void " << kernel << "(" << types.real_type
        << "* const mfront_output";
-    if (treatStrides) {
+    if (handleStrides) {
       os << ",\nconst " << types.integer_type << " mfront_output_stride";
     }
+    os << ",\nint* const mfront_statuses";
     if (isBoundsCheckingRequired(mpd)) {
       os << ",\nmfront_gpmp_Statistics* const mfront_statistics"
          << ",\nconst " << types.integer_type << " mfront_out_of_bounds_policy";
@@ -83,7 +84,7 @@ namespace mfront::generic_parallel::material_property {
       os << ",\nconst " << i.getInterfaceInternalNamespace() << "::" << pcn
          << " mfront_parameters";
     }
-    if ((treatStrides) && (!mpd.inputs.empty())) {
+    if ((handleStrides) && (!mpd.inputs.empty())) {
       os << ",\nconst std::array<" << types.integer_type << ", "
          << mpd.inputs.size() << "> mfront_strides";
     }
@@ -98,7 +99,7 @@ namespace mfront::generic_parallel::material_property {
        << "if(mfront_idx >= mfront_npoints){\n"
        << "return;\n"
        << "}\n";
-    this->writeKernelBody(os, i, mpd, treatStrides);
+    this->writeKernelBody(os, i, mpd, handleStrides);
     os << "} // end of " << kernel << "\n\n";
   }  // end of writeGlobalFunctions2
 
@@ -117,20 +118,9 @@ namespace mfront::generic_parallel::material_property {
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
       const MaterialPropertyDescription& mpd,
-      const FileDescription& fd) const {
-    for (const auto b : {true, false}) {
-      this->writeCImplementations2(os, i, mpd, fd, b);
-    }
-  }  // end of writeCImplementations
-
-  void CUDABackendBase::writeCImplementations2(
-      std::ostream& os,
-      const GenericParallelMaterialPropertyInterface& i,
-      const MaterialPropertyDescription& mpd,
-      const FileDescription&,
-      const bool treatStrides) const {
+      const FileDescription&) const {
     const auto pm = this->getProgrammingModel();
-    this->writeCFunctionBeginning(os, i, mpd, treatStrides);
+    this->writeCFunctionBeginning(os, i, mpd);
     // exceptions (allocation of an error message, of a block of statistics)
     // must not cross the boundary of the C function, as with the backends
     // based on C++ programming models
@@ -141,12 +131,10 @@ namespace mfront::generic_parallel::material_property {
       os << "auto mfront_device = int{};\n"
          << "const auto mfront_" << pm << "_device_error = " << pm
          << "GetDevice(&mfront_device);\n"
-         << "if (mfront_" << pm << "_device_error != " << pm << "Success) {\n"
-         << "mfront_output_status->status = -6;\n"
-         << "mfront_report(" << pm << "GetErrorString(mfront_" << pm
-         << "_device_error));\n"
-         << "return;\n"
-         << "}\n";
+         << "if (mfront_" << pm << "_device_error != " << pm << "Success) {\n";
+      writeBatchError(os, -7,
+                      pm + "GetErrorString(mfront_" + pm + "_device_error)");
+      os << "}\n";
       writeStatisticsDeclaration(
           os, "int", "mfront_device",
           "mfront_gpmp_Statistics* mfront_ptr = nullptr;\n"
@@ -155,25 +143,16 @@ namespace mfront::generic_parallel::material_property {
               "MallocManaged(&mfront_ptr, sizeof(mfront_gpmp_Statistics)) == " +
               pm + "Success ? mfront_ptr : nullptr;");
     }
-    this->writeKernelCall(os, i, mpd, treatStrides);
+    this->writeKernelCall(os, i, mpd);
     this->writeResultsAnalysis(os, i, mpd);
-    os << "} catch(std::exception& mfront_cxx_exception){\n"
-       << "mfront_output_status->status = -6;\n"
-       << "mfront_report(mfront_cxx_exception.what());\n"
-       << "return;\n"
-       << "} catch(...){\n"
-       << "mfront_output_status->status = -6;\n"
-       << "mfront_report(\"unknown exception\");\n"
-       << "return;\n"
-       << "}\n";
-    os << "} // end of " << i.getFunctionName(mpd) << "\n\n";
-  }  // end of writeCImplementations2
+    writeHostExceptionsHandling(os);
+    writeCFunctionEnd(os, i, mpd);
+  }  // end of writeCImplementations
 
   void CUDABackendBase::writeKernelCall(
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface& i,
-      const MaterialPropertyDescription& mpd,
-      const bool treatStrides) const {
+      const MaterialPropertyDescription& mpd) const {
     const auto pm = this->getProgrammingModel();
     const auto name = i.getFunctionName(mpd);
     const auto threads_per_block =
@@ -191,11 +170,9 @@ namespace mfront::generic_parallel::material_property {
        << "Success) ||\n"
        << "(" << pm << "DeviceGetAttribute(&mfront_warp_size, "
        << warp_size_attribute << ", mfront_warp_device) != " << pm
-       << "Success)) {\n"
-       << "mfront_output_status->status = -6;\n"
-       << "mfront_report(\"unable to get the warp size of the device\");\n"
-       << "return;\n"
-       << "}\n"
+       << "Success)) {\n";
+    writeBatchError(os, -7, "\"unable to get the warp size of the device\"");
+    os << "}\n"
        << "const auto mfront_threads_per_block = static_cast<unsigned int>(("
        << threads_per_block
        << " + mfront_warp_size - 1) / mfront_warp_size * mfront_warp_size);\n";
@@ -203,21 +180,31 @@ namespace mfront::generic_parallel::material_property {
                                  const bool handleStrides) {
       const auto kernel = "mfront_" + name + "_kernel" +
                           (handleStrides ? "" : "_without_strides");
+      // the number of blocks is limited by the size of the grid (2^31 - 1
+      // in the first dimension): it is checked rather than truncated
+      os << "const auto mfront_number_of_blocks = (" << npoints
+         << " + mfront_threads_per_block - 1) / mfront_threads_per_block;\n"
+         << "if (mfront_number_of_blocks > static_cast<"
+         << "decltype(mfront_number_of_blocks)>("
+         << "std::numeric_limits<int>::max())) {\n";
+      writeBatchError(os, -5,
+                      "\"too many points for the grid of the device (\" + "
+                      "std::to_string(" +
+                          std::string{npoints} + ") + \" given)\"");
+      os << "}\n";
       // stack size of the threads, as for the behaviours
       os << "const auto mfront_stack_size = "
          << "::mfront::generic_parallel::gpu::ensureStackSize<" << kernel
          << ">(mfront_options.preserve_stack_size != 0);\n"
-         << "if (!mfront_stack_size.succeeded()) {\n"
-         << "mfront_output_status->status = -6;\n"
-         << "mfront_report(mfront_stack_size.getErrorMessage());\n"
-         << "return;\n"
-         << "}\n";
-      os << kernel << "<<<static_cast<unsigned int>((" << npoints
-         << " + mfront_threads_per_block - 1) / mfront_threads_per_block), "
+         << "if (!mfront_stack_size.succeeded()) {\n";
+      writeBatchError(os, -7, "mfront_stack_size.getErrorMessage()");
+      os << "}\n";
+      os << kernel << "<<<static_cast<unsigned int>(mfront_number_of_blocks), "
          << "mfront_threads_per_block, 0, mfront_stream>>>(mfront_output, ";
       if (handleStrides) {
         os << "mfront_output_stride, ";
       }
+      os << "mfront_statuses, ";
       if (isBoundsCheckingRequired(mpd)) {
         os << "mfront_statistics, mfront_out_of_bounds_policy, ";
       }
@@ -236,25 +223,21 @@ namespace mfront::generic_parallel::material_property {
       os << npoints << ");\n"
          << "const auto mfront_" << pm << "_launch_error = " << pm
          << "GetLastError();\n"
-         << "if (mfront_" << pm << "_launch_error != " << pm << "Success) {\n"
-         << "mfront_output_status->status = -6;\n"
-         << "mfront_report(" << pm << "GetErrorString(mfront_" << pm
-         << "_launch_error));\n"
-         << "return;\n"
-         << "}\n"
-         // an asynchronous evaluation returns once the kernel is submitted
+         << "if (mfront_" << pm << "_launch_error != " << pm << "Success) {\n";
+      writeBatchError(os, -7,
+                      pm + "GetErrorString(mfront_" + pm + "_launch_error)");
+      // an asynchronous evaluation returns once the kernel is submitted
+      os << "}\n"
          << "if (!mfront_asynchronous) {\n"
          << "const auto mfront_" << pm << "_kernel_error = " << pm
          << "StreamSynchronize(mfront_stream);\n"
-         << "if (mfront_" << pm << "_kernel_error != " << pm << "Success) {\n"
-         << "mfront_output_status->status = -6;\n"
-         << "mfront_report(" << pm << "GetErrorString(mfront_" << pm
-         << "_kernel_error));\n"
-         << "return;\n"
-         << "}\n"
+         << "if (mfront_" << pm << "_kernel_error != " << pm << "Success) {\n";
+      writeBatchError(os, -7,
+                      pm + "GetErrorString(mfront_" + pm + "_kernel_error)");
+      os << "}\n"
          << "}\n";
     };
-    this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
+    this->writeKernelSelection(os, i, mpd, write_kernel_call);
   }  // end of writeKernelCall
 
   bool CUDABackendBase::mergesPointStatusesInKernels() const {

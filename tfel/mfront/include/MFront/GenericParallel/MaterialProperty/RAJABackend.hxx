@@ -65,8 +65,7 @@ namespace mfront::generic_parallel::material_property {
     void writeKernelCall(std::ostream&,
                          const GenericParallelMaterialPropertyInterface&,
                          const MaterialPropertyDescription&,
-                         const FileDescription&,
-                         const bool) const override;
+                         const FileDescription&) const override;
 
    private:
     //! \brief execution policy
