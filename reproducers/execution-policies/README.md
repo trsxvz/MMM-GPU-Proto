@@ -53,3 +53,35 @@ visibility (`EXECUTION_POLICIES_HIDDEN_VISIBILITY`). The workflow
 libstdc++, clang and libc++), macOS, Windows (Visual Studio and MinGW) and
 FreeBSD, then, on Windows, runs the test `cross` from a program built by
 Visual Studio with the generated library built by MinGW, and the reverse.
+
+## Results
+
+Run of 22/10/2026: all the tests pass, for both orders of declaration and
+both visibilities, with
+
+- gcc 13.3 and libstdc++, clang 18.1 and libc++ (Ubuntu 24.04);
+- Apple clang 21.0 (macOS, arm64);
+- clang 19.1 and libc++ (FreeBSD 14.3);
+- Visual Studio 2026 (MSVC 19.51) and MinGW-w64 (gcc 16.2, UCRT64) on
+  Windows. The generated library which is not linked to the runtime library
+  builds with both: the `dllimport` of the base class requires no symbol.
+
+Cross calls between Visual Studio and MinGW (test `cross`):
+
+| Declaration | Program of Visual Studio, library of MinGW | Program of MinGW, library of Visual Studio |
+|---|---|---|
+| destructor, then `getIdentifier` | segmentation fault | heap corruption (`0xc0000374`) |
+| `getIdentifier`, then destructor | all right | all right |
+
+A virtual destructor has one entry in the table of virtual functions with
+the ABI of Visual Studio and two (complete and deleting destructors) with
+the Itanium ABI. Declared after the destructor, `getIdentifier` is the
+second entry with Visual Studio and the third one with MinGW: the library of
+MinGW reads after the end of the table of Visual Studio, and the library of
+Visual Studio calls the deleting destructor of an object of MinGW. Declared
+first, it is the first entry with both ABIs.
+
+For information, `dynamic_cast` (library `dynamic-cast`) recognises the
+policies with libstdc++ and Visual Studio in all the cases. With libc++, it
+recognises them only with the default visibility, and on Linux and FreeBSD
+only when the caller is linked to the program.
