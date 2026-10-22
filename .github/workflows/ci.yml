@@ -23,10 +23,10 @@ on:
   # by its own workflow)
   push:
     branches: [ "main" ]
-    paths-ignore: [ "docs/**", "site/**", "*.md" ]
+    paths-ignore: [ "docs/**", "site/**", "*.md", "reproducers/execution-policies/**", ".github/workflows/execution-policies.yml" ]
   pull_request:
     branches: [ "main" ]
-    paths-ignore: [ "docs/**", "site/**", "*.md" ]
+    paths-ignore: [ "docs/**", "site/**", "*.md", "reproducers/execution-policies/**", ".github/workflows/execution-policies.yml" ]
   # keep the build cache up to date with the latest dependencies, not at the
   # start of an hour, when GitHub delays the scheduled runs the most
   schedule:

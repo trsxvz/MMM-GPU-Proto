@@ -1,0 +1,120 @@
+# Checks of the execution policies of the generic-parallel interfaces across
+# libraries (reproducers/execution-policies) on Linux (gcc and libstdc++,
+# clang and libc++), macOS, Windows (Visual Studio and MinGW) and FreeBSD.
+# On Windows, the job also calls a library built by MinGW from a program
+# built by Visual Studio, and the reverse (step "cross", reported without
+# failing the job).
+name: Execution policies
+
+on:
+  push:
+    branches: [ "main" ]
+    paths: [ "reproducers/execution-policies/**", ".github/workflows/execution-policies.yml" ]
+  pull_request:
+    branches: [ "main" ]
+    paths: [ "reproducers/execution-policies/**", ".github/workflows/execution-policies.yml" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc
+            os: ubuntu-24.04
+          - name: linux-clang-libc++
+            os: ubuntu-24.04
+            packages: libc++-18-dev libc++abi-18-dev
+            cmake: -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_CXX_FLAGS=-stdlib=libc++
+          - name: macos
+            os: macos-latest
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        sparse-checkout: reproducers/execution-policies
+    - name: Install the packages
+      if: matrix.packages
+      run: sudo apt-get update && sudo apt-get install -y ${{ matrix.packages }}
+    - name: Build and run the checks
+      run: |
+        c++ --version
+        sh reproducers/execution-policies/run.sh build ${{ matrix.cmake }}
+
+  freebsd:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        sparse-checkout: reproducers/execution-policies
+    - name: Build and run the checks in FreeBSD
+      uses: vmactions/freebsd-vm@v1
+      with:
+        release: "14.3"
+        usesh: true
+        prepare: pkg install -y cmake ninja
+        run: |
+          freebsd-version
+          c++ --version
+          sh reproducers/execution-policies/run.sh build -G Ninja
+
+  windows:
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        sparse-checkout: reproducers/execution-policies
+    - uses: msys2/setup-msys2@v2
+      id: msys2
+      with:
+        msystem: UCRT64
+        install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
+    - name: Build and run the checks with Visual Studio
+      run: sh reproducers/execution-policies/run.sh build-msvc
+    - name: Build and run the checks with MinGW
+      shell: msys2 {0}
+      run: |
+        g++ --version
+        sh reproducers/execution-policies/run.sh build-mingw -G Ninja
+    # the program of one toolchain loads the generated library of the
+    # other one, for both orders of declaration of the base class
+    - name: Cross calls, program built by Visual Studio
+      continue-on-error: true
+      run: |
+        summary=$(cygpath -u "$GITHUB_STEP_SUMMARY")
+        # cmake of Windows, then the runtime libraries of MinGW first (its
+        # directory also holds a cmake)
+        cmake=$(command -v cmake)
+        ctest=$(command -v ctest)
+        export PATH="$(cygpath -u '${{ steps.msys2.outputs.msys2-location }}')/ucrt64/bin:$PATH"
+        echo "| getIdentifier first | program | generated library | result |" >> "$summary"
+        echo "|---|---|---|---|" >> "$summary"
+        status=0
+        for first in OFF ON; do
+          c=build-msvc/identifier-first-$first-hidden-ON
+          "$cmake" "$c" -DEXECUTION_POLICIES_OTHER_GENERATED_LIBRARY="$(cygpath -m "$PWD/build-mingw/identifier-first-$first-hidden-ON/bin/libgenerated.dll")" > /dev/null
+          if "$ctest" --test-dir "$c" -C Release -R cross -V; then result=succeeded; else result=FAILED; status=1; fi
+          echo "| $first | Visual Studio | MinGW | $result |" >> "$summary"
+        done
+        exit $status
+    - name: Cross calls, program built by MinGW
+      continue-on-error: true
+      shell: msys2 {0}
+      run: |
+        summary=$(cygpath -u "$GITHUB_STEP_SUMMARY")
+        status=0
+        for first in OFF ON; do
+          c=build-mingw/identifier-first-$first-hidden-ON
+          cmake "$c" -DEXECUTION_POLICIES_OTHER_GENERATED_LIBRARY="$(cygpath -m "$PWD/build-msvc/identifier-first-$first-hidden-ON/bin/Release/generated.dll")" > /dev/null
+          if ctest --test-dir "$c" -R cross -V; then result=succeeded; else result=FAILED; status=1; fi
+          echo "| $first | MinGW | Visual Studio | $result |" >> "$summary"
+        done
+        exit $status
