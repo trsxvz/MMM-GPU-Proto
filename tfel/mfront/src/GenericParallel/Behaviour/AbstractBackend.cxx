@@ -43,6 +43,13 @@ namespace mfront::generic_parallel::behaviour {
     const auto n = std::string{f} + "_generic_parallel_";
     exportStringSymbol(os, n + "backend", this->getName());
     exportSymbol(os, "const char*", n + "memory_space", this->getMemorySpace());
+    // identifier of the execution policy expected by the generated functions.
+    // As for the memory space, the expression is enclosed in parentheses:
+    // the type of the policy may contain commas (for instance, a policy of
+    // RAJA with several template arguments), which would split the arguments
+    // of the macro exporting the symbol.
+    exportSymbol(os, "const char*", n + "execution_policy",
+                 "(" + this->getExecutionPolicyType() + "::identifier())");
     // the version is defined in `MFront/GenericParallelBehaviour/BatchData.h`,
     // and shifted for a numerical type other than double (see
     // `MFront/GenericBehaviour/Types.h`)

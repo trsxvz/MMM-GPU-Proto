@@ -9,12 +9,12 @@
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-gpu.json ../LinearDataInterpolationTest.mfront";
 @Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-openacc-nvhpc-gpu.json ../MaterialLawCallTest.mfront";
 @Command "@mfront@ --obuild --configuration-file=config-openacc-nvhpc-gpu.json";
-@Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -acc=gpu -gpu=mem:unified --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openacc ../test-cxx.cxx -o test-openacc -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openacc -lGenericParallelInconel600-openacc -lGenericParallelMaterialLaw-openacc";
+@Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -acc=gpu -gpu=mem:unified --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openacc ../test-cxx.cxx -o test-openacc -L @TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -L src -lGenericParallelUO2-openacc -lGenericParallelInconel600-openacc -lGenericParallelMaterialLaw-openacc";
 @Command "./test-openacc test-openacc-openacc-nvhpc-gpu";
 
 // comparison with the `generic` interface (see compare.cxx)
 @Command "sh ../build-libraries.sh @mfront@ config-openacc-nvhpc-gpu.json";
-@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -acc=gpu -gpu=mem:unified --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl -lnvhpcmanaux";
+@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -acc=gpu -gpu=mem:unified --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl -lnvhpcmanaux";
 @Command "sh ../compare-all.sh ./compare openacc --tolerance=1e-13";
 // library also containing the functions of the `generic` interface
 @Command "sh ../check-generic-functions.sh @mfront@ config-openacc-nvhpc-gpu.json ./compare openacc --tolerance=1e-13";

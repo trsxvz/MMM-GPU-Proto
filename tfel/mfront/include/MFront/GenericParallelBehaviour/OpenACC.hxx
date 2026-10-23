@@ -21,6 +21,7 @@
 #include <openacc.h>
 #include "MFront/GenericParallel/DeviceStackSize.hxx"
 #include "MFront/GenericParallel/OpenACCStackSize.hxx"
+#include "MFront/GenericParallel/OpenACCBackendExecutionPolicy.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
 namespace mfront::gpb::openacc {
@@ -37,13 +38,15 @@ namespace mfront::gpb::openacc {
    * allocated in unified or managed memory (`nvc++ -gpu=mem:managed`). This
    * function waits for the completion of the computations. The statistics
    * of the points are merged by a reduction, and the statistics given by the
-   * execution options, if any, are accumulated on the host.
+   * calling code, if any, are accumulated on the host.
    *
    * \tparam PointFunction: function object taking the index of a point and
    * returning the statistics associated with this point
    * \param[in,out] s: output status, which must have been initialized
    * \param[in] n: number of points
-   * \param[in] o: execution options. The queue is not used.
+   * \param[in] e: execution of the batch. The policy is a
+   * `OpenACCBackendExecutionPolicy`, or null for the default policy: only its
+   * common options are used, the computations being synchronous.
    * \param[in] rdt0: initial value of the time step scaling factor
    * \param[in] f: function
    * \param[in] device_stack_size: minimal stack size, in bytes, of the
@@ -55,10 +58,19 @@ namespace mfront::gpb::openacc {
   template <typename PointFunction>
   int apply(OutputStatus& s,
             const size_type n,
-            const ExecutionOptions& o,
+            const BatchExecution& e,
             const real rdt0,
             const PointFunction& f,
             const std::size_t device_stack_size = 0) {
+    if (n == 0) {
+      return s.status;
+    }
+    const auto p = ::mfront::generic_parallel::checkBackendExecutionPolicy<
+        ::mfront::generic_parallel::OpenACCBackendExecutionPolicy>(
+        e.policy, e.statistics != nullptr);
+    if (p.error != nullptr) {
+      return report(s, -5, p.error);
+    }
     // the statistics are reduced member by member. The minimum reductions
     // of the keys of the first failure and of the first unreliable result
     // are performed on `size_type`, an alias of `size_t` of 64 bits: the
@@ -73,7 +85,7 @@ namespace mfront::gpb::openacc {
     auto first_unreliable_result = none;
     auto rdt = rdt0;
     if (!mfront::generic_parallel::openacc::setMinimalStackSize(
-            device_stack_size, o.preserve_stack_size != 0)) {
+            device_stack_size, p.common_options.preserve_stack_size)) {
       return report(s, -7, mfront::generic_parallel::stack_size_error_message);
     }
 #pragma acc parallel loop copyin(f)                                 \
@@ -91,7 +103,7 @@ namespace mfront::gpb::openacc {
       rdt = r.rdt < rdt ? r.rdt : rdt;
     }
     return report(
-        s, o, rdt0,
+        s, e, rdt0,
         BatchStatistics{
             .number_of_failures = number_of_failures,
             .first_failure = static_cast<unsigned long long>(first_failure),
@@ -144,9 +156,9 @@ namespace mfront::gpb::openacc {
    */
   inline auto makeApply(OutputStatus& s,
                         const std::size_t device_stack_size = 0) {
-    return [&s, device_stack_size](const size_type n, const ExecutionOptions& o,
+    return [&s, device_stack_size](const size_type n, const BatchExecution& e,
                                    const real rdt0, const auto& f) {
-      return openacc::apply(s, n, o, rdt0, f, device_stack_size);
+      return openacc::apply(s, n, e, rdt0, f, device_stack_size);
     };
   }  // end of makeApply
 

@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cmath>
+#include <memory>
 #include <vector>
 #include <iostream>
 #include <sycl/sycl.hpp>
@@ -22,6 +23,7 @@
 #include "TFEL/Tests/TestManager.hxx"
 
 #include "MFront/GenericMaterialProperty/MaterialProperty.h"
+#include "MFront/GenericParallel/SyclBackendExecutionPolicy.hxx"
 #include "PoissonRatioTest-generic-parallel-sycl.hxx"
 #include "BoundsOrderTest-generic-parallel-sycl.hxx"
 #include "Inconel600_YoungModulus-generic-parallel-sycl.hxx"
@@ -55,10 +57,32 @@ static sycl::queue& getTestQueue() {
   return q;
 }  // end of getTestQueue
 
-//! \return the execution options of a synchronous evaluation
-static mfront_gpmp_ExecutionOptions testOptions() {
-  return mfront_gpmp_ExecutionOptions{.queue = &getTestQueue()};
-}  // end of testOptions
+//! \return the execution policy of the synchronous evaluations
+static const mfront::generic_parallel::SyclBackendExecutionPolicy&
+getTestPolicy() {
+  static const auto p =
+      mfront::generic_parallel::makeSyclBackendExecutionPolicy(getTestQueue());
+  return p;
+}  // end of getTestPolicy
+
+#include "batch.hxx"
+
+//! \return the execution of a synchronous evaluation
+static TestExecution testExecution() {
+  return TestExecution{.policy = &getTestPolicy()};
+}  // end of testExecution
+
+/*!
+ * \return an execution policy of the `sycl` backend on the queue of the
+ * tests
+ * \param[in] o: common options
+ */
+static std::unique_ptr<mfront::generic_parallel::AbstractBackendExecutionPolicy>
+makeTestPolicy(
+    const mfront::generic_parallel::BackendExecutionCommonPolicy& o) {
+  return std::make_unique<mfront::generic_parallel::SyclBackendExecutionPolicy>(
+      getTestQueue(), o);
+}  // end of makeTestPolicy
 
 #include "tests.hxx"
 
@@ -83,8 +107,8 @@ struct SYCLTest : public tfel::tests::TestCase {
   }  // end of fct
 
   void test1() {
-    // SYCL has no default queue: a queue must be given by the execution
-    // options
+    // SYCL has no default queue: an execution policy holding a queue must be
+    // given
     auto output = mfront_gpmp_OutputStatus{};
     auto E = std::vector<double>(4);
     const auto T = std::vector<double>{300, 500, 300, 800};
@@ -94,7 +118,9 @@ struct SYCLTest : public tfel::tests::TestCase {
                                     contiguous<1>(), 4,
                                     mfront_gmp_OutOfBoundsPolicy{}),
                            -5);
-    TFEL_TESTS_CHECK_EQUAL(std::string(output.msg), "no SYCL queue given");
+    TFEL_TESTS_CHECK_EQUAL(
+        std::string(output.msg),
+        "no execution policy given: the sycl backend requires a queue");
   }
 
   void test2() {
@@ -113,8 +139,11 @@ struct SYCLTest : public tfel::tests::TestCase {
     const auto values = std::array<double, 4u>{300, -1, 500, 800};
     std::copy(values.begin(), values.end(), T);
     const auto args = std::array<const double *, 1u>{T};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(
+            Q, {.asynchronous = true});
     const auto options =
-        mfront_gpmp_ExecutionOptions{.queue = &Q, .statistics = statistics};
+        TestExecution{.statistics = statistics, .policy = &execution_policy};
     auto output = mfront_gpmp_OutputStatus{};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E, 1, args,
@@ -146,8 +175,11 @@ struct SYCLTest : public tfel::tests::TestCase {
     auto *const E = sycl::malloc_shared<double>(4, Q);
     std::fill(T, T + 4, 300.);
     const auto args = std::array<const double *, 1u>{T};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(
+            Q, {.asynchronous = true});
     const auto options =
-        mfront_gpmp_ExecutionOptions{.queue = &Q, .statistics = statistics};
+        TestExecution{.statistics = statistics, .policy = &execution_policy};
     auto output = mfront_gpmp_OutputStatus{};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E, 1, args,
@@ -172,8 +204,11 @@ struct SYCLTest : public tfel::tests::TestCase {
     const auto T = std::vector<double>{300, -1, 500, 800};
     auto E = std::vector<double>(4, -12.);
     const auto args = std::array<const double *, 1u>{T.data()};
-    const auto options = mfront_gpmp_ExecutionOptions{
-        .queue = &Q, .statistics = statistics.data()};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(
+            Q, {.asynchronous = true});
+    const auto options = TestExecution{.statistics = statistics.data(),
+                                       .policy = &execution_policy};
     auto output = mfront_gpmp_OutputStatus{};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.data(),

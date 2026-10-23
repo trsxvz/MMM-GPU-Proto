@@ -1,4 +1,4 @@
-From eac9594f79687692fab83acc2849defa4bcb85d4 Mon Sep 17 00:00:00 2001
+From 48d51c2f85b014a4a0b62103d3d7c599f892fb88 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 01:47:43 +0200
 Subject: [PATCH] TFEL: no assertion in the computation of the eigenvectors of

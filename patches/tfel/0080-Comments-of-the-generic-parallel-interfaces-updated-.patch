@@ -1,0 +1,360 @@
+From 4fb66d45738f60a60f85bfd8029687852e6cac0e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 15:59:36 +0200
+Subject: [PATCH] Comments of the generic-parallel interfaces updated,
+ preexisting documentation errors fixed
+
+Memory space of the batches, sycl queues (required, in-order for the
+asynchronous computations), lists of backends, conventions of the
+backends of the material properties, generated documentation (strides,
+parameters of the constructor, order of the arguments of the initialize
+functions). Preexisting errors in the touched files: misplaced comments,
+wrong parameter names, template parameters documented as parameters.
+---
+ include/TFEL/Material/BoundsCheck.hxx            | 10 +++++-----
+ .../MFront/GenericBehaviour/Integrate.hxx        |  2 +-
+ .../MaterialProperty/AbstractBackend.hxx         |  2 +-
+ .../MaterialProperty/CUDABackendBase.hxx         |  4 ++--
+ .../CxxProgrammingModelBackendBase.hxx           | 12 ++++++++----
+ .../MaterialProperty/KokkosBackend.hxx           |  2 +-
+ .../MaterialProperty/OpenMPBackend.hxx           |  2 +-
+ .../MaterialProperty/ParallelSTLBackend.hxx      |  2 +-
+ .../MaterialProperty/SYCLBackend.hxx             |  2 +-
+ .../MFront/GenericParallelBehaviour/BatchData.h  | 16 ++++++++++++----
+ .../MFront/GenericParallelBehaviourInterface.hxx |  5 +++--
+ .../MaterialProperty.h                           |  2 ++
+ mfront/src/GenericBehaviourInterface.cxx         | 14 +++++++++++---
+ .../MaterialProperty/BackendBase.cxx             |  7 ++++---
+ .../PolyCrystalSharedDataTest.mfront             |  2 +-
+ .../generic-parallel/test-cxx.cxx                |  6 +++---
+ 16 files changed, 57 insertions(+), 33 deletions(-)
+
+diff --git a/include/TFEL/Material/BoundsCheck.hxx b/include/TFEL/Material/BoundsCheck.hxx
+index a11be78f8..b5db1643d 100644
+--- a/include/TFEL/Material/BoundsCheck.hxx
++++ b/include/TFEL/Material/BoundsCheck.hxx
+@@ -39,19 +39,19 @@ namespace std {
+ namespace tfel::material {
+ 
+   /*!
+-   * \brief an helper class
++   * \brief a helper class
+    *
+    * All the checks return a boolean which is false if a bound is violated
+    * and if this violation is not tolerated by the out of bounds policy.
+    *
+-   * The names of the variables are passed as C strings: constructing a
+-   * `std::string_view` from a C string is not supported in device code by
+-   * some compilers (nvcc silently removes the code).
+-   *
+    * On the host, an exception is thrown in this case, so the returned value
+    * is always true. In device code, where exceptions are not available, the
+    * returned value must be used to report the failure. Warnings are not
+    * displayed in device code.
++   *
++   * The names of the variables are passed as C strings: constructing a
++   * `std::string_view` from a C string is not supported in device code by
++   * some compilers (nvcc silently removes the code).
+    */
+   struct BoundsCheckBase {
+     /*!
+diff --git a/mfront/include/MFront/GenericBehaviour/Integrate.hxx b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+index 12a6b0bdf..6bee68c45 100644
+--- a/mfront/include/MFront/GenericBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericBehaviour/Integrate.hxx
+@@ -392,7 +392,7 @@ namespace mfront::gb {
+    * \param[in,out] b: behaviour
+    * \param[in,out] d: behaviour data
+    * \param[in] o: computation options
+-   * \param[in,out] smflag: consistent tangent operator expected
++   * \param[in] f: choice of consistent tangent operator
+    */
+   template <typename Behaviour>
+   TFEL_HOST_DEVICE int computePredictionOperator(
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
+index 81eb863c6..70cc1bfbd 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
+@@ -34,7 +34,7 @@ namespace mfront::generic_parallel::material_property {
+ 
+   /*!
+    * \brief an abstract class which aims at writing code for a specific backend
+-   * (CUDA, HIP, parallel STL, SYCL)
++   * (CUDA, HIP, Kokkos, OpenMP, parallel STL, SYCL)
+    */
+   struct MFRONT_VISIBILITY_EXPORT AbstractBackend {
+     //! \brief return the name of the backend
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+index cf7c6971f..d159cabda 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+@@ -61,8 +61,8 @@ namespace mfront::generic_parallel::material_property {
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&,
+         const FileDescription&) const override;
+-    //! \brief destructor
+     [[nodiscard]] std::string getMemorySpace() const override;
++    //! \brief destructor
+     ~CUDABackendBase() noexcept override;
+ 
+    protected:
+@@ -111,7 +111,7 @@ namespace mfront::generic_parallel::material_property {
+      * \param[in] i: interface
+      * \param[in] mpd: material property description
+      * \param[in] treatStrides: boolean stating if strides are treated (see
+-     * `writeCImplementations2`)
++     * `writeKernelSelection`)
+      */
+     virtual void writeKernelCall(
+         std::ostream&,
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
+index 8dcf0c175..e14e1d2c2 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
+@@ -25,7 +25,7 @@ namespace mfront::generic_parallel::material_property {
+   /*!
+    * \brief This intermediate class helps implementing various closely related
+    * backends which define the kernel as a lambda function. Those backends
+-   * include `ParallelSTL` and `SYCL`
++   * include `ParallelSTL`, `SYCL`, `Kokkos` and `OpenMP`
+    */
+   struct MFRONT_VISIBILITY_EXPORT CxxProgrammingModelBackendBase : BackendBase {
+     //! \brief default constructor
+@@ -104,9 +104,13 @@ namespace mfront::generic_parallel::material_property {
+                              const bool) const;
+     /*!
+      * \brief write the declarations of the variables captured by the kernels
+-     * (pointer to the bounds statuses, stored in a container named
+-     * `mfront_bounds_statuses_storage` declared by the backend, and values of
+-     * the parameters) and the kernels (with and without strides)
++     * (copies of the pointers to the arguments, named `mfront_arg0`,
++     * `mfront_arg1`, etc., and values of the parameters) and the kernels
++     * (without strides and, if strides are treated, with strides).
++     *
++     * If bounds checking is required, the array of statuses
++     * `mfront_bounds_statuses` must have been declared before by the backend
++     * (see `writeBoundsStatusesDeclaration`).
+      *
+      * \param[in] os: output stream
+      * \param[in] i: interface
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
+index c09c479d6..534d717c7 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
+@@ -47,8 +47,8 @@ namespace mfront::generic_parallel::material_property {
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const override;
+-    //! \brief destructor
+     [[nodiscard]] std::string getMemorySpace() const override;
++    //! \brief destructor
+     ~KokkosBackend() noexcept override;
+ 
+    protected:
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
+index cdde29b2a..c75de0fba 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
+@@ -50,8 +50,8 @@ namespace mfront::generic_parallel::material_property {
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const override;
+-    //! \brief destructor
+     [[nodiscard]] std::string getMemorySpace() const override;
++    //! \brief destructor
+     ~OpenMPBackend() noexcept override;
+ 
+    protected:
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+index 43d0a470f..a0a305a55 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+@@ -40,8 +40,8 @@ namespace mfront::generic_parallel::material_property {
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const override;
+-    //! \brief destructor
+     [[nodiscard]] std::string getMemorySpace() const override;
++    //! \brief destructor
+     ~ParallelSTLBackend() noexcept override;
+ 
+    protected:
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+index b43af1148..e36050009 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+@@ -37,8 +37,8 @@ namespace mfront::generic_parallel::material_property {
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const override;
+-    //! \brief destructor
+     [[nodiscard]] std::string getMemorySpace() const override;
++    //! \brief destructor
+     ~SYCLBackend() noexcept override;
+ 
+    protected:
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+index ea2969d92..b47379e77 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
++++ b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+@@ -66,7 +66,8 @@ typedef struct mfront_gpb_ExecutionOptions {
+    * \brief queue on which the computations are submitted. Its meaning
+    * depends on the backend (`cudaStream_t` or `hipStream_t`, pointer to a
+    * `sycl::queue` or to an instance of a Kokkos execution space). A null
+-   * pointer denotes the default queue, if meaningful for the backend.
++   * pointer denotes the default queue, if meaningful for the backend: a
++   * queue must be given to the `sycl` backend (invalid arguments otherwise).
+    */
+   void* queue;
+   /*!
+@@ -82,7 +83,9 @@ typedef struct mfront_gpb_ExecutionOptions {
+    * SYCL backend if no field is transferred): the function returns once
+    * they are submitted to the queue, and the caller must synchronize the
+    * queue before reading the outputs and the statistics. The output status
+-   * only reports invalid arguments and runtime errors.
++   * only reports invalid arguments and runtime errors. With the `sycl`
++   * backend, the statistics require an in-order queue (invalid arguments
++   * otherwise).
+    */
+   mfront_gpb_BatchStatistics* statistics;
+   /*!
+@@ -190,8 +193,13 @@ typedef struct mfront_gpb_State {
+  *
+  * Integrating a batch is equivalent to calling the function generated by
+  * the `generic` interface at each integration point, with the same values
+- * of the time increment and of the computation options. All the pointers
+- * must be accessible by the device on which the computations are performed.
++ * of the time increment and of the computation options. All the fields must
++ * be located in the memory space exported by the library (symbol
++ * `<name>_generic_parallel_memory_space`, see
++ * `MFront/GenericParallel/MemorySpace.hxx`). With the `any` memory space,
++ * the fields may be located anywhere (for instance, the `sycl` backend
++ * copies the fields which are not accessible by the device). The arrays of
++ * fields given variable by variable are only read on the host.
+  */
+ typedef struct mfront_gpb_BatchData {
+   //! \brief number of integration points
+diff --git a/mfront/include/MFront/GenericParallelBehaviourInterface.hxx b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+index 5c84cbf8f..4503f8e87 100644
+--- a/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+@@ -26,8 +26,9 @@ namespace mfront {
+ 
+   /*!
+    * \brief an interface integrating a behaviour over a batch of integration
+-   * points on GPUs (CUDA, HIP) or CPUs (parallel algorithms of the C++
+-   * standard library).
++   * points with a parallel programming model selected by the `backend`
++   * option (`cuda`, `hip`, `kokkos`, `openmp`, `stlpar` or `sycl`), on the
++   * host or on a device.
+    *
+    * Integrating a batch is equivalent to calling the function generated by
+    * the `generic` interface at each integration point. This interface reuses
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+index 73d34a5e6..93ea48d97 100644
+--- a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+@@ -58,6 +58,8 @@ typedef struct mfront_gpmp_ExecutionOptions {
+    * transferred), as the integration of the behaviours with statistics: the
+    * function returns once the computations are submitted to the queue, and
+    * the output status only reports invalid arguments and runtime errors.
++   * With the `sycl` backend, an asynchronous evaluation requires an in-order
++   * queue (invalid arguments otherwise).
+    * Once the computations are completed, the
+    * `<name>_generic_parallel_report` function analyses the statuses, read on
+    * the host, and reports the result in an output status, as a synchronous
+diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
+index a74619d51..23bd340b3 100644
+--- a/mfront/src/GenericBehaviourInterface.cxx
++++ b/mfront/src/GenericBehaviourInterface.cxx
+@@ -896,15 +896,23 @@ namespace mfront {
+   void GenericBehaviourInterface::writeBehaviourConstructorHeader(
+       std::ostream& os,
+       const BehaviourDescription& bd,
+-      const Hypothesis,
++      const Hypothesis h,
+       const std::string& initStateVarsIncrements) const {
+     const auto tdecl = this->getBehaviourConstructorTemplateDeclaration();
+     const auto dargs = this->getDataConstructorsArgumentsValues();
++    // if not empty, the source of the parameters is an additional argument
++    // of the constructor (`mgpb_parameters` for the `generic-parallel`
++    // interface, see `getBehaviourConstructorArguments`)
++    const auto psrc = this->getParametersSourceInBehaviourConstructor(bd, h);
+     os << "/*!\n"
+        << " * \\brief constructor for the " << this->getInterfaceName()
+        << " interface\n"
+-       << " * \\param[in] mgb_d: behaviour data\n"
+-       << " */\n";
++       << " * \\param[in] mgb_d: behaviour data\n";
++    if (!psrc.empty()) {
++      os << " * \\param[in] " << psrc
++         << ": values of the parameters (and copies of the shared data)\n";
++    }
++    os << " */\n";
+     if (!tdecl.empty()) {
+       os << tdecl << '\n';
+     }
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+index dc190eb94..70793835a 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+@@ -1,6 +1,6 @@
+ /*!
+  * \file   BackendBase.cxx
+- * \brief  This file implements the `Backend` class
++ * \brief  This file implements the `BackendBase` class
+  * \author Thomas Helfer
+  * \date 07/04/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+@@ -169,8 +169,9 @@ namespace mfront::generic_parallel::material_property {
+        << "stride of each argument. If zero, the argument is uniform\n";
+     document_last_arguments();
+     os << " *\n"
+-       << " * \\note `mfront_npoints` is also the size of the arrays giving\n"
+-       << " *   the output and the inputs when non uniform\n"
++       << " * \\note the array giving the output (resp. an argument) holds at\n"
++       << " *   least `(mfront_npoints - 1) * stride + 1` values, `stride`\n"
++       << " *   being the output stride (resp. the stride of the argument)\n"
+        << " */\n"
+        << "MFRONT_SHAREDOBJ void " << name << "(\n"
+        << types.output_status_type << "* const,\n"
+diff --git a/test-suite/behaviours/generic-parallel/PolyCrystalSharedDataTest.mfront b/test-suite/behaviours/generic-parallel/PolyCrystalSharedDataTest.mfront
+index b4fb2558a..14d722f1b 100644
+--- a/test-suite/behaviours/generic-parallel/PolyCrystalSharedDataTest.mfront
++++ b/test-suite/behaviours/generic-parallel/PolyCrystalSharedDataTest.mfront
+@@ -30,7 +30,7 @@
+ @StateVariable StrainStensor epsp;
+ @StateVariable StrainStensor epsg[Np];
+ 
+-// comment declarer 12*ng ?
++// one value per slip system and per grain
+ @StateVariable strain g[Nss * Np];
+ @StateVariable strain a[Nss * Np];
+ @StateVariable strain p[Nss * Np];
+diff --git a/test-suite/material-properties/generic-parallel/test-cxx.cxx b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+index 2a423f8c7..aa9635edf 100644
+--- a/test-suite/material-properties/generic-parallel/test-cxx.cxx
++++ b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+@@ -400,9 +400,6 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     }
+   }
+ 
+-  // bound violated with the warning policy: the result is computed at all
+-  // points and must be used with caution (status 1), as with the `generic`
+-  // interface
+   void test15() {
+     // execution options given explicitly: instance of the execution space
+     // with Kokkos, no queue otherwise
+@@ -463,6 +460,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     }
+   }
+ 
++  // bound violated with the warning policy: the result is computed at all
++  // points and must be used with caution (status 1), as with the `generic`
++  // interface
+   void test14() {
+     constexpr auto eps = double{1e-2};
+     auto young = [](const double T, const double f) {
+-- 
+2.43.0
+

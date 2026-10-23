@@ -16,10 +16,13 @@
 # its library is in LD_LIBRARY_PATH, so the clang of the system cannot be used),
 # cuda-clang and hip-clang (same clang, with CUDA 12.9: clang 20 does not
 # know CUDA 13), stlpar-parunseq-icpx and sycl-default-icpx (oneAPI
-# 2026.1, SYCL on CPU); TDLS enabled. To change the configurations of an
+# 2026.1, SYCL on CPU), arcane (accelerator API of Arccore built with CUDA
+# by scripts/build-arccore.sh, mmm-gpu only, if installed: same clang and
+# CUDA 12.9 as cuda-clang); TDLS enabled. To change the configurations of an
 # existing build directory:
 # cmake -Dgeneric-parallel-configurations="..." -U "tfel-substitutions*" .
-# (with -DRAJA_DIR=<installation of RAJA>/lib/cmake/raja when adding raja).
+# (with -DRAJA_DIR=<installation of RAJA>/lib/cmake/raja when adding raja,
+# -DArccore_ROOT=<installation of Arccore> when adding arcane).
 # The tests run in the environment of scripts/env.sh.
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
@@ -46,6 +49,13 @@ case "${PROTO_ENVIRONMENT:-mmm-gpu}" in
       echo "no raja configuration: RAJA is not installed" \
         "(deps/spack/install-mmm-raja.sh)"
       RAJA=
+    fi
+    # Arccore built with CUDA, if installed by scripts/build-arccore.sh
+    ARCCORE=$P/install/arccore
+    if [ ! -f "$ARCCORE/include/arccore/arccore_config.h" ]; then
+      echo "no arcane configuration: Arccore is not installed" \
+        "(scripts/build-arccore.sh)"
+      ARCCORE=
     fi
     ACPP=$V/bin/acpp
     CLANGXX=$V/bin/clang++
@@ -80,6 +90,11 @@ if [ -n "${RAJA:-}" ]; then
   RAJA_CONFIG=$(readlink -f "$RAJA/lib/cmake/raja/raja-config.cmake")
   RAJA_OPTIONS=(-DRAJA_DIR="$(dirname "$RAJA_CONFIG")")
 fi
+ARCANE_OPTIONS=()
+if [ -n "${ARCCORE:-}" ]; then
+  CONFIGURATIONS="$CONFIGURATIONS;arcane"
+  ARCANE_OPTIONS=(-DArccore_ROOT="$ARCCORE")
+fi
 mkdir -p "$BUILD"
 cd "$BUILD"
 if [ ! -f CMakeCache.txt ]; then
@@ -90,7 +105,7 @@ if [ ! -f CMakeCache.txt ]; then
     -Denable-fortran=OFF -Denable-testing=ON \
     -Denable-tdls=ON -Dtdls_DIR=/home/t/Documents/GitHub/tdls/build-install/lib/cmake/tdls \
     -Dgeneric-parallel-configurations="$CONFIGURATIONS" \
-    -DKokkos_ROOT="$KOKKOS" "${RAJA_OPTIONS[@]}" \
+    -DKokkos_ROOT="$KOKKOS" "${RAJA_OPTIONS[@]}" "${ARCANE_OPTIONS[@]}" \
     -DTFEL_NVHPC_COMPILER=/opt/nvidia/hpc_sdk/Linux_x86_64/25.11/compilers/bin/nvc++ \
     -DTFEL_ACPP_COMPILER="$ACPP" \
     -DTFEL_CLANGXX_COMPILER="$CLANGXX" \

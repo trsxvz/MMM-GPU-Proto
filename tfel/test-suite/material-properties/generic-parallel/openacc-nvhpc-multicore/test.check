@@ -9,17 +9,17 @@
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-openacc-nvhpc-multicore.json ../LinearDataInterpolationTest.mfront";
 @Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-openacc-nvhpc-multicore.json ../MaterialLawCallTest.mfront";
 @Command "@mfront@ --obuild --configuration-file=config-openacc-nvhpc-multicore.json";
-@Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -acc=multicore --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openacc ../test-cxx.cxx -o test-openacc -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelUO2-openacc -lGenericParallelInconel600-openacc -lGenericParallelMaterialLaw-openacc";
+@Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -acc=multicore --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openacc ../test-cxx.cxx -o test-openacc -L @TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -L src -lGenericParallelUO2-openacc -lGenericParallelInconel600-openacc -lGenericParallelMaterialLaw-openacc";
 @Command "./test-openacc test-openacc-openacc-nvhpc-multicore";
 // compilation and execution with the runtime checks disabled
 @Command "@mfront@ --interface=generic-parallel --dsl-option=disable_runtime_checks:true --configuration-file=config-openacc-nvhpc-multicore.json ../Inconel600_YoungModulus.mfront";
 @Command "@mfront@ --obuild --configuration-file=config-openacc-nvhpc-multicore.json";
-@Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -acc=multicore --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openacc ../test-no-runtime-checks.cxx -o test-no-runtime-checks -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericParallelInconel600-openacc";
+@Command "@TFEL_NVHPC_COMPILER@ -I @TFEL_INCLUDE_DIR@ -I include -O2 -march=native -acc=multicore --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPMP_TEST_BACKEND=openacc ../test-no-runtime-checks.cxx -o test-no-runtime-checks -L @TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -L src -lGenericParallelInconel600-openacc";
 @Command "./test-no-runtime-checks test-no-runtime-checks-openacc-nvhpc-multicore";
 
 // comparison with the `generic` interface (see compare.cxx)
 @Command "sh ../build-libraries.sh @mfront@ config-openacc-nvhpc-multicore.json";
-@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -acc=multicore --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -acc=multicore --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl";
 @Command "sh ../compare-all.sh ./compare openacc";
 // library also containing the functions of the `generic` interface
 @Command "sh ../check-generic-functions.sh @mfront@ config-openacc-nvhpc-multicore.json ./compare openacc";

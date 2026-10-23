@@ -1,0 +1,88 @@
+From b095fb5248e3aa3dc07d73fd52644f0934ebd72f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 01:22:58 +0200
+Subject: [PATCH] MFront: static variables used in code blocks as copies built
+ at compile time
+
+In the code blocks, a static variable is now replaced by a copy built at
+compile time, `decltype(v){v}`, instead of the variable itself. Device code
+can't refer to a constexpr static member of a class type, such as a
+quantity: with `@UseQt true`, `T + dT - Tref` for a static temperature
+`Tref` gave to `nvcc` (CUDA 13) "identifier Tref is undefined in device
+code", the operator taking its arguments by reference. A copy built at
+compile time can be used in device code. The static variables being
+scalars or quantities, the copy has the same type and value: the
+generated code is unchanged on the host.
+
+The two identical treatments of the static members in
+DSLBase::readNextBlock are gathered in a local function.
+---
+ mfront/src/DSLBase.cxx | 38 ++++++++++++++++++++------------------
+ 1 file changed, 20 insertions(+), 18 deletions(-)
+
+diff --git a/mfront/src/DSLBase.cxx b/mfront/src/DSLBase.cxx
+index b1daca9fb..9da54324e 100644
+--- a/mfront/src/DSLBase.cxx
++++ b/mfront/src/DSLBase.cxx
+@@ -375,6 +375,24 @@ namespace mfront {
+       b.description += this->currentComment;
+     }
+     auto& res = b.code;
++    // writes a static member, the current token. A static variable is
++    // replaced by a copy built at compile time, `decltype(v){v}`: device
++    // code can't refer to a constexpr static member of a class type, such
++    // as a quantity, which is the case when it is given to a function or an
++    // operator taking a reference (for instance `T - Tref` for a static
++    // temperature `Tref`), but can use such a copy (CUDA, HIP). The static
++    // variables being scalars or quantities, the copy has the same type and
++    // value.
++    auto writeStaticMember = [this, &res, addClassName](const std::string& n) {
++      const auto previous = std::prev(this->current);
++      if ((previous->value == "->") || (previous->value == ".") ||
++          (previous->value == "::")) {
++        res += n;
++        return;
++      }
++      const auto v = addClassName ? this->getClassName() + "::" + n : n;
++      res += "decltype(" + v + "){" + v + "}";
++    };
+     unsigned int openedBlock = 0;
+     this->readSpecifiedToken("DSLBase::readNextBlock", delim1);
+     this->checkNotEndOfFile("DSLBase::readNextBlock",
+@@ -408,15 +426,7 @@ namespace mfront {
+     }
+     if (smn.find(currentValue) != smn.end()) {
+       b.staticMembers.insert(currentValue);
+-      const auto previous = std::prev(this->current);
+-      if ((previous->value != "->") && (previous->value != ".") &&
+-          (previous->value != "::")) {
+-        if (addClassName) {
+-          res += this->getClassName();
+-          res += "::";
+-        }
+-      }
+-      res += currentValue;
++      writeStaticMember(currentValue);
+     } else if (mn.find(currentValue) != mn.end()) {
+       b.members.insert(currentValue);
+       auto cv = std::string{};
+@@ -473,15 +483,7 @@ namespace mfront {
+       }
+       if (smn.find(currentValue) != smn.end()) {
+         b.staticMembers.insert(currentValue);
+-        const auto previous = std::prev(this->current);
+-        if ((previous->value != "->") && (previous->value != ".") &&
+-            (previous->value != "::")) {
+-          if (addClassName) {
+-            res += this->getClassName();
+-            res += "::";
+-          }
+-        }
+-        res += currentValue;
++        writeStaticMember(currentValue);
+       } else if (mn.find(currentValue) != mn.end()) {
+         b.members.insert(currentValue);
+         auto cv = std::string{};
+-- 
+2.43.0
+

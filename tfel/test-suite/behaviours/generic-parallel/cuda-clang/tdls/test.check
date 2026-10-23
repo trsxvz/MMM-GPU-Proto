@@ -4,7 +4,7 @@
 @Environment {"LD_LIBRARY_PATH": "src:reference/src"};
 // behaviours using the TDLS linear system solver
 @Command "sh ../../build-libraries.sh @mfront@ config-cuda-clang.json ImplicitNortonTDLS";
-@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
+@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ -x cuda --cuda-gpu-arch=native --cuda-path=@TFEL_CLANG_CUDA_PATH@ -Wno-unknown-cuda-version -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -L@TFEL_CLANG_CUDA_LIBRARY_DIR@ -lcudart -ldl";
 @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-cuda.so";
 
 @CleanFiles {"compare"};

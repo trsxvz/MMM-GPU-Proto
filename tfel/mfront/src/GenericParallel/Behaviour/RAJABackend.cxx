@@ -45,6 +45,12 @@ namespace mfront::generic_parallel::behaviour {
            "mfront::generic_parallel::host_memory_space)";
   }  // end of getMemorySpace
 
+  std::string RAJABackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::RAJABackendExecutionPolicy<"
+           "::mfront::generic_parallel::raja::Resource<" +
+           this->execution_policy + ">>";
+  }  // end of getExecutionPolicyType
+
   std::string RAJABackend::getSharedDataCopy(const std::string_view getter,
                                              const std::string_view) const {
     return "mfront::gpb::raja::getSharedDataCopy<" + this->execution_policy +

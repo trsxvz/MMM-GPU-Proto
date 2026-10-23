@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include "MFront/GenericParallel/DeviceStackSize.hxx"
+#include "MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
 namespace mfront::gpb::openmp {
@@ -27,8 +28,8 @@ namespace mfront::gpb::openmp {
    * If the computations are offloaded, the fields of the batch must be
    * accessible from the device, for instance allocated in unified or
    * managed memory (`nvc++ -gpu=mem:managed`). This function waits for the
-   * completion of the computations. The statistics given by the execution
-   * options, if any, are accumulated on the host.
+   * completion of the computations. The statistics given by the calling
+   * code, if any, are accumulated on the host.
    *
    * \tparam offload: if true, the computations are offloaded to the default
    * device (`target` construct). Otherwise, they are performed by the
@@ -38,7 +39,9 @@ namespace mfront::gpb::openmp {
    * returning the statistics associated with this point
    * \param[in,out] s: output status, which must have been initialized
    * \param[in] n: number of points
-   * \param[in] o: execution options. The queue is not used.
+   * \param[in] e: execution of the batch. The policy is a
+   * `OpenMPBackendExecutionPolicy`, or null for the default policy: only its
+   * common options are used, the computations being synchronous.
    * \param[in] rdt0: initial value of the time step scaling factor
    * \param[in] f: function
    * \param[in] device_stack_size: minimal stack size, in bytes, of the
@@ -51,10 +54,19 @@ namespace mfront::gpb::openmp {
   template <bool offload, typename PointFunction>
   int apply(OutputStatus& s,
             const size_type n,
-            const ExecutionOptions& o,
+            const BatchExecution& e,
             const real rdt0,
             const PointFunction& f,
             const std::size_t device_stack_size = 0) {
+    if (n == 0) {
+      return s.status;
+    }
+    const auto p = ::mfront::generic_parallel::checkBackendExecutionPolicy<
+        ::mfront::generic_parallel::OpenMPBackendExecutionPolicy>(
+        e.policy, e.statistics != nullptr);
+    if (p.error != nullptr) {
+      return report(s, -5, p.error);
+    }
     // the statistics are reduced member by member
     auto number_of_failures = size_type{};
     auto first_failure = ::mfront::generic_parallel::no_event;
@@ -63,7 +75,7 @@ namespace mfront::gpb::openmp {
     auto rdt = rdt0;
     if constexpr (offload) {
       if (!mfront::generic_parallel::setMinimalCUDAStackSize(
-              device_stack_size, o.preserve_stack_size != 0)) {
+              device_stack_size, p.common_options.preserve_stack_size)) {
         return report(s, -7,
                       mfront::generic_parallel::stack_size_error_message);
       }
@@ -101,7 +113,7 @@ namespace mfront::gpb::openmp {
       }
     }
     return report(
-        s, o, rdt0,
+        s, e, rdt0,
         BatchStatistics{
             .number_of_failures = number_of_failures,
             .first_failure = first_failure,
@@ -122,9 +134,9 @@ namespace mfront::gpb::openmp {
    */
   template <bool offload>
   auto makeApply(OutputStatus& s, const std::size_t device_stack_size = 0) {
-    return [&s, device_stack_size](const size_type n, const ExecutionOptions& o,
+    return [&s, device_stack_size](const size_type n, const BatchExecution& e,
                                    const real rdt0, const auto& f) {
-      return openmp::apply<offload>(s, n, o, rdt0, f, device_stack_size);
+      return openmp::apply<offload>(s, n, e, rdt0, f, device_stack_size);
     };
   }  // end of makeApply
 

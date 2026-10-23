@@ -247,6 +247,7 @@ with its own GPU tool (`MGIS/MemoryResources/`):
 | `SYCLSharedMemoryResource.hxx` | SYCL shared memory, of a given queue |
 | `KokkosSharedSpaceMemoryResource.hxx` | `Kokkos::SharedSpace` |
 | `RAJAManagedMemoryResource.hxx` | managed memory of a resource of camp (RAJA) |
+| `ArcaneUnifiedMemoryResource.hxx` | unified memory of Arccore (Arcane), accessible by all the queues |
 
 Cost: one pointer per array and one virtual call per allocation. Nothing
 per computation.
@@ -256,21 +257,30 @@ per computation.
 `mgis::BatchExecutionPolicy` is common to behaviours, models and material
 properties:
 
-- `queue`: execution queue, of a type specific to the backend
-  (`cudaStream_t`, `hipStream_t`, pointer to a `sycl::queue`, to an
-  instance of the Kokkos execution space or to a resource of camp for
-  RAJA). Null designates the default
-  queue.
-- `preserve_stack_size`: forbids modifying the stack size of the GPU
-  threads.
+- `backend_policy`: pointer to an execution policy of the backend of the
+  library, defined by TFEL (`MFront/GenericParallel/`, for instance
+  `CUDABackendExecutionPolicy` holding a stream, see the TFEL part). It
+  carries the queue and the common options `preserve_stack_size` and
+  `asynchronous`. Null designates the default policy of the backend. The
+  description of a library gives the identifier of the policy it expects
+  (`execution_policy`, read by
+  `LibrariesManager::getGenericParallelExecutionPolicy`).
+
+MGIS only forwards the pointer: a declaration of the class is enough
+(`MGIS/BackendExecutionPolicy.h`) and MGIS still builds without TFEL. The
+codes creating policies include the headers of TFEL and link
+`MFrontGenericParallelRuntime`.
 
 With this policy, the computation is synchronous: the function returns
-once the computation is finished. This is the default.
+once the computation is finished. This is the default. A backend policy
+requesting an asynchronous computation is refused by the library, since
+the statistics are only allocated by the asynchronous functions.
 
 The functions without a policy use the one of the manager
 (`batch_execution_policy`), or a default policy for rotations and material
-properties. The default policy gives a null queue. SYCL has no default
-queue: a policy must then be passed, or a queue given to the manager.
+properties. The backend policy it points to must stay valid as long as the
+manager refers to it. SYCL has no default policy: a policy holding a queue
+must then be passed, or given to the manager.
 
 ## Asynchronous computation
 
@@ -280,8 +290,10 @@ functions, post-processings, rotations, evaluation of material properties.
 Nothing changes for the code that does not use it.
 
 ```cpp
+const auto cuda = mfront::generic_parallel::makeCUDABackendExecutionPolicy(
+    {.common_options = {.asynchronous = true}, .stream = stream});
 auto p = AsynchronousBatchExecutionPolicy{};
-p.queue = stream;
+p.backend_policy = &cuda;
 p.resource = &resource;  // managed memory
 p.location = MemoryLocation::SHARED;
 const auto pending = integrate(p, m, opts, dt);
@@ -290,9 +302,11 @@ cudaStreamSynchronize(stream);
 const auto r = pending.getResult();
 ```
 
-- The function returns as soon as the computation is submitted. It returns
-  a pending computation: `PendingBatchComputation` for behaviours and
-  models, `PendingBatchEvaluation` for material properties.
+- The function returns as soon as the computation is submitted if the
+  backend policy requests it (`asynchronous` option), once it is finished
+  otherwise (default policy, or backends computing synchronously). In both
+  cases it returns a pending computation: `PendingBatchComputation` for
+  behaviours and models, `PendingBatchEvaluation` for material properties.
 - Once the queue is synchronised by the caller, `getResult` returns the
   result of the synchronous function, index of the first failed point
   included, given by the report function of the library (an asynchronous
@@ -364,7 +378,8 @@ its contract already describes each field by two strides.
   copy operations (`FieldOperations`), just as allocations go through a
   `std::pmr::memory_resource`. MGIS knows which arrays to copy, the caller
   provides the copy. Headers for CUDA, HIP, SYCL, Kokkos, RAJA, OpenMP,
-  OpenACC and the parallel algorithms of C++ (`ParallelSTLFieldOperations`,
+  OpenACC, Arccore (`ArcaneFieldOperations`, on a queue of Arccore) and the
+  parallel algorithms of C++ (`ParallelSTLFieldOperations`,
   on the host or on an NVIDIA GPU with `nvc++ -stdpar=gpu`), compiled by the
   caller with its toolchain.
 - **Unchecked view and update of the inputs only**: `make_unchecked_view`
@@ -512,8 +527,9 @@ setExternalStateVariable(m.s0, "Temperature", temperature,
                          MaterialStateManager::EXTERNAL_STORAGE);
 setExternalStateVariable(m.s1, "Temperature", temperature,
                          MaterialStateManager::EXTERNAL_STORAGE);
-auto policy = BatchExecutionPolicy{};
-policy.queue = stream;
+const auto cuda =
+    mfront::generic_parallel::makeCUDABackendExecutionPolicy({.stream = stream});
+const auto policy = BatchExecutionPolicy{.backend_policy = &cuda};
 const auto r = integrate(policy, m, BehaviourIntegrationOptions{}, dt);
 ```
 

@@ -1,4 +1,4 @@
-From e0beeb82eb497648e0a62e5fd071b437d972d0bd Mon Sep 17 00:00:00 2001
+From 0c75522e2a712c8633d7444247fb93c5e3815f27 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 23:06:55 +0200
 Subject: [PATCH] generic-parallel: OpenMP backend, Kokkos backend for material
@@ -77,10 +77,10 @@ Subject: [PATCH] generic-parallel: OpenMP backend, Kokkos backend for material
  rename test-suite/material-properties/generic-parallel/{test-stlpar.cxx => test-cxx.cxx} (82%)
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index 772b3750c..72d33e423 100644
+index 0784090f9..8c57a7852 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -546,10 +546,12 @@ set(_tfel-generic-parallel_supported_configurations
+@@ -548,10 +548,12 @@ set(_tfel-generic-parallel_supported_configurations
      "sycl-default-icpx"
      "sycl-default-acpp"
      "sycl-gpu-acpp"
@@ -95,7 +95,7 @@ index 772b3750c..72d33e423 100644
  
  foreach(conf ${generic-parallel-configurations})
    if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
-@@ -655,13 +657,15 @@ if((_tfel-enable-generic-parallel-cuda-clang-configuration) OR
+@@ -657,13 +659,15 @@ if((_tfel-enable-generic-parallel-cuda-clang-configuration) OR
    define_tfel_cxx_compiler("clang++")
  endif()
  
@@ -283,7 +283,7 @@ index 000000000..121cdb4a9
 +  linker_flags: "-mp=gpu -gpu=mem:managed"
 +}
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 9a0656231..d6fce4327 100644
+index 436fd683e..e16df8251 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
 @@ -123,6 +123,8 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty CUDABackendBase.hx
@@ -303,7 +303,7 @@ index 9a0656231..d6fce4327 100644
  install_mfront_header(MFront/GenericParallel/Behaviour ParallelSTLBackend.hxx)
  install_mfront_header(MFront/GenericParallel/Behaviour SYCLBackend.hxx)
  install_mfront_header(MFront GenericModelInterface.hxx)
-@@ -259,6 +262,7 @@ install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
+@@ -260,6 +263,7 @@ install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour Kokkos.hxx)
  install_mfront_header(MFront/GenericParallelBehaviour ModelIntegrator.hxx)

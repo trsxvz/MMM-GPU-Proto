@@ -1,0 +1,318 @@
+From 27ba76b912e80c3bd2aa20f4ec8a6d69bc5f0844 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:57:43 +0200
+Subject: [PATCH] Nucleation models: derivatives fixed
+
+The derivatives of the porosity nucleation models, used by the analytical
+jacobian of the StandardElastoViscoPlasticity brick, were wrong:
+
+- Chu and Needleman 1980, strain based: the derivative of the porosity
+  increment with respect to the increment of the equivalent plastic strain
+  was the rate factor at the beginning of the increment instead of its end
+  (p instead of p + dp), and the derivative of the rate factor had the
+  wrong sign;
+- Chu and Needleman 1980, stress based: the derivative of the rate factor
+  with respect to the maximum principal stress had the wrong sign (the
+  derivative of exp(-x^2/2) is -x exp(-x^2/2));
+- power law, strain and stress based: the derivative of fn rs^m was
+  computed as (m / sn) fn rs^m rs instead of (m / sn) fn rs^m / rs.
+
+The values (porosity increments and rate factors) are unchanged. The new
+test ChuNeedleman1980NucleationModelsTest compares the derivatives of the
+four models to finite difference approximations (and fails with the
+previous code); the tests of the behaviours using these models pass.
+---
+ ...eedleman1980StrainBasedNucleationModel.ixx |   8 +-
+ ...eedleman1980StressBasedNucleationModel.ixx |   6 +-
+ .../PowerLawStrainBasedNucleationModel.ixx    |   3 +-
+ .../PowerLawStressBasedNucleationModel.ixx    |   3 +-
+ tests/Material/CMakeLists.txt                 |   1 +
+ .../ChuNeedleman1980NucleationModelsTest.cxx  | 191 ++++++++++++++++++
+ 6 files changed, 204 insertions(+), 8 deletions(-)
+ create mode 100644 tests/Material/ChuNeedleman1980NucleationModelsTest.cxx
+
+diff --git a/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx b/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx
+index 2418cf9c5..d3fd7cf88 100644
+--- a/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx
++++ b/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx
+@@ -48,8 +48,8 @@ namespace tfel::material {
+     // porosity rate
+     const auto fr = cste * params.fn / (params.sn) * std::exp(-x * x / 2);
+     // derivative of the porosity rate with respect to the equivalent plastic
+-    // strain
+-    const auto dfr_dp = fr * x / (params.sn);
++    // strain: the derivative of exp(-x * x / 2) is -x exp(-x * x / 2)
++    const auto dfr_dp = -fr * x / (params.sn);
+     //
+     return std::make_tuple(fr, dfr_dp);
+   }  // end of computeChuNeedleman1980StrainBasedNucleationModelPorosityRate
+@@ -84,9 +84,11 @@ namespace tfel::material {
+     constexpr auto cste = tfel::math::Cste<real>::sqrt2;
+     const auto Fa = std::erf((p - params.en) / (cste * (params.sn)));
+     const auto Fb = std::erf((p + dp - params.en) / (cste * (params.sn)));
++    // the derivative of the increment with respect to dp is the porosity
++    // rate factor at the end of the increment
+     const auto An =
+         computeChuNeedleman1980StrainBasedNucleationModelPorosityRateFactor(
+-            params, p);
++            params, p + dp);
+     return std::make_tuple((params.fn) * (Fb - Fa) / 2, An);
+   }  // end of
+      // computeChuNeedleman1980StrainBasedNucleationModelPorosityIncrement
+diff --git a/include/TFEL/Material/ChuNeedleman1980StressBasedNucleationModel.ixx b/include/TFEL/Material/ChuNeedleman1980StressBasedNucleationModel.ixx
+index 1d53bedcb..641386ee0 100644
+--- a/include/TFEL/Material/ChuNeedleman1980StressBasedNucleationModel.ixx
++++ b/include/TFEL/Material/ChuNeedleman1980StressBasedNucleationModel.ixx
+@@ -78,9 +78,9 @@ namespace tfel::material {
+     const auto x = (s1 - params.sigm) / (params.sn);
+     // porosity rate
+     const auto An = cste * params.fn / (params.sn) * std::exp(-x * x / 2);
+-    // derivative of the porosity rate with respect to the equivalent plastic
+-    // strain
+-    const auto dAn_ds1 = An * x / (params.sn);
++    // derivative of the porosity rate with respect to the maximum principal
++    // stress: the derivative of exp(-x * x / 2) is -x exp(-x * x / 2)
++    const auto dAn_ds1 = -An * x / (params.sn);
+     //
+     return std::make_tuple(An, dAn_ds1 * n1);
+   }  // end of computeChuNeedleman1980StressBasedNucleationModelPorosityRate
+diff --git a/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx b/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx
+index d1e2ccdaf..3ef5301ee 100644
+--- a/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx
++++ b/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx
+@@ -48,7 +48,8 @@ namespace tfel::material {
+     const auto rp = p / params.en - 1;
+     const auto irp = std::max(rp, 1e-12);
+     const auto An = (params.fn) * std::pow(rp, params.m);
+-    const auto dAn_dp = (params.m / params.en) * An * irp;
++    // derivative of fn * rp^m: (m / en) * fn * rp^(m - 1)
++    const auto dAn_dp = (params.m / params.en) * An / irp;
+     return std::make_tuple(An, dAn_dp);
+   }  // end of computePowerLawStrainBasedNucleationModelPorosityRate
+ 
+diff --git a/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx b/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx
+index 36be8b0d9..66deb905d 100644
+--- a/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx
++++ b/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx
+@@ -79,7 +79,8 @@ namespace tfel::material {
+     }
+     const auto irs1 = std::max(rs1, 1e-12);
+     const auto An = (params.fn) * std::pow(rs1, params.m);
+-    const auto dAn_ds1 = (params.m / params.sn) * An * irs1;
++    // derivative of fn * rs1^m: (m / sn) * fn * rs1^(m - 1)
++    const auto dAn_ds1 = (params.m / params.sn) * An / irs1;
+     //
+     return std::make_tuple(An, dAn_ds1 * n1);
+   }  // end of computePowerLawStressBasedNucleationModelPorosityRate
+diff --git a/tests/Material/CMakeLists.txt b/tests/Material/CMakeLists.txt
+index b7c4ee2c1..fd7c466f3 100644
+--- a/tests/Material/CMakeLists.txt
++++ b/tests/Material/CMakeLists.txt
+@@ -22,6 +22,7 @@ tests_material(MicrostructureLinearHomogenization)
+ tests_material(MicrostructureDerivatives)
+ tests_material(Lame)
+ tests_material(IsotropicModuli)
++tests_material(ChuNeedleman1980NucleationModelsTest)
+ tests_material(AnisotropicEshelbyTensor)
+ tests_material(boundsCheck)
+ tests_material(OrthotropicAxesConventionTest)
+diff --git a/tests/Material/ChuNeedleman1980NucleationModelsTest.cxx b/tests/Material/ChuNeedleman1980NucleationModelsTest.cxx
+new file mode 100644
+index 000000000..8177a778a
+--- /dev/null
++++ b/tests/Material/ChuNeedleman1980NucleationModelsTest.cxx
+@@ -0,0 +1,191 @@
++/*!
++ * \file   tests/Material/ChuNeedleman1980NucleationModelsTest.cxx
++ * \brief  This file compares the derivatives computed by the nucleation
++ * models of Chu and Needleman and by the power law nucleation models to
++ * their finite difference approximations
++ * \date   13/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifdef NDEBUG
++#undef NDEBUG
++#endif /* NDEBUG */
++
++#include <cmath>
++#include <tuple>
++#include <cstdlib>
++#include <iostream>
++#include "TFEL/Tests/TestCase.hxx"
++#include "TFEL/Tests/TestProxy.hxx"
++#include "TFEL/Tests/TestManager.hxx"
++#include "TFEL/Math/stensor.hxx"
++#include "TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.hxx"
++#include "TFEL/Material/ChuNeedleman1980StressBasedNucleationModel.hxx"
++#include "TFEL/Material/PowerLawStrainBasedNucleationModel.hxx"
++#include "TFEL/Material/PowerLawStressBasedNucleationModel.hxx"
++
++struct ChuNeedleman1980NucleationModelsTest final
++    : public tfel::tests::TestCase {
++  ChuNeedleman1980NucleationModelsTest()
++      : tfel::tests::TestCase("TFEL/Material",
++                              "ChuNeedleman1980NucleationModelsTest") {
++  }  // end of ChuNeedleman1980NucleationModelsTest
++  tfel::tests::TestResult execute() override {
++    this->testStrainBasedModel();
++    this->testStressBasedModel();
++    this->testPowerLawStrainBasedModel();
++    this->testPowerLawStressBasedModel();
++    return this->result;
++  }  // end of execute
++ private:
++  //! \brief strain based model, before and after the mean value
++  void testStrainBasedModel() {
++    using namespace tfel::material;
++    const auto params =
++        ChuNeedleman1980StrainBasedNucleationModelParameters<double>{
++            .fn = 0.04, .en = 0.3, .sn = 0.1};
++    constexpr auto h = 1e-7;
++    constexpr auto eps = 1e-6;
++    for (const auto p : {0.12, 0.25, 0.41}) {
++      // derivative of the porosity rate factor with respect to the
++      // equivalent plastic strain
++      const auto [fr, dfr_dp] =
++          computeChuNeedleman1980StrainBasedNucleationModelPorosityRateFactorAndDerivative(
++              params, p);
++      const auto frp =
++          computeChuNeedleman1980StrainBasedNucleationModelPorosityRateFactor(
++              params, p + h);
++      const auto frm =
++          computeChuNeedleman1980StrainBasedNucleationModelPorosityRateFactor(
++              params, p - h);
++      TFEL_TESTS_ASSERT(std::abs(dfr_dp - (frp - frm) / (2 * h)) <
++                        eps * std::abs(fr / params.sn));
++      // derivative of the porosity increment with respect to the increment
++      // of the equivalent plastic strain
++      for (const auto dp : {0.01, 0.05, 0.2}) {
++        const auto [df, ddf_ddp] =
++            computeChuNeedleman1980StrainBasedNucleationModelPorosityIncrementAndDerivative(
++                params, p, dp, 1.);
++        const auto dfp =
++            computeChuNeedleman1980StrainBasedNucleationModelPorosityIncrement(
++                params, p, dp + h, 1.);
++        const auto dfm =
++            computeChuNeedleman1980StrainBasedNucleationModelPorosityIncrement(
++                params, p, dp - h, 1.);
++        TFEL_TESTS_ASSERT(std::abs(df - (dfp + dfm) / 2) < 1e-10);
++        TFEL_TESTS_ASSERT(std::abs(ddf_ddp - (dfp - dfm) / (2 * h)) <
++                          eps * params.fn / params.sn);
++      }
++    }
++  }  // end of testStrainBasedModel
++  //! \brief stress based model, before and after the mean value
++  void testStressBasedModel() {
++    using namespace tfel::material;
++    using Stensor = tfel::math::stensor<3u, double>;
++    const auto params =
++        ChuNeedleman1980StressBasedNucleationModelParameters<Stensor>{
++            .fn = 0.04, .sigm = 200, .sn = 50};
++    constexpr auto h = 1e-5;
++    constexpr auto eps = 1e-6;
++    for (const auto s : {120., 230., 290.}) {
++      const auto sig = Stensor{s, 0.6 * s, -0.2 * s, 10., 0., 5.};
++      const auto [An, dAn_dsig] =
++          computeChuNeedleman1980StressBasedNucleationModelPorosityRateFactorAndDerivative(
++              params, sig, 1.);
++      for (unsigned short i = 0; i != 6; ++i) {
++        auto sigp = sig;
++        auto sigm = sig;
++        sigp[i] += h;
++        sigm[i] -= h;
++        const auto Anp =
++            computeChuNeedleman1980StressBasedNucleationModelPorosityRateFactor(
++                params, sigp, 1.);
++        const auto Anm =
++            computeChuNeedleman1980StressBasedNucleationModelPorosityRateFactor(
++                params, sigm, 1.);
++        TFEL_TESTS_ASSERT(std::abs(dAn_dsig[i] - (Anp - Anm) / (2 * h)) <
++                          eps * std::abs(An / params.sn));
++      }
++    }
++  }  // end of testStressBasedModel
++  //! \brief power law strain based model
++  void testPowerLawStrainBasedModel() {
++    using namespace tfel::material;
++    const auto params = PowerLawStrainBasedNucleationModelParameters<double>{
++        .fn = 0.04, .en = 0.1, .m = 1.5};
++    constexpr auto h = 1e-7;
++    constexpr auto eps = 1e-6;
++    for (const auto p : {0.15, 0.3}) {
++      const auto [An, dAn_dp] =
++          computePowerLawStrainBasedNucleationModelPorosityRateFactorAndDerivative(
++              params, p);
++      const auto Anp =
++          computePowerLawStrainBasedNucleationModelPorosityRateFactor(params,
++                                                                      p + h);
++      const auto Anm =
++          computePowerLawStrainBasedNucleationModelPorosityRateFactor(params,
++                                                                      p - h);
++      TFEL_TESTS_ASSERT(std::abs(dAn_dp - (Anp - Anm) / (2 * h)) <
++                        eps * An / params.en);
++      for (const auto dp : {0.01, 0.1}) {
++        const auto [df, ddf_ddp] =
++            computePowerLawStrainBasedNucleationModelPorosityIncrementAndDerivative(
++                params, p, dp, 1.);
++        const auto dfp =
++            computePowerLawStrainBasedNucleationModelPorosityIncrement(
++                params, p, dp + h, 1.);
++        const auto dfm =
++            computePowerLawStrainBasedNucleationModelPorosityIncrement(
++                params, p, dp - h, 1.);
++        TFEL_TESTS_ASSERT(std::abs(df - (dfp + dfm) / 2) < 1e-10);
++        TFEL_TESTS_ASSERT(std::abs(ddf_ddp - (dfp - dfm) / (2 * h)) <
++                          eps * params.fn);
++      }
++    }
++  }  // end of testPowerLawStrainBasedModel
++  //! \brief power law stress based model
++  void testPowerLawStressBasedModel() {
++    using namespace tfel::material;
++    using Stensor = tfel::math::stensor<3u, double>;
++    const auto params = PowerLawStressBasedNucleationModelParameters<Stensor>{
++        .fn = 0.04, .sn = 100, .m = 1.5, .pmin = 0};
++    constexpr auto h = 1e-5;
++    constexpr auto eps = 1e-6;
++    for (const auto s : {150., 300.}) {
++      const auto sig = Stensor{s, 0.6 * s, -0.2 * s, 10., 0., 5.};
++      const auto [An, dAn_dsig] =
++          computePowerLawStressBasedNucleationModelPorosityRateFactorAndDerivative(
++              params, sig, 1.);
++      for (unsigned short i = 0; i != 6; ++i) {
++        auto sigp = sig;
++        auto sigm = sig;
++        sigp[i] += h;
++        sigm[i] -= h;
++        const auto Anp =
++            computePowerLawStressBasedNucleationModelPorosityRateFactor(
++                params, sigp, 1.);
++        const auto Anm =
++            computePowerLawStressBasedNucleationModelPorosityRateFactor(
++                params, sigm, 1.);
++        TFEL_TESTS_ASSERT(std::abs(dAn_dsig[i] - (Anp - Anm) / (2 * h)) <
++                          eps * An / params.sn);
++      }
++    }
++  }  // end of testPowerLawStressBasedModel
++};
++
++TFEL_TESTS_GENERATE_PROXY(ChuNeedleman1980NucleationModelsTest,
++                          "ChuNeedleman1980NucleationModelsTest");
++
++/* coverity [UNCAUGHT_EXCEPT]*/
++int main() {
++  auto& m = tfel::tests::TestManager::getTestManager();
++  m.addTestOutput(std::cout);
++  m.addXMLTestOutput("ChuNeedleman1980NucleationModelsTest.xml");
++  return m.execute().success() ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+-- 
+2.43.0
+

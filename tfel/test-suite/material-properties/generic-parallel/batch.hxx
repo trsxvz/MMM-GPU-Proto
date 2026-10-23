@@ -19,6 +19,14 @@
 #include <cstddef>
 #include "MFront/GenericParallelMaterialProperty/MaterialProperty.h"
 
+//! \brief execution of an evaluation: statistics and execution policy
+struct TestExecution {
+  //! \brief statistics given by the calling code, or null
+  mfront_gpmp_Statistics* statistics = nullptr;
+  //! \brief execution policy, or null for the default policy of the backend
+  const mfront_gp_AbstractBackendExecutionPolicy* policy = nullptr;
+};  // end of struct TestExecution
+
 /*!
  * \return the strides of `N` contiguous arguments
  */
@@ -40,7 +48,7 @@ constexpr std::array<mfront_gmp_size_type, N> contiguous() noexcept {
  * \param[in] strides: strides of the arguments
  * \param[in] n: number of points
  * \param[in] p: out of bounds policy
- * \param[in] o: execution options
+ * \param[in] e: execution of the evaluation
  * \param[out] statuses: statuses of the points, or null
  * \param[in] nargs: number of arguments given to the function
  */
@@ -53,7 +61,7 @@ int evaluate(const mfront_gpmp_BatchMaterialPropertyPtr f,
              const std::array<mfront_gmp_size_type, N>& strides,
              const mfront_gmp_size_type n,
              const mfront_gmp_OutOfBoundsPolicy p,
-             const mfront_gpmp_ExecutionOptions& o = {},
+             const TestExecution& e = {},
              int* const statuses = nullptr,
              const mfront_gmp_size_type nargs = N) {
   auto fields = std::array<mfront_gpmp_ConstField, N>{};
@@ -69,7 +77,8 @@ int evaluate(const mfront_gpmp_BatchMaterialPropertyPtr f,
       .number_of_arguments = nargs,
       .out_of_bounds_policy = p,
       .statuses = statuses,
-      .execution = o};
+      .statistics = e.statistics,
+      .execution_policy = e.policy};
   return f(&s, &d);
 }  // end of evaluate
 

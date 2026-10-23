@@ -23,6 +23,7 @@ extern "C" {
 extern const char* Inconel600_YoungModulus_generic_parallel_backend;
 extern unsigned short Inconel600_YoungModulus_generic_parallel_api_version;
 extern const char* Inconel600_YoungModulus_generic_parallel_memory_space;
+extern const char* Inconel600_YoungModulus_generic_parallel_execution_policy;
 }
 
 /*!
@@ -38,7 +39,8 @@ inline bool checkGenericParallelSymbols(const std::string_view backend) {
          (Inconel600_YoungModulus_generic_parallel_api_version ==
           MFRONT_GPMP_API_VERSION) &&
          ((memory_space == "host") || (memory_space == "device") ||
-          (memory_space == "any"));
+          (memory_space == "any")) &&
+         (Inconel600_YoungModulus_generic_parallel_execution_policy != nullptr);
 }  // end of checkGenericParallelSymbols
 
 #endif /* LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_TESTS_SYMBOLS_HXX */

@@ -51,6 +51,7 @@ namespace mfront::generic_parallel::behaviour {
         std::string_view, std::string_view) const override;
     [[nodiscard]] std::string getApply(std::string_view) const override;
     [[nodiscard]] std::string getMemorySpace() const override;
+    [[nodiscard]] std::string getExecutionPolicyType() const override;
     //! \brief destructor
     ~OpenACCBackend() noexcept override;
 

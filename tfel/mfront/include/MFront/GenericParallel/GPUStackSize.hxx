@@ -60,7 +60,7 @@ namespace mfront::generic_parallel::gpu {
       return "the stack size of the threads of the device must be at "
              "least " +
              std::to_string(this->required_stack_size) +
-             " bytes, but it is preserved by the execution options";
+             " bytes, but it is preserved by the execution policy";
     }
   };
 

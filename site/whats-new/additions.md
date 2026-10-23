@@ -44,7 +44,7 @@ behaviour, functions that process a whole batch of points.
   the parameters. The integration drivers of the `generic` interface
   were split into a host and device core and the historical host
   functions, so both interfaces share the same cores.
-- **Eight backends**, each with one primitive: apply a function object to
+- **Nine backends**, each with one primitive: apply a function object to
   the points of the batch and reduce the statistics.
 
 | Backend | Primitive | Execution queue | Asynchronous |
@@ -56,10 +56,14 @@ behaviour, functions that process a whole batch of points.
 | `sycl` | `parallel_for` and atomic updates | `sycl::queue`, required | yes, if no value is copied and the queue is in order |
 | `openmp` | `target teams distribute parallel for` or `parallel for` | none | no |
 | `openacc` | `parallel loop` with reductions | none | no |
+| `arcane` | command of Arccore, native atomics only on an event | queue of Arccore (GPU or host chosen at run time), required | yes |
 
-- **Execution options** with the same meaning for all backends: queue,
-  statistics of an asynchronous computation, and a flag that forbids
-  changing the stack size of GPU threads. An empty batch is accepted
+- **Execution policies**: one C++ class per backend
+  (`mfront::generic_parallel`), holding the queue of the backend and the
+  common options (asynchronous computation, a flag that forbids changing
+  the stack size of GPU threads), checked by the generated functions
+  through an identifier. The statistics are a separate member of the data
+  of a batch: given, they defer the report. An empty batch is accepted
   without any check.
 - **Memory space symbol** (`host`, `device` or `any`), fixed at compile
   time from the backend, the compiler and the memory mode.
@@ -103,9 +107,9 @@ offer the same possibilities as the interface for behaviours:
 - properties defined by data or calling other laws, usable on CUDA and
   HIP;
 - one function per property, `<name>_generic_parallel`, taking the data
-  of a batch (version 3 of the functions): number of points, output and
+  of a batch (version 4 of the functions): number of points, output and
   arguments with a stride, out-of-bounds policy, optional statuses of the
-  points, and execution options with the same members and meaning as for
+  points, statistics and execution policy with the same meaning as for
   behaviours. The signature is the same for all backends;
 - the same evaluation at each point as the `generic` interface: same
   checks, same status per point, `NaN` where the evaluation fails;
@@ -210,7 +214,7 @@ without changing CPU results:
 
 ### Configurations
 
-TFEL is built and tested with 17 configurations of the behaviour
+TFEL is built and tested with 18 configurations of the behaviour
 interface (`build-tfel.sh`): CUDA with nvcc and clang, HIP with hipcc
 and clang (NVIDIA platform of HIP), `stlpar` with g++, clang, icpx and
 `nvc++` on the GPU, Kokkos, RAJA (nvcc, GPU and OpenMP on the host),
@@ -251,13 +255,14 @@ compilation and linking only).
   HIP managed memory, SYCL shared memory, `Kokkos::SharedSpace` and the
   managed memory of a resource of camp (RAJA).
 - **Execution policy** (`mgis::BatchExecutionPolicy`), common to
-  behaviours, models and material properties: queue, and protection of
-  the GPU stack size. Synchronous by default.
+  behaviours, models and material properties: a pointer to an execution
+  policy of the backend defined by TFEL (queue, protection of the GPU
+  stack size, asynchronous option). Synchronous by default.
 - **Asynchronous computation** (`mgis::AsynchronousBatchExecutionPolicy`)
-  for every batch function. It returns a pending computation
-  (`PendingBatchComputation`, `PendingBatchEvaluation`), whose
-  `getResult` gives the result once the caller has synchronised the
-  queue.
+  for every batch function, asynchronous when the backend policy requests
+  it. It returns a pending computation (`PendingBatchComputation`,
+  `PendingBatchEvaluation`), whose `getResult` gives the result once the
+  caller has synchronised the queue.
 - **Views and layouts.** `FieldView` (values with a stride between
   points and a stride between components), a layout per material data
   manager (`POINT_BY_POINT` or `COMPONENT_BY_COMPONENT`), and

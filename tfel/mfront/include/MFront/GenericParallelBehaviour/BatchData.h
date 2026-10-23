@@ -16,22 +16,23 @@
 
 #include <string.h>
 #include "MFront/GenericBehaviour/Types.h"
+#include "MFront/GenericParallel/BackendExecutionPolicy.h"
 
 /*!
  * \brief version of the data structures declared in this file, exported by
  * the generated libraries (`<name>_generic_parallel_api_version` symbol).
  * It is incremented at each incompatible change of those structures.
  */
-#define MFRONT_GPB_API_VERSION 3
+#define MFRONT_GPB_API_VERSION 4
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
 /*!
- * \brief statistics of the computations on a batch, accumulated on the
- * device when the computations are asynchronous (see
- * `mfront_gpb_ExecutionOptions`). They must be initialized by
+ * \brief statistics of the computations on a batch, accumulated by the
+ * device when they are given by the calling code (see the `statistics`
+ * member of `mfront_gpb_BatchData`). They must be initialized by
  * `mfront_gpb_initializeStatistics`, on the host. They can then be
  * copied in device memory. They are analysed by the
  * `<name>_generic_parallel_report` function of the library which computed
@@ -69,50 +70,6 @@ typedef struct mfront_gpb_Statistics {
    */
   unsigned long long rdt;
 } mfront_gpb_Statistics;
-
-/*!
- * \brief options of the execution of the computations on a batch
- */
-typedef struct mfront_gpb_ExecutionOptions {
-  /*!
-   * \brief queue on which the computations are submitted. Its meaning
-   * depends on the backend (`cudaStream_t` or `hipStream_t`, pointer to a
-   * `sycl::queue`, to an instance of a Kokkos execution space or to a
-   * resource of camp matching the execution policy of RAJA). A null
-   * pointer denotes the default queue, if meaningful for the backend: a
-   * queue must be given to the `sycl` backend (invalid arguments otherwise).
-   */
-  void* queue;
-  /*!
-   * \brief statistics of the computations, or null.
-   *
-   * If null, the computations are synchronous: the function returns once
-   * they are completed and the statistics are reported in the output
-   * status.
-   *
-   * Otherwise, the statistics are accumulated in the given structure, which
-   * must be accessible by the device as the fields of the batch (and by the
-   * host with the `stlpar`, `openmp` and `openacc` backends, which accumulate
-   * them on the host). With the automatic data transfers of the `sycl` backend,
-   * statistics which are not accessible by the device are copied, as the
-   * fields. The computations may then be asynchronous (CUDA, HIP, Kokkos and
-   * RAJA backends, SYCL backend if no field is transferred): the function
-   * returns once they are submitted to the queue, and the caller must
-   * synchronize the queue before reading the outputs and the statistics (see
-   * `<name>_generic_parallel_report`). The output status only reports the
-   * errors of the batch. With the `sycl` backend, the statistics require an
-   * in-order queue (invalid arguments otherwise).
-   */
-  mfront_gpb_Statistics* statistics;
-  /*!
-   * \brief if not null, the stack size of the threads of the device is
-   * never modified and a runtime error is reported if it is too small.
-   * Otherwise, the stack size is increased if required. This affects all
-   * the computations of the process on the device, since the stack size is
-   * a property of the context of the device (CUDA and HIP runtimes).
-   */
-  int preserve_stack_size;
-} mfront_gpb_ExecutionOptions;
 
 /*!
  * \brief values of a group of variables (gradients, internal state
@@ -253,8 +210,36 @@ typedef struct mfront_gpb_BatchData {
    * - `1`: the integration succeeded.
    */
   int* statuses;
-  //! \brief options of the execution of the computations
-  mfront_gpb_ExecutionOptions execution;
+  /*!
+   * \brief statistics of the computations (optional, null if not
+   * requested).
+   *
+   * If null, the output status reports the result of the batch.
+   *
+   * Otherwise, the statistics are accumulated in the given structure,
+   * initialized by `mfront_gpb_initializeStatistics`, which must be
+   * accessible by the device as the fields of the batch (and by the host
+   * with the `stlpar`, `openmp` and `openacc` backends, which accumulate them
+   * on the host). With the automatic data transfers of the `sycl` backend,
+   * statistics which are not accessible by the device are copied, as the
+   * fields. The output status then only reports the errors of the batch, and
+   * the `<name>_generic_parallel_report` function gives the result once the
+   * computations are completed. With the `sycl` backend, asynchronous
+   * computations require an in-order queue (invalid arguments otherwise).
+   *
+   * Statistics are required by asynchronous computations (see
+   * `mfront::generic_parallel::BackendExecutionCommonPolicy`).
+   */
+  mfront_gpb_Statistics* statistics;
+  /*!
+   * \brief execution policy of the backend of the library (see
+   * `MFront/GenericParallel/AbstractBackendExecutionPolicy.hxx`), or null
+   * for the default policy of the backend. The `sycl` backend has no default
+   * policy. A policy of another backend is refused (invalid arguments). The
+   * policy does not have to outlive the call, even for an asynchronous
+   * computation.
+   */
+  const mfront_gp_AbstractBackendExecutionPolicy* execution_policy;
 } mfront_gpb_BatchData;
 
 /*!
@@ -276,11 +261,14 @@ typedef struct mfront_gpb_RotationData {
    */
   mfront_gpb_ConstField rotation_matrices;
   /*!
-   * \brief options of the execution of the computations. The rotations
-   * never fail and never lower the time step scaling factor: the
-   * statistics, if given, are not modified.
+   * \brief statistics of the computations, as for `mfront_gpb_BatchData`.
+   * The rotations never fail and never lower the time step scaling factor:
+   * the statistics, if given, are not modified. As for the other
+   * functions, an asynchronous rotation requires statistics.
    */
-  mfront_gpb_ExecutionOptions execution;
+  mfront_gpb_Statistics* statistics;
+  //! \brief execution policy, as for `mfront_gpb_BatchData`
+  const mfront_gp_AbstractBackendExecutionPolicy* execution_policy;
 } mfront_gpb_RotationData;
 
 /*!
@@ -415,8 +403,6 @@ namespace mfront::gpb {
 
   //! \brief a simple alias
   using AtomicBatchStatistics = ::mfront_gpb_Statistics;
-  //! \brief a simple alias
-  using ExecutionOptions = ::mfront_gpb_ExecutionOptions;
   //! \brief a simple alias
   using ConstField = ::mfront_gpb_ConstField;
   //! \brief a simple alias

@@ -30,8 +30,8 @@ namespace mfront::generic_parallel::material_property {
    * If the computations are performed by a GPU, the arguments and the output
    * must be accessible from it (unified or managed memory). The memory space
    * of the library is deduced from the compilation options (see
-   * `mfront::generic_parallel::getOpenACCMemorySpace`). The queue of the
-   * execution options is not used: the evaluation is synchronous.
+   * `mfront::generic_parallel::getOpenACCMemorySpace`). Only the common
+   * options of the execution policy are used: the evaluation is synchronous.
    *
    * Options:
    *
@@ -55,6 +55,8 @@ namespace mfront::generic_parallel::material_property {
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&) const override;
     [[nodiscard]] std::string getMemorySpace() const override;
+    [[nodiscard]] std::string getExecutionPolicyType() const override;
+    [[nodiscard]] std::string getExecutionPolicyHeader() const override;
     //! \brief destructor
     ~OpenACCBackend() noexcept override;
 

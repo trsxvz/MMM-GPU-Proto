@@ -1,0 +1,1358 @@
+From 55e9f48af3989aa25fff60cb33653453e3c08d9d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 22 Oct 2026 21:53:24 +0200
+Subject: [PATCH] Execution policies of the backends of the generic-parallel
+ interfaces
+
+`BatchExecutionPolicy` and `AsynchronousBatchExecutionPolicy` hold a pointer
+to the execution policy of the backend defined by TFEL (`backend_policy`)
+instead of a `void*` queue and of the stack size flag. MGIS only forwards
+this pointer: the base class of the policies is declared
+(`MGIS/BackendExecutionPolicy.h`), and MGIS still builds without TFEL.
+
+- With `AsynchronousBatchExecutionPolicy`, the computations are asynchronous
+  if the backend policy requests it; otherwise they are synchronous and the
+  pending computation gives the result. A backend policy requesting
+  asynchronous computations is refused with `BatchExecutionPolicy`.
+- `getSynchronousBatchExecutionPolicy` is removed.
+- The copies of the data structures of TFEL follow its version 4
+  (`statistics` and `execution_policy` members).
+- The descriptions of the behaviours and of the material properties give the
+  identifier of the policy expected by the library (`execution_policy`,
+  `LibrariesManager::getGenericParallelExecutionPolicy`).
+- Tests: the CUDA tests and the evaluation test create the policies of their
+  backend and link `MFrontGenericParallelRuntime`, optional in FindTFEL.
+- Documentation and release notes.
+---
+ cmake/modules/FindTFEL.cmake                  |  20 ++-
+ docs/web/bindings-cxx.md                      |   4 +-
+ docs/web/generic-parallel.md                  | 148 +++++++++++++-----
+ docs/web/orthotropic-behaviours.md            |  12 +-
+ docs/web/release-notes-3.2.md                 |  25 ++-
+ docs/web/views.md                             |  11 +-
+ include/CMakeLists.txt                        |   1 +
+ include/MGIS/BackendExecutionPolicy.h         |  46 ++++++
+ include/MGIS/BatchExecutionPolicy.hxx         |  74 ++++-----
+ include/MGIS/Behaviour/BatchDataView.hxx      |  63 ++++----
+ .../MGIS/Behaviour/BatchExecutionPolicy.hxx   |  12 +-
+ .../MGIS/Behaviour/BehaviourDescription.hxx   |   8 +
+ .../MGIS/Behaviour/MaterialDataManager.hxx    |   8 +-
+ include/MGIS/Behaviour/MaterialDataView.hxx   |   4 +-
+ include/MGIS/LibrariesManager.hxx             |  10 ++
+ .../BatchMaterialPropertyFctPtr.hxx           |  57 +++----
+ .../MaterialProperty/MaterialProperty.hxx     |   8 +
+ src/Behaviour.cxx                             |   3 +-
+ src/BehaviourDescription.cxx                  |   1 +
+ src/Integrate.cxx                             |   3 +-
+ src/LibrariesManager.cxx                      |   6 +
+ src/MaterialProperty.cxx                      |  17 +-
+ tests/CMakeLists.txt                          |  10 +-
+ tests/FieldOperationsCUDATest.cu              |  17 +-
+ tests/GenericParallelCUDATest.cxx             |  65 ++++++--
+ tests/GenericParallelEvaluateTest.cxx         |   7 +-
+ tests/GenericParallelLoadTest.cxx             |  24 ++-
+ 27 files changed, 448 insertions(+), 216 deletions(-)
+ create mode 100644 include/MGIS/BackendExecutionPolicy.h
+
+diff --git a/cmake/modules/FindTFEL.cmake b/cmake/modules/FindTFEL.cmake
+index 86b5f5e..0b21b1a 100644
+--- a/cmake/modules/FindTFEL.cmake
++++ b/cmake/modules/FindTFEL.cmake
+@@ -104,6 +104,12 @@ IF(TFEL_CONFIG AND MFRONT AND MFRONT_QUERY)
+                   HINTS ${TFELHOME} PATH_SUFFIXES bin lib)
+      list(APPEND TFEL_LIBRARIES ${${lib}_LIBRARY})
+   endforeach(lib)
++  # base class of the execution policies of the generic-parallel interfaces
++  # (TFEL 5.2), only linked by the tests creating execution policies: MGIS
++  # itself does not depend on it
++  find_library(MFrontGenericParallelRuntime_LIBRARY
++               MFrontGenericParallelRuntime
++               HINTS ${TFELHOME} PATH_SUFFIXES bin lib)
+    
+   include(FindPackageHandleStandardArgs)
+   find_package_handle_standard_args(TFEL DEFAULT_MSG
+@@ -126,5 +132,17 @@ if(DEFINED TFEL_DIR)
+     find_package(${lib} REQUIRED HINTS ${TFEL_DIR})
+     find_package(${lib}Static HINTS ${TFEL_DIR})
+   endforeach(lib)
++  # optional, see MFrontGenericParallelRuntime_LIBRARY
++  find_package(MFrontGenericParallelRuntime QUIET HINTS ${TFEL_DIR})
+   set(MGIS_HAVE_TFEL ON)
+-endif(DEFINED TFEL_DIR)
+\ No newline at end of file
++endif(DEFINED TFEL_DIR)
++
++# target of the library of the execution policies, if it is found without
++# the package of TFEL
++if(MFrontGenericParallelRuntime_LIBRARY AND
++   (NOT TARGET tfel::MFrontGenericParallelRuntime))
++  add_library(tfel::MFrontGenericParallelRuntime SHARED IMPORTED)
++  set_target_properties(tfel::MFrontGenericParallelRuntime PROPERTIES
++    IMPORTED_LOCATION "${MFrontGenericParallelRuntime_LIBRARY}"
++    INTERFACE_INCLUDE_DIRECTORIES "${TFEL_INCLUDE_PATH}")
++endif()
+\ No newline at end of file
+diff --git a/docs/web/bindings-cxx.md b/docs/web/bindings-cxx.md
+index f257289..6c868eb 100644
+--- a/docs/web/bindings-cxx.md
++++ b/docs/web/bindings-cxx.md
+@@ -546,7 +546,9 @@ batch, with the execution policy of the manager (the thread pool is not
+ used). Additional overloads take a synchronous or an asynchronous
+ execution policy (`mgis::BatchExecutionPolicy`,
+ `mgis::AsynchronousBatchExecutionPolicy`) as first argument, and act on a
+-`MaterialDataManager` or on a `MaterialDataView`. The first overload
++`MaterialDataManager` or on a `MaterialDataView`. Those policies point to
++the execution policy of the backend (`backend_policy` member), defined by
++`TFEL`, which gives the queue of the computations. The first overload
+ throws an exception. See [this page](generic-parallel.html).
+ 
+ > **Note**
+diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
+index 26001e6..1f482d8 100644
+--- a/docs/web/generic-parallel.md
++++ b/docs/web/generic-parallel.md
+@@ -34,10 +34,11 @@ through its usual objects (`Behaviour`, `MaterialDataManager`,
+   (`integrate`, `executeInitializeFunction`, `executePostProcessing`, the
+   rotations) automatically switch to the batch functions of a
+   `generic-parallel` library. The calling code is unchanged.
+-- Each batch function also exists with an execution policy, which selects
+-  the queue of the computations (`CUDA` stream, `SYCL` queue, etc.). The
+-  computations are synchronous by default, or asynchronous with an
+-  asynchronous execution policy.
++- Each batch function also exists with an execution policy, which gives
++  the execution policy of the backend, defined by `TFEL`: queue of the
++  computations (`CUDA` stream, `SYCL` queue, etc.) and options of the
++  backend. The computations are synchronous by default, or asynchronous
++  with an asynchronous execution policy whose backend policy requests it.
+ - No data is copied: the batch is described by views on the arrays of the
+   material data manager. The arrays may also be owned by the calling code
+   and described by views with arbitrary strides (see [this
+@@ -53,17 +54,22 @@ through its usual objects (`Behaviour`, `MaterialDataManager`,
+ 
+ The `load` functions read the symbols describing a library. For a library
+ generated by the `generic-parallel` interface, the version of its data
+-structures is checked, and the backend and the memory space of the library
+-are read. They are stored in the description of the behaviour (members
+-`interface`, `backend` and `memory_space`). The batch functions
++structures is checked, and the backend, the memory space and the
++identifier of the execution policy expected by the library are read. They
++are stored in the description of the behaviour (members `interface`,
++`backend`, `memory_space` and `execution_policy`). The batch functions
+ (`<function>_generic_parallel`) and the function analysing the statistics
+-of asynchronous computations (`<behaviour>_generic_parallel_report`,
+-member `batch_report`) are loaded. The `isGenericParallelBehaviour`
+-function tells if a behaviour processes batches.
++of the computations with an asynchronous execution policy
++(`<behaviour>_generic_parallel_report`, member `batch_report`) are loaded.
++The `isGenericParallelBehaviour` function tells if a behaviour processes
++batches.
+ 
+ `MGIS` has its own copies of the data structures of `TFEL`
+ (`MGIS/Behaviour/BatchDataView.hxx`), as for the `generic` interface: it
+-does not depend on `TFEL` at compile time.
++does not depend on `TFEL` at compile time. The execution policies of the
++backends, defined by `TFEL`, are only declared
++(`MGIS/BackendExecutionPolicy.h`): `MGIS` gives them to the generated
++functions (see the `Execution policy` section).
+ 
+ The functions acting on a single integration point (`integrate` on a
+ `BehaviourDataView`, `integrate_debug`, the initialize functions, the
+@@ -171,8 +177,10 @@ When a material property is loaded, `MGIS` makes two independent tests:
+ 
+ - if the library exports the version of the functions of batches of points
+   (`<name>_generic_parallel_api_version` symbol), `MGIS` checks this
+-  version (`MGIS_MP_GENERIC_PARALLEL_API_VERSION`), reads the backend and
+-  the memory space, and loads the function evaluating a batch of points
++  version (`MGIS_MP_GENERIC_PARALLEL_API_VERSION`), reads the backend,
++  the memory space and the identifier of the execution policy expected by
++  the library (`execution_policy` member), and loads the function
++  evaluating a batch of points
+   (`batch_fct` member) and the function analysing the statistics of an
+   evaluation (`batch_report_fct` member);
+ - if the material property has been generated by the `generic` interface
+@@ -306,41 +314,91 @@ bytes, for which the runtimes return a null pointer or an error.
+ # Execution policy
+ 
+ `mgis::BatchExecutionPolicy` is shared by the behaviours, the models and
+-the material properties:
+-
+-- `queue`: queue of the computations, whose type depends on the backend
+-  (`cudaStream_t`, `hipStream_t`, pointer to a `sycl::queue`, to an
+-  instance of a `Kokkos` execution space or to a resource of camp matching
+-  the execution policy of `RAJA`). A null pointer denotes the default
+-  queue, if meaningful for the backend (a queue is required by the `SYCL`
+-  backend). With `RAJA`, it is the default stream of the current GPU with
+-  `CUDA` and `HIP`, and the default resource of camp otherwise.
+-- `preserve_stack_size`: if true, the stack size of the threads of the
+-  device is never modified, and an error is reported if it is too small.
+-  Otherwise, the stack size is increased if required. This affects the
+-  whole process, since the stack size is a property of the context of the
+-  device (`CUDA` and `HIP`).
++the material properties. Its member `backend_policy` points to the
++execution policy of the backend of the library, or is null for the
++default policy of the backend:
++
++~~~~{.cxx}
++struct BatchExecutionPolicy {
++  const mfront::generic_parallel::AbstractBackendExecutionPolicy*
++      backend_policy = nullptr;
++};
++~~~~
++
++The execution policies of the backends are defined by `TFEL`
++(`MFront/GenericParallel/` headers, for instance
++`CUDABackendExecutionPolicy` or `SyclBackendExecutionPolicy`, see the
++documentation of the `generic-parallel` interface of `MFront`). They give
++the queue of the computations (`CUDA` or `HIP` stream, `SYCL` queue,
++instance of a `Kokkos` execution space, resource of camp for `RAJA`) and
++the options common to the backends (`preserve_stack_size` and
++`asynchronous`). `MGIS` only declares their base class
++(`MGIS/BackendExecutionPolicy.h`) and gives the pointer to the generated
++functions: it still does not depend on `TFEL` at compile time. The codes
++creating policies include the headers of `TFEL` and link the
++`MFrontGenericParallelRuntime` library of `TFEL`:
++
++~~~~{.cxx}
++#include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
++const auto backend_policy =
++    mfront::generic_parallel::makeCUDABackendExecutionPolicy(
++        {.stream = stream});
++auto policy = BatchExecutionPolicy{};
++policy.backend_policy = &backend_policy;
++~~~~
++
++The library refuses a policy of another backend. The identifier of the
++policy it expects (for instance `cuda`, `sycl:oneapi` or `kokkos:Cuda`) is
++given by the `execution_policy` member of the description of the
++behaviour or of the material property, read by
++`LibrariesManager::getGenericParallelExecutionPolicy`. A null pointer
++denotes the default policy of the backend: the default stream with
++`CUDA` and `HIP`, the default instance of the execution space with
++`Kokkos`, and, with `RAJA`, the default stream of the current GPU with
++`CUDA` and `HIP` and the default resource of camp otherwise. The `SYCL`
++backend has no default policy: a policy holding a queue must be given. The
++generated functions copy what they need from the policy, which does not
++have to outlive the call.
++
++If the `preserve_stack_size` option of the backend policy is true, the
++stack size of the threads of the device is never modified, and an error
++is reported if it is too small. Otherwise, the stack size is increased if
++required. This affects the whole process, since the stack size is a
++property of the context of the device (`CUDA` and `HIP`).
+ 
+ The overloads without execution policy use the policy of the material data
+ manager, or a default policy for the rotations and the material
+-properties. The default policy gives a null queue, which the `SYCL`
+-backend refuses.
++properties. The default policy gives a null backend policy, which the
++`SYCL` backend refuses. The backend policy pointed to by the policy of a
++material data manager or of a material data view must stay valid as long
++as this policy is used.
+ 
+ With this policy, the computations are synchronous: the functions return
+-once the computations are completed. This is the default: the functions
+-without execution policy are synchronous.
++once the computations are completed. A backend policy requesting
++asynchronous computations (`asynchronous` option) is refused, since such
++computations require statistics, which only the functions taking an
++asynchronous execution policy allocate. This is the default: the
++functions without execution policy are synchronous.
+ 
+ ## Asynchronous computations
+ 
+ Each batch function also exists with an asynchronous execution policy
+-(`mgis::AsynchronousBatchExecutionPolicy`). The function then returns once
+-the computations are submitted to the queue. The calling code can submit
+-other computations, for instance the batches of other materials, and
+-synchronize the queue once.
++(`mgis::AsynchronousBatchExecutionPolicy`). If its backend policy requests
++asynchronous computations (`asynchronous` option), the function returns
++once the computations are submitted to the queue. The calling code can
++submit other computations, for instance the batches of other materials,
++and synchronize the queue once. With the default backend policy, or a
++backend policy without the `asynchronous` option, the computations are
++synchronous, and the returned pending computation gives the result as for
++an asynchronous computation.
+ 
+ ~~~~{.cxx}
++#include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
++const auto backend_policy =
++    mfront::generic_parallel::makeCUDABackendExecutionPolicy(
++        {.common_options = {.asynchronous = true}, .stream = stream});
+ auto p = AsynchronousBatchExecutionPolicy{};
+-p.queue = stream;
++p.backend_policy = &backend_policy;
+ p.resource = &resource;  // managed memory
+ p.location = MemoryLocation::SHARED;
+ const auto pending = integrate(p, m, opts, dt);
+@@ -410,8 +468,9 @@ the status while the device may write it.
+ 
+ `MGIS` can't synchronize the queue itself, since it does not depend on any
+ GPU toolkit. The backends `stlpar`, `openmp` and `openacc` compute
+-synchronously even with this policy, as `sycl` when data are transferred.
+-With `sycl`, the queue must be in-order.
++synchronously even with an asynchronous backend policy, as `sycl` when
++data are transferred. With `sycl`, asynchronous computations require an
++in-order queue.
+ 
+ # Errors
+ 
+@@ -421,7 +480,8 @@ With `sycl`, the queue must be in-order.
+   physical bound violated) is a result: the status is negative, and the
+   index of the first point where the computations failed is reported, for
+   the behaviours, the models and the material properties;
+-- invalid arguments and errors of the backend are reported by exceptions.
++- invalid arguments (for instance an execution policy of another backend)
++  and errors of the backend are reported by exceptions.
+   They are never reported as a failure of the computations. For
+   asynchronous computations, the errors of the device raised after the
+   submission are reported by the synchronization of the queue (see
+@@ -468,9 +528,12 @@ execution context.
+ A behaviour compiled for `CUDA`, the arrays of the material data manager
+ allocated by `MGIS` in managed memory, the computations submitted to a
+ stream chosen by the calling code. The temperature is given by a
+-`std::span` of one value located in managed memory.
++`std::span` of one value located in managed memory. The program links the
++`MFrontGenericParallelRuntime` library of `TFEL`, which defines the base
++class of the execution policies.
+ 
+ ~~~~{.cxx}
++#include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
+@@ -491,7 +554,10 @@ for (auto* const s : {&m.s0, &m.s1}) {
+   setExternalStateVariable(*s, "Temperature", temperature,
+                            MaterialStateManager::EXTERNAL_STORAGE);
+ }
++const auto backend_policy =
++    mfront::generic_parallel::makeCUDABackendExecutionPolicy(
++        {.stream = stream});
+ auto policy = BatchExecutionPolicy{};
+-policy.queue = stream;
++policy.backend_policy = &backend_policy;
+ const auto r = integrate(policy, m, BehaviourIntegrationOptions{}, dt);
+ ~~~~
+diff --git a/docs/web/orthotropic-behaviours.md b/docs/web/orthotropic-behaviours.md
+index 5a0c903..2074f91 100644
+--- a/docs/web/orthotropic-behaviours.md
++++ b/docs/web/orthotropic-behaviours.md
+@@ -176,7 +176,10 @@ values, and the rotation matrices from the global frame to the material
+ frame. Each rotation matrix has 9 components stored in column-major
+ format, as for the `generic` interface. The rotation matrix is uniform if
+ the point stride of its field is null. The computations are submitted to
+-the queue given by the execution options of the structure.
++the queue of the execution policy given by the structure
++(`execution_policy` member, null for the default policy of the backend).
++The optional statistics (`statistics` member) are required by an
++asynchronous rotation.
+ 
+ # Features of `MGIS` related to orthotropic behaviours {#sec:mgis:orthotropic_behaviours:mgis_support}
+ 
+@@ -226,9 +229,10 @@ execution policy (`mgis::AsynchronousBatchExecutionPolicy`).
+ For a behaviour generated by the `generic-parallel` interface, those
+ functions rotate all the points by one call of the batch rotation
+ function. Additional overloads take an execution policy
+-(`mgis::BatchExecutionPolicy`) as first argument, which selects the queue
+-of the computations. They take the source and the destination: a rotation
+-is performed in place if both are the same array. Their last argument
++(`mgis::BatchExecutionPolicy`) as first argument, whose execution policy
++of the backend selects the queue of the computations (see [this
++page](generic-parallel.html)). They take the source and the destination: a
++rotation is performed in place if both are the same array. Their last argument
+ gives the location of the arrays (`HOST` by default), which must be
+ accessible by the computations of the behaviour. The matrices of the
+ `RotationMatrix2D` and `RotationMatrix3D` objects are built on the host at
+diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
+index 9ab1aa9..18a6924 100644
+--- a/docs/web/release-notes-3.2.md
++++ b/docs/web/release-notes-3.2.md
+@@ -161,24 +161,33 @@ The behaviours, models and material properties generated by the
+ on CPUs or on GPUs (`CUDA`, `HIP`, parallel algorithms of the `C++`
+ standard library, `Kokkos`, `RAJA`, `SYCL`, `OpenMP`, `OpenACC`). Their
+ support is described in a dedicated [page](generic-parallel.html). This
+-support requires a version of `TFEL` providing those interfaces (version 3
++support requires a version of `TFEL` providing those interfaces (version 4
+ of the data structures of the behaviours and of the functions of the
+ material properties). In short:
+ 
+ - the libraries are recognized when they are loaded, and their version,
+-  backend and memory space are checked;
++  backend and memory space are checked. The identifier of the execution
++  policy expected by the library is also read (`execution_policy` member
++  of the descriptions of the behaviours and of the material properties,
++  `LibrariesManager::getGenericParallelExecutionPolicy`);
+ - the existing functions acting on a material data manager
+   (`integrate`, `executeInitializeFunction`, `executePostProcessing`, the
+   rotations) automatically switch to the batch functions, without copying
+   any data;
+ - each batch function also takes an execution policy
+-  (`mgis::BatchExecutionPolicy`), which selects the queue of the
+-  computations;
++  (`mgis::BatchExecutionPolicy`), whose `backend_policy` member points to
++  the execution policy of the backend, defined by `TFEL`: queue of the
++  computations and options of the backend. `MGIS` only gives this pointer
++  to the generated functions: it declares the base class of the policies
++  (`MGIS/BackendExecutionPolicy.h`) and does not depend on `TFEL` at
++  compile time. The codes creating policies include the headers of `TFEL`
++  and link its `MFrontGenericParallelRuntime` library;
+ - each batch function also exists with an asynchronous execution policy
+-  (`mgis::AsynchronousBatchExecutionPolicy`): it returns once the
+-  computations are submitted, and the returned object gives the result
+-  once the calling code has synchronized the queue, given by the report
+-  function of the library (`<name>_generic_parallel_report`). The
++  (`mgis::AsynchronousBatchExecutionPolicy`): the returned object gives
++  the result once the calling code has synchronized the queue, given by
++  the report function of the library (`<name>_generic_parallel_report`).
++  The computations are asynchronous only if the backend policy requests
++  it: the function then returns once the computations are submitted. The
+   computations are synchronous by default;
+ - the location of the arrays (`mgis::MemoryLocation`: host, device or
+   shared memory) is declared by the calling code and checked against the
+diff --git a/docs/web/views.md b/docs/web/views.md
+index c4ff733..fd480b5 100644
+--- a/docs/web/views.md
++++ b/docs/web/views.md
+@@ -278,8 +278,8 @@ cudaStreamSynchronize(stream);
+   argument (by default, the asynchronous loop of the GPU for code compiled
+   for `CUDA` or `HIP`), and a resource of camp matching it, on which the
+   operations are submitted (by default, the default stream of the current
+-  device with `CUDA` and `HIP`, as the `raja` backend of `MFront` when no
+-  queue is given). A copy between
++  device with `CUDA` and `HIP`, as the default execution policy of the
++  `raja` backend of `MFront`). A copy between
+   two arrays with the same dense layout is performed by the copy function of
+   the runtime. The other copies, for instance a transposition between the
+   two layouts, use a kernel.
+@@ -322,6 +322,7 @@ component in the memory of the device, by the calling code. The end of the
+ time step is performed on the device.
+ 
+ ~~~~{.cxx}
++#include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
+ #include "MGIS/FieldView.hxx"
+ #include "MGIS/FieldOperations/CUDAFieldOperations.hxx"
+ #include "MGIS/Behaviour/Behaviour.hxx"
+@@ -343,8 +344,12 @@ v.s1.gradients = mgis::makeFieldView(
+ const auto T = mgis::makeUniformFieldView(std::span<const mgis::real>(t, 1), n);
+ setExternalStateVariable(v.s0, "Temperature", T);
+ setExternalStateVariable(v.s1, "Temperature", T);
++// execution policy of the backend, defined by TFEL
++const auto backend_policy =
++    mfront::generic_parallel::makeCUDABackendExecutionPolicy(
++        {.stream = stream});
+ auto policy = mgis::BatchExecutionPolicy{};
+-policy.queue = stream;
++policy.backend_policy = &backend_policy;
+ const auto r = integrate(policy, v, BehaviourIntegrationOptions{}, dt);
+ auto ops = mgis::field_operations::CUDAFieldOperations{stream};
+ update(v, ops);
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index cff7a2c..d67a8d0 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -7,6 +7,7 @@ install(FILES ${PROJECT_BINARY_DIR}/include/MGIS/RealType.h
+ mgis_header(MGIS Config.hxx)
+ mgis_header(MGIS MemoryLocation.hxx)
+ mgis_header(MGIS BatchExecutionPolicy.hxx)
++mgis_header(MGIS BackendExecutionPolicy.h)
+ mgis_header(MGIS FieldView.hxx)
+ mgis_header(MGIS FieldView.ixx)
+ mgis_header(MGIS FieldOperations.hxx)
+diff --git a/include/MGIS/BackendExecutionPolicy.h b/include/MGIS/BackendExecutionPolicy.h
+new file mode 100644
+index 0000000..cdecd04
+--- /dev/null
++++ b/include/MGIS/BackendExecutionPolicy.h
+@@ -0,0 +1,46 @@
++/*!
++ * \file   include/MGIS/BackendExecutionPolicy.h
++ * \brief  This file declares the type of the execution policies of the
++ * backends of the `generic-parallel` interfaces of `MFront`. Those policies
++ * are defined by `TFEL` (`MFront/GenericParallel/` headers, base class
++ * `mfront::generic_parallel::AbstractBackendExecutionPolicy`): `MGIS` only
++ * gives them to the generated functions, so that a declaration is enough and
++ * `MGIS` does not depend on `TFEL` at compile time. In `C`, the policies are
++ * opaque and can only be given as null pointers (default policy of the
++ * backend).
++ * \date   22/10/2026
++ * \copyright Use, modification and distribution are subject
++ * to one of the following licences:
++ * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
++ *   file LGPL-3.0.txt)
++ * - CECILL-C,  Version 1.0 (See accompanying files
++ *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
++ */
++
++#ifndef LIB_MGIS_BACKENDEXECUTIONPOLICY_H
++#define LIB_MGIS_BACKENDEXECUTIONPOLICY_H
++
++// NOLINTBEGIN(modernize-use-using)
++#ifdef __cplusplus
++
++namespace mfront::generic_parallel {
++
++  //! \brief base class of the execution policies of the backends
++  struct AbstractBackendExecutionPolicy;
++
++}  // end of namespace mfront::generic_parallel
++
++//! \brief a simple alias
++typedef mfront::generic_parallel::AbstractBackendExecutionPolicy
++    mgis_gp_AbstractBackendExecutionPolicy;
++
++#else /* __cplusplus */
++
++//! \brief opaque structure
++typedef struct mgis_gp_AbstractBackendExecutionPolicy
++    mgis_gp_AbstractBackendExecutionPolicy;
++
++#endif /* __cplusplus */
++// NOLINTEND(modernize-use-using)
++
++#endif /* LIB_MGIS_BACKENDEXECUTIONPOLICY_H */
+diff --git a/include/MGIS/BatchExecutionPolicy.hxx b/include/MGIS/BatchExecutionPolicy.hxx
+index 74a2b46..bedc0b7 100644
+--- a/include/MGIS/BatchExecutionPolicy.hxx
++++ b/include/MGIS/BatchExecutionPolicy.hxx
+@@ -17,6 +17,7 @@
+ #include <memory_resource>
+ #include "MGIS/Config.hxx"
+ #include "MGIS/MemoryLocation.hxx"
++#include "MGIS/BackendExecutionPolicy.h"
+ 
+ namespace mgis {
+ 
+@@ -32,30 +33,30 @@ namespace mgis {
+    */
+   struct BatchExecutionPolicy {
+     /*!
+-     * \brief queue on which the computations are submitted. Its meaning
+-     * depends on the backend of the library (`cudaStream_t` or
+-     * `hipStream_t`, pointer to a `sycl::queue`, to an instance of a Kokkos
+-     * execution space or to a resource of camp matching the execution policy
+-     * of RAJA). A null pointer denotes the default queue of the backend.
+-     * The `sycl` backend has no default queue: a queue must be given.
++     * \brief execution policy of the backend of the library, defined by
++     * `TFEL` (`MFront/GenericParallel/` headers, for instance
++     * `CUDABackendExecutionPolicy` or `SyclBackendExecutionPolicy`): queue
++     * on which the computations are submitted and options common to the
++     * backends (`preserve_stack_size`). A null pointer denotes the default
++     * policy of the backend. The `sycl` backend has no default policy: a
++     * policy holding a queue must be given. A policy of another backend is
++     * refused by the library. With this policy, the computations are
++     * synchronous: a backend policy requesting asynchronous computations is
++     * refused (asynchronous computations require the statistics allocated by
++     * the functions taking an `AsynchronousBatchExecutionPolicy`). The
++     * generated functions copy what they need from the policy, which does
++     * not have to outlive the call, even for asynchronous computations.
+      */
+-    void* queue = nullptr;
+-    /*!
+-     * \brief if true, the stack size of the threads of the device is never
+-     * modified and an error is reported if it is too small. Otherwise, the
+-     * stack size is increased if required. This affects all the computations
+-     * of the process on the device, since the stack size is a property of
+-     * the context of the device (`CUDA` and `HIP` runtimes).
+-     */
+-    bool preserve_stack_size = false;
++    const mfront::generic_parallel::AbstractBackendExecutionPolicy*
++        backend_policy = nullptr;
+   };
+ 
+   /*!
+    * \brief asynchronous execution of the computations on a batch of points.
+    *
+-   * The functions taking this policy return once the computations are
+-   * submitted to the queue. They return an object which gives the result of
+-   * the computations once the calling code has synchronized the queue
++   * The functions taking this policy return an object which gives the
++   * result of the computations once the calling code has synchronized the
++   * queue
+    * (`behaviour::PendingBatchComputation` for the behaviours and the
+    * models, `material_property::PendingBatchEvaluation` for the material
+    * properties). The outputs must not be read before.
+@@ -71,18 +72,27 @@ namespace mgis {
+    * synchronization of the queue, whose status must be checked by the
+    * calling code before reading the result.
+    *
+-   * Some backends compute synchronously even with this policy: `stlpar`,
+-   * `openmp`, `openacc`, and `sycl` when data are transferred. The result is
+-   * then available as soon as the function returns. With the `sycl` backend,
+-   * the queue must be in-order: an out-of-order queue gives no order between
++   * The computations are asynchronous if the execution policy of the
++   * backend requests it (`asynchronous` option of the common options of the
++   * policies of `TFEL`): the functions then return once the computations are
++   * submitted to the queue. Otherwise, in particular with the default policy
++   * of the backend, the functions return once the computations are
++   * completed, the result being given by the returned object as for an
++   * asynchronous computation. Some backends compute synchronously even with
++   * an asynchronous policy: `stlpar`, `openmp`, `openacc`, and `sycl` when
++   * data are transferred. The result is then available as soon as the
++   * function returns. With the `sycl` backend, asynchronous computations
++   * require an in-order queue: an out-of-order queue gives no order between
+    * the computations, and is refused.
+    */
+   struct AsynchronousBatchExecutionPolicy {
+-    //! \brief queue on which the computations are submitted
+-    //! (see `BatchExecutionPolicy::queue`)
+-    void* queue = nullptr;
+-    //! \brief see `BatchExecutionPolicy::preserve_stack_size`
+-    bool preserve_stack_size = false;
++    /*!
++     * \brief execution policy of the backend of the library (see
++     * `BatchExecutionPolicy::backend_policy`), which may request asynchronous
++     * computations
++     */
++    const mfront::generic_parallel::AbstractBackendExecutionPolicy*
++        backend_policy = nullptr;
+     /*!
+      * \brief memory resource allocating the status of the computations, or
+      * null for the default memory resource (`std::pmr::get_default_resource`,
+@@ -100,16 +110,6 @@ namespace mgis {
+     MemoryLocation location = MemoryLocation::HOST;
+   };
+ 
+-  /*!
+-   * \return the synchronous policy using the same queue and the same stack
+-   * size policy
+-   * \param[in] p: asynchronous policy
+-   */
+-  constexpr BatchExecutionPolicy getSynchronousBatchExecutionPolicy(
+-      const AsynchronousBatchExecutionPolicy& p) noexcept {
+-    return {.queue = p.queue, .preserve_stack_size = p.preserve_stack_size};
+-  }  // end of getSynchronousBatchExecutionPolicy
+-
+   /*!
+    * \return the memory resource allocating the status of asynchronous
+    * computations: the one of the policy, or the default memory resource
+diff --git a/include/MGIS/Behaviour/BatchDataView.hxx b/include/MGIS/Behaviour/BatchDataView.hxx
+index d669245..da4f93d 100644
+--- a/include/MGIS/Behaviour/BatchDataView.hxx
++++ b/include/MGIS/Behaviour/BatchDataView.hxx
+@@ -21,6 +21,7 @@
+ #else
+ #include "MGIS/Config-c.h"
+ #endif /* __cplusplus */
++#include "MGIS/BackendExecutionPolicy.h"
+ 
+ /*!
+  * \brief version of the data structures of the `generic-parallel` interface
+@@ -32,7 +33,7 @@
+  * `MGIS` does not depend on `TFEL` at compile time, as for the `generic`
+  * interface.
+  */
+-#define MGIS_BV_GENERIC_PARALLEL_API_VERSION 3
++#define MGIS_BV_GENERIC_PARALLEL_API_VERSION 4
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -69,31 +70,6 @@ typedef struct mgis_bv_BatchStatistics {
+   unsigned long long rdt;
+ } mgis_bv_BatchStatistics;
+ 
+-//! \brief options of the execution of the computations on a batch
+-typedef struct mgis_bv_BatchExecutionOptions {
+-  /*!
+-   * \brief queue on which the computations are submitted (`cudaStream_t`,
+-   * `hipStream_t`, pointer to a `sycl::queue`, to an instance of a Kokkos
+-   * execution space or to a resource of camp for RAJA). A null pointer
+-   * denotes the default queue of the backend: a queue must be given to the
+-   * `sycl` backend.
+-   */
+-  void* queue;
+-  /*!
+-   * \brief statistics of the computations, or null. If null, the
+-   * computations are synchronous. Otherwise, they may be asynchronous and
+-   * the statistics are accumulated in the given structure (see
+-   * `AsynchronousBatchExecutionPolicy`).
+-   */
+-  mgis_bv_BatchStatistics* statistics;
+-  /*!
+-   * \brief if not null, the stack size of the threads of the device is never
+-   * modified and a runtime error is reported if it is too small. Otherwise,
+-   * the stack size is increased if required.
+-   */
+-  int preserve_stack_size;
+-} mgis_bv_BatchExecutionOptions;
+-
+ /*!
+  * \brief values of a group of variables at all the points of a batch: the
+  * `j`-th component at the `i`-th point is stored at
+@@ -223,8 +199,20 @@ typedef struct mgis_bv_BatchDataView {
+    * otherwise
+    */
+   int* statuses;
+-  //! \brief options of the execution of the computations
+-  mgis_bv_BatchExecutionOptions execution;
++  /*!
++   * \brief statistics of the computations, or null. If given, the
++   * statistics are accumulated in the given structure, the output status only
++   * reports the errors of the batch, and the report function gives the
++   * result once the computations are completed (see
++   * `AsynchronousBatchExecutionPolicy`). Asynchronous computations require
++   * statistics.
++   */
++  mgis_bv_BatchStatistics* statistics;
++  /*!
++   * \brief execution policy of the backend of the library, or null for the
++   * default policy (see `BatchExecutionPolicy::backend_policy`)
++   */
++  const mgis_gp_AbstractBackendExecutionPolicy* execution_policy;
+ } mgis_bv_BatchDataView;
+ 
+ /*!
+@@ -246,11 +234,13 @@ typedef struct mgis_bv_BatchRotationDataView {
+    */
+   mgis_bv_ConstField rotation_matrices;
+   /*!
+-   * \brief options of the execution of the computations. The rotations never
++   * \brief statistics of the computations, or null. The rotations never
+    * fail and never lower the time step scaling factor: the statistics, if
+    * given, are not modified.
+    */
+-  mgis_bv_BatchExecutionOptions execution;
++  mgis_bv_BatchStatistics* statistics;
++  //! \brief execution policy of the backend, or null for the default policy
++  const mgis_gp_AbstractBackendExecutionPolicy* execution_policy;
+ } mgis_bv_BatchRotationDataView;
+ 
+ /*!
+@@ -306,8 +296,17 @@ namespace mgis::behaviour {
+ 
+   //! \brief a simple alias
+   using BatchStatistics = ::mgis_bv_BatchStatistics;
+-  //! \brief a simple alias
+-  using BatchExecutionOptions = ::mgis_bv_BatchExecutionOptions;
++  /*!
++   * \brief options of the execution of the computations on a batch, given to
++   * the generated functions (`statistics` and `execution_policy` members of
++   * `BatchDataView` and `BatchRotationDataView`)
++   */
++  struct BatchExecutionOptions {
++    //! \brief statistics of the computations, or null
++    BatchStatistics* statistics = nullptr;
++    //! \brief execution policy of the backend, or null for the default policy
++    const mgis_gp_AbstractBackendExecutionPolicy* execution_policy = nullptr;
++  };
+   //! \brief a simple alias
+   using ConstField = ::mgis_bv_ConstField;
+   //! \brief a simple alias
+diff --git a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
+index bf3285f..fe69f29 100644
+--- a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
++++ b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
+@@ -32,14 +32,12 @@ namespace mgis::behaviour {
+    */
+   constexpr BatchExecutionOptions getBatchExecutionOptions(
+       const BatchExecutionPolicy& p) noexcept {
+-    return {.queue = p.queue,
+-            .statistics = nullptr,
+-            .preserve_stack_size = p.preserve_stack_size ? 1 : 0};
++    return {.statistics = nullptr, .execution_policy = p.backend_policy};
+   }  // end of getBatchExecutionOptions
+ 
+   /*!
+-   * \return the options of an asynchronous execution of the computations on
+-   * a batch
++   * \return the options of a possibly asynchronous execution of the
++   * computations on a batch
+    * \param[in] p: execution policy
+    * \param[in] s: statistics of the computations, initialized by
+    * `initializeBatchStatistics`, in memory accessible by the host and by the
+@@ -48,9 +46,7 @@ namespace mgis::behaviour {
+   constexpr BatchExecutionOptions getBatchExecutionOptions(
+       const AsynchronousBatchExecutionPolicy& p,
+       BatchStatistics* const s) noexcept {
+-    return {.queue = p.queue,
+-            .statistics = s,
+-            .preserve_stack_size = p.preserve_stack_size ? 1 : 0};
++    return {.statistics = s, .execution_policy = p.backend_policy};
+   }  // end of getBatchExecutionOptions
+ 
+ }  // end of namespace mgis::behaviour
+diff --git a/include/MGIS/Behaviour/BehaviourDescription.hxx b/include/MGIS/Behaviour/BehaviourDescription.hxx
+index 8545d8d..15bd8f2 100644
+--- a/include/MGIS/Behaviour/BehaviourDescription.hxx
++++ b/include/MGIS/Behaviour/BehaviourDescription.hxx
+@@ -91,6 +91,14 @@ namespace mgis::behaviour {
+      * the other interfaces, whose computations are performed on the host.
+      */
+     std::string memory_space;
++    /*!
++     * \brief identifier of the execution policy expected by a library
++     * generated by the `generic-parallel` interface (for instance `cuda`,
++     * `sycl:oneapi` or `kokkos:Cuda`): the policy given to the computations
++     * (see `BatchExecutionPolicy::backend_policy`) must have this identifier.
++     * Empty for the other interfaces.
++     */
++    std::string execution_policy;
+     //! \brief behaviour type
+     enum BehaviourType {
+       GENERALBEHAVIOUR,
+diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
+index d080d88..0e300fc 100644
+--- a/include/MGIS/Behaviour/MaterialDataManager.hxx
++++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
+@@ -255,9 +255,11 @@ namespace mgis::behaviour {
+     /*!
+      * \brief execution policy used by the functions which do not take one,
+      * for the behaviours generated by the `generic-parallel` interface. The
+-     * default policy uses a null queue, i.e. the default queue of the
+-     * backend: a queue must be given for the `sycl` backend. This member is
+-     * not used for the behaviours generated by the other interfaces.
++     * default policy uses the default policy of the backend (null
++     * `backend_policy`): a policy holding a queue must be given for the
++     * `sycl` backend. The backend policy is not copied: it must stay valid
++     * as long as this member refers to it. This member is not used for the
++     * behaviours generated by the other interfaces.
+      */
+     BatchExecutionPolicy batch_execution_policy;
+     //! \brief view on the speed of sound.
+diff --git a/include/MGIS/Behaviour/MaterialDataView.hxx b/include/MGIS/Behaviour/MaterialDataView.hxx
+index 995b014..8ea2556 100644
+--- a/include/MGIS/Behaviour/MaterialDataView.hxx
++++ b/include/MGIS/Behaviour/MaterialDataView.hxx
+@@ -250,7 +250,9 @@ namespace mgis::behaviour {
+     FieldView<real> speed_of_sound;
+     /*!
+      * \brief execution policy used by the functions which do not take one,
+-     * for the behaviours generated by the `generic-parallel` interface
++     * for the behaviours generated by the `generic-parallel` interface (see
++     * `MaterialDataManager::batch_execution_policy`). The backend policy is
++     * not copied: it must stay valid as long as this member refers to it.
+      */
+     BatchExecutionPolicy batch_execution_policy;
+     /*!
+diff --git a/include/MGIS/LibrariesManager.hxx b/include/MGIS/LibrariesManager.hxx
+index 07ec03e..42587c7 100644
+--- a/include/MGIS/LibrariesManager.hxx
++++ b/include/MGIS/LibrariesManager.hxx
+@@ -162,6 +162,16 @@ namespace mgis {
+      */
+     std::string getGenericParallelMemorySpace(const std::string &,
+                                               const std::string &);
++    /*!
++     * \return the identifier of the execution policy expected by an entry
++     * point generated by the `generic-parallel` interface (for instance
++     * `cuda`, `sycl:oneapi` or `kokkos:Cuda`, see the `getIdentifier` method
++     * of the execution policies of `TFEL`)
++     * \param[in] l: library name
++     * \param[in] n: entry point name
++     */
++    std::string getGenericParallelExecutionPolicy(const std::string &,
++                                                  const std::string &);
+     /*!
+      * \return the author of the `MFront` file
+      * \param[in] l: library name
+diff --git a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
+index f4f97ba..7dc094e 100644
+--- a/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
++++ b/include/MGIS/MaterialProperty/BatchMaterialPropertyFctPtr.hxx
+@@ -15,6 +15,7 @@
+ #define LIB_MGIS_MATERIALPROPERTY_BATCHMATERIALPROPERTYFCTPTR_HXX
+ 
+ #include "MGIS/MaterialProperty/MaterialPropertyFctPtr.hxx"
++#include "MGIS/BackendExecutionPolicy.h"
+ 
+ /*!
+  * \brief version of the functions generated by the `generic-parallel`
+@@ -27,7 +28,7 @@
+  * `TFEL`, with the same members in the same order, so that `MGIS` does not
+  * depend on `TFEL` at compile time.
+  */
+-#define MGIS_MP_GENERIC_PARALLEL_API_VERSION 3
++#define MGIS_MP_GENERIC_PARALLEL_API_VERSION 4
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -77,33 +78,6 @@ static inline void mgis_mp_initializeBatchStatistics(
+   s->first_unreliable_result = ~0ull;
+ } /* end of mgis_mp_initializeBatchStatistics */
+ 
+-/*!
+- * \brief options of the execution of the evaluation of a material property
+- * (copy of the `mfront_gpmp_ExecutionOptions` structure of `TFEL`, which
+- * has the members of the options of the behaviours)
+- */
+-typedef struct mgis_mp_BatchExecutionOptions {
+-  /*!
+-   * \brief queue on which the computations are submitted (`cudaStream_t`,
+-   * `hipStream_t`, pointer to a `sycl::queue`, to an instance of a Kokkos
+-   * execution space or to a resource of camp for RAJA), or null for the
+-   * default queue (the `sycl` backend requires a queue)
+-   */
+-  void* queue;
+-  /*!
+-   * \brief statistics of the evaluation, or null for a synchronous
+-   * evaluation. If given, the output status only reports the errors of the
+-   * batch, and the report function gives the result once the computations
+-   * are completed.
+-   */
+-  mgis_mp_BatchStatistics* statistics;
+-  /*!
+-   * \brief if not zero, the stack size of the threads of the device is
+-   * never modified, and an error is reported if it is too small
+-   */
+-  int preserve_stack_size;
+-} mgis_mp_BatchExecutionOptions;
+-
+ /*!
+  * \brief values of an argument on a batch of points (copy of the
+  * `mfront_gpmp_ConstField` structure of `TFEL`): the value at the `i`-th
+@@ -145,8 +119,18 @@ typedef struct mgis_mp_BatchData {
+   mgis_mp_OutOfBoundsPolicy out_of_bounds_policy;
+   //! \brief status of each point, or null
+   int* statuses;
+-  //! \brief options of the execution
+-  mgis_mp_BatchExecutionOptions execution;
++  /*!
++   * \brief statistics of the evaluation, or null. If given, the output
++   * status only reports the errors of the batch, and the report function
++   * gives the result once the computations are completed. Asynchronous
++   * evaluations require statistics.
++   */
++  mgis_mp_BatchStatistics* statistics;
++  /*!
++   * \brief execution policy of the backend of the library, or null for the
++   * default policy (see `BatchExecutionPolicy::backend_policy`)
++   */
++  const mgis_gp_AbstractBackendExecutionPolicy* execution_policy;
+ } mgis_mp_BatchData;
+ 
+ /*!
+@@ -222,8 +206,17 @@ namespace mgis::material_property {
+ 
+   //! \brief a simple alias
+   using BatchStatistics = ::mgis_mp_BatchStatistics;
+-  //! \brief a simple alias
+-  using BatchExecutionOptions = ::mgis_mp_BatchExecutionOptions;
++  /*!
++   * \brief options of the execution of an evaluation, given to the
++   * generated functions (`statistics` and `execution_policy` members of
++   * `BatchData`)
++   */
++  struct BatchExecutionOptions {
++    //! \brief statistics of the evaluation, or null
++    BatchStatistics* statistics = nullptr;
++    //! \brief execution policy of the backend, or null for the default policy
++    const mgis_gp_AbstractBackendExecutionPolicy* execution_policy = nullptr;
++  };
+   //! \brief a simple alias
+   using BatchConstField = ::mgis_mp_BatchConstField;
+   //! \brief a simple alias
+diff --git a/include/MGIS/MaterialProperty/MaterialProperty.hxx b/include/MGIS/MaterialProperty/MaterialProperty.hxx
+index 5cf2f0c..b7f5771 100644
+--- a/include/MGIS/MaterialProperty/MaterialProperty.hxx
++++ b/include/MGIS/MaterialProperty/MaterialProperty.hxx
+@@ -92,6 +92,14 @@ namespace mgis::material_property {
+      * compute on the host
+      */
+     std::string memory_space;
++    /*!
++     * \brief identifier of the execution policy expected by a library
++     * generated by the `generic-parallel` interface (for instance `cuda`,
++     * `sycl:oneapi` or `kokkos:Cuda`): the policy given to the computations
++     * (see `BatchExecutionPolicy::backend_policy`) must have this identifier.
++     * Empty for the other interfaces.
++     */
++    std::string execution_policy;
+     /*!
+      * \brief pointer to the function implementing the material property at
+      * one point, null if the library has no such function (material property
+diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
+index c36231c..7315494 100644
+--- a/src/Behaviour.cxx
++++ b/src/Behaviour.cxx
+@@ -807,7 +807,8 @@ namespace mgis::behaviour {
+     v.source = {s.data(), s.getPointStride(), s.getComponentStride()};
+     v.rotation_matrices = {r.data(), r.getPointStride(),
+                            r.getComponentStride()};
+-    v.execution = x;
++    v.statistics = x.statistics;
++    v.execution_policy = x.execution_policy;
+     auto o = BatchOutputStatus{};
+     if (f.batch(&o, &v) != 1) {
+       o.msg[sizeof(o.msg) - 1] = '\0';
+diff --git a/src/BehaviourDescription.cxx b/src/BehaviourDescription.cxx
+index 91bb593..ba658e7 100644
+--- a/src/BehaviourDescription.cxx
++++ b/src/BehaviourDescription.cxx
+@@ -187,6 +187,7 @@ namespace mgis::behaviour {
+       d.memory_space = lm.getGenericParallelMemorySpace(l, b);
+       raise_if(!isValidMemorySpace(d.memory_space),
+                "invalid memory space '" + d.memory_space + "'");
++      d.execution_policy = lm.getGenericParallelExecutionPolicy(l, b);
+     }
+     d.tfel_version = lm.getTFELVersion(l, b);
+     d.unit_system = lm.getUnitSystem(l, b);
+diff --git a/src/Integrate.cxx b/src/Integrate.cxx
+index bc6858d..65f199e 100644
+--- a/src/Integrate.cxx
++++ b/src/Integrate.cxx
+@@ -471,7 +471,8 @@ namespace mgis::behaviour::internals {
+     }
+     d.s1.material_properties_by_variable = this->mps1.data();
+     d.s1.external_state_variables_by_variable = this->esvs1.data();
+-    d.execution = x;
++    d.statistics = x.statistics;
++    d.execution_policy = x.execution_policy;
+   }  // end of BatchData
+ 
+   /*!
+diff --git a/src/LibrariesManager.cxx b/src/LibrariesManager.cxx
+index 52ea41f..be2d7dc 100644
+--- a/src/LibrariesManager.cxx
++++ b/src/LibrariesManager.cxx
+@@ -923,6 +923,12 @@ namespace mgis {
+         this->extract<const char *>(l, n + "_generic_parallel_memory_space"));
+   }  // end of getGenericParallelMemorySpace
+ 
++  std::string LibrariesManager::getGenericParallelExecutionPolicy(
++      const std::string &l, const std::string &n) {
++    return *(this->extract<const char *>(
++        l, n + "_generic_parallel_execution_policy"));
++  }  // end of getGenericParallelExecutionPolicy
++
+   unsigned short LibrariesManager::getRealSize(const std::string& l,
+                                                const std::string& n) {
+     const auto p = this->getSymbolAddress(l, n + "_real_size");
+diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
+index 640b79c..5820795 100644
+--- a/src/MaterialProperty.cxx
++++ b/src/MaterialProperty.cxx
+@@ -68,6 +68,7 @@ namespace mgis::material_property {
+       d.memory_space = lm.getGenericParallelMemorySpace(l, mp);
+       raise_if(!isValidMemorySpace(d.memory_space),
+                "invalid memory space '" + d.memory_space + "'");
++      d.execution_policy = lm.getGenericParallelExecutionPolicy(l, mp);
+       d.batch_fct = lm.getBatchMaterialProperty(l, mp);
+       d.batch_report_fct = lm.getBatchMaterialPropertyReportFunction(l, mp);
+     }
+@@ -338,7 +339,8 @@ namespace mgis::material_property {
+         .number_of_arguments = inputs.size(),
+         .out_of_bounds_policy = p,
+         .statuses = nullptr,
+-        .execution = o};
++        .statistics = o.statistics,
++        .execution_policy = o.execution_policy};
+     auto s = BatchOutputStatus{};
+     mp.batch_fct(&s, &d);
+     return s;
+@@ -359,10 +361,8 @@ namespace mgis::material_property {
+       const MaterialProperty &mp,
+       const std::span<const FieldView<const real>> inputs,
+       const OutOfBoundsPolicy p) {
+-    const auto o = BatchExecutionOptions{
+-        .queue = e.queue,
+-        .statistics = nullptr,
+-        .preserve_stack_size = e.preserve_stack_size ? 1 : 0};
++    const auto o = BatchExecutionOptions{.statistics = nullptr,
++                                         .execution_policy = e.backend_policy};
+     auto s = callBatchFunction(o, values, mp, inputs, p);
+     return getResult(mp.material_property, s);
+   }  // end of evaluateBatch
+@@ -489,10 +489,9 @@ namespace mgis::material_property {
+     }
+     auto r =
+         PendingBatchEvaluation(e, mp.material_property, mp.batch_report_fct);
+-    const auto o = BatchExecutionOptions{
+-        .queue = e.queue,
+-        .statistics = r.getStatistics(),
+-        .preserve_stack_size = e.preserve_stack_size ? 1 : 0};
++    const auto o =
++        BatchExecutionOptions{.statistics = r.getStatistics(),
++                              .execution_policy = e.backend_policy};
+     // only the errors of the batch are reported here: the failures at some
+     // points are reported by the statistics
+     auto s = callBatchFunction(o, values, mp, inputs, p);
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index d0ec875..64eff72 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -125,6 +125,8 @@ function(mgis_nvhpc_gpu_test name source)
+             "${CMAKE_CURRENT_SOURCE_DIR}/${source}"
+             -o "${_test}" "$<TARGET_FILE:MFrontGenericInterface>"
+             "-Wl,-rpath,$<TARGET_FILE_DIR:MFrontGenericInterface>"
++            "$<TARGET_FILE:tfel::MFrontGenericParallelRuntime>"
++            "-Wl,-rpath,$<TARGET_FILE_DIR:tfel::MFrontGenericParallelRuntime>"
+     DEPENDS ${source} MFrontGenericInterface
+     DEPFILE "${_test}.d"
+     COMMENT "nvc++ test ${name}"
+@@ -334,7 +336,7 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+     add_executable(GenericParallelEvaluateTest EXCLUDE_FROM_ALL
+       GenericParallelEvaluateTest.cxx)
+     target_link_libraries(GenericParallelEvaluateTest
+-      PRIVATE MFrontGenericInterface)
++      PRIVATE MFrontGenericInterface tfel::MFrontGenericParallelRuntime)
+     add_test(NAME GenericParallelEvaluateTest
+       COMMAND GenericParallelEvaluateTest
+       "$<TARGET_FILE:GenericParallelMaterialPropertyTest>"
+@@ -423,7 +425,8 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+       add_executable(GenericParallelCUDATest EXCLUDE_FROM_ALL
+         GenericParallelCUDATest.cxx)
+       target_link_libraries(GenericParallelCUDATest
+-        PRIVATE MFrontGenericInterface CUDA::cudart)
++        PRIVATE MFrontGenericInterface tfel::MFrontGenericParallelRuntime
++        CUDA::cudart)
+       add_test(NAME GenericParallelCUDATest
+         COMMAND GenericParallelCUDATest
+         "$<TARGET_FILE:GenericParallelBehaviourTestCUDA>"
+@@ -443,7 +446,8 @@ if(MGIS_HAVE_MFRONT_SUPPORT)
+       set_target_properties(FieldOperationsCUDATest PROPERTIES
+         CUDA_STANDARD 20 CUDA_ARCHITECTURES native)
+       target_link_libraries(FieldOperationsCUDATest
+-        PRIVATE MFrontGenericInterface CUDA::cudart)
++        PRIVATE MFrontGenericInterface tfel::MFrontGenericParallelRuntime
++        CUDA::cudart)
+       add_test(NAME FieldOperationsCUDATest
+         COMMAND FieldOperationsCUDATest
+         "$<TARGET_FILE:GenericParallelBehaviourTestCUDA>"
+diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
+index fd83fd6..596da84 100644
+--- a/tests/FieldOperationsCUDATest.cu
++++ b/tests/FieldOperationsCUDATest.cu
+@@ -22,6 +22,7 @@
+ #include <cuda_runtime.h>
+ #include "MGIS/FieldOperations/CUDAFieldOperations.hxx"
+ #include "MGIS/MemoryResources/CUDAManagedMemoryResource.hxx"
++#include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
+ #include "CUDADeviceArray.hxx"
+ #include "FieldOperationsTest.hxx"
+ 
+@@ -55,13 +56,11 @@ struct CUDABackend {
+   }
+   mgis::FieldOperations& operations() { return this->ops; }
+   mgis::BatchExecutionPolicy policy() const {
+-    auto p = mgis::BatchExecutionPolicy{};
+-    p.queue = this->stream;
+-    return p;
++    return {.backend_policy = &(this->synchronous_policy)};
+   }
+   mgis::AsynchronousBatchExecutionPolicy asynchronousPolicy() {
+     auto p = mgis::AsynchronousBatchExecutionPolicy{};
+-    p.queue = this->stream;
++    p.backend_policy = &(this->asynchronous_policy);
+     p.resource = &(this->pool);
+     p.location = shared_location;
+     return p;
+@@ -76,6 +75,16 @@ struct CUDABackend {
+ 
+  private:
+   cudaStream_t stream = createStream();
++  //! \brief execution policies of the `cuda` backend on the stream
++  const mfront::generic_parallel::CUDABackendExecutionPolicy
++      synchronous_policy =
++          mfront::generic_parallel::makeCUDABackendExecutionPolicy(
++              {.stream = this->stream});
++  const mfront::generic_parallel::CUDABackendExecutionPolicy
++      asynchronous_policy =
++          mfront::generic_parallel::makeCUDABackendExecutionPolicy(
++              {.common_options = {.asynchronous = true},
++               .stream = this->stream});
+   mgis::memory_resources::CUDAManagedMemoryResource managed;
+   std::pmr::synchronized_pool_resource pool{&managed};
+   mgis::field_operations::CUDAFieldOperations ops{stream};
+diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
+index f7403b0..a791fe4 100644
+--- a/tests/GenericParallelCUDATest.cxx
++++ b/tests/GenericParallelCUDATest.cxx
+@@ -38,6 +38,11 @@
+ #include <stdexcept>
+ #include <string_view>
+ #include <cuda_runtime_api.h>
++#if defined(MGIS_TESTS_PARALLEL_STL_ON_NVIDIA_GPU)
++#include "MFront/GenericParallel/ParallelSTLBackendExecutionPolicy.hxx"
++#else
++#include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
++#endif
+ #include "MGIS/Behaviour/Behaviour.hxx"
+ #include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MGIS/Behaviour/Integrate.hxx"
+@@ -202,13 +207,25 @@ static void checkResults(
+         name + ": invalid tangent operators");
+ }  // end of checkResults
+ 
+-//! \brief stream of CUDA (ignored by the stlpar backend)
++/*!
++ * \brief stream of CUDA and execution policies of the tested backend on
++ * this stream (the `stlpar` backend has no stream: its policies only hold
++ * the common options, its computations being synchronous)
++ */
+ struct Stream {
+-  Stream() {
+-    if (cudaStreamCreate(&(this->stream)) != cudaSuccess) {
+-      throw std::runtime_error("creation of a stream failed");
+-    }
+-  }
++#if defined(MGIS_TESTS_PARALLEL_STL_ON_NVIDIA_GPU)
++  //! \brief execution policy of the backend
++  using BackendExecutionPolicy =
++      mfront::generic_parallel::ParallelSTLBackendExecutionPolicy;
++#else
++  //! \brief execution policy of the backend
++  using BackendExecutionPolicy =
++      mfront::generic_parallel::CUDABackendExecutionPolicy;
++#endif
++  Stream()
++      : stream(createStream()),
++        synchronous_policy(makeBackendPolicy(this->stream, false)),
++        asynchronous_policy(makeBackendPolicy(this->stream, true)) {}
+   Stream(Stream&&) = delete;
+   Stream(const Stream&) = delete;
+   Stream& operator=(Stream&&) = delete;
+@@ -216,11 +233,37 @@ struct Stream {
+   ~Stream() { static_cast<void>(cudaStreamDestroy(this->stream)); }
+   //! \return an execution policy submitting the computations on the stream
+   mgis::behaviour::BatchExecutionPolicy policy() const noexcept {
+-    auto p = mgis::behaviour::BatchExecutionPolicy{};
+-    p.queue = this->stream;
+-    return p;
++    return {.backend_policy = &(this->synchronous_policy)};
+   }
+   cudaStream_t stream = nullptr;
++  //! \brief policy of the synchronous computations on the stream
++  const BackendExecutionPolicy synchronous_policy;
++  //! \brief policy of the asynchronous computations on the stream
++  const BackendExecutionPolicy asynchronous_policy;
++
++ private:
++  //! \return a new stream
++  static cudaStream_t createStream() {
++    auto s = cudaStream_t{};
++    if (cudaStreamCreate(&s) != cudaSuccess) {
++      throw std::runtime_error("creation of a stream failed");
++    }
++    return s;
++  }
++  /*!
++   * \return an execution policy of the backend on the given stream
++   * \param[in] s: stream
++   * \param[in] asynchronous: asynchronous computations
++   */
++  static BackendExecutionPolicy makeBackendPolicy(
++      [[maybe_unused]] const cudaStream_t s, const bool asynchronous) {
++#if defined(MGIS_TESTS_PARALLEL_STL_ON_NVIDIA_GPU)
++    return BackendExecutionPolicy{{.asynchronous = asynchronous}};
++#else
++    return BackendExecutionPolicy{
++        {.common_options = {.asynchronous = asynchronous}, .stream = s}};
++#endif
++  }
+ };
+ 
+ /*!
+@@ -783,7 +826,7 @@ static void testPartialFailures(const std::string& gpu_library) {
+   const auto stream = Stream{};
+   auto resource = mgis::memory_resources::CUDAManagedMemoryResource{};
+   auto p = AsynchronousBatchExecutionPolicy{};
+-  p.queue = stream.stream;
++  p.backend_policy = &(stream.asynchronous_policy);
+   p.resource = &resource;
+   p.location = MemoryLocation::SHARED;
+   const auto pending = integrate(p, m, opts, 1);
+@@ -825,7 +868,7 @@ static void testAsynchronousComputations(const std::string& library,
+   const auto stream = Stream{};
+   auto resource = mgis::memory_resources::CUDAManagedMemoryResource{};
+   auto p = AsynchronousBatchExecutionPolicy{};
+-  p.queue = stream.stream;
++  p.backend_policy = &(stream.asynchronous_policy);
+   p.resource = &resource;
+   p.location = MemoryLocation::SHARED;
+   auto synchronize = [&stream] {
+diff --git a/tests/GenericParallelEvaluateTest.cxx b/tests/GenericParallelEvaluateTest.cxx
+index f791d10..a96d62e 100644
+--- a/tests/GenericParallelEvaluateTest.cxx
++++ b/tests/GenericParallelEvaluateTest.cxx
+@@ -27,6 +27,7 @@
+ #include "MGIS/LibrariesManager.hxx"
+ #include "MGIS/FieldView.hxx"
+ #include "MGIS/MaterialProperty/MaterialProperty.hxx"
++#include "MFront/GenericParallel/ParallelSTLBackendExecutionPolicy.hxx"
+ #include "BitwiseEquality.hxx"
+ 
+ static bool success = true;
+@@ -140,8 +141,10 @@ static void testEvaluate(const std::string& library,
+   check((s.status == 0) && (gp_s.status == 0) && (compare(E, gp_E) < 1e-14),
+         "Inconel600_YoungModulus: invalid values");
+   // execution policy given explicitly
+-  auto e = BatchExecutionPolicy{};
+-  e.preserve_stack_size = true;
++  const auto backend_policy =
++      mfront::generic_parallel::makeParallelSTLBackendExecutionPolicy(
++          {.preserve_stack_size = true});
++  const auto e = BatchExecutionPolicy{.backend_policy = &backend_policy};
+   std::fill(gp_E.begin(), gp_E.end(), mgis::real{});
+   gp_s = evaluate(e, gp_E, gp_mp, inputs);
+   check((gp_s.status == 0) && (compare(E, gp_E) < 1e-14),
+diff --git a/tests/GenericParallelLoadTest.cxx b/tests/GenericParallelLoadTest.cxx
+index 6293bd4..cffab93 100644
+--- a/tests/GenericParallelLoadTest.cxx
++++ b/tests/GenericParallelLoadTest.cxx
+@@ -14,6 +14,7 @@
+  */
+ 
+ #include <cstddef>
++#include <type_traits>
+ #include <cstring>
+ #include <vector>
+ #include <cstdlib>
+@@ -47,11 +48,9 @@ MGIS_CHECK_MEMBER(BatchStatistics, Statistics, first_failure);
+ MGIS_CHECK_MEMBER(BatchStatistics, Statistics, number_of_unreliable_results);
+ MGIS_CHECK_MEMBER(BatchStatistics, Statistics, first_unreliable_result);
+ MGIS_CHECK_MEMBER(BatchStatistics, Statistics, rdt);
+-static_assert(sizeof(mgis_bv_BatchExecutionOptions) ==
+-              sizeof(mfront_gpb_ExecutionOptions));
+-MGIS_CHECK_MEMBER(BatchExecutionOptions, ExecutionOptions, queue);
+-MGIS_CHECK_MEMBER(BatchExecutionOptions, ExecutionOptions, statistics);
+-MGIS_CHECK_MEMBER(BatchExecutionOptions, ExecutionOptions, preserve_stack_size);
++// the execution policies declared by MGIS are the ones of TFEL
++static_assert(std::is_same_v<mgis_gp_AbstractBackendExecutionPolicy,
++                             mfront_gp_AbstractBackendExecutionPolicy>);
+ MGIS_CHECK_SIZE(ConstField);
+ MGIS_CHECK_SIZE(Field);
+ MGIS_CHECK_MEMBER(ConstField, ConstField, values);
+@@ -102,14 +101,16 @@ MGIS_CHECK_MEMBER(BatchDataView, BatchData, speed_of_sound);
+ MGIS_CHECK_MEMBER(BatchDataView, BatchData, s0);
+ MGIS_CHECK_MEMBER(BatchDataView, BatchData, s1);
+ MGIS_CHECK_MEMBER(BatchDataView, BatchData, statuses);
+-MGIS_CHECK_MEMBER(BatchDataView, BatchData, execution);
++MGIS_CHECK_MEMBER(BatchDataView, BatchData, statistics);
++MGIS_CHECK_MEMBER(BatchDataView, BatchData, execution_policy);
+ static_assert(sizeof(mgis_bv_BatchRotationDataView) ==
+               sizeof(mfront_gpb_RotationData));
+ MGIS_CHECK_MEMBER(BatchRotationDataView, RotationData, number_of_points);
+ MGIS_CHECK_MEMBER(BatchRotationDataView, RotationData, destination);
+ MGIS_CHECK_MEMBER(BatchRotationDataView, RotationData, source);
+ MGIS_CHECK_MEMBER(BatchRotationDataView, RotationData, rotation_matrices);
+-MGIS_CHECK_MEMBER(BatchRotationDataView, RotationData, execution);
++MGIS_CHECK_MEMBER(BatchRotationDataView, RotationData, statistics);
++MGIS_CHECK_MEMBER(BatchRotationDataView, RotationData, execution_policy);
+ static_assert(sizeof(mgis_bv_BatchOutputStatus) ==
+               sizeof(mfront_gpb_OutputStatus));
+ MGIS_CHECK_MEMBER(BatchOutputStatus, OutputStatus, status);
+@@ -144,12 +145,6 @@ MGIS_MP_CHECK_MEMBER(BatchStatistics, Statistics, number_of_failures);
+ MGIS_MP_CHECK_MEMBER(BatchStatistics, Statistics, first_failure);
+ MGIS_MP_CHECK_MEMBER(BatchStatistics, Statistics, number_of_unreliable_results);
+ MGIS_MP_CHECK_MEMBER(BatchStatistics, Statistics, first_unreliable_result);
+-MGIS_MP_CHECK_SIZE(BatchExecutionOptions, ExecutionOptions);
+-MGIS_MP_CHECK_MEMBER(BatchExecutionOptions, ExecutionOptions, queue);
+-MGIS_MP_CHECK_MEMBER(BatchExecutionOptions, ExecutionOptions, statistics);
+-MGIS_MP_CHECK_MEMBER(BatchExecutionOptions,
+-                     ExecutionOptions,
+-                     preserve_stack_size);
+ MGIS_MP_CHECK_SIZE(BatchConstField, ConstField);
+ MGIS_MP_CHECK_MEMBER(BatchConstField, ConstField, values);
+ MGIS_MP_CHECK_MEMBER(BatchConstField, ConstField, point_stride);
+@@ -163,7 +158,8 @@ MGIS_MP_CHECK_MEMBER(BatchData, BatchData, arguments);
+ MGIS_MP_CHECK_MEMBER(BatchData, BatchData, number_of_arguments);
+ MGIS_MP_CHECK_MEMBER(BatchData, BatchData, out_of_bounds_policy);
+ MGIS_MP_CHECK_MEMBER(BatchData, BatchData, statuses);
+-MGIS_MP_CHECK_MEMBER(BatchData, BatchData, execution);
++MGIS_MP_CHECK_MEMBER(BatchData, BatchData, statistics);
++MGIS_MP_CHECK_MEMBER(BatchData, BatchData, execution_policy);
+ MGIS_MP_CHECK_SIZE(BatchOutputStatus, OutputStatus);
+ MGIS_MP_CHECK_MEMBER(BatchOutputStatus, OutputStatus, status);
+ MGIS_MP_CHECK_MEMBER(BatchOutputStatus, OutputStatus, number_of_failures);
+-- 
+2.43.0
+

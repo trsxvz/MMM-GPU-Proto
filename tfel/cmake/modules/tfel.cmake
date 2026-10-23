@@ -178,8 +178,10 @@ function(tfel_library_internal name component)
   if(TFEL_APPEND_SUFFIX)
     set_target_properties(${name} PROPERTIES OUTPUT_NAME "${name}-${TFEL_SUFFIX}")
   endif(TFEL_APPEND_SUFFIX)
-  set_target_properties(${name}
-    PROPERTIES VERSION ${TFEL_VERSION} SOVERSION ${TFEL_VERSION})
+  if(NOT unversioned-libraries)
+    set_target_properties(${name}
+      PROPERTIES VERSION ${TFEL_VERSION} SOVERSION ${TFEL_VERSION})
+  endif(NOT unversioned-libraries)
   if(enable-include-what-you-use)
     set_property(TARGET ${name}
       PROPERTY CXX_INCLUDE_WHAT_YOU_USE ${TFEL_IWYU_PATH})
@@ -548,6 +550,7 @@ set(_tfel-generic-parallel_supported_configurations
     "sycl-gpu-acpp"
     "kokkos"
     "raja"
+    "arcane"
     "openmp-host-gcc"
     "openmp-offload-nvhpc-gpu"
     "openacc-nvhpc-gpu"
@@ -644,6 +647,36 @@ if(_tfel-enable-generic-parallel-raja-configuration)
   message(STATUS "RAJA features: ${_raja_features}")
 endif()
 
+# Arccore, the core component of the Arcane framework, for the `arcane`
+# configuration. Arccore is not found by `find_package`, since its
+# configuration file enables the CUDA language in the calling project: its
+# headers and its libraries are searched in `Arccore_ROOT`, and its
+# accelerator mode is read in its configuration header. Only an Arccore
+# built with CUDA is supported. The generated libraries are compiled by
+# clang as a CUDA compiler.
+if(_tfel-enable-generic-parallel-arcane-configuration)
+  find_path(TFEL_ARCCORE_INCLUDE_DIR NAMES arccore/arccore_config.h
+            HINTS "${Arccore_ROOT}" "$ENV{Arccore_ROOT}"
+            PATH_SUFFIXES include REQUIRED)
+  find_library(TFEL_ARCCORE_ACCELERATOR_LIBRARY NAMES arccore_accelerator
+               HINTS "${Arccore_ROOT}" "$ENV{Arccore_ROOT}"
+               PATH_SUFFIXES lib lib64 REQUIRED)
+  file(STRINGS "${TFEL_ARCCORE_INCLUDE_DIR}/arccore/arccore_config.h"
+       _arccore_cuda REGEX "^#define ARCCORE_HAS_CUDA *$")
+  if(NOT _arccore_cuda)
+    message(FATAL_ERROR "the 'arcane' configuration requires Arccore built "
+            "with CUDA")
+  endif()
+  # the generated libraries and the calling code share the same instance of
+  # Arccore (runtimes and allocators registered in global variables)
+  if(NOT TFEL_ARCCORE_ACCELERATOR_LIBRARY MATCHES "\\.(so|dylib)$")
+    message(FATAL_ERROR "the 'arcane' configuration requires Arccore built "
+            "as shared libraries")
+  endif()
+  set(TFEL_REQUIRES_CUDA ON)
+  define_tfel_cxx_compiler("clang++")
+endif()
+
 if(TFEL_REQUIRES_CUDA)
   find_package(CUDAToolkit REQUIRED)
   if(NOT CMAKE_CUDA_COMPILER)
@@ -672,6 +705,45 @@ if(TFEL_REQUIRES_CUDA)
   add_tfel_substitution(TFEL_CLANG_CUDA_PATH "${TFEL_CLANG_CUDA_PATH}")
   add_tfel_substitution(TFEL_CLANG_CUDA_LIBRARY_DIR
                         "${_tfel_clang_cuda_library_dir}")
+endif()
+
+if(_tfel-enable-generic-parallel-arcane-configuration)
+  # the generated sources are compiled by clang as a CUDA compiler, with
+  # the CUDA of the `cuda-clang` configuration, and the libraries linked
+  # with the shared libraries of Arccore and with the shared CUDA runtime,
+  # as Arccore. The code of the behaviours is also executed on the host by
+  # the `Thread` and `Sequential` queues: the device functions of CUDA are
+  # excluded from the overloads in the compilation for the host, so that an
+  # unqualified call to `max` or `min` in the code of a behaviour (`using
+  # namespace std`) is resolved to the function of the standard library. The
+  # compilation for the device keeps the default resolution: otherwise, the
+  # constant expressions of `<format>` would select deleted functions. The
+  # headers of Arccore are system headers: their deprecation warnings are
+  # ignored.
+  get_filename_component(_arccore_library_directory
+                         "${TFEL_ARCCORE_ACCELERATOR_LIBRARY}" DIRECTORY)
+  set(_arcane_flags "-x" "cuda" "--cuda-compile-host-device"
+      "--cuda-gpu-arch=native" "--cuda-path=${TFEL_CLANG_CUDA_PATH}"
+      "-Xarch_host" "-fgpu-exclude-wrong-side-overloads" "-fPIC")
+  # a standard system directory is not given (`-isystem /usr/include` would
+  # break the `#include_next` directives of the standard library, see HIP)
+  if(NOT "${TFEL_ARCCORE_INCLUDE_DIR}" IN_LIST
+     CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES)
+    list(APPEND _arcane_flags "-isystem" "${TFEL_ARCCORE_INCLUDE_DIR}")
+  endif()
+  set(_arcane_linker_flags
+      "-L${_arccore_library_directory}"
+      "-Wl,-rpath,${_arccore_library_directory}"
+      "-larccore_accelerator" "-larccore_concurrency" "-larccore_common"
+      "-larccore_trace" "-larccore_base"
+      "-L${_tfel_clang_cuda_library_dir}"
+      "-Wl,-rpath,${_tfel_clang_cuda_library_dir}" "-lcudart")
+  list(JOIN _arcane_flags " " TFEL_ARCANE_CXX_FLAGS)
+  list(JOIN _arcane_linker_flags " " TFEL_ARCANE_LINKER_FLAGS)
+  add_tfel_substitution(TFEL_ARCANE_CXX_FLAGS "${TFEL_ARCANE_CXX_FLAGS}")
+  add_tfel_substitution(TFEL_ARCANE_LINKER_FLAGS "${TFEL_ARCANE_LINKER_FLAGS}")
+  message(STATUS "Arcane flags: ${TFEL_ARCANE_CXX_FLAGS}")
+  message(STATUS "Arcane linker flags: ${TFEL_ARCANE_LINKER_FLAGS}")
 endif()
 
 if(TFEL_REQUIRES_HIP)

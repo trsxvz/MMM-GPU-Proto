@@ -292,12 +292,12 @@ namespace mfront::generic_parallel::material_property {
     const auto pool = "mfront::generic_parallel::StatusBlockPool<"
                       "mfront_gpmp_Statistics, " +
                       std::string{device_type} + ">";
-    // statistics given by the calling code (asynchronous evaluation), or
-    // block of the pool, initialized here
+    // statistics given by the calling code (deferred report), or block of
+    // the pool, initialized here
     os << "static auto mfront_statistics_blocks = " << pool << "{};\n"
        << "auto mfront_statistics_block = std::optional<" << pool
        << "::Block>{};\n"
-       << "auto* mfront_statistics = mfront_options.statistics;\n"
+       << "auto* mfront_statistics = mfront_given_statistics;\n"
        << "if (mfront_statistics == nullptr) {\n"
        << "mfront_statistics_block.emplace("
        << "mfront_statistics_blocks.acquire(" << device << ", [&]{\n"
@@ -315,9 +315,8 @@ namespace mfront::generic_parallel::material_property {
   void BackendBase::writeLocalStatisticsDeclaration(std::ostream& os) {
     os << "auto mfront_local_statistics = mfront_gpmp_Statistics{};\n"
        << "mfront_gpmp_initializeStatistics(&mfront_local_statistics);\n"
-       << "auto* const mfront_statistics = "
-       << "(mfront_options.statistics != nullptr) ? "
-       << "mfront_options.statistics : &mfront_local_statistics;\n";
+       << "auto* const mfront_statistics = mfront_deferred_report ? "
+       << "mfront_given_statistics : &mfront_local_statistics;\n";
   }  // end of writeLocalStatisticsDeclaration
 
   void BackendBase::writeErrorReporting(std::ostream& os) {
@@ -367,7 +366,7 @@ namespace mfront::generic_parallel::material_property {
       return;
     }
     os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
-       << stack_size << ", mfront_options.preserve_stack_size != 0)) {\n";
+       << stack_size << ", mfront_preserve_stack_size)) {\n";
     writeBatchError(os, -7,
                     "mfront::generic_parallel::stack_size_error_message");
     os << "}\n";
@@ -399,7 +398,7 @@ namespace mfront::generic_parallel::material_property {
        << " *\n"
        << " * \\param[out] mfront_output_status: output status\n"
        << " * \\param[in] mfront_statistics: statistics given by the "
-       << "execution options, read on the host\n"
+       << "calling code, read on the host\n"
        << " * \\return the status, also given by the output status\n"
        << " */\n"
        << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel_report(\n"
@@ -475,10 +474,25 @@ namespace mfront::generic_parallel::material_property {
                     "\"too many points (\" + std::to_string(mfront_npoints) + "
                     "\" given)\"");
     os << "}\n"
-       << "[[maybe_unused]] const auto mfront_options = "
-       << "mfront_batch->execution;\n"
+       // statistics given by the calling code: the output status then only
+       // reports the errors of the batch (see `writeResultsAnalysis`)
+       << "[[maybe_unused]] auto* const mfront_given_statistics = "
+       << "mfront_batch->statistics;\n"
+       << "[[maybe_unused]] const bool mfront_deferred_report = "
+       << "mfront_given_statistics != nullptr;\n"
+       // execution policy given by the calling code, checked against the
+       // policy of the backend
+       << "const auto mfront_backend_policy = "
+       << "::mfront::generic_parallel::checkBackendExecutionPolicy<"
+       << this->getExecutionPolicyType() << ">("
+       << "mfront_batch->execution_policy, mfront_deferred_report);\n"
+       << "if (mfront_backend_policy.error != nullptr) {\n";
+    writeBatchError(os, -5, "mfront_backend_policy.error");
+    os << "}\n"
        << "[[maybe_unused]] const bool mfront_asynchronous = "
-       << "mfront_options.statistics != nullptr;\n"
+       << "mfront_backend_policy.common_options.asynchronous;\n"
+       << "[[maybe_unused]] const bool mfront_preserve_stack_size = "
+       << "mfront_backend_policy.common_options.preserve_stack_size;\n"
        << "[[maybe_unused]] const auto mfront_out_of_bounds_policy = "
        << "mfront_batch->out_of_bounds_policy;\n"
        << "[[maybe_unused]] auto* mfront_statuses = "
@@ -702,7 +716,7 @@ namespace mfront::generic_parallel::material_property {
     // with statistics given by the calling code, the output status only
     // reports the errors of the batch: the result is given by the
     // `<name>_generic_parallel_report` function
-    os << "if (!mfront_asynchronous) {\n"
+    os << "if (!mfront_deferred_report) {\n"
        << i.getFunctionName(mpd) << "_generic_parallel_report("
        << "mfront_output_status, mfront_statistics);\n"
        << "}\n";

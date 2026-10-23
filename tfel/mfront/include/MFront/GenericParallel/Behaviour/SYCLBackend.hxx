@@ -47,6 +47,7 @@ namespace mfront::generic_parallel::behaviour {
     void writeSpecificIncludes(std::ostream&) const override;
     [[nodiscard]] std::string getApply(std::string_view) const override;
     [[nodiscard]] std::string getMemorySpace() const override;
+    [[nodiscard]] std::string getExecutionPolicyType() const override;
     [[nodiscard]] std::string getSharedDataCopy(
         std::string_view, std::string_view) const override;
     void writeCall(std::ostream&,

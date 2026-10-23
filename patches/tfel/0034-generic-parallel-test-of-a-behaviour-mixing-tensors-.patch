@@ -1,4 +1,4 @@
-From e96a4de512a942933e2b031942269448f35118ba Mon Sep 17 00:00:00 2001
+From e0138b028a7551f943269db86790eb3dd6009d39 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 06:35:28 +0200
 Subject: [PATCH] generic-parallel: test of a behaviour mixing tensors and

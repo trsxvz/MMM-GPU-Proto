@@ -4,7 +4,7 @@
 @Environment {"LD_LIBRARY_PATH": "src:reference/src"};
 // behaviours using the TDLS linear system solver
 @Command "sh ../../build-libraries.sh @mfront@ config-sycl-default-icpx.json ImplicitNortonTDLS";
-@Command "@TFEL_ICPX_COMPILER@ -fsycl -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+@Command "@TFEL_ICPX_COMPILER@ -fsycl -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl";
 @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-sycl.so";
 
 @CleanFiles {"compare"};

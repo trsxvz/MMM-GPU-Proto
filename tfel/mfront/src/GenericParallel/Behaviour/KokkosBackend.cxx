@@ -45,6 +45,11 @@ namespace mfront::generic_parallel::behaviour {
            "mfront::generic_parallel::device_memory_space)";
   }  // end of getMemorySpace
 
+  std::string KokkosBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::KokkosBackendExecutionPolicy<" +
+           this->execution_space + ">";
+  }  // end of getExecutionPolicyType
+
   std::string KokkosBackend::getSharedDataCopy(const std::string_view getter,
                                                const std::string_view) const {
     return "mfront::gpb::kokkos::getSharedDataCopy<" + this->execution_space +

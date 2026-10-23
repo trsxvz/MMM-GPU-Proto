@@ -6,11 +6,14 @@
  * macros MGIS_CHECK_CUDA, MGIS_CHECK_HIP, MGIS_CHECK_SYCL, MGIS_CHECK_KOKKOS,
  * MGIS_CHECK_OPENMP, MGIS_CHECK_OPENACC (compiled by nvc++ -acc=gpu),
  * MGIS_CHECK_STLPAR (parallel algorithms of the C++ standard library compiled
- * by nvc++ -stdpar=gpu) and MGIS_CHECK_RAJA (loops of RAJA compiled by nvcc
- * for CUDA), the last two with the memory of CUDA (see
+ * by nvc++ -stdpar=gpu), MGIS_CHECK_RAJA (loops of RAJA compiled by nvcc
+ * for CUDA) and MGIS_CHECK_ARCANE (commands of the accelerator API of
+ * Arccore compiled by clang for CUDA, on a CUDA queue, an asynchronous CUDA
+ * queue and a Thread queue), the last three with the memory of CUDA (see
  * scripts/check-mgis-gpu-headers.sh). The memory resource is the one of the
  * backend (managed memory of CUDA with nvc++, of the resource of camp with
- * RAJA). OpenMP and OpenACC have no memory resource.
+ * RAJA, unified memory of Arccore with Arcane). OpenMP and OpenACC have no
+ * memory resource.
  *
  * The field operations copy and fill views located in the memory of the
  * device only: contiguous copy, transposition between the point by point and
@@ -25,6 +28,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <utility>
 #include <memory_resource>
 #include "MGIS/FieldView.hxx"
 
@@ -48,6 +52,12 @@
 #include <cuda_runtime.h>
 #include "MGIS/FieldOperations/RAJAFieldOperations.hxx"
 #include "MGIS/MemoryResources/RAJAManagedMemoryResource.hxx"
+#elif defined(MGIS_CHECK_ARCANE)
+#include <cuda_runtime.h>
+#include <arccore/common/accelerator/Runner.h>
+#include <arccore/accelerator/AcceleratorInitializer.h>
+#include "MGIS/FieldOperations/ArcaneFieldOperations.hxx"
+#include "MGIS/MemoryResources/ArcaneUnifiedMemoryResource.hxx"
 #elif defined(MGIS_CHECK_STLPAR)
 #include <cuda_runtime.h>
 #include "MGIS/FieldOperations/ParallelSTLFieldOperations.hxx"
@@ -74,6 +84,12 @@ static void check(const bool b, const char* const msg) {
 struct Backend {
 #if defined(MGIS_CHECK_SYCL)
   sycl::queue queue{sycl::property::queue::in_order{}};
+#elif defined(MGIS_CHECK_ARCANE)
+  //! \param[in] p: execution policy of the queue
+  explicit Backend(const Arcane::Accelerator::eExecutionPolicy p)
+      : runner(p), queue(Arcane::Accelerator::makeQueue(this->runner)) {}
+  Arcane::Accelerator::Runner runner;
+  Arcane::Accelerator::RunQueue queue;
 #endif
   real* allocate(const size_type n) {
     void* p = nullptr;
@@ -81,6 +97,15 @@ struct Backend {
     defined(MGIS_CHECK_RAJA)
     if (cudaMalloc(&p, n * sizeof(real)) != cudaSuccess) {
       throw std::runtime_error("cudaMalloc failed");
+    }
+#elif defined(MGIS_CHECK_ARCANE)
+    // memory of the device with a CUDA queue, managed memory with a queue of
+    // the host
+    const auto e = this->queue.isAcceleratorPolicy()
+                       ? cudaMalloc(&p, n * sizeof(real))
+                       : cudaMallocManaged(&p, n * sizeof(real));
+    if (e != cudaSuccess) {
+      throw std::runtime_error("allocation failed");
     }
 #elif defined(MGIS_CHECK_HIP)
     if (hipMalloc(&p, n * sizeof(real)) != hipSuccess) {
@@ -103,7 +128,7 @@ struct Backend {
   }
   void free(real* const p) {
 #if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR) || \
-    defined(MGIS_CHECK_RAJA)
+    defined(MGIS_CHECK_RAJA) || defined(MGIS_CHECK_ARCANE)
     static_cast<void>(cudaFree(p));
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipFree(p));
@@ -120,7 +145,7 @@ struct Backend {
   void toDevice(real* const d, const std::vector<real>& h) {
     [[maybe_unused]] const auto s = h.size() * sizeof(real);
 #if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR) || \
-    defined(MGIS_CHECK_RAJA)
+    defined(MGIS_CHECK_RAJA) || defined(MGIS_CHECK_ARCANE)
     static_cast<void>(cudaMemcpy(d, h.data(), s, cudaMemcpyHostToDevice));
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipMemcpy(d, h.data(), s, hipMemcpyHostToDevice));
@@ -143,7 +168,7 @@ struct Backend {
     auto h = std::vector<real>(n);
     [[maybe_unused]] const auto s = n * sizeof(real);
 #if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR) || \
-    defined(MGIS_CHECK_RAJA)
+    defined(MGIS_CHECK_RAJA) || defined(MGIS_CHECK_ARCANE)
     static_cast<void>(cudaMemcpy(h.data(), d, s, cudaMemcpyDeviceToHost));
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipMemcpy(h.data(), d, s, hipMemcpyDeviceToHost));
@@ -167,6 +192,8 @@ struct Backend {
 #if defined(MGIS_CHECK_CUDA) || defined(MGIS_CHECK_STLPAR) || \
     defined(MGIS_CHECK_RAJA)
     static_cast<void>(cudaDeviceSynchronize());
+#elif defined(MGIS_CHECK_ARCANE)
+    this->queue.barrier();
 #elif defined(MGIS_CHECK_HIP)
     static_cast<void>(hipDeviceSynchronize());
 #elif defined(MGIS_CHECK_SYCL)
@@ -211,6 +238,10 @@ struct Backend {
             mgis::field_operations::RAJADefaultExecutionPolicy>::value,
         "the default execution policy of RAJA is not the one of CUDA");
     return mgis::field_operations::RAJAFieldOperations<>{};
+  }
+#elif defined(MGIS_CHECK_ARCANE)
+  mgis::field_operations::ArcaneFieldOperations operations() {
+    return mgis::field_operations::ArcaneFieldOperations{this->queue};
   }
 #endif
 };
@@ -260,6 +291,8 @@ static void test(Backend& backend) {
 #elif defined(MGIS_CHECK_RAJA)
     // managed memory of the default resource of camp (CUDA)
     auto r = mgis::memory_resources::RAJAManagedMemoryResource<>{};
+#elif defined(MGIS_CHECK_ARCANE)
+    auto r = mgis::memory_resources::ArcaneUnifiedMemoryResource{};
 #elif defined(MGIS_CHECK_HIP)
     auto r = mgis::memory_resources::HIPManagedMemoryResource{};
 #elif defined(MGIS_CHECK_SYCL)
@@ -308,7 +341,23 @@ int main() {
   Kokkos::initialize();
 #endif
   try {
+#if defined(MGIS_CHECK_ARCANE)
+    // accelerator runtime of Arccore, 4 threads for the Thread queue
+    auto initializer = Arcane::Accelerator::AcceleratorInitializer{true, 4};
+    // CUDA queue, asynchronous CUDA queue (the operations do not wait) and
+    // Thread queue
+    using Arcane::Accelerator::eExecutionPolicy;
+    for (const auto& [p, asynchronous] :
+         {std::pair{eExecutionPolicy::CUDA, false},
+          std::pair{eExecutionPolicy::CUDA, true},
+          std::pair{eExecutionPolicy::Thread, false}}) {
+      auto backend = Backend{p};
+      backend.queue.setAsync(asynchronous);
+      test(backend);
+    }
+#else
     auto backend = Backend{};
+#endif
 #if defined(MGIS_CHECK_SYCL)
     std::cout << "device: "
               << backend.queue.get_device().get_info<sycl::info::device::name>()
@@ -323,7 +372,9 @@ int main() {
     // with CUDA, HIP and the parallel algorithms of nvc++, the views are in
     // the memory of the device only (cudaMalloc, hipMalloc): operations made
     // by the host would fail
+#if !defined(MGIS_CHECK_ARCANE)
     test(backend);
+#endif
   } catch (std::exception& e) {
     std::cerr << e.what() << '\n';
     success = false;

@@ -161,3 +161,21 @@ from the `RAJA` and `camp` targets of the `RAJA` installation found by
 - `TFEL_RAJA_LINKER_FLAGS`: linker flags (`-lRAJA` and its directory,
   `-lcamp` and its directory if camp is a shared library, `OpenMP` flags,
   and `-cudart shared` if RAJA is built with `CUDA`).
+
+### Substitutions related to `Arcane`
+
+Those substitutions are defined if the `arcane` configuration is listed in
+the `generic-parallel-configurations` variable of `cmake`. They are deduced
+from the installation of Arccore, the core component of the Arcane
+framework, found in `Arccore_ROOT` (headers and `arccore_accelerator`
+library), which must be built with `CUDA` (`ARCCORE_HAS_CUDA` in its
+configuration header `arccore/arccore_config.h`). The generated sources
+are compiled by `clang++` (`TFEL_CLANGXX_COMPILER` substitution) with the
+`CUDA` of the `cuda-clang` configuration (`TFEL_CLANG_CUDA_PATH`).
+
+- `TFEL_ARCANE_CXX_FLAGS`: compilation flags (`-x cuda`, architecture of
+  the GPU, path of `CUDA`, exclusion of the device functions from the
+  overloads in the compilation for the host, include directory of Arccore
+  as a system directory).
+- `TFEL_ARCANE_LINKER_FLAGS`: linker flags (libraries of Arccore and their
+  directory, shared `CUDA` runtime).

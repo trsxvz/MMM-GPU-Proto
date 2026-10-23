@@ -50,6 +50,8 @@ namespace mfront::generic_parallel::material_property {
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&) const override;
     [[nodiscard]] std::string getMemorySpace() const override;
+    [[nodiscard]] std::string getExecutionPolicyType() const override;
+    [[nodiscard]] std::string getExecutionPolicyHeader() const override;
     //! \brief destructor
     ~ParallelSTLBackend() noexcept override;
 

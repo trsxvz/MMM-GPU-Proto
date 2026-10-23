@@ -19,6 +19,7 @@
 #include <Kokkos_Core.hpp>
 #include "MFront/GenericParallel/KokkosStackSize.hxx"
 #include "MFront/GenericParallel/StatusBlockPool.hxx"
+#include "MFront/GenericParallel/KokkosBackendExecutionPolicy.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
 static_assert(Kokkos::has_shared_space,
@@ -86,18 +87,21 @@ namespace mfront::gpb::kokkos {
    *
    * Kokkos must have been initialized by the calling code. The statistics
    * are accumulated by atomic operations, only performed if an event occurs
-   * at a point. If the execution options give statistics, this function
-   * returns once the computations are submitted. Otherwise, the statistics
-   * are held by a block of shared memory, initialized and read by the host,
-   * and this function waits for the completion of the computations.
+   * at a point. If the calling code gives statistics, they are accumulated
+   * in them, and this function returns once the computations are submitted
+   * if the computations are asynchronous. Otherwise, the statistics are held
+   * by a block of shared memory, initialized and read by the host. In both
+   * cases, a synchronous computation waits for the completion of the
+   * computations.
    *
    * \tparam ExecutionSpace: execution space
    * \tparam PointFunction: function object taking the index of a point and
    * returning the statistics associated with this point
    * \param[in,out] s: output status, which must have been initialized
    * \param[in] n: number of points
-   * \param[in] o: execution options. The queue is a pointer to an instance
-   * of the execution space (default instance if null).
+   * \param[in] e: execution of the batch. The policy is a
+   * `KokkosBackendExecutionPolicy<ExecutionSpace>`, or null for the default
+   * instance of the execution space.
    * \param[in] rdt0: initial value of the time step scaling factor
    * \param[in] f: function
    * \return the status
@@ -105,31 +109,42 @@ namespace mfront::gpb::kokkos {
   template <typename ExecutionSpace, typename PointFunction>
   int apply(OutputStatus& s,
             const size_type n,
-            const ExecutionOptions& o,
+            const BatchExecution& e,
             const real rdt0,
             const PointFunction& f) {
-    if (!Kokkos::is_initialized()) {
-      return report(s, -7, "Kokkos is not initialized");
-    }
+    using ExecutionPolicy =
+        ::mfront::generic_parallel::KokkosBackendExecutionPolicy<
+            ExecutionSpace>;
     if (n == 0) {
       return s.status;
     }
-    const auto e = mfront::generic_parallel::kokkos::ensureStackSize<
-        ExecutionSpace>(f, o.preserve_stack_size != 0);
-    if (!e.empty()) {
-      return report(s, -7, e);
+    if (!Kokkos::is_initialized()) {
+      return report(s, -7, "Kokkos is not initialized");
     }
-    const auto space = o.queue == nullptr
-                           ? ExecutionSpace{}
-                           : *static_cast<const ExecutionSpace*>(o.queue);
+    const auto p = ::mfront::generic_parallel::checkBackendExecutionPolicy<
+        ExecutionPolicy>(e.policy, e.statistics != nullptr);
+    if (p.error != nullptr) {
+      return report(s, -5, p.error);
+    }
+    const auto error =
+        mfront::generic_parallel::kokkos::ensureStackSize<ExecutionSpace>(
+            f, p.common_options.preserve_stack_size);
+    if (!error.empty()) {
+      return report(s, -7, error);
+    }
+    const auto space =
+        p.policy == nullptr ? ExecutionSpace{} : p.policy->execution_space;
     const auto range =
         Kokkos::RangePolicy<ExecutionSpace, Kokkos::IndexType<size_type>>(space,
                                                                           0, n);
     const auto rdt_key = toOrderedKey(rdt0);
-    if (o.statistics != nullptr) {
+    if (e.statistics != nullptr) {
       Kokkos::parallel_for(
           "mfront::gpb::kokkos::apply", range,
-          internals::AtomicUpdate<PointFunction>{f, o.statistics, rdt_key});
+          internals::AtomicUpdate<PointFunction>{f, e.statistics, rdt_key});
+      if (!p.common_options.asynchronous) {
+        space.fence();
+      }
       return s.status;
     }
     // synchronous computations: the device only accesses the block if an
@@ -205,9 +220,9 @@ namespace mfront::gpb::kokkos {
    */
   template <typename ExecutionSpace>
   auto makeApply(OutputStatus& s) {
-    return [&s](const size_type n, const ExecutionOptions& o, const real rdt0,
+    return [&s](const size_type n, const BatchExecution& e, const real rdt0,
                 const auto& f) {
-      return kokkos::apply<ExecutionSpace>(s, n, o, rdt0, f);
+      return kokkos::apply<ExecutionSpace>(s, n, e, rdt0, f);
     };
   }  // end of makeApply
 

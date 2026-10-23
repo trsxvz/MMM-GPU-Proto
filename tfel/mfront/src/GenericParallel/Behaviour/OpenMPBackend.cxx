@@ -60,6 +60,10 @@ namespace mfront::generic_parallel::behaviour {
     return "mfront::generic_parallel::host_memory_space";
   }  // end of getMemorySpace
 
+  std::string OpenMPBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::OpenMPBackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
   OpenMPBackend::~OpenMPBackend() noexcept = default;
 
 }  // end of namespace mfront::generic_parallel::behaviour

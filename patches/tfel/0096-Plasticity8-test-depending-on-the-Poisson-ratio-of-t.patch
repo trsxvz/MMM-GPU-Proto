@@ -1,0 +1,110 @@
+From 3588a6c1fdb360c6c296fe609734c30febd40fa2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 02:48:00 +0200
+Subject: [PATCH] Plasticity8: test depending on the Poisson ratio of the
+ stress update algorithm
+
+Review of c9dc10510: under a uniaxial stress loading, the test of
+Plasticity8 did not depend on the Poisson ratio evaluated at the
+beginning of the time step (it still passed with this Poisson ratio set
+to zero). The Poisson ratio of Plasticity8 now varies with the
+temperature, and its test imposes a uniaxial strain loading (EYY and EZZ
+null), the stresses SXX, SYY and SZZ being compared to the elastic
+solution with the Young modulus and the Poisson ratio of the current
+temperature. Setting the Poisson ratio evaluated at the beginning of the
+time step to zero in the generated code makes the test fail.
+
+The generated declarations of the Young modulus and of the Poisson ratio
+at the beginning of the time step, when they are constant, end with a
+line break.
+---
+ mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx |  4 ++--
+ mfront/tests/behaviours/Plasticity8.mfront         | 13 +++++++------
+ mfront/tests/behaviours/generic/plasticity8.mtest  | 14 +++++++++++---
+ 3 files changed, 20 insertions(+), 11 deletions(-)
+
+diff --git a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
+index c2dd2b00c..bc385e9a6 100644
+--- a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
++++ b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
+@@ -226,7 +226,7 @@ namespace mfront {
+           this->writeMaterialPropertyEvaluation(os, emps[0], bts);
+           os << ");\n";
+         } else {
+-          os << "const auto mfront_young_bts = this->young;";
++          os << "const auto mfront_young_bts = this->young;\n";
+         }
+         if (!this->bd.isMaterialPropertyConstantDuringTheTimeStep(emps[1])) {
+           this->writeMaterialPropertyCheckBoundsEvaluation(os, emps[1], bts);
+@@ -234,7 +234,7 @@ namespace mfront {
+           this->writeMaterialPropertyEvaluation(os, emps[1], bts);
+           os << ");\n";
+         } else {
+-          os << "const auto mfront_nu_bts = this->nu;";
++          os << "const auto mfront_nu_bts = this->nu;\n";
+         }
+         os << "const auto mfront_eel_bts = eval("
+            << "-mfront_nu_bts / mfront_young_bts * trace(this->sig) * "
+diff --git a/mfront/tests/behaviours/Plasticity8.mfront b/mfront/tests/behaviours/Plasticity8.mfront
+index 757b6ed2f..e760d7c1d 100644
+--- a/mfront/tests/behaviours/Plasticity8.mfront
++++ b/mfront/tests/behaviours/Plasticity8.mfront
+@@ -1,7 +1,11 @@
+ @DSL IsotropicPlasticMisesFlow{use_stress_update_algorithm : true};
+ @Behaviour Plasticity8;
+-@Author Thomas Helfer;
+-@Date 15 / 02 / 2025;
++@Description {
++  Test of the stress update algorithm with elastic material properties
++  depending on the temperature, using quantities: the Young modulus and
++  the Poisson ratio are evaluated at the beginning of the time step to
++  compute the elastic strain.
++}
+ 
+ @Epsilon 1e-15;
+ @UseQt true;
+@@ -10,10 +14,7 @@
+ @Parameter stress s0 = 1e9;
+ s0.setGlossaryName("YieldStrength");
+ 
+-// the Poisson ratio depends formally on the temperature, so that it is
+-// evaluated at the beginning of the time step by the stress update
+-// algorithm, but is constant: the results are the ones of Plasticity6
+-@ElasticMaterialProperties{"150e9*(1-T/Ta)", "0.3+0*T/Ta"};
++@ElasticMaterialProperties{"150e9*(1-T/Ta)", "0.3+0.1*T/Ta"};
+ 
+ @FlowRule {
+   f = seq - s0;
+diff --git a/mfront/tests/behaviours/generic/plasticity8.mtest b/mfront/tests/behaviours/generic/plasticity8.mtest
+index f05aefef3..bbe34acd7 100644
+--- a/mfront/tests/behaviours/generic/plasticity8.mtest
++++ b/mfront/tests/behaviours/generic/plasticity8.mtest
+@@ -1,13 +1,21 @@
+-@Author HELFER Thomas;
+-@Date   15/02/2025;
++@Description {
++  Uniaxial strain loading in the elastic domain, the Young modulus and
++  the Poisson ratio depending on the temperature: the stresses depend on
++  the Poisson ratio evaluated at the beginning of each time step.
++};
+ 
+ @ModellingHypothesis 'Tridimensional';
+ @Behaviour<generic> @library@ 'Plasticity8';
+ @ExternalStateVariable<function> 'Temperature' '400 + 50 * sin(t)';
+ @Real 'Ta' 2e3;
+ @Evolution<function> 'E' '150e9 * (1 - Temperature / Ta)';
++@Evolution<function> 'nu' '0.3 + 0.1 * Temperature / Ta';
+ 
+ @ImposedStrain 'EXX' {0 : 0, 1 : 1e-3};
++@ImposedStrain 'EYY' 0;
++@ImposedStrain 'EZZ' 0;
+ @Times {0, 1 in 10};
+ 
+-@Test<function> 'SXX' 'E * EXX' 1e-2;
+\ No newline at end of file
++@Test<function> 'SXX' 'E * (1 - nu) / ((1 + nu) * (1 - 2 * nu)) * EXX' 1e-2;
++@Test<function> 'SYY' 'E * nu / ((1 + nu) * (1 - 2 * nu)) * EXX' 1e-2;
++@Test<function> 'SZZ' 'E * nu / ((1 + nu) * (1 - 2 * nu)) * EXX' 1e-2;
+-- 
+2.43.0
+

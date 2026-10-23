@@ -5933,3 +5933,69 @@ formula as MTest). All the others give the Newton solution to within
   parameters were also run with the development tree on the other CPU
   configurations (six for the behaviours, seven for the material
   properties).
+
+### 2026-10-22, execution policies of the backends
+
+- TFEL: one C++ class per backend deriving from
+  `AbstractBackendExecutionPolicy`, whose identifier is checked by the
+  generated functions (`MFrontGenericParallelRuntime` library), common
+  options `preserve_stack_size` and `asynchronous`, statistics and
+  execution policy in the data of the batches (version 4 of the data
+  structures). Each library exports the identifier of the expected policy
+  (`<name>_generic_parallel_execution_policy`), a constant expression
+  initialized statically except with Kokkos: checked on 10 compilers, and
+  no initialization at load time in any generated source (clang
+  `-Wglobal-constructors`).
+- MGIS: the execution policies hold a pointer to the policy of the
+  backend (declared only: MGIS still builds without TFEL), identifier of
+  the expected policy in the descriptions, tests of the rules.
+- Review fixes: identifier exported between parentheses (the commas of the
+  policies of RAJA), empty batches of SYCL and Kokkos, identifier of Kokkos
+  never destroyed, protected copies of the base class, rules checked by all
+  the functions.
+
+### 2026-10-23, arcane backend, TFEL onto master 4d50821c9
+
+- `arcane` backend (TFEL, behaviours, models and material properties):
+  accelerator API of Arccore, the core component of the Arcane framework,
+  built alone with CUDA (`scripts/build-arccore.sh`). The execution policy
+  holds a queue of Arccore, required; the queue selects the GPU (CUDA
+  queue) or the cores of the host (`Thread` and `Sequential` queues) at
+  run time, with one library. Native atomic operations (those of Arccore
+  have no unsigned 64-bit integers), statistics and shared data in the
+  unified memory of Arccore, commands launched asynchronously then
+  `barrier()`, batches split in commands of at most 2^30 points (the
+  kernels of Arccore compute the index of a thread on 32 bits), stack size
+  by a probe kernel as with RAJA. MGIS: `ArcaneFieldOperations` and
+  `ArcaneUnifiedMemoryResource`.
+- Defect found by the arcane backend: the generated code calls `max`
+  unqualified (`using namespace std`). With clang CUDA, when the code of a
+  behaviour is also emitted for the host (queues of the host), the call
+  selects the device function `::max` of CUDA (non-template, preferred to
+  `std::max`). Workaround: the device functions are excluded from the
+  overloads of the host compilation (`-Xarch_host
+  -fgpu-exclude-wrong-side-overloads`). On both compilations, `<format>`
+  of libstdc++ selects deleted functions on the device.
+- TFEL rebased onto master `1dd066c7e` (22/10) then `4d50821c9`: 5 patches
+  already upstream dropped, one conflict of design with the rotation
+  functions of the `generic` interface (#1063): mechanism of the
+  prototype kept, `RotateTangentOperatorBlock.hxx` of master taken. MGIS,
+  mfem-mgis, mm-opera-hpc and the examples have not moved.
+- Defect found by the `-O3` matrix after the rebase: the runtime path of
+  the libraries added upstream (`-Wl,-rpath,`) is refused by `nvcc`, which
+  links the libraries with CUDA sources (`cuda-nvcc` and `raja`
+  configurations). Fixed upstream with `-Xlinker -rpath -Xlinker`
+  (`4d50821c9`), accepted by g++, clang++, nvcc, hipcc, nvc++, icpx and
+  acpp.
+- Results (`validate3.sh 2026-10-23-arcane-rebase`): 6993 tests of TFEL,
+  `-O3` matrix 43/43 (22 configurations of the behaviours and 21 of the
+  material properties,
+  `results/generic-parallel-tests-2026-10-23-arcane-rebase-O3.txt`), nvcc
+  and clang sweeps 553 OK each (12 new files upstream), 58 tests of MGIS,
+  360 of mfem-mgis, 25 of the examples, 9 of mm-opera-hpc, 143 cases. GPU
+  suite of mfem-mgis: 262/265 with the kernels forced, 261/265 with the
+  default computations: the two tests requiring the absence of a device,
+  `TwoLayerCube-1-MatrixFreeExecution`, which refuses the variables of
+  placement set by the suite (now excluded from it), and, once with the
+  default computations, `PETScSolversTest` blocked at startup (3/3 when
+  run alone).

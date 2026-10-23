@@ -391,6 +391,9 @@ namespace mfront {
       os << includes << "\n\n";
     }
     this->backend->writeSpecificIncludesInSourceFile(os, *this, mpd);
+    // the execution policy of the backend, after the specific includes (the
+    // HIP runtime must be included first)
+    os << "#include\"" << this->backend->getExecutionPolicyHeader() << "\"\n\n";
 
     // the parameters handler has a hidden visibility: libraries of several
     // backends for the same material property, loaded in the same process,
@@ -434,6 +437,12 @@ namespace mfront {
         "MFRONT_GPMP_API_VERSION + MFRONT_GMP_REAL_TYPE_API_VERSION_OFFSET");
     exportSymbol(os, "const char*", name + "_generic_parallel_memory_space",
                  this->backend->getMemorySpace());
+    // identifier of the execution policy expected by the generated function,
+    // as for the behaviours (the parentheses protect the commas of the type
+    // of the policy in the arguments of the macro exporting the symbol)
+    exportSymbol(
+        os, "const char*", name + "_generic_parallel_execution_policy",
+        "(" + this->backend->getExecutionPolicyType() + "::identifier())");
     writeLawSymbol(os, name, mpd.law);
     writeMaterialSymbol(os, name, mpd.material);
     writeMaterialKnowledgeTypeSymbol(os, name,

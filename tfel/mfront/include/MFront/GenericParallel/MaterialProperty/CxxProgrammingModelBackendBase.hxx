@@ -25,7 +25,8 @@ namespace mfront::generic_parallel::material_property {
   /*!
    * \brief This intermediate class helps implementing various closely related
    * backends which define the kernel as a lambda function. Those backends
-   * include `ParallelSTL`, `SYCL`, `Kokkos`, `RAJA`, `OpenMP` and `OpenACC`
+   * include `ParallelSTL`, `SYCL`, `Kokkos`, `RAJA`, `OpenMP`, `OpenACC` and
+   * `Arcane`
    */
   struct MFRONT_VISIBILITY_EXPORT CxxProgrammingModelBackendBase : BackendBase {
     //! \brief default constructor
@@ -127,8 +128,8 @@ namespace mfront::generic_parallel::material_property {
     [[nodiscard]] virtual std::string getKernelSpecifiers() const;
     /*!
      * \brief write the code preparing the execution, before the data
-     * transfers and the kernels: queue given by the execution options
-     * (`mfront_options`), etc. Nothing is written by default.
+     * transfers and the kernels: queue of the execution policy
+     * (`mfront_backend_policy`), etc. Nothing is written by default.
      *
      * \param[in] os: output stream
      * \param[in] i: interface

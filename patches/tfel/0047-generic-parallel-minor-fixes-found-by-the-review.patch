@@ -1,4 +1,4 @@
-From d147a9e9365a9d6c96bd5c8f3cc366b84d7663f8 Mon Sep 17 00:00:00 2001
+From 697541c2789ba2162deccaf6079137bc58d074ed Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:03:50 +0200
 Subject: [PATCH] generic-parallel: minor fixes found by the review
@@ -24,10 +24,10 @@ Subject: [PATCH] generic-parallel: minor fixes found by the review
  7 files changed, 55 insertions(+), 77 deletions(-)
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index 301611a9a..957699c6f 100644
+index c01c69a72..8c6b57058 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -550,9 +550,6 @@ set(_tfel-generic-parallel_supported_configurations
+@@ -552,9 +552,6 @@ set(_tfel-generic-parallel_supported_configurations
      "openmp-host-gcc"
      "openmp-offload-nvhpc-gpu")
  
@@ -37,7 +37,7 @@ index 301611a9a..957699c6f 100644
  foreach(conf ${generic-parallel-configurations})
    if(NOT "${conf}" IN_LIST _tfel-generic-parallel_supported_configurations)
      message(FATAL_ERROR "unsupported configuration '${conf}' for the tests of the generic-parallel interface. "
-@@ -560,10 +557,8 @@ foreach(conf ${generic-parallel-configurations})
+@@ -562,10 +559,8 @@ foreach(conf ${generic-parallel-configurations})
    endif()
    set(_tfel-enable-generic-parallel-${conf}-configuration ON)
    if(NOT ${conf} STREQUAL "hip-clang")

@@ -1,0 +1,3680 @@
+From b37947950a2e20f3ca9e1617df87ba8877afa495 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 18:09:49 +0200
+Subject: [PATCH] generic-parallel material properties: statistics and output
+ status as for the behaviours
+
+The evaluation of a material property reports the number of points where
+it failed, the first of them, and the number of points where a bound is
+violated with the warning policy, as the integration of the behaviours.
+The kernels compute the status of each point, merged in the statistics
+only when an event occurs: with integer atomic operations (CUDA, HIP,
+SYCL, Kokkos), or by a reduction (parallel algorithms, OpenMP), as for the
+behaviours. The cost is null when the evaluation succeeds.
+
+The output status (mfront_gpmp_OutputStatus) and the statistics
+(mfront_gpmp_Statistics, initialized by mfront_gpmp_initializeStatistics)
+are specific to the interface. The execution options have the members of
+the options of the behaviours: queue, statistics (asynchronous evaluation),
+preservation of the stack size. The array of statuses and the
+<name>_generic_parallel_number_of_statuses symbol are removed. The
+<name>_generic_parallel_report function analyses the statistics.
+
+The evaluation at a point is written in a lambda capturing by copy:
+nvc++ 25.11 (-mp=gpu) does not write through a pointer captured by
+reference by such a lambda in an OpenMP target region.
+---
+ mfront/include/CMakeLists.txt                 |   1 +
+ .../MaterialProperty/AbstractBackend.hxx      |  21 +-
+ .../MaterialProperty/BackendBase.hxx          | 138 ++---
+ .../MaterialProperty/CUDABackendBase.hxx      |   6 +
+ .../CxxProgrammingModelBackendBase.hxx        |   7 +-
+ .../MaterialProperty/KokkosBackend.hxx        |   6 +
+ .../MaterialProperty/SYCLBackend.hxx          |   6 +
+ .../MaterialProperty.h                        | 149 ++++-
+ .../PointStatus.hxx                           |  99 +++
+ .../MaterialProperty/BackendBase.cxx          | 567 +++++++++++-------
+ .../MaterialProperty/CUDABackendBase.cxx      |  29 +-
+ .../CxxProgrammingModelBackendBase.cxx        |   5 +-
+ .../MaterialProperty/KokkosBackend.cxx        |  29 +-
+ .../MaterialProperty/OpenMPBackend.cxx        |  68 ++-
+ .../MaterialProperty/ParallelSTLBackend.cxx   |  49 +-
+ .../MaterialProperty/SYCLBackend.cxx          |  34 +-
+ ...nericParallelMaterialPropertyInterface.cxx |  11 +-
+ .../generic-parallel/test-cuda.cu             | 112 ++--
+ .../generic-parallel/test-cxx.cxx             | 111 ++--
+ .../generic-parallel/test-hip.hip             | 107 ++--
+ .../generic-parallel/test-sycl-device.cxx     |  84 +--
+ .../generic-parallel/test-sycl-usm.cxx        |  86 +--
+ .../generic-parallel/test-sycl.cxx            | 120 ++--
+ 23 files changed, 1161 insertions(+), 684 deletions(-)
+ create mode 100644 mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
+
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index 5616f22a5..a496a1e14 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -263,6 +263,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
+ 
+ install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)
+ install_mfront_header(MFront/GenericParallelMaterialProperty MaterialProperty.h)
++install_mfront_header(MFront/GenericParallelMaterialProperty PointStatus.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour FiniteStrainIntegrators.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour Integrate.hxx)
+ install_mfront_header(MFront/GenericParallelBehaviour GPU.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
+index 70cc1bfbd..ecb490d5a 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
+@@ -83,26 +83,7 @@ namespace mfront::generic_parallel::material_property {
+      * `host`, `device` or `any`
+      */
+     [[nodiscard]] virtual std::string getMemorySpace() const = 0;
+-    /*!
+-     * \return the number of statuses written by the kernels, given by the
+-     * calling code for an asynchronous evaluation (see the `statuses` member
+-     * of `mfront_gpmp_ExecutionOptions`), null if the runtime checks are
+-     * disabled
+-     * \param[in] mpd: material property description
+-     */
+-    [[nodiscard]] virtual std::size_t getNumberOfStatuses(
+-        const MaterialPropertyDescription&) const = 0;
+-    /*!
+-     * \brief write the function analysing the statuses written by the
+-     * kernels and reporting the result in an output status
+-     * (`<name>_generic_parallel_report`), called by the synchronous
+-     * evaluations and by the calling code after an asynchronous evaluation
+-     *
+-     * \param[in] os: output stream
+-     * \param[in] i: interface
+-     * \param[in] mpd: material property description
+-     */
+-    virtual void writeStatusesReportFunction(
++    virtual void writeReportFunction(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const = 0;
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+index ae9bef0bc..4f1062cfb 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+@@ -39,9 +39,7 @@ namespace mfront::generic_parallel::material_property {
+     void writeCDeclarations(std::ostream&,
+                             const GenericParallelMaterialPropertyInterface&,
+                             const MaterialPropertyDescription&) const override;
+-    [[nodiscard]] std::size_t getNumberOfStatuses(
+-        const MaterialPropertyDescription&) const override;
+-    void writeStatusesReportFunction(
++    void writeReportFunction(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const override;
+@@ -55,7 +53,8 @@ namespace mfront::generic_parallel::material_property {
+    protected:
+     /*!
+      * \return true if the kernels report the violations of the bounds and
+-     * the invalid results in an array of statuses (runtime checks enabled)
++     * the invalid results in the statistics of the evaluation (runtime
++     * checks enabled)
+      * \param[in] mpd: material property description
+      */
+     [[nodiscard]] static bool isBoundsCheckingRequired(
+@@ -70,7 +69,7 @@ namespace mfront::generic_parallel::material_property {
+      * states if all the arguments are uniform. The execution options are
+      * copied in `mfront_options` (default options if the pointer given by
+      * the calling code is null), and `mfront_asynchronous` states if the
+-     * statuses are given by the calling code (asynchronous evaluation).
++     * statistics are given by the calling code (asynchronous evaluation).
+      *
+      * \param[in] os: output stream
+      * \param[in] i: interface
+@@ -90,8 +89,15 @@ namespace mfront::generic_parallel::material_property {
+      * if strides are handled) and writes the result in `mfront_output`
+      * (with the stride `mfront_output_stride` if strides are handled). The
+      * parameters are read in `mfront_parameters`, unless they are treated
+-     * as static variables, and the violations of the bounds and the invalid
+-     * results are written in `mfront_bounds_statuses`.
++     * as static variables.
++     *
++     * If the runtime checks are enabled, the evaluation at the point is
++     * written in a lambda function returning the status of the point
++     * (`mfront::gpmp::PointStatus`), stored in `mfront_point_status`. This
++     * status is then merged in the statistics `mfront_statistics` with
++     * integer atomic operations, only if an event occurred (see
++     * `mergesPointStatusesInKernels`), or returned by the kernel, to be
++     * merged by a reduction.
+      *
+      * \param[in] os: output stream
+      * \param[in] i: interface
+@@ -128,8 +134,8 @@ namespace mfront::generic_parallel::material_property {
+         const std::function<void(std::string_view, bool)>&) const;
+     /*!
+      * \brief write the analysis of the results, once the kernels are
+-     * completed (see `writeStatusesReportFunction`), if the runtime checks
+-     * are enabled and if the evaluation is synchronous
++     * completed (see `writeReportFunction`), if the runtime checks are
++     * enabled and if the evaluation is synchronous
+      *
+      * \param[in] os: output stream
+      * \param[in] i: interface
+@@ -138,81 +144,62 @@ namespace mfront::generic_parallel::material_property {
+     void writeResultsAnalysis(std::ostream&,
+                               const GenericParallelMaterialPropertyInterface&,
+                               const MaterialPropertyDescription&) const;
+-    //
+     /*!
+-     * \brief write the check of the physical bounds of a variable in a kernel
+-     * \param[in] os: output stream
+-     * \param[in] v: variable
+-     * \param[in] i: index of the variable (the output is after the inputs)
++     * \return true if the kernels merge the status of each point in the
++     * statistics `mfront_statistics` with integer atomic operations, only if
++     * an event occurred. Otherwise, the kernels return the status of each
++     * point (`mfront::gpmp::PointStatus`), and the backend merges them with
++     * a reduction (see `mfront::gpmp::makeStatistics`).
+      */
+-    virtual void writePhysicalBounds(std::ostream&,
+-                                     const VariableDescription&,
+-                                     const size_t) const;
++    [[nodiscard]] virtual bool mergesPointStatusesInKernels() const;
+     /*!
+-     * \brief write the check of the standard bounds of a variable in a kernel
+-     * \param[in] os: output stream
+-     * \param[in] prefix: prefix of the out of bounds policies
+-     * \param[in] v: variable
+-     * \param[in] i: index of the variable (the output is after the inputs)
++     * \return the code atomically incrementing a counter of the statistics
++     * (`unsigned long long`), for the backends merging the statuses in the
++     * kernels
++     * \param[in] c: counter
+      */
+-    virtual void writeBounds(std::ostream&,
+-                             const std::string&,
+-                             const VariableDescription&,
+-                             const size_t) const;
++    [[nodiscard]] virtual std::string getAtomicIncrement(
++        const std::string_view) const;
+     /*!
+-     * \brief write the code analysing the array `mfront_bounds_statuses`,
+-     * in the function reporting the result (see
+-     * `writeStatusesReportFunction`)
+-     *
+-     * \param[in] os: output stream
+-     * \param[in] i: interface
+-     * \param[in] mpd: material property description
++     * \return the code atomically replacing a counter of the statistics
++     * (`unsigned long long`) by the minimum of its value and of a given
++     * value, for the backends merging the statuses in the kernels
++     * \param[in] c: counter
++     * \param[in] v: value
+      */
+-    virtual void writeBoundsStatusesAnalysis(
+-        std::ostream&,
+-        const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&) const;
+-    /*!
+-     * \return the size of the array of statuses filled by the kernels. For
+-     * each argument and for the output, the array contains a status for the
+-     * physical bounds and a status for the standard bounds. The last status
+-     * states if the result is invalid (`nan` or infinite) at one point
+-     * at least.
+-     * \param[in] mpd: material property description
+-     */
+-    [[nodiscard]] static std::size_t getStatusesArraySize(
+-        const MaterialPropertyDescription&);
++    [[nodiscard]] virtual std::string getAtomicMinimum(
++        const std::string_view, const std::string_view) const;
+     /*!
+-     * \return the index of the status stating that the result is invalid at
+-     * one point at least.
+-     * \param[in] mpd: material property description
+-     */
+-    [[nodiscard]] static std::size_t getInvalidResultStatusIndex(
+-        const MaterialPropertyDescription&);
+-    /*!
+-     * \brief write the declaration of the array of statuses filled by the
+-     * kernels (`mfront_bounds_statuses`).
++     * \brief write the declaration of the statistics `mfront_statistics`
++     * updated by the kernels which merge the statuses of the points with
++     * atomic operations.
+      *
+-     * For an asynchronous evaluation, this array is given by the execution
+-     * options and initialized by the calling code. Otherwise, it is a block
+-     * of a pool of blocks accessible by the host and by the device (see
+-     * `mfront::generic_parallel::StatusBlockPool`), initialized to zero: no
+-     * memory is allocated per call. The device only accesses the array if a
+-     * bound is violated or if the result is invalid.
++     * For an asynchronous evaluation, the statistics are given by the
++     * execution options and initialized by the calling code. Otherwise, they
++     * are held by a block of a pool of blocks accessible by the host and by
++     * the device (see `mfront::generic_parallel::StatusBlockPool`),
++     * initialized on the host: no memory is allocated per call. The device
++     * only accesses the statistics if an event occurs at a point.
+      *
+      * \param[in] os: output stream
+-     * \param[in] mpd: material property description
+      * \param[in] device_type: type identifying a device
+      * \param[in] device: expression identifying the current device
+-     * \param[in] allocation: body of a function allocating a block of
+-     * `mfront_n` integers, returning a null pointer on failure
++     * \param[in] allocation: body of a function allocating a
++     * `mfront_gpmp_Statistics` structure, returning a null pointer on
++     * failure
+      */
+-    static void writeBoundsStatusesDeclaration(
+-        std::ostream&,
+-        const MaterialPropertyDescription&,
+-        const std::string_view,
+-        const std::string_view,
+-        const std::string_view);
++    static void writeStatisticsDeclaration(std::ostream&,
++                                           const std::string_view,
++                                           const std::string_view,
++                                           const std::string_view);
++    /*!
++     * \brief write the declaration of the statistics `mfront_statistics`
++     * of the backends merging the statuses of the points with a reduction:
++     * the statistics given by the execution options, or local statistics
++     * initialized on the host
++     * \param[in] os: output stream
++     */
++    static void writeLocalStatisticsDeclaration(std::ostream&);
+     /*!
+      * \brief write the code setting the minimal stack size of the threads
+      * of the device (see `MFront/GenericParallel/DeviceStackSize.hxx`), or
+@@ -228,15 +215,6 @@ namespace mfront::generic_parallel::material_property {
+      * \param[in] os: output stream
+      */
+     static void writeErrorReporting(std::ostream&);
+-    /*!
+-     * \brief write the code marking the result as invalid if it is not
+-     * finite. This code is written in the kernel, after the evaluation of
+-     * the material property.
+-     * \param[in] os: output stream
+-     * \param[in] mpd: material property description
+-     */
+-    virtual void writeInvalidResultCheck(
+-        std::ostream&, const MaterialPropertyDescription&) const;
+     /*!
+      * \brief return if the backend shall handle the data transfer from a host
+      * to a device
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+index d159cabda..0b427089a 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+@@ -66,6 +66,12 @@ namespace mfront::generic_parallel::material_property {
+     ~CUDABackendBase() noexcept override;
+ 
+    protected:
++    //! \brief the statuses of the points are merged with atomic operations
++    [[nodiscard]] bool mergesPointStatusesInKernels() const override;
++    [[nodiscard]] std::string getAtomicIncrement(
++        const std::string_view) const override;
++    [[nodiscard]] std::string getAtomicMinimum(
++        const std::string_view, const std::string_view) const override;
+     //! \return the programming model (`hip` or `cuda`)
+     [[nodiscard]] virtual std::string getProgrammingModel() const noexcept = 0;
+     /*!
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
+index e14e1d2c2..b76920fe7 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
+@@ -108,9 +108,10 @@ namespace mfront::generic_parallel::material_property {
+      * `mfront_arg1`, etc., and values of the parameters) and the kernels
+      * (without strides and, if strides are treated, with strides).
+      *
+-     * If bounds checking is required, the array of statuses
+-     * `mfront_bounds_statuses` must have been declared before by the backend
+-     * (see `writeBoundsStatusesDeclaration`).
++     * If bounds checking is required and if the backend merges the statuses
++     * of the points in the kernels, the statistics `mfront_statistics` must
++     * have been declared before by the backend (see
++     * `writeStatisticsDeclaration`).
+      *
+      * \param[in] os: output stream
+      * \param[in] i: interface
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
+index 534d717c7..f7d0e079b 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
+@@ -52,6 +52,12 @@ namespace mfront::generic_parallel::material_property {
+     ~KokkosBackend() noexcept override;
+ 
+    protected:
++    //! \brief the statuses of the points are merged with atomic operations
++    [[nodiscard]] bool mergesPointStatusesInKernels() const override;
++    [[nodiscard]] std::string getAtomicIncrement(
++        const std::string_view) const override;
++    [[nodiscard]] std::string getAtomicMinimum(
++        const std::string_view, const std::string_view) const override;
+     //
+     [[nodiscard]] std::string getKernelSpecifiers() const override;
+     void writeKernelCall(std::ostream&,
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+index e36050009..7d93c86ea 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+@@ -42,6 +42,12 @@ namespace mfront::generic_parallel::material_property {
+     ~SYCLBackend() noexcept override;
+ 
+    protected:
++    //! \brief the statuses of the points are merged with atomic operations
++    [[nodiscard]] bool mergesPointStatusesInKernels() const override;
++    [[nodiscard]] std::string getAtomicIncrement(
++        const std::string_view) const override;
++    [[nodiscard]] std::string getAtomicMinimum(
++        const std::string_view, const std::string_view) const override;
+     //
+     void writeExecutionPreparation(
+         std::ostream&,
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+index 93ea48d97..4758f36a5 100644
+--- a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+@@ -1,7 +1,8 @@
+ /*!
+  * \file   MFront/GenericParallelMaterialProperty/MaterialProperty.h
+- * \brief  This file declares the version of the functions generated by the
+- * `generic-parallel` interface for material properties.
++ * \brief  This file declares the version and the data structures of the
++ * functions generated by the `generic-parallel` interface for material
++ * properties.
+  * \date   08/10/2026
+  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
+  * reserved.
+@@ -30,10 +31,104 @@
+ extern "C" {
+ #endif /* __cplusplus */
+ 
++/*!
++ * \brief statistics of the evaluation of a material property on a set of
++ * points.
++ *
++ * The device only updates them when an event occurs at a point (failure or
++ * bound violated with the warning policy), with integer atomic operations or
++ * reductions: their cost is null when the evaluation succeeds. They are
++ * initialized by `mfront_gpmp_initializeStatistics` and analysed by the
++ * `<name>_generic_parallel_report` function exported by the libraries.
++ */
++typedef struct mfront_gpmp_Statistics {
++  /*!
++   * \brief number of points where the evaluation failed (physical bound
++   * violated, bound violated with the strict policy, invalid result)
++   */
++  unsigned long long number_of_failures;
++  /*!
++   * \brief index of the first point where the evaluation failed, or the
++   * maximal value of the type if no point failed
++   */
++  unsigned long long first_failure_index;
++  /*!
++   * \brief number of points where a bound is violated with the warning
++   * policy: the result is computed, but must be used with caution
++   */
++  unsigned long long number_of_unreliable_results;
++  /*!
++   * \brief identifier of the first check which failed, in the order of the
++   * analysis of the statistics (invalid result, physical bounds, bounds), or
++   * the maximal value of the type if no check failed
++   */
++  unsigned long long first_violation;
++} mfront_gpmp_Statistics;
++
++/*!
++ * \brief initialize the statistics of an evaluation
++ * \param[out] s: statistics
++ */
++static inline void mfront_gpmp_initializeStatistics(
++    mfront_gpmp_Statistics* const s) {
++  s->number_of_failures = 0;
++  s->first_failure_index = ~0ull;
++  s->number_of_unreliable_results = 0;
++  s->first_violation = ~0ull;
++} /* end of mfront_gpmp_initializeStatistics */
++
++/*!
++ * \brief summary of the evaluation of a material property on a set of
++ * points. The `status` and `bounds_status` members have the meaning of the
++ * members of the output status of the `generic` interface
++ * (`mfront_gmp_OutputStatus`):
++ *
++ * - `0`: the result has been evaluated at all points;
++ * - `1`: a bound is violated with the warning policy at some points: the
++ *   result is evaluated at all points, but must be used with caution;
++ * - `-1`: a physical bound, or a bound with the strict policy, is violated
++ *   at some points: the result is not evaluated at those points;
++ * - `-2`: an exception was thrown on the host;
++ * - `-4`: the result is not finite at some points;
++ * - `-5`: invalid arguments, nothing was computed;
++ * - `-6`: runtime error of the backend, or invalid parameters;
++ * - `-7`: uniform output with several points or with non uniform arguments.
++ */
++typedef struct mfront_gpmp_OutputStatus {
++  //! \brief status
++  int status;
++  /*!
++   * \brief rank of the variable out of its bounds, starting at one (the
++   * output is after the arguments), or zero. As for the `generic`
++   * interface, it is negative if the evaluation failed (physical bound, or
++   * bound with the strict policy), positive otherwise (bound with the
++   * warning policy).
++   */
++  int bounds_status;
++  //! \brief number of points where the evaluation failed
++  mfront_gmp_size_type number_of_failures;
++  /*!
++   * \brief index of the first point where the evaluation failed, or the
++   * maximal value of the type if no point failed. The `generic` interface
++   * of the same material property, called at this point, gives the detailed
++   * error.
++   */
++  mfront_gmp_size_type first_failure_index;
++  /*!
++   * \brief number of points where a bound is violated with the warning
++   * policy
++   */
++  mfront_gmp_size_type number_of_unreliable_results;
++  //! \brief error message
++  char msg[512];
++} mfront_gpmp_OutputStatus;
++
+ /*!
+  * \brief options of the execution of the evaluation of a material property,
+  * given by the last argument of the generated functions. A null pointer
+- * denotes the default options.
++ * denotes the default options. This structure has the members of the
++ * options of the `generic-parallel` interface for behaviours
++ * (`mfront_gpb_ExecutionOptions`), with the same meaning.
+  */
+ typedef struct mfront_gpmp_ExecutionOptions {
+   /*!
+@@ -45,28 +140,25 @@ typedef struct mfront_gpmp_ExecutionOptions {
+    */
+   void* queue;
+   /*!
+-   * \brief statuses of the evaluation, or null.
++   * \brief statistics of the evaluation, or null.
+    *
+    * If null, the evaluation is synchronous: the function returns once the
+-   * values are computed, and the output status reports the violations of
+-   * the bounds and the invalid results.
++   * values are computed, and the output status reports the result.
+    *
+-   * Otherwise, the statuses are written in the given array, which must hold
+-   * `<name>_generic_parallel_number_of_statuses` integers initialized to
+-   * zero, accessible by the device as the values. The evaluation may then be
+-   * asynchronous (CUDA, HIP and Kokkos backends, SYCL backend if no value is
+-   * transferred), as the integration of the behaviours with statistics: the
+-   * function returns once the computations are submitted to the queue, and
+-   * the output status only reports invalid arguments and runtime errors.
+-   * With the `sycl` backend, an asynchronous evaluation requires an in-order
+-   * queue (invalid arguments otherwise).
+-   * Once the computations are completed, the
+-   * `<name>_generic_parallel_report` function analyses the statuses, read on
+-   * the host, and reports the result in an output status, as a synchronous
+-   * evaluation does. The devices only write the statuses when a bound is
+-   * violated or when a result is invalid.
++   * Otherwise, the statistics are accumulated in the given structure,
++   * initialized by `mfront_gpmp_initializeStatistics` and accessible by the
++   * device as the values. The evaluation may then be asynchronous (CUDA,
++   * HIP and Kokkos backends, SYCL backend if no value is transferred), as
++   * the integration of the behaviours: the function returns once the
++   * computations are submitted to the queue, and the output status only
++   * reports invalid arguments and runtime errors. With the `sycl` backend,
++   * an asynchronous evaluation requires an in-order queue (invalid
++   * arguments otherwise). Once the computations are completed, the
++   * `<name>_generic_parallel_report` function analyses the statistics, read
++   * on the host, and reports the result in an output status, as a
++   * synchronous evaluation does.
+    */
+-  int* statuses;
++  mfront_gpmp_Statistics* statistics;
+   /*!
+    * \brief if not null, the stack size of the threads of the device is
+    * never modified and a runtime error is reported if it is too small (see
+@@ -79,4 +171,19 @@ typedef struct mfront_gpmp_ExecutionOptions {
+ }  // end of extern "C"
+ #endif /* __cplusplus */
+ 
++#ifdef __cplusplus
++
++namespace mfront::gpmp {
++
++  //! \brief a simple alias
++  using Statistics = ::mfront_gpmp_Statistics;
++  //! \brief a simple alias
++  using OutputStatus = ::mfront_gpmp_OutputStatus;
++  //! \brief a simple alias
++  using ExecutionOptions = ::mfront_gpmp_ExecutionOptions;
++
++}  // end of namespace mfront::gpmp
++
++#endif /* __cplusplus */
++
+ #endif /* LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_MATERIALPROPERTY_H */
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx b/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
+new file mode 100644
+index 000000000..f53cbbf56
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
+@@ -0,0 +1,99 @@
++/*!
++ * \file   MFront/GenericParallelMaterialProperty/PointStatus.hxx
++ * \brief  This file declares the status of the evaluation of a material
++ * property at a point, and its merge in the statistics of an evaluation.
++ * \date   08/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_POINTSTATUS_HXX
++#define LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_POINTSTATUS_HXX
++
++#include "TFEL/Config/TFELConfig.hxx"
++#include "MFront/GenericParallelMaterialProperty/MaterialProperty.h"
++
++namespace mfront::gpmp {
++
++  //! \brief value of an index or of an identifier of a check meaning none
++  inline constexpr unsigned long long no_event = ~0ull;
++
++  /*!
++   * \brief status of the evaluation of a material property at a point,
++   * computed by the kernels. It is merged in the statistics of the
++   * evaluation only if an event occurred, so that the cost of the reporting
++   * is null when the evaluation succeeds.
++   */
++  struct PointStatus {
++    //! \brief true if the evaluation failed
++    bool failure = false;
++    //! \brief true if a bound is violated with the warning policy
++    bool unreliable = false;
++    /*!
++     * \brief identifier of the first check which failed (see the
++     * `first_violation` member of `mfront_gpmp_Statistics`)
++     */
++    unsigned long long violation = no_event;
++    /*!
++     * \brief report a check which failed
++     * \param[in] c: identifier of the check
++     * \param[in] f: true if the evaluation fails, false if the result is
++     * computed but must be used with caution
++     */
++    TFEL_HOST_DEVICE constexpr void report(const unsigned long long c,
++                                           const bool f) noexcept {
++      this->violation = (c < this->violation) ? c : this->violation;
++      if (f) {
++        this->failure = true;
++      } else {
++        this->unreliable = true;
++      }
++    }  // end of report
++    //! \return true if an event occurred
++    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool hasEvent() const noexcept {
++      return this->violation != no_event;
++    }  // end of hasEvent
++  };   // end of struct PointStatus
++
++  /*!
++   * \return the statistics associated with the status of a point, as merged
++   * by the backends based on reductions
++   * \param[in] i: index of the point
++   * \param[in] s: status of the point
++   */
++  [[nodiscard]] TFEL_HOST_DEVICE constexpr Statistics makeStatistics(
++      const unsigned long long i, const PointStatus& s) noexcept {
++    return Statistics{
++        .number_of_failures = s.failure ? 1ull : 0ull,
++        .first_failure_index = s.failure ? i : no_event,
++        .number_of_unreliable_results =
++            ((!s.failure) && (s.unreliable)) ? 1ull : 0ull,
++        .first_violation = s.violation};
++  }  // end of makeStatistics
++
++  /*!
++   * \return the merge of two statistics
++   * \param[in] a: first statistics
++   * \param[in] b: second statistics
++   */
++  [[nodiscard]] TFEL_HOST_DEVICE constexpr Statistics merge(
++      const Statistics& a, const Statistics& b) noexcept {
++    return Statistics{
++        .number_of_failures = a.number_of_failures + b.number_of_failures,
++        .first_failure_index = (a.first_failure_index < b.first_failure_index)
++                                   ? a.first_failure_index
++                                   : b.first_failure_index,
++        .number_of_unreliable_results =
++            a.number_of_unreliable_results + b.number_of_unreliable_results,
++        .first_violation = (a.first_violation < b.first_violation)
++                               ? a.first_violation
++                               : b.first_violation};
++  }  // end of merge
++
++}  // end of namespace mfront::gpmp
++
++#endif /* LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_POINTSTATUS_HXX */
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+index 70793835a..db89e0dbf 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+@@ -13,6 +13,7 @@
+ 
+ #include <string>
+ #include <ostream>
++#include "TFEL/Raise.hxx"
+ #include "MFront/VariableDescription.hxx"
+ #include "MFront/MaterialPropertyDescription.hxx"
+ #include "MFront/MaterialPropertyParametersHandler.hxx"
+@@ -21,54 +22,304 @@
+ 
+ namespace mfront::generic_parallel::material_property {
+ 
++  /*
++   * Identifiers of the checks performed by the kernels, in the order of the
++   * analysis of the statistics (see `writeStatisticsAnalysis`): the first
++   * check which failed at some point is reported. The physical bounds and
++   * the bounds are numbered variable by variable, the output being after
++   * the arguments, the upper bound before the lower bound.
++   */
++
++  //! \brief identifier of the check of the finiteness of the result
++  static constexpr unsigned long long invalid_result_check = 0;
++
++  /*!
++   * \return the identifier of the check of a physical bound
++   * \param[in] i: index of the variable
++   * \param[in] upper: true for the upper bound
++   */
++  static unsigned long long getPhysicalBoundCheck(const std::size_t i,
++                                                  const bool upper) {
++    return 1 + 2 * i + (upper ? 0 : 1);
++  }  // end of getPhysicalBoundCheck
++
++  /*!
++   * \return the identifier of the check of a bound
++   * \param[in] mpd: material property description
++   * \param[in] i: index of the variable
++   * \param[in] upper: true for the upper bound
++   */
++  static unsigned long long getBoundCheck(
++      const MaterialPropertyDescription& mpd,
++      const std::size_t i,
++      const bool upper) {
++    return 1 + 2 * (mpd.inputs.size() + 1) + 2 * i + (upper ? 0 : 1);
++  }  // end of getBoundCheck
++
++  /*!
++   * \brief write the check of the physical bounds of a variable in a
++   * kernel: the evaluation fails at this point
++   * \param[in] os: output stream
++   * \param[in] v: variable
++   * \param[in] i: index of the variable (the output is after the inputs)
++   */
++  static void writePhysicalBounds(std::ostream& os,
++                                  const VariableDescription& v,
++                                  const std::size_t i) {
++    if (!v.hasPhysicalBounds()) {
++      return;
++    }
++    const auto& b = v.getPhysicalBounds();
++    auto write = [&os, &v, i](const char* const op, const auto value,
++                              const bool upper) {
++      os << "if(" << v.name << " " << op << " " << v.type << "(" << value
++         << ")){\n"
++         << "mfront_status.report(" << getPhysicalBoundCheck(i, upper)
++         << "ull, true);\n"
++         << "return mfront_status;\n"
++         << "}\n";
++    };
++    if ((b.boundsType == VariableBoundsDescription::LOWER) ||
++        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
++      write("<", b.lowerBound, false);
++    }
++    if ((b.boundsType == VariableBoundsDescription::UPPER) ||
++        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
++      write(">", b.upperBound, true);
++    }
++  }  // end of writePhysicalBounds
++
++  /*!
++   * \brief write the check of the bounds of a variable in a kernel: the
++   * evaluation fails at this point with the strict policy, and the result
++   * must be used with caution with the warning policy
++   * \param[in] os: output stream
++   * \param[in] prefix: prefix of the out of bounds policies
++   * \param[in] mpd: material property description
++   * \param[in] v: variable
++   * \param[in] i: index of the variable (the output is after the inputs)
++   */
++  static void writeBounds(std::ostream& os,
++                          const std::string& prefix,
++                          const MaterialPropertyDescription& mpd,
++                          const VariableDescription& v,
++                          const std::size_t i) {
++    if (!v.hasBounds()) {
++      return;
++    }
++    const auto& b = v.getBounds();
++    auto write = [&os, &prefix, &mpd, &v, i](const char* const op,
++                                             const auto value,
++                                             const bool upper) {
++      const auto c = getBoundCheck(mpd, i, upper);
++      os << "if(" << v.name << " " << op << " " << v.type << "(" << value
++         << ")){\n"
++         << "if (mfront_out_of_bounds_policy == " << prefix
++         << "_STRICT_POLICY){\n"
++         << "mfront_status.report(" << c << "ull, true);\n"
++         << "return mfront_status;\n"
++         << "}\n"
++         << "if (mfront_out_of_bounds_policy == " << prefix
++         << "_WARNING_POLICY){\n"
++         << "mfront_status.report(" << c << "ull, false);\n"
++         << "}\n"
++         << "}\n";
++    };
++    if ((b.boundsType == VariableBoundsDescription::LOWER) ||
++        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
++      write("<", b.lowerBound, false);
++    }
++    if ((b.boundsType == VariableBoundsDescription::UPPER) ||
++        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
++      write(">", b.upperBound, true);
++    }
++  }  // end of writeBounds
++
++  /*!
++   * \brief write the code reporting an invalid result (not finite) in a
++   * kernel: the evaluation fails at this point
++   * \param[in] os: output stream
++   * \param[in] mpd: material property description
++   */
++  static void writeInvalidResultCheck(std::ostream& os,
++                                      const MaterialPropertyDescription& mpd) {
++    const auto v =
++        useQuantities(mpd) ? mpd.output.name + ".getValue()" : mpd.output.name;
++    os << "if(!tfel::math::ieee754::isfinite(" << v << ")){\n"
++       << "mfront_status.report(" << invalid_result_check << "ull, true);\n"
++       << "}\n";
++  }  // end of writeInvalidResultCheck
++
++  /*!
++   * \brief write the code analysing the statistics `mfront_statistics` in
++   * the function reporting the result: the first check which failed is
++   * reported, with the number of points concerned
++   * \param[in] os: output stream
++   * \param[in] i: interface
++   * \param[in] mpd: material property description
++   */
++  static void writeStatisticsAnalysis(
++      std::ostream& os,
++      const GenericParallelMaterialPropertyInterface& i,
++      const MaterialPropertyDescription& mpd) {
++    const auto types = i.getTypesDescription();
++    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
++    os << "const auto mfront_number_of_failures = static_cast<"
++       << types.integer_type << ">(mfront_statistics->number_of_failures);\n"
++       << "const auto mfront_number_of_unreliable_results = static_cast<"
++       << types.integer_type
++       << ">(mfront_statistics->number_of_unreliable_results);\n"
++       << "mfront_output_status->number_of_failures = "
++       << "mfront_number_of_failures;\n"
++       << "mfront_output_status->number_of_unreliable_results = "
++       << "mfront_number_of_unreliable_results;\n"
++       << "if (mfront_number_of_failures != 0) {\n"
++       << "mfront_output_status->first_failure_index = static_cast<"
++       << types.integer_type << ">(mfront_statistics->first_failure_index);\n"
++       << "}\n"
++       // description of the points concerned by the reported check
++       << "const auto mfront_points = (mfront_number_of_failures != 0) ? "
++       << "\" (the evaluation failed at \" + "
++       << "std::to_string(mfront_number_of_failures) + "
++       << "\" points, the first one being the point \" + "
++       << "std::to_string(mfront_output_status->first_failure_index) + "
++       << "\")\" : "
++       << "\" (\" + std::to_string(mfront_number_of_unreliable_results) + "
++       << "\" points)\";\n"
++       << "const auto mfront_check = mfront_statistics->first_violation;\n"
++       << "if (mfront_check == " << invalid_result_check << "ull) {\n"
++       << "mfront_output_status->status = -4;\n"
++       << "mfront_report(\"invalid result\" + mfront_points);\n"
++       << "return;\n"
++       << "}\n";
++    auto write_check = [&os](const unsigned long long c,
++                             const std::string& msg,
++                             const std::string& bounds_status,
++                             const std::string& status) {
++      os << "if (mfront_check == " << c << "ull) {\n"
++         << "mfront_output_status->status = " << status << ";\n"
++         << "mfront_output_status->bounds_status = " << bounds_status << ";\n"
++         << "mfront_report(\"" << msg << "\" + mfront_points);\n"
++         << "return;\n"
++         << "}\n";
++    };
++    auto for_each_variable = [&mpd](const auto& f) {
++      for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
++        f(mpd.inputs[idx], idx);
++      }
++      f(mpd.output, mpd.inputs.size());
++    };
++    auto has_upper_bound = [](const VariableBoundsDescription& b) {
++      return (b.boundsType == VariableBoundsDescription::UPPER) ||
++             (b.boundsType == VariableBoundsDescription::LOWERANDUPPER);
++    };
++    auto has_lower_bound = [](const VariableBoundsDescription& b) {
++      return (b.boundsType == VariableBoundsDescription::LOWER) ||
++             (b.boundsType == VariableBoundsDescription::LOWERANDUPPER);
++    };
++    for_each_variable([&write_check, &has_upper_bound, &has_lower_bound](
++                          const VariableDescription& v,
++                          const std::size_t idx) {
++      if (!v.hasPhysicalBounds()) {
++        return;
++      }
++      const auto& b = v.getPhysicalBounds();
++      const auto rank = "-" + std::to_string(idx + 1);
++      if (has_upper_bound(b)) {
++        write_check(getPhysicalBoundCheck(idx, true),
++                    v.name + " is over its physical upper bound", rank, "-1");
++      }
++      if (has_lower_bound(b)) {
++        write_check(getPhysicalBoundCheck(idx, false),
++                    v.name + " is below its physical lower bound", rank,
++                    "-1");
++      }
++    });
++    // as with the `generic` interface, the status and the bounds status are
++    // negative if the evaluation failed (strict policy), positive otherwise
++    // (warning policy)
++    const auto status = "((mfront_out_of_bounds_policy == " + prefix +
++                        "_STRICT_POLICY) ? -1 : 1)";
++    for_each_variable([&write_check, &has_upper_bound, &has_lower_bound, &mpd,
++                       &status](const VariableDescription& v,
++                                const std::size_t idx) {
++      if (!v.hasBounds()) {
++        return;
++      }
++      const auto& b = v.getBounds();
++      const auto rank = status + " * " + std::to_string(idx + 1);
++      if (has_upper_bound(b)) {
++        write_check(getBoundCheck(mpd, idx, true),
++                    v.name + " is over its upper bound", rank, status);
++      }
++      if (has_lower_bound(b)) {
++        write_check(getBoundCheck(mpd, idx, false),
++                    v.name + " is below its lower bound", rank, status);
++      }
++    });
++  }  // end of writeStatisticsAnalysis
++
+   BackendBase::BackendBase() = default;
+ 
+   bool BackendBase::handlesDataTransfer() const {
+     return false;
+   }  // end of handlesDataTransfer
+ 
+-  std::size_t BackendBase::getStatusesArraySize(
+-      const MaterialPropertyDescription& mpd) {
+-    return getInvalidResultStatusIndex(mpd) + 1;
+-  }  // end of getStatusesArraySize
++  bool BackendBase::mergesPointStatusesInKernels() const {
++    return false;
++  }  // end of mergesPointStatusesInKernels
+ 
+-  std::size_t BackendBase::getInvalidResultStatusIndex(
+-      const MaterialPropertyDescription& mpd) {
+-    return 2 * (mpd.inputs.size() + 1);
+-  }  // end of getInvalidResultStatusIndex
++  std::string BackendBase::getAtomicIncrement(const std::string_view) const {
++    tfel::raise(
++        "BackendBase::getAtomicIncrement: "
++        "the statuses of the points are merged by a reduction");
++  }  // end of getAtomicIncrement
+ 
+-  void BackendBase::writeBoundsStatusesDeclaration(
++  std::string BackendBase::getAtomicMinimum(const std::string_view,
++                                            const std::string_view) const {
++    tfel::raise(
++        "BackendBase::getAtomicMinimum: "
++        "the statuses of the points are merged by a reduction");
++  }  // end of getAtomicMinimum
++
++  void BackendBase::writeStatisticsDeclaration(
+       std::ostream& os,
+-      const MaterialPropertyDescription& mpd,
+       const std::string_view device_type,
+       const std::string_view device,
+       const std::string_view allocation) {
+-    const auto n = getStatusesArraySize(mpd);
+-    const auto pool = "mfront::generic_parallel::StatusBlockPool<int, " +
++    const auto pool = "mfront::generic_parallel::StatusBlockPool<"
++                      "mfront_gpmp_Statistics, " +
+                       std::string{device_type} + ">";
+-    // statuses given by the calling code (asynchronous evaluation), or block
+-    // of the pool, initialized here
+-    os << "static auto mfront_bounds_statuses_blocks = " << pool << "{};\n"
+-       << "auto mfront_bounds_statuses_block = std::optional<" << pool
++    // statistics given by the calling code (asynchronous evaluation), or
++    // block of the pool, initialized here
++    os << "static auto mfront_statistics_blocks = " << pool << "{};\n"
++       << "auto mfront_statistics_block = std::optional<" << pool
+        << "::Block>{};\n"
+-       << "auto* mfront_bounds_statuses = mfront_options.statuses;\n"
+-       << "if (mfront_bounds_statuses == nullptr) {\n"
+-       << "mfront_bounds_statuses_block.emplace("
+-       << "mfront_bounds_statuses_blocks.acquire(" << device << ", [&]{\n"
+-       << "constexpr auto mfront_n = std::size_t{" << n << "};\n"
++       << "auto* mfront_statistics = mfront_options.statistics;\n"
++       << "if (mfront_statistics == nullptr) {\n"
++       << "mfront_statistics_block.emplace("
++       << "mfront_statistics_blocks.acquire(" << device << ", [&]{\n"
+        << allocation << "\n"
+        << "}));\n"
+-       << "mfront_bounds_statuses = mfront_bounds_statuses_block->get();\n"
+-       << "if (mfront_bounds_statuses == nullptr) {\n"
++       << "mfront_statistics = mfront_statistics_block->get();\n"
++       << "if (mfront_statistics == nullptr) {\n"
+        << "mfront_output_status->status = -6;\n"
+-       << "mfront_report(\"unable to allocate the statuses of the bounds "
+-       << "checks\");\n"
++       << "mfront_report(\"unable to allocate the statistics of the "
++       << "evaluation\");\n"
+        << "return;\n"
+        << "}\n"
+-       << "std::fill(mfront_bounds_statuses, mfront_bounds_statuses + " << n
+-       << ", 0);\n"
++       << "mfront_gpmp_initializeStatistics(mfront_statistics);\n"
+        << "}\n";
+-  }  // end of writeBoundsStatusesDeclaration
++  }  // end of writeStatisticsDeclaration
++
++  void BackendBase::writeLocalStatisticsDeclaration(std::ostream& os) {
++    os << "auto mfront_local_statistics = mfront_gpmp_Statistics{};\n"
++       << "mfront_gpmp_initializeStatistics(&mfront_local_statistics);\n"
++       << "auto* const mfront_statistics = "
++       << "(mfront_options.statistics != nullptr) ? "
++       << "mfront_options.statistics : &mfront_local_statistics;\n";
++  }  // end of writeLocalStatisticsDeclaration
++
+ 
+   void BackendBase::writeErrorReporting(std::ostream& os) {
+     os << "[[maybe_unused]] auto mfront_report = "
+@@ -83,12 +334,7 @@ namespace mfront::generic_parallel::material_property {
+        << "};\n";
+   }  // end of writeErrorReporting
+ 
+-  std::size_t BackendBase::getNumberOfStatuses(
+-      const MaterialPropertyDescription& mpd) const {
+-    return isBoundsCheckingRequired(mpd) ? getStatusesArraySize(mpd) : 0;
+-  }  // end of getNumberOfStatuses
+-
+-  void BackendBase::writeStatusesReportFunction(
++  void BackendBase::writeReportFunction(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd) const {
+@@ -96,16 +342,23 @@ namespace mfront::generic_parallel::material_property {
+     const auto types = i.getTypesDescription();
+     os << "MFRONT_SHAREDOBJ void " << name << "_generic_parallel_report("
+        << types.output_status_type << "* const mfront_output_status,\n"
+-       << "[[maybe_unused]] const int* const mfront_bounds_statuses,\n"
++       << "[[maybe_unused]] const mfront_gpmp_Statistics* const "
++       << "mfront_statistics,\n"
+        << "[[maybe_unused]] const " << types.out_of_bounds_policy_type
+        << " mfront_out_of_bounds_policy){\n";
+     writeErrorReporting(os);
+     os << "mfront_output_status->status = 0;\n"
+        << "mfront_output_status->bounds_status = 0;\n"
+-       << "mfront_output_status->c_error_number = 0;\n";
+-    this->writeBoundsStatusesAnalysis(os, i, mpd);
++       << "mfront_output_status->number_of_failures = 0;\n"
++       << "mfront_output_status->first_failure_index = "
++       << "std::numeric_limits<" << types.integer_type << ">::max();\n"
++       << "mfront_output_status->number_of_unreliable_results = 0;\n";
++    if (!areRuntimeChecksDisabled(mpd)) {
++      writeStatisticsAnalysis(os, i, mpd);
++    }
+     os << "} // end of " << name << "_generic_parallel_report\n\n";
+-  }  // end of writeStatusesReportFunction
++  }  // end of writeReportFunction
++
+ 
+   void BackendBase::writeDeviceStackSizeSetting(std::ostream& os,
+                                                 const std::size_t stack_size) {
+@@ -121,15 +374,6 @@ namespace mfront::generic_parallel::material_property {
+        << "}\n";
+   }  // end of writeDeviceStackSizeSetting
+ 
+-  void BackendBase::writeInvalidResultCheck(
+-      std::ostream& os, const MaterialPropertyDescription& mpd) const {
+-    const auto v =
+-        useQuantities(mpd) ? mpd.output.name + ".getValue()" : mpd.output.name;
+-    os << "if(!tfel::math::ieee754::isfinite(" << v << ")){\n"
+-       << "mfront_bounds_statuses[" << getInvalidResultStatusIndex(mpd)
+-       << "] = 1;\n"
+-       << "}\n";
+-  }  // end of writeInvalidResultCheck
+ 
+   void BackendBase::writeCDeclarations(
+       std::ostream& os,
+@@ -152,8 +396,8 @@ namespace mfront::generic_parallel::material_property {
+          << " * \\param[in] mfront_out_of_bounds_policy: out of bounds "
+          << "policy\n"
+          << " * \\param[in] mfront_execution_options: options of the "
+-         << "execution (queue, statuses of an asynchronous evaluation, stack "
+-         << "size), or null for the default options\n";
++         << "execution (queue, statistics of an asynchronous evaluation, "
++         << "stack size), or null for the default options\n";
+     };
+     os << "/*!\n"
+        << " * \\brief compute the value of '" << mpd.className
+@@ -205,20 +449,20 @@ namespace mfront::generic_parallel::material_property {
+        << "const " << types.out_of_bounds_policy_type << ",\n"
+        << "const mfront_gpmp_ExecutionOptions* const);\n\n"
+        << "/*!\n"
+-       << " * \\brief analyse the statuses written by an asynchronous "
++       << " * \\brief analyse the statistics of an asynchronous "
+        << "evaluation of '" << mpd.className << "' material property, once "
+        << "the computations are completed, and report the result as a "
+        << "synchronous evaluation does\n"
+        << " *\n"
+        << " * \\param[out] mfront_output_status: output status\n"
+-       << " * \\param[in] mfront_bounds_statuses: statuses given by the "
++       << " * \\param[in] mfront_statistics: statistics given by the "
+        << "execution options, read on the host\n"
+        << " * \\param[in] mfront_out_of_bounds_policy: out of bounds policy "
+        << "of the evaluation\n"
+        << " */\n"
+        << "MFRONT_SHAREDOBJ void " << name << "_generic_parallel_report(\n"
+        << types.output_status_type << "* const,\n"
+-       << "const int* const,\n"
++       << "const mfront_gpmp_Statistics* const,\n"
+        << "const " << types.out_of_bounds_policy_type << ");\n\n";
+   }  // end of writeDeclarations
+ 
+@@ -227,162 +471,11 @@ namespace mfront::generic_parallel::material_property {
+       const GenericParallelMaterialPropertyInterface&,
+       const MaterialPropertyDescription&) const {}  // end of writeProxyObject
+ 
+-  void BackendBase::writePhysicalBounds(std::ostream& os,
+-                                        const VariableDescription& v,
+-                                        const size_t i) const {
+-    if (!v.hasPhysicalBounds()) {
+-      return;
+-    }
+-    const auto& b = v.getPhysicalBounds();
+-    if ((b.boundsType == VariableBoundsDescription::LOWER) ||
+-        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
+-      os << "if(" << v.name << " < " << v.type << "(" << b.lowerBound << ")){\n"
+-         << "mfront_bounds_statuses[" << 2 * i << "] = -1;\n"
+-         << "return;\n"
+-         << "}\n";
+-    }
+-    if ((b.boundsType == VariableBoundsDescription::UPPER) ||
+-        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
+-      os << "if(" << v.name << " > " << v.type << "(" << b.upperBound << ")){\n"
+-         << "mfront_bounds_statuses[" << 2 * i << "] = 1;\n"
+-         << "return;\n"
+-         << "}\n";
+-    }
+-  }  // end of writePhysicalBounds
+ 
+-  void BackendBase::writeBounds(std::ostream& os,
+-                                const std::string& prefix,
+-                                const VariableDescription& v,
+-                                const size_t i) const {
+-    if (!v.hasBounds()) {
+-      return;
+-    }
+-    const auto& b = v.getBounds();
+-    if ((b.boundsType == VariableBoundsDescription::LOWER) ||
+-        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
+-      os << "if(" << v.name << " < " << v.type << "(" << b.lowerBound << ")){\n"
+-         << "mfront_bounds_statuses[" << 2 * i + 1 << "] = -1;\n"
+-         << "if (mfront_out_of_bounds_policy==" << prefix
+-         << "_STRICT_POLICY){\n"
+-         << "return;\n"
+-         << "}\n"
+-         << "}\n";
+-    }
+-    if ((b.boundsType == VariableBoundsDescription::UPPER) ||
+-        (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
+-      os << "if(" << v.name << " > " << v.type << "(" << b.upperBound << ")){\n"
+-         << "mfront_bounds_statuses[" << 2 * i + 1 << "] = 1;\n"
+-         << "if (mfront_out_of_bounds_policy==" << prefix
+-         << "_STRICT_POLICY){\n"
+-         << "return;\n"
+-         << "}\n"
+-         << "}\n";
+-    }
+-  }  // end of writeBounds
+-
+-  void BackendBase::writeBoundsStatusesAnalysis(
+-      std::ostream& os,
+-      const GenericParallelMaterialPropertyInterface& i,
+-      const MaterialPropertyDescription& mpd) const {
+-    if (areRuntimeChecksDisabled(mpd)) {
+-      return;
+-    }
+-    os << "if(mfront_bounds_statuses[" << getInvalidResultStatusIndex(mpd)
+-       << "] != 0){\n"
+-       << "mfront_report(\"invalid result at at least one point\");\n"
+-       << "mfront_output_status->status = -4;\n"
+-       << "return;\n"
+-       << "}\n";
+-    if (!((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs)) ||
+-          (mpd.output.hasPhysicalBounds()) || (mpd.output.hasBounds()))) {
+-      return;
+-    }
+-    const auto iucname = i.getInterfaceNameInUpperCase();
+-    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
+-    os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+-    auto write_physical_bounds_violation = [&os](const VariableDescription& v,
+-                                                 std::size_t idx) {
+-      os << "if(mfront_bounds_statuses[" << 2 * idx << "] > 0){\n"
+-         << "mfront_report(\"" << v.name
+-         << " is over its physical upper bound at at least one "
+-         << "point\");\n"
+-         << "mfront_output_status->status = -1;\n"
+-         << "mfront_output_status->bounds_status = -" << idx + 1 << ";\n"
+-         << "return;\n"
+-         << "}\n";
+-      os << "if(mfront_bounds_statuses[" << 2 * idx << "] < 0){\n"
+-         << "mfront_report(\"" << v.name
+-         << " is below its physical lower bound at at least one "
+-         << "point\");\n"
+-         << "mfront_output_status->status = -1;\n"
+-         << "mfront_output_status->bounds_status = -" << idx + 1 << ";\n"
+-         << "return;\n"
+-         << "}\n";
+-    };
+-    for (decltype(mpd.inputs.size()) idx = 0; idx != mpd.inputs.size(); ++idx) {
+-      const auto& v = mpd.inputs[idx];
+-      if (!v.hasPhysicalBounds()) {
+-        continue;
+-      }
+-      write_physical_bounds_violation(v, idx);
+-    }
+-    if (mpd.output.hasPhysicalBounds()) {
+-      write_physical_bounds_violation(mpd.output, mpd.inputs.size());
+-    }
+-    if ((hasBounds(mpd.inputs)) || (mpd.output.hasBounds())) {
+-      auto write_bounds_violation = [&os, &prefix](const VariableDescription& v,
+-                                                   std::size_t idx) {
+-        os << "if(mfront_bounds_statuses[" << 2 * idx + 1 << "] > 0){\n"
+-           << "mfront_report(\"" << v.name
+-           << " is over its upper bound at at least one point\");\n"
+-           << "if(mfront_out_of_bounds_policy==" << prefix
+-           << "_STRICT_POLICY){\n"
+-           << "mfront_output_status->status = -1;\n"
+-           << "mfront_output_status->bounds_status = -" << idx + 1 << ";\n"
+-           << "return;\n"
+-           << "}\n"
+-           << "mfront_output_status->status = 1;\n"
+-           << "mfront_output_status->bounds_status = " << idx + 1 << ";\n"
+-           << "}\n";
+-        os << "if(mfront_bounds_statuses[" << 2 * idx + 1 << "] < 0){\n"
+-           << "mfront_report(\"" << v.name
+-           << " is below its lower bound at at least one point\");\n"
+-           << "if(mfront_out_of_bounds_policy==" << prefix
+-           << "_STRICT_POLICY){\n"
+-           << "mfront_output_status->status = -1;\n"
+-           << "mfront_output_status->bounds_status = -" << idx + 1 << ";\n"
+-           << "return;\n"
+-           << "}\n"
+-           << "mfront_output_status->status = 1;\n"
+-           << "mfront_output_status->bounds_status = " << idx + 1 << ";\n"
+-           << "}\n";
+-      };
+-      // as with the `generic` interface, the result must be used with
+-      // caution (status 1) if a bound is violated with the warning policy,
+-      // and the bounds status is negative with the strict policy
+-      os << "if((mfront_out_of_bounds_policy==" << prefix
+-         << "_STRICT_POLICY)||\n"
+-         << "(mfront_out_of_bounds_policy==" << prefix
+-         << "_WARNING_POLICY)){\n";
+-      for (decltype(mpd.inputs.size()) idx = 0; idx != mpd.inputs.size();
+-           ++idx) {
+-        const auto& v = mpd.inputs[idx];
+-        if (!v.hasBounds()) {
+-          continue;
+-        }
+-        write_bounds_violation(v, idx);
+-      }
+-      if (mpd.output.hasBounds()) {
+-        write_bounds_violation(mpd.output, mpd.inputs.size());
+-      }
+-      os << "}\n";
+-    }
+-    os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+-  }
+ 
+   bool BackendBase::isBoundsCheckingRequired(
+       const MaterialPropertyDescription& mpd) {
+-    // the array of statuses is also used to report invalid results
++    // the statistics also report the invalid results
+     return !areRuntimeChecksDisabled(mpd);
+   }  // end of isBoundsCheckingRequired
+ 
+@@ -420,8 +513,8 @@ namespace mfront::generic_parallel::material_property {
+         os << " mfront_args_strides";
+       }
+     }
+-    // the policy is passed to the kernels with the array of statuses, even
+-    // if the material property has no bounds
++    // the policy is passed to the kernels with the statistics, even if the
++    // material property has no bounds
+     os << ",\nconst " << types.integer_type << " mfront_nargs"
+        << ",\nconst " << types.integer_type << " mfront_npoints"
+        << ",\n[[maybe_unused]] const " << types.out_of_bounds_policy_type
+@@ -434,7 +527,7 @@ namespace mfront::generic_parallel::material_property {
+        << "(mfront_execution_options != nullptr) ? *mfront_execution_options "
+        << ": mfront_gpmp_ExecutionOptions{};\n"
+        << "[[maybe_unused]] const bool mfront_asynchronous = "
+-       << "mfront_options.statuses != nullptr;\n";
++       << "mfront_options.statistics != nullptr;\n";
+     writeErrorReporting(os);
+     if (!areRuntimeChecksDisabled(mpd)) {
+       os << "auto mfront_check_positive_or_null = "
+@@ -453,7 +546,10 @@ namespace mfront::generic_parallel::material_property {
+     os << "[[maybe_unused]] const int mfront_errno_old = errno;\n";
+     os << "mfront_output_status->status = 0;\n"
+        << "mfront_output_status->bounds_status = 0;\n"
+-       << "mfront_output_status->c_error_number = 0;\n";
++       << "mfront_output_status->number_of_failures = 0;\n"
++       << "mfront_output_status->first_failure_index = "
++       << "std::numeric_limits<" << types.integer_type << ">::max();\n"
++       << "mfront_output_status->number_of_unreliable_results = 0;\n";
+     // writes an error and returns
+     auto write_error = [&os](const int status, const std::string& message) {
+       os << "mfront_output_status->status = " << status << ";\n"
+@@ -532,6 +628,7 @@ namespace mfront::generic_parallel::material_property {
+     const auto iucname = i.getInterfaceNameInUpperCase();
+     const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
+     const auto qt = useQuantities(mpd);
++    const auto checks = isBoundsCheckingRequired(mpd);
+     // parameters
+     for (const auto& p : mpd.parameters) {
+       if (areParametersTreatedAsStaticVariables(mpd)) {
+@@ -556,18 +653,27 @@ namespace mfront::generic_parallel::material_property {
+       os << "const auto " << v.name << " = "
+          << (qt ? v.type + "(" + value + ")" : value) << ";\n";
+     }
++    // with the runtime checks, the evaluation is written in a lambda
++    // function returning the status of the point, so that a failed check
++    // ends the evaluation at this point. The variables are captured by copy:
++    // nvc++ 25.11 (-mp=gpu) does not write through a pointer captured by
++    // reference by such a lambda in an OpenMP target region
++    if (checks) {
++      os << "const auto mfront_point_status = [=]() -> "
++         << "::mfront::gpmp::PointStatus {\n"
++         << "auto mfront_status = ::mfront::gpmp::PointStatus{};\n";
++    }
+     // output
+     os << "auto " << mpd.output.name << " = " << mpd.output.type << "{};\n";
+-    const auto checks = !areRuntimeChecksDisabled(mpd);
+     // bounds of the arguments: physical bounds first
+     if ((checks) &&
+         ((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs)))) {
+       os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-        this->writePhysicalBounds(os, mpd.inputs[idx], idx);
++        writePhysicalBounds(os, mpd.inputs[idx], idx);
+       }
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-        this->writeBounds(os, prefix, mpd.inputs[idx], idx);
++        writeBounds(os, prefix, mpd, mpd.inputs[idx], idx);
+       }
+       os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+     }
+@@ -576,17 +682,48 @@ namespace mfront::generic_parallel::material_property {
+     if (checks) {
+       if ((mpd.output.hasPhysicalBounds()) || (mpd.output.hasBounds())) {
+         os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+-        this->writePhysicalBounds(os, mpd.output, mpd.inputs.size());
+-        this->writeBounds(os, prefix, mpd.output, mpd.inputs.size());
++        writePhysicalBounds(os, mpd.output, mpd.inputs.size());
++        writeBounds(os, prefix, mpd, mpd.output, mpd.inputs.size());
+         os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+       }
+-      this->writeInvalidResultCheck(os, mpd);
++      writeInvalidResultCheck(os, mpd);
+     }
+     os << (handleStrides ? "mfront_output[mfront_output_stride * mfront_idx] = "
+                          : "mfront_output[mfront_idx] = ")
+        << mpd.output.name << (qt ? ".getValue();\n" : ";\n");
++    if (!checks) {
++      return;
++    }
++    os << "return mfront_status;\n"
++       << "}();\n";
++    if (!this->mergesPointStatusesInKernels()) {
++      // merged by a reduction
++      os << "return mfront_point_status;\n";
++      return;
++    }
++    // the statistics are only accessed if an event occurred
++    const auto increment = [this](const std::string_view c) {
++      return this->getAtomicIncrement("mfront_statistics->" + std::string{c});
++    };
++    const auto minimum = [this](const std::string_view c,
++                                const std::string_view v) {
++      return this->getAtomicMinimum("mfront_statistics->" + std::string{c},
++                                    v);
++    };
++    os << "if (mfront_point_status.hasEvent()) {\n"
++       << "if (mfront_point_status.failure) {\n"
++       << increment("number_of_failures") << ";\n"
++       << minimum("first_failure_index",
++                  "static_cast<unsigned long long>(mfront_idx)")
++       << ";\n"
++       << "} else {\n"
++       << increment("number_of_unreliable_results") << ";\n"
++       << "}\n"
++       << minimum("first_violation", "mfront_point_status.violation") << ";\n"
++       << "}\n";
+   }  // end of writeKernelBody
+ 
++
+   void BackendBase::writeKernelSelection(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+@@ -639,7 +776,7 @@ namespace mfront::generic_parallel::material_property {
+     os << "errno = mfront_errno_old;\n"
+        << "if (!mfront_asynchronous) {\n"
+        << i.getFunctionName(mpd) << "_generic_parallel_report("
+-       << "mfront_output_status, mfront_bounds_statuses, "
++       << "mfront_output_status, mfront_statistics, "
+        << "mfront_out_of_bounds_policy);\n"
+        << "}\n";
+   }  // end of writeResultsAnalysis
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+index bdb0c96b6..b2dc1a90c 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+@@ -73,7 +73,7 @@ namespace mfront::generic_parallel::material_property {
+       os << ",\nconst " << types.integer_type << " mfront_output_stride";
+     }
+     if (isBoundsCheckingRequired(mpd)) {
+-      os << ",\nint* const mfront_bounds_statuses"
++      os << ",\nmfront_gpmp_Statistics* const mfront_statistics"
+          << ",\nconst " << types.integer_type << " mfront_out_of_bounds_policy";
+     }
+     if ((!areParametersTreatedAsStaticVariables(mpd)) &&
+@@ -130,7 +130,7 @@ namespace mfront::generic_parallel::material_property {
+     const auto pm = this->getProgrammingModel();
+     this->writeCFunctionBeginning(os, i, mpd, treatStrides);
+     if (isBoundsCheckingRequired(mpd)) {
+-      // the statuses are held by a block of managed memory of the current
++      // the statistics are held by a block of managed memory of the current
+       // device
+       os << "auto mfront_device = int{};\n"
+          << "const auto mfront_" << pm << "_device_error = " << pm
+@@ -141,11 +141,12 @@ namespace mfront::generic_parallel::material_property {
+          << "_device_error));\n"
+          << "return;\n"
+          << "}\n";
+-      writeBoundsStatusesDeclaration(
+-          os, mpd, "int", "mfront_device",
+-          "int* mfront_ptr = nullptr;\n"
++      writeStatisticsDeclaration(
++          os, "int", "mfront_device",
++          "mfront_gpmp_Statistics* mfront_ptr = nullptr;\n"
+           "return " +
+-              pm + "MallocManaged(&mfront_ptr, mfront_n * sizeof(int)) == " +
++              pm +
++              "MallocManaged(&mfront_ptr, sizeof(mfront_gpmp_Statistics)) == " +
+               pm + "Success ? mfront_ptr : nullptr;");
+     }
+     this->writeKernelCall(os, i, mpd, treatStrides);
+@@ -194,7 +195,7 @@ namespace mfront::generic_parallel::material_property {
+         os << "mfront_output_stride, ";
+       }
+       if (isBoundsCheckingRequired(mpd)) {
+-        os << "mfront_bounds_statuses, mfront_out_of_bounds_policy, ";
++        os << "mfront_statistics, mfront_out_of_bounds_policy, ";
+       }
+       if ((!areParametersTreatedAsStaticVariables(mpd)) &&
+           (!mpd.parameters.empty())) {
+@@ -234,6 +235,20 @@ namespace mfront::generic_parallel::material_property {
+     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
+   }  // end of writeKernelCall
+ 
++  bool CUDABackendBase::mergesPointStatusesInKernels() const {
++    return true;
++  }  // end of mergesPointStatusesInKernels
++
++  std::string CUDABackendBase::getAtomicIncrement(
++      const std::string_view c) const {
++    return "atomicAdd(&(" + std::string{c} + "), 1ull)";
++  }  // end of getAtomicIncrement
++
++  std::string CUDABackendBase::getAtomicMinimum(
++      const std::string_view c, const std::string_view v) const {
++    return "atomicMin(&(" + std::string{c} + "), " + std::string{v} + ")";
++  }  // end of getAtomicMinimum
++
+   std::string CUDABackendBase::getMemorySpace() const {
+     return "mfront::generic_parallel::device_memory_space";
+   }  // end of getMemorySpace
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+index 9234bb4be..ebdddafb5 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+@@ -128,7 +128,10 @@ namespace mfront::generic_parallel::material_property {
+       os << ", mfront_strides";
+     }
+     if (isBoundsCheckingRequired(mpd)) {
+-      os << ", mfront_bounds_statuses, mfront_out_of_bounds_policy";
++      os << ", mfront_out_of_bounds_policy";
++      if (this->mergesPointStatusesInKernels()) {
++        os << ", mfront_statistics";
++      }
+     }
+     if ((!areParametersTreatedAsStaticVariables(mpd)) &&
+         (!mpd.parameters.empty())) {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
+index 66eaec5ca..db0da4289 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
+@@ -64,14 +64,14 @@ namespace mfront::generic_parallel::material_property {
+        << "*static_cast<const mfront_execution_space*>("
+        << "mfront_options.queue);\n";
+     if (this->isBoundsCheckingRequired(mpd)) {
+-      // the statuses are written by the kernels and read on the host. Kokkos
+-      // uses one device per process. The blocks are freed when Kokkos is
+-      // finalized.
+-      writeBoundsStatusesDeclaration(
+-          os, mpd, "int", "0",
+-          "auto* const mfront_ptr = static_cast<int*>("
++      // the statistics are written by the kernels and read on the host.
++      // Kokkos uses one device per process. The blocks are freed when Kokkos
++      // is finalized.
++      writeStatisticsDeclaration(
++          os, "int", "0",
++          "auto* const mfront_ptr = static_cast<mfront_gpmp_Statistics*>("
+           "Kokkos::kokkos_malloc<Kokkos::SharedSpace>("
+-          "\"mfront_bounds_statuses\", mfront_n * sizeof(int)));\n"
++          "\"mfront_statistics\", sizeof(mfront_gpmp_Statistics)));\n"
+           "Kokkos::push_finalize_hook([mfront_ptr] {\n"
+           "Kokkos::kokkos_free<Kokkos::SharedSpace>(mfront_ptr);\n"
+           "});\n"
+@@ -97,6 +97,21 @@ namespace mfront::generic_parallel::material_property {
+     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
+   }  // end of writeKernelCall
+ 
++  bool KokkosBackend::mergesPointStatusesInKernels() const {
++    return true;
++  }  // end of mergesPointStatusesInKernels
++
++  std::string KokkosBackend::getAtomicIncrement(
++      const std::string_view c) const {
++    return "Kokkos::atomic_add(&(" + std::string{c} + "), 1ull)";
++  }  // end of getAtomicIncrement
++
++  std::string KokkosBackend::getAtomicMinimum(const std::string_view c,
++                                              const std::string_view v) const {
++    return "Kokkos::atomic_min(&(" + std::string{c} + "), " + std::string{v} +
++           ")";
++  }  // end of getAtomicMinimum
++
+   std::string KokkosBackend::getMemorySpace() const {
+     // the execution space may access the memory of the host or not
+     return "(Kokkos::SpaceAccessibility<" + this->execution_space +
+diff --git a/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx
+index c9e7ad384..735f8fa8b 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx
+@@ -59,33 +59,73 @@ namespace mfront::generic_parallel::material_property {
+     if (this->offload) {
+       writeDeviceStackSizeSetting(os, this->device_stack_size);
+     }
+-    if (this->isBoundsCheckingRequired(mpd)) {
+-      // the statuses are allocated on the heap, which must be accessible
+-      // by the device when the computations are offloaded (managed memory
+-      // with nvc++)
+-      writeBoundsStatusesDeclaration(
+-          os, mpd, "int", "0", "return new (std::nothrow) int[mfront_n];");
++    const auto checks = this->isBoundsCheckingRequired(mpd);
++    if (checks) {
++      // the statuses of the points are merged by a reduction, as for the
++      // behaviours
++      writeLocalStatisticsDeclaration(os);
+     }
+     this->writeKernels(os, i, mpd, fd, treatStrides);
+-    auto write_loop = [this, &os, &types](const std::string_view npoints,
+-                                          const bool handleStrides) {
++    auto write_loop = [this, &os, &types, checks](
++                          const std::string_view npoints,
++                          const bool handleStrides) {
+       const auto kernel = std::string{
+           handleStrides ? "mfront_kernel" : "mfront_kernel_without_strides"};
+       os << "{\n"
+          << "// loop over the points\n"
+          << "const auto mfront_n = static_cast<" << types.integer_type << ">("
+          << npoints << ");\n";
++      if (checks) {
++        os << "auto mfront_number_of_failures = 0ull;\n"
++           << "auto mfront_first_failure_index = ::mfront::gpmp::no_event;\n"
++           << "auto mfront_number_of_unreliable_results = 0ull;\n"
++           << "auto mfront_first_violation = ::mfront::gpmp::no_event;\n";
++      }
++      const auto reductions = std::string{
++          checks ? " reduction(+ : mfront_number_of_failures, "
++                   "mfront_number_of_unreliable_results) "
++                   "reduction(min : mfront_first_failure_index, "
++                   "mfront_first_violation)"
++                 : ""};
+       if (this->offload) {
+         os << "#pragma omp target teams distribute parallel for "
+-           << "map(to : " << kernel << ")\n";
++           << "map(to : " << kernel << ")" << reductions << "\n";
+       } else {
+-        os << "#pragma omp parallel for\n";
++        os << "#pragma omp parallel for" << reductions << "\n";
+       }
+       os << "for (" << types.integer_type
+-         << " mfront_i = 0; mfront_i < mfront_n; ++mfront_i) {\n"
+-         << kernel << "(mfront_i);\n"
+-         << "}\n"
+-         << "}\n";
++         << " mfront_i = 0; mfront_i < mfront_n; ++mfront_i) {\n";
++      if (checks) {
++        os << "const auto mfront_point_status = " << kernel << "(mfront_i);\n"
++           << "if (mfront_point_status.hasEvent()) {\n"
++           << "if (mfront_point_status.failure) {\n"
++           << "mfront_number_of_failures += 1;\n"
++           << "const auto mfront_ui = static_cast<unsigned long long>("
++           << "mfront_i);\n"
++           << "mfront_first_failure_index = "
++           << "(mfront_ui < mfront_first_failure_index) ? mfront_ui : "
++           << "mfront_first_failure_index;\n"
++           << "} else {\n"
++           << "mfront_number_of_unreliable_results += 1;\n"
++           << "}\n"
++           << "mfront_first_violation = "
++           << "(mfront_point_status.violation < mfront_first_violation) ? "
++           << "mfront_point_status.violation : mfront_first_violation;\n"
++           << "}\n";
++      } else {
++        os << kernel << "(mfront_i);\n";
++      }
++      os << "}\n";
++      if (checks) {
++        os << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
++           << "mfront_gpmp_Statistics{"
++           << ".number_of_failures = mfront_number_of_failures, "
++           << ".first_failure_index = mfront_first_failure_index, "
++           << ".number_of_unreliable_results = "
++           << "mfront_number_of_unreliable_results, "
++           << ".first_violation = mfront_first_violation});\n";
++      }
++      os << "}\n";
+     };
+     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
+   }  // end of writeKernelCall
+diff --git a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+index 8a0c844a7..1bab10378 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+@@ -65,15 +65,16 @@ namespace mfront::generic_parallel::material_property {
+     // algorithms have no queue
+     writeDeviceStackSizeSetting(os, this->device_stack_size);
+     if (requiresBoundsCheck) {
+-      // the statuses are allocated on the heap, which is accessible by the
+-      // device when the computations are offloaded (managed memory with
+-      // nvc++)
+-      writeBoundsStatusesDeclaration(
+-          os, mpd, "int", "0", "return new (std::nothrow) int[mfront_n];");
++      // the statuses of the points are merged by a reduction, as for the
++      // behaviours
++      writeLocalStatisticsDeclaration(os);
+     }
+     this->writeKernels(os, i, mpd, fd, treatStrides);
+-    auto write_kernel_call = [&os, this, &types](const std::string_view npoints,
+-                                                 const bool handleStrides) {
++    auto write_kernel_call = [&os, this, &types, requiresBoundsCheck](
++                                 const std::string_view npoints,
++                                 const bool handleStrides) {
++      const auto kernel = std::string{
++          handleStrides ? "mfront_kernel" : "mfront_kernel_without_strides"};
+       // the iterators of std::views::iota can't be used: with libstdc++,
+       // the parallel algorithms run sequentially with them (see the
+       // documentation of mfront::generic_parallel::CountingIterator)
+@@ -84,16 +85,32 @@ namespace mfront::generic_parallel::material_property {
+          << "using mfront_index_type = " << types.integer_type << ";\n"
+          << "#endif /* __ADAPTIVECPP__ */ \n"
+          << "using mfront_index_iterator = "
+-         << "mfront::generic_parallel::CountingIterator<mfront_index_type>;\n"
+-         << "std::for_each(" << this->execution_policy
+-         << ", mfront_index_iterator{0}, "
+-         << "mfront_index_iterator{"
+-         << "static_cast<mfront_index_type>(" << npoints << ")}, "
+-         << "mfront_kernel";
+-      if (!handleStrides) {
+-        os << "_without_strides";
++         << "mfront::generic_parallel::CountingIterator<mfront_index_type>;\n";
++      const auto range = "mfront_index_iterator{0}, mfront_index_iterator{"
++                         "static_cast<mfront_index_type>(" +
++                         std::string{npoints} + ")}";
++      if (!requiresBoundsCheck) {
++        os << "std::for_each(" << this->execution_policy << ", " << range
++           << ", " << kernel << ");\n";
++        return;
+       }
+-      os << ");\n";
++      os << "const auto mfront_reduced_statistics = std::transform_reduce("
++         << this->execution_policy << ", " << range << ", "
++         << "mfront_gpmp_Statistics{.number_of_failures = 0, "
++         << ".first_failure_index = ::mfront::gpmp::no_event, "
++         << ".number_of_unreliable_results = 0, "
++         << ".first_violation = ::mfront::gpmp::no_event}, "
++         << "[](const mfront_gpmp_Statistics& mfront_a, "
++         << "const mfront_gpmp_Statistics& mfront_b) {\n"
++         << "return ::mfront::gpmp::merge(mfront_a, mfront_b);\n"
++         << "}, "
++         << "[" << kernel << "](const mfront_index_type mfront_i) {\n"
++         << "return ::mfront::gpmp::makeStatistics("
++         << "static_cast<unsigned long long>(mfront_i), " << kernel
++         << "(mfront_i));\n"
++         << "});\n"
++         << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
++         << "mfront_reduced_statistics);\n";
+     };
+     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
+   }  // end of writeKernelCall
+diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+index 481e8845b..e40b6749b 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+@@ -164,12 +164,13 @@ namespace mfront::generic_parallel::material_property {
+     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
+     writeDeviceStackSizeSetting(os, this->device_stack_size);
+     if (requiresBoundsCheck) {
+-      // the statuses are held by a block of shared memory, identified by
++      // the statistics are held by a block of shared memory, identified by
+       // the device and the context of the queue
+-      writeBoundsStatusesDeclaration(
+-          os, mpd, "std::pair<sycl::device, sycl::context>",
++      writeStatisticsDeclaration(
++          os, "std::pair<sycl::device, sycl::context>",
+           "{mfront_queue->get_device(), mfront_queue->get_context()}",
+-          "return sycl::malloc_shared<int>(mfront_n, *mfront_queue);");
++          "return sycl::malloc_shared<mfront_gpmp_Statistics>(1, "
++          "*mfront_queue);");
+     }
+     this->writeKernels(os, i, mpd, fd, treatStrides);
+     // the asynchronous errors of the kernels and of the copies are passed
+@@ -219,6 +220,31 @@ namespace mfront::generic_parallel::material_property {
+     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
+   }  // end of writeKernelCall
+ 
++  bool SYCLBackend::mergesPointStatusesInKernels() const {
++    return true;
++  }  // end of mergesPointStatusesInKernels
++
++  /*!
++   * \return the declaration of an atomic reference to a counter of the
++   * statistics, held by unified shared memory
++   * \param[in] c: counter
++   */
++  static std::string getSYCLAtomicReference(const std::string_view c) {
++    return "::sycl::atomic_ref<unsigned long long, "
++           "::sycl::memory_order::relaxed, ::sycl::memory_scope::device, "
++           "::sycl::access::address_space::global_space>(" +
++           std::string{c} + ")";
++  }  // end of getSYCLAtomicReference
++
++  std::string SYCLBackend::getAtomicIncrement(const std::string_view c) const {
++    return getSYCLAtomicReference(c) + ".fetch_add(1ull)";
++  }  // end of getAtomicIncrement
++
++  std::string SYCLBackend::getAtomicMinimum(const std::string_view c,
++                                            const std::string_view v) const {
++    return getSYCLAtomicReference(c) + ".fetch_min(" + std::string{v} + ")";
++  }  // end of getAtomicMinimum
++
+   bool SYCLBackend::handlesDataTransfer() const {
+     return this->data_transfer_policy == DataTransferPolicy::AUTOMATIC;
+   }  // end of handlesDataTransfer
+diff --git a/mfront/src/GenericParallelMaterialPropertyInterface.cxx b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+index ec57e4d4a..04fd6ad1f 100644
+--- a/mfront/src/GenericParallelMaterialPropertyInterface.cxx
++++ b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+@@ -89,7 +89,7 @@ namespace mfront {
+     types.real_type = "mfront_gmp_real";
+     types.integer_type = "mfront_gmp_size_type";
+     types.out_of_bounds_policy_type = "mfront_gmp_OutOfBoundsPolicy";
+-    types.output_status_type = "mfront_gmp_OutputStatus";
++    types.output_status_type = "mfront_gpmp_OutputStatus";
+     return types;
+   }  // end of getTypesDescription
+ 
+@@ -317,13 +317,15 @@ namespace mfront {
+        << "#include<vector>\n"
+        << "#include<locale>\n"
+        << "#include<cmath>\n"
++       << "#include<limits>\n"
+        << "#include<optional>\n";
+     os << "#include\"TFEL/Config/TFELTypes.hxx\"\n"
+        << "#include\"TFEL/PhysicalConstants.hxx\"\n"
+        << "#include\"TFEL/Math/General/IEEE754.hxx\"\n"
+        << "#include\"TFEL/Math/General/DerivativeType.hxx\"\n"
+        << "#include\"MFront/GenericParallel/StatusBlockPool.hxx\"\n"
+-       << "#include\"MFront/GenericParallel/MemorySpace.hxx\"\n";
++       << "#include\"MFront/GenericParallel/MemorySpace.hxx\"\n"
++       << "#include\"MFront/GenericParallelMaterialProperty/PointStatus.hxx\"\n";
+     if (useQuantities(mpd)) {
+       os << "#include\"TFEL/Math/qt.hxx\"\n"
+          << "#include\"TFEL/Math/Quantity/qtIO.hxx\"\n";
+@@ -363,9 +365,6 @@ namespace mfront {
+                  "MFRONT_GPMP_API_VERSION");
+     exportSymbol(os, "const char*", name + "_generic_parallel_memory_space",
+                  this->backend->getMemorySpace());
+-    exportSymbol(os, "unsigned short",
+-                 name + "_generic_parallel_number_of_statuses",
+-                 std::to_string(this->backend->getNumberOfStatuses(mpd)));
+     writeLawSymbol(os, name, mpd.law);
+     writeMaterialSymbol(os, name, mpd.material);
+     writeMaterialKnowledgeTypeSymbol(os, name,
+@@ -381,7 +380,7 @@ namespace mfront {
+          .floating_point_type = "double",
+          .interface_namespace = nname});
+ 
+-    this->backend->writeStatusesReportFunction(os, *this, mpd);
++    this->backend->writeReportFunction(os, *this, mpd);
+     this->backend->writeCImplementations(os, *this, mpd, fd);
+ 
+     os << "#ifdef __cplusplus\n"
+diff --git a/test-suite/material-properties/generic-parallel/test-cuda.cu b/test-suite/material-properties/generic-parallel/test-cuda.cu
+index 9c7c2aeb2..8238f60c1 100644
+--- a/test-suite/material-properties/generic-parallel/test-cuda.cu
++++ b/test-suite/material-properties/generic-parallel/test-cuda.cu
+@@ -76,8 +76,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test1() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = thrust::host_vector<double>(4);
+     const auto T = thrust::host_vector<double>{300, 500, 300, 800};
+     //
+@@ -101,10 +101,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     E_qt = d_E_qt;
+     //
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+@@ -114,8 +114,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test2() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = thrust::host_vector<double>(4);
+     auto E_qt = thrust::host_vector<double>(4);
+     const auto T = thrust::host_vector<double>{300};
+@@ -138,10 +138,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     E = d_E;
+     E_qt = d_E_qt;
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[0])) < eps);
+@@ -151,8 +151,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test3() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = thrust::host_vector<double>(1);
+     auto E_qt = thrust::host_vector<double>(1);
+     const auto T = thrust::host_vector<double>{300};
+@@ -174,10 +174,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     E = d_E;
+     E_qt = d_E_qt;
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     TFEL_TESTS_ASSERT(std::abs(E[0] - fct(T[0])) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0] - fct(T[0])) < eps);
+@@ -185,8 +185,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test4() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = thrust::host_vector<double>(4);
+     auto E_qt = thrust::host_vector<double>(4);
+     const auto T = thrust::host_vector<double>{300, 500, 300, 800};
+@@ -206,10 +206,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     E = d_E;
+     E_qt = d_E_qt;
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+@@ -220,8 +220,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   // check detection of physical bounds violation
+   void test5() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = thrust::host_vector<double>(4);
+     auto E_qt = thrust::host_vector<double>(4);
+     const auto T = thrust::host_vector<double>{-300, 500, 300, 800};
+@@ -243,10 +243,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     E = d_E;
+     E_qt = d_E_qt;
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -258,8 +260,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test6() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = thrust::host_vector<double>(4);
+     auto E_qt = thrust::host_vector<double>(4);
+     const auto T = thrust::host_vector<double>{-300, 500, 300, 800};
+@@ -279,10 +281,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     E = d_E;
+     E_qt = d_E_qt;
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -294,8 +298,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test7() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = thrust::host_vector<double>(4 * 3);
+     auto E_qt = thrust::host_vector<double>(4 * 3);
+     const auto T =
+@@ -318,10 +322,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     E = d_E;
+     E_qt = d_E_qt;
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i * 3] - fct(T[i * 2])) < eps);
+@@ -330,7 +334,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+ 
+   void test8() {
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto E = thrust::host_vector<double>(1);
+     const auto T = thrust::host_vector<double>{300};
+     //
+@@ -368,8 +372,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test9() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto nu = thrust::host_vector<double>(4);
+     //
+     thrust::device_vector<double> d_nu(nu.size());
+@@ -379,7 +383,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                      nullptr, 0, 4, policy, nullptr);
+     nu = d_nu;
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
+@@ -394,8 +398,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test10() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto nu = thrust::host_vector<double>(4);
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     //
+@@ -405,7 +409,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                       0, 4, policy, nullptr);
+     nu = d_nu;
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
+@@ -419,7 +423,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+   void test11() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     //
+     auto young = [](const double T, const double f) {
+       constexpr auto E0 = 2.2693e11;
+@@ -448,7 +452,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     E = d_E;
+     //
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
+@@ -467,7 +471,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       constexpr auto f0 = 0.4;
+       return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
+     };
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto E = thrust::host_vector<double>(4);
+     const auto T = thrust::host_vector<double>{300, 3000, 300, 800};
+     const auto f = thrust::host_vector<double>{0, 0.1, 0.15, 0.12};
+@@ -484,8 +488,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                                 args.size(), 4, policy, nullptr);
+     E = d_E;
+     TFEL_TESTS_CHECK_EQUAL(output.status, 1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 1);
++    // only the second temperature is out of its bounds
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_unreliable_results,
++                           mfront_gmp_size_type{1});
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) <
+                         eps * std::abs(young(T[i], f[i])));
+@@ -513,7 +520,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = stream};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
+                             args.data(), args_strides.data(), 1, 4,
+                             mfront_gmp_OutOfBoundsPolicy{}, &options);
+@@ -526,18 +533,18 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+ 
+   void test16() {
+-    // asynchronous evaluation on a stream: the statuses, in managed memory,
++    // asynchronous evaluation on a stream: the statistics, in managed memory,
+     // are given by the execution options and reported once the stream is
+     // synchronized. The second temperature is out of its physical bounds.
+     constexpr auto eps = double{1e-2};
+     auto stream = cudaStream_t{};
+     TFEL_TESTS_ASSERT(cudaStreamCreateWithFlags(
+                           &stream, cudaStreamNonBlocking) == cudaSuccess);
+-    const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+-    int *statuses = nullptr;
+-    TFEL_TESTS_ASSERT(cudaMallocManaged(&statuses, n * sizeof(int)) ==
++    mfront_gpmp_Statistics* statistics = nullptr;
++    TFEL_TESTS_ASSERT(cudaMallocManaged(&statistics,
++                                        sizeof(mfront_gpmp_Statistics)) ==
+                       cudaSuccess);
+-    std::fill(statuses, statuses + n, 0);
++    mfront_gpmp_initializeStatistics(statistics);
+     const auto T = thrust::host_vector<double>{300, -1, 500, 800};
+     const thrust::device_vector<double> d_values(T);
+     thrust::device_vector<double> d_T(T.size(), 0.);
+@@ -551,8 +558,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     const auto options =
+-        mfront_gpmp_ExecutionOptions{.queue = stream, .statuses = statuses};
+-    auto output = mfront_gmp_OutputStatus{};
++        mfront_gpmp_ExecutionOptions{.queue = stream, .statistics = statistics};
++    auto output = mfront_gpmp_OutputStatus{};
+     Inconel600_YoungModulus(&output, thrust::raw_pointer_cast(d_E.data()), 1,
+                             args.data(), args_strides.data(), 1, 4, policy,
+                             &options);
+@@ -560,14 +567,17 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     // the function returns once the computations are submitted
+     TFEL_TESTS_ASSERT(cudaStreamQuery(stream) == cudaErrorNotReady);
+     TFEL_TESTS_ASSERT(cudaStreamSynchronize(stream) == cudaSuccess);
+-    Inconel600_YoungModulus_generic_parallel_report(&output, statuses, policy);
++    Inconel600_YoungModulus_generic_parallel_report(&output, statistics,
++                                                    policy);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{1});
+     const auto E = thrust::host_vector<double>(d_E);
+     for (const auto i : {0, 2, 3}) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+     }
+-    TFEL_TESTS_ASSERT(cudaFree(statuses) == cudaSuccess);
++    TFEL_TESTS_ASSERT(cudaFree(statistics) == cudaSuccess);
+     TFEL_TESTS_ASSERT(cudaStreamDestroy(stream) == cudaSuccess);
+   }
+ 
+@@ -600,7 +610,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       const std::array<double, 4u>& T_values,
+       const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     const auto T =
+         thrust::host_vector<double>(T_values.begin(), T_values.end());
+     thrust::device_vector<double> d_T(T);
+@@ -613,7 +623,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+        args_strides.data(), args.size(), T.size(), policy, nullptr);
+     const auto v = thrust::host_vector<double>(d_v);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != v.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
+diff --git a/test-suite/material-properties/generic-parallel/test-cxx.cxx b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+index aa9635edf..1c291e7ed 100644
+--- a/test-suite/material-properties/generic-parallel/test-cxx.cxx
++++ b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+@@ -119,8 +119,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test1() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4);
+     auto E_qt = test_vector<double>(4);
+     const auto T = test_vector<double>{300, 500, 300, 800};
+@@ -132,10 +132,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+@@ -145,8 +145,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test2() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4);
+     auto E_qt = test_vector<double>(4);
+     const auto T = test_vector<double>{300};
+@@ -158,10 +158,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[0])) < eps);
+@@ -171,8 +171,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test3() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(1);
+     auto E_qt = test_vector<double>(1);
+     const auto T = test_vector<double>{300};
+@@ -184,10 +184,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 0, args.data(),
+                                args_strides.data(), 1, 1, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     TFEL_TESTS_ASSERT(std::abs(E[0] - fct(T[0])) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0] - fct(T[0])) < eps);
+@@ -195,8 +195,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test4() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4);
+     auto E_qt = test_vector<double>(4);
+     const auto T = test_vector<double>{300, 500, 300, 800};
+@@ -207,10 +207,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
+                                 policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+@@ -220,8 +220,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   // check detection of physical bounds violation
+   void test5() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4);
+     auto E_qt = test_vector<double>(4);
+     const auto T = test_vector<double>{-300, 500, 300, 800};
+@@ -233,10 +233,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -248,8 +250,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test6() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4);
+     auto E_qt = test_vector<double>(4);
+     const auto T = test_vector<double>{-300, 500, 300, 800};
+@@ -260,10 +262,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
+                                 policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -275,8 +279,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test7() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4 * 3);
+     auto E_qt = test_vector<double>(4 * 3);
+     const auto T =
+@@ -289,10 +293,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 3, args.data(),
+                                args_strides.data(), 1, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i * 3] - fct(T[i * 2])) < eps);
+@@ -301,8 +305,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+ 
+   void test8() {
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(1);
+     const auto T = test_vector<double>{300};
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+@@ -332,14 +336,14 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test9() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto nu = test_vector<double>(4);
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     PoissonRatioTest(&output, nu.data(), 1, nullptr, nullptr, 0, 4, policy,
+                      nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
+@@ -353,13 +357,13 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test10() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto nu = test_vector<double>(4);
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     PoissonRatioTest2(&output, nu.data(), nullptr, 0, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
+@@ -381,8 +385,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
+     };
+     //
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4);
+     const auto T = test_vector<double>{300, 500, 300, 800};
+     const auto f = test_vector<double>{0, 0.1, 0.15, 0.12};
+@@ -393,7 +397,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                                 args_strides.data(), args.size(), 4, policy,
+                                 nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
+@@ -410,7 +414,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ #else  /* MFRONT_GPMP_TEST_USE_KOKKOS */
+     const auto options = mfront_gpmp_ExecutionOptions{};
+ #endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4);
+     const auto T = test_vector<double>{300, 500, 300, 800};
+     const auto args = std::array<const double *, 1u>{T.data()};
+@@ -425,21 +429,21 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+ 
+   void test16() {
+-    // asynchronous evaluation: the statuses are given by the execution
++    // asynchronous evaluation: the statistics are given by the execution
+     // options and reported once the computations are completed. The second
+     // temperature is out of its physical bounds.
+     constexpr auto eps = double{1e-2};
+-    const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+-    auto statuses = test_vector<int>(n, 0);
++    auto statistics = test_vector<mfront_gpmp_Statistics>(1);
++    mfront_gpmp_initializeStatistics(statistics.data());
+ #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+     auto space = MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE{};
+     const auto options = mfront_gpmp_ExecutionOptions{
+-        .queue = &space, .statuses = statuses.data()};
++        .queue = &space, .statistics = statistics.data()};
+ #else  /* MFRONT_GPMP_TEST_USE_KOKKOS */
+     const auto options =
+-        mfront_gpmp_ExecutionOptions{.statuses = statuses.data()};
++        mfront_gpmp_ExecutionOptions{.statistics = statistics.data()};
+ #endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4);
+     const auto T = test_vector<double>{300, -1, 500, 800};
+     const auto args = std::array<const double *, 1u>{T.data()};
+@@ -451,10 +455,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
+     space.fence();
+ #endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+-    Inconel600_YoungModulus_generic_parallel_report(&output, statuses.data(),
++    Inconel600_YoungModulus_generic_parallel_report(&output, statistics.data(),
+                                                     policy);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{1});
+     for (const auto i : {0, 2, 3}) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+     }
+@@ -472,7 +478,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       constexpr auto f0 = 0.4;
+       return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
+     };
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto E = test_vector<double>(4);
+     const auto T = test_vector<double>{300, 3000, 300, 800};
+     const auto f = test_vector<double>{0, 0.1, 0.15, 0.12};
+@@ -483,8 +489,11 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                                 args_strides.data(), args.size(), 4, policy,
+                                 nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 1);
++    // only the second temperature is out of its bounds
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_unreliable_results,
++                           mfront_gmp_size_type{1});
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) <
+                         eps * std::abs(young(T[i], f[i])));
+@@ -520,7 +529,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       const std::array<double, 4u>& T_values,
+       const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto v = test_vector<double>(T_values.size());
+     const auto T = test_vector<double>(T_values.begin(), T_values.end());
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+@@ -529,7 +538,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     mp(&output, v.data(), 1, args.data(), args_strides.data(), args.size(),
+        T.size(), policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != v.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
+diff --git a/test-suite/material-properties/generic-parallel/test-hip.hip b/test-suite/material-properties/generic-parallel/test-hip.hip
+index 9a476cfc7..514a59f59 100644
+--- a/test-suite/material-properties/generic-parallel/test-hip.hip
++++ b/test-suite/material-properties/generic-parallel/test-hip.hip
+@@ -117,7 +117,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     const auto args = std::array<const double *, 1u>{T.get()};
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = stream};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
+                             args_strides.data(), 1, 4,
+                             mfront_gmp_OutOfBoundsPolicy{}, &options);
+@@ -130,18 +130,18 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+ 
+   void test15() {
+-    // asynchronous evaluation on a stream: the statuses, in managed memory,
++    // asynchronous evaluation on a stream: the statistics, in managed memory,
+     // are given by the execution options and reported once the stream is
+     // synchronized. The second temperature is out of its physical bounds.
+     constexpr auto eps = double{1e-2};
+     auto stream = hipStream_t{};
+     TFEL_TESTS_ASSERT(hipStreamCreateWithFlags(
+                           &stream, hipStreamNonBlocking) == hipSuccess);
+-    const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+-    int* statuses = nullptr;
+-    TFEL_TESTS_ASSERT(hipMallocManaged(&statuses, n * sizeof(int)) ==
++    mfront_gpmp_Statistics* statistics = nullptr;
++    TFEL_TESTS_ASSERT(hipMallocManaged(&statistics,
++                                        sizeof(mfront_gpmp_Statistics)) ==
+                       hipSuccess);
+-    std::fill(statuses, statuses + n, 0);
++    mfront_gpmp_initializeStatistics(statistics);
+     auto E = createManagedData(4);
+     const auto values = createManagedData({300, -1, 500, 800});
+     const auto T = createManagedData(4);
+@@ -151,29 +151,32 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     const auto options =
+-        mfront_gpmp_ExecutionOptions{.queue = stream, .statuses = statuses};
+-    auto output = mfront_gmp_OutputStatus{};
++        mfront_gpmp_ExecutionOptions{.queue = stream, .statistics = statistics};
++    auto output = mfront_gpmp_OutputStatus{};
+     Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
+                             args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+     // the function returns once the computations are submitted
+     TFEL_TESTS_ASSERT(hipStreamQuery(stream) == hipErrorNotReady);
+     TFEL_TESTS_ASSERT(hipStreamSynchronize(stream) == hipSuccess);
+-    Inconel600_YoungModulus_generic_parallel_report(&output, statuses, policy);
++    Inconel600_YoungModulus_generic_parallel_report(&output, statistics,
++                                                    policy);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{1});
+     for (const auto i : {0, 2, 3}) {
+       TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(getValue(values, i))) <
+                         eps);
+     }
+-    TFEL_TESTS_ASSERT(hipFree(statuses) == hipSuccess);
++    TFEL_TESTS_ASSERT(hipFree(statistics) == hipSuccess);
+     TFEL_TESTS_ASSERT(hipStreamDestroy(stream) == hipSuccess);
+   }
+ 
+   void test1() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = createManagedData(4);
+     const auto T = createManagedData({300, 500, 300, 800});
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+@@ -187,10 +190,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                                args_strides.data(), 1, 4, policy, nullptr);
+     //
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(getValue(T, i))) < eps);
+@@ -201,8 +204,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test2() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = createManagedData(4);
+     auto E_qt = createManagedData(4);
+     const auto T = createManagedData({300});
+@@ -216,10 +219,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.get(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(*T)) < eps);
+@@ -229,8 +232,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test3() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = createManagedData(1);
+     auto E_qt = createManagedData(1);
+     const auto T = createManagedData({300});
+@@ -243,10 +246,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.get(), 0, args.data(),
+                                args_strides.data(), 1, 1, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     TFEL_TESTS_ASSERT(std::abs(*E - fct(*T)) < eps);
+     TFEL_TESTS_ASSERT(std::abs(*E_qt - fct(*T)) < eps);
+@@ -254,8 +257,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test4() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = createManagedData(4);
+     auto E_qt = createManagedData(4);
+     const auto T = createManagedData({300, 500, 300, 800});
+@@ -266,10 +269,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, E_qt.get(), args.data(), 1, 4,
+                                 policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(getValue(E, i) - fct(getValue(T, i))) < eps);
+@@ -281,8 +284,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   // check detection of physical bounds violation
+   void test5() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = createManagedData(4);
+     auto E_qt = createManagedData(4);
+     const auto T = createManagedData({-300, 500, 300, 800});
+@@ -295,10 +298,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.get(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(*E) < eps);
+     TFEL_TESTS_ASSERT(std::abs(*E_qt) < eps);
+@@ -311,8 +316,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test6() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = createManagedData(4);
+     auto E_qt = createManagedData(4);
+     const auto T = createManagedData({-300, 500, 300, 800});
+@@ -323,10 +328,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, E_qt.get(), args.data(), 1, 4,
+                                 policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(*E) < eps);
+     TFEL_TESTS_ASSERT(std::abs(*E_qt) < eps);
+@@ -339,8 +346,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test7() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = createManagedData(4 * 3);
+     auto E_qt = createManagedData(4 * 3);
+     const auto T =
+@@ -354,10 +361,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.get(), 3, args.data(),
+                                args_strides.data(), 1, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(getValue(E, i * 3) - fct(getValue(T, i * 2))) <
+@@ -368,8 +375,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+ 
+   void test8() {
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = createManagedData(1);
+     const auto T = createManagedData({300});
+     //
+@@ -400,14 +407,14 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test9() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto nu = createManagedData(4);
+     //
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     PoissonRatioTest(&output, nu.get(), 1, nullptr, nullptr, 0, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(getValue(nu, i) - 0.39991) < eps);
+@@ -419,14 +426,14 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test10() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto nu = createManagedData(4);
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     //
+     PoissonRatioTest2(&output, nu.get(), nullptr, 0, 4, policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(getValue(nu, i) - 0.39991) < eps);
+@@ -438,7 +445,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test11() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     //
+     auto young = [](const double T, const double f) {
+       constexpr auto E0 = 2.2693e11;
+@@ -459,7 +466,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                                 args_strides.data(), args.size(), 4, policy, nullptr);
+     //
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(getValue(E, i) -
+@@ -497,7 +504,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       const std::array<double, 4u>& T_values,
+       const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto v = createManagedData(T_values.size());
+     const auto T = createManagedData(T_values.size());
+     std::copy(T_values.begin(), T_values.end(), T.get());
+@@ -507,7 +514,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     mp(&output, v.get(), 1, args.data(), args_strides.data(), args.size(),
+        T_values.size(), policy, nullptr);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != T_values.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(getValue(v, i) - references[i]) < eps);
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl-device.cxx b/test-suite/material-properties/generic-parallel/test-sycl-device.cxx
+index 9862d18a4..c175964ba 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl-device.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl-device.cxx
+@@ -80,8 +80,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test1() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -103,10 +103,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, d_E_qt.get(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     //
+     to_host(E, d_E, Q);
+@@ -120,8 +120,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test2() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -143,10 +143,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, d_E_qt.get(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     //
+     to_host(E, d_E, Q);
+@@ -160,8 +160,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test3() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -183,10 +183,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, d_E_qt.get(), 0, args.data(),
+                                args_strides.data(), 1, 1, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     //
+     to_host(E, d_E, Q);
+@@ -198,8 +198,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test4() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -220,10 +220,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, d_E_qt.get(), args.data(), 1, 4,
+                                 policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     //
+     to_host(E, d_E, Q);
+@@ -237,8 +237,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   // check detection of physical bounds violation
+   void test5() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -260,10 +260,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, d_E_qt.get(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -279,8 +281,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test6() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -301,10 +303,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, d_E_qt.get(), args.data(), 1, 4,
+                                 policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -320,8 +324,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test7() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -343,10 +347,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, d_E_qt.get(), 3, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     //
+     to_host(E, d_E, Q);
+@@ -359,8 +363,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+ 
+   void test8() {
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -399,8 +403,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test9() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -412,7 +416,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     PoissonRatioTest(&output, d_nu.get(), 1, nullptr, nullptr, 0, 4, policy,
+                      &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     to_host(nu, d_nu, Q);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+@@ -429,8 +433,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test10() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -441,7 +445,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     PoissonRatioTest2(&output, d_nu.get(), nullptr, 0, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     to_host(nu, d_nu, Q);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+@@ -466,7 +470,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
+     };
+     //
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     //
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+@@ -486,7 +490,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                                 &options);
+     to_host(E, d_E, Q);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
+@@ -522,7 +526,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       const std::array<double, 4u>& T_values,
+       const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     auto Q = sycl::queue{sycl::gpu_selector_v};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -536,7 +540,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+        T.size(), policy, &options);
+     to_host(v, d_v, Q);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != v.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx b/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx
+index 28f2a9eac..e0bba2b7d 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl-usm.cxx
+@@ -93,8 +93,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test1() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -111,10 +111,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+@@ -124,8 +124,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test2() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -142,10 +142,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[0])) < eps);
+@@ -155,8 +155,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test3() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -173,10 +173,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 0, args.data(),
+                                args_strides.data(), 1, 1, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     TFEL_TESTS_ASSERT(std::abs(E[0] - fct(T[0])) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0] - fct(T[0])) < eps);
+@@ -184,8 +184,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test4() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -201,10 +201,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
+                                 policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+@@ -214,8 +214,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   // check detection of physical bounds violation
+   void test5() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -232,10 +232,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -247,8 +249,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test6() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -264,10 +266,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
+                                 policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -279,8 +283,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test7() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -297,10 +301,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 3, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i * 3] - fct(T[i * 2])) < eps);
+@@ -309,8 +313,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+ 
+   void test8() {
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -345,8 +349,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test9() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -357,7 +361,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     PoissonRatioTest(&output, nu.data(), 1, nullptr, nullptr, 0, 4, policy,
+                      &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
+@@ -371,8 +375,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test10() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -382,7 +386,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     PoissonRatioTest2(&output, nu.data(), nullptr, 0, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
+@@ -404,8 +408,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
+     };
+     //
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     //
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+@@ -420,7 +424,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                                 args_strides.data(), args.size(), 4, policy,
+                                 &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
+@@ -456,7 +460,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       const std::array<double, 4u>& T_values,
+       const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+     auto v = usm_vector(T_values.size(), Q);
+@@ -467,7 +471,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     mp(&output, v.data(), 1, args.data(), args_strides.data(), args.size(),
+        T.size(), policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != v.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
+diff --git a/test-suite/material-properties/generic-parallel/test-sycl.cxx b/test-suite/material-properties/generic-parallel/test-sycl.cxx
+index 1f5334b8c..0b5d5a9ee 100644
+--- a/test-suite/material-properties/generic-parallel/test-sycl.cxx
++++ b/test-suite/material-properties/generic-parallel/test-sycl.cxx
+@@ -76,38 +76,40 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }  // end of fct
+ 
+   void test15() {
+-    // asynchronous evaluation: the values and the statuses are in shared
+-    // memory (no value is copied), and the statuses are reported once the
++    // asynchronous evaluation: the values and the statistics are in shared
++    // memory (no value is copied), and the statistics are reported once the
+     // queue is synchronized. The second temperature is out of its physical
+     // bounds.
+     constexpr auto eps = double{1e-2};
+     // an asynchronous evaluation requires an in-order queue
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR,
+                          sycl::property::queue::in_order{}};
+-    const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+-    auto *const statuses = sycl::malloc_shared<int>(n, Q);
++    auto *const statistics = sycl::malloc_shared<mfront_gpmp_Statistics>(1, Q);
+     auto *const T = sycl::malloc_shared<double>(4, Q);
+     auto *const E = sycl::malloc_shared<double>(4, Q);
+-    std::fill(statuses, statuses + n, 0);
++    mfront_gpmp_initializeStatistics(statistics);
+     const auto values = std::array<double, 4u>{300, -1, 500, 800};
+     std::copy(values.begin(), values.end(), T);
+     const auto args = std::array<const double *, 1u>{T};
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     const auto options =
+-        mfront_gpmp_ExecutionOptions{.queue = &Q, .statuses = statuses};
+-    auto output = mfront_gmp_OutputStatus{};
++        mfront_gpmp_ExecutionOptions{.queue = &Q, .statistics = statistics};
++    auto output = mfront_gpmp_OutputStatus{};
+     Inconel600_YoungModulus(&output, E, 1, args.data(), args_strides.data(), 1,
+                             4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+     Q.wait();
+-    Inconel600_YoungModulus_generic_parallel_report(&output, statuses, policy);
++    Inconel600_YoungModulus_generic_parallel_report(&output, statistics,
++                                                    policy);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{1});
+     for (const auto i : {0, 2, 3}) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(values[i])) < eps);
+     }
+-    sycl::free(statuses, Q);
++    sycl::free(statistics, Q);
+     sycl::free(T, Q);
+     sycl::free(E, Q);
+   }
+@@ -116,20 +118,20 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     // an asynchronous evaluation is refused with an out-of-order queue
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     TFEL_TESTS_ASSERT(!Q.is_in_order());
+-    const auto n = Inconel600_YoungModulus_generic_parallel_number_of_statuses;
+-    auto *const statuses = sycl::malloc_shared<int>(n, Q);
++    auto *const statistics = sycl::malloc_shared<mfront_gpmp_Statistics>(1, Q);
++    mfront_gpmp_initializeStatistics(statistics);
+     auto *const T = sycl::malloc_shared<double>(4, Q);
+     auto *const E = sycl::malloc_shared<double>(4, Q);
+     std::fill(T, T + 4, 300.);
+     const auto args = std::array<const double *, 1u>{T};
+     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+     const auto options =
+-        mfront_gpmp_ExecutionOptions{.queue = &Q, .statuses = statuses};
+-    auto output = mfront_gmp_OutputStatus{};
++        mfront_gpmp_ExecutionOptions{.queue = &Q, .statistics = statistics};
++    auto output = mfront_gpmp_OutputStatus{};
+     Inconel600_YoungModulus(&output, E, 1, args.data(), args_strides.data(), 1,
+                             4, mfront_gmp_OutOfBoundsPolicy{}, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -5);
+-    sycl::free(statuses, Q);
++    sycl::free(statistics, Q);
+     sycl::free(T, Q);
+     sycl::free(E, Q);
+   }
+@@ -137,7 +139,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   void test14() {
+     // SYCL has no default queue: a queue must be given by the execution
+     // options
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4);
+     const auto T = std::vector<double>{300, 500, 300, 800};
+     const auto args = std::array<const double *, 1u>{T.data()};
+@@ -150,8 +152,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test1() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4);
+     auto E_qt = std::vector<double>(4);
+     const auto T = std::vector<double>{300, 500, 300, 800};
+@@ -165,10 +167,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+@@ -178,8 +180,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test2() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4);
+     auto E_qt = std::vector<double>(4);
+     const auto T = std::vector<double>{300};
+@@ -193,10 +195,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[0])) < eps);
+@@ -206,8 +208,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test3() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(1);
+     auto E_qt = std::vector<double>(1);
+     const auto T = std::vector<double>{300};
+@@ -221,10 +223,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 0, args.data(),
+                                args_strides.data(), 1, 1, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     TFEL_TESTS_ASSERT(std::abs(E[0] - fct(T[0])) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0] - fct(T[0])) < eps);
+@@ -232,8 +234,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test4() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4);
+     auto E_qt = std::vector<double>(4);
+     const auto T = std::vector<double>{300, 500, 300, 800};
+@@ -246,10 +248,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
+                                 policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+@@ -259,8 +261,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   // check detection of physical bounds violation
+   void test5() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4);
+     auto E_qt = std::vector<double>(4);
+     const auto T = std::vector<double>{-300, 500, 300, 800};
+@@ -274,10 +276,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 1, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -289,8 +293,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test6() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4);
+     auto E_qt = std::vector<double>(4);
+     const auto T = std::vector<double>{-300, 500, 300, 800};
+@@ -303,10 +307,12 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt2(&output_qt, E_qt.data(), args.data(), 1, 4,
+                                 policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, -1);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{1});
++    TFEL_TESTS_CHECK_EQUAL(output_qt.first_failure_index, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, -1);
+     TFEL_TESTS_ASSERT(std::abs(E[0]) < eps);
+     TFEL_TESTS_ASSERT(std::abs(E_qt[0]) < eps);
+@@ -318,8 +324,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test7() {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4 * 3);
+     auto E_qt = std::vector<double>(4 * 3);
+     const auto T =
+@@ -334,10 +340,10 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     Inconel600_YoungModulus_qt(&output_qt, E_qt.data(), 3, args.data(),
+                                args_strides.data(), 1, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     TFEL_TESTS_CHECK_EQUAL(output_qt.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output_qt.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output_qt.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output_qt.bounds_status, 0);
+     for (std::size_t i = 0; i != 4; ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i * 3] - fct(T[i * 2])) < eps);
+@@ -346,8 +352,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   }
+ 
+   void test8() {
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(1);
+     const auto T = std::vector<double>{300};
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+@@ -379,8 +385,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test9() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto nu = std::vector<double>(4);
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+@@ -388,7 +394,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     PoissonRatioTest(&output, nu.data(), 1, nullptr, nullptr, 0, 4, policy,
+                      &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
+@@ -402,15 +408,15 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+ 
+   void test10() {
+     constexpr auto eps = double{1e-14};
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto nu = std::vector<double>(4);
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+     auto Q = sycl::queue{TFEL_SYCL_DEVICE_SELECTOR};
+     const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+     PoissonRatioTest2(&output, nu.data(), nullptr, 0, 4, policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != nu.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
+@@ -432,8 +438,8 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
+     };
+     //
+-    auto output = mfront_gmp_OutputStatus{};
+-    auto output_qt = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
++    auto output_qt = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4);
+     const auto T = std::vector<double>{300, 500, 300, 800};
+     const auto f = std::vector<double>{0, 0.1, 0.15, 0.12};
+@@ -446,7 +452,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+                                 args_strides.data(), args.size(), 4, policy,
+                                 &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) < eps);
+@@ -482,7 +488,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+       const std::array<double, 4u>& T_values,
+       const std::array<double, 4u>& references) {
+     constexpr auto eps = double{1e-2};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto v = std::vector<double>(T_values.size());
+     const auto T = std::vector<double>(T_values.begin(), T_values.end());
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+@@ -493,7 +499,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     mp(&output, v.data(), 1, args.data(), args_strides.data(), args.size(),
+        T.size(), policy, &options);
+     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+-    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
+     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
+     for (std::size_t i = 0; i != v.size(); ++i) {
+       TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
+@@ -505,7 +511,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+   void test18() {
+     constexpr auto eps = double{1e-2};
+     constexpr auto v = double{-1};
+-    auto output = mfront_gmp_OutputStatus{};
++    auto output = mfront_gpmp_OutputStatus{};
+     auto E = std::vector<double>(4 * 3, v);
+     const auto T = std::vector<double>{300, 500, 300, 800};
+     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+-- 
+2.43.0
+

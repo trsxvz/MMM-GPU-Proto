@@ -481,8 +481,8 @@ namespace mfront {
        << "are completed, and report the result as a synchronous computation "
        << "does\n"
        << " * \\param[out] s: output status\n"
-       << " * \\param[in] statistics: statistics given by the execution "
-       << "options, read on the host\n"
+       << " * \\param[in] statistics: statistics given by the calling "
+       << "code, read on the host\n"
        << " * \\return the status, also stored in the output status\n"
        << " */\n"
        << "MFRONT_SHAREDOBJ int " << base << "_generic_parallel_report("
@@ -946,7 +946,7 @@ namespace mfront {
         os << "mfront_parameters." << d.name << " = "
            << this->backend->getSharedDataCopy(
                   "&Behaviour::mfront_get_shared_data_" + d.name,
-                  "mfront_data.execution")
+                  "mfront_data.execution_policy")
            << ";\n";
       }
       os << "const auto mfront_policy = " << this->getFunctionNameBasis(name)

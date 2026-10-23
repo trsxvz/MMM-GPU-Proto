@@ -5,7 +5,7 @@ why. It is meant for readers who want to understand or review these
 changes. The use of the interfaces, with their complete examples, is
 documented in the TFEL tree (see [the last section](#documentation-in-the-tfel-tree)).
 
-- Base: TFEL master `1dc3ac594` (20/10/2026, merge of PR #1064). The branch of the prototype is rebased on this version. It was previously based on `fdeb6abf8` (merge of PR #1067) and `d24a5cfe8` of 20/10/2026, and on `ff0959ece` of 12/10/2026.
+- Base: TFEL master `4d50821c9` (23/10/2026, runtime path of the libraries linked by nvcc, found by the tests of the prototype). The branch of the prototype is rebased on this version. It was previously based on `1dd066c7e` (merge of PR #1075), `1dc3ac594` (merge of PR #1064), `fdeb6abf8` (merge of PR #1067) and `d24a5cfe8` of 20/10/2026, and on `ff0959ece` of 12/10/2026.
 - Modified sources: `tfel/` (copy of the last commit, without the history of
   TFEL). Patch series: `patches/tfel/` (`git am --keep-cr`).
 - Planned split into upstream contributions: [upstream-integration.md](upstream-integration.md).
@@ -69,7 +69,7 @@ It also exports description symbols, read at loading time:
 | Symbol | Value | Role |
 |---|---|---|
 | `<behaviour>_mfront_interface` | `GenericParallel`, or `Generic` with the `generic_functions` option | tell if the functions of a point are available |
-| `<behaviour>_generic_parallel_backend` | `cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp` or `openacc` | know where and how the behaviour computes |
+| `<behaviour>_generic_parallel_backend` | `cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp`, `openacc` or `arcane` | know where and how the behaviour computes |
 | `<behaviour>_generic_parallel_api_version` | `MFRONT_GPB_API_VERSION` (3) | tell if the functions of batches are available, reject an incompatible contract |
 | `<behaviour>_generic_parallel_memory_space` | `host`, `device` or `any` | know where to place the data (see [Memory space](#memory-space)) |
 
@@ -112,7 +112,8 @@ increment, the computation options (the first three values of `K` of the
 `generic` interface, same meaning), the initial time step factor, the
 optional outputs (tangent operators, time step factors and statuses per
 point, speed of sound), the states at the beginning and at the end of the
-time step, and the execution options.
+time step, the statistics and the execution policy (see
+[Execution policies](#execution-policies)).
 
 ### Execution at one point
 
@@ -179,6 +180,7 @@ one uses the idiomatic primitive of its programming model.
 | `sycl` | `parallel_for` and atomic updates | `sycl::queue`, mandatory | yes, if no value is copied and if the queue is in order | `data_transfer_policy`, `device_stack_size` |
 | `openmp` | `target teams distribute parallel for` or `parallel for` | none | no | `offload`, `device_stack_size` |
 | `openacc` | `parallel loop` with reductions | none | no | `device_stack_size` |
+| `arcane` | command of Arccore (`RUNCOMMAND_LOOP1`), native atomic operations only when an event occurs | queue of Arccore (`RunQueue`), mandatory | yes | none |
 
 A few choices deserve an explanation:
 
@@ -221,6 +223,31 @@ A few choices deserve an explanation:
   have it. With CUDA, nvcc compiles all the sources of the library,
   including those shared with the `generic` interface, as `nvcc_wrapper`
   does for Kokkos.
+- Arcane is used through its core component, Arccore, built alone with
+  CUDA by `scripts/build-arccore.sh` (accelerator mode CUDA, clang 20 and
+  CUDA 12.9, as `cuda-clang`). The queue chooses the device at run time:
+  a library compiled for CUDA computes on the GPU with a CUDA queue, on the
+  threads of the host with a `Thread` queue, sequentially with a
+  `Sequential` queue. A CUDA queue with a library compiled without CUDA,
+  and a null queue, are refused (`-5`). The memory space is therefore
+  `device`, as for OpenACC with a compiler other than `nvc++`. The atomic
+  operations are those of CUDA on the GPU and `std::atomic_ref` on the
+  host: those of Arccore have no unsigned 64-bit integers, and its
+  reducers synchronise the queue. The commands are launched asynchronously
+  (`RunQueue::ScopedAsync`, the state of the queue is restored), then
+  `barrier()` for a synchronous computation. The statistics and the shared
+  data are in the unified memory of Arccore. The loops and the kernels of
+  Arccore use 32-bit indices: a batch is split in commands of at most 2^30
+  points, so that the index of a thread never overflows.
+  The generated source is a `.cu` file compiled by clang as a CUDA
+  compiler. The code of the behaviours is also emitted for the host, where
+  an unqualified `max` (the generated code has `using namespace std`)
+  would select the device function of CUDA: the device functions are
+  excluded from the overloads of the host compilation
+  (`-Xarch_host -fgpu-exclude-wrong-side-overloads`). The configuration
+  file of Arccore is not used (`find_package` would enable the CUDA
+  language in TFEL): the headers and libraries are searched in
+  `Arccore_ROOT`, the accelerator mode read in `arccore_config.h`.
 - OpenACC targets the device chosen by the compiler: the GPU with
   `nvc++ -acc=gpu`, the cores of the host with `nvc++ -acc=multicore`. The
   memory space follows from the compilation macros
@@ -242,20 +269,56 @@ A few choices deserve an explanation:
   the process (`-Wl,-z,nodelete`): the TBB threads were still running when
   the libraries were unloaded at exit.
 
-### Execution options
+### Execution policies
 
-The execution options (`mfront_gpb_ExecutionOptions`) have the same meaning
-for all backends:
+The data of a batch end with two members, shared by behaviours, models and
+material properties: `statistics` (optional, see
+[Synchronous and asynchronous](#synchronous-and-asynchronous)) and
+`execution_policy`, a pointer to an execution policy of the backend. A null
+pointer selects the default policy of the backend (default stream, default
+instance or resource); the `sycl` backend has none.
 
-- `queue`: queue on which the computation is submitted. A null pointer
-  designates the default queue, when it exists.
-- `statistics`: statistics of an asynchronous computation, or null for a
-  synchronous computation (see [Synchronous and asynchronous](#synchronous-and-asynchronous)).
-- `preserve_stack_size`: if non-zero, the stack size of the GPU threads is
-  never modified. An error is reported if it is too small.
+The policies are C++ classes of `mfront::generic_parallel`, one per backend,
+in `MFront/GenericParallel/`. They derive from
+`AbstractBackendExecutionPolicy`, defined by the `MFrontGenericParallelRuntime`
+library, whose virtual method `getIdentifier` gives their identifier. The
+generated function compares it with the identifier of its backend, then
+converts the policy by `static_cast`. A policy of another backend is refused
+(`-5`). Each library exports the identifier it expects
+(`<name>_generic_parallel_execution_policy`), next to its backend and its
+memory space. The identifiers are constant expressions, so that this symbol
+is initialized statically as the two others, except with Kokkos (the name of
+an execution space is not always a constant expression): it is then
+initialized when the library is loaded.
+
+| Backend | Policy | Identifier | Member |
+|---|---|---|---|
+| `cuda`, `hip` | `CUDABackendExecutionPolicy`, `HIPBackendExecutionPolicy` | `cuda`, `hip` | `stream` |
+| `sycl` | `SyclBackendExecutionPolicy` | `sycl:oneapi`, `sycl:acpp` | `queue` (required) |
+| `kokkos` | `KokkosBackendExecutionPolicy<ExecutionSpace>` | `kokkos:` and the name of the execution space | `execution_space` |
+| `raja` | `RAJABackendExecutionPolicy<Resource>` | `raja:host`, `raja:cuda`, `raja:hip` | `resource` (camp) |
+| `arcane` | `ArcaneBackendExecutionPolicy` | `arcane:cuda`, `arcane:hip`, `arcane:host` (accelerator mode of Arccore) | `queue` (required) |
+| `stlpar`, `openmp`, `openacc` | `ParallelSTLBackendExecutionPolicy`, ... | `stlpar`, `openmp`, `openacc` | none |
+
+All the policies have the common options `preserve_stack_size` (the stack
+size of the GPU threads is never modified, an error is reported if it is
+too small) and `asynchronous`, and are created by `make...` functions taking
+an aggregate:
+
+```cpp
+const auto p = mfront::generic_parallel::makeCUDABackendExecutionPolicy(
+    {.common_options = {.asynchronous = true}, .stream = stream});
+```
+
+`getIdentifier` is declared before the destructor: its place in the table of
+virtual functions is the same with the ABIs of Visual Studio and of gcc,
+clang and MinGW (checked by `reproducers/execution-policies`). The generated
+libraries do not need `MFrontGenericParallelRuntime`; the codes creating
+policies link it. The generated function copies what it needs: the policy
+does not have to outlive the call.
 
 An empty batch is accepted without any check: nothing is read, written or
-submitted, the fields and the queue may be null. The rule is the same for
+submitted, the fields and the policy may be null. The rule is the same for
 material properties.
 
 ### Memory space
@@ -274,6 +337,7 @@ fixed at compile time, from the backend, the compiler and the memory mode
 | `kokkos` | `host` if the execution space accesses host memory, `device` otherwise |
 | `raja` | `device` for the policies of CUDA and HIP, `host` otherwise |
 | `sycl` | `any` with automatic transfers, `device` otherwise |
+| `arcane` | `device` (device of the queue, known at run time) |
 
 `device` means that the computations cannot read the ordinary memory of the
 host. The data must be on the GPU or in shared memory. `any` means that any
@@ -311,7 +375,8 @@ is replayed with the `generic` library of the same behaviour.
 success.** The kernels write into the statistics only if an event occurs
 at a point. On CUDA and HIP, a warp vote avoids any atomic operation in the
 warps without an event. In synchronous mode, the `cuda`, `hip`, `sycl`,
-`kokkos` and `raja` backends keep the statistics in memory blocks accessible
+`kokkos`, `raja` and `arcane` backends keep the statistics in memory blocks
+accessible
 by the host and the GPU, allocated at the first call and then reused
 (`MFront/GenericParallel/StatusBlockPool.hxx`). The `stlpar`, `openmp` and
 `openacc` backends merge the statuses of the points by a reduction: its
@@ -322,28 +387,37 @@ behaviour and 1000 points: the synchronous CUDA call goes from 135 to 29 µs.
 
 ### Synchronous and asynchronous
 
-If the execution options give no statistics, the computation is
-synchronous. The function returns once the computation is finished and the
-status describes the result.
+The two notions are independent.
 
-If they give statistics, the statistics are accumulated in this structure,
-which must be accessible by the GPU (and by the host for `stlpar`, `openmp`
-and `openacc`, which accumulate on the host). The `cuda`, `hip`, `kokkos`,
-`raja` and `sycl` (without copy) backends then return as soon as the
-computation is submitted. The caller synchronises the queue, then
-`<behaviour>_generic_parallel_report`, exported by the library, fills the
-output status as a synchronous computation does, message included, as for
-the material properties. Several batches and the assembly can thus be
-submitted before a single synchronisation.
+- **Statistics**: if the caller gives none, the status describes the result.
+  If it gives some, they are accumulated in this structure, which must be
+  accessible by the GPU (and by the host for `stlpar`, `openmp` and
+  `openacc`, which accumulate on the host), and the status only reports the
+  errors of the batch. `<behaviour>_generic_parallel_report`, exported by the
+  library, then fills the output status as a synchronous computation does,
+  message included, as for the material properties.
+- **Asynchronous** (`asynchronous` option of the policy): the `cuda`, `hip`,
+  `kokkos`, `raja`, `arcane` and `sycl` (without copy, in-order queue)
+  backends return
+  as soon as the computation is submitted, and the caller synchronises the
+  queue before the report. An asynchronous computation requires statistics
+  (`-5` otherwise). The other backends compute synchronously. Without this
+  option, the function returns once the computation is finished, even with
+  statistics.
+
+Several batches and the assembly can thus be submitted before a single
+synchronisation.
 
 ### Stack of the GPU threads
 
 Some behaviours require a larger stack than the default value of NVIDIA
 GPUs (1 KB). The `cuda` and `hip` backends compute the required size from
 the attributes of the kernel
-(`MFront/GenericParallel/GPUStackSize.hxx`). Kokkos and RAJA use a probe
-kernel that is never launched (`MFront/GenericParallel/KokkosStackSize.hxx`,
-`MFront/GenericParallel/RAJAExecutionPolicy.hxx`). These headers serve
+(`MFront/GenericParallel/GPUStackSize.hxx`). Kokkos, RAJA and Arcane use a
+probe kernel that is never launched
+(`MFront/GenericParallel/KokkosStackSize.hxx`,
+`MFront/GenericParallel/RAJAExecutionPolicy.hxx`,
+`MFront/GenericParallel/ArcaneUtilities.hxx`). These headers serve
 behaviours and material properties. `nvc++` and
 AdaptiveCpp give no access to this size: the `device_stack_size` option
 sets it through the CUDA runtime loaded in the process
@@ -391,15 +465,15 @@ for TFEL 5.2 (version 3 of the functions, `MFRONT_GPMP_API_VERSION`).
 
 ### What changed
 
-- **Backends**: `kokkos`, `raja`, `openmp` and `openacc` added to the
-  existing backends (`cuda`, `hip`, `stlpar`, `sycl`).
+- **Backends**: `kokkos`, `raja`, `openmp`, `openacc` and `arcane` added to
+  the existing backends (`cuda`, `hip`, `stlpar`, `sycl`).
 - **Properties defined by data or calling other material laws**: usable on
   CUDA and HIP.
 - **One function per material property `S`**:
   `int S_generic_parallel(mfront_gpmp_OutputStatus*, const mfront_gpmp_BatchData*)`.
   The data of the batch give the number of points, the output and the
   arguments (pointer and stride), the out-of-bounds policy, the optional
-  statuses of the points and the execution options. The function with
+  statuses of the points, the statistics and the execution policy. The function with
   contiguous arrays (suffix `2`) is removed. The names end with
   `_generic_parallel`, and the name of a material property can't contain
   this suffix. Without the `generic_functions` option (see
@@ -408,7 +482,7 @@ for TFEL 5.2 (version 3 of the functions, `MFRONT_GPMP_API_VERSION`).
   functions of batches are always recognized by the symbol
   `S_generic_parallel_api_version`. The SYCL queue, an argument specific to
   this backend inserted in the middle of the others, goes through the
-  execution options: the signature is the same everywhere.
+  execution policy: the signature is the same everywhere.
 - **Same evaluation as `generic` at each point**: same checks, same status
   at each point (`0`, `1`, `-1`, `-4`, written in the optional array of the
   statuses), same retained check (first failure, otherwise last warning).
@@ -423,8 +497,8 @@ for TFEL 5.2 (version 3 of the functions, `MFRONT_GPMP_API_VERSION`).
   opaque keys (index of the point and retained check), decoded only by the
   report function of the library. Each kernel merges the status of its
   point only when an event occurs: atomic operations for CUDA, HIP, SYCL,
-  Kokkos and RAJA, reduction for the parallel algorithms, OpenMP and
-  OpenACC, as for behaviours.
+  Kokkos, RAJA and Arcane, reduction for the parallel algorithms, OpenMP
+  and OpenACC, as for behaviours.
 - **Errors of the batch** shared by the three types of objects: `-5`
   (invalid arguments), `-6` (invalid parameters), `-7` (runtime error of
   the backend, including an exception of its runtime on the host). An
@@ -436,7 +510,7 @@ for TFEL 5.2 (version 3 of the functions, `MFRONT_GPMP_API_VERSION`).
   finished. The backends with a queue may return as soon as the
   computation is submitted. The synchronous evaluation calls the same
   function: the analysis is written only once.
-- **Stack of the threads**: CUDA, HIP, Kokkos and RAJA adapt it to the
+- **Stack of the threads**: CUDA, HIP, Kokkos, RAJA and Arcane adapt it to the
   kernel, with the headers of behaviours. `preserve_stack_size` therefore
   has the same effect everywhere.
 - **SYCL transfers**: the copy class of behaviours
@@ -497,12 +571,13 @@ side of the caller for the material laws is proposed for TFEL 6.0.
 |---|---|---|
 | Call | batch structure | batch structure |
 | Execution options | queue, statistics, stack | same members |
-| Synchronous or asynchronous | chosen by the caller | chosen by the caller |
+| Synchronous or asynchronous | `asynchronous` option of the execution policy | identical |
+| Execution policy | `execution_policy` member, one class per backend | identical |
 | Asynchronous report | `<name>_generic_parallel_report` (symbol, it decodes the keys) | `<name>_generic_parallel_report` (symbol, it decodes the keys and names the variable) |
 | Empty batch | accepted without check | accepted without check |
 | Errors of the batch | `-5` (arguments), `-6` (parameters), `-7` (backend) | identical |
 | Automatic SYCL transfers | `SYCLDeviceCopies.hxx` | same class |
-| Merge of the statuses of the points | atomic (CUDA, HIP, SYCL, Kokkos, RAJA), reduction (parallel algorithms, OpenMP, OpenACC) | identical |
+| Merge of the statuses of the points | atomic (CUDA, HIP, SYCL, Kokkos, RAJA, Arcane), reduction (parallel algorithms, OpenMP, OpenACC) | identical |
 | Number of failed points, first failed point | yes, and first unreliable point | identical |
 | Stack of the threads | adapted to the kernel, `preserve_stack_size` | identical |
 | Memory space, backend, version | exported symbols | exported symbols |
@@ -745,7 +820,7 @@ request `-fp-model=precise`.
 
 ## Configurations and compilers
 
-TFEL is built and tested with 17 configurations of the behaviour interface
+TFEL is built and tested with 18 configurations of the behaviour interface
 (`build-tfel.sh`). The configuration files are in
 `tfel/mfront/configuration-files/`.
 
@@ -762,6 +837,7 @@ TFEL is built and tested with 17 configurations of the behaviour interface
 | `openmp-host-gcc` | g++ 14 | CPU |
 | `openmp-offload-nvhpc-gpu` | nvc++ 25.11 | NVIDIA GPU |
 | `openacc-nvhpc-gpu`, `openacc-nvhpc-multicore` | nvc++ 25.11 | NVIDIA GPU (unified memory), CPU |
+| `arcane` | Arccore 2.8 (Arcane 4.1.16), clang 20 with CUDA 12.9 | NVIDIA GPU, CPU (`Thread` and `Sequential` queues) |
 
 The `hip` backend also compiles behaviours for an AMD GPU: when MFEM is
 compiled with HIP, mfem-mgis generates them with the compiler and the
@@ -793,7 +869,7 @@ Each statement was checked in the code.
   GPU-compatible behaviours, tests). The page is built and appears in the
   menu of the site.
 - `tfel/docs/web/generic-parallel-material-property-interface.md`: use of
-  the interface of material properties (prototypes, execution options,
+  the interface of material properties (prototypes, execution policies,
   asynchronous evaluation, statuses, backends).
 - `tfel/docs/web/release-notes/release-notes-5.2.md`: behaviours on GPU,
   incompatibilities, new features of `TFEL/Math`, `TFEL/Utilities` and

@@ -51,12 +51,11 @@ namespace mfront::generic_parallel::material_property {
       const MaterialPropertyDescription& mpd,
       const FileDescription& fd) const {
     const auto types = i.getTypesDescription();
-    // the queue of the execution options is not used: the computations are
-    // performed on the current device of OpenACC
+    // only the common options of the execution policy are used: the
+    // computations are performed on the current device of OpenACC
     if (this->device_stack_size != 0) {
       os << "if (!mfront::generic_parallel::openacc::setMinimalStackSize("
-         << this->device_stack_size
-         << ", mfront_options.preserve_stack_size != 0)) {\n";
+         << this->device_stack_size << ", mfront_preserve_stack_size)) {\n";
       writeBatchError(os, -7,
                       "mfront::generic_parallel::stack_size_error_message");
       os << "}\n";
@@ -144,6 +143,14 @@ namespace mfront::generic_parallel::material_property {
   std::string OpenACCBackend::getMemorySpace() const {
     return "mfront::generic_parallel::getOpenACCMemorySpace()";
   }  // end of getMemorySpace
+
+  std::string OpenACCBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::OpenACCBackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
+  std::string OpenACCBackend::getExecutionPolicyHeader() const {
+    return "MFront/GenericParallel/OpenACCBackendExecutionPolicy.hxx";
+  }  // end of getExecutionPolicyHeader
 
   OpenACCBackend::~OpenACCBackend() noexcept = default;
 

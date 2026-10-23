@@ -4,7 +4,7 @@
 @Environment {"LD_LIBRARY_PATH": "src:reference/src"};
 // behaviours using the TDLS linear system solver
 @Command "sh ../../build-libraries.sh @mfront@ config-stlpar-parunseq-clang.json ImplicitNortonTDLS";
-@Command "@TFEL_CLANGXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -ldl";
+@Command "@TFEL_CLANGXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl";
 @Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
 
 @CleanFiles {"compare"};

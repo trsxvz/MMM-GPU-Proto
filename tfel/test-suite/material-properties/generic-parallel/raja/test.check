@@ -9,12 +9,12 @@
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-raja.json ../LinearDataInterpolationTest.mfront";
 @Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-raja.json ../MaterialLawCallTest.mfront";
 @Command "@mfront@ --obuild --configuration-file=config-raja.json";
-@Command "@TFEL_RAJA_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=raja -DMFRONT_GPMP_TEST_USE_RAJA -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-raja -L@TFEL_LIBRARY_DIR@ -lTFELTests -Lsrc -lGenericParallelUO2-raja -lGenericParallelInconel600-raja -lGenericParallelMaterialLaw-raja @TFEL_RAJA_LINKER_FLAGS@";
+@Command "@TFEL_RAJA_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=raja -DMFRONT_GPMP_TEST_USE_RAJA -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-raja -L@TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -Lsrc -lGenericParallelUO2-raja -lGenericParallelInconel600-raja -lGenericParallelMaterialLaw-raja @TFEL_RAJA_LINKER_FLAGS@";
 @Command "./test-raja test-raja-raja";
 
 // comparison with the `generic` interface (see compare.cxx)
 @Command "sh ../build-libraries.sh @mfront@ config-raja.json";
-@Command "@TFEL_RAJA_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@ -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_RAJA_LINKER_FLAGS@";
+@Command "@TFEL_RAJA_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_RAJA_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_RAJA -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_RAJA_LINKER_FLAGS@";
 @Command "sh ../compare-all.sh ./compare raja --tolerance=1e-13";
 // library also containing the functions of the `generic` interface
 @Command "sh ../check-generic-functions.sh @mfront@ config-raja.json ./compare raja --tolerance=1e-13";

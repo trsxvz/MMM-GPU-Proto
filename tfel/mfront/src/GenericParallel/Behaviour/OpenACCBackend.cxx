@@ -55,6 +55,10 @@ namespace mfront::generic_parallel::behaviour {
     return "mfront::generic_parallel::getOpenACCMemorySpace()";
   }  // end of getMemorySpace
 
+  std::string OpenACCBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::OpenACCBackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
   OpenACCBackend::~OpenACCBackend() noexcept = default;
 
 }  // end of namespace mfront::generic_parallel::behaviour

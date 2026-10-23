@@ -1,4 +1,4 @@
-From 9712335d890c466184a218d245552509c229e98a Mon Sep 17 00:00:00 2001
+From eb50e40d97b4f1d8f0d177fabef32e8542b3af3d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:50:55 +0200
 Subject: [PATCH] generic-parallel: HIP backend tested on NVIDIA GPUs
@@ -26,10 +26,10 @@ Subject: [PATCH] generic-parallel: HIP backend tested on NVIDIA GPUs
  create mode 100644 test-suite/behaviours/generic-parallel/hip-hipcc/test.check
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index 136fd6dde..4ba83bb15 100644
+index b30f902a2..b466cc4e2 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -591,8 +591,7 @@ if(TFEL_REQUIRES_HIP)
+@@ -593,8 +593,7 @@ if(TFEL_REQUIRES_HIP)
   if(HIP_PLATFORM STREQUAL "nvidia")
     set(TFEL_REQUIRES_CUDA ON)
     # hipcc calls nvcc

@@ -1,0 +1,3492 @@
+From 8189639310163b268563564246588bfa6d652160 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 20 Oct 2026 23:44:43 +0200
+Subject: [PATCH] generic-parallel material properties: version 3 of the
+ generated functions
+
+For a material property S, the interface generates
+`int S_generic_parallel(mfront_gpmp_OutputStatus*, const mfront_gpmp_BatchData*)`
+and `int S_generic_parallel_report(mfront_gpmp_OutputStatus*, const mfront_gpmp_Statistics*)`.
+
+- the data of a batch (`mfront_gpmp_BatchData`) give the number of points,
+  the output and the arguments (pointer and stride), the out of bounds
+  policy, the optional statuses of the points and the execution options.
+  The function with contiguous arrays (suffix 2) is removed;
+- the names end with `_generic_parallel`: the names of the material
+  properties can't contain `_generic_parallel`, and a library is recognized
+  by the `S_generic_parallel_api_version` symbol (version 3);
+- the evaluation at each point is the one of the generic interface: same
+  status at each point (0, 1, -1 or -4), same retained check (first failure,
+  otherwise last warning), NaN for -1, computed value for -4;
+- the output status gives the numbers and the first points of the failures
+  and of the unreliable results. Its status is the error of the batch,
+  otherwise the status of the first failed point, otherwise the status of the
+  first unreliable point. The statistics hold opaque keys (index of the point
+  and check), decoded by the report function, which takes no policy;
+- errors of the batch: -5 (invalid arguments, including more than 2^48 - 1
+  points and a uniform output with several points), -6 (invalid parameters),
+  -7 (runtime error of the backend, including the exceptions thrown on the
+  host). As with the generic interface, the number of arguments is not
+  checked if the runtime checks are disabled;
+- with statistics, on all the backends, the output status only reports the
+  errors of the batch and the report function gives the result;
+- the sycl backend copies the statuses of the points as the output;
+- no exception goes through the generated functions: their bodies are
+  enclosed in a `try` block, and an unexpected exception gives -7;
+- the number of blocks of the kernels of the cuda and hip backends is
+  checked (-5 beyond 2^31 - 1 blocks) instead of being truncated;
+- the statistics given by the execution options must be readable by the
+  host, which reads them in the report function (documentation).
+
+The documentation and the release notes are updated.
+---
+ ...ic-parallel-material-property-interface.md | 482 +++++++------
+ docs/web/release-notes/release-notes-5.2.md   |  88 ++-
+ .../MaterialProperty/BackendBase.hxx          |  85 ++-
+ .../MaterialProperty/CUDABackendBase.hxx      |  31 +-
+ .../CxxProgrammingModelBackendBase.hxx        |  47 +-
+ .../MaterialProperty/KokkosBackend.hxx        |   3 +-
+ .../MaterialProperty/OpenACCBackend.hxx       |   3 +-
+ .../MaterialProperty/OpenMPBackend.hxx        |   3 +-
+ .../MaterialProperty/ParallelSTLBackend.hxx   |   3 +-
+ .../MaterialProperty/RAJABackend.hxx          |   3 +-
+ .../MaterialProperty/SYCLBackend.hxx          |   9 +-
+ .../MaterialProperty.h                        | 279 +++++---
+ .../PointStatus.hxx                           | 103 ++-
+ .../MaterialProperty/BackendBase.cxx          | 633 +++++++++---------
+ .../MaterialProperty/CUDABackendBase.cxx      | 113 ++--
+ .../CxxProgrammingModelBackendBase.cxx        |  49 +-
+ .../MaterialProperty/KokkosBackend.cxx        |  23 +-
+ .../MaterialProperty/OpenACCBackend.cxx       |  61 +-
+ .../MaterialProperty/OpenMPBackend.cxx        |  38 +-
+ .../MaterialProperty/ParallelSTLBackend.cxx   |  11 +-
+ .../MaterialProperty/RAJABackend.cxx          |  15 +-
+ .../MaterialProperty/SYCLBackend.cxx          |  50 +-
+ ...nericParallelMaterialPropertyInterface.cxx |  16 +-
+ 23 files changed, 1178 insertions(+), 970 deletions(-)
+
+diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
+index f2cf21de2..c20948073 100644
+--- a/docs/web/generic-parallel-material-property-interface.md
++++ b/docs/web/generic-parallel-material-property-interface.md
+@@ -25,10 +25,29 @@ the notions shared by both interfaces (memory spaces, queues, stack size
+ of the threads of the devices, configuration files delivered with
+ `TFEL`).
+ 
+-# Prototypes of the generated functions
++# Generated functions
+ 
+-The `generic-parallel` interface for material properties generates two
+-functions. Those functions can be used:
++For a material property `S` (the name of the function of the `generic`
++interface, `<material>_<law>` or `<law>`), the `generic-parallel`
++interface generates two functions, declared by the generated header:
++
++~~~~{.cxx}
++// evaluation of the material property on a batch of points
++int S_generic_parallel(mfront_gpmp_OutputStatus* const,
++                       const mfront_gpmp_BatchData* const);
++// analysis of the statistics of an evaluation (see below)
++int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
++                              const mfront_gpmp_Statistics* const);
++~~~~
++
++Both functions return the status of the output status. The data
++structures are declared in
++`MFront/GenericParallelMaterialProperty/MaterialProperty.h`, with the
++types of the pointers to those functions
++(`mfront_gpmp_BatchMaterialPropertyPtr` and `mfront_gpmp_ReportPtr`).
++The name of a material property can't contain `_generic_parallel`.
++
++Those functions can be used:
+ 
+ - directly by including the generated headers and linking with the
+   generated library.
+@@ -38,91 +57,91 @@ functions. Those functions can be used:
+ 
+ In addition, the `generic-parallel` interface also exports:
+ 
+-- symbols describing the material property (names of the inputs, list of
+-  parameters, default values, etc.),
+-- the `<name>_generic_parallel_backend` symbol, which gives the backend of
+-  the library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp`
+-  or `openacc`), and the `<name>_generic_parallel_api_version` symbol (an
+-  `unsigned short`), equal to the `MFRONT_GPMP_API_VERSION` macro of
+-  `MFront/GenericParallelMaterialProperty/MaterialProperty.h`, which is
+-  incremented at each incompatible change of the generated functions,
+-- the `<name>_generic_parallel_memory_space` symbol (a `const char*`),
+-  which tells where the arguments and the output must be located (`host`,
+-  `device` or `any`, as for the behaviours). The name of the backend does
+-  not suffice: for instance, the `stlpar` backend computes on the host or
+-  on a GPU depending on the compiler. This memory space is set when the
+-  library is compiled (see `MFront/GenericParallel/MemorySpace.hxx`),
+-- the `<name>_generic_parallel_report` function, which analyses the
+-  statistics of an evaluation (see below),
++- the symbols describing the material property exported by the `generic`
++  interface (names of the inputs, list of parameters, default values,
++  etc.), and the `S_mfront_interface` symbol, equal to `GenericParallel`.
++  The library does not contain the function `S` of the `generic`
++  interface;
++- the `S_generic_parallel_api_version` symbol (an `unsigned short`),
++  equal to the `MFRONT_GPMP_API_VERSION` macro (`3`), shifted by 1000 for
++  a material property generated with another numerical type than `double`
++  (`real_type` DSL option). This symbol tells
++  that the library contains the functions of batches of points. It only
++  changes with an incompatible change of those functions: a calling code
++  must refuse any version it does not know;
++- the `S_generic_parallel_backend` symbol, which gives the backend of the
++  library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp` or
++  `openacc`), for information;
++- the `S_generic_parallel_memory_space` symbol (a `const char*`), which
++  tells where the values and the statuses of the points must be located
++  (`host`, `device` or `any`, as for the behaviours). The statistics must
++  also be readable by the host (see below). The
++  name of the backend does not suffice: for instance, the `stlpar` backend
++  computes on the host or on a GPU depending on the compiler. This memory
++  space is set when the library is compiled (see
++  `MFront/GenericParallel/MemorySpace.hxx`);
+ - a function allowing to modify at runtime the value of the parameters
+   of the material property, if modification of parameters is allowed
+   (see the `parameters_as_static_variables` DSL option).
+ 
+-## First prototype supporting data with strides
++## Data of a batch
+ 
+-The first generated function matches the following prototype:
++The data of a batch are given by the `mfront_gpmp_BatchData` structure:
+ 
+ ~~~~{.cxx}
+-void (*)(mfront_gpmp_OutputStatus* const,    // output status
+-         mfront_gmp_real* const,             // output values
+-         const mfront_gmp_size_type,         // output stride
+-         const mfront_gmp_real* const* const,  // values of the arguments
+-         const mfront_gmp_size_type* const,  // strides of the arguments
+-         const mfront_gmp_size_type,         // number of arguments
+-         const mfront_gmp_size_type,         // number of points
+-         const mfront_gmp_OutOfBoundsPolicy,  // out of bounds policy
+-         const mfront_gpmp_ExecutionOptions* const);  // execution options
++typedef struct mfront_gpmp_BatchData {
++  mfront_gmp_size_type number_of_points;
++  mfront_gpmp_Field output;                 // output values
++  const mfront_gpmp_ConstField* arguments;  // array read on the host
++  mfront_gmp_size_type number_of_arguments;
++  mfront_gmp_OutOfBoundsPolicy out_of_bounds_policy;
++  int* statuses;                            // optional, code of each point
++  mfront_gpmp_ExecutionOptions execution;
++} mfront_gpmp_BatchData;
+ ~~~~
+ 
+-The output status (`mfront_gpmp_OutputStatus`) is described below. The
++The output and each argument are given by a pointer to their first value
++(`values`) and by the stride between two points (`point_stride`): the
++value at the `i`-th point is `values[i * point_stride]`. A null stride
++means that the argument is uniform. The stride of the output can only be
++null for a batch of one point. The array of the arguments is read on the
++host, and may be null if the material property has no argument. The
+ `mfront_gmp_OutOfBoundsPolicy` enumeration type is described in the page
+ dedicated to the [`generic` interface for material
+ properties](generic-material-property-interface.html). The
+ `mfront_gmp_real` type is by default an alias to double precision
+ floating point numbers.
+ 
++The evaluation at each point is the evaluation of the `generic`
++interface: same checks, same status. When several checks fail at a point,
++the first check making the evaluation fail is retained, otherwise the
++last bound violated with the warning policy, as with the `generic`
++interface. At a point where the evaluation fails (status `-1`), the
++output is `NaN`. At a point where the result is not finite (status
++`-4`), the output is the computed value. If the `statuses` array is
++given, the status of each point is written in it: `0`, `1`, `-1` or
++`-4`, with the meaning of the status of the `generic` interface. It is
++located in the memory space of the library, as the values, and is not
++written if an error of the batch is detected before the submission of
++the computations.
++
+ Contrary to the `generic` interface, `errno` is not used to detect
+ errors: it is thread-local and does not exist on GPUs. A result which is
+-not finite (`nan` or infinite) at one point at least is reported by the
+-status `-4`.
++not finite (`nan` or infinite) is reported by the status `-4`. The value
++of `errno` is restored before returning.
+ 
+-If the number of points is null, no computation is made.
+-
+-A null stride means that the associated argument is uniform. The stride
+-of the output can be null only if the number of points is one and if all
+-the strides of the arguments are null. Otherwise, the status `-7` is
+-reported.
+-
+-All the backends treat the case where all the strides are equal to one,
+-and the case of a uniform output (one point, all the strides being null),
+-as special cases, with an optimized implementation.
+-
+-## Second prototype
+-
+-The second generated function matches the following prototype:
+-
+-~~~~{.cxx}
+-void (*)(mfront_gpmp_OutputStatus* const,    // output status
+-         mfront_gmp_real* const,             // output values
+-         const mfront_gmp_real* const* const,  // values of the arguments
+-         const mfront_gmp_size_type,         // number of arguments
+-         const mfront_gmp_size_type,         // number of points
+-         const mfront_gmp_OutOfBoundsPolicy,  // out of bounds policy
+-         const mfront_gpmp_ExecutionOptions* const);  // execution options
+-~~~~
++An empty batch is accepted without any check, as an empty batch by the
++behaviours: nothing is read, written or submitted, and the status is
++`0`. The arrays and the queue may then be null.
+ 
+-This function assumes that the values of the arguments and the values of
+-the output are stored contiguously in memory. In other words, this
+-prototype is equivalent to the first prototype when all strides are
+-equal to one.
++All the backends treat a batch of one point, and the case where all the
++strides are equal to one, with a kernel without strides.
+ 
+ ## Execution options
+ 
+-The last argument of both functions gives the options of the execution
+-(`mfront_gpmp_ExecutionOptions`, declared in
+-`MFront/GenericParallelMaterialProperty/MaterialProperty.h`), or is null
+-for the default options. It has the same meaning on all the backends, as
+-the execution options of the behaviours:
++The `execution` member of the data of the batch gives the options of the
++execution (`mfront_gpmp_ExecutionOptions`). It has the same meaning on
++all the backends, as the execution options of the behaviours:
+ 
+ - `queue`: queue on which the computations are submitted: `cudaStream_t` or
+   `hipStream_t` (the default stream if null), pointer to a `sycl::queue`
+@@ -131,17 +150,16 @@ the execution options of the behaviours:
+   matching the execution policy of RAJA (default stream of the current
+   device with `CUDA` and `HIP`, default resource otherwise, if null). It is
+   not used by the C++ parallel algorithms, `OpenMP` and `OpenACC`. The
+-  evaluation is
+-  ordered after the computations previously submitted to the queue, which
+-  may compute the arguments. With the `SYCL` backend, an out-of-order queue
+-  gives no order between the kernels: an asynchronous evaluation then
+-  requires an in-order queue (`sycl::property::queue::in_order`), and is
+-  refused with an out-of-order queue (status `-5`). A synchronous evaluation
+-  synchronizes an out-of-order queue before the kernel.
+-- `statistics`: statistics of an asynchronous evaluation, or null for a
+-  synchronous evaluation (see below).
++  evaluation is ordered after the computations previously submitted to the
++  queue, which may compute the arguments. With the `SYCL` backend, an
++  out-of-order queue gives no order between the kernels: an evaluation
++  with statistics then requires an in-order queue
++  (`sycl::property::queue::in_order`), and is refused with an out-of-order
++  queue (status `-5`). An evaluation without statistics synchronizes an
++  out-of-order queue before the kernel.
++- `statistics`: statistics of the evaluation, or null (see below).
+ - `preserve_stack_size`: if not null, the stack size of the threads of the
+-  device is never modified and a runtime error (status `-6`) is reported
++  device is never modified and a runtime error (status `-7`) is reported
+   if it is too small. Otherwise, as for the behaviours, the `CUDA` and
+   `HIP` backends, the `Kokkos` backend on a `CUDA` or `HIP` execution
+   space, and the `RAJA` backend with an execution policy of `CUDA` or
+@@ -152,91 +170,102 @@ If no statistics are given, the evaluation is synchronous: the function
+ returns once the values are computed, and the output status reports the
+ result.
+ 
+-Otherwise, the evaluation may be asynchronous, as the integration of the
+-behaviours with statistics: the function returns once the computations
+-are submitted to the queue (`CUDA`, `HIP`, `Kokkos` and `RAJA` backends,
+-`SYCL` backend if no value is copied), and the output status only reports
+-invalid arguments and runtime errors. The statistics
++Otherwise, on all the backends, the output status only reports the errors
++of the batch (statuses `-5`, `-6` and `-7`), and the
++`S_generic_parallel_report` function gives the result once the
++computations are completed. The backends with a queue (`CUDA`, `HIP`,
++`SYCL`, `Kokkos` and `RAJA`) may return once the computations are
++submitted to the queue: the calling code synchronizes its queue before
++calling the report function. The C++ parallel algorithms, `OpenMP` and
++`OpenACC` return once the computations are completed. The statistics
+ (`mfront_gpmp_Statistics`) are initialized by
+-`mfront_gpmp_initializeStatistics` and must be accessible by the device as
+-the values. With the C++ parallel algorithms, `OpenMP` and `OpenACC`, which
+-merge the
+-statuses of the points by a reduction, the statistics are also updated by
+-the host. With the automatic data transfers of the `SYCL` backend,
+-statistics which are not accessible by the device are copied, as the
+-values. Once the computations are completed, the
+-`<name>_generic_parallel_report` function reads them on the host and
+-reports the result as a synchronous evaluation does:
++`mfront_gpmp_initializeStatistics`. They must be accessible by the host
++and by the device where the computations are performed, for instance in
++managed or shared memory if the memory space of the library is `device`:
++the kernels update them, and the report function reads them on the host
++(the C++ parallel algorithms, `OpenMP` and `OpenACC` also merge the
++statuses of the points in them on the host). With the automatic data
++transfers of the `SYCL`
++backend, statistics which are not accessible by the device are copied,
++as the values, and the evaluation is then synchronous:
+ 
+ ~~~~{.cxx}
+ // statistics in managed memory
+ mfront_gpmp_Statistics* statistics = nullptr;
+ cudaMallocManaged(&statistics, sizeof(mfront_gpmp_Statistics));
+ mfront_gpmp_initializeStatistics(statistics);
+-const auto options =
+-    mfront_gpmp_ExecutionOptions{.queue = stream, .statistics = statistics};
+-// submission of the computations
+-Inconel600_YoungModulus(&output, E, 1, args.data(), args_strides.data(), 1,
+-                        npoints, policy, &options);
++auto d = mfront_gpmp_BatchData{/* ... */};
++d.execution = mfront_gpmp_ExecutionOptions{.queue = stream,
++                                           .statistics = statistics};
++// submission of the computations: only the errors of the batch are
++// reported here
++auto output = mfront_gpmp_OutputStatus{};
++Inconel600_YoungModulus_generic_parallel(&output, &d);
+ // ... other computations submitted to the stream ...
+ cudaStreamSynchronize(stream);
+-Inconel600_YoungModulus_generic_parallel_report(&output, statistics, policy);
++const auto status =
++    Inconel600_YoungModulus_generic_parallel_report(&output, statistics);
+ ~~~~
+ 
++The report function is only meaningful if the evaluation returned `0`.
+ A synchronous evaluation calls the same report function on statistics
+ held by blocks of memory reused from one call to another (`CUDA`, `HIP`,
+ `SYCL`, `Kokkos` and `RAJA` backends) or by a local variable (C++ parallel
+-algorithms, `OpenMP` and `OpenACC`).
++algorithms, `OpenMP` and `OpenACC`): the output status is the same.
+ 
+ The statistics have the same structure as the ones of the behaviours: the
+-number of points where the evaluation failed, the first of them, the
+-number of points where a bound is violated with the warning policy, and
+-the first check which failed (see below). The kernels compute the status
+-of each point and merge it in the statistics only when an event occurs:
+-with integer atomic operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA`
+-backends), or by a reduction (C++ parallel algorithms, `OpenMP` and
+-`OpenACC`), as
+-for the behaviours. With the atomic operations, the reporting of the
+-errors costs nothing when the evaluation succeeds. A reduction combines
+-the statuses of all the points and copies its result, a few integers, to
+-the host at each call. If the runtime checks are disabled
+-(`disable_runtime_checks` DSL option), the statistics are never updated.
++number of points where the evaluation failed, the number of points where
++a bound is violated with the warning policy, and two keys giving the
++first point of each kind and the check retained at this point. The keys
++are opaque: the minimum of the keys gives the first point, whatever the
++order of the computations, and only the report function of the same
++library decodes them. A structure of statistics is used for one material
++property and one batch. The kernels compute the status of each point and
++merge it in the statistics only when an event occurs: with integer atomic
++operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA` backends), or by a
++reduction (C++ parallel algorithms, `OpenMP` and `OpenACC`), as for the
++behaviours. With the atomic operations, the reporting of the errors costs
++nothing when the evaluation succeeds. A reduction combines the statuses of
++all the points and copies its result, a few integers, to the host at each
++call.
+ 
+ ## Output status
+ 
+ The output status (`mfront_gpmp_OutputStatus`) summarizes the evaluation
+-of all the points. Its `status` and `bounds_status` members follow the
+-conventions of the `generic` interface for material properties:
++of the batch. Its `status` member is the error of the batch, if any,
++otherwise the status of the first point where the evaluation failed,
++otherwise the status of the first point where the result is unreliable,
++otherwise `0`. The statuses of the points follow the conventions of the
++`generic` interface for material properties:
+ 
+ - `0`: the result has been evaluated at all points;
+ - `1`: an argument or the result is out of its bounds at some points,
+   with the warning policy. The result is evaluated at all points but must
+-  be used with caution. `bounds_status` gives the rank of the variable
+-  (starting at one, the output being after the arguments);
++  be used with caution;
+ - `-1`: an argument or the result is out of its physical bounds, or out
+-  of its bounds with the strict policy, at some points. The result is not
+-  evaluated at those points. `bounds_status` gives the opposite of the
+-  rank of the variable;
++  of its bounds with the strict policy, at some points. The output is
++  `NaN` at those points;
+ - `-4`: the result is not finite (`nan` or infinite) at some points.
+ 
+-The following statuses are specific to this interface:
+-
+-- `-5`: invalid arguments (number of points, number of arguments,
+-  negative stride, no queue given to the `SYCL` backend, asynchronous
+-  evaluation with an out-of-order `SYCL` queue);
+-- `-6`: runtime error of the backend (allocation, data transfer,
++The errors of the batch are specific to this interface. Nothing is then
++computed:
++
++- `-5`: invalid arguments: no data of the batch, no output values, no
++  array of arguments or no values for an argument, invalid number of
++  arguments, uniform output with several points, more than
++  \(2^{48}-1\) points, more blocks of threads than the grid of the device
++  can hold with the `CUDA` and `HIP` backends (\(2^{31}-1\) blocks), no
++  queue given to the `SYCL` backend, statistics with an out-of-order
++  `SYCL` queue, or no statistics given to the report function;
++- `-6`: invalid parameters;
++- `-7`: runtime error of the backend: allocation, data transfer,
+   submission or execution of a kernel, stack size of the threads of the
+-  device), or invalid parameters. The exceptions thrown by the runtimes
+-  of the backends based on C++ programming models (`SYCL`, `Kokkos`, `RAJA`,
+-  C++ parallel algorithms, `OpenMP`, `OpenACC`) are reported with this
+-  status, as the
+-  errors of the `CUDA` and `HIP` runtimes. The status `-2` of the
+-  `generic` interface (exception thrown by the evaluation) is not used:
+-  the kernels do not throw;
+-- `-7`: uniform output (null stride) with several points or with non
+-  uniform arguments.
+-
+-As for the behaviours, the output status also gives:
++  device, or exceptions thrown on the host by the runtimes of the backends
++  based on C++ programming models (`SYCL`, `Kokkos`, `RAJA`, C++ parallel
++  algorithms, `OpenMP`, `OpenACC`). No exception goes through the
++  generated functions: an unexpected exception also gives `-7`.
++
++The output status also gives:
+ 
+ - `number_of_failures`: the number of points where the evaluation failed
+   (status `-1` or `-4`);
+@@ -244,24 +273,43 @@ As for the behaviours, the output status also gives:
+   value of its type. The `generic` interface of the same material
+   property, called at this point, gives the detailed error;
+ - `number_of_unreliable_results`: the number of points where a bound is
+-  violated with the warning policy.
+-
+-When several checks fail, the first one in the following order is
+-reported: invalid result, physical bounds, then bounds, the variables
+-being taken in order, the output after the arguments. The error message
+-describes this check, with the number of points concerned.
++  violated with the warning policy;
++- `first_unreliable_result_index`: the index of the first of them, or the
++  maximal value of its type;
++- `bounds_status`: for the statuses `-1` and `1`, the rank of the
++  variable of the check retained at the reported point (starting at one,
++  the output being after the arguments), negative if the evaluation failed
++  (physical bound, or bound with the strict policy), positive otherwise
++  (bound with the warning policy), as with the `generic` interface. It is
++  null otherwise;
++- `msg`: a message describing the reported point (check, index, numbers of
++  points). It never gives the values, which the `generic` interface gives
++  at this point. Its text is not part of the interface.
++
++The following differences with the `generic` interface are deliberate:
++there is no status `-2` (exception) or `-3` (`errno`) at a point (the
++kernels do not throw and `errno` does not exist on GPUs), the bounds
++status of a point where the result is not finite is null (the `generic`
++interface keeps the bounds status of a bound violated with the warning
++policy), the message does not give the values, and no `MTest` file is
++written when the evaluation fails.
++
++A material property calling another material property (`@MaterialLaw`)
++uses, in device code, the implementation of the called material property
++generated in the `mfront::device` namespace (see the [`generic-parallel`
++interface for behaviours](generic-parallel-behaviour-interface.html)).
++This implementation returns `NaN` if a physical bound of the called
++material property is not satisfied, whereas the `generic` interface does
++not check those bounds: on a device, the evaluation then fails with the
++status `-4`, while the `generic` interface computes the value.
+ 
+ If the runtime checks are disabled (`disable_runtime_checks` DSL option),
+-the number of points, the number of arguments, the signs of the strides,
+-the parameters, the bounds and the results are not checked. The uniform
+-outputs are still checked (status `-7`).
+-
+-An empty set of points is accepted without any check, as an empty batch
+-by the behaviours: nothing is read, written or submitted, and the status
+-is `0`. The arrays and the queue may then be null.
+-
+-The value of `errno` is restored before returning. It is not used to
+-detect the errors: it is thread-local and does not exist on GPUs.
++as with the `generic` interface, the number of arguments, the parameters,
++the bounds and the results are not checked. The checks of the structure
++of the batch (pointers, uniform output, number of points, queue of the
++`SYCL` backend) remain: they cost little on the host and avoid invalid
++memory accesses. The statuses of the points, if requested, are then null,
++and the report function returns `0`.
+ 
+ # Backends
+ 
+@@ -280,7 +328,7 @@ follows:
+ $ mfront --obuild --configuration-file=config-cuda-XXXX.json \
+          --interface=generic-parallel UO2_ShearModulus.mfront
+ The following library has been built :
+-- libGenericParallelUO2-cuda.so :  UO2_ShearModulus UO2_ShearModulus2
++- libGenericParallelUO2-cuda.so :  UO2_ShearModulus_generic_parallel
+ ~~~~
+ 
+ where the configuration file `config-cuda-XXXX.json` provide the
+@@ -293,12 +341,9 @@ configuration files may be installed: `config-cuda-nvcc.json` and
+ delivered with
+ `TFEL`](generic-parallel-behaviour-interface.html#configuration-files-delivered-with-tfel)).
+ 
+-`UO2_ShearModulus` implements the first prototype, while
+-`UO2_ShearModulus2` implements the second.
+-
+-The following code shows how to call the function `UO2_ShearModulus`. In
+-this example, the porosity is assumed to be uniform and has thus a
+-stride equal to zero. For the sake of simplicity, memory allocation on
++The following code shows how to call the function
++`UO2_ShearModulus_generic_parallel`. In this example, the porosity is
++assumed to be uniform and has thus a stride equal to zero. For the sake of simplicity, memory allocation on
+ the host and on the device are handled by the [Thrust
+ library](https://developer.nvidia.com/thrust).
+ 
+@@ -311,20 +356,28 @@ thrust::device_vector<double> d_T(T);
+ thrust::device_vector<double> d_f(f);
+ thrust::device_vector<double> d_G(T.size());
+ 
++const auto args = std::array<mfront_gpmp_ConstField, 2u>{
++    mfront_gpmp_ConstField{.values = thrust::raw_pointer_cast(d_T.data()),
++                           .point_stride = 1},
++    mfront_gpmp_ConstField{.values = thrust::raw_pointer_cast(d_f.data()),
++                           .point_stride = 0}};
++const auto d = mfront_gpmp_BatchData{
++    .number_of_points = 4,
++    .output = mfront_gpmp_Field{.values = thrust::raw_pointer_cast(d_G.data()),
++                                .point_stride = 1},
++    .arguments = args.data(),
++    .number_of_arguments = args.size(),
++    .out_of_bounds_policy = GENERIC_MATERIALPROPERTY_NONE_POLICY};
+ auto output = mfront_gpmp_OutputStatus{};
+-const auto policy = GENERIC_MATERIALPROPERTY_NONE_POLICY;
+-const auto args = std::array<double *, 2u>{thrust::raw_pointer_cast(d_T.data()),
+-                                     thrust::raw_pointer_cast(d_f.data())};
+-const auto args_stride = std::array<mfront_gmp_size_type, 2u>{1, 0};
+-UO2_ShearModulus(&output, thrust::raw_pointer_cast(d_G.data()), 1,
+-                 args.data(), args_stride.data(), 2, 4, policy, nullptr);
++const auto status = UO2_ShearModulus_generic_parallel(&output, &d);
+ G = d_G;
+ ~~~~
+ 
+ The following remarks can be made:
+ 
+ - the user is responsible for consistently passing pointers to memory
+-  allocated on the device to the `UO2_ShearModulus` function, including
++  allocated on the device to the `UO2_ShearModulus_generic_parallel`
++  function, including
+   uniform values. Shared memory can also be used.
+ - The [Thrust library](https://developer.nvidia.com/thrust) is not used
+   by the `CUDA` backend. It is only used in the example for simplicity.
+@@ -436,14 +489,18 @@ The `HIP` backend is similar to the `CUDA` backend.
+ ### Example of usage
+ 
+ ~~~~{.cxx}
+-auto output = mfront_gpmp_OutputStatus{};
+ auto E = createManagedData(4);
+ const auto T = createManagedData({300, 500, 300, 800});
+-const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+-const auto args = std::array<const double *, 1u>{T.get()};
+-const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
+-Inconel600_YoungModulus(&output, E.get(), 1, args.data(),
+-                        args_strides.data(), 1, 4, policy, nullptr);
++const auto args = std::array<mfront_gpmp_ConstField, 1u>{
++    mfront_gpmp_ConstField{.values = T.get(), .point_stride = 1}};
++const auto d = mfront_gpmp_BatchData{
++    .number_of_points = 4,
++    .output = mfront_gpmp_Field{.values = E.get(), .point_stride = 1},
++    .arguments = args.data(),
++    .number_of_arguments = args.size(),
++    .out_of_bounds_policy = GENERIC_MATERIALPROPERTY_NONE_POLICY};
++auto output = mfront_gpmp_OutputStatus{};
++Inconel600_YoungModulus_generic_parallel(&output, &d);
+ ~~~~
+ 
+ where `createManagedData` is a simple wrapper around `hipMallocManaged`
+@@ -462,26 +519,28 @@ follows:
+ $ mfront --obuild --configuration-file=config-stlpar-parunseq-gcc.json \
+          --interface=generic-parallel UO2_ShearModulus.mfront
+ The following library has been built :
+-- libGenericParallelUO2-stlpar.so :  UO2_ShearModulus UO2_ShearModulus2
++- libGenericParallelUO2-stlpar.so :  UO2_ShearModulus_generic_parallel
+ ~~~~
+ 
+ where the configuration file `config-stlpar-parunseq-gcc.json` provide the required
+ information to compile the generated source files and also selects the
+ execution policy to be used (see below).
+ 
+-`UO2_ShearModulus` implements the first prototype, while
+-`UO2_ShearModulus2` implements the second.
+-
+ ~~~~{.cxx}
+ auto G = std::vector<double>(4);
+ const auto T = std::vector<double>{300, 500, 300, 800};
+ const auto f = std::vector<double>{0.1};
++const auto args = std::array<mfront_gpmp_ConstField, 2u>{
++    mfront_gpmp_ConstField{.values = T.data(), .point_stride = 1},
++    mfront_gpmp_ConstField{.values = f.data(), .point_stride = 0}};
++const auto d = mfront_gpmp_BatchData{
++    .number_of_points = 4,
++    .output = mfront_gpmp_Field{.values = G.data(), .point_stride = 1},
++    .arguments = args.data(),
++    .number_of_arguments = args.size(),
++    .out_of_bounds_policy = GENERIC_MATERIALPROPERTY_NONE_POLICY};
+ auto output = mfront_gpmp_OutputStatus{};
+-const auto policy = GENERIC_MATERIALPROPERTY_NONE_POLICY;
+-const auto args = std::array<const double *, 2u>{T.data(), f.data()};
+-const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 0};
+-UO2_ShearModulus(&output, G.data(), 1, args.data(), args_strides.data(), 2, 4,
+-                 policy, nullptr);
++UO2_ShearModulus_generic_parallel(&output, &d);
+ ~~~~
+ 
+ #### Example of configuration file for `g++`
+@@ -612,22 +671,28 @@ const auto T = usm_vector({300, -300, 500, -500, 300, -300, 800, -800}, Q);
+ auto d_E = to_device(E, Q); // function transferring data to the device
+ auto d_T = to_device(T, Q);
+ //
+-const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+-const auto args = std::array<const double *, 1u>{d_T.get()};
+-const auto args_strides = std::array<mfront_gmp_size_type, 1u>{2};
+-const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+-Inconel600_YoungModulus(&output, d_E.get(), 3, args.data(),
+-                        args_strides.data(), 1, 4, policy, &options);
++// strided argument and output
++const auto args = std::array<mfront_gpmp_ConstField, 1u>{
++    mfront_gpmp_ConstField{.values = d_T.get(), .point_stride = 2}};
++const auto d = mfront_gpmp_BatchData{
++    .number_of_points = 4,
++    .output = mfront_gpmp_Field{.values = d_E.get(), .point_stride = 3},
++    .arguments = args.data(),
++    .number_of_arguments = args.size(),
++    .out_of_bounds_policy = GENERIC_MATERIALPROPERTY_NONE_POLICY,
++    .statuses = nullptr,
++    .execution = mfront_gpmp_ExecutionOptions{.queue = &Q}};
++Inconel600_YoungModulus_generic_parallel(&output, &d);
+ ~~~~
+ 
+ ### Queue
+ 
+ `SYCL` has no default queue: the queue must be given by the execution
+ options. It gives the device and the context of the unified shared memory
+-of the calling code. An asynchronous evaluation requires an in-order queue
+-(`sycl::property::queue::in_order`). With an out-of-order queue, a
+-synchronous evaluation waits for the computations already submitted to
+-the queue before the kernel is launched.
++of the calling code. An evaluation with statistics requires an in-order
++queue (`sycl::property::queue::in_order`). With an out-of-order queue, an
++evaluation without statistics waits for the computations already
++submitted to the queue before the kernel is launched.
+ 
+ ### Backend options
+ 
+@@ -644,20 +709,20 @@ Two policies regarding data transfer between host and device are
+ available:
+ 
+ - `automatic` (or `auto`, default): the arrays which are not accessible
+-  by the device are copied in device memory: the arguments, the output and
+-  the statistics of an asynchronous evaluation. An array is accessible if
++  by the device are copied in device memory: the arguments, the output,
++  the statuses of the points and the statistics. An array is accessible if
+   it is allocated by `SYCL` (unified shared memory of any kind: device,
+-  shared or host) or if the device is the host. The output is copied too,
+-  so that the values which are not computed (points where the evaluation
+-  fails, values between two values of a strided output) are kept. The
+-  output and the statistics are copied back once the kernel is completed:
+-  the evaluation is then synchronous. This policy is shared with the
++  shared or host) or if the device is the host. The output is copied in
++  both directions, so that the values between two values of a strided
++  output are kept. The output, the statuses and the statistics are copied
++  back once the kernel is completed: the evaluation is then synchronous
++  if an array is copied. This policy is shared with the
+   behaviours (`MFront/GenericParallel/SYCLDeviceCopies.hxx`).
+ - `none`: this policy assumes that the data are accessible by the device.
+ 
+ The errors of the kernels of a synchronous evaluation are delivered to
+ the asynchronous handler of the queue (`sycl::event::wait_and_throw`), as
+-for the behaviours: they are reported with the status `-6` if this handler
++for the behaviours: they are reported with the status `-7` if this handler
+ throws them, as the handlers of most calling codes do.
+ 
+ > **Providing data on the device**
+@@ -786,6 +851,31 @@ cmake -Dgeneric-parallel-configurations="cuda-nvcc;cuda-clang"
+ The same list selects the configuration files installed with `TFEL` and
+ the tests of the `generic-parallel` interface for behaviours.
+ 
++Each configuration runs:
++
++- the tests of the semantics of the generated functions shared by all the
++  backends whose arrays are accessible by the host
++  (`test-suite/material-properties/generic-parallel/tests.hxx`): statuses
++  of the points, failures and unreliable results in the same batch,
++  invalid results, errors of the batch, uniform and strided values,
++  report function;
++- the tests specific to the backend (queues, asynchronous evaluations,
++  stack size of the threads of the device, memory of the device);
++- the comparison of the evaluation on batches of points with the
++  evaluation of the `generic` interface at each point (`compare.cxx`):
++  values, statuses of the points and summary, for the three out of bounds
++  policies, contiguous, strided and uniform values, and synchronous and
++  asynchronous evaluations. Both libraries are compiled by the tested
++  configuration. The values are compared exactly when the computations
++  are performed on the host by a compiler which neither contracts nor
++  reorders the floating point operations by default (`g++`, `clang++`,
++  `nvc++` with OpenACC on the cores of the host, `acpp` on the host), and
++  up to a relative tolerance of \(10^{-13}\) otherwise (`icpx`, whose
++  default floating point model is not strict, and computations on a
++  device). The comparisons include a material property with bounds and
++  physical bounds on two arguments and on its output
++  (`BoundsOrderTest.mfront`), which checks the retained check.
++
+ The following tests configurations are currently supported:
+ 
+ - `cuda-nvcc`: compilation of `CUDA` files using the `nvcc` compiler.
+diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
+index 874516357..b701fb4c9 100644
+--- a/docs/web/release-notes/release-notes-5.2.md
++++ b/docs/web/release-notes/release-notes-5.2.md
+@@ -790,42 +790,72 @@ details](generic-parallel-material-property-interface.html).
+ 
+ ### Changes of the generated functions
+ 
+-- the generated functions take a last argument giving the execution
+-  options (`mfront_gpmp_ExecutionOptions`, or null for the default
+-  options), with the members of the execution options of the behaviours:
+-  queue, statistics of an asynchronous evaluation and preservation of the
+-  stack size of the threads of the device. The queue
+-  of the `SYCL` backend, which was a specific argument of its functions,
+-  is now given by those options. The version of those functions is given
+-  by the `MFRONT_GPMP_API_VERSION` macro.
+-- the output status is specific to the interface
+-  (`mfront_gpmp_OutputStatus`): as for the behaviours, it gives the number
+-  of points where the evaluation failed, the first of them, and the number
+-  of points where a bound is violated with the warning policy. The
+-  kernels only update the statistics of the evaluation when an event
+-  occurs at a point: with atomic operations (`cuda`, `hip`, `sycl`, `kokkos`
+-  and `raja` backends), the cost of the error reporting is null when the
+-  evaluation succeeds. The `stlpar`, `openmp` and `openacc` backends merge
+-  the statuses of the points by a reduction.
+-- the exceptions thrown by the runtimes of the backends are reported as
+-  runtime errors (status `-6`), as the errors of the `CUDA` and `HIP`
+-  runtimes. An empty set of points is accepted without any check.
+-- the evaluation may be asynchronous: the statistics
+-  (`mfront_gpmp_Statistics`) are then analysed by the exported
+-  `<name>_generic_parallel_report` function.
+-- the libraries export the `<name>_generic_parallel_backend`,
+-  `<name>_generic_parallel_api_version` and
++The functions generated for a material property `S` are now (version 3
++of those functions, `MFRONT_GPMP_API_VERSION` macro):
++
++~~~~{.cxx}
++int S_generic_parallel(mfront_gpmp_OutputStatus* const,
++                       const mfront_gpmp_BatchData* const);
++int S_generic_parallel_report(mfront_gpmp_OutputStatus* const,
++                              const mfront_gpmp_Statistics* const);
++~~~~
++
++- the data of a batch (`mfront_gpmp_BatchData`) give the number of
++  points, the output and the arguments (pointer and stride between two
++  points), the out of bounds policy, the optional statuses of the points
++  and the execution options. The execution options
++  (`mfront_gpmp_ExecutionOptions`) have the members of the execution
++  options of the behaviours: queue, statistics and preservation of the
++  stack size of the threads of the device. The queue of the `SYCL`
++  backend, which was a specific argument of its functions, is now given
++  by those options. The function with contiguous arrays (suffix `2`) is
++  removed: the backends treat the contiguous arrays as a special case.
++- the names of the functions end with `_generic_parallel`, and the names
++  of the material properties can't contain `_generic_parallel`. A library
++  generated by this interface does not contain the function of a point of
++  the `generic` interface: it is recognized by the
++  `<name>_generic_parallel_api_version` symbol, next to the
++  `<name>_generic_parallel_backend` and
+   `<name>_generic_parallel_memory_space` symbols.
+-- a bound violated with the warning policy gives the status `1`, as with
+-  the `generic` interface.
++- the evaluation at each point is the one of the `generic` interface:
++  same checks, same status at each point (`0`, `1`, `-1` or `-4`, written
++  in the optional array of the statuses of the points), same retained
++  check. The output is `NaN` where the evaluation fails, and the computed
++  value where it is not finite.
++- the output status (`mfront_gpmp_OutputStatus`) is specific to the
++  interface: as for the behaviours, it gives the numbers of points where
++  the evaluation failed and where a bound is violated with the warning
++  policy, and the first point of each kind. Its status is the error of the
++  batch, otherwise the status of the first point where the evaluation
++  failed, otherwise the status of the first point where the result is
++  unreliable. The errors of the batch are `-5` (invalid arguments), `-6`
++  (invalid parameters) and `-7` (runtime error of the backend, including
++  the exceptions thrown on the host by its runtime). An empty batch is
++  accepted without any check.
++- the codes change: `-7` now denotes a runtime error of the backend (an
++  inconsistent uniform output gives `-5`), `-2` is no longer used (the
++  exceptions thrown on the host give `-7`), `-6` only reports invalid
++  parameters (the errors of the `CUDA` and `HIP` runtimes give `-7`), and
++  the output is `NaN` at the points where the evaluation fails instead of
++  being left unchanged.
++- the kernels only update the statistics of the evaluation when an event
++  occurs at a point: with atomic operations (`cuda`, `hip`, `sycl`,
++  `kokkos` and `raja` backends), the cost of the error reporting is null
++  when the evaluation succeeds. The `stlpar`, `openmp` and `openacc`
++  backends merge the statuses of the points by a reduction.
++- with statistics given by the execution options, on all the backends,
++  the output status only reports the errors of the batch, and the result
++  is given by the `<name>_generic_parallel_report` function once the
++  computations are completed: the backends with a queue may then return
++  before the end of the computations.
+ - the `stlpar` and `sycl` backends have a new `device_stack_size` option.
+   The new `openmp` backend has the `offload` and `device_stack_size`
+   options, the new `openacc` backend the `device_stack_size` option. The
+   `cuda`, `hip`, `kokkos` and `raja` backends increase the stack size of
+   the threads if the kernel requires it, as for the behaviours.
+ - the automatic data transfers of the `sycl` backend are shared with the
+-  behaviours: they also copy the statistics of an asynchronous evaluation,
+-  and the points where the evaluation fails keep their values.
++  behaviours: they also copy the statuses of the points and the
++  statistics.
+ - the default number of threads per block of the `cuda` and `hip`
+   backends is `128`, rounded up to a multiple of the warp size, as for the
+   behaviours.
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+index 4f1062cfb..ecca8f14a 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+@@ -60,28 +60,61 @@ namespace mfront::generic_parallel::material_property {
+     [[nodiscard]] static bool isBoundsCheckingRequired(
+         const MaterialPropertyDescription&);
+     /*!
+-     * \brief write the beginning of a C function computing the material
+-     * property on a set of points: signature, error reporting
+-     * (`mfront_report`), initialization of the output status, checks of the
+-     * arguments and of the strides. The function returns if there is no
+-     * point. If strides are treated, the strides of the arguments are copied
+-     * in the `mfront_strides` array, and `mfront_areAllArgumentsUniform`
+-     * states if all the arguments are uniform. The execution options are
+-     * copied in `mfront_options` (default options if the pointer given by
+-     * the calling code is null), and `mfront_asynchronous` states if the
+-     * statistics are given by the calling code (asynchronous evaluation).
++     * \brief write the beginning of the C function computing the material
++     * property on a batch of points (`<name>_generic_parallel`): signature,
++     * error reporting (`mfront_report`), initialization of the output
++     * status and checks of the batch data. The function returns if there is
++     * no point. The body of the function is enclosed in a `try` block,
++     * closed by `writeCFunctionEnd`.
++     *
++     * The data of the batch are copied in local variables:
++     * `mfront_npoints`, `mfront_output` (or `mfront_output_host`, see
++     * `handlesDataTransfer`), `mfront_output_stride`, `mfront_args` (or
++     * `mfront_args_host`), an array of the pointers to the values of the
++     * arguments, `mfront_strides`, the array of their strides,
++     * `mfront_out_of_bounds_policy`, `mfront_statuses` and
++     * `mfront_options`. `mfront_asynchronous` states if the statistics are
++     * given by the calling code.
+      *
+      * \param[in] os: output stream
+      * \param[in] i: interface
+      * \param[in] mpd: material property description
+-     * \param[in] treatStrides: if true, the function takes the strides of
+-     * the output and of the arguments. Otherwise, its name ends with `2`.
+      */
+     void writeCFunctionBeginning(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&,
+-        const bool) const;
++        const MaterialPropertyDescription&) const;
++    /*!
++     * \brief write the end of the C function computing the material
++     * property on a batch of points: the status is returned, and the `try`
++     * block opened by `writeCFunctionBeginning` is closed (an unexpected
++     * exception gives the status `-7`)
++     * \param[in] os: output stream
++     * \param[in] i: interface
++     * \param[in] mpd: material property description
++     */
++    static void writeCFunctionEnd(
++        std::ostream&,
++        const GenericParallelMaterialPropertyInterface&,
++        const MaterialPropertyDescription&);
++    /*!
++     * \brief write the end of the `try` block of the C function: the
++     * exceptions thrown on the host (for instance by the runtime of the
++     * backend) must not cross the boundary of the C function and are
++     * reported as runtime errors (status `-7`)
++     * \param[in] os: output stream
++     */
++    static void writeHostExceptionsHandling(std::ostream&);
++    /*!
++     * \brief write the code reporting an error of the batch in the output
++     * status and returning the status
++     * \param[in] os: output stream
++     * \param[in] status: status (`-5`, `-6` or `-7`)
++     * \param[in] message: expression giving the error message
++     */
++    static void writeBatchError(std::ostream&,
++                                const int,
++                                const std::string_view);
+     /*!
+      * \brief write the body of a kernel, which evaluates the material
+      * property at the point `mfront_idx`. The kernel reads the arguments in
+@@ -112,15 +145,13 @@ namespace mfront::generic_parallel::material_property {
+     /*!
+      * \brief write the selection of the kernel called at each point.
+      *
+-     * If strides are treated, a single point is evaluated if all the
+-     * arguments are uniform and the output stride is null, the kernel
+-     * without strides is used if all the strides are equal to one, and the
+-     * kernel handling strides otherwise.
++     * A batch of one point is evaluated by the kernel without strides, as
++     * a batch whose strides are all equal to one. The kernel handling
++     * strides is used otherwise.
+      *
+      * \param[in] os: output stream
+      * \param[in] i: interface
+      * \param[in] mpd: material property description
+-     * \param[in] treatStrides: boolean stating if strides are treated
+      * \param[in] write_call: function writing the evaluation of the given
+      * number of points (`1` or `mfront_npoints`) by the kernel handling
+      * strides if its second argument is true, or by the kernel without
+@@ -130,7 +161,6 @@ namespace mfront::generic_parallel::material_property {
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&,
+-        const bool,
+         const std::function<void(std::string_view, bool)>&) const;
+     /*!
+      * \brief write the analysis of the results, once the kernels are
+@@ -219,15 +249,14 @@ namespace mfront::generic_parallel::material_property {
+      * \brief return if the backend shall handle the data transfer from a host
+      * to a device
+      *
+-     * If this method returns true, the argument of the C function
+-     * implementations containing pointers to values of the arguments
+-     * is named `mfront_args_host`. The backend shall
+-     * then define a pointer named `mfront_args` to the beginning of an
+-     * internal array of pointers. The output argument is then named
+-     * `mfront_output_host`, and the backend shall define a pointer named
+-     * `mfront_output`.
++     * If this method returns true, the array of the pointers to the values
++     * of the arguments given by the calling code is named
++     * `mfront_args_host`. The backend shall then define an array of pointers
++     * named `mfront_args`. The pointer to the output values given by the
++     * calling code is then named `mfront_output_host`, and the backend shall
++     * define a pointer named `mfront_output`.
+      *
+-     * If this method returns false, those arguments are directly named
++     * If this method returns false, those variables are directly named
+      * `mfront_args` and `mfront_output`.
+      *
+      * \note by default, no data transfer is handled
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+index bbd267d84..39e72a0d6 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+@@ -86,8 +86,8 @@ namespace mfront::generic_parallel::material_property {
+      * \param[in] i: interface
+      * \param[in] mpd: material property description
+      * \param[in] fd: file description
+-     * \param[in] treatStrides: if true, the kernel handles the strides of the
+-     * output and of the arguments. Otherwise, the name of the kernel ends
++     * \param[in] handleStrides: if true, the kernel handles the strides of
++     * the output and of the arguments. Otherwise, the name of the kernel ends
+      * with `_without_strides`.
+      */
+     virtual void writeGlobalFunctions2(
+@@ -97,38 +97,17 @@ namespace mfront::generic_parallel::material_property {
+         const FileDescription&,
+         const bool) const;
+     /*!
+-     * \brief write the C implementations of the material property
++     * \brief write the calls to the kernels inside the body of the material
++     * property (see `writeKernelSelection`)
+      *
+      * \param[in] os: output stream
+      * \param[in] i: interface
+      * \param[in] mpd: material property description
+-     * \param[in] fd: file description
+-     * \param[in] treatStrides: if true, the function handles the strides of
+-     * the output and of the arguments. Otherwise, the arguments and the
+-     * output are contiguous arrays and the name of the function ends with
+-     * `2`.
+-     */
+-    virtual void writeCImplementations2(
+-        std::ostream&,
+-        const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&,
+-        const FileDescription&,
+-        const bool) const;
+-    /*!
+-     * \brief write the call to the kernel inside the body of the material
+-     * property
+-     *
+-     * \param[in] os: output stream
+-     * \param[in] i: interface
+-     * \param[in] mpd: material property description
+-     * \param[in] treatStrides: boolean stating if strides are treated (see
+-     * `writeKernelSelection`)
+      */
+     virtual void writeKernelCall(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&,
+-        const bool) const;
++        const MaterialPropertyDescription&) const;
+     /*!
+      * \brief number of threads per block, rounded up to a multiple of the
+      * warp size at runtime (128 by default, as for the behaviours)
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
+index 218225ca0..36c04610f 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.hxx
+@@ -68,24 +68,6 @@ namespace mfront::generic_parallel::material_property {
+     ~CxxProgrammingModelBackendBase() noexcept override;
+ 
+    protected:
+-    /*!
+-     * \brief write the C implementations of the material property
+-     *
+-     * \param[in] os: output stream
+-     * \param[in] i: interface
+-     * \param[in] mpd: material property description
+-     * \param[in] fd: file description
+-     * \param[in] treatStrides: if true, the function handles the strides of
+-     * the output and of the arguments. Otherwise, the arguments and the
+-     * output are contiguous arrays and the name of the function ends with
+-     * `2`.
+-     */
+-    virtual void writeCImplementations2(
+-        std::ostream&,
+-        const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&,
+-        const FileDescription&,
+-        const bool) const;
+     /*!
+      * \brief write a kernel as a lambda function inside the body of the
+      * material property
+@@ -106,7 +88,7 @@ namespace mfront::generic_parallel::material_property {
+      * \brief write the declarations of the variables captured by the kernels
+      * (copies of the pointers to the arguments, named `mfront_arg0`,
+      * `mfront_arg1`, etc., and values of the parameters) and the kernels
+-     * (without strides and, if strides are treated, with strides).
++     * (without strides and with strides).
+      *
+      * If bounds checking is required and if the backend merges the statuses
+      * of the points in the kernels, the statistics `mfront_statistics` must
+@@ -117,20 +99,25 @@ namespace mfront::generic_parallel::material_property {
+      * \param[in] i: interface
+      * \param[in] mpd: material property description
+      * \param[in] fd: file description
+-     * \param[in] treatStrides: boolean stating if strides are treated
+      */
+     void writeKernels(std::ostream&,
+                       const GenericParallelMaterialPropertyInterface&,
+                       const MaterialPropertyDescription&,
+-                      const FileDescription&,
+-                      const bool) const;
+-    //
++                      const FileDescription&) const;
++    /*!
++     * \brief write the declaration of the kernels (see `writeKernels`) and
++     * the evaluation of the batch of points
++     *
++     * \param[in] os: output stream
++     * \param[in] i: interface
++     * \param[in] mpd: material property description
++     * \param[in] fd: file description
++     */
+     virtual void writeKernelCall(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&,
+-        const FileDescription&,
+-        const bool) const = 0;
++        const FileDescription&) const = 0;
+     /*!
+      * \return the specifiers written between the captures and the parameters
+      * of the lambda functions implementing the kernels (for instance, the
+@@ -163,28 +150,22 @@ namespace mfront::generic_parallel::material_property {
+      * \param[in] os: output stream
+      * \param[in] i: interface
+      * \param[in] mpd: material property description
+-     * \param[in] treatStrides: boolean stating if one shall add
+-     * support for strides
+      */
+     virtual void writeDataTransfersToDevice(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&,
+-        const bool) const;
++        const MaterialPropertyDescription&) const;
+     /*!
+      * \brief write the code transferring the data to the host
+      *
+      * \param[in] os: output stream
+      * \param[in] i: interface
+      * \param[in] mpd: material property description
+-     * \param[in] treatStrides: boolean stating if one shall add
+-     * support for strides
+      */
+     virtual void writeDataTransfersToHost(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&,
+-        const bool) const;
++        const MaterialPropertyDescription&) const;
+   };  // end of CxxProgrammingModelBackendBase
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
+index f7d0e079b..a113798f8 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
+@@ -63,8 +63,7 @@ namespace mfront::generic_parallel::material_property {
+     void writeKernelCall(std::ostream&,
+                          const GenericParallelMaterialPropertyInterface&,
+                          const MaterialPropertyDescription&,
+-                         const FileDescription&,
+-                         const bool) const override;
++                         const FileDescription&) const override;
+     //! \brief execution space
+     std::string execution_space = "Kokkos::DefaultExecutionSpace";
+   };  // end of KokkosBackend
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenACCBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenACCBackend.hxx
+index 2f6ca3a1c..d7c98100a 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenACCBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenACCBackend.hxx
+@@ -63,8 +63,7 @@ namespace mfront::generic_parallel::material_property {
+     void writeKernelCall(std::ostream&,
+                          const GenericParallelMaterialPropertyInterface&,
+                          const MaterialPropertyDescription&,
+-                         const FileDescription&,
+-                         const bool) const override;
++                         const FileDescription&) const override;
+     //! \brief minimal stack size of the threads of the device (0 if not set)
+     int device_stack_size = 0;
+   };  // end of OpenACCBackend
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
+index eec1f369d..17633ef16 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
+@@ -59,8 +59,7 @@ namespace mfront::generic_parallel::material_property {
+     void writeKernelCall(std::ostream&,
+                          const GenericParallelMaterialPropertyInterface&,
+                          const MaterialPropertyDescription&,
+-                         const FileDescription&,
+-                         const bool) const override;
++                         const FileDescription&) const override;
+     //! \brief offload the computations to the default device
+     bool offload = true;
+     //! \brief minimal stack size of the threads of the device (0 if not set)
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+index 20069e5da..0059af348 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+@@ -58,8 +58,7 @@ namespace mfront::generic_parallel::material_property {
+     void writeKernelCall(std::ostream&,
+                          const GenericParallelMaterialPropertyInterface&,
+                          const MaterialPropertyDescription&,
+-                         const FileDescription&,
+-                         const bool) const override;
++                         const FileDescription&) const override;
+     //! \brief execution policy
+     std::string execution_policy;
+     /*!
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/RAJABackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/RAJABackend.hxx
+index 71364db2b..9405da95c 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/RAJABackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/RAJABackend.hxx
+@@ -65,8 +65,7 @@ namespace mfront::generic_parallel::material_property {
+     void writeKernelCall(std::ostream&,
+                          const GenericParallelMaterialPropertyInterface&,
+                          const MaterialPropertyDescription&,
+-                         const FileDescription&,
+-                         const bool) const override;
++                         const FileDescription&) const override;
+ 
+    private:
+     //! \brief execution policy
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+index d0d07bf64..aa8e7b1fc 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+@@ -69,19 +69,16 @@ namespace mfront::generic_parallel::material_property {
+     void writeKernelCall(std::ostream&,
+                          const GenericParallelMaterialPropertyInterface&,
+                          const MaterialPropertyDescription&,
+-                         const FileDescription&,
+-                         const bool) const override;
++                         const FileDescription&) const override;
+     bool handlesDataTransfer() const override;
+     void writeDataTransfersToDevice(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&,
+-        const bool) const override;
++        const MaterialPropertyDescription&) const override;
+     void writeDataTransfersToHost(
+         std::ostream&,
+         const GenericParallelMaterialPropertyInterface&,
+-        const MaterialPropertyDescription&,
+-        const bool) const override;
++        const MaterialPropertyDescription&) const override;
+     /*!
+      * \brief enumeration giving if data transfer are handled
+      */
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+index 576460928..0d029221a 100644
+--- a/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/MaterialProperty.h
+@@ -19,20 +19,23 @@
+ 
+ /*!
+  * \brief version of the functions generated by the `generic-parallel`
+- * interface for material properties (arguments, strides, execution options
+- * and statuses), exported by the generated libraries
++ * interface for material properties (data structures, statuses and
++ * statistics), exported by the generated libraries
+  * (`<name>_generic_parallel_api_version` symbol, next to the
+- * `<name>_generic_parallel_backend` symbol giving the name of the backend).
+- * It is incremented at each incompatible change of those functions.
++ * `<name>_generic_parallel_backend` and
++ * `<name>_generic_parallel_memory_space` symbols). It is only changed by an
++ * incompatible change of those functions: a calling code must refuse any
++ * version it does not know.
+  */
+-#define MFRONT_GPMP_API_VERSION 2
++#define MFRONT_GPMP_API_VERSION 3
+ 
++// NOLINTBEGIN(modernize-use-using)
+ #ifdef __cplusplus
+ extern "C" {
+ #endif /* __cplusplus */
+ 
+ /*!
+- * \brief statistics of the evaluation of a material property on a set of
++ * \brief statistics of the evaluation of a material property on a batch of
+  * points.
+  *
+  * The device only updates them when an event occurs at a point (failure or
+@@ -40,9 +43,11 @@ extern "C" {
+  * (`cuda`, `hip`, `sycl`, `kokkos` and `raja` backends), whose cost is null
+  * when the evaluation succeeds. The `stlpar`, `openmp` and `openacc`
+  * backends merge the statuses of the points by a reduction, whose result is
+- * copied to the host at each call. They are initialized by
+- * `mfront_gpmp_initializeStatistics` and analysed by the
+- * `<name>_generic_parallel_report` function exported by the libraries.
++ * copied to the host at each call.
++ *
++ * The statistics are initialized by `mfront_gpmp_initializeStatistics` and
++ * analysed by the `<name>_generic_parallel_report` function of the same
++ * library. One structure is used for one material property and one batch.
+  */
+ typedef struct mfront_gpmp_Statistics {
+   /*!
+@@ -51,21 +56,23 @@ typedef struct mfront_gpmp_Statistics {
+    */
+   unsigned long long number_of_failures;
+   /*!
+-   * \brief index of the first point where the evaluation failed, or the
+-   * maximal value of the type if no point failed
++   * \brief opaque key of the first point where the evaluation failed and
++   * of the check which failed at this point, or `~0` if no point failed.
++   * Only the `<name>_generic_parallel_report` function of the same library
++   * decodes it.
+    */
+-  unsigned long long first_failure_index;
++  unsigned long long first_failure;
+   /*!
+    * \brief number of points where a bound is violated with the warning
+    * policy: the result is computed, but must be used with caution
+    */
+   unsigned long long number_of_unreliable_results;
+   /*!
+-   * \brief identifier of the first check which failed, in the order of the
+-   * analysis of the statistics (invalid result, physical bounds, bounds), or
+-   * the maximal value of the type if no check failed
++   * \brief opaque key of the first point where the result is unreliable and
++   * of the bound violated at this point, or `~0` if no result is
++   * unreliable
+    */
+-  unsigned long long first_violation;
++  unsigned long long first_unreliable_result;
+ } mfront_gpmp_Statistics;
+ 
+ /*!
+@@ -75,39 +82,154 @@ typedef struct mfront_gpmp_Statistics {
+ static inline void mfront_gpmp_initializeStatistics(
+     mfront_gpmp_Statistics* const s) {
+   s->number_of_failures = 0;
+-  s->first_failure_index = ~0ull;
++  s->first_failure = ~0ull;
+   s->number_of_unreliable_results = 0;
+-  s->first_violation = ~0ull;
++  s->first_unreliable_result = ~0ull;
+ } /* end of mfront_gpmp_initializeStatistics */
+ 
+ /*!
+- * \brief summary of the evaluation of a material property on a set of
+- * points. The `status` and `bounds_status` members have the meaning of the
+- * members of the output status of the `generic` interface
+- * (`mfront_gmp_OutputStatus`):
++ * \brief options of the execution of the evaluation of a material property.
++ * This structure has the members of the options of the `generic-parallel`
++ * interface for behaviours (`mfront_gpb_ExecutionOptions`), with the same
++ * meaning.
++ */
++typedef struct mfront_gpmp_ExecutionOptions {
++  /*!
++   * \brief queue on which the computations are submitted. Its meaning
++   * depends on the backend (`cudaStream_t` or `hipStream_t`, pointer to a
++   * `sycl::queue`, to an instance of a Kokkos execution space or to a
++   * resource of camp matching the execution policy of RAJA), as for the
++   * behaviours. A null pointer denotes the default queue of the backend. The
++   * `sycl` backend has no default queue: a null queue is an invalid
++   * argument.
++   */
++  void* queue;
++  /*!
++   * \brief statistics of the evaluation, or null.
++   *
++   * If null, the evaluation is synchronous: the function returns once the
++   * values are computed, and the output status reports the result.
++   *
++   * Otherwise, the statistics are accumulated in the given structure,
++   * initialized by `mfront_gpmp_initializeStatistics`. The structure must be
++   * accessible by the host and by the device where the computations are
++   * performed (managed or shared memory if the memory space of the library
++   * is `device`): the kernels update it, and the
++   * `<name>_generic_parallel_report` function reads it on the host (the
++   * `stlpar`, `openmp` and `openacc` backends also merge the statuses of the
++   * points in it on the host). On all the backends, the
++   * output status then only reports the errors of the batch (statuses `-5`,
++   * `-6` and `-7`), and the `<name>_generic_parallel_report` function gives
++   * the result once the computations are completed. The backends with a
++   * queue (`cuda`, `hip`, `sycl`, `kokkos` and `raja`) may return before the
++   * end of the computations: the calling code synchronizes its queue before
++   * calling `<name>_generic_parallel_report`. With the `sycl` backend, the
++   * queue must then be in order.
++   */
++  mfront_gpmp_Statistics* statistics;
++  /*!
++   * \brief if not null, the stack size of the threads of the device is
++   * never modified and a runtime error is reported if it is too small.
++   * Otherwise, the stack size is increased if the kernel requires it
++   * (`cuda`, `hip`, `kokkos` and `raja` backends) or if the
++   * `device_stack_size` option of the backend is given (other backends), as
++   * for the behaviours.
++   */
++  int preserve_stack_size;
++} mfront_gpmp_ExecutionOptions;
++
++/*!
++ * \brief values of an argument of a material property on a batch of points.
++ * The value at the `i`-th point is `values[i * point_stride]`.
++ */
++typedef struct mfront_gpmp_ConstField {
++  //! \brief pointer to the first value
++  const mfront_gmp_real* values;
++  //! \brief stride between two points: a null stride denotes a uniform value
++  mfront_gmp_size_type point_stride;
++} mfront_gpmp_ConstField;
++
++/*!
++ * \brief values of the output of a material property on a batch of points
++ * (mutable version of `mfront_gpmp_ConstField`)
++ */
++typedef struct mfront_gpmp_Field {
++  //! \brief pointer to the first value
++  mfront_gmp_real* values;
++  /*!
++   * \brief stride between two points. A null stride is only allowed for a
++   * batch of one point.
++   */
++  mfront_gmp_size_type point_stride;
++} mfront_gpmp_Field;
++
++/*!
++ * \brief data of the evaluation of a material property on a batch of
++ * points. The evaluation at each point is the one of the `generic`
++ * interface of the same material property.
++ *
++ * The values, the statuses of the points and the statistics are located in
++ * the memory space exported by the library (symbol
++ * `<name>_generic_parallel_memory_space`). With the `any` memory space,
++ * they may be located anywhere (the `sycl` backend copies the arrays which
++ * are not accessible by the device). The array of the arguments is only
++ * read on the host.
++ */
++typedef struct mfront_gpmp_BatchData {
++  /*!
++   * \brief number of points. An empty batch is accepted without any check:
++   * nothing is read or written. At most `2^48 - 1` points.
++   */
++  mfront_gmp_size_type number_of_points;
++  //! \brief output values
++  mfront_gpmp_Field output;
++  /*!
++   * \brief array of the arguments, read on the host. It may be null if the
++   * material property has no argument.
++   */
++  const mfront_gpmp_ConstField* arguments;
++  //! \brief number of arguments
++  mfront_gmp_size_type number_of_arguments;
++  //! \brief out of bounds policy, as for the `generic` interface
++  mfront_gmp_OutOfBoundsPolicy out_of_bounds_policy;
++  /*!
++   * \brief status of each point (optional, null if not requested), with
++   * the meaning of the status of the `generic` interface: `0`, `1`, `-1` or
++   * `-4` (see `mfront_gpmp_OutputStatus`). The statuses are not written if
++   * an error of the batch is detected before the submission of the
++   * computations.
++   */
++  int* statuses;
++  //! \brief options of the execution
++  mfront_gpmp_ExecutionOptions execution;
++} mfront_gpmp_BatchData;
++
++/*!
++ * \brief summary of the evaluation of a material property on a batch of
++ * points. The `status` member is also the value returned by the generated
++ * functions:
+  *
+  * - `0`: the result has been evaluated at all points;
+  * - `1`: a bound is violated with the warning policy at some points: the
+  *   result is evaluated at all points, but must be used with caution;
+  * - `-1`: a physical bound, or a bound with the strict policy, is violated
+- *   at some points: the result is not evaluated at those points;
+- * - `-4`: the result is not finite at some points;
+- * - `-5`: invalid arguments, nothing was computed;
+- * - `-6`: runtime error of the backend (including the exceptions thrown by
+- *   the runtimes of the backends), or invalid parameters;
+- * - `-7`: uniform output with several points or with non uniform arguments.
++ *   at some points: the output is `NaN` at those points;
++ * - `-4`: the result is not finite at some points (the output is the
++ *   computed value);
++ * - `-5`: invalid arguments (null pointer of a required array, invalid
++ *   number of arguments, uniform output with several points, too many
++ *   points, invalid queue), nothing was computed;
++ * - `-6`: invalid parameters, nothing was computed;
++ * - `-7`: runtime error of the backend (allocation, submission of the
++ *   kernels, exception thrown on the host).
++ *
++ * The codes `0`, `1`, `-1` and `-4` are the codes of the `generic`
++ * interface at the retained point: the first point where the evaluation
++ * failed, otherwise the first point where the result is unreliable.
+  */
+ typedef struct mfront_gpmp_OutputStatus {
+   //! \brief status
+   int status;
+-  /*!
+-   * \brief rank of the variable out of its bounds, starting at one (the
+-   * output is after the arguments), or zero. As for the `generic`
+-   * interface, it is negative if the evaluation failed (physical bound, or
+-   * bound with the strict policy), positive otherwise (bound with the
+-   * warning policy).
+-   */
+-  int bounds_status;
+   //! \brief number of points where the evaluation failed
+   mfront_gmp_size_type number_of_failures;
+   /*!
+@@ -122,66 +244,45 @@ typedef struct mfront_gpmp_OutputStatus {
+    * policy
+    */
+   mfront_gmp_size_type number_of_unreliable_results;
+-  //! \brief error message
+-  char msg[512];
+-} mfront_gpmp_OutputStatus;
+-
+-/*!
+- * \brief options of the execution of the evaluation of a material property,
+- * given by the last argument of the generated functions. A null pointer
+- * denotes the default options. This structure has the members of the
+- * options of the `generic-parallel` interface for behaviours
+- * (`mfront_gpb_ExecutionOptions`), with the same meaning.
+- */
+-typedef struct mfront_gpmp_ExecutionOptions {
+   /*!
+-   * \brief queue on which the computations are submitted. Its meaning
+-   * depends on the backend (`cudaStream_t` or `hipStream_t`, pointer to a
+-   * `sycl::queue`, to an instance of a Kokkos execution space or to a
+-   * resource of camp matching the execution policy of RAJA), as for the
+-   * behaviours. A null pointer denotes the default queue, if meaningful for
+-   * the backend: a queue must be given to the `sycl` backend.
++   * \brief index of the first point where the result is unreliable, or the
++   * maximal value of the type if no result is unreliable
+    */
+-  void* queue;
++  mfront_gmp_size_type first_unreliable_result_index;
+   /*!
+-   * \brief statistics of the evaluation, or null.
+-   *
+-   * If null, the evaluation is synchronous: the function returns once the
+-   * values are computed, and the output status reports the result.
+-   *
+-   * Otherwise, the statistics are accumulated in the given structure,
+-   * initialized by `mfront_gpmp_initializeStatistics` and accessible by the
+-   * device as the values (and by the host with the `stlpar`, `openmp` and
+-   * `openacc` backends, which merge the statuses of the points on the
+-   * host). With
+-   * the automatic data transfers of the `sycl` backend, statistics which
+-   * are not accessible by the device are copied, as the values. The
+-   * evaluation may then be asynchronous (CUDA, HIP, Kokkos and RAJA
+-   * backends, SYCL backend if no array is copied), as the integration of the
+-   * behaviours: the function returns once the computations are submitted
+-   * to the queue, and the output status only reports invalid arguments and
+-   * runtime errors. With the `sycl` backend,
+-   * an asynchronous evaluation requires an in-order queue (invalid
+-   * arguments otherwise). Once the computations are completed, the
+-   * `<name>_generic_parallel_report` function analyses the statistics, read
+-   * on the host, and reports the result in an output status, as a
+-   * synchronous evaluation does.
++   * \brief rank of the variable of the check retained at the reported point
++   * for the statuses `-1` and `1`, starting at one (the output is after the
++   * arguments), and zero otherwise. As for the `generic` interface, it is
++   * negative if the evaluation failed (physical bound, or bound with the
++   * strict policy), positive otherwise (bound with the warning policy).
+    */
+-  mfront_gpmp_Statistics* statistics;
++  int bounds_status;
+   /*!
+-   * \brief if not null, the stack size of the threads of the device is
+-   * never modified and a runtime error is reported if it is too small.
+-   * Otherwise, the stack size is increased if the kernel requires it
+-   * (`cuda`, `hip`, `kokkos` and `raja` backends) or if the
+-   * `device_stack_size` option of the backend is given (other backends), as
+-   * for the behaviours.
++   * \brief error message, describing the reported point (status, check,
++   * index, numbers of points), never the values
+    */
+-  int preserve_stack_size;
+-} mfront_gpmp_ExecutionOptions;
++  char msg[512];
++} mfront_gpmp_OutputStatus;
++
++/*!
++ * \brief type of the functions generated for a material property `S`
++ * (`S_generic_parallel`)
++ */
++typedef int(GENERIC_MATERIALPROPERTY_ADDCALL_PTR
++                mfront_gpmp_BatchMaterialPropertyPtr)(
++    mfront_gpmp_OutputStatus* const, const mfront_gpmp_BatchData* const);
++
++/*!
++ * \brief type of the functions analysing the statistics of a material
++ * property `S` (`S_generic_parallel_report`)
++ */
++typedef int(GENERIC_MATERIALPROPERTY_ADDCALL_PTR mfront_gpmp_ReportPtr)(
++    mfront_gpmp_OutputStatus* const, const mfront_gpmp_Statistics* const);
+ 
+ #ifdef __cplusplus
+ }  // end of extern "C"
+ #endif /* __cplusplus */
++// NOLINTEND(modernize-use-using)
+ 
+ #ifdef __cplusplus
+ 
+@@ -193,6 +294,12 @@ namespace mfront::gpmp {
+   using OutputStatus = ::mfront_gpmp_OutputStatus;
+   //! \brief a simple alias
+   using ExecutionOptions = ::mfront_gpmp_ExecutionOptions;
++  //! \brief a simple alias
++  using ConstField = ::mfront_gpmp_ConstField;
++  //! \brief a simple alias
++  using Field = ::mfront_gpmp_Field;
++  //! \brief a simple alias
++  using BatchData = ::mfront_gpmp_BatchData;
+ 
+ }  // end of namespace mfront::gpmp
+ 
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx b/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
+index e8807820c..92d0fa476 100644
+--- a/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
+@@ -19,8 +19,42 @@
+ 
+ namespace mfront::gpmp {
+ 
+-  //! \brief value of an index or of an identifier of a check meaning none
++  //! \brief value of a key meaning that no event occurred
+   inline constexpr unsigned long long no_event = ~0ull;
++  /*!
++   * \brief number of bits of the identifier of a check in a key. The other
++   * bits hold the index of the point.
++   */
++  inline constexpr unsigned int check_bits = 16;
++  //! \brief maximal number of checks of a material property
++  inline constexpr unsigned long long maximal_number_of_checks =
++      (1ull << check_bits) - 1;
++  //! \brief maximal number of points of a batch
++  inline constexpr unsigned long long maximal_number_of_points =
++      (1ull << (64 - check_bits)) - 1;
++
++  /*!
++   * \return the key of an event: the minimum of the keys gives the first
++   * point concerned, whatever the order of the computations
++   * \param[in] i: index of the point
++   * \param[in] c: identifier of the check retained at this point
++   */
++  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long makeKey(
++      const unsigned long long i, const unsigned long long c) noexcept {
++    return (i << check_bits) | c;
++  }  // end of makeKey
++
++  //! \return the index of the point of a key
++  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getPointIndex(
++      const unsigned long long k) noexcept {
++    return k >> check_bits;
++  }  // end of getPointIndex
++
++  //! \return the identifier of the check of a key
++  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getCheck(
++      const unsigned long long k) noexcept {
++    return k & maximal_number_of_checks;
++  }  // end of getCheck
+ 
+   /*!
+    * \brief status of the evaluation of a material property at a point,
+@@ -28,36 +62,49 @@ namespace mfront::gpmp {
+    * statistics of the evaluation only if an event occurred, so that the
+    * cost of the reporting is null when the evaluation succeeds. The
+    * reductions merge the statuses of all the points.
++   *
++   * The status and the retained check follow the `generic` interface: the
++   * first check which makes the evaluation fail ends it, and, otherwise, the
++   * last bound violated with the warning policy is retained.
+    */
+   struct PointStatus {
+-    //! \brief true if the evaluation failed
+-    bool failure = false;
+-    //! \brief true if a bound is violated with the warning policy
+-    bool unreliable = false;
+     /*!
+-     * \brief identifier of the first check which failed (see the
+-     * `first_violation` member of `mfront_gpmp_Statistics`)
++     * \brief status of the point, with the meaning of the status of the
++     * `generic` interface: `0` (success), `1` (bound violated with the
++     * warning policy), `-1` (physical bound, or bound with the strict
++     * policy) or `-4` (invalid result)
+      */
+-    unsigned long long violation = no_event;
++    int status = 0;
++    //! \brief identifier of the check retained at this point
++    unsigned long long check = no_event;
+     /*!
+-     * \brief report a check which failed
++     * \brief report a violated bound
+      * \param[in] c: identifier of the check
+      * \param[in] f: true if the evaluation fails, false if the result is
+      * computed but must be used with caution
+      */
+     TFEL_HOST_DEVICE constexpr void report(const unsigned long long c,
+                                            const bool f) noexcept {
+-      this->violation = (c < this->violation) ? c : this->violation;
+-      if (f) {
+-        this->failure = true;
+-      } else {
+-        this->unreliable = true;
+-      }
++      this->status = f ? -1 : 1;
++      this->check = c;
+     }  // end of report
++    /*!
++     * \brief report an invalid result
++     * \param[in] c: identifier of the check
++     */
++    TFEL_HOST_DEVICE constexpr void reportInvalidResult(
++        const unsigned long long c) noexcept {
++      this->status = -4;
++      this->check = c;
++    }  // end of reportInvalidResult
+     //! \return true if an event occurred
+     [[nodiscard]] TFEL_HOST_DEVICE constexpr bool hasEvent() const noexcept {
+-      return this->violation != no_event;
++      return this->status != 0;
+     }  // end of hasEvent
++    //! \return true if the evaluation failed
++    [[nodiscard]] TFEL_HOST_DEVICE constexpr bool isFailure() const noexcept {
++      return this->status < 0;
++    }  // end of isFailure
+   };   // end of struct PointStatus
+ 
+   /*!
+@@ -68,12 +115,14 @@ namespace mfront::gpmp {
+    */
+   [[nodiscard]] TFEL_HOST_DEVICE constexpr Statistics makeStatistics(
+       const unsigned long long i, const PointStatus& s) noexcept {
++    const auto failure = s.isFailure();
++    const auto unreliable = s.status == 1;
+     return Statistics{
+-        .number_of_failures = s.failure ? 1ull : 0ull,
+-        .first_failure_index = s.failure ? i : no_event,
+-        .number_of_unreliable_results =
+-            ((!s.failure) && (s.unreliable)) ? 1ull : 0ull,
+-        .first_violation = s.violation};
++        .number_of_failures = failure ? 1ull : 0ull,
++        .first_failure = failure ? makeKey(i, s.check) : no_event,
++        .number_of_unreliable_results = unreliable ? 1ull : 0ull,
++        .first_unreliable_result =
++            unreliable ? makeKey(i, s.check) : no_event};
+   }  // end of makeStatistics
+ 
+   /*!
+@@ -85,14 +134,14 @@ namespace mfront::gpmp {
+       const Statistics& a, const Statistics& b) noexcept {
+     return Statistics{
+         .number_of_failures = a.number_of_failures + b.number_of_failures,
+-        .first_failure_index = (a.first_failure_index < b.first_failure_index)
+-                                   ? a.first_failure_index
+-                                   : b.first_failure_index,
++        .first_failure = (a.first_failure < b.first_failure) ? a.first_failure
++                                                             : b.first_failure,
+         .number_of_unreliable_results =
+             a.number_of_unreliable_results + b.number_of_unreliable_results,
+-        .first_violation = (a.first_violation < b.first_violation)
+-                               ? a.first_violation
+-                               : b.first_violation};
++        .first_unreliable_result =
++            (a.first_unreliable_result < b.first_unreliable_result)
++                ? a.first_unreliable_result
++                : b.first_unreliable_result};
+   }  // end of merge
+ 
+ }  // end of namespace mfront::gpmp
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+index 07c09dcee..2ab8e0534 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+@@ -18,14 +18,14 @@
+ #include "MFront/MaterialPropertyDescription.hxx"
+ #include "MFront/MaterialPropertyParametersHandler.hxx"
+ #include "MFront/GenericParallelMaterialPropertyInterface.hxx"
++#include "MFront/GenericParallelMaterialProperty/PointStatus.hxx"
+ #include "MFront/GenericParallel/MaterialProperty/BackendBase.hxx"
+ 
+ namespace mfront::generic_parallel::material_property {
+ 
+   /*
+-   * Identifiers of the checks performed by the kernels, in the order of the
+-   * analysis of the statistics (see `writeStatisticsAnalysis`): the first
+-   * check which failed at some point is reported. The physical bounds and
++   * Identifiers of the checks performed by the kernels, stored in the keys
++   * of the statistics (see `mfront::gpmp::makeKey`). The physical bounds and
+    * the bounds are numbered variable by variable, the output being after
+    * the arguments, the upper bound before the lower bound.
+    */
+@@ -56,28 +56,53 @@ namespace mfront::generic_parallel::material_property {
+     return 1 + 2 * (mpd.inputs.size() + 1) + 2 * i + (upper ? 0 : 1);
+   }  // end of getBoundCheck
+ 
++  /*!
++   * \return the output value at the current point
++   * \param[in] handleStrides: if true, the output is strided
++   */
++  static std::string getOutputValue(const bool handleStrides) {
++    return handleStrides ? "mfront_output[mfront_output_stride * mfront_idx]"
++                         : "mfront_output[mfront_idx]";
++  }  // end of getOutputValue
++
++  /*!
++   * \return the code ending the evaluation at the current point when it
++   * fails: as with the `generic` interface, the output is `NaN`
++   * \param[in] i: interface
++   * \param[in] handleStrides: if true, the output is strided
++   */
++  static std::string getFailureEnd(
++      const GenericParallelMaterialPropertyInterface& i,
++      const bool handleStrides) {
++    const auto types = i.getTypesDescription();
++    return getOutputValue(handleStrides) + " = std::numeric_limits<" +
++           types.real_type + ">::quiet_NaN();\n" +
++           "return mfront_status;\n";
++  }  // end of getFailureEnd
++
+   /*!
+    * \brief write the check of the physical bounds of a variable in a
+    * kernel: the evaluation fails at this point
+    * \param[in] os: output stream
+    * \param[in] v: variable
+    * \param[in] i: index of the variable (the output is after the inputs)
++   * \param[in] failure: code ending the evaluation at this point
+    */
+   static void writePhysicalBounds(std::ostream& os,
+                                   const VariableDescription& v,
+-                                  const std::size_t i) {
++                                  const std::size_t i,
++                                  const std::string_view failure) {
+     if (!v.hasPhysicalBounds()) {
+       return;
+     }
+     const auto& b = v.getPhysicalBounds();
+-    auto write = [&os, &v, i](const char* const op, const auto value,
+-                              const bool upper) {
++    auto write = [&os, &v, i, failure](const char* const op, const auto value,
++                                       const bool upper) {
+       os << "if(" << v.name << " " << op << " " << v.type << "(" << value
+          << ")){\n"
+          << "mfront_status.report(" << getPhysicalBoundCheck(i, upper)
+          << "ull, true);\n"
+-         << "return mfront_status;\n"
+-         << "}\n";
++         << failure << "}\n";
+     };
+     if ((b.boundsType == VariableBoundsDescription::LOWER) ||
+         (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
+@@ -92,33 +117,34 @@ namespace mfront::generic_parallel::material_property {
+   /*!
+    * \brief write the check of the bounds of a variable in a kernel: the
+    * evaluation fails at this point with the strict policy, and the result
+-   * must be used with caution with the warning policy
++   * must be used with caution with the warning policy. As with the
++   * `generic` interface, an unknown policy is treated as the `None` policy.
+    * \param[in] os: output stream
+    * \param[in] prefix: prefix of the out of bounds policies
+    * \param[in] mpd: material property description
+    * \param[in] v: variable
+    * \param[in] i: index of the variable (the output is after the inputs)
++   * \param[in] failure: code ending the evaluation at this point
+    */
+   static void writeBounds(std::ostream& os,
+                           const std::string& prefix,
+                           const MaterialPropertyDescription& mpd,
+                           const VariableDescription& v,
+-                          const std::size_t i) {
++                          const std::size_t i,
++                          const std::string_view failure) {
+     if (!v.hasBounds()) {
+       return;
+     }
+     const auto& b = v.getBounds();
+-    auto write = [&os, &prefix, &mpd, &v, i](const char* const op,
+-                                             const auto value,
+-                                             const bool upper) {
++    auto write = [&os, &prefix, &mpd, &v, i, failure](
++                     const char* const op, const auto value, const bool upper) {
+       const auto c = getBoundCheck(mpd, i, upper);
+       os << "if(" << v.name << " " << op << " " << v.type << "(" << value
+          << ")){\n"
+          << "if (mfront_out_of_bounds_policy == " << prefix
+          << "_STRICT_POLICY){\n"
+          << "mfront_status.report(" << c << "ull, true);\n"
+-         << "return mfront_status;\n"
+-         << "}\n"
++         << failure << "}\n"
+          << "if (mfront_out_of_bounds_policy == " << prefix
+          << "_WARNING_POLICY){\n"
+          << "mfront_status.report(" << c << "ull, false);\n"
+@@ -137,7 +163,8 @@ namespace mfront::generic_parallel::material_property {
+ 
+   /*!
+    * \brief write the code reporting an invalid result (not finite) in a
+-   * kernel: the evaluation fails at this point
++   * kernel: the evaluation fails at this point, and, as with the `generic`
++   * interface, the output is the computed value
+    * \param[in] os: output stream
+    * \param[in] mpd: material property description
+    */
+@@ -146,14 +173,17 @@ namespace mfront::generic_parallel::material_property {
+     const auto v =
+         useQuantities(mpd) ? mpd.output.name + ".getValue()" : mpd.output.name;
+     os << "if(!tfel::math::ieee754::isfinite(" << v << ")){\n"
+-       << "mfront_status.report(" << invalid_result_check << "ull, true);\n"
++       << "mfront_status.reportInvalidResult(" << invalid_result_check
++       << "ull);\n"
+        << "}\n";
+   }  // end of writeInvalidResultCheck
+ 
+   /*!
+    * \brief write the code analysing the statistics `mfront_statistics` in
+-   * the function reporting the result: the first check which failed is
+-   * reported, with the number of points concerned
++   * the function reporting the result. The reported point is the first point
++   * where the evaluation failed, otherwise the first point where the result
++   * is unreliable: the status, the bounds status and the message describe
++   * the check retained at this point.
+    * \param[in] os: output stream
+    * \param[in] i: interface
+    * \param[in] mpd: material property description
+@@ -163,7 +193,7 @@ namespace mfront::generic_parallel::material_property {
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd) {
+     const auto types = i.getTypesDescription();
+-    const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
++    const auto ns = std::string{"::mfront::gpmp::"};
+     os << "const auto mfront_number_of_failures = static_cast<"
+        << types.integer_type << ">(mfront_statistics->number_of_failures);\n"
+        << "const auto mfront_number_of_unreliable_results = static_cast<"
+@@ -173,34 +203,49 @@ namespace mfront::generic_parallel::material_property {
+        << "mfront_number_of_failures;\n"
+        << "mfront_output_status->number_of_unreliable_results = "
+        << "mfront_number_of_unreliable_results;\n"
+-       << "if (mfront_number_of_failures != 0) {\n"
++       << "if (mfront_statistics->first_failure != " << ns << "no_event) {\n"
+        << "mfront_output_status->first_failure_index = static_cast<"
+-       << types.integer_type << ">(mfront_statistics->first_failure_index);\n"
++       << types.integer_type << ">(" << ns
++       << "getPointIndex(mfront_statistics->first_failure));\n"
+        << "}\n"
+-       // description of the points concerned by the reported check
+-       << "const auto mfront_points = (mfront_number_of_failures != 0) ? "
+-       << "\" (the evaluation failed at \" + "
+-       << "std::to_string(mfront_number_of_failures) + "
+-       << "\" points, the first one being the point \" + "
+-       << "std::to_string(mfront_output_status->first_failure_index) + "
+-       << "\")\" : "
+-       << "\" (\" + std::to_string(mfront_number_of_unreliable_results) + "
+-       << "\" points)\";\n"
+-       << "const auto mfront_check = mfront_statistics->first_violation;\n"
++       << "if (mfront_statistics->first_unreliable_result != " << ns
++       << "no_event) {\n"
++       << "mfront_output_status->first_unreliable_result_index = static_cast<"
++       << types.integer_type << ">(" << ns
++       << "getPointIndex(mfront_statistics->first_unreliable_result));\n"
++       << "}\n"
++       // reported point: first failure, otherwise first unreliable result
++       << "const bool mfront_failure = "
++       << "mfront_statistics->first_failure != " << ns << "no_event;\n"
++       << "const auto mfront_key = mfront_failure ? "
++       << "mfront_statistics->first_failure : "
++       << "mfront_statistics->first_unreliable_result;\n"
++       << "if (mfront_key == " << ns << "no_event) {\n"
++       << "return 0;\n"
++       << "}\n"
++       << "const auto mfront_check = " << ns << "getCheck(mfront_key);\n"
++       << "const auto mfront_points = \" at point \" + std::to_string(" << ns
++       << "getPointIndex(mfront_key)) + \" (\" + "
++       << "std::to_string(mfront_number_of_failures) + \" failure(s), \" + "
++       << "std::to_string(mfront_number_of_unreliable_results) + "
++       << "\" unreliable result(s))\";\n"
+        << "if (mfront_check == " << invalid_result_check << "ull) {\n"
+        << "mfront_output_status->status = -4;\n"
+        << "mfront_report(\"invalid result\" + mfront_points);\n"
+-       << "return;\n"
++       << "return -4;\n"
+        << "}\n";
++    // as with the `generic` interface, the status and the bounds status are
++    // negative if the evaluation failed (physical bound, or bound with the
++    // strict policy), positive otherwise (bound with the warning policy)
+     auto write_check = [&os](const unsigned long long c,
+-                             const std::string& msg,
+-                             const std::string& bounds_status,
+-                             const std::string& status) {
++                             const std::string& msg, const std::size_t rank) {
+       os << "if (mfront_check == " << c << "ull) {\n"
+-         << "mfront_output_status->status = " << status << ";\n"
+-         << "mfront_output_status->bounds_status = " << bounds_status << ";\n"
++         << "const auto mfront_status = mfront_failure ? -1 : 1;\n"
++         << "mfront_output_status->status = mfront_status;\n"
++         << "mfront_output_status->bounds_status = mfront_status * " << rank
++         << ";\n"
+          << "mfront_report(\"" << msg << "\" + mfront_points);\n"
+-         << "return;\n"
++         << "return mfront_status;\n"
+          << "}\n";
+     };
+     auto for_each_variable = [&mpd](const auto& f) {
+@@ -224,41 +269,73 @@ namespace mfront::generic_parallel::material_property {
+         return;
+       }
+       const auto& b = v.getPhysicalBounds();
+-      const auto rank = "-" + std::to_string(idx + 1);
+       if (has_upper_bound(b)) {
+         write_check(getPhysicalBoundCheck(idx, true),
+-                    v.name + " is over its physical upper bound", rank, "-1");
++                    v.name + " is over its physical upper bound", idx + 1);
+       }
+       if (has_lower_bound(b)) {
+         write_check(getPhysicalBoundCheck(idx, false),
+-                    v.name + " is below its physical lower bound", rank,
+-                    "-1");
++                    v.name + " is below its physical lower bound", idx + 1);
+       }
+     });
+-    // as with the `generic` interface, the status and the bounds status are
+-    // negative if the evaluation failed (strict policy), positive otherwise
+-    // (warning policy)
+-    const auto status = "((mfront_out_of_bounds_policy == " + prefix +
+-                        "_STRICT_POLICY) ? -1 : 1)";
+-    for_each_variable([&write_check, &has_upper_bound, &has_lower_bound, &mpd,
+-                       &status](const VariableDescription& v,
+-                                const std::size_t idx) {
++    for_each_variable([&write_check, &has_upper_bound, &has_lower_bound,
++                       &mpd](const VariableDescription& v,
++                             const std::size_t idx) {
+       if (!v.hasBounds()) {
+         return;
+       }
+       const auto& b = v.getBounds();
+-      const auto rank = status + " * " + std::to_string(idx + 1);
+       if (has_upper_bound(b)) {
+         write_check(getBoundCheck(mpd, idx, true),
+-                    v.name + " is over its upper bound", rank, status);
++                    v.name + " is over its upper bound", idx + 1);
+       }
+       if (has_lower_bound(b)) {
+         write_check(getBoundCheck(mpd, idx, false),
+-                    v.name + " is below its lower bound", rank, status);
++                    v.name + " is below its lower bound", idx + 1);
+       }
+     });
++    // the keys are only built by the kernels of this material property
++    os << "mfront_output_status->status = -5;\n"
++       << "mfront_report(\"invalid statistics (unknown check)\");\n"
++       << "return -5;\n";
+   }  // end of writeStatisticsAnalysis
+ 
++  /*!
++   * \brief write the initialization of the output status: success, no
++   * failure, no unreliable result, empty message
++   * \param[in] os: output stream
++   * \param[in] i: interface
++   */
++  static void writeOutputStatusInitialization(
++      std::ostream& os, const GenericParallelMaterialPropertyInterface& i) {
++    const auto types = i.getTypesDescription();
++    const auto max =
++        "std::numeric_limits<" + types.integer_type + ">::max();\n";
++    os << "mfront_output_status->status = 0;\n"
++       << "mfront_output_status->number_of_failures = 0;\n"
++       << "mfront_output_status->first_failure_index = " << max
++       << "mfront_output_status->number_of_unreliable_results = 0;\n"
++       << "mfront_output_status->first_unreliable_result_index = " << max
++       << "mfront_output_status->bounds_status = 0;\n"
++       << "mfront_output_status->msg[0] = '\\0';\n";
++  }  // end of writeOutputStatusInitialization
++
++  /*!
++   * \brief write the end of the `try` block which encloses the body of a
++   * generated function, so that no exception goes through the C interface.
++   * Nothing is allocated: the message is a literal.
++   * \param[in] os: output stream
++   */
++  static void writeUnexpectedExceptionHandling(std::ostream& os) {
++    os << "} catch (...) {\n"
++       << "mfront_output_status->status = -7;\n"
++       << "std::strncpy(mfront_output_status->msg, "
++       << "\"unexpected exception\", 511);\n"
++       << "mfront_output_status->msg[511] = '\\0';\n"
++       << "return -7;\n"
++       << "}\n";
++  }  // end of writeUnexpectedExceptionHandling
++
+   BackendBase::BackendBase() = default;
+ 
+   bool BackendBase::handlesDataTransfer() const {
+@@ -282,6 +359,14 @@ namespace mfront::generic_parallel::material_property {
+         "the statuses of the points are merged by a reduction");
+   }  // end of getAtomicMinimum
+ 
++  void BackendBase::writeBatchError(std::ostream& os,
++                                    const int status,
++                                    const std::string_view message) {
++    os << "mfront_output_status->status = " << status << ";\n"
++       << "mfront_report(" << message << ");\n"
++       << "return " << status << ";\n";
++  }  // end of writeBatchError
++
+   void BackendBase::writeStatisticsDeclaration(
+       std::ostream& os,
+       const std::string_view device_type,
+@@ -302,12 +387,10 @@ namespace mfront::generic_parallel::material_property {
+        << allocation << "\n"
+        << "}));\n"
+        << "mfront_statistics = mfront_statistics_block->get();\n"
+-       << "if (mfront_statistics == nullptr) {\n"
+-       << "mfront_output_status->status = -6;\n"
+-       << "mfront_report(\"unable to allocate the statistics of the "
+-       << "evaluation\");\n"
+-       << "return;\n"
+-       << "}\n"
++       << "if (mfront_statistics == nullptr) {\n";
++    writeBatchError(
++        os, -7, "\"unable to allocate the statistics of the evaluation\"");
++    os << "}\n"
+        << "mfront_gpmp_initializeStatistics(mfront_statistics);\n"
+        << "}\n";
+   }  // end of writeStatisticsDeclaration
+@@ -320,7 +403,6 @@ namespace mfront::generic_parallel::material_property {
+        << "mfront_options.statistics : &mfront_local_statistics;\n";
+   }  // end of writeLocalStatisticsDeclaration
+ 
+-
+   void BackendBase::writeErrorReporting(std::ostream& os) {
+     os << "[[maybe_unused]] auto mfront_report = "
+        << "[&mfront_output_status](const std::string& "
+@@ -340,130 +422,69 @@ namespace mfront::generic_parallel::material_property {
+       const MaterialPropertyDescription& mpd) const {
+     const auto name = i.getFunctionName(mpd);
+     const auto types = i.getTypesDescription();
+-    os << "MFRONT_SHAREDOBJ void " << name << "_generic_parallel_report("
++    os << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel_report("
+        << types.output_status_type << "* const mfront_output_status,\n"
+-       << "[[maybe_unused]] const mfront_gpmp_Statistics* const "
+-       << "mfront_statistics,\n"
+-       << "[[maybe_unused]] const " << types.out_of_bounds_policy_type
+-       << " mfront_out_of_bounds_policy){\n";
++       << "const mfront_gpmp_Statistics* const mfront_statistics){\n";
+     writeErrorReporting(os);
+-    os << "mfront_output_status->status = 0;\n"
+-       << "mfront_output_status->bounds_status = 0;\n"
+-       << "mfront_output_status->number_of_failures = 0;\n"
+-       << "mfront_output_status->first_failure_index = "
+-       << "std::numeric_limits<" << types.integer_type << ">::max();\n"
+-       << "mfront_output_status->number_of_unreliable_results = 0;\n";
++    writeOutputStatusInitialization(os, i);
++    // the messages are built in a `try` block
++    os << "try {\n"
++       << "if (mfront_statistics == nullptr) {\n";
++    writeBatchError(os, -5, "\"no statistics given\"");
++    os << "}\n";
+     if (!areRuntimeChecksDisabled(mpd)) {
+       writeStatisticsAnalysis(os, i, mpd);
++    } else {
++      os << "return 0;\n";
+     }
++    writeUnexpectedExceptionHandling(os);
+     os << "} // end of " << name << "_generic_parallel_report\n\n";
+   }  // end of writeReportFunction
+ 
+-
+   void BackendBase::writeDeviceStackSizeSetting(std::ostream& os,
+                                                 const std::size_t stack_size) {
+     if (stack_size == 0) {
+       return;
+     }
+     os << "if (!mfront::generic_parallel::setMinimalCUDAStackSize("
+-       << stack_size << ", mfront_options.preserve_stack_size != 0)) {\n"
+-       << "mfront_output_status->status = -6;\n"
+-       << "mfront_report("
+-       << "mfront::generic_parallel::stack_size_error_message);\n"
+-       << "return;\n"
+-       << "}\n";
++       << stack_size << ", mfront_options.preserve_stack_size != 0)) {\n";
++    writeBatchError(os, -7,
++                    "mfront::generic_parallel::stack_size_error_message");
++    os << "}\n";
+   }  // end of writeDeviceStackSizeSetting
+ 
+-
+   void BackendBase::writeCDeclarations(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd) const {
+     const auto name = i.getFunctionName(mpd);
+     const auto types = i.getTypesDescription();
+-    const auto output =
+-        this->handlesDataTransfer() ? "mfront_output_host" : "mfront_output";
+-    const auto args =
+-        this->handlesDataTransfer() ? "mfront_args_host" : "mfront_args";
+-    auto document_arguments = [&os, args] {
+-      os << " * \\param[in] " << args
+-         << ": array of pointers to the values of the arguments\n";
+-    };
+-    auto document_last_arguments = [&os] {
+-      os << " * \\param[in] mfront_nargs: number of arguments\n"
+-         << " * \\param[in] mfront_npoints: number of points in which the "
+-         << "material property is computed\n"
+-         << " * \\param[in] mfront_out_of_bounds_policy: out of bounds "
+-         << "policy\n"
+-         << " * \\param[in] mfront_execution_options: options of the "
+-         << "execution (queue, statistics of an asynchronous evaluation, "
+-         << "stack size), or null for the default options\n";
+-    };
+     os << "/*!\n"
+        << " * \\brief compute the value of '" << mpd.className
+-       << "' material property on a set of points\n"
+-       << " *\n"
+-       << " * \\param[out] mfront_output_status: output status\n"
+-       << " * \\param[out] " << output << ": output values\n"
+-       << " * \\param[in] mfront_output_stride: output stride.\n"
+-       << " * If zero, only the first element of the output is computed.\n"
+-       << " * A zero value is only meaningful if all inputs are uniform\n";
+-    document_arguments();
+-    os << " * \\param[in] mfront_args_strides: array of integers giving the "
+-       << "stride of each argument. If zero, the argument is uniform\n";
+-    document_last_arguments();
+-    os << " *\n"
+-       << " * \\note the array giving the output (resp. an argument) holds at\n"
+-       << " *   least `(mfront_npoints - 1) * stride + 1` values, `stride`\n"
+-       << " *   being the output stride (resp. the stride of the argument)\n"
+-       << " */\n"
+-       << "MFRONT_SHAREDOBJ void " << name << "(\n"
+-       << types.output_status_type << "* const,\n"
+-       << types.real_type << "* const,\n"
+-       << "const " << types.integer_type << ",\n"
+-       << "const " << types.real_type << "* const* const,\n"
+-       << "const " << types.integer_type << "*,\n"
+-       << "const " << types.integer_type << ",\n"
+-       << "const " << types.integer_type << ",\n"
+-       << "const " << types.out_of_bounds_policy_type << ",\n"
+-       << "const mfront_gpmp_ExecutionOptions* const);\n\n"
+-       << "/*!\n"
+-       << " * \\brief compute the value of '" << mpd.className
+-       << "' material property on a set of points, the output and the "
+-       << "arguments being contiguous arrays\n"
++       << "' material property on a batch of points (see "
++       << "`mfront_gpmp_BatchData`)\n"
+        << " *\n"
+        << " * \\param[out] mfront_output_status: output status\n"
+-       << " * \\param[out] " << output << ": output values\n";
+-    document_arguments();
+-    document_last_arguments();
+-    os << " *\n"
+-       << " * \\note `mfront_npoints` is also the size of the arrays giving\n"
+-       << " *   the output and the inputs\n"
++       << " * \\param[in] mfront_batch: data of the batch\n"
++       << " * \\return the status, also given by the output status\n"
+        << " */\n"
+-       << "MFRONT_SHAREDOBJ void " << name << "2(\n"
++       << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel(\n"
+        << types.output_status_type << "* const,\n"
+-       << types.real_type << "* const,\n"
+-       << "const " << types.real_type << "* const* const,\n"
+-       << "const " << types.integer_type << ",\n"
+-       << "const " << types.integer_type << ",\n"
+-       << "const " << types.out_of_bounds_policy_type << ",\n"
+-       << "const mfront_gpmp_ExecutionOptions* const);\n\n"
++       << "const mfront_gpmp_BatchData* const);\n\n"
+        << "/*!\n"
+-       << " * \\brief analyse the statistics of an asynchronous "
+-       << "evaluation of '" << mpd.className << "' material property, once "
+-       << "the computations are completed, and report the result as a "
+-       << "synchronous evaluation does\n"
++       << " * \\brief analyse the statistics of an evaluation of '"
++       << mpd.className << "' material property, once the computations are "
++       << "completed, and report the result as a synchronous evaluation "
++       << "does\n"
+        << " *\n"
+        << " * \\param[out] mfront_output_status: output status\n"
+        << " * \\param[in] mfront_statistics: statistics given by the "
+        << "execution options, read on the host\n"
+-       << " * \\param[in] mfront_out_of_bounds_policy: out of bounds policy "
+-       << "of the evaluation\n"
++       << " * \\return the status, also given by the output status\n"
+        << " */\n"
+-       << "MFRONT_SHAREDOBJ void " << name << "_generic_parallel_report(\n"
++       << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel_report(\n"
+        << types.output_status_type << "* const,\n"
+-       << "const mfront_gpmp_Statistics* const,\n"
+-       << "const " << types.out_of_bounds_policy_type << ");\n\n";
++       << "const mfront_gpmp_Statistics* const);\n\n";
+   }  // end of writeDeclarations
+ 
+   void BackendBase::writeProxyObjects(
+@@ -471,8 +492,6 @@ namespace mfront::generic_parallel::material_property {
+       const GenericParallelMaterialPropertyInterface&,
+       const MaterialPropertyDescription&) const {}  // end of writeProxyObject
+ 
+-
+-
+   bool BackendBase::isBoundsCheckingRequired(
+       const MaterialPropertyDescription& mpd) {
+     // the statistics also report the invalid results
+@@ -482,65 +501,29 @@ namespace mfront::generic_parallel::material_property {
+   void BackendBase::writeCFunctionBeginning(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+-      const MaterialPropertyDescription& mpd,
+-      const bool treatStrides) const {
++      const MaterialPropertyDescription& mpd) const {
+     const auto name = i.getFunctionName(mpd);
+     const auto nname = i.getInterfaceInternalNamespace();
+     const auto types = i.getTypesDescription();
+     const auto& params = mpd.parameters;
+-    // signature
+-    os << "MFRONT_SHAREDOBJ void " << name;
+-    if (!treatStrides) {
+-      os << '2';
++    const auto nargs = mpd.inputs.size();
++    // the identifier of a check is stored in 16 bits of the keys of the
++    // statistics
++    if (getBoundCheck(mpd, nargs, false) >
++        ::mfront::gpmp::maximal_number_of_checks) {
++      tfel::raise(
++          "BackendBase::writeCFunctionBeginning: "
++          "too many arguments");
+     }
+-    os << "(" << types.output_status_type << "* const mfront_output_status,\n";
+-    if (this->handlesDataTransfer()) {
+-      os << types.real_type << "* const mfront_output_host";
+-    } else {
+-      os << types.real_type << "* const mfront_output";
+-    }
+-    if (treatStrides) {
+-      os << ",\nconst " << types.integer_type << " mfront_output_stride";
+-    }
+-    os << ",\nconst " << types.real_type << "* const * const";
+-    if (!mpd.inputs.empty()) {
+-      os << (this->handlesDataTransfer() ? " mfront_args_host"
+-                                         : " mfront_args");
+-    }
+-    if (treatStrides) {
+-      os << ",\nconst " << types.integer_type << "* const";
+-      if (!mpd.inputs.empty()) {
+-        os << " mfront_args_strides";
+-      }
+-    }
+-    // the policy is passed to the kernels with the statistics, even if the
+-    // material property has no bounds
+-    os << ",\nconst " << types.integer_type << " mfront_nargs"
+-       << ",\nconst " << types.integer_type << " mfront_npoints"
+-       << ",\n[[maybe_unused]] const " << types.out_of_bounds_policy_type
+-       << " mfront_out_of_bounds_policy"
+-       << ",\nconst mfront_gpmp_ExecutionOptions* const "
+-       << "mfront_execution_options";
+-    os << ")\n{\n";
+-    // execution options, default options if none is given
+-    os << "[[maybe_unused]] const auto mfront_options = "
+-       << "(mfront_execution_options != nullptr) ? *mfront_execution_options "
+-       << ": mfront_gpmp_ExecutionOptions{};\n"
+-       << "[[maybe_unused]] const bool mfront_asynchronous = "
+-       << "mfront_options.statistics != nullptr;\n";
++    const auto output =
++        this->handlesDataTransfer() ? "mfront_output_host" : "mfront_output";
++    const auto args =
++        this->handlesDataTransfer() ? "mfront_args_host" : "mfront_args";
++    // signature
++    os << "MFRONT_SHAREDOBJ int " << name << "_generic_parallel("
++       << types.output_status_type << "* const mfront_output_status,\n"
++       << "const mfront_gpmp_BatchData* const mfront_batch)\n{\n";
+     writeErrorReporting(os);
+-    if (!areRuntimeChecksDisabled(mpd)) {
+-      os << "auto mfront_check_positive_or_null = "
+-         << "[]<std::integral mfront_IntegerType>"
+-         << "(const mfront_IntegerType mfront_integral_value){\n"
+-         << "if constexpr (std::is_signed_v<mfront_IntegerType>){\n"
+-         << "if(mfront_integral_value < 0){\n"
+-         << "return false;\n"
+-         << "}\n"
+-         << "}\n"
+-         << "return true;\n"
+-         << "};\n";
+-    }
+     // errno is restored on every return. It is not used to detect the
+     // errors: it is thread-local, does not exist on GPUs, and may be modified
+     // by the runtimes (for instance at the initialisation of TBB). Invalid
+@@ -551,82 +534,103 @@ namespace mfront::generic_parallel::material_property {
+        << "};\n"
+        << "[[maybe_unused]] const auto mfront_errno_guard = "
+        << "mfront_ErrnoGuard{};\n";
+-    os << "mfront_output_status->status = 0;\n"
+-       << "mfront_output_status->bounds_status = 0;\n"
+-       << "mfront_output_status->number_of_failures = 0;\n"
+-       << "mfront_output_status->first_failure_index = "
+-       << "std::numeric_limits<" << types.integer_type << ">::max();\n"
+-       << "mfront_output_status->number_of_unreliable_results = 0;\n";
+-    // an empty set of points is accepted without any check, as an empty
+-    // batch by the behaviours: nothing is read, written or submitted
+-    os << "if(mfront_npoints == 0){\n"
+-       << "return;\n"
+-       << "}\n";
+-    // writes an error and returns
+-    auto write_error = [&os](const int status, const std::string& message) {
+-      os << "mfront_output_status->status = " << status << ";\n"
+-         << "mfront_report(" << message << ");\n"
+-         << "return;\n"
+-         << "}\n";
+-    };
++    writeOutputStatusInitialization(os, i);
++    // the checks build messages, which may throw: the body of the function
++    // is enclosed in a `try` block, closed by writeCFunctionEnd
++    os << "try {\n"
++       << "if (mfront_batch == nullptr) {\n";
++    writeBatchError(os, -5, "\"no batch data given\"");
++    os << "}\n"
++       << "const auto mfront_npoints = mfront_batch->number_of_points;\n"
++       // an empty batch is accepted without any check, as an empty batch
++       // by the behaviours: nothing is read, written or submitted
++       << "if (mfront_npoints == 0) {\n"
++       << "return 0;\n"
++       << "}\n"
++       << "if (mfront_npoints > ::mfront::gpmp::maximal_number_of_points) {\n";
++    writeBatchError(os, -5,
++                    "\"too many points (\" + std::to_string(mfront_npoints) + "
++                    "\" given)\"");
++    os << "}\n"
++       << "[[maybe_unused]] const auto mfront_options = "
++       << "mfront_batch->execution;\n"
++       << "[[maybe_unused]] const bool mfront_asynchronous = "
++       << "mfront_options.statistics != nullptr;\n"
++       << "[[maybe_unused]] const auto mfront_out_of_bounds_policy = "
++       << "mfront_batch->out_of_bounds_policy;\n"
++       << "[[maybe_unused]] auto* mfront_statuses = "
++       << "mfront_batch->statuses;\n"
++       << types.real_type << "* const " << output
++       << " = mfront_batch->output.values;\n"
++       << "const auto mfront_output_stride = "
++       << "mfront_batch->output.point_stride;\n"
++       << "if (" << output << " == nullptr) {\n";
++    writeBatchError(os, -5, "\"no output values given\"");
++    os << "}\n"
++       << "if ((mfront_output_stride == 0) && (mfront_npoints != 1)) {\n";
++    writeBatchError(os, -5,
++                    "\"if the output is uniform, the number of points must be "
++                    "equal to one (\" + std::to_string(mfront_npoints) + \" "
++                    "given)\"");
++    os << "}\n";
++    // as with the `generic` interface, the number of arguments is not
++    // checked if the runtime checks are disabled
+     if (!areRuntimeChecksDisabled(mpd)) {
+-      os << "if(!mfront_check_positive_or_null(mfront_npoints)){\n";
+-      write_error(
+-          -5,
+-          "\"invalid number of points (\"+std::to_string(mfront_npoints)"
+-          "+\" given)\"");
+-      os << "if(mfront_nargs != " << mpd.inputs.size() << "){\n";
+-      write_error(
+-          -5,
+-          "\"invalid number of arguments (\"+std::to_string(mfront_nargs)"
+-          "+\" given, " +
+-              std::to_string(mpd.inputs.size()) + " expected)\"");
+-      if (treatStrides) {
+-        os << "if(!mfront_check_positive_or_null(mfront_output_stride)){\n";
+-        write_error(-5,
+-                    "\"negative output stride (\"+std::to_string("
+-                    "mfront_output_stride)+\" given)\"");
+-        for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-          const auto stride =
+-              "mfront_args_strides[" + std::to_string(idx) + "]";
+-          os << "if(!mfront_check_positive_or_null(" << stride << ")){\n";
+-          write_error(-5, "\"negative stride given for variable '" +
+-                              mpd.inputs[idx].getExternalName() +
+-                              "' (\"+std::to_string(" + stride +
+-                              ")+\" given)\"");
+-        }
+-      }
+-      if ((!areParametersTreatedAsStaticVariables(mpd)) && (!params.empty())) {
+-        const auto hn = getMaterialPropertyParametersHandlerClassName(name);
+-        const auto handler = nname + "::" + hn + "::get" + hn + "()";
+-        os << "if(!" << handler << ".ok){\n";
+-        write_error(-6, handler + ".msg");
+-      }
++      os << "if (mfront_batch->number_of_arguments != " << nargs << ") {\n";
++      writeBatchError(
++          os, -5,
++          "\"invalid number of arguments (\" + "
++          "std::to_string(mfront_batch->number_of_arguments) + \" given, " +
++              std::to_string(nargs) + " expected)\"");
++      os << "}\n";
+     }
+-    if (treatStrides) {
+-      os << "if((mfront_output_stride == 0) && (mfront_npoints != 1)){\n";
+-      write_error(-7,
+-                  "\"if the output is uniform, the number of points must be "
+-                  "equal to one (\" + std::to_string(mfront_npoints) + \" "
+-                  "given)\"");
++    // pointers to the values and strides of the arguments
++    if (nargs != 0) {
++      os << "if (mfront_batch->arguments == nullptr) {\n";
++      writeBatchError(os, -5, "\"no arguments given\"");
++      os << "}\n"
++         << "auto " << args << " = std::array<const " << types.real_type
++         << "*, " << nargs << ">{};\n"
++         << "auto mfront_strides = std::array<" << types.integer_type << ", "
++         << nargs << ">{};\n";
++      for (std::size_t idx = 0; idx != nargs; ++idx) {
++        const auto a = "mfront_batch->arguments[" + std::to_string(idx) + "]";
++        os << args << "[" << idx << "] = " << a << ".values;\n"
++           << "mfront_strides[" << idx << "] = " << a << ".point_stride;\n"
++           << "if (" << args << "[" << idx << "] == nullptr) {\n";
++        writeBatchError(os, -5,
++                        "\"no values given for argument '" +
++                            mpd.inputs[idx].getExternalName() + "'\"");
++        os << "}\n";
++      }
+     }
+-    if ((treatStrides) && (!mpd.inputs.empty())) {
+-      os << "auto mfront_strides = std::array<" << types.integer_type << ", "
+-         << mpd.inputs.size() << ">{};\n"
+-         << "tfel::fsalgo::copy<" << mpd.inputs.size() << ">::exe("
+-         << "mfront_args_strides, mfront_strides.begin());\n"
+-         << "const bool mfront_areAllArgumentsUniform = std::all_of("
+-         << "mfront_strides.begin(), mfront_strides.end(), "
+-         << "[](const " << types.integer_type
+-         << " mfront_stride){return mfront_stride == 0;});\n"
+-         << "if((mfront_output_stride == 0) && "
+-         << "(!mfront_areAllArgumentsUniform)){\n";
+-      write_error(-7,
+-                  "\"if the output is uniform, all the arguments must be "
+-                  "uniform (i.e. their strides must be null)\"");
++    if ((!areRuntimeChecksDisabled(mpd)) &&
++        (!areParametersTreatedAsStaticVariables(mpd)) && (!params.empty())) {
++      const auto hn = getMaterialPropertyParametersHandlerClassName(name);
++      const auto handler = nname + "::" + hn + "::get" + hn + "()";
++      os << "if(!" << handler << ".ok){\n";
++      writeBatchError(os, -6, handler + ".msg");
++      os << "}\n";
+     }
+   }  // end of writeCFunctionBeginning
+ 
++  void BackendBase::writeCFunctionEnd(
++      std::ostream& os,
++      const GenericParallelMaterialPropertyInterface& i,
++      const MaterialPropertyDescription& mpd) {
++    os << "return mfront_output_status->status;\n";
++    writeUnexpectedExceptionHandling(os);
++    os << "} // end of " << i.getFunctionName(mpd) << "_generic_parallel\n\n";
++  }  // end of writeCFunctionEnd
++
++  void BackendBase::writeHostExceptionsHandling(std::ostream& os) {
++    os << "} catch(std::exception& mfront_cxx_exception){\n";
++    writeBatchError(os, -7, "mfront_cxx_exception.what()");
++    os << "} catch(...){\n";
++    writeBatchError(os, -7, "\"unknown exception\"");
++    os << "}\n";
++  }  // end of writeHostExceptionsHandling
++
+   void BackendBase::writeKernelBody(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+@@ -636,6 +640,7 @@ namespace mfront::generic_parallel::material_property {
+     const auto prefix = i.getOutOfBoundsPolicyEnumerationPrefix();
+     const auto qt = useQuantities(mpd);
+     const auto checks = isBoundsCheckingRequired(mpd);
++    const auto failure = getFailureEnd(i, handleStrides);
+     // parameters
+     for (const auto& p : mpd.parameters) {
+       if (areParametersTreatedAsStaticVariables(mpd)) {
+@@ -677,10 +682,10 @@ namespace mfront::generic_parallel::material_property {
+         ((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs)))) {
+       os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-        writePhysicalBounds(os, mpd.inputs[idx], idx);
++        writePhysicalBounds(os, mpd.inputs[idx], idx, failure);
+       }
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-        writeBounds(os, prefix, mpd, mpd.inputs[idx], idx);
++        writeBounds(os, prefix, mpd, mpd.inputs[idx], idx, failure);
+       }
+       os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+     }
+@@ -689,20 +694,26 @@ namespace mfront::generic_parallel::material_property {
+     if (checks) {
+       if ((mpd.output.hasPhysicalBounds()) || (mpd.output.hasBounds())) {
+         os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+-        writePhysicalBounds(os, mpd.output, mpd.inputs.size());
+-        writeBounds(os, prefix, mpd, mpd.output, mpd.inputs.size());
++        writePhysicalBounds(os, mpd.output, mpd.inputs.size(), failure);
++        writeBounds(os, prefix, mpd, mpd.output, mpd.inputs.size(), failure);
+         os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+       }
+       writeInvalidResultCheck(os, mpd);
+     }
+-    os << (handleStrides ? "mfront_output[mfront_output_stride * mfront_idx] = "
+-                         : "mfront_output[mfront_idx] = ")
+-       << mpd.output.name << (qt ? ".getValue();\n" : ";\n");
++    os << getOutputValue(handleStrides) << " = " << mpd.output.name
++       << (qt ? ".getValue();\n" : ";\n");
+     if (!checks) {
++      // without runtime checks, the evaluation always succeeds
++      os << "if (mfront_statuses != nullptr) {\n"
++         << "mfront_statuses[mfront_idx] = 0;\n"
++         << "}\n";
+       return;
+     }
+     os << "return mfront_status;\n"
+-       << "}();\n";
++       << "}();\n"
++       << "if (mfront_statuses != nullptr) {\n"
++       << "mfront_statuses[mfront_idx] = mfront_point_status.status;\n"
++       << "}\n";
+     if (!this->mergesPointStatusesInKernels()) {
+       // merged by a reduction
+       os << "return mfront_point_status;\n";
+@@ -718,50 +729,40 @@ namespace mfront::generic_parallel::material_property {
+                                     v);
+     };
+     os << "if (mfront_point_status.hasEvent()) {\n"
+-       << "if (mfront_point_status.failure) {\n"
++       << "const auto mfront_key = ::mfront::gpmp::makeKey("
++       << "static_cast<unsigned long long>(mfront_idx), "
++       << "mfront_point_status.check);\n"
++       << "if (mfront_point_status.isFailure()) {\n"
+        << increment("number_of_failures") << ";\n"
+-       << minimum("first_failure_index",
+-                  "static_cast<unsigned long long>(mfront_idx)")
+-       << ";\n"
++       << minimum("first_failure", "mfront_key") << ";\n"
+        << "} else {\n"
+        << increment("number_of_unreliable_results") << ";\n"
++       << minimum("first_unreliable_result", "mfront_key") << ";\n"
+        << "}\n"
+-       << minimum("first_violation", "mfront_point_status.violation") << ";\n"
+        << "}\n";
+   }  // end of writeKernelBody
+ 
+-
+   void BackendBase::writeKernelSelection(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+-      const bool treatStrides,
+       const std::function<void(std::string_view, bool)>& write_call) const {
+-    if (!treatStrides) {
+-      write_call("mfront_npoints", false);
+-      return;
+-    }
++    // a single point is evaluated by the kernel without strides, whatever
++    // the strides: only the first values are read and written
++    os << "if (mfront_npoints == 1) {\n";
++    write_call("1", false);
++    os << "} else {\n";
+     if (mpd.inputs.empty()) {
+-      os << "if(mfront_output_stride == 0){\n";
+-      write_call("1", false);
+-      os << "} else if(mfront_output_stride == 1){\n";
+-      write_call("mfront_npoints", false);
+-      os << "} else {\n";
+-      write_call("mfront_npoints", true);
+-      os << "}\n";
+-      return;
++      os << "if (mfront_output_stride == 1) {\n";
++    } else {
++      const auto types = i.getTypesDescription();
++      os << "const bool mfront_areAllArgumentsStrideOne = std::all_of("
++         << "mfront_strides.begin(), mfront_strides.end(), "
++         << "[](const " << types.integer_type << " mfront_stride){"
++         << "return mfront_stride == 1;});\n"
++         << "if (mfront_areAllArgumentsStrideOne && "
++         << "(mfront_output_stride == 1)) {\n";
+     }
+-    const auto types = i.getTypesDescription();
+-    os << "if(mfront_areAllArgumentsUniform && "
+-       << "(mfront_output_stride == 0)){\n";
+-    write_call("1", false);
+-    os << "} else {\n"
+-       << "const bool mfront_areAllArgumentsStrideOne = std::all_of("
+-       << "mfront_strides.begin(), mfront_strides.end(), "
+-       << "[](const " << types.integer_type << " mfront_stride){"
+-       << "return mfront_stride == 1;});\n"
+-       << "if(mfront_areAllArgumentsStrideOne && (mfront_output_stride == "
+-          "1)){\n";
+     write_call("mfront_npoints", false);
+     os << "} else {\n";
+     write_call("mfront_npoints", true);
+@@ -776,10 +777,12 @@ namespace mfront::generic_parallel::material_property {
+     if (areRuntimeChecksDisabled(mpd)) {
+       return;
+     }
++    // with statistics given by the calling code, the output status only
++    // reports the errors of the batch: the result is given by the
++    // `<name>_generic_parallel_report` function
+     os << "if (!mfront_asynchronous) {\n"
+        << i.getFunctionName(mpd) << "_generic_parallel_report("
+-       << "mfront_output_status, mfront_statistics, "
+-       << "mfront_out_of_bounds_policy);\n"
++       << "mfront_output_status, mfront_statistics);\n"
+        << "}\n";
+   }  // end of writeResultsAnalysis
+ 
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+index 23c332bec..0193d01f8 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+@@ -63,16 +63,17 @@ namespace mfront::generic_parallel::material_property {
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+       const FileDescription& fd,
+-      const bool treatStrides) const {
++      const bool handleStrides) const {
+     const auto name = i.getFunctionName(mpd);
+     const auto types = i.getTypesDescription();
+-    const auto kernel =
+-        "mfront_" + name + "_kernel" + (treatStrides ? "" : "_without_strides");
++    const auto kernel = "mfront_" + name + "_kernel" +
++                        (handleStrides ? "" : "_without_strides");
+     os << "__global__ void " << kernel << "(" << types.real_type
+        << "* const mfront_output";
+-    if (treatStrides) {
++    if (handleStrides) {
+       os << ",\nconst " << types.integer_type << " mfront_output_stride";
+     }
++    os << ",\nint* const mfront_statuses";
+     if (isBoundsCheckingRequired(mpd)) {
+       os << ",\nmfront_gpmp_Statistics* const mfront_statistics"
+          << ",\nconst " << types.integer_type << " mfront_out_of_bounds_policy";
+@@ -83,7 +84,7 @@ namespace mfront::generic_parallel::material_property {
+       os << ",\nconst " << i.getInterfaceInternalNamespace() << "::" << pcn
+          << " mfront_parameters";
+     }
+-    if ((treatStrides) && (!mpd.inputs.empty())) {
++    if ((handleStrides) && (!mpd.inputs.empty())) {
+       os << ",\nconst std::array<" << types.integer_type << ", "
+          << mpd.inputs.size() << "> mfront_strides";
+     }
+@@ -98,7 +99,7 @@ namespace mfront::generic_parallel::material_property {
+        << "if(mfront_idx >= mfront_npoints){\n"
+        << "return;\n"
+        << "}\n";
+-    this->writeKernelBody(os, i, mpd, treatStrides);
++    this->writeKernelBody(os, i, mpd, handleStrides);
+     os << "} // end of " << kernel << "\n\n";
+   }  // end of writeGlobalFunctions2
+ 
+@@ -117,20 +118,9 @@ namespace mfront::generic_parallel::material_property {
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+-      const FileDescription& fd) const {
+-    for (const auto b : {true, false}) {
+-      this->writeCImplementations2(os, i, mpd, fd, b);
+-    }
+-  }  // end of writeCImplementations
+-
+-  void CUDABackendBase::writeCImplementations2(
+-      std::ostream& os,
+-      const GenericParallelMaterialPropertyInterface& i,
+-      const MaterialPropertyDescription& mpd,
+-      const FileDescription&,
+-      const bool treatStrides) const {
++      const FileDescription&) const {
+     const auto pm = this->getProgrammingModel();
+-    this->writeCFunctionBeginning(os, i, mpd, treatStrides);
++    this->writeCFunctionBeginning(os, i, mpd);
+     // exceptions (allocation of an error message, of a block of statistics)
+     // must not cross the boundary of the C function, as with the backends
+     // based on C++ programming models
+@@ -141,12 +131,10 @@ namespace mfront::generic_parallel::material_property {
+       os << "auto mfront_device = int{};\n"
+          << "const auto mfront_" << pm << "_device_error = " << pm
+          << "GetDevice(&mfront_device);\n"
+-         << "if (mfront_" << pm << "_device_error != " << pm << "Success) {\n"
+-         << "mfront_output_status->status = -6;\n"
+-         << "mfront_report(" << pm << "GetErrorString(mfront_" << pm
+-         << "_device_error));\n"
+-         << "return;\n"
+-         << "}\n";
++         << "if (mfront_" << pm << "_device_error != " << pm << "Success) {\n";
++      writeBatchError(os, -7,
++                      pm + "GetErrorString(mfront_" + pm + "_device_error)");
++      os << "}\n";
+       writeStatisticsDeclaration(
+           os, "int", "mfront_device",
+           "mfront_gpmp_Statistics* mfront_ptr = nullptr;\n"
+@@ -155,25 +143,16 @@ namespace mfront::generic_parallel::material_property {
+               "MallocManaged(&mfront_ptr, sizeof(mfront_gpmp_Statistics)) == " +
+               pm + "Success ? mfront_ptr : nullptr;");
+     }
+-    this->writeKernelCall(os, i, mpd, treatStrides);
++    this->writeKernelCall(os, i, mpd);
+     this->writeResultsAnalysis(os, i, mpd);
+-    os << "} catch(std::exception& mfront_cxx_exception){\n"
+-       << "mfront_output_status->status = -6;\n"
+-       << "mfront_report(mfront_cxx_exception.what());\n"
+-       << "return;\n"
+-       << "} catch(...){\n"
+-       << "mfront_output_status->status = -6;\n"
+-       << "mfront_report(\"unknown exception\");\n"
+-       << "return;\n"
+-       << "}\n";
+-    os << "} // end of " << i.getFunctionName(mpd) << "\n\n";
+-  }  // end of writeCImplementations2
++    writeHostExceptionsHandling(os);
++    writeCFunctionEnd(os, i, mpd);
++  }  // end of writeCImplementations
+ 
+   void CUDABackendBase::writeKernelCall(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+-      const MaterialPropertyDescription& mpd,
+-      const bool treatStrides) const {
++      const MaterialPropertyDescription& mpd) const {
+     const auto pm = this->getProgrammingModel();
+     const auto name = i.getFunctionName(mpd);
+     const auto threads_per_block =
+@@ -191,11 +170,9 @@ namespace mfront::generic_parallel::material_property {
+        << "Success) ||\n"
+        << "(" << pm << "DeviceGetAttribute(&mfront_warp_size, "
+        << warp_size_attribute << ", mfront_warp_device) != " << pm
+-       << "Success)) {\n"
+-       << "mfront_output_status->status = -6;\n"
+-       << "mfront_report(\"unable to get the warp size of the device\");\n"
+-       << "return;\n"
+-       << "}\n"
++       << "Success)) {\n";
++    writeBatchError(os, -7, "\"unable to get the warp size of the device\"");
++    os << "}\n"
+        << "const auto mfront_threads_per_block = static_cast<unsigned int>(("
+        << threads_per_block
+        << " + mfront_warp_size - 1) / mfront_warp_size * mfront_warp_size);\n";
+@@ -203,21 +180,31 @@ namespace mfront::generic_parallel::material_property {
+                                  const bool handleStrides) {
+       const auto kernel = "mfront_" + name + "_kernel" +
+                           (handleStrides ? "" : "_without_strides");
++      // the number of blocks is limited by the size of the grid (2^31 - 1
++      // in the first dimension): it is checked rather than truncated
++      os << "const auto mfront_number_of_blocks = (" << npoints
++         << " + mfront_threads_per_block - 1) / mfront_threads_per_block;\n"
++         << "if (mfront_number_of_blocks > static_cast<"
++         << "decltype(mfront_number_of_blocks)>("
++         << "std::numeric_limits<int>::max())) {\n";
++      writeBatchError(os, -5,
++                      "\"too many points for the grid of the device (\" + "
++                      "std::to_string(" +
++                          std::string{npoints} + ") + \" given)\"");
++      os << "}\n";
+       // stack size of the threads, as for the behaviours
+       os << "const auto mfront_stack_size = "
+          << "::mfront::generic_parallel::gpu::ensureStackSize<" << kernel
+          << ">(mfront_options.preserve_stack_size != 0);\n"
+-         << "if (!mfront_stack_size.succeeded()) {\n"
+-         << "mfront_output_status->status = -6;\n"
+-         << "mfront_report(mfront_stack_size.getErrorMessage());\n"
+-         << "return;\n"
+-         << "}\n";
+-      os << kernel << "<<<static_cast<unsigned int>((" << npoints
+-         << " + mfront_threads_per_block - 1) / mfront_threads_per_block), "
++         << "if (!mfront_stack_size.succeeded()) {\n";
++      writeBatchError(os, -7, "mfront_stack_size.getErrorMessage()");
++      os << "}\n";
++      os << kernel << "<<<static_cast<unsigned int>(mfront_number_of_blocks), "
+          << "mfront_threads_per_block, 0, mfront_stream>>>(mfront_output, ";
+       if (handleStrides) {
+         os << "mfront_output_stride, ";
+       }
++      os << "mfront_statuses, ";
+       if (isBoundsCheckingRequired(mpd)) {
+         os << "mfront_statistics, mfront_out_of_bounds_policy, ";
+       }
+@@ -236,25 +223,21 @@ namespace mfront::generic_parallel::material_property {
+       os << npoints << ");\n"
+          << "const auto mfront_" << pm << "_launch_error = " << pm
+          << "GetLastError();\n"
+-         << "if (mfront_" << pm << "_launch_error != " << pm << "Success) {\n"
+-         << "mfront_output_status->status = -6;\n"
+-         << "mfront_report(" << pm << "GetErrorString(mfront_" << pm
+-         << "_launch_error));\n"
+-         << "return;\n"
+-         << "}\n"
+-         // an asynchronous evaluation returns once the kernel is submitted
++         << "if (mfront_" << pm << "_launch_error != " << pm << "Success) {\n";
++      writeBatchError(os, -7,
++                      pm + "GetErrorString(mfront_" + pm + "_launch_error)");
++      // an asynchronous evaluation returns once the kernel is submitted
++      os << "}\n"
+          << "if (!mfront_asynchronous) {\n"
+          << "const auto mfront_" << pm << "_kernel_error = " << pm
+          << "StreamSynchronize(mfront_stream);\n"
+-         << "if (mfront_" << pm << "_kernel_error != " << pm << "Success) {\n"
+-         << "mfront_output_status->status = -6;\n"
+-         << "mfront_report(" << pm << "GetErrorString(mfront_" << pm
+-         << "_kernel_error));\n"
+-         << "return;\n"
+-         << "}\n"
++         << "if (mfront_" << pm << "_kernel_error != " << pm << "Success) {\n";
++      writeBatchError(os, -7,
++                      pm + "GetErrorString(mfront_" + pm + "_kernel_error)");
++      os << "}\n"
+          << "}\n";
+     };
+-    this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
++    this->writeKernelSelection(os, i, mpd, write_kernel_call);
+   }  // end of writeKernelCall
+ 
+   bool CUDABackendBase::mergesPointStatusesInKernels() const {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+index 15e504917..4142d6bb9 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
+@@ -67,18 +67,7 @@ namespace mfront::generic_parallel::material_property {
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+       const FileDescription& fd) const {
+-    for (const auto b : {true, false}) {
+-      this->writeCImplementations2(os, i, mpd, fd, b);
+-    }
+-  }  // end of writeCImplementations
+-
+-  void CxxProgrammingModelBackendBase::writeCImplementations2(
+-      std::ostream& os,
+-      const GenericParallelMaterialPropertyInterface& i,
+-      const MaterialPropertyDescription& mpd,
+-      const FileDescription& fd,
+-      const bool treatStrides) const {
+-    this->writeCFunctionBeginning(os, i, mpd, treatStrides);
++    this->writeCFunctionBeginning(os, i, mpd);
+     // the runtime of the backend (data transfers, submission of the kernels)
+     // may throw exceptions, which must not cross the boundary of the C
+     // function. They are reported as runtime errors of the backend, as the
+@@ -86,24 +75,16 @@ namespace mfront::generic_parallel::material_property {
+     os << "try{\n";
+     this->writeExecutionPreparation(os, i, mpd);
+     if (this->handlesDataTransfer()) {
+-      this->writeDataTransfersToDevice(os, i, mpd, treatStrides);
++      this->writeDataTransfersToDevice(os, i, mpd);
+     }
+-    this->writeKernelCall(os, i, mpd, fd, treatStrides);
++    this->writeKernelCall(os, i, mpd, fd);
+     this->writeResultsAnalysis(os, i, mpd);
+     if (this->handlesDataTransfer()) {
+-      this->writeDataTransfersToHost(os, i, mpd, treatStrides);
++      this->writeDataTransfersToHost(os, i, mpd);
+     }
+-    os << "} catch(std::exception& mfront_cxx_exception){\n"
+-       << "mfront_output_status->status = -6;\n"
+-       << "mfront_report(mfront_cxx_exception.what());\n"
+-       << "return;\n"
+-       << "} catch(...){\n"
+-       << "mfront_output_status->status = -6;\n"
+-       << "mfront_report(\"unknown exception\");\n"
+-       << "return;\n"
+-       << "}\n";
+-    os << "} // end of " << i.getFunctionName(mpd) << "\n\n";
+-  }  // end of writeCImplementations2
++    writeHostExceptionsHandling(os);
++    writeCFunctionEnd(os, i, mpd);
++  }  // end of writeCImplementations
+ 
+   void CxxProgrammingModelBackendBase::writeKernel(
+       std::ostream& os,
+@@ -127,6 +108,7 @@ namespace mfront::generic_parallel::material_property {
+     if ((handleStrides) && (!mpd.inputs.empty())) {
+       os << ", mfront_strides";
+     }
++    os << ", mfront_statuses";
+     if (isBoundsCheckingRequired(mpd)) {
+       os << ", mfront_out_of_bounds_policy";
+       if (this->mergesPointStatusesInKernels()) {
+@@ -153,21 +135,20 @@ namespace mfront::generic_parallel::material_property {
+   void CxxProgrammingModelBackendBase::writeDataTransfersToHost(
+       std::ostream&,
+       const GenericParallelMaterialPropertyInterface&,
+-      const MaterialPropertyDescription&,
+-      const bool) const {}  // end of writeOutputDataTransfer
++      const MaterialPropertyDescription&) const {
++  }  // end of writeDataTransfersToHost
+ 
+   void CxxProgrammingModelBackendBase::writeDataTransfersToDevice(
+       std::ostream&,
+       const GenericParallelMaterialPropertyInterface&,
+-      const MaterialPropertyDescription&,
+-      const bool) const {}  // end of writeStateVariablesDataTransfer
++      const MaterialPropertyDescription&) const {
++  }  // end of writeDataTransfersToDevice
+ 
+   void CxxProgrammingModelBackendBase::writeKernels(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+-      const FileDescription& fd,
+-      const bool treatStrides) const {
++      const FileDescription& fd) const {
+     // variables captured by the kernels. The pointers to the arguments are
+     // copied, since the array of those pointers given by the calling code
+     // is generally not accessible by the device (for example, an array on
+@@ -189,9 +170,7 @@ namespace mfront::generic_parallel::material_property {
+          << nname << "::" << hn << "::get" << hn << "());\n";
+     }
+     this->writeKernel(os, i, mpd, fd, false);
+-    if (treatStrides) {
+-      this->writeKernel(os, i, mpd, fd, true);
+-    }
++    this->writeKernel(os, i, mpd, fd, true);
+   }  // end of writeKernels
+ 
+   std::string CxxProgrammingModelBackendBase::getKernelSpecifiers() const {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
+index 98d600dbe..4c0facfec 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
+@@ -52,14 +52,11 @@ namespace mfront::generic_parallel::material_property {
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+-      const FileDescription& fd,
+-      const bool treatStrides) const {
++      const FileDescription& fd) const {
+     const auto types = i.getTypesDescription();
+-    os << "if (!Kokkos::is_initialized()) {\n"
+-       << "mfront_output_status->status = -6;\n"
+-       << "mfront_report(\"Kokkos is not initialized\");\n"
+-       << "return;\n"
+-       << "}\n"
++    os << "if (!Kokkos::is_initialized()) {\n";
++    writeBatchError(os, -7, "\"Kokkos is not initialized\"");
++    os << "}\n"
+        << "using mfront_execution_space = " << this->execution_space
+        << ";\n"
+        // instance of the execution space given by the execution options
+@@ -81,7 +78,7 @@ namespace mfront::generic_parallel::material_property {
+           "});\n"
+           "return mfront_ptr;");
+     }
+-    this->writeKernels(os, i, mpd, fd, treatStrides);
++    this->writeKernels(os, i, mpd, fd);
+     auto write_loop = [&os, &types](const std::string_view npoints,
+                                     const bool handleStrides) {
+       const auto kernel = std::string{
+@@ -91,11 +88,9 @@ namespace mfront::generic_parallel::material_property {
+          << "::mfront::generic_parallel::kokkos::ensureStackSize<"
+          << "mfront_execution_space>(" << kernel
+          << ", mfront_options.preserve_stack_size != 0);\n"
+-         << "if (!mfront_stack_size_error.empty()) {\n"
+-         << "mfront_output_status->status = -6;\n"
+-         << "mfront_report(mfront_stack_size_error);\n"
+-         << "return;\n"
+-         << "}\n";
++         << "if (!mfront_stack_size_error.empty()) {\n";
++      writeBatchError(os, -7, "mfront_stack_size_error");
++      os << "}\n";
+       os << "// loop over the points\n"
+          << "Kokkos::parallel_for(\"mfront_kernel\", "
+          << "Kokkos::RangePolicy<mfront_execution_space, "
+@@ -108,7 +103,7 @@ namespace mfront::generic_parallel::material_property {
+          << "mfront_space.fence();\n"
+          << "}\n";
+     };
+-    this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
++    this->writeKernelSelection(os, i, mpd, write_loop);
+   }  // end of writeKernelCall
+ 
+   bool KokkosBackend::mergesPointStatusesInKernels() const {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/OpenACCBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/OpenACCBackend.cxx
+index 1523dea0d..634b03bd1 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/OpenACCBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/OpenACCBackend.cxx
+@@ -49,20 +49,17 @@ namespace mfront::generic_parallel::material_property {
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+-      const FileDescription& fd,
+-      const bool treatStrides) const {
++      const FileDescription& fd) const {
+     const auto types = i.getTypesDescription();
+     // the queue of the execution options is not used: the computations are
+     // performed on the current device of OpenACC
+     if (this->device_stack_size != 0) {
+       os << "if (!mfront::generic_parallel::openacc::setMinimalStackSize("
+          << this->device_stack_size
+-         << ", mfront_options.preserve_stack_size != 0)) {\n"
+-         << "mfront_output_status->status = -6;\n"
+-         << "mfront_report("
+-         << "mfront::generic_parallel::stack_size_error_message);\n"
+-         << "return;\n"
+-         << "}\n";
++         << ", mfront_options.preserve_stack_size != 0)) {\n";
++      writeBatchError(os, -7,
++                      "mfront::generic_parallel::stack_size_error_message");
++      os << "}\n";
+     }
+     const auto checks = this->isBoundsCheckingRequired(mpd);
+     if (checks) {
+@@ -70,7 +67,7 @@ namespace mfront::generic_parallel::material_property {
+       // behaviours
+       writeLocalStatisticsDeclaration(os);
+     }
+-    this->writeKernels(os, i, mpd, fd, treatStrides);
++    this->writeKernels(os, i, mpd, fd);
+     auto write_loop = [this, &os, &types, checks](
+                           const std::string_view npoints,
+                           const bool handleStrides) {
+@@ -85,21 +82,21 @@ namespace mfront::generic_parallel::material_property {
+         // type has the size of `unsigned long long`: the minimum reductions
+         // of OpenACC on `unsigned long long` are wrong on NVIDIA GPUs with
+         // `nvc++` 25.11
+-        os << "using mfront_index_type = std::conditional_t<"
++        os << "using mfront_key_type = std::conditional_t<"
+            << "sizeof(unsigned long) == sizeof(unsigned long long), "
+            << "unsigned long, unsigned long long>;\n"
+            << "auto mfront_number_of_failures = 0ull;\n"
+-           << "auto mfront_first_failure_index = "
+-           << "static_cast<mfront_index_type>(::mfront::gpmp::no_event);\n"
++           << "auto mfront_first_failure = "
++           << "static_cast<mfront_key_type>(::mfront::gpmp::no_event);\n"
+            << "auto mfront_number_of_unreliable_results = 0ull;\n"
+-           << "auto mfront_first_violation = "
+-           << "static_cast<mfront_index_type>(::mfront::gpmp::no_event);\n";
++           << "auto mfront_first_unreliable_result = "
++           << "static_cast<mfront_key_type>(::mfront::gpmp::no_event);\n";
+       }
+       const auto reductions =
+           std::string{checks ? " reduction(+ : mfront_number_of_failures, "
+                                "mfront_number_of_unreliable_results) "
+-                               "reduction(min : mfront_first_failure_index, "
+-                               "mfront_first_violation)"
++                               "reduction(min : mfront_first_failure, "
++                               "mfront_first_unreliable_result)"
+                              : ""};
+       os << "#pragma acc parallel loop copyin(" << kernel << ")" << reductions
+          << "\n";
+@@ -108,21 +105,20 @@ namespace mfront::generic_parallel::material_property {
+       if (checks) {
+         os << "const auto mfront_point_status = " << kernel << "(mfront_i);\n"
+            << "if (mfront_point_status.hasEvent()) {\n"
+-           << "if (mfront_point_status.failure) {\n"
++           << "const auto mfront_key = static_cast<mfront_key_type>("
++           << "::mfront::gpmp::makeKey("
++           << "static_cast<unsigned long long>(mfront_i), "
++           << "mfront_point_status.check));\n"
++           << "if (mfront_point_status.isFailure()) {\n"
+            << "mfront_number_of_failures += 1;\n"
+-           << "const auto mfront_ui = static_cast<mfront_index_type>("
+-           << "mfront_i);\n"
+-           << "mfront_first_failure_index = "
+-           << "(mfront_ui < mfront_first_failure_index) ? mfront_ui : "
+-           << "mfront_first_failure_index;\n"
++           << "mfront_first_failure = (mfront_key < mfront_first_failure) ? "
++           << "mfront_key : mfront_first_failure;\n"
+            << "} else {\n"
+            << "mfront_number_of_unreliable_results += 1;\n"
++           << "mfront_first_unreliable_result = "
++           << "(mfront_key < mfront_first_unreliable_result) ? "
++           << "mfront_key : mfront_first_unreliable_result;\n"
+            << "}\n"
+-           << "const auto mfront_violation = static_cast<mfront_index_type>("
+-           << "mfront_point_status.violation);\n"
+-           << "mfront_first_violation = "
+-           << "(mfront_violation < mfront_first_violation) ? "
+-           << "mfront_violation : mfront_first_violation;\n"
+            << "}\n";
+       } else {
+         os << kernel << "(mfront_i);\n";
+@@ -132,16 +128,17 @@ namespace mfront::generic_parallel::material_property {
+         os << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
+            << "mfront_gpmp_Statistics{"
+            << ".number_of_failures = mfront_number_of_failures, "
+-           << ".first_failure_index = "
+-           << "static_cast<unsigned long long>(mfront_first_failure_index), "
++           << ".first_failure = "
++           << "static_cast<unsigned long long>(mfront_first_failure), "
+            << ".number_of_unreliable_results = "
+            << "mfront_number_of_unreliable_results, "
+-           << ".first_violation = "
+-           << "static_cast<unsigned long long>(mfront_first_violation)});\n";
++           << ".first_unreliable_result = "
++           << "static_cast<unsigned long long>("
++           << "mfront_first_unreliable_result)});\n";
+       }
+       os << "}\n";
+     };
+-    this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
++    this->writeKernelSelection(os, i, mpd, write_loop);
+   }  // end of writeKernelCall
+ 
+   std::string OpenACCBackend::getMemorySpace() const {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx
+index 735f8fa8b..94411e00d 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx
+@@ -51,8 +51,7 @@ namespace mfront::generic_parallel::material_property {
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+-      const FileDescription& fd,
+-      const bool treatStrides) const {
++      const FileDescription& fd) const {
+     const auto types = i.getTypesDescription();
+     // the queue of the execution options is not used: the computations are
+     // performed by the OpenMP threads or the default device of OpenMP
+@@ -65,7 +64,7 @@ namespace mfront::generic_parallel::material_property {
+       // behaviours
+       writeLocalStatisticsDeclaration(os);
+     }
+-    this->writeKernels(os, i, mpd, fd, treatStrides);
++    this->writeKernels(os, i, mpd, fd);
+     auto write_loop = [this, &os, &types, checks](
+                           const std::string_view npoints,
+                           const bool handleStrides) {
+@@ -77,15 +76,16 @@ namespace mfront::generic_parallel::material_property {
+          << npoints << ");\n";
+       if (checks) {
+         os << "auto mfront_number_of_failures = 0ull;\n"
+-           << "auto mfront_first_failure_index = ::mfront::gpmp::no_event;\n"
++           << "auto mfront_first_failure = ::mfront::gpmp::no_event;\n"
+            << "auto mfront_number_of_unreliable_results = 0ull;\n"
+-           << "auto mfront_first_violation = ::mfront::gpmp::no_event;\n";
++           << "auto mfront_first_unreliable_result = "
++           << "::mfront::gpmp::no_event;\n";
+       }
+       const auto reductions = std::string{
+           checks ? " reduction(+ : mfront_number_of_failures, "
+                    "mfront_number_of_unreliable_results) "
+-                   "reduction(min : mfront_first_failure_index, "
+-                   "mfront_first_violation)"
++                   "reduction(min : mfront_first_failure, "
++                   "mfront_first_unreliable_result)"
+                  : ""};
+       if (this->offload) {
+         os << "#pragma omp target teams distribute parallel for "
+@@ -98,19 +98,19 @@ namespace mfront::generic_parallel::material_property {
+       if (checks) {
+         os << "const auto mfront_point_status = " << kernel << "(mfront_i);\n"
+            << "if (mfront_point_status.hasEvent()) {\n"
+-           << "if (mfront_point_status.failure) {\n"
++           << "const auto mfront_key = ::mfront::gpmp::makeKey("
++           << "static_cast<unsigned long long>(mfront_i), "
++           << "mfront_point_status.check);\n"
++           << "if (mfront_point_status.isFailure()) {\n"
+            << "mfront_number_of_failures += 1;\n"
+-           << "const auto mfront_ui = static_cast<unsigned long long>("
+-           << "mfront_i);\n"
+-           << "mfront_first_failure_index = "
+-           << "(mfront_ui < mfront_first_failure_index) ? mfront_ui : "
+-           << "mfront_first_failure_index;\n"
++           << "mfront_first_failure = (mfront_key < mfront_first_failure) ? "
++           << "mfront_key : mfront_first_failure;\n"
+            << "} else {\n"
+            << "mfront_number_of_unreliable_results += 1;\n"
++           << "mfront_first_unreliable_result = "
++           << "(mfront_key < mfront_first_unreliable_result) ? "
++           << "mfront_key : mfront_first_unreliable_result;\n"
+            << "}\n"
+-           << "mfront_first_violation = "
+-           << "(mfront_point_status.violation < mfront_first_violation) ? "
+-           << "mfront_point_status.violation : mfront_first_violation;\n"
+            << "}\n";
+       } else {
+         os << kernel << "(mfront_i);\n";
+@@ -120,14 +120,14 @@ namespace mfront::generic_parallel::material_property {
+         os << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
+            << "mfront_gpmp_Statistics{"
+            << ".number_of_failures = mfront_number_of_failures, "
+-           << ".first_failure_index = mfront_first_failure_index, "
++           << ".first_failure = mfront_first_failure, "
+            << ".number_of_unreliable_results = "
+            << "mfront_number_of_unreliable_results, "
+-           << ".first_violation = mfront_first_violation});\n";
++           << ".first_unreliable_result = mfront_first_unreliable_result});\n";
+       }
+       os << "}\n";
+     };
+-    this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
++    this->writeKernelSelection(os, i, mpd, write_loop);
+   }  // end of writeKernelCall
+ 
+   std::string OpenMPBackend::getMemorySpace() const {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+index b40008612..b4070c6db 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+@@ -57,8 +57,7 @@ namespace mfront::generic_parallel::material_property {
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+-      const FileDescription& fd,
+-      const bool treatStrides) const {
++      const FileDescription& fd) const {
+     const auto types = i.getTypesDescription();
+     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
+     // the queue of the execution options is not used: the C++ parallel
+@@ -69,7 +68,7 @@ namespace mfront::generic_parallel::material_property {
+       // behaviours
+       writeLocalStatisticsDeclaration(os);
+     }
+-    this->writeKernels(os, i, mpd, fd, treatStrides);
++    this->writeKernels(os, i, mpd, fd);
+     auto write_kernel_call = [&os, this, &types, requiresBoundsCheck](
+                                  const std::string_view npoints,
+                                  const bool handleStrides) {
+@@ -93,9 +92,9 @@ namespace mfront::generic_parallel::material_property {
+       os << "const auto mfront_reduced_statistics = std::transform_reduce("
+          << this->execution_policy << ", " << range << ", "
+          << "mfront_gpmp_Statistics{.number_of_failures = 0, "
+-         << ".first_failure_index = ::mfront::gpmp::no_event, "
++         << ".first_failure = ::mfront::gpmp::no_event, "
+          << ".number_of_unreliable_results = 0, "
+-         << ".first_violation = ::mfront::gpmp::no_event}, "
++         << ".first_unreliable_result = ::mfront::gpmp::no_event}, "
+          << "[](const mfront_gpmp_Statistics& mfront_a, "
+          << "const mfront_gpmp_Statistics& mfront_b) {\n"
+          << "return ::mfront::gpmp::merge(mfront_a, mfront_b);\n"
+@@ -108,7 +107,7 @@ namespace mfront::generic_parallel::material_property {
+          << "*mfront_statistics = ::mfront::gpmp::merge(*mfront_statistics, "
+          << "mfront_reduced_statistics);\n";
+     };
+-    this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
++    this->writeKernelSelection(os, i, mpd, write_kernel_call);
+   }  // end of writeKernelCall
+ 
+   std::string ParallelSTLBackend::getMemorySpace() const {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/RAJABackend.cxx b/mfront/src/GenericParallel/MaterialProperty/RAJABackend.cxx
+index 8eb342ab1..e356c9ad5 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/RAJABackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/RAJABackend.cxx
+@@ -50,8 +50,7 @@ namespace mfront::generic_parallel::material_property {
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+-      const FileDescription& fd,
+-      const bool treatStrides) const {
++      const FileDescription& fd) const {
+     const auto types = i.getTypesDescription();
+     os << "using mfront_execution_policy = " << this->execution_policy
+        << ";\n"
+@@ -69,7 +68,7 @@ namespace mfront::generic_parallel::material_property {
+           "return mfront_resource.template allocate<mfront_gpmp_Statistics>("
+           "1, camp::resources::MemoryAccess::Managed);");
+     }
+-    this->writeKernels(os, i, mpd, fd, treatStrides);
++    this->writeKernels(os, i, mpd, fd);
+     auto write_loop = [&os, &types](const std::string_view npoints,
+                                     const bool handleStrides) {
+       const auto kernel = std::string{
+@@ -79,11 +78,9 @@ namespace mfront::generic_parallel::material_property {
+          << "::mfront::generic_parallel::raja::ensureStackSize<"
+          << "mfront_execution_policy>(" << kernel
+          << ", mfront_options.preserve_stack_size != 0);\n"
+-         << "if (!mfront_stack_size_error.empty()) {\n"
+-         << "mfront_output_status->status = -6;\n"
+-         << "mfront_report(mfront_stack_size_error);\n"
+-         << "return;\n"
+-         << "}\n";
++         << "if (!mfront_stack_size_error.empty()) {\n";
++      writeBatchError(os, -7, "mfront_stack_size_error");
++      os << "}\n";
+       os << "// loop over the points\n"
+          << "RAJA::forall<mfront_execution_policy>(mfront_resource, "
+          << "RAJA::TypedRangeSegment<" << types.integer_type << ">("
+@@ -95,7 +92,7 @@ namespace mfront::generic_parallel::material_property {
+          << "mfront_resource.wait();\n"
+          << "}\n";
+     };
+-    this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
++    this->writeKernelSelection(os, i, mpd, write_loop);
+   }  // end of writeKernelCall
+ 
+   bool RAJABackend::mergesPointStatusesInKernels() const {
+diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+index fcbb1dac8..286860c95 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+@@ -58,11 +58,9 @@ namespace mfront::generic_parallel::material_property {
+       const MaterialPropertyDescription&) const {
+     // SYCL has no default queue: the queue gives the device and the context
+     // of the unified shared memory of the calling code
+-    os << "if (mfront_options.queue == nullptr) {\n"
+-       << "mfront_output_status->status = -5;\n"
+-       << "mfront_report(\"no SYCL queue given\");\n"
+-       << "return;\n"
+-       << "}\n"
++    os << "if (mfront_options.queue == nullptr) {\n";
++    writeBatchError(os, -5, "\"no SYCL queue given\"");
++    os << "}\n"
+        << "auto* const mfront_queue = "
+        << "static_cast<::sycl::queue*>(mfront_options.queue);\n"
+        // the kernel must be executed after the computations already
+@@ -71,12 +69,11 @@ namespace mfront::generic_parallel::material_property {
+        // evaluation is synchronous and the queue is synchronized before the
+        // kernel, as for the behaviours.
+        << "if (!mfront_queue->is_in_order()) {\n"
+-       << "if (mfront_asynchronous) {\n"
+-       << "mfront_output_status->status = -5;\n"
+-       << "mfront_report(\"asynchronous evaluations require an in-order SYCL "
+-       << "queue\");\n"
+-       << "return;\n"
+-       << "}\n"
++       << "if (mfront_asynchronous) {\n";
++    writeBatchError(os, -5,
++                    "\"asynchronous evaluations require an in-order SYCL "
++                    "queue\"");
++    os << "}\n"
+        << "mfront_queue->wait_and_throw();\n"
+        << "}\n";
+   }  // end of writeExecutionPreparation
+@@ -85,8 +82,7 @@ namespace mfront::generic_parallel::material_property {
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+       const MaterialPropertyDescription& mpd,
+-      const FileDescription& fd,
+-      const bool treatStrides) const {
++      const FileDescription& fd) const {
+     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
+     writeDeviceStackSizeSetting(os, this->device_stack_size);
+     if (requiresBoundsCheck) {
+@@ -105,7 +101,7 @@ namespace mfront::generic_parallel::material_property {
+            << "}\n";
+       }
+     }
+-    this->writeKernels(os, i, mpd, fd, treatStrides);
++    this->writeKernels(os, i, mpd, fd);
+     auto write_kernel_call = [&os, this](const std::string_view npoints,
+                                          const bool handleStrides) {
+       os << "// loop over the points\n";
+@@ -130,7 +126,7 @@ namespace mfront::generic_parallel::material_property {
+            << "}\n";
+       }
+     };
+-    this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
++    this->writeKernelSelection(os, i, mpd, write_kernel_call);
+   }  // end of writeKernelCall
+ 
+   bool SYCLBackend::mergesPointStatusesInKernels() const {
+@@ -165,14 +161,14 @@ namespace mfront::generic_parallel::material_property {
+   void SYCLBackend::writeDataTransfersToDevice(
+       std::ostream& os,
+       const GenericParallelMaterialPropertyInterface& i,
+-      const MaterialPropertyDescription& mpd,
+-      const bool treatStrides) const {
++      const MaterialPropertyDescription& mpd) const {
+     if (!this->handlesDataTransfer()) {
+       return;
+     }
+     // the arrays which are not accessible by the device are copied in
+-    // device memory, as for the behaviours. The output is also copied, so
+-    // that the points where the evaluation fails keep their values
++    // device memory, as for the behaviours. The output is copied in both
++    // directions, so that the values between two values of a strided output
++    // are kept
+     const auto types = i.getTypesDescription();
+     const auto ns = std::string{"::mfront::generic_parallel::sycl::"};
+     os << "auto mfront_copies = " << ns << "DeviceCopies{*mfront_queue, "
+@@ -181,13 +177,10 @@ namespace mfront::generic_parallel::material_property {
+       os << "auto mfront_args_storage = std::array<const " << types.real_type
+          << "*, " << mpd.inputs.size() << ">{};\n";
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-        const auto stride = treatStrides ? "mfront_args_strides[" +
+-                                               std::to_string(idx) + "]"
+-                                         : std::string{"1"};
+         os << "{\n"
+            << "auto mfront_values = " << ns << "StridedArray<const "
+            << types.real_type << ">{mfront_args_host[" << idx << "], "
+-           << stride << ", 1};\n"
++           << "mfront_strides[" << idx << "], 1};\n"
+            << "mfront_copies.transfer(mfront_values, 1, false);\n"
+            << "mfront_args_storage[" << idx << "] = mfront_values.values;\n"
+            << "}\n";
+@@ -195,17 +188,18 @@ namespace mfront::generic_parallel::material_property {
+       os << "const auto* const mfront_args = mfront_args_storage.data();\n";
+     }
+     os << "auto mfront_output_values = " << ns << "StridedArray<"
+-       << types.real_type << ">{mfront_output_host, "
+-       << (treatStrides ? "mfront_output_stride" : "1") << ", 1};\n"
++       << types.real_type << ">{mfront_output_host, mfront_output_stride, "
++       << "1};\n"
+        << "mfront_copies.transfer(mfront_output_values, 1, true);\n"
+-       << "auto* const mfront_output = mfront_output_values.values;\n";
++       << "auto* const mfront_output = mfront_output_values.values;\n"
++       // statuses of the points, if requested
++       << "mfront_copies.transfer(mfront_statuses, mfront_npoints, true);\n";
+   }  // end of writeDataTransfersToDevice
+ 
+   void SYCLBackend::writeDataTransfersToHost(
+       std::ostream&,
+       const GenericParallelMaterialPropertyInterface&,
+-      const MaterialPropertyDescription&,
+-      const bool) const {}
++      const MaterialPropertyDescription&) const {}
+ 
+   std::string SYCLBackend::getMemorySpace() const {
+     // with automatic transfers, the arguments and the output which are not
+diff --git a/mfront/src/GenericParallelMaterialPropertyInterface.cxx b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+index a506cb7e2..690b5fd0a 100644
+--- a/mfront/src/GenericParallelMaterialPropertyInterface.cxx
++++ b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+@@ -153,8 +153,7 @@ namespace mfront {
+ #if !((defined _WIN32) && (defined _MSC_VER))
+     insert_if(l.link_libraries, "m");
+ #endif /* !((defined _WIN32) && (defined _MSC_VER)) */
+-    insert_if(l.epts, name);
+-    insert_if(l.epts, name + '2');
++    insert_if(l.epts, name + "_generic_parallel");
+     d.headers.push_back(this->getHeaderFileName(name));
+   }  // end of getLibraryDescription
+ 
+@@ -170,10 +169,15 @@ namespace mfront {
+       const MaterialPropertyDescription& mpd) const {
+     const auto& material = mpd.material;
+     const auto& className = mpd.className;
+-    if (material.empty()) {
+-      return className;
+-    }
+-    return material + "_" + className;
++    const auto name =
++        material.empty() ? className : material + "_" + className;
++    // the names of the batch functions and of their metadata end with
++    // `_generic_parallel`
++    tfel::raise_if(name.find("_generic_parallel") != std::string::npos,
++                   "GenericParallelMaterialPropertyInterface::getFunctionName: "
++                   "the name of the material property ('" +
++                       name + "') must not contain '_generic_parallel'");
++    return name;
+   }
+ 
+   std::string GenericParallelMaterialPropertyInterface::getHeaderFileName(
+-- 
+2.43.0
+

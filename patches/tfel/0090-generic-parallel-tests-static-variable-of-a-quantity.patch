@@ -1,0 +1,38 @@
+From df313de8a2ea654154d8513bde0b301afbb98ae0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 01:30:48 +0200
+Subject: [PATCH] generic-parallel tests: static variable of a quantity used in
+ device code
+
+StrainHardeningCreep3 (with `@UseQt true`) declares a static strain rate,
+equal to zero, used in its flow rule in an expression evaluated at run
+time: the operator takes it by reference. Without the copy of the static
+variables built at compile time by MFront, the CUDA configuration fails
+("identifier de0 is undefined in device code"). The flow rule is still
+null.
+---
+ .../generic-parallel/StrainHardeningCreep3.mfront          | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/test-suite/behaviours/generic-parallel/StrainHardeningCreep3.mfront b/test-suite/behaviours/generic-parallel/StrainHardeningCreep3.mfront
+index e5d27a413..9b8454013 100644
+--- a/test-suite/behaviours/generic-parallel/StrainHardeningCreep3.mfront
++++ b/test-suite/behaviours/generic-parallel/StrainHardeningCreep3.mfront
+@@ -8,8 +8,13 @@
+ @AuxiliaryStateVariable stress l,m;
+ @AuxiliaryStateVariable stress l_tdt,m_tdt;
+ 
++// static variable of a quantity, given by reference to an operator in an
++// expression evaluated at run time, in device code (copy built at compile
++// time by MFront). The flow rule is still null.
++@StaticVariable strainrate de0 = 0;
++
+ @FlowRule{
+-  f       =  strainrate{0};
++  f       =  de0 + strainrate{0} * p;
+   df_dseq =  derivative_type<strainrate,stress>{0};
+   df_dp   =  strainrate{0};
+ }
+-- 
+2.43.0
+

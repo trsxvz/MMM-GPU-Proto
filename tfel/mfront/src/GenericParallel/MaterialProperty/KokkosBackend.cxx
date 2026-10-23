@@ -59,11 +59,12 @@ namespace mfront::generic_parallel::material_property {
     os << "}\n"
        << "using mfront_execution_space = " << this->execution_space
        << ";\n"
-       // instance of the execution space given by the execution options
-       << "const auto mfront_space = (mfront_options.queue == nullptr) ? "
+       // instance of the execution space of the execution policy (default
+       // instance for the default policy)
+       << "const auto mfront_space = "
+       << "(mfront_backend_policy.policy == nullptr) ? "
        << "mfront_execution_space{} : "
-       << "*static_cast<const mfront_execution_space*>("
-       << "mfront_options.queue);\n";
+       << "mfront_backend_policy.policy->execution_space;\n";
     if (this->isBoundsCheckingRequired(mpd)) {
       // the statistics are written by the kernels and read on the host.
       // Kokkos uses one device per process. The blocks are freed when Kokkos
@@ -87,7 +88,7 @@ namespace mfront::generic_parallel::material_property {
       os << "const auto mfront_stack_size_error = "
          << "::mfront::generic_parallel::kokkos::ensureStackSize<"
          << "mfront_execution_space>(" << kernel
-         << ", mfront_options.preserve_stack_size != 0);\n"
+         << ", mfront_preserve_stack_size);\n"
          << "if (!mfront_stack_size_error.empty()) {\n";
       writeBatchError(os, -7, "mfront_stack_size_error");
       os << "}\n";
@@ -128,6 +129,15 @@ namespace mfront::generic_parallel::material_property {
            "mfront::generic_parallel::host_memory_space : "
            "mfront::generic_parallel::device_memory_space)";
   }  // end of getMemorySpace
+
+  std::string KokkosBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::KokkosBackendExecutionPolicy<" +
+           this->execution_space + ">";
+  }  // end of getExecutionPolicyType
+
+  std::string KokkosBackend::getExecutionPolicyHeader() const {
+    return "MFront/GenericParallel/KokkosBackendExecutionPolicy.hxx";
+  }  // end of getExecutionPolicyHeader
 
   KokkosBackend::~KokkosBackend() noexcept = default;
 

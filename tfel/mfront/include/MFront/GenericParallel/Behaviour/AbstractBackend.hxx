@@ -81,7 +81,8 @@ namespace mfront::generic_parallel::behaviour {
      * or managed.
      * \param[in] getter: address of the static function returning the data
      * (a non-type template argument identifying the data)
-     * \param[in] execution: expression giving the execution options
+     * \param[in] execution: expression giving the execution policy (see
+     * the `execution_policy` member of `mfront_gpb_BatchData`)
      */
     [[nodiscard]] virtual std::string getSharedDataCopy(std::string_view,
                                                         std::string_view) const;
@@ -99,6 +100,13 @@ namespace mfront::generic_parallel::behaviour {
      * `any`
      */
     [[nodiscard]] virtual std::string getMemorySpace() const = 0;
+    /*!
+     * \return the type of the execution policy of the backend (see
+     * `MFront/GenericParallel/AbstractBackendExecutionPolicy.hxx`), checked
+     * by the generated functions. Its header is included by the header of
+     * the backend (see `writeSpecificIncludes`).
+     */
+    [[nodiscard]] virtual std::string getExecutionPolicyType() const = 0;
     /*!
      * \brief write the statement returning the result of a function defined
      * in the `MFront/GenericParallelBehaviour/Integrate.hxx` header

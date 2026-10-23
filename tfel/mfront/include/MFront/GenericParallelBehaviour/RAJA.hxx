@@ -18,6 +18,7 @@
 #include <type_traits>
 #include "RAJA/RAJA.hpp"
 #include "MFront/GenericParallel/RAJAExecutionPolicy.hxx"
+#include "MFront/GenericParallel/RAJABackendExecutionPolicy.hxx"
 #include "MFront/GenericParallel/StatusBlockPool.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
@@ -85,21 +86,23 @@ namespace mfront::gpb::raja {
    * statistics of the batch.
    *
    * The statistics are accumulated by atomic operations, only performed if
-   * an event occurs at a point. If the execution options give statistics,
-   * this function returns once the computations are submitted. Otherwise,
-   * the statistics are held by a block of managed memory, initialized and
-   * read by the host, and this function waits for the completion of the
-   * computations.
+   * an event occurs at a point. If the calling code gives statistics, they
+   * are accumulated in them, and this function returns once the
+   * computations are submitted if the computations are asynchronous.
+   * Otherwise, the statistics are held by a block of managed memory,
+   * initialized and read by the host. In both cases, a synchronous
+   * computation waits for the completion of the computations.
    *
    * \tparam ExecutionPolicy: execution policy of RAJA
    * \tparam PointFunction: function object taking the index of a point and
    * returning the statistics associated with this point
    * \param[in,out] s: output status, which must have been initialized
    * \param[in] n: number of points
-   * \param[in] o: execution options. The queue is a pointer to a resource of
-   * camp matching the execution policy (`camp::resources::Cuda`, `Hip` or
-   * `Host`). If null, the default stream of the current device is used with
-   * CUDA and HIP, the default resource otherwise (see
+   * \param[in] e: execution of the batch. The policy is a
+   * `RAJABackendExecutionPolicy` holding a resource of camp matching the
+   * execution policy (`camp::resources::Cuda`, `Hip` or `Host`). If null,
+   * the default stream of the current device is used with CUDA and HIP, the
+   * default resource otherwise (see
    * `mfront::generic_parallel::raja::getDefaultResource`).
    * \param[in] rdt0: initial value of the time step scaling factor
    * \param[in] f: function
@@ -108,27 +111,39 @@ namespace mfront::gpb::raja {
   template <typename ExecutionPolicy, typename PointFunction>
   int apply(OutputStatus& s,
             const size_type n,
-            const ExecutionOptions& o,
+            const BatchExecution& e,
             const real rdt0,
             const PointFunction& f) {
     using Resource = mfront::generic_parallel::raja::Resource<ExecutionPolicy>;
+    using BackendExecutionPolicy =
+        ::mfront::generic_parallel::RAJABackendExecutionPolicy<Resource>;
     if (n == 0) {
       return s.status;
     }
-    const auto e =
-        mfront::generic_parallel::raja::ensureStackSize<ExecutionPolicy>(
-            f, o.preserve_stack_size != 0);
-    if (!e.empty()) {
-      return report(s, -7, e);
+    const auto p = ::mfront::generic_parallel::checkBackendExecutionPolicy<
+        BackendExecutionPolicy>(e.policy, e.statistics != nullptr);
+    if (p.error != nullptr) {
+      return report(s, -5, p.error);
     }
-    auto resource =
-        mfront::generic_parallel::raja::getResource<ExecutionPolicy>(o.queue);
+    const auto error =
+        mfront::generic_parallel::raja::ensureStackSize<ExecutionPolicy>(
+            f, p.common_options.preserve_stack_size);
+    if (!error.empty()) {
+      return report(s, -7, error);
+    }
+    auto resource = p.policy == nullptr
+                        ? mfront::generic_parallel::raja::getDefaultResource<
+                              ExecutionPolicy>()
+                        : p.policy->resource;
     const auto range = RAJA::TypedRangeSegment<size_type>(0, n);
     const auto rdt_key = toOrderedKey(rdt0);
-    if (o.statistics != nullptr) {
+    if (e.statistics != nullptr) {
       RAJA::forall<ExecutionPolicy>(
           resource, range,
-          internals::AtomicUpdate<PointFunction>{f, o.statistics, rdt_key});
+          internals::AtomicUpdate<PointFunction>{f, e.statistics, rdt_key});
+      if (!p.common_options.asynchronous) {
+        resource.wait();
+      }
       return s.status;
     }
     // synchronous computations: the device only accesses the block if an
@@ -202,9 +217,9 @@ namespace mfront::gpb::raja {
    */
   template <typename ExecutionPolicy>
   auto makeApply(OutputStatus& s) {
-    return [&s](const size_type n, const ExecutionOptions& o, const real rdt0,
+    return [&s](const size_type n, const BatchExecution& e, const real rdt0,
                 const auto& f) {
-      return raja::apply<ExecutionPolicy>(s, n, o, rdt0, f);
+      return raja::apply<ExecutionPolicy>(s, n, e, rdt0, f);
     };
   }  // end of makeApply
 

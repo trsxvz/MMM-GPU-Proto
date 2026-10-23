@@ -1,0 +1,13 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::arcane",
+            "mfront::linear_system_solver::tdls"};
+
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+// behaviours using the TDLS linear system solver, on the CUDA queue
+// (default) and on a `Thread` queue
+@Command "sh ../../build-libraries.sh @mfront@ config-arcane.json ImplicitNortonTDLS";
+@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
+@Command "sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-arcane.so";
+@Command "env MFRONT_GPB_COMPARE_ARCANE_QUEUE=thread sh ../../compare-tdls.sh ./compare src/libGenericParallelBehaviour-arcane.so";
+
+@CleanFiles {"compare"};
+@CleanDirectories {"include", "src", "reference"};

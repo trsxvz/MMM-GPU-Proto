@@ -59,4 +59,13 @@ Patches, by subject (independently of their numbers; the details are in
   properties and behaviours, copies of the structures of TFEL checked
   member by member, report functions of the libraries, functions of
   batches and of a point detected independently, libraries also
-  containing the functions of the `generic` interface, documentation.
+  containing the functions of the `generic` interface, documentation;
+- execution policies of the backends (patches 0087 and 0088): the
+  execution policies of MGIS hold a pointer to the policy of the backend
+  defined by TFEL (declared only, MGIS still builds without TFEL), copies
+  of the version 4 of the data structures, identifier of the expected
+  policy in the descriptions, tests of the rules.
+- Arcane (patch 0089): field operations launched on a queue of Arccore,
+  the core component of the Arcane framework, and memory resource of the
+  unified memory of Arccore, counterparts of the `arcane` backend of
+  MFront.

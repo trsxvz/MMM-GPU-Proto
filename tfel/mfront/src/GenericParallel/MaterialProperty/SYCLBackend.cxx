@@ -56,13 +56,16 @@ namespace mfront::generic_parallel::material_property {
       std::ostream& os,
       const GenericParallelMaterialPropertyInterface&,
       const MaterialPropertyDescription&) const {
-    // SYCL has no default queue: the queue gives the device and the context
-    // of the unified shared memory of the calling code
-    os << "if (mfront_options.queue == nullptr) {\n";
-    writeBatchError(os, -5, "\"no SYCL queue given\"");
+    // SYCL has no default queue: the queue of the execution policy gives
+    // the device and the context of the unified shared memory of the calling
+    // code
+    os << "if (mfront_backend_policy.policy == nullptr) {\n";
+    writeBatchError(os, -5,
+                    "\"no execution policy given: the sycl backend requires "
+                    "a queue\"");
     os << "}\n"
-       << "auto* const mfront_queue = "
-       << "static_cast<::sycl::queue*>(mfront_options.queue);\n"
+       << "auto mfront_sycl_queue = mfront_backend_policy.policy->queue;\n"
+       << "auto* const mfront_queue = &mfront_sycl_queue;\n"
        // the kernel must be executed after the computations already
        // submitted to the queue, which may compute the arguments. This is
        // guaranteed by an in-order queue. With an out-of-order queue, the
@@ -96,7 +99,7 @@ namespace mfront::generic_parallel::material_property {
       if (this->handlesDataTransfer()) {
         // statistics given by the calling code which are not accessible by
         // the device, as the arguments and the output
-        os << "if (mfront_asynchronous) {\n"
+        os << "if (mfront_deferred_report) {\n"
            << "mfront_copies.transfer(mfront_statistics, 1, true);\n"
            << "}\n";
       }
@@ -209,6 +212,14 @@ namespace mfront::generic_parallel::material_property {
     }
     return "mfront::generic_parallel::device_memory_space";
   }  // end of getMemorySpace
+
+  std::string SYCLBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::SyclBackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
+  std::string SYCLBackend::getExecutionPolicyHeader() const {
+    return "MFront/GenericParallel/SyclBackendExecutionPolicy.hxx";
+  }  // end of getExecutionPolicyHeader
 
   SYCLBackend::~SYCLBackend() = default;
 

@@ -4,7 +4,7 @@
 // libraries of the reference (`generic` interface, host compiler) and of the
 // tested configuration (see build-libraries.sh)
 @Command "sh ../build-libraries.sh @mfront@ config-hip-hipcc.json";
-@Command "@TFEL_HIPCC_COMPILER@ @TFEL_HIPCC_FLAGS@ -O2 --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+@Command "@TFEL_HIPCC_COMPILER@ @TFEL_HIPCC_FLAGS@ -O2 --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_HIP -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl";
 // comparisons with the `generic` interface, which gives the reference
 // results (see compare-all.sh)
 @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-hip.so";

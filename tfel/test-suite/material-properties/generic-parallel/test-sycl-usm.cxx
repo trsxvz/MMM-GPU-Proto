@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cmath>
+#include <memory>
 #include <vector>
 #include <iostream>
 #include <sycl/sycl.hpp>
@@ -22,6 +23,7 @@
 #include "TFEL/Tests/TestManager.hxx"
 
 #include "MFront/GenericMaterialProperty/MaterialProperty.h"
+#include "MFront/GenericParallel/SyclBackendExecutionPolicy.hxx"
 #include "PoissonRatioTest-generic-parallel-sycl.hxx"
 #include "BoundsOrderTest-generic-parallel-sycl.hxx"
 #include "Inconel600_YoungModulus-generic-parallel-sycl.hxx"
@@ -83,10 +85,32 @@ struct TestAllocator : sycl::usm_allocator<T, test_usm_kind> {
 template <typename T>
 using test_vector = std::vector<T, TestAllocator<T>>;
 
-//! \return the execution options of a synchronous evaluation
-static mfront_gpmp_ExecutionOptions testOptions() {
-  return mfront_gpmp_ExecutionOptions{.queue = &getTestQueue()};
-}  // end of testOptions
+//! \return the execution policy of the synchronous evaluations
+static const mfront::generic_parallel::SyclBackendExecutionPolicy&
+getTestPolicy() {
+  static const auto p =
+      mfront::generic_parallel::makeSyclBackendExecutionPolicy(getTestQueue());
+  return p;
+}  // end of getTestPolicy
+
+#include "batch.hxx"
+
+//! \return the execution of a synchronous evaluation
+static TestExecution testExecution() {
+  return TestExecution{.policy = &getTestPolicy()};
+}  // end of testExecution
+
+/*!
+ * \return an execution policy of the `sycl` backend on the queue of the
+ * tests
+ * \param[in] o: common options
+ */
+static std::unique_ptr<mfront::generic_parallel::AbstractBackendExecutionPolicy>
+makeTestPolicy(
+    const mfront::generic_parallel::BackendExecutionCommonPolicy& o) {
+  return std::make_unique<mfront::generic_parallel::SyclBackendExecutionPolicy>(
+      getTestQueue(), o);
+}  // end of makeTestPolicy
 
 #include "tests.hxx"
 

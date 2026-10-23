@@ -1,4 +1,4 @@
-From 4c459157458dc96177ef5eb79f1e7d11a620be03 Mon Sep 17 00:00:00 2001
+From 74e51b8b32aef213d132e48bf38a3f84c71b8972 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 06:03:41 +0200
 Subject: [PATCH] generic-parallel: TDLS tests for all the configurations

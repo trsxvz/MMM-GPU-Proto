@@ -4,7 +4,7 @@
 // libraries of the reference (`generic` interface, host compiler) and of the
 // tested configuration (see build-libraries.sh)
 @Command "sh ../build-libraries.sh @mfront@ config-openacc-nvhpc-gpu.json";
-@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -acc=gpu -gpu=mem:unified --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl -lnvhpcmanaux";
+@Command "@TFEL_NVHPC_COMPILER@ -O2 -march=native -acc=gpu -gpu=mem:unified --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl -lnvhpcmanaux";
 // comparisons with the `generic` interface, which gives the reference
 // results (see compare-all.sh)
 @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-openacc.so";

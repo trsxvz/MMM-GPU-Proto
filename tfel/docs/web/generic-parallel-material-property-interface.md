@@ -21,9 +21,9 @@ The `generic-parallel` interface has been designed to be compatible with
 current parallel programming models (see the `Backends` section). The
 same backends are available in the [`generic-parallel` interface for
 behaviours](generic-parallel-behaviour-interface.html), which describes
-the notions shared by both interfaces (memory spaces, queues, stack size
-of the threads of the devices, configuration files delivered with
-`TFEL`).
+the notions shared by both interfaces (memory spaces, execution policies
+and queues, stack size of the threads of the devices, configuration files
+delivered with `TFEL`).
 
 # Generated functions
 
@@ -63,15 +63,18 @@ In addition, the `generic-parallel` interface also exports:
   The library does not contain the function `S` of the `generic`
   interface;
 - the `S_generic_parallel_api_version` symbol (an `unsigned short`),
-  equal to the `MFRONT_GPMP_API_VERSION` macro (`3`), shifted by 1000 for
+  equal to the `MFRONT_GPMP_API_VERSION` macro (`4`), shifted by 1000 for
   a material property generated with another numerical type than `double`
   (`real_type` DSL option). This symbol tells
   that the library contains the functions of batches of points. It only
   changes with an incompatible change of those functions: a calling code
   must refuse any version it does not know;
 - the `S_generic_parallel_backend` symbol, which gives the backend of the
-  library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp` or
-  `openacc`), for information;
+  library (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp`,
+  `openacc` or `arcane`), for information;
+- the `S_generic_parallel_execution_policy` symbol (a `const char*`),
+  which gives the identifier of the execution policy expected by the
+  generated function, as for the behaviours (see below);
 - the `S_generic_parallel_memory_space` symbol (a `const char*`), which
   tells where the values and the statuses of the points must be located
   (`host`, `device` or `any`, as for the behaviours). The statistics must
@@ -96,7 +99,8 @@ typedef struct mfront_gpmp_BatchData {
   mfront_gmp_size_type number_of_arguments;
   mfront_gmp_OutOfBoundsPolicy out_of_bounds_policy;
   int* statuses;                            // optional, code of each point
-  mfront_gpmp_ExecutionOptions execution;
+  mfront_gpmp_Statistics* statistics;       // optional, see below
+  const mfront_gp_AbstractBackendExecutionPolicy* execution_policy;  // see below
 } mfront_gpmp_BatchData;
 ~~~~
 
@@ -132,52 +136,69 @@ of `errno` is restored before returning.
 
 An empty batch is accepted without any check, as an empty batch by the
 behaviours: nothing is read, written or submitted, and the status is
-`0`. The arrays and the queue may then be null.
+`0`. The arrays and the execution policy may then be null.
 
 All the backends treat a batch of one point, and the case where all the
 strides are equal to one, with a kernel without strides.
 
-## Execution options
+## Execution policies and statistics
 
-The `execution` member of the data of the batch gives the options of the
-execution (`mfront_gpmp_ExecutionOptions`). It has the same meaning on
-all the backends, as the execution options of the behaviours:
+The `execution_policy` and `statistics` members of the data of the batch
+have the same meaning on all the backends, as for the behaviours (see the
+[page of the
+behaviours](generic-parallel-behaviour-interface.html#execution-policies-and-statistics),
+which lists the policies of the backends):
 
-- `queue`: queue on which the computations are submitted: `cudaStream_t` or
-  `hipStream_t` (the default stream if null), pointer to a `sycl::queue`
-  (required by the `SYCL` backend), pointer to an instance of the Kokkos
-  execution space (default instance if null), pointer to a resource of camp
-  matching the execution policy of RAJA (default stream of the current
-  device with `CUDA` and `HIP`, default resource otherwise, if null). It is
-  not used by the C++ parallel algorithms, `OpenMP` and `OpenACC`. The
-  evaluation is ordered after the computations previously submitted to the
-  queue, which may compute the arguments. With the `SYCL` backend, an
-  out-of-order queue gives no order between the kernels: an evaluation
-  with statistics then requires an in-order queue
-  (`sycl::property::queue::in_order`), and is refused with an out-of-order
-  queue (status `-5`). An evaluation without statistics synchronizes an
-  out-of-order queue before the kernel.
+- `execution_policy`: execution policy of the backend of the library
+  (`mfront::generic_parallel::CUDABackendExecutionPolicy`, etc., declared
+  in the headers of `MFront/GenericParallel`), or null for the default
+  policy of the backend: the default stream for `CUDA` and `HIP`, the
+  default instance of the Kokkos execution space, the default stream of
+  the current device with `CUDA` and `HIP` and the default resource
+  otherwise for RAJA. The `SYCL` and `Arcane` backends have no default
+  policy: a null policy is refused (status `-5`), as a null queue or a
+  queue not supported by the library with `Arcane`. A policy of another backend is refused
+  (status `-5`): the identifier of the expected policy is given by the
+  `S_generic_parallel_execution_policy` symbol. The generated function
+  copies what it needs from the policy, which does not have to outlive
+  the call. The C++ parallel algorithms, `OpenMP` and `OpenACC` only use
+  the common options of the policy. The evaluation is ordered after the
+  computations previously submitted to the queue of the policy, which may
+  compute the arguments. With the `SYCL` backend, an out-of-order queue
+  gives no order between the kernels: an asynchronous evaluation then
+  requires an in-order queue (`sycl::property::queue::in_order`), and is
+  refused with an out-of-order queue (status `-5`). A synchronous
+  evaluation synchronizes an out-of-order queue before the kernel.
 - `statistics`: statistics of the evaluation, or null (see below).
-- `preserve_stack_size`: if not null, the stack size of the threads of the
+
+The common options of the policies (`BackendExecutionCommonPolicy`) are:
+
+- `preserve_stack_size`: if true, the stack size of the threads of the
   device is never modified and a runtime error (status `-7`) is reported
   if it is too small. Otherwise, as for the behaviours, the `CUDA` and
   `HIP` backends, the `Kokkos` backend on a `CUDA` or `HIP` execution
-  space, and the `RAJA` backend with an execution policy of `CUDA` or
-  `HIP`, increase the stack size if the kernel requires it. The other
+  space, the `RAJA` backend with an execution policy of `CUDA` or `HIP`,
+  and the `Arcane` backend with a `CUDA` or `HIP` queue, increase the stack
+  size if the kernel requires it. The other
   backends increase it if the `device_stack_size` option is given.
+- `asynchronous`: if true, the function may return before the end of the
+  computations (see below). An asynchronous evaluation requires
+  statistics (status `-5` otherwise).
 
-If no statistics are given, the evaluation is synchronous: the function
-returns once the values are computed, and the output status reports the
-result.
+If no statistics are given, the function returns once the values are
+computed, and the output status reports the result.
 
 Otherwise, on all the backends, the output status only reports the errors
 of the batch (statuses `-5`, `-6` and `-7`), and the
 `S_generic_parallel_report` function gives the result once the
-computations are completed. The backends with a queue (`CUDA`, `HIP`,
-`SYCL`, `Kokkos` and `RAJA`) may return once the computations are
-submitted to the queue: the calling code synchronizes its queue before
-calling the report function. The C++ parallel algorithms, `OpenMP` and
-`OpenACC` return once the computations are completed. The statistics
+computations are completed, whether the evaluation is asynchronous or not.
+If the `asynchronous` option of the policy is true, the backends with a
+queue (`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane`) may return once
+the
+computations are submitted to the queue: the calling code synchronizes its
+queue before calling the report function. Otherwise, and always with the
+C++ parallel algorithms, `OpenMP` and `OpenACC`, the function returns once
+the computations are completed. The statistics
 (`mfront_gpmp_Statistics`) are initialized by
 `mfront_gpmp_initializeStatistics`. They must be accessible by the host
 and by the device where the computations are performed, for instance in
@@ -190,13 +211,17 @@ backend, statistics which are not accessible by the device are copied,
 as the values, and the evaluation is then synchronous:
 
 ~~~~{.cxx}
+#include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
 // statistics in managed memory
 mfront_gpmp_Statistics* statistics = nullptr;
 cudaMallocManaged(&statistics, sizeof(mfront_gpmp_Statistics));
 mfront_gpmp_initializeStatistics(statistics);
+// asynchronous evaluation on a stream
+const auto policy = mfront::generic_parallel::makeCUDABackendExecutionPolicy(
+    {.common_options = {.asynchronous = true}, .stream = stream});
 auto d = mfront_gpmp_BatchData{/* ... */};
-d.execution = mfront_gpmp_ExecutionOptions{.queue = stream,
-                                           .statistics = statistics};
+d.statistics = statistics;
+d.execution_policy = &policy;
 // submission of the computations: only the errors of the batch are
 // reported here
 auto output = mfront_gpmp_OutputStatus{};
@@ -208,10 +233,11 @@ const auto status =
 ~~~~
 
 The report function is only meaningful if the evaluation returned `0`.
-A synchronous evaluation calls the same report function on statistics
-held by blocks of memory reused from one call to another (`CUDA`, `HIP`,
-`SYCL`, `Kokkos` and `RAJA` backends) or by a local variable (C++ parallel
-algorithms, `OpenMP` and `OpenACC`): the output status is the same.
+An evaluation without statistics calls the same report function on
+statistics held by blocks of memory reused from one call to another
+(`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane` backends) or by a
+local variable (C++ parallel algorithms, `OpenMP` and `OpenACC`): the output
+status is the same.
 
 The statistics have the same structure as the ones of the behaviours: the
 number of points where the evaluation failed, the number of points where
@@ -222,8 +248,8 @@ order of the computations, and only the report function of the same
 library decodes them. A structure of statistics is used for one material
 property and one batch. The kernels compute the status of each point and
 merge it in the statistics only when an event occurs: with integer atomic
-operations (`CUDA`, `HIP`, `SYCL`, `Kokkos` and `RAJA` backends), or by a
-reduction (C++ parallel algorithms, `OpenMP` and `OpenACC`), as for the
+operations (`CUDA`, `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane` backends),
+or by a reduction (C++ parallel algorithms, `OpenMP` and `OpenACC`), as for the
 behaviours. With the atomic operations, the reporting of the errors costs
 nothing when the evaluation succeeds. A reduction combines the statuses of
 all the points and copies its result, a few integers, to the host at each
@@ -255,15 +281,17 @@ computed:
   array of arguments or no values for an argument, invalid number of
   arguments, uniform output with several points, more than
   \(2^{48}-1\) points, more blocks of threads than the grid of the device
-  can hold with the `CUDA` and `HIP` backends (\(2^{31}-1\) blocks), no
-  queue given to the `SYCL` backend, statistics with an out-of-order
-  `SYCL` queue, or no statistics given to the report function;
+  can hold with the `CUDA` and `HIP` backends (\(2^{31}-1\) blocks), an
+  execution policy of another backend, no execution policy given to the
+  `SYCL` backend, an asynchronous evaluation without statistics or with
+  an out-of-order `SYCL` queue, or no statistics given to the report
+  function;
 - `-6`: invalid parameters;
 - `-7`: runtime error of the backend: allocation, data transfer,
   submission or execution of a kernel, stack size of the threads of the
   device, or exceptions thrown on the host by the runtimes of the backends
   based on C++ programming models (`SYCL`, `Kokkos`, `RAJA`, C++ parallel
-  algorithms, `OpenMP`, `OpenACC`). No exception goes through the
+  algorithms, `OpenMP`, `OpenACC`, `Arcane`). No exception goes through the
   generated functions: an unexpected exception also gives `-7`.
 
 The output status also gives:
@@ -307,8 +335,8 @@ status `-4`, while the `generic` interface computes the value.
 If the runtime checks are disabled (`disable_runtime_checks` DSL option),
 as with the `generic` interface, the number of arguments, the parameters,
 the bounds and the results are not checked. The checks of the structure
-of the batch (pointers, uniform output, number of points, queue of the
-`SYCL` backend) remain: they cost little on the host and avoid invalid
+of the batch (pointers, uniform output, number of points, execution
+policy) remain: they cost little on the host and avoid invalid
 memory accesses. The statuses of the points, if requested, are then null,
 and the report function returns `0`.
 
@@ -505,21 +533,22 @@ setting the `parameters_as_static_variables` DSL option to `true`.
 The errors are reported in the statistics of the evaluation, held by managed
 memory. Each thread computes the status of its point and only accesses the
 statistics, with integer atomic operations, if an event occurs, minimizing
-the cost of error handling. For a synchronous evaluation, the statistics are
-taken from a pool of blocks allocated at the first call on a device and
-reused by the following calls (see
+the cost of error handling. Without statistics given by the calling code,
+the statistics are taken from a pool of blocks allocated at the first call
+on a device and reused by the following calls (see
 `mfront::generic_parallel::StatusBlockPool`), so that no memory is allocated
-per call. The `HIP`, `SYCL`, `Kokkos` and `RAJA` backends handle the errors
-in the same way, with the memory accessible by the host and the device of
-the backend (managed memory, shared USM memory, `Kokkos::SharedSpace`,
-managed memory of the resources of camp). Those blocks are never freed,
+per call. The `HIP`, `SYCL`, `Kokkos`, `RAJA` and `Arcane` backends handle
+the errors in the same way, with the memory accessible by the host and the
+device of the backend (managed memory, shared USM memory,
+`Kokkos::SharedSpace`, managed memory of the resources of camp, unified
+memory of Arccore). Those blocks are never freed,
 except with the `Kokkos` backend, which frees them when Kokkos is finalized.
 The C++ parallel algorithms, `OpenMP` and `OpenACC` merge the statuses of
 the points by a reduction.
 
 Before launching a kernel, the stack size of the threads is increased if
 the kernel requires it, as for the behaviours (see the
-`preserve_stack_size` execution option).
+`preserve_stack_size` option of the execution policies).
 
 On output, the user knows the number of points where the evaluation
 failed and the first of them. For instance, the `UO2_ShearModulus`
@@ -720,6 +749,8 @@ const auto T = usm_vector({300, -300, 500, -500, 300, -300, 800, -800}, Q);
 auto d_E = to_device(E, Q); // function transferring data to the device
 auto d_T = to_device(T, Q);
 //
+// execution policy (see MFront/GenericParallel/SyclBackendExecutionPolicy.hxx)
+const auto policy = mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
 // strided argument and output
 const auto args = std::array<mfront_gpmp_ConstField, 1u>{
     mfront_gpmp_ConstField{.values = d_T.get(), .point_stride = 2}};
@@ -730,18 +761,20 @@ const auto d = mfront_gpmp_BatchData{
     .number_of_arguments = args.size(),
     .out_of_bounds_policy = GENERIC_MATERIALPROPERTY_NONE_POLICY,
     .statuses = nullptr,
-    .execution = mfront_gpmp_ExecutionOptions{.queue = &Q}};
+    .statistics = nullptr,
+    .execution_policy = &policy};
 Inconel600_YoungModulus_generic_parallel(&output, &d);
 ~~~~
 
 ### Queue
 
 `SYCL` has no default queue: the queue must be given by the execution
-options. It gives the device and the context of the unified shared memory
-of the calling code. An evaluation with statistics requires an in-order
-queue (`sycl::property::queue::in_order`). With an out-of-order queue, an
-evaluation without statistics waits for the computations already
-submitted to the queue before the kernel is launched.
+policy (`SyclBackendExecutionPolicy`), which is required. It gives the
+device and the context of the unified shared memory of the calling code.
+An asynchronous evaluation requires an in-order queue
+(`sycl::property::queue::in_order`). With an out-of-order queue, a
+synchronous evaluation waits for the computations already submitted to
+the queue before the kernel is launched.
 
 ### Backend options
 
@@ -790,17 +823,18 @@ The `Kokkos` backend evaluates the material property with
 `Kokkos::parallel_for` in the execution space given by the
 `execution_space` option. The arguments and the output must be accessible
 from this execution space, and `Kokkos` must be initialized by the calling
-code. The queue of the execution options is a pointer to an instance of
-the execution space (the default instance if null). The source files are
+code. The execution policy (`KokkosBackendExecutionPolicy`) holds an
+instance of the execution space (the default instance for the default
+policy). The source files are
 compiled with the compiler and the flags used by `Kokkos` (see the
 `config-kokkos.json` and `config-kokkos-host.json` configuration files).
 As for the behaviours, `Kokkos` must be a shared library, built without
 relocatable device code, so that the calling code and the generated
 libraries share the same instance of `Kokkos`.
 
-The statistics of the synchronous evaluations are held by memory
-allocated in `Kokkos::SharedSpace`, as for the behaviours. This memory
-space is provided by all the backends of `Kokkos` except the `OpenACC`
+Without statistics given by the calling code, the statistics are held by
+memory allocated in `Kokkos::SharedSpace`, as for the behaviours. This
+memory space is provided by all the backends of `Kokkos` except the `OpenACC`
 and `OpenMPTarget` backends: a static assertion of the generated sources
 reports this requirement. With a `CUDA` or a `HIP` execution space, the
 stack size of the threads is increased if the kernel requires it, as for
@@ -817,21 +851,24 @@ the behaviours.
 
 The `RAJA` backend evaluates the material property with `RAJA::forall` and
 the execution policy given by the `execution_policy` option. The arguments
-and the output must be accessible from this execution policy. The queue of
-the execution options is a pointer to a resource of camp matching the
-execution policy (`camp::resources::Cuda`, `camp::resources::Hip` or
-`camp::resources::Host`). If null, the default stream of the current device
-is used with `CUDA` and `HIP`, as for the behaviours, and the default
-resource otherwise. The evaluation is asynchronous with an asynchronous
-execution policy (such as the default one on GPUs). The source files
+and the output must be accessible from this execution policy. The
+execution policy of the backend (`RAJABackendExecutionPolicy`) holds a
+resource of camp matching the execution policy of RAJA
+(`camp::resources::Cuda`, `camp::resources::Hip` or
+`camp::resources::Host`). With the default policy, the default stream of
+the current device is used with `CUDA` and `HIP`, as for the behaviours,
+and the default resource otherwise. The evaluation can only be
+asynchronous (`asynchronous` option of the execution policy of the
+backend) with an asynchronous execution policy of RAJA (such as the
+default one on GPUs). The source files
 are compiled by `nvcc` with extended lambdas if RAJA is built with `CUDA`,
 by the `C++` compiler of `TFEL` otherwise, and linked with the shared
 library of RAJA (see the `config-raja.json` and `config-raja-host.json`
 configuration files and the section of the behaviours).
 
-The statistics of the synchronous evaluations are held by managed memory
-allocated by the resource of camp, one block per device, kept until the
-end of the process. With an execution policy of `CUDA` or `HIP`, the stack
+Without statistics given by the calling code, the statistics are held by
+managed memory allocated by the resource of camp, one block per device,
+kept until the end of the process. With an execution policy of `CUDA` or `HIP`, the stack
 size of the threads is increased if the kernel requires it, as for the
 behaviours. The memory space of the library is `device` for the execution
 policies of `CUDA` and `HIP`, `host` otherwise. The execution policies of
@@ -847,6 +884,29 @@ behaviours.
   copied in the generated code: it must be the name of a type, made of
   qualified identifiers, integers, the boolean literals and template
   arguments.
+
+## `Arcane` backend
+
+The `Arcane` backend evaluates the material property with a command of the
+accelerator API of Arccore (`RUNCOMMAND_LOOP1`) on the queue of the
+execution policy (`ArcaneBackendExecutionPolicy`), which is required: the
+backend has no default policy. The execution policy of the queue (`CUDA`,
+`HIP`, `Thread` or `Sequential`) is selected at runtime, as for the
+behaviours: the arguments and the output must be accessible by the device
+of the queue, and the memory space of the library is `device`. The
+statuses of the points are merged with native atomic operations. Without
+statistics given by the calling code, the statistics are held by the
+unified memory of Arccore, kept until the end of the process. The commands
+are launched asynchronously, whatever the asynchronous state of the queue:
+a synchronous evaluation waits for the completion of the commands of the
+queue (`barrier`). The queue has a reference semantics: it must not be used
+by another thread during the call. With a `CUDA` or `HIP` queue, the stack
+size of the threads is increased if the kernel requires it. The source files (`.cu`
+files) are compiled by `clang++` as a `CUDA` compiler and linked with the
+shared libraries of Arccore (see the `config-arcane.json` configuration
+file and the section of the behaviours).
+
+This backend has no option.
 
 ## `OpenMP` backend
 
@@ -874,9 +934,9 @@ arguments and the output must be accessible from it: the
 `openacc-nvhpc-gpu` configuration uses the unified memory mode of `nvc++`
 (`-gpu=mem:unified`), see the page of the behaviours. The memory space of
 the library is deduced from the compilation options, as for the behaviours.
-The evaluation is synchronous: the queue of the execution options is not
-used. The statuses of the points are merged by a reduction; the indices are
-reduced as `unsigned long`, the minimum reductions of OpenACC on
+The evaluation is synchronous: only the common options of the execution
+policy are used. The statuses of the points are merged by a reduction; the
+indices are reduced as `unsigned long`, the minimum reductions of OpenACC on
 `unsigned long long` being wrong on NVIDIA GPUs with `nvc++` 25.11. The
 `device_stack_size` option sets the stack size of the threads of the GPU
 through the CUDA driver (16384 in the `openacc-nvhpc-gpu` configuration).
@@ -907,9 +967,12 @@ Each configuration runs:
   (`test-suite/material-properties/generic-parallel/tests.hxx`): statuses
   of the points, failures and unreliable results in the same batch,
   invalid results, errors of the batch, uniform and strided values,
-  report function;
-- the tests specific to the backend (queues, asynchronous evaluations,
-  stack size of the threads of the device, memory of the device);
+  report function, execution policies (identifier exported by the
+  library, policy of another backend, asynchronous evaluation without
+  statistics, synchronous evaluation with statistics);
+- the tests specific to the backend (execution policies and queues,
+  asynchronous evaluations, stack size of the threads of the device,
+  memory of the device);
 - the comparison of the evaluation on batches of points with the
   evaluation of the `generic` interface at each point (`compare.cxx`):
   values, statuses of the points and summary, for the three out of bounds
@@ -956,6 +1019,9 @@ The following tests configurations are currently supported:
 - `raja`: compilation by `nvcc` (RAJA built with `CUDA`) or the `C++`
   compiler of `TFEL`, tests with the default execution policy and with the
   default host execution policy.
+- `arcane`: compilation by `clang++` as a `CUDA` compiler (Arccore built
+  with `CUDA`), tests with a `CUDA` queue, a `Thread` queue and a
+  `Sequential` queue.
 - `openmp-host-gcc`: compilation with `g++ -fopenmp`, computations on the
   threads of the host.
 - `openmp-offload-nvhpc-gpu`: compilation with `nvc++ -mp=gpu`,

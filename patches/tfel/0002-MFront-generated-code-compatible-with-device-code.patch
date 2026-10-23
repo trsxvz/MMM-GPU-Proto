@@ -1,4 +1,4 @@
-From 01c821cce821bdd2f30b9c86760e0d5ccc9f37a2 Mon Sep 17 00:00:00 2001
+From 7f38e583867e3aeb211372d3585328bbfae3e5cd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:36 +0200
 Subject: [PATCH] MFront: generated code compatible with device code
@@ -1124,10 +1124,10 @@ index 2be42eec9..e65de442d 100644
        std::ostream& os, const MaterialPropertyDescription& mpd) const {
      if ((!useQuantities(mpd)) && (!mpd.inputs.empty())) {
 diff --git a/mfront/src/CodeGeneratorUtilities.cxx b/mfront/src/CodeGeneratorUtilities.cxx
-index f34891400..d19462475 100644
+index 571e85ca8..785af81ab 100644
 --- a/mfront/src/CodeGeneratorUtilities.cxx
 +++ b/mfront/src/CodeGeneratorUtilities.cxx
-@@ -450,10 +450,21 @@ namespace mfront {
+@@ -444,10 +444,21 @@ namespace mfront {
  
    void writeMaterialLaws(std::ostream& os,
                           const std::vector<std::string>& materialLaws) {
@@ -1149,7 +1149,7 @@ index f34891400..d19462475 100644
    }  // end of writeMaterialLaws
  
    void writeStaticVariables(std::ostream& os,
-@@ -590,7 +601,8 @@ namespace mfront {
+@@ -584,7 +595,8 @@ namespace mfront {
                                  const std::string_view policy,
                                  const bool addThis,
                                  const bool checkEndOfTimeStepValue,
@@ -1159,7 +1159,7 @@ index f34891400..d19462475 100644
      if (physicalBounds) {
        if (!v.hasPhysicalBounds()) {
          return;
-@@ -607,58 +619,58 @@ namespace mfront {
+@@ -601,58 +613,58 @@ namespace mfront {
        }
        return "tfel::math::numeric_type<" + v.type + ">";
      }();
@@ -1260,7 +1260,7 @@ index f34891400..d19462475 100644
  
    void writeBoundsChecks(std::ostream& os,
                           const VariableDescription& v,
-@@ -666,9 +678,10 @@ namespace mfront {
+@@ -660,9 +672,10 @@ namespace mfront {
                           const std::string_view space_dimension,
                           const std::string_view policy,
                           const bool addThis,
@@ -1273,7 +1273,7 @@ index f34891400..d19462475 100644
    }  // end of writeBoundsChecks
  
    void writePhysicalBoundsChecks(std::ostream& os,
-@@ -676,11 +689,22 @@ namespace mfront {
+@@ -670,11 +683,22 @@ namespace mfront {
                                   const std::string_view n,
                                   const std::string_view space_dimension,
                                   const bool addThis,
@@ -1299,10 +1299,10 @@ index f34891400..d19462475 100644
      if (ln == 0) {
        return {};
 diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
-index 1183cea65..0a186e447 100644
+index 466314158..5e6edfcb5 100644
 --- a/mfront/src/GenericBehaviourInterface.cxx
 +++ b/mfront/src/GenericBehaviourInterface.cxx
-@@ -1797,27 +1797,53 @@ namespace mfront {
+@@ -1832,27 +1832,53 @@ namespace mfront {
      return n + "_" + ModellingHypothesis::toString(h);
    }  // end of getFunctionNameForHypothesis
  
@@ -1362,7 +1362,7 @@ index 1183cea65..0a186e447 100644
      }
      if (!initStateVarsIncrements.empty()) {
        os << ",\n" << initStateVarsIncrements;
-@@ -2065,13 +2091,15 @@ namespace mfront {
+@@ -2100,13 +2126,15 @@ namespace mfront {
        }
      };  // end of wvci2
      const auto& d = bd.getBehaviourData(h);
@@ -1382,7 +1382,7 @@ index 1183cea65..0a186e447 100644
      auto first = true;
      const auto mprops = this->buildMaterialPropertiesList(bd, h);
      auto ioffset = mprops.second;
-@@ -2232,13 +2260,15 @@ namespace mfront {
+@@ -2267,13 +2295,15 @@ namespace mfront {
        const Hypothesis h,
        const BehaviourDescription& bd) const {
      const auto& evs = bd.getBehaviourData(h).getExternalStateVariables();
@@ -1955,7 +1955,7 @@ index d737a37cf..f0f767fc8 100644
  
  }  // end of namespace mfront
 diff --git a/mfront/src/MFrontModelInterface.cxx b/mfront/src/MFrontModelInterface.cxx
-index 62e3d9e80..83ca7ee5b 100644
+index 208184295..40c9d938f 100644
 --- a/mfront/src/MFrontModelInterface.cxx
 +++ b/mfront/src/MFrontModelInterface.cxx
 @@ -201,7 +201,8 @@ namespace mfront {
@@ -1968,19 +1968,19 @@ index 62e3d9e80..83ca7ee5b 100644
        for (auto pmp = std::begin(md.constantMaterialProperties);
             pmp != std::end(md.constantMaterialProperties);) {
          header << "const real " << pmp->name << "_";
-@@ -252,9 +253,9 @@ namespace mfront {
-       }
-       header << " */\n";
+@@ -254,9 +255,9 @@ namespace mfront {
        if (f.modifiedVariables.size() == 1) {
--        header << "real ";
-+        header << "TFEL_HOST_DEVICE real ";
+         const auto& output =
+             md.outputs.getVariable(*(f.modifiedVariables.begin()));
+-        header << output.type << " ";
++        header << "TFEL_HOST_DEVICE " << output.type << " ";
        } else {
 -        header << "void ";
 +        header << "TFEL_HOST_DEVICE void ";
        }
        header << f.name << "(";
        if (f.modifiedVariables.size() > 1) {
-@@ -330,7 +331,8 @@ namespace mfront {
+@@ -347,7 +348,8 @@ namespace mfront {
             << " * \\brief set the out of bounds policy\n"
             << " * \\param[in] policy_: new policy\n"
             << " */\n"

@@ -14,6 +14,7 @@
 #include <utility>
 #include "TFEL/Raise.hxx"
 #include "MFront/MFrontLogStream.hxx"
+#include "MFront/GenericParallel/Behaviour/ArcaneBackend.hxx"
 #include "MFront/GenericParallel/Behaviour/GPUBackend.hxx"
 #include "MFront/GenericParallel/Behaviour/KokkosBackend.hxx"
 #include "MFront/GenericParallel/Behaviour/OpenMPBackend.hxx"
@@ -31,6 +32,9 @@ namespace mfront::generic_parallel::behaviour {
   }  // end of get
 
   BackendFactory::BackendFactory() {
+    this->add("arcane", [](const DataMap& opts) {
+      return std::make_unique<ArcaneBackend>(opts);
+    });
     this->add("cuda", [](const DataMap& opts) {
       return std::make_unique<CUDABackend>(opts);
     });

@@ -46,8 +46,8 @@ function processes all these points in one call.
    written once, in templates usable on the host and on the GPU. Each
    backend only writes its parallel loop.
 4. **Portability by backend.** A generated library targets one backend:
-   CUDA, HIP, C++ parallel algorithms, Kokkos, RAJA, SYCL, OpenMP or
-   OpenACC. Several libraries of the same behaviour can be loaded
+   CUDA, HIP, C++ parallel algorithms, Kokkos, RAJA, SYCL, OpenMP,
+   OpenACC or Arcane (accelerator API of Arccore). Several libraries of the same behaviour can be loaded
    together. The choice between CPU and GPU is then made at run time.
 5. **The caller chooses the memory.** TFEL chooses neither the GPU nor the
    memory. Each library only declares where the data must be accessible.
@@ -69,7 +69,7 @@ function processes all these points in one call.
 - **Batch**: set of integration points processed by one call.
 - **Backend**: programming model targeted by a generated library
   (`cuda`, `hip`, `stlpar`, `kokkos`, `raja`, `sycl`, `openmp`,
-  `openacc`).
+  `openacc`, `arcane`).
 - **Field**: values of a variable on all the points of a batch, given by
   a pointer and strides. A zero stride between points denotes a uniform
   value.
@@ -78,7 +78,7 @@ function processes all these points in one call.
 - **Location** of the arrays: where the caller has placed them (host, GPU
   or shared memory). MGIS compares it with the memory space.
 - **Execution queue**: CUDA or HIP stream, SYCL queue, Kokkos instance,
-  resource of camp (RAJA).
+  resource of camp (RAJA), queue of Arccore (Arcane).
 - **Synchronous**: the function returns once the computation is finished.
   **Asynchronous**: it returns as soon as the computation is submitted to
   the queue. The caller synchronizes the queue before reading the results.
@@ -87,7 +87,7 @@ function processes all these points in one call.
 
 | Part | Status | Details |
 |---|---|---|
-| TFEL/MFront: `generic-parallel` interface of behaviours and models | done, validated on 17 configurations | [tfel.md](tfel.md) |
+| TFEL/MFront: `generic-parallel` interface of behaviours and models | done, validated on 18 configurations | [tfel.md](tfel.md) |
 | TFEL/MFront: `generic-parallel` interface of material properties | extended (execution options, asynchronous, new backends) | [tfel.md](tfel.md#generic-parallel-interface-of-material-properties) |
 | TFEL/MFront: GPU code and fixes | done | [tfel.md](tfel.md#gpu-code-in-tfel-and-mfront) |
 | MGIS: batches of behaviours, models and material properties | done | [mgis.md](mgis.md) |

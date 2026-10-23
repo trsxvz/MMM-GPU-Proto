@@ -14,6 +14,7 @@
 
 #include <utility>
 #include "TFEL/Raise.hxx"
+#include "MFront/GenericParallel/MaterialProperty/ArcaneBackend.hxx"
 #include "MFront/GenericParallel/MaterialProperty/CUDABackend.hxx"
 #include "MFront/GenericParallel/MaterialProperty/HIPBackend.hxx"
 #include "MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx"
@@ -32,6 +33,9 @@ namespace mfront::generic_parallel::material_property {
   }
 
   BackendFactory::BackendFactory() {
+    this->add("arcane", [](const DataMap& opts) {
+      return std::make_unique<ArcaneBackend>(opts);
+    });
     this->add("cuda", [](const DataMap& opts) {
       return std::make_unique<CUDABackend>(opts);
     });

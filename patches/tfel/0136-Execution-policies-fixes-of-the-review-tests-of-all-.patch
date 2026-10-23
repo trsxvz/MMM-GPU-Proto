@@ -1,0 +1,580 @@
+From b9cd05bbe694d26d9ce5871f58d8706076eca15a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 22 Oct 2026 23:06:06 +0200
+Subject: [PATCH] Execution policies: fixes of the review, tests of all the
+ functions
+
+- The identifier of the policy is exported between parentheses: the type of
+  a policy of RAJA may contain commas, which split the arguments of the
+  macro exporting the symbol (checked by the raja-options test).
+- Empty batches are accepted without any check of the policy (sycl) or of
+  the runtime (kokkos), as with the other backends.
+- The identifier of the Kokkos policies is never destroyed, as the string
+  literals of the other policies.
+- AbstractBackendExecutionPolicy declares its copies, protected.
+- Tests: the rules of the execution policies are checked for the
+  integration, the initialize functions, the post-processings and the
+  rotations, with the messages of the errors and, with CUDA and HIP, the
+  completion of a synchronous computation with statistics; a synchronous
+  integration with statistics on an out-of-order SYCL queue.
+- Wording of the generated documentation of the report function.
+---
+ .../AbstractBackendExecutionPolicy.hxx        |  16 ++
+ .../KokkosBackendExecutionPolicy.hxx          |  14 +-
+ .../GenericParallelBehaviour/Kokkos.hxx       |   6 +-
+ .../MFront/GenericParallelBehaviour/SYCL.hxx  |  11 +
+ .../Behaviour/AbstractBackend.cxx             |   8 +-
+ .../src/GenericParallelBehaviourInterface.cxx |   4 +-
+ ...nericParallelMaterialPropertyInterface.cxx |   8 +-
+ .../behaviours/generic-parallel/compare.cxx   | 234 +++++++++++++-----
+ .../raja-options/check-execution-policies.sh  |  16 +-
+ .../behaviours/generic-parallel/runtime.hxx   |  16 ++
+ 10 files changed, 256 insertions(+), 77 deletions(-)
+
+diff --git a/mfront/include/MFront/GenericParallel/AbstractBackendExecutionPolicy.hxx b/mfront/include/MFront/GenericParallel/AbstractBackendExecutionPolicy.hxx
+index f837e17d4..a0dbc4927 100644
+--- a/mfront/include/MFront/GenericParallel/AbstractBackendExecutionPolicy.hxx
++++ b/mfront/include/MFront/GenericParallel/AbstractBackendExecutionPolicy.hxx
+@@ -49,6 +49,22 @@ namespace mfront::generic_parallel {
+     virtual const char* getIdentifier() const noexcept = 0;
+     //! \brief destructor
+     virtual ~AbstractBackendExecutionPolicy();
++
++   protected:
++    //! \brief default constructor
++    AbstractBackendExecutionPolicy() noexcept = default;
++    //! \brief copy constructor
++    AbstractBackendExecutionPolicy(
++        const AbstractBackendExecutionPolicy&) noexcept = default;
++    //! \brief move constructor
++    AbstractBackendExecutionPolicy(AbstractBackendExecutionPolicy&&) noexcept =
++        default;
++    //! \brief copy assignment
++    AbstractBackendExecutionPolicy& operator=(
++        const AbstractBackendExecutionPolicy&) noexcept = default;
++    //! \brief move assignment
++    AbstractBackendExecutionPolicy& operator=(
++        AbstractBackendExecutionPolicy&&) noexcept = default;
+   };  // end of struct AbstractBackendExecutionPolicy
+ 
+ }  // end of namespace mfront::generic_parallel
+diff --git a/mfront/include/MFront/GenericParallel/KokkosBackendExecutionPolicy.hxx b/mfront/include/MFront/GenericParallel/KokkosBackendExecutionPolicy.hxx
+index b890d1d23..032326787 100644
+--- a/mfront/include/MFront/GenericParallel/KokkosBackendExecutionPolicy.hxx
++++ b/mfront/include/MFront/GenericParallel/KokkosBackendExecutionPolicy.hxx
+@@ -29,7 +29,8 @@ namespace mfront::generic_parallel {
+     BackendExecutionCommonPolicy common_options;
+     /*!
+      * \brief instance of the execution space on which the kernels are
+-     * launched, the default instance by default
++     * launched, the default instance by default (Kokkos must then be
++     * initialized when the options are built)
+      */
+     ExecutionSpace execution_space = ExecutionSpace{};
+   };  // end of struct KokkosBackendExecutionOptions
+@@ -41,10 +42,15 @@ namespace mfront::generic_parallel {
+    */
+   template <typename ExecutionSpace>
+   struct KokkosBackendExecutionPolicy final : BackendExecutionPolicyBase {
+-    //! \return the identifier of the policy, for instance "kokkos:Cuda"
++    /*!
++     * \return the identifier of the policy, for instance "kokkos:Cuda". The
++     * string is never destroyed, so that it lives as long as the program,
++     * as the identifiers of the other policies (string literals).
++     */
+     static const char* identifier() noexcept {
+-      static const auto id = std::string{"kokkos:"} + ExecutionSpace::name();
+-      return id.c_str();
++      static const auto* const id =
++          new std::string{std::string{"kokkos:"} + ExecutionSpace::name()};
++      return id->c_str();
+     }
+     /*!
+      * \brief constructor
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+index 645eb4b40..970c96791 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+@@ -115,12 +115,12 @@ namespace mfront::gpb::kokkos {
+     using ExecutionPolicy =
+         ::mfront::generic_parallel::KokkosBackendExecutionPolicy<
+             ExecutionSpace>;
+-    if (!Kokkos::is_initialized()) {
+-      return report(s, -7, "Kokkos is not initialized");
+-    }
+     if (n == 0) {
+       return s.status;
+     }
++    if (!Kokkos::is_initialized()) {
++      return report(s, -7, "Kokkos is not initialized");
++    }
+     const auto p = ::mfront::generic_parallel::checkBackendExecutionPolicy<
+         ExecutionPolicy>(e.policy, e.statistics != nullptr);
+     if (p.error != nullptr) {
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+index 6bac9eb4c..76b07a602 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+@@ -403,6 +403,12 @@ namespace mfront::gpb::sycl {
+           checkExecutionPolicy(d.execution_policy, d.statistics != nullptr);
+       if (p.error != nullptr) {
+         initialize(s, d.rdt);
++        // the policy is only needed to transfer the fields: an empty batch
++        // is accepted without any check of the policy, as with the other
++        // backends
++        if (d.number_of_points == 0) {
++          return s.status;
++        }
+         return report(s, -5, p.error);
+       }
+       auto q = p.policy->queue;
+@@ -515,6 +521,11 @@ namespace mfront::gpb::sycl {
+                                                    d.statistics != nullptr);
+     if (p.error != nullptr) {
+       initialize(s, 1);
++      // empty batch accepted without any check of the policy (see
++      // `callWithDeviceData`)
++      if (d.number_of_points == 0) {
++        return s.status;
++      }
+       return report(s, -5, p.error);
+     }
+     constexpr auto n = static_cast<size_type>(PointRotation::size);
+diff --git a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+index 772828b0a..a065b0a2f 100644
+--- a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+@@ -43,9 +43,13 @@ namespace mfront::generic_parallel::behaviour {
+     const auto n = std::string{f} + "_generic_parallel_";
+     exportStringSymbol(os, n + "backend", this->getName());
+     exportSymbol(os, "const char*", n + "memory_space", this->getMemorySpace());
+-    // identifier of the execution policy expected by the generated functions
++    // identifier of the execution policy expected by the generated functions.
++    // As for the memory space, the expression is enclosed in parentheses:
++    // the type of the policy may contain commas (for instance, a policy of
++    // RAJA with several template arguments), which would split the arguments
++    // of the macro exporting the symbol.
+     exportSymbol(os, "const char*", n + "execution_policy",
+-                 this->getExecutionPolicyType() + "::identifier()");
++                 "(" + this->getExecutionPolicyType() + "::identifier())");
+     // the version is defined in `MFront/GenericParallelBehaviour/BatchData.h`,
+     // and shifted for a numerical type other than double (see
+     // `MFront/GenericBehaviour/Types.h`)
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index dc665de9b..4c656f4df 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -481,8 +481,8 @@ namespace mfront {
+        << "are completed, and report the result as a synchronous computation "
+        << "does\n"
+        << " * \\param[out] s: output status\n"
+-       << " * \\param[in] statistics: statistics given by the execution "
+-       << "options, read on the host\n"
++       << " * \\param[in] statistics: statistics given by the calling "
++       << "code, read on the host\n"
+        << " * \\return the status, also stored in the output status\n"
+        << " */\n"
+        << "MFRONT_SHAREDOBJ int " << base << "_generic_parallel_report("
+diff --git a/mfront/src/GenericParallelMaterialPropertyInterface.cxx b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+index 91338406d..763db7f27 100644
+--- a/mfront/src/GenericParallelMaterialPropertyInterface.cxx
++++ b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+@@ -438,9 +438,11 @@ namespace mfront {
+     exportSymbol(os, "const char*", name + "_generic_parallel_memory_space",
+                  this->backend->getMemorySpace());
+     // identifier of the execution policy expected by the generated function,
+-    // as for the behaviours
+-    exportSymbol(os, "const char*", name + "_generic_parallel_execution_policy",
+-                 this->backend->getExecutionPolicyType() + "::identifier()");
++    // as for the behaviours (the parentheses protect the commas of the type
++    // of the policy in the arguments of the macro exporting the symbol)
++    exportSymbol(
++        os, "const char*", name + "_generic_parallel_execution_policy",
++        "(" + this->backend->getExecutionPolicyType() + "::identifier())");
+     writeLawSymbol(os, name, mpd.law);
+     writeMaterialSymbol(os, name, mpd.material);
+     writeMaterialKnowledgeTypeSymbol(os, name,
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index a3523cee1..27ba72c68 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -1230,7 +1230,7 @@ static bool testPreserveStackSize(const Test& t,
+  * documented: a null policy is an invalid argument (status `-5`), an
+  * asynchronous integration requires an in-order queue (status `-5`
+  * otherwise), and a synchronous integration on an out-of-order queue gives
+- * the results of the reference.
++ * the results of the reference, with or without statistics.
+  * \param[in] t: test
+  * \param[in] fg: function of the `generic` interface
+  * \param[in] fb: batch function
+@@ -1262,62 +1262,122 @@ static bool testSYCLQueues(const Test& t,
+   integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
+   const auto o3 = integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point,
+                                  fb, nullptr, ms, &synchronous);
+-  const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
+-  const auto pass = (o1.status == -5) && (o2.status == -5) &&
+-                    (ref.status == batch.status) &&
+-                    isConsistent(o3, batch.status) && (dth < tolerance);
++  // statistics with a synchronous integration on an out-of-order queue
++  auto batch2 = t.initial;
++  const auto o4 =
++      integrateBatch(batch2, s, fs, t.n, t.dt, K0, Storage::by_point, fb,
++                     loadReportFunction(t), ms, &synchronous);
++  const auto dth =
++      std::max(relativeDifference(ref.th1, batch.th1, ref.status, s.th),
++               relativeDifference(ref.th1, batch2.th1, ref.status, s.th));
++  const auto pass =
++      (o1.status == -5) && (o2.status == -5) && (ref.status == batch.status) &&
++      (ref.status == batch2.status) && isConsistent(o3, batch.status) &&
++      isConsistent(o4, batch2.status) && (dth < tolerance);
+   std::printf(
+-      "%-12s %-12s status=%2d/%2d/%2d | relative difference %.1e | %s\n",
+-      "sycl", "queues", o1.status, o2.status, o3.status, dth,
++      "%-12s %-12s status=%2d/%2d/%2d/%2d | relative difference %.1e | %s\n",
++      "sycl", "queues", o1.status, o2.status, o3.status, o4.status, dth,
+       pass ? "OK" : "FAILED");
+   return pass;
+ }
+ #endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
+ 
++//! \brief result of a call of a function of the library (see
++//! `checkExecutionPolicies`)
++struct PolicyCall {
++  //! \brief output status returned by the function
++  mfront_gpb_OutputStatus status;
++  //! \brief values computed by the function
++  std::vector<double> values;
++  //! \brief true if no computation was pending once the function returned
++  bool idle;
++};
++
+ /*!
+- * \return true if the execution policies are treated as documented: a
+- * policy of another backend and an asynchronous integration without
+- * statistics are invalid arguments (status `-5`), and a synchronous
+- * integration with statistics gives the results of the reference, its
+- * result being given by the report function of the library.
++ * \return true if a function of the library treats the execution policies
++ * as documented: a policy of another backend and an asynchronous
++ * computation without statistics are invalid arguments (status `-5`, with
++ * the messages of `mfront::generic_parallel::checkBackendExecutionPolicy`), and
++ * a synchronous computation with statistics returns once the computations are
++ * completed (checked with CUDA and HIP, see `isQueueIdle`; the test does not
++ * synchronise the device before reading the results), its output status
++ * reporting no error of the batch, its report and its values being the ones
++ * of the default execution policy of the tests.
+  * \param[in] t: test
+- * \param[in] fg: function of the `generic` interface
+- * \param[in] fb: batch function
+- * \param[in] K0: type of computation
++ * \param[in] what: name of the function in the output
++ * \param[in] call: function calling the function of the library on a new
++ * batch with the given execution policy and statistics, and returning its
++ * output status and its values (see `PolicyCall`)
+  */
+-static bool testExecutionPolicies(const Test& t,
+-                                  GenericFunction fg,
+-                                  BatchFunction fb,
+-                                  const double K0) {
+-  const auto& s = t.sizes;
+-  const auto& fs = t.options.finite_strain;
+-  auto ms = 0.;
++template <typename Call>
++static bool checkExecutionPolicies(const Test& t,
++                                   const char* const what,
++                                   const Call& call) {
+   const auto other = makeOtherBackendExecutionPolicy(t.execution_policy);
+-  auto st1 = t.initial;
+-  const auto o1 = integrateBatch(st1, s, fs, t.n, t.dt, K0, Storage::by_point,
+-                                 fb, nullptr, ms, other.get());
+   const auto asynchronous =
+       makeExecutionPolicy(t.execution_policy, {.asynchronous = true});
+-  auto st2 = t.initial;
+-  const auto o2 = integrateBatch(st2, s, fs, t.n, t.dt, K0, Storage::by_point,
+-                                 fb, nullptr, ms, asynchronous.get());
+   const auto synchronous = makeExecutionPolicy(t.execution_policy, {});
+-  auto ref = t.initial;
+-  auto batch = t.initial;
+-  integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
+-  const auto o3 =
+-      integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point, fb,
+-                     loadReportFunction(t), ms, synchronous.get());
+-  const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
+-  const auto pass = (o1.status == -5) && (o2.status == -5) &&
+-                    (ref.status == batch.status) &&
+-                    isConsistent(o3, batch.status) && (dth < tolerance);
++  const auto r0 = call(executionPolicy(), nullptr);
++  const auto r1 = call(other.get(), nullptr);
++  const auto r2 = call(asynchronous.get(), nullptr);
++  auto* const statistics = allocate<mfront_gpb_Statistics>(1);
++  mfront_gpb_initializeStatistics(statistics, initial_time_step_scaling_factor);
++  const auto r3 = call(synchronous.get(), statistics);
++  auto o3 = mfront_gpb_OutputStatus{};
++  loadReportFunction(t)(&o3, statistics);
++  deallocate(statistics);
++  auto has = [](const mfront_gpb_OutputStatus& o, const char* const m) {
++    return std::string_view{o.msg}.find(m) != std::string_view::npos;
++  };
++  const auto pass =
++      (r1.status.status == -5) &&
++      has(r1.status, "the execution policy is not the one of the backend") &&
++      (r2.status.status == -5) &&
++      has(r2.status, "an asynchronous computation requires statistics") &&
++      (r3.status.status == 1) && r3.idle && (o3.status == r0.status.status) &&
++      (o3.number_of_failures == r0.status.number_of_failures) &&
++      (o3.first_failure_index == r0.status.first_failure_index) &&
++      (o3.number_of_unreliable_results ==
++       r0.status.number_of_unreliable_results) &&
++      (r3.values == r0.values);
+   std::printf(
+-      "%-12s %-12s status=%2d/%2d/%2d | relative difference %.1e | %s\n",
+-      "execution", "policies", o1.status, o2.status, o3.status, dth,
+-      pass ? "OK" : "FAILED");
++      "%-12s %-12s status=%2d/%2d/%2d, report %2d | idle %d, same values %d "
++      "| %s\n",
++      what, "policies", r1.status.status, r2.status.status, r3.status.status,
++      o3.status, static_cast<int>(r3.idle),
++      static_cast<int>(r3.values == r0.values), pass ? "OK" : "FAILED");
+   return pass;
+-}
++}  // end of checkExecutionPolicies
++
++/*!
++ * \return true if the integration treats the execution policies as
++ * documented (see `checkExecutionPolicies`)
++ * \param[in] t: test
++ * \param[in] fb: batch function
++ * \param[in] K0: type of computation
++ */
++static bool testExecutionPolicies(const Test& t,
++                                  BatchFunction fb,
++                                  const double K0) {
++  return checkExecutionPolicies(
++      t, "execution",
++      [&t, fb, K0](const mfront_gp_AbstractBackendExecutionPolicy* const p,
++                   mfront_gpb_Statistics* const s) {
++        auto st = t.initial;
++        auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n, t.dt,
++                             K0, Storage::by_point);
++        b.data.execution_policy = p;
++        b.data.statistics = s;
++        auto r = PolicyCall{};
++        fb(&r.status, &b.data);
++        r.idle = isQueueIdle();
++        synchronize();
++        b.copyResults(st);
++        r.values = st.th1;
++        r.values.insert(r.values.end(), st.isv1.begin(), st.isv1.end());
++        return r;
++      });
++}  // end of testExecutionPolicies
+ 
+ /*!
+  * \return true if an invalid file of parameters is reported as invalid
+@@ -1464,7 +1524,7 @@ static bool testIntegration(const Test& t) {
+   if (t.options.other_device) {
+     ok = testOtherDevice(t, fg, fb, Kt + o0) && ok;
+   }
+-  ok = testExecutionPolicies(t, fg, fb, Kt + o0) && ok;
++  ok = testExecutionPolicies(t, fb, Kt + o0) && ok;
+ #if defined(MFRONT_GPB_COMPARE_USE_SYCL)
+   ok = testSYCLQueues(t, fg, fb, Kt + o0) && ok;
+ #endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
+@@ -1539,6 +1599,28 @@ static bool testInitializeFunction(const Test& t) {
+                       isConsistent(o, batch.status) && (d < tolerance);
+     ok = print("initialize", storage, pass, o, batch.status, d, ms) && ok;
+   }
++  ok = checkExecutionPolicies(
++           t, "initialize",
++           [&t, fb, &inputs, ni](
++               const mfront_gp_AbstractBackendExecutionPolicy* const p,
++               mfront_gpb_Statistics* const statistics) {
++             auto st = t.initial;
++             auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n,
++                                  t.dt, 0, Storage::by_point);
++             b.data.execution_policy = p;
++             b.data.statistics = statistics;
++             const auto in = BatchField(inputs, t.n, ni, b.by_component);
++             const auto in_field = in.const_field();
++             auto r = PolicyCall{};
++             fb(&r.status, &b.data, ni == 0 ? nullptr : &in_field);
++             r.idle = isQueueIdle();
++             synchronize();
++             b.copyResults(st);
++             r.values = st.th1;
++             r.values.insert(r.values.end(), st.isv1.begin(), st.isv1.end());
++             return r;
++           }) &&
++       ok;
+   return ok;
+ }  // end of testInitializeFunction
+ 
+@@ -1589,6 +1671,27 @@ static bool testPostProcessing(const Test& t) {
+                       isConsistent(o, batch.status) && (d < tolerance);
+     ok = print("post-processing", storage, pass, o, batch.status, d, ms) && ok;
+   }
++  ok = checkExecutionPolicies(
++           t, "post-proc.",
++           [&t, fb, no](const mfront_gp_AbstractBackendExecutionPolicy* const p,
++                        mfront_gpb_Statistics* const statistics) {
++             auto st = t.initial;
++             auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n,
++                                  t.dt, 0, Storage::by_point);
++             b.data.execution_policy = p;
++             b.data.statistics = statistics;
++             const auto out = BatchField(std::vector<double>(t.n * no), t.n, no,
++                                         b.by_component);
++             const auto out_field = out.field();
++             auto r = PolicyCall{};
++             fb(&r.status, &out_field, &b.data);
++             r.idle = isQueueIdle();
++             synchronize();
++             r.values.resize(t.n * no);
++             out.copy(r.values);
++             return r;
++           }) &&
++       ok;
+   return ok;
+ }  // end of testPostProcessing
+ 
+@@ -1675,15 +1778,37 @@ static bool testRotation(const Test& t) {
+           pass ? "OK" : "FAILED");
+     }
+   }
++  // execution policies (see checkExecutionPolicies)
++  ok = checkExecutionPolicies(
++           t, "rotation",
++           [&](const mfront_gp_AbstractBackendExecutionPolicy* const p,
++               mfront_gpb_Statistics* const statistics) {
++             const auto source = BatchField(src, n, ns, false);
++             const auto destination =
++                 BatchField(std::vector<double>(n * ns), n, ns, false);
++             const auto matrices = BatchField(rotations, n, 9, false);
++             auto d = mfront_gpb_RotationData{};
++             d.number_of_points = n;
++             d.destination = destination.field();
++             d.source = source.const_field();
++             d.rotation_matrices = matrices.const_field();
++             d.execution_policy = p;
++             d.statistics = statistics;
++             auto r = PolicyCall{};
++             fb(&r.status, &d);
++             r.idle = isQueueIdle();
++             synchronize();
++             r.values.resize(n * ns);
++             destination.copy(r.values);
++             return r;
++           }) &&
++       ok;
+   // asynchronous rotation: the rotations never lower the time step scaling
+   // factor, so that the statistics are not modified on all the backends,
+-  // even if their time step scaling factor is greater than one. A policy of
+-  // another backend, and an asynchronous rotation without statistics, are
+-  // invalid arguments.
++  // even if their time step scaling factor is greater than one
+   {
+     const auto asynchronous =
+         makeExecutionPolicy(t.execution_policy, {.asynchronous = true});
+-    const auto other = makeOtherBackendExecutionPolicy(t.execution_policy);
+     const auto source = BatchField(src, n, ns, false);
+     const auto destination =
+         BatchField(std::vector<double>(n * ns), n, ns, false);
+@@ -1695,14 +1820,7 @@ static bool testRotation(const Test& t) {
+     d.destination = destination.field();
+     d.source = source.const_field();
+     d.rotation_matrices = matrices.const_field();
+-    d.execution_policy = other.get();
+-    d.statistics = statistics;
+-    auto o_other = mfront_gpb_OutputStatus{};
+-    fb(&o_other, &d);
+     d.execution_policy = asynchronous.get();
+-    d.statistics = nullptr;
+-    auto o_no_statistics = mfront_gpb_OutputStatus{};
+-    fb(&o_no_statistics, &d);
+     d.statistics = statistics;
+     auto o = mfront_gpb_OutputStatus{};
+     fb(&o, &d);
+@@ -1711,16 +1829,14 @@ static bool testRotation(const Test& t) {
+     // the report function analyses the statistics as for an integration
+     auto o2 = mfront_gpb_OutputStatus{};
+     loadReportFunction(t)(&o2, statistics);
+-    const auto pass = (o_other.status == -5) &&
+-                      (o_no_statistics.status == -5) && (o.status == 1) &&
++    const auto pass = (o.status == 1) &&
+                       (statistics->number_of_failures == 0) &&
+                       (statistics->number_of_unreliable_results == 0) &&
+                       (rdt == 2) && (o2.status == 1) && (o2.rdt == 2);
+     deallocate(statistics);
+     ok = pass && ok;
+-    std::printf("rotation with statistics: status=%2d/%2d/%2d | rdt %g | %s\n",
+-                o_other.status, o_no_statistics.status, o.status, rdt,
+-                pass ? "OK" : "FAILED");
++    std::printf("rotation with statistics: status=%2d | rdt %g | %s\n",
++                o.status, rdt, pass ? "OK" : "FAILED");
+   }
+   return ok;
+ }  // end of testRotation
+diff --git a/test-suite/behaviours/generic-parallel/raja-options/check-execution-policies.sh b/test-suite/behaviours/generic-parallel/raja-options/check-execution-policies.sh
+index 23132fb4e..1666c479f 100644
+--- a/test-suite/behaviours/generic-parallel/raja-options/check-execution-policies.sh
++++ b/test-suite/behaviours/generic-parallel/raja-options/check-execution-policies.sh
+@@ -1,10 +1,11 @@
+ #!/bin/sh
+ # Checks the `execution_policy` option of the raja backend, which is copied
+ # in the generated code (generation of the sources only): a valid policy
+-# must be found in the generated sources, an invalid one must be refused by
+-# mfront. tfel-check only tolerates the failure of a command, it does not
+-# require it: this script returns an error if an invalid policy is
+-# accepted.
++# must be found in the generated sources, with the identifier of the
++# execution policy of the backend exported between parentheses, an invalid
++# one must be refused by mfront. tfel-check only tolerates the failure of a
++# command, it does not require it: this script returns an error if an
++# invalid policy is accepted.
+ #
+ # usage: sh check-execution-policies.sh mfront
+ mfront=${1:?usage: check-execution-policies.sh mfront}
+@@ -38,6 +39,13 @@ for policy in 'RAJA::cuda_exec<128, true>' \
+   elif ! grep -qF "$policy" "$source"; then
+     echo "valid execution policy not found in $source: '$policy'"
+     status=1
++  elif ! grep -qF '_generic_parallel_execution_policy, (' "$source"; then
++    # the type of the execution policy of the backend contains the policy of
++    # RAJA, whose commas must not split the arguments of the macro exporting
++    # the identifier of the policy
++    echo "identifier of the execution policy not protected in" \
++      "$source: '$policy'"
++    status=1
+   fi
+ done
+ 
+diff --git a/test-suite/behaviours/generic-parallel/runtime.hxx b/test-suite/behaviours/generic-parallel/runtime.hxx
+index 545520773..d23e41d5d 100644
+--- a/test-suite/behaviours/generic-parallel/runtime.hxx
++++ b/test-suite/behaviours/generic-parallel/runtime.hxx
+@@ -259,6 +259,22 @@ static const mfront_gp_AbstractBackendExecutionPolicy* executionPolicy() {
+ 
+ #endif
+ 
++#if defined(GPU_API)
++/*!
++ * \return true if no computation is pending on the default stream, used by
++ * the default execution policy of the tests
++ */
++static bool isQueueIdle() {
++  return GPU_API(StreamQuery)(nullptr) == GPU_API(Success);
++}
++#else
++/*!
++ * \return true: the runtime can't tell if computations are pending (only
++ * checked with CUDA and HIP)
++ */
++static bool isQueueIdle() { return true; }
++#endif
++
+ #if !defined(MFRONT_GPB_COMPARE_USE_SYCL)
+ //! \return a policy on another device (only available with SYCL)
+ static const mfront_gp_AbstractBackendExecutionPolicy*
+-- 
+2.43.0
+

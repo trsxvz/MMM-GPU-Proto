@@ -28,7 +28,8 @@ namespace mfront::generic_parallel {
    * the ordinary memory of the host: the fields must be accessible by the
    * device (memory of the device or shared memory). The library can't
    * assume that the device accesses the ordinary memory of the host, even
-   * if the device is a CPU (`sycl` backend without data transfers).
+   * if the device is a CPU (`sycl` backend without data transfers, `arcane`
+   * backend with a queue of the host).
    */
   inline constexpr const char* device_memory_space = "device";
   /*!

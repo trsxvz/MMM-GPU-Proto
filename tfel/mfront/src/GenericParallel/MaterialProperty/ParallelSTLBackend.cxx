@@ -60,8 +60,8 @@ namespace mfront::generic_parallel::material_property {
       const FileDescription& fd) const {
     const auto types = i.getTypesDescription();
     const auto requiresBoundsCheck = this->isBoundsCheckingRequired(mpd);
-    // the queue of the execution options is not used: the C++ parallel
-    // algorithms have no queue
+    // only the common options of the execution policy are used: the C++
+    // parallel algorithms have no queue
     writeDeviceStackSizeSetting(os, this->device_stack_size);
     if (requiresBoundsCheck) {
       // the statuses of the points are merged by a reduction, as for the
@@ -114,6 +114,14 @@ namespace mfront::generic_parallel::material_property {
     // the target of the parallel algorithms is selected by the compiler
     return "mfront::generic_parallel::getParallelSTLMemorySpace()";
   }  // end of getMemorySpace
+
+  std::string ParallelSTLBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::ParallelSTLBackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
+  std::string ParallelSTLBackend::getExecutionPolicyHeader() const {
+    return "MFront/GenericParallel/ParallelSTLBackendExecutionPolicy.hxx";
+  }  // end of getExecutionPolicyHeader
 
   ParallelSTLBackend::~ParallelSTLBackend() = default;
 

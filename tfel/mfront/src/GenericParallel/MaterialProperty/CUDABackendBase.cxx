@@ -159,9 +159,10 @@ namespace mfront::generic_parallel::material_property {
         this->number_of_threads_per_block.value_or(128);
     const auto warp_size_attribute =
         pm == "hip" ? "hipDeviceAttributeWarpSize" : "cudaDevAttrWarpSize";
-    // stream given by the execution options (default stream if null)
-    os << "const auto mfront_stream = static_cast<" << pm
-       << "Stream_t>(mfront_options.queue);\n";
+    // stream of the execution policy (default stream for the default policy)
+    os << "const auto mfront_stream = "
+       << "(mfront_backend_policy.policy == nullptr) ? " << pm
+       << "Stream_t{} : mfront_backend_policy.policy->stream;\n";
     // number of threads per block, rounded up to a multiple of the warp
     // size, as for the behaviours
     os << "auto mfront_warp_device = int{};\n"
@@ -195,7 +196,7 @@ namespace mfront::generic_parallel::material_property {
       // stack size of the threads, as for the behaviours
       os << "const auto mfront_stack_size = "
          << "::mfront::generic_parallel::gpu::ensureStackSize<" << kernel
-         << ">(mfront_options.preserve_stack_size != 0);\n"
+         << ">(mfront_preserve_stack_size);\n"
          << "if (!mfront_stack_size.succeeded()) {\n";
       writeBatchError(os, -7, "mfront_stack_size.getErrorMessage()");
       os << "}\n";
@@ -257,6 +258,18 @@ namespace mfront::generic_parallel::material_property {
   std::string CUDABackendBase::getMemorySpace() const {
     return "mfront::generic_parallel::device_memory_space";
   }  // end of getMemorySpace
+
+  std::string CUDABackendBase::getExecutionPolicyType() const {
+    return this->getProgrammingModel() == "hip"
+               ? "::mfront::generic_parallel::HIPBackendExecutionPolicy"
+               : "::mfront::generic_parallel::CUDABackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
+  std::string CUDABackendBase::getExecutionPolicyHeader() const {
+    return this->getProgrammingModel() == "hip"
+               ? "MFront/GenericParallel/HIPBackendExecutionPolicy.hxx"
+               : "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx";
+  }  // end of getExecutionPolicyHeader
 
   CUDABackendBase::~CUDABackendBase() = default;
 

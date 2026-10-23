@@ -7,9 +7,9 @@
 # the flags of the openmp, openacc and stlpar backends are written here (GPU
 # options of the configurations of nvc++ of TFEL, without -march=native).
 # usage: scripts/check-mgis-gpu-headers.sh [cuda] [hip] [sycl] [kokkos] [openmp]
-#        [openacc] [stlpar] [raja]
-# Without argument, all the backends are checked, raja only if TFEL is built
-# with the raja configuration.
+#        [openacc] [stlpar] [raja] [arcane]
+# Without argument, all the backends are checked, raja and arcane only if
+# TFEL is built with the raja and arcane configurations.
 set -u
 PROTO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "$PROTO/scripts/env.sh" > /dev/null
@@ -26,7 +26,7 @@ subst() {
 INC="-I$PROTO/build/mgis/include -I$PROTO/mgis/include"
 LIBS="-L$MGIS_LIB -lMFrontGenericInterface"
 export LD_LIBRARY_PATH="$MGIS_LIB:$LD_LIBRARY_PATH"
-BACKENDS=${*:-cuda hip sycl kokkos openmp openacc stlpar raja}
+BACKENDS=${*:-cuda hip sycl kokkos openmp openacc stlpar raja arcane}
 status=0
 for b in $BACKENDS; do
   exe="$OUT/check-$b"
@@ -56,6 +56,15 @@ for b in $BACKENDS; do
         continue
       fi
       cmd="$(subst TFEL_RAJA_CXX_COMPILER) -std=c++20 -O2 $(subst TFEL_RAJA_CXX_FLAGS) -DMGIS_CHECK_RAJA $INC $SRC -o $exe $(subst TFEL_RAJA_LINKER_FLAGS) $LIBS" ;;
+    arcane)
+      # clang as a CUDA compiler and flags of the arcane configuration of
+      # TFEL, which is optional (see build-tfel.sh)
+      if [ -z "$(subst TFEL_ARCANE_CXX_FLAGS)" ]; then
+        echo "arcane: skipped (TFEL built without the arcane configuration)"
+        [ $# -eq 0 ] || status=1
+        continue
+      fi
+      cmd="$(subst TFEL_CLANGXX_COMPILER) -std=c++20 -O2 $(subst TFEL_ARCANE_CXX_FLAGS) -DMGIS_CHECK_ARCANE $INC $SRC -o $exe $(subst TFEL_ARCANE_LINKER_FLAGS) $LIBS" ;;
     *)
       echo "unknown backend '$b'" >&2; status=1; continue ;;
   esac

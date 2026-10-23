@@ -1,4 +1,4 @@
-From fad4ccda7ad5c4fab77714be08eb879674674a42 Mon Sep 17 00:00:00 2001
+From 4d2e8eaa256693a50439694e9fb5807a93924633 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 04:21:52 +0200
 Subject: [PATCH] MFront: stress of the initialize functions exported for all
@@ -29,7 +29,7 @@ second and first Piola-Kirchhoff stresses.
  create mode 100644 mfront/include/MFront/GenericBehaviour/StressMeasures.hxx
 
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index d6fce4327..2165c8bd9 100644
+index e16df8251..703c6d180 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
 @@ -253,6 +253,7 @@ install_mfront_header(MFront/GenericBehaviour Integrate.hxx)
@@ -39,7 +39,7 @@ index d6fce4327..2165c8bd9 100644
 +install_mfront_header(MFront/GenericBehaviour StressMeasures.hxx)
  install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.hxx)
  install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
- 
+ install_mfront_header(MFront/GenericBehaviour RotateTangentOperatorBlock.hxx)
 diff --git a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx b/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx
 index 79f68a54a..ba21f8ba5 100644
 --- a/mfront/include/MFront/GenericBehaviour/GreenLagrangeStrainIntegrate.hxx

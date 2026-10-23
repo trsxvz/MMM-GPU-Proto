@@ -54,6 +54,10 @@ namespace mfront::generic_parallel::behaviour {
     return "mfront::generic_parallel::getParallelSTLMemorySpace()";
   }  // end of getMemorySpace
 
+  std::string ParallelSTLBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::ParallelSTLBackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
   ParallelSTLBackend::~ParallelSTLBackend() noexcept = default;
 
 }  // end of namespace mfront::generic_parallel::behaviour

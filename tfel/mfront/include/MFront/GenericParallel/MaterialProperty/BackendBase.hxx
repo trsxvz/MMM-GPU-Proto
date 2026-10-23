@@ -72,9 +72,14 @@ namespace mfront::generic_parallel::material_property {
      * `handlesDataTransfer`), `mfront_output_stride`, `mfront_args` (or
      * `mfront_args_host`), an array of the pointers to the values of the
      * arguments, `mfront_strides`, the array of their strides,
-     * `mfront_out_of_bounds_policy`, `mfront_statuses` and
-     * `mfront_options`. `mfront_asynchronous` states if the statistics are
-     * given by the calling code.
+     * `mfront_out_of_bounds_policy` and `mfront_statuses`. The statistics
+     * given by the calling code, if any, are `mfront_given_statistics`, and
+     * `mfront_deferred_report` states if they are given (the output status
+     * then only reports the errors of the batch). The execution policy given
+     * by the calling code is checked against the policy of the backend (see
+     * `getExecutionPolicyType`): `mfront_backend_policy` holds the checked
+     * policy (null for the default policy), `mfront_asynchronous` and
+     * `mfront_preserve_stack_size` its common options.
      *
      * \param[in] os: output stream
      * \param[in] i: interface
@@ -204,8 +209,9 @@ namespace mfront::generic_parallel::material_property {
      * updated by the kernels which merge the statuses of the points with
      * atomic operations.
      *
-     * For an asynchronous evaluation, the statistics are given by the
-     * execution options and initialized by the calling code. Otherwise, they
+     * If the calling code gives statistics (deferred report, required by an
+     * asynchronous evaluation), they are initialized by the calling code.
+     * Otherwise, they
      * are held by a block of a pool of blocks accessible by the host and by
      * the device (see `mfront::generic_parallel::StatusBlockPool`),
      * initialized on the host: no memory is allocated per call. The device
@@ -225,7 +231,7 @@ namespace mfront::generic_parallel::material_property {
     /*!
      * \brief write the declaration of the statistics `mfront_statistics`
      * of the backends merging the statuses of the points with a reduction:
-     * the statistics given by the execution options, or local statistics
+     * the statistics given by the calling code, or local statistics
      * initialized on the host
      * \param[in] os: output stream
      */
@@ -233,7 +239,7 @@ namespace mfront::generic_parallel::material_property {
     /*!
      * \brief write the code setting the minimal stack size of the threads
      * of the device (see `MFront/GenericParallel/DeviceStackSize.hxx`), or
-     * checking it if the execution options require to preserve it
+     * checking it if the execution policy requires to preserve it
      * \param[in] os: output stream
      * \param[in] stack_size: minimal stack size, in bytes. Nothing is
      * written if null

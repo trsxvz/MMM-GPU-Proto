@@ -1,0 +1,681 @@
+From 53b7940ee3f34d2a367104802864965d4ba607ae Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 13:28:40 +0200
+Subject: [PATCH] generic-parallel: memory space of the fields, libraries kept
+ loaded with TBB
+
+The libraries of behaviours, models and material properties export the
+memory space in which the fields must be located
+(<f>_generic_parallel_memory_space): `host` (computations on the host),
+`device` (computations on a device which can't access the ordinary memory
+of the host) or `any` (fields copied if needed). It is set when the
+library is compiled (MFront/GenericParallel/MemorySpace.hxx), since the
+target of some programming models is selected by the compiler (C++ parallel
+algorithms and OpenMP with nvc++, unified memory mode) or by the
+configuration of a library (execution space of Kokkos, data transfers of
+SYCL). The calling code can thus check the location of its data without
+knowing the backends.
+
+The configurations linking TBB mark the libraries as never unloaded
+(-Wl,-z,nodelete): unloading TBB while its threads are alive crashes the
+process, for instance when the libraries loaded by a calling code are
+closed at the end of the process.
+
+The tests check the exported memory space.
+---
+ .../generic-parallel-behaviour-interface.md   | 25 +++++--
+ ...ic-parallel-material-property-interface.md |  3 +
+ mfront/include/CMakeLists.txt                 |  1 +
+ .../Behaviour/AbstractBackend.hxx             | 13 +++-
+ .../GenericParallel/Behaviour/GPUBackend.hxx  |  1 +
+ .../Behaviour/KokkosBackend.hxx               |  1 +
+ .../Behaviour/OpenMPBackend.hxx               |  1 +
+ .../Behaviour/ParallelSTLBackend.hxx          |  1 +
+ .../GenericParallel/Behaviour/SYCLBackend.hxx |  1 +
+ .../MaterialProperty/AbstractBackend.hxx      |  7 ++
+ .../MaterialProperty/CUDABackendBase.hxx      |  1 +
+ .../MaterialProperty/KokkosBackend.hxx        |  1 +
+ .../MaterialProperty/OpenMPBackend.hxx        |  1 +
+ .../MaterialProperty/ParallelSTLBackend.hxx   |  1 +
+ .../MaterialProperty/SYCLBackend.hxx          |  1 +
+ .../MFront/GenericParallel/MemorySpace.hxx    | 71 +++++++++++++++++++
+ .../Behaviour/AbstractBackend.cxx             |  1 +
+ .../GenericParallel/Behaviour/GPUBackend.cxx  |  4 ++
+ .../Behaviour/KokkosBackend.cxx               |  8 +++
+ .../Behaviour/OpenMPBackend.cxx               |  7 ++
+ .../Behaviour/ParallelSTLBackend.cxx          |  5 ++
+ .../GenericParallel/Behaviour/SYCLBackend.cxx |  9 +++
+ .../MaterialProperty/CUDABackendBase.cxx      |  4 ++
+ .../MaterialProperty/KokkosBackend.cxx        |  8 +++
+ .../MaterialProperty/OpenMPBackend.cxx        |  7 ++
+ .../MaterialProperty/ParallelSTLBackend.cxx   |  5 ++
+ .../MaterialProperty/SYCLBackend.cxx          |  9 +++
+ .../src/GenericParallelBehaviourInterface.cxx |  3 +-
+ ...nericParallelMaterialPropertyInterface.cxx |  5 +-
+ mfront/src/GenericParallelModelInterface.cxx  |  1 +
+ .../behaviours/generic-parallel/compare.cxx   | 11 ++-
+ .../generic-parallel/symbols.hxx              | 10 ++-
+ 32 files changed, 215 insertions(+), 12 deletions(-)
+ create mode 100644 mfront/include/MFront/GenericParallel/MemorySpace.hxx
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index a7b95163e..655b466f3 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -121,9 +121,22 @@ The library also exports the same symbols as the `generic` interface
+ changing the parameters and the out of bounds policy. The `mfront_interface`
+ symbol is equal to `GenericParallel`, for the behaviours and for the
+ standalone models. The `<name>_generic_parallel_backend` symbol gives the
+-backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`),
+-which tells the calling code where the fields must be allocated (see the
+-section of each backend).
++backend of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or
++`openmp`). The `<name>_generic_parallel_memory_space` symbol (a `const
++char*`) tells the calling code where the fields must be located:
++
++- `host`: the computations are performed on the host, the fields must be
++  accessible by the host;
++- `device`: the computations are performed on a device which can't access
++  the ordinary memory of the host, the fields must be accessible by the
++  device (memory of the device, managed or shared memory);
++- `any`: the fields may be located anywhere (SYCL backend with automatic
++  transfers, `nvc++` with the unified memory mode).
++
++This memory space is set when the library is compiled, since the target of
++some programming models is selected by the compiler (C++ parallel
++algorithms and OpenMP with `nvc++`) or by the configuration of a library
++(execution space of Kokkos). See `MFront/GenericParallel/MemorySpace.hxx`.
+ 
+ The data structures are declared in
+ `MFront/GenericParallelBehaviour/BatchData.h`. Their version is given by the
+@@ -449,7 +462,11 @@ The behaviour is integrated by `std::transform_reduce` with the given
+ execution policy. The indices of the points are given by a counting
+ iterator: with `libstdc++`, iterators of `std::views::iota` are not random
+ access iterators in the sense of the C++17 iterator categories and the
+-parallel algorithms run sequentially.
++parallel algorithms run sequentially. With `libstdc++`, the parallel
++algorithms use the threads of TBB: the configurations linking TBB mark the
++library as never unloaded (`-Wl,-z,nodelete`), since unloading TBB while its
++threads are alive crashes the process, for instance when the libraries
++loaded by a calling code are closed at the end of the process.
+ 
+ With `nvc++ -stdpar=gpu`, the computations are offloaded to an NVIDIA GPU.
+ The memory mode shall be given explicitly by `-gpu=mem:managed` (see the
+diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
+index 207287c81..4dadf2e05 100644
+--- a/docs/web/generic-parallel-material-property-interface.md
++++ b/docs/web/generic-parallel-material-property-interface.md
+@@ -41,6 +41,9 @@ In addition, the `generic-parallel` interface also exports:
+   to the `MFRONT_GPMP_API_VERSION` macro of
+   `MFront/GenericParallelMaterialProperty/MaterialProperty.h`, which is
+   incremented at each incompatible change of the generated functions,
++- the `<name>_generic_parallel_memory_space` symbol, which tells where the
++  arguments and the output must be located (`host`, `device` or `any`, as
++  for the behaviours),
+ - a function allowing to modify at runtime the value of the parameters
+   of the material property, if modification of parameters is allowed
+   (see the DSL options `parameters_as_static_variables` options).
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index c9e842d6d..5616f22a5 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -134,6 +134,7 @@ install_mfront_header(MFront BehaviourRotationFunctions.hxx)
+ install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
+ install_mfront_header(MFront/GenericParallel DeviceStackSize.hxx)
+ install_mfront_header(MFront/GenericParallel StatusBlockPool.hxx)
++install_mfront_header(MFront/GenericParallel MemorySpace.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour AbstractBackend.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour BackendFactory.hxx)
+ install_mfront_header(MFront/GenericParallel/Behaviour GPUBackend.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
+index 00e56d567..95331befa 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/AbstractBackend.hxx
+@@ -65,9 +65,9 @@ namespace mfront::generic_parallel::behaviour {
+     virtual void writeSpecificIncludes(std::ostream&) const = 0;
+     /*!
+      * \brief write the symbols describing the generated library: name of
+-     * the backend (`<f>_generic_parallel_backend`), which tells the calling
+-     * code where the fields must be allocated, and version of the data
+-     * structures exchanged with the generated functions
++     * the backend (`<f>_generic_parallel_backend`), memory space in which
++     * the fields must be located (`<f>_generic_parallel_memory_space`), and
++     * version of the data structures exchanged with the generated functions
+      * (`<f>_generic_parallel_api_version`, see `MFRONT_GPB_API_VERSION`)
+      * \param[out] os: output stream
+      * \param[in] f: basis of the names of the symbols
+@@ -92,6 +92,13 @@ namespace mfront::generic_parallel::behaviour {
+      * \param[in] status: name of the output status
+      */
+     [[nodiscard]] virtual std::string getApply(std::string_view) const = 0;
++    /*!
++     * \return an expression, evaluated when the generated library is
++     * compiled, giving the memory space in which the fields must be located
++     * (see `MFront/GenericParallel/MemorySpace.hxx`): `host`, `device` or
++     * `any`
++     */
++    [[nodiscard]] virtual std::string getMemorySpace() const = 0;
+     /*!
+      * \brief write the statement returning the result of a function defined
+      * in the `MFront/GenericParallelBehaviour/Integrate.hxx` header
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
+index b1df8154a..bd792b4f5 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/GPUBackend.hxx
+@@ -38,6 +38,7 @@ namespace mfront::generic_parallel::behaviour {
+     //
+     void writeSpecificIncludes(std::ostream&) const override;
+     [[nodiscard]] std::string getApply(std::string_view) const override;
++    [[nodiscard]] std::string getMemorySpace() const override;
+     [[nodiscard]] std::string getSharedDataCopy(
+         std::string_view, std::string_view) const override;
+     //! \brief destructor
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
+index 378cef038..d568cc145 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/KokkosBackend.hxx
+@@ -43,6 +43,7 @@ namespace mfront::generic_parallel::behaviour {
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+     void writeSpecificIncludes(std::ostream&) const override;
+     [[nodiscard]] std::string getApply(std::string_view) const override;
++    [[nodiscard]] std::string getMemorySpace() const override;
+     [[nodiscard]] std::string getSharedDataCopy(
+         std::string_view, std::string_view) const override;
+     //! \brief destructor
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx
+index a3f33a1e9..7c1785e30 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/OpenMPBackend.hxx
+@@ -45,6 +45,7 @@ namespace mfront::generic_parallel::behaviour {
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+     void writeSpecificIncludes(std::ostream&) const override;
+     [[nodiscard]] std::string getApply(std::string_view) const override;
++    [[nodiscard]] std::string getMemorySpace() const override;
+     //! \brief destructor
+     ~OpenMPBackend() noexcept override;
+ 
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+index eec09f0fc..635e02a4c 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx
+@@ -47,6 +47,7 @@ namespace mfront::generic_parallel::behaviour {
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+     void writeSpecificIncludes(std::ostream&) const override;
+     [[nodiscard]] std::string getApply(std::string_view) const override;
++    [[nodiscard]] std::string getMemorySpace() const override;
+     //! \brief destructor
+     ~ParallelSTLBackend() noexcept override;
+ 
+diff --git a/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
+index 132a651f3..fa891a7c5 100644
+--- a/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/Behaviour/SYCLBackend.hxx
+@@ -46,6 +46,7 @@ namespace mfront::generic_parallel::behaviour {
+     [[nodiscard]] std::string getSourceFileExtension() const override;
+     void writeSpecificIncludes(std::ostream&) const override;
+     [[nodiscard]] std::string getApply(std::string_view) const override;
++    [[nodiscard]] std::string getMemorySpace() const override;
+     [[nodiscard]] std::string getSharedDataCopy(
+         std::string_view, std::string_view) const override;
+     void writeCall(std::ostream&,
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
+index 1590f686b..30699c357 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/AbstractBackend.hxx
+@@ -75,6 +75,13 @@ namespace mfront::generic_parallel::material_property {
+         const MaterialPropertyDescription&) const = 0;
+     //! \brief return the extension of the source file
+     [[nodiscard]] virtual std::string getSourceFileExtension() const = 0;
++    /*!
++     * \return an expression, evaluated when the generated library is
++     * compiled, giving the memory space in which the arguments and the
++     * outputs must be located (see `MFront/GenericParallel/MemorySpace.hxx`):
++     * `host`, `device` or `any`
++     */
++    [[nodiscard]] virtual std::string getMemorySpace() const = 0;
+     /*!
+      * \brief write additional headers in the source file
+      *
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+index d43b4ed30..c6ce06b4b 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/CUDABackendBase.hxx
+@@ -62,6 +62,7 @@ namespace mfront::generic_parallel::material_property {
+         const MaterialPropertyDescription&,
+         const FileDescription&) const override;
+     //! \brief destructor
++    [[nodiscard]] std::string getMemorySpace() const override;
+     ~CUDABackendBase() noexcept override;
+ 
+    protected:
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
+index b8e830327..c09c479d6 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/KokkosBackend.hxx
+@@ -48,6 +48,7 @@ namespace mfront::generic_parallel::material_property {
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const override;
+     //! \brief destructor
++    [[nodiscard]] std::string getMemorySpace() const override;
+     ~KokkosBackend() noexcept override;
+ 
+    protected:
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
+index 2a5220a6a..cdde29b2a 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/OpenMPBackend.hxx
+@@ -51,6 +51,7 @@ namespace mfront::generic_parallel::material_property {
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const override;
+     //! \brief destructor
++    [[nodiscard]] std::string getMemorySpace() const override;
+     ~OpenMPBackend() noexcept override;
+ 
+    protected:
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+index 981486b80..43d0a470f 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/ParallelSTLBackend.hxx
+@@ -41,6 +41,7 @@ namespace mfront::generic_parallel::material_property {
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const override;
+     //! \brief destructor
++    [[nodiscard]] std::string getMemorySpace() const override;
+     ~ParallelSTLBackend() noexcept override;
+ 
+    protected:
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+index 9111de7dc..764e2bb28 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/SYCLBackend.hxx
+@@ -42,6 +42,7 @@ namespace mfront::generic_parallel::material_property {
+         const GenericParallelMaterialPropertyInterface&,
+         const MaterialPropertyDescription&) const override;
+     //! \brief destructor
++    [[nodiscard]] std::string getMemorySpace() const override;
+     ~SYCLBackend() noexcept override;
+ 
+    protected:
+diff --git a/mfront/include/MFront/GenericParallel/MemorySpace.hxx b/mfront/include/MFront/GenericParallel/MemorySpace.hxx
+new file mode 100644
+index 000000000..195c60808
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/MemorySpace.hxx
+@@ -0,0 +1,71 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/MemorySpace.hxx
++ * \brief  This file declares the memory spaces in which the fields given to
++ * the functions generated by the `generic-parallel` interfaces must be
++ * located, and the memory spaces of the programming models whose target is
++ * selected by the compiler.
++ * \date   09/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_MEMORYSPACE_HXX
++#define LIB_MFRONT_GENERICPARALLEL_MEMORYSPACE_HXX
++
++namespace mfront::generic_parallel {
++
++  /*!
++   * \brief the computations are performed on the host: the fields must be
++   * accessible by the host (ordinary or shared memory)
++   */
++  inline constexpr const char* host_memory_space = "host";
++  /*!
++   * \brief the computations are performed on a device which can't access the
++   * ordinary memory of the host: the fields must be accessible by the device
++   * (memory of the device or shared memory)
++   */
++  inline constexpr const char* device_memory_space = "device";
++  /*!
++   * \brief the fields may be located anywhere (for instance, the fields which
++   * are not accessible by the device are copied)
++   */
++  inline constexpr const char* any_memory_space = "any";
++
++  /*!
++   * \return the memory space of the computations offloaded by `nvc++` (C++
++   * parallel algorithms with `-stdpar=gpu`, OpenMP with `-mp=gpu`): with the
++   * unified memory mode, the device accesses the whole memory of the host.
++   */
++  constexpr const char* getNVHPCOffloadMemorySpace() noexcept {
++#if defined(__NVCOMPILER_GPU_UNIFIED_MEM)
++    return any_memory_space;
++#else
++    return device_memory_space;
++#endif
++  }  // end of getNVHPCOffloadMemorySpace
++
++  //! \return the memory space of the C++ parallel algorithms
++  constexpr const char* getParallelSTLMemorySpace() noexcept {
++#if defined(__NVCOMPILER_STDPAR_GPU)
++    return getNVHPCOffloadMemorySpace();
++#else
++    return host_memory_space;
++#endif
++  }  // end of getParallelSTLMemorySpace
++
++  //! \return the memory space of the computations offloaded by OpenMP
++  constexpr const char* getOpenMPOffloadMemorySpace() noexcept {
++#if defined(__NVCOMPILER_OPENMP_GPU)
++    return getNVHPCOffloadMemorySpace();
++#else
++    return device_memory_space;
++#endif
++  }  // end of getOpenMPOffloadMemorySpace
++
++}  // end of namespace mfront::generic_parallel
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_MEMORYSPACE_HXX */
+diff --git a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+index a6c126333..755dc5ed7 100644
+--- a/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/AbstractBackend.cxx
+@@ -41,6 +41,7 @@ namespace mfront::generic_parallel::behaviour {
+                                      const std::string_view f) const {
+     const auto n = std::string{f} + "_generic_parallel_";
+     exportStringSymbol(os, n + "backend", this->getName());
++    exportSymbol(os, "const char*", n + "memory_space", this->getMemorySpace());
+     // the version is defined in `MFront/GenericParallelBehaviour/BatchData.h`
+     exportSymbol(os, "unsigned short", n + "api_version",
+                  "MFRONT_GPB_API_VERSION");
+diff --git a/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+index a47882ee5..cbc803688 100644
+--- a/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/GPUBackend.cxx
+@@ -34,6 +34,10 @@ namespace mfront::generic_parallel::behaviour {
+            std::to_string(this->number_of_threads_per_block) + ")";
+   }  // end of getApply
+ 
++  std::string GPUBackend::getMemorySpace() const {
++    return "mfront::generic_parallel::device_memory_space";
++  }  // end of getMemorySpace
++
+   std::string GPUBackend::getSharedDataCopy(const std::string_view getter,
+                                             const std::string_view) const {
+     return "mfront::gpb::gpu::getSharedDataCopy<" + std::string{getter} + ">()";
+diff --git a/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx b/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
+index 2693d6be1..5b4de584a 100644
+--- a/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/KokkosBackend.cxx
+@@ -37,6 +37,14 @@ namespace mfront::generic_parallel::behaviour {
+            std::string{status} + ")";
+   }  // end of getApply
+ 
++  std::string KokkosBackend::getMemorySpace() const {
++    // the execution space may access the memory of the host or not
++    return "(Kokkos::SpaceAccessibility<" + this->execution_space +
++           ", Kokkos::HostSpace>::accessible ? "
++           "mfront::generic_parallel::host_memory_space : "
++           "mfront::generic_parallel::device_memory_space)";
++  }  // end of getMemorySpace
++
+   std::string KokkosBackend::getSharedDataCopy(const std::string_view getter,
+                                                const std::string_view) const {
+     return "mfront::gpb::kokkos::getSharedDataCopy<" + this->execution_space +
+diff --git a/mfront/src/GenericParallel/Behaviour/OpenMPBackend.cxx b/mfront/src/GenericParallel/Behaviour/OpenMPBackend.cxx
+index 0e9b7de89..ad80d69a5 100644
+--- a/mfront/src/GenericParallel/Behaviour/OpenMPBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/OpenMPBackend.cxx
+@@ -53,6 +53,13 @@ namespace mfront::generic_parallel::behaviour {
+     return apply + ")";
+   }  // end of getApply
+ 
++  std::string OpenMPBackend::getMemorySpace() const {
++    if (this->offload) {
++      return "mfront::generic_parallel::getOpenMPOffloadMemorySpace()";
++    }
++    return "mfront::generic_parallel::host_memory_space";
++  }  // end of getMemorySpace
++
+   OpenMPBackend::~OpenMPBackend() noexcept = default;
+ 
+ }  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+index f5878ebd1..990f04a20 100644
+--- a/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/ParallelSTLBackend.cxx
+@@ -48,6 +48,11 @@ namespace mfront::generic_parallel::behaviour {
+     return apply + ")";
+   }  // end of getApply
+ 
++  std::string ParallelSTLBackend::getMemorySpace() const {
++    // the target of the parallel algorithms is selected by the compiler
++    return "mfront::generic_parallel::getParallelSTLMemorySpace()";
++  }  // end of getMemorySpace
++
+   ParallelSTLBackend::~ParallelSTLBackend() noexcept = default;
+ 
+ }  // end of namespace mfront::generic_parallel::behaviour
+diff --git a/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx b/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
+index 91d4ad154..c63a920d8 100644
+--- a/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/Behaviour/SYCLBackend.cxx
+@@ -42,6 +42,15 @@ namespace mfront::generic_parallel::behaviour {
+     return apply + ")";
+   }  // end of getApply
+ 
++  std::string SYCLBackend::getMemorySpace() const {
++    // with automatic transfers, the fields which are not accessible by the
++    // device are copied
++    if (this->automatic_data_transfers) {
++      return "mfront::generic_parallel::any_memory_space";
++    }
++    return "mfront::generic_parallel::device_memory_space";
++  }  // end of getMemorySpace
++
+   std::string SYCLBackend::getSharedDataCopy(
+       const std::string_view getter, const std::string_view execution) const {
+     return "mfront::gpb::sycl::getSharedDataCopy<" + std::string{getter} +
+diff --git a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+index 2975c0782..ab810477f 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/CUDABackendBase.cxx
+@@ -208,6 +208,10 @@ namespace mfront::generic_parallel::material_property {
+     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
+   }  // end of writeKernelCall
+ 
++  std::string CUDABackendBase::getMemorySpace() const {
++    return "mfront::generic_parallel::device_memory_space";
++  }  // end of getMemorySpace
++
+   CUDABackendBase::~CUDABackendBase() = default;
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
+index cd04e1e63..435b62d8e 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/KokkosBackend.cxx
+@@ -88,6 +88,14 @@ namespace mfront::generic_parallel::material_property {
+     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
+   }  // end of writeKernelCall
+ 
++  std::string KokkosBackend::getMemorySpace() const {
++    // the execution space may access the memory of the host or not
++    return "(Kokkos::SpaceAccessibility<" + this->execution_space +
++           ", Kokkos::HostSpace>::accessible ? "
++           "mfront::generic_parallel::host_memory_space : "
++           "mfront::generic_parallel::device_memory_space)";
++  }  // end of getMemorySpace
++
+   KokkosBackend::~KokkosBackend() noexcept = default;
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx
+index f9dfb7371..7b762da0b 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/OpenMPBackend.cxx
+@@ -93,6 +93,13 @@ namespace mfront::generic_parallel::material_property {
+     this->writeKernelSelection(os, i, mpd, treatStrides, write_loop);
+   }  // end of writeKernelCall
+ 
++  std::string OpenMPBackend::getMemorySpace() const {
++    if (this->offload) {
++      return "mfront::generic_parallel::getOpenMPOffloadMemorySpace()";
++    }
++    return "mfront::generic_parallel::host_memory_space";
++  }  // end of getMemorySpace
++
+   OpenMPBackend::~OpenMPBackend() noexcept = default;
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+index 60ba26940..c3ff687a2 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
+@@ -103,6 +103,11 @@ namespace mfront::generic_parallel::material_property {
+     this->writeKernelSelection(os, i, mpd, treatStrides, write_kernel_call);
+   }  // end of writeKernelCall
+ 
++  std::string ParallelSTLBackend::getMemorySpace() const {
++    // the target of the parallel algorithms is selected by the compiler
++    return "mfront::generic_parallel::getParallelSTLMemorySpace()";
++  }  // end of getMemorySpace
++
+   ParallelSTLBackend::~ParallelSTLBackend() = default;
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+index 68c8c482e..97c2b5b03 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/SYCLBackend.cxx
+@@ -321,6 +321,15 @@ namespace mfront::generic_parallel::material_property {
+       const MaterialPropertyDescription&,
+       const bool) const {}
+ 
++  std::string SYCLBackend::getMemorySpace() const {
++    // with automatic transfers, the arguments and the output which are not
++    // accessible by the device are copied
++    if (this->handlesDataTransfer()) {
++      return "mfront::generic_parallel::any_memory_space";
++    }
++    return "mfront::generic_parallel::device_memory_space";
++  }  // end of getMemorySpace
++
+   SYCLBackend::~SYCLBackend() = default;
+ 
+ }  // end of namespace mfront::generic_parallel::material_property
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index 8962a4431..d6f821f2b 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -678,7 +678,8 @@ namespace mfront {
+     os << "#include\"TFEL/Material/OutOfBoundsPolicy.hxx\"\n"
+        << "#include\"TFEL/Material/" << bd.getClassName() << ".hxx\"\n"
+        << "#include\"MFront/GenericBehaviour/GenericBehaviourTraits.hxx\"\n"
+-       << "#include\"MFront/GenericParallelBehaviour/Integrate.hxx\"\n";
++       << "#include\"MFront/GenericParallelBehaviour/Integrate.hxx\"\n"
++       << "#include\"MFront/GenericParallel/MemorySpace.hxx\"\n";
+     if (isFiniteStrainBehaviour(bd)) {
+       os << "#include\"MFront/GenericParallelBehaviour/"
+          << "FiniteStrainIntegrators.hxx\"\n";
+diff --git a/mfront/src/GenericParallelMaterialPropertyInterface.cxx b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+index 9f681595f..f49e4fed2 100644
+--- a/mfront/src/GenericParallelMaterialPropertyInterface.cxx
++++ b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+@@ -321,7 +321,8 @@ namespace mfront {
+        << "#include\"TFEL/PhysicalConstants.hxx\"\n"
+        << "#include\"TFEL/Math/General/IEEE754.hxx\"\n"
+        << "#include\"TFEL/Math/General/DerivativeType.hxx\"\n"
+-       << "#include\"MFront/GenericParallel/StatusBlockPool.hxx\"\n";
++       << "#include\"MFront/GenericParallel/StatusBlockPool.hxx\"\n"
++       << "#include\"MFront/GenericParallel/MemorySpace.hxx\"\n";
+     if (useQuantities(mpd)) {
+       os << "#include\"TFEL/Math/qt.hxx\"\n"
+          << "#include\"TFEL/Math/Quantity/qtIO.hxx\"\n";
+@@ -359,6 +360,8 @@ namespace mfront {
+                        this->backend->getName());
+     exportSymbol(os, "unsigned short", name + "_generic_parallel_api_version",
+                  "MFRONT_GPMP_API_VERSION");
++    exportSymbol(os, "const char*", name + "_generic_parallel_memory_space",
++                 this->backend->getMemorySpace());
+     writeLawSymbol(os, name, mpd.law);
+     writeMaterialSymbol(os, name, mpd.material);
+     writeMaterialKnowledgeTypeSymbol(os, name,
+diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
+index 4aafb7962..301ab816b 100644
+--- a/mfront/src/GenericParallelModelInterface.cxx
++++ b/mfront/src/GenericParallelModelInterface.cxx
+@@ -181,6 +181,7 @@ namespace mfront {
+        << " */\n\n";
+     this->backend->writeSpecificIncludes(os);
+     os << "#include <cmath>\n"
++       << "#include \"MFront/GenericParallel/MemorySpace.hxx\"\n"
+        << "#include <cstring>\n"
+        << "#include \"TFEL/PhysicalConstants.hxx\"\n"
+        << "#include \"TFEL/Config/TFELTypes.hxx\"\n"
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index 5b570ce6a..10f417a66 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -79,6 +79,7 @@
+ #include <optional>
+ #include <random>
+ #include <string>
++#include <string_view>
+ #include <vector>
+ #include <utility>
+ #include <type_traits>
+@@ -577,7 +578,8 @@ static Sizes readSizes(const std::string& lib,
+ 
+ /*!
+  * \brief check that the version of the data structures exported by the
+- * library is the one of `MFront/GenericParallelBehaviour/BatchData.h`
++ * library is the one of `MFront/GenericParallelBehaviour/BatchData.h`, and
++ * that the library exports the memory space of the fields
+  * \param[in] lib: library
+  * \param[in] f: tested function
+  */
+@@ -587,6 +589,13 @@ static void checkVersion(const std::string& lib, const FunctionName& f) {
+   if ((v == nullptr) || (*v != MFRONT_GPB_API_VERSION)) {
+     fail("invalid version of the data structures in library '" + lib + "'");
+   }
++  const auto* const m = static_cast<const char* const*>(
++      findSymbol(lib, f, "generic_parallel_memory_space"));
++  const auto memory_space = std::string_view{m != nullptr ? *m : ""};
++  if ((memory_space != "host") && (memory_space != "device") &&
++      (memory_space != "any")) {
++    fail("invalid memory space in library '" + lib + "'");
++  }
+ }
+ 
+ /*!
+diff --git a/test-suite/material-properties/generic-parallel/symbols.hxx b/test-suite/material-properties/generic-parallel/symbols.hxx
+index b9527e975..3b72efe28 100644
+--- a/test-suite/material-properties/generic-parallel/symbols.hxx
++++ b/test-suite/material-properties/generic-parallel/symbols.hxx
+@@ -22,17 +22,23 @@
+ extern "C" {
+ extern const char* Inconel600_YoungModulus_generic_parallel_backend;
+ extern unsigned short Inconel600_YoungModulus_generic_parallel_api_version;
++extern const char* Inconel600_YoungModulus_generic_parallel_memory_space;
+ }
+ 
+ /*!
+- * \return true if the symbols give the expected backend and the version
++ * \return true if the symbols give the expected backend, the version
+  * declared by `MFront/GenericParallelMaterialProperty/MaterialProperty.h`
++ * and a valid memory space
+  * \param[in] backend: name of the backend
+  */
+ inline bool checkGenericParallelSymbols(const std::string_view backend) {
++  const auto memory_space =
++      std::string_view{Inconel600_YoungModulus_generic_parallel_memory_space};
+   return (Inconel600_YoungModulus_generic_parallel_backend == backend) &&
+          (Inconel600_YoungModulus_generic_parallel_api_version ==
+-          MFRONT_GPMP_API_VERSION);
++          MFRONT_GPMP_API_VERSION) &&
++         ((memory_space == "host") || (memory_space == "device") ||
++          (memory_space == "any"));
+ }  // end of checkGenericParallelSymbols
+ 
+ #endif /* LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_TESTS_SYMBOLS_HXX */
+-- 
+2.43.0
+

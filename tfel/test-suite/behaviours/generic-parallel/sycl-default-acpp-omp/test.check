@@ -6,7 +6,7 @@
 // libraries of the reference (`generic` interface, host compiler) and of the
 // tested configuration (see build-libraries.sh)
 @Command "sh ../build-libraries.sh @mfront@ config-sycl-default-acpp.json";
-@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl";
 // comparisons with the `generic` interface, which gives the reference
 // results (see compare-all.sh)
 @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-sycl.so";
@@ -14,7 +14,7 @@
 @Command "sh ../check-generic-functions.sh @mfront@ config-sycl-default-acpp.json ./compare sycl";
 
 // automatic transfers of the fields allocated in host memory
-@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -ldl";
+@Command "@TFEL_ACPP_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -DMFRONT_GPB_COMPARE_USE_SYCL -DMFRONT_GPB_COMPARE_USE_HOST_MEMORY -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare-host -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl";
 @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so IsotropicLinearHardeningPlasticity_Tridimensional --amplitude=3e-3";
 @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress --material-properties=150e9,0.3";
 @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure";

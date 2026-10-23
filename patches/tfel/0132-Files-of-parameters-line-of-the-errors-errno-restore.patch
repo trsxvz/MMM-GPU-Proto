@@ -1,0 +1,317 @@
+From 657bda8424c4a6c25c6b7124f9e29140a772d05b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 21 Oct 2026 06:51:12 +0200
+Subject: [PATCH] Files of parameters: line of the errors, errno restored;
+ tfel-check: shall_fail refuses a success
+
+- the line given in the errors of the files of parameters of the material
+  properties and of the behaviours was always the first one: the counter
+  is now incremented at each line;
+- material properties: errno is restored after the reading of the file of
+  parameters, when it succeeds and after an invalid parameter name. A
+  value setting errno when converted (a subnormal number) made the first
+  evaluation of the generic interface fail with the status -3;
+- tfel-check: a command with the shall_fail option set to true which
+  succeeds is reported as a failure.
+
+Tests: the invalid value of the file of parameters of the test of the
+material properties is on the third line, and the error is checked to
+give it; a new case of the comparator of the behaviours writes an invalid
+number of tokens on the third line (option --invalid-parameters-message);
+new test test-parameters-errno.cxx (generic interface, configuration
+stlpar-parunseq-gcc).
+---
+ docs/web/release-notes/release-notes-5.2.md   |  8 ++
+ mfront/src/BehaviourCodeGeneratorBase.cxx     |  3 +-
+ .../src/MaterialPropertyParametersHandler.cxx |  7 +-
+ .../generic-parallel/compare-all.sh           |  5 ++
+ .../behaviours/generic-parallel/compare.cxx   | 12 ++-
+ .../stlpar-parunseq-gcc/test.check            |  5 +-
+ .../test-invalid-parameters.cxx               |  6 +-
+ .../test-parameters-errno.cxx                 | 81 +++++++++++++++++++
+ tfel-check/src/TestLauncher.cxx               |  6 ++
+ 9 files changed, 126 insertions(+), 7 deletions(-)
+ create mode 100644 test-suite/material-properties/generic-parallel/test-parameters-errno.cxx
+
+diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
+index 249828cb6..210c600d6 100644
+--- a/docs/web/release-notes/release-notes-5.2.md
++++ b/docs/web/release-notes/release-notes-5.2.md
+@@ -1243,3 +1243,11 @@ code:
+ - isotropic DSLs: with the `use_stress_update_algorithm` option, the code
+   evaluating a non constant Poisson ratio at the beginning of the time
+   step did not compile with `@UseQt true`.
++- files of parameters of the material properties and of the behaviours:
++  the line given in the error messages was always the first one. For
++  the material properties, `errno` was not restored after the reading of
++  this file: a value setting `errno` when converted (a subnormal number)
++  made the first evaluation of the `generic` interface fail with the
++  status `-3`.
++- `tfel-check`: a command with the `shall_fail` option set to `true`
++  which succeeded was reported as a success.
+diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
+index 036f7387b..ede6020b9 100644
+--- a/mfront/src/BehaviourCodeGeneratorBase.cxx
++++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
+@@ -6590,9 +6590,10 @@ namespace mfront {
+          << "if(!f){\n"
+          << "return;\n"
+          << "}\n"
+-         << "size_t ln = 1u;\n"
++         << "size_t ln = 0u;\n"
+          << "auto line = std::string{};\n"
+          << "while(std::getline(f,line)){\n"
++         << "++ln;\n"
+          << "auto tokens = tokenize(line);\n"
+          << "auto throw_if = [line_number = ln, fn](const bool mfront_c,\n"
+          << "const std::string& mfront_error_message){\n"
+diff --git a/mfront/src/MaterialPropertyParametersHandler.cxx b/mfront/src/MaterialPropertyParametersHandler.cxx
+index d4233e31b..0038fd1ae 100644
+--- a/mfront/src/MaterialPropertyParametersHandler.cxx
++++ b/mfront/src/MaterialPropertyParametersHandler.cxx
+@@ -93,10 +93,11 @@ namespace mfront {
+          << "  errno = mfront_errno_old;\n"
+          << "  return;\n"
+          << "}\n"
+-         << "size_t ln = 1u;\n"
++         << "size_t ln = 0u;\n"
+          << "while(!pfile.eof()){\n"
+          << "  auto line = std::string{};\n"
+          << "  std::getline(pfile,line);\n"
++         << "  ++ln;\n"
+          << "  auto tokens = tokenize(line);\n"
+          << "  auto set_msg = [this,ln,line](const std::string& m){\n"
+          << "    this->msg = \"" << args.material_property_name
+@@ -151,9 +152,11 @@ namespace mfront {
+       }
+       os << "else {\n"
+          << "set_msg(\"invalid parameter '\"+tokens[0]+\"'\");\n"
++         << "errno = mfront_errno_old;\n"
+          << "return;\n"
+          << "}\n"
+-         << "}\n";
++         << "}\n"
++         << "errno = mfront_errno_old;\n";
+     }
+     os << "this->ok=true;\n"
+        << "}\n"
+diff --git a/test-suite/behaviours/generic-parallel/compare-all.sh b/test-suite/behaviours/generic-parallel/compare-all.sh
+index eea169189..3e0cf7ba3 100644
+--- a/test-suite/behaviours/generic-parallel/compare-all.sh
++++ b/test-suite/behaviours/generic-parallel/compare-all.sh
+@@ -203,6 +203,11 @@ echo "hardening_factor abc" > BehaviourVariableTestPlasticity-parameters.txt
+ run BehaviourVariableTest_Tridimensional \
+   --material-properties=1e9,300e6,200e9,0.3 --invalid-parameters=true
+ rm -f BehaviourVariableTestPlasticity-parameters.txt
++# invalid number of tokens on the third line: the error gives this line
++printf '# parameters\n\nYoungModulus 1 2\n' > IsotropicLinearHardeningPlasticity-parameters.txt
++run IsotropicLinearHardeningPlasticity_Tridimensional --invalid-parameters=true \
++  "--invalid-parameters-message=error at line '3'"
++rm -f IsotropicLinearHardeningPlasticity-parameters.txt
+ run ExternalModelCallerTest_Tridimensional --amplitude=0 \
+   --initial-internal-state-variables=1,2 --tangent-operator=0
+ # standalone models, treated as behaviours without gradients: the outputs
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index 4e709d6c7..43db5f859 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -908,6 +908,8 @@ struct Options {
+    * invalid: the integration must be refused (see `testInvalidParameters`)
+    */
+   bool invalid_parameters = false;
++  //! \brief text expected in the message of an invalid file of parameters
++  std::string invalid_parameters_message = "can't convert";
+   /*!
+    * \brief if true, the batch library also contains the functions of the
+    * `generic` interface (`generic_functions` option of the `generic-parallel`
+@@ -968,6 +970,8 @@ static Options parseOptions(const int argc,
+       r.other_device = v == "true";
+     } else if (o == "--invalid-parameters") {
+       r.invalid_parameters = v == "true";
++    } else if (o == "--invalid-parameters-message") {
++      r.invalid_parameters_message = v;
+     } else if (o == "--generic-functions") {
+       r.generic_functions = v == "true";
+     } else if (o == "--time-step-scaling-factor") {
+@@ -1242,7 +1246,9 @@ static bool testSYCLQueues(const Test& t,
+  * \return true if an invalid file of parameters is reported as invalid
+  * parameters (status `-6`) for the whole batch, nothing being computed.
+  * The file, written by the calling script, is read by the parameters
+- * initializers at the first call: this call must be the first one.
++ * initializers at the first call: this call must be the first one. The
++ * message must contain the text given by `--invalid-parameters-message`
++ * (`can't convert` by default).
+  * \param[in] t: test
+  */
+ static bool testInvalidParameters(const Test& t) {
+@@ -1260,7 +1266,8 @@ static bool testInvalidParameters(const Test& t) {
+       (st.th1 == t.initial.th1) && (st.isv1 == t.initial.isv1);
+   const auto pass =
+       (o.status == -6) && (o.number_of_failures == 0) && unchanged &&
+-      (std::string_view{o.msg}.find("can't convert") != std::string_view::npos);
++      (std::string_view{o.msg}.find(t.options.invalid_parameters_message) !=
++       std::string_view::npos);
+   std::printf("%-12s %-12s status=%2d | %s | %s\n", "invalid", "parameters",
+               o.status, o.msg, pass ? "OK" : "FAILED");
+   return pass;
+@@ -1690,6 +1697,7 @@ int main(const int argc, const char* const* const argv) {
+          "[--initial-internal-state-variables=values] "
+          "[--speed-of-sound=mass_density] [--energies=true] "
+          "[--other-device=true] [--invalid-parameters=true] "
++         "[--invalid-parameters-message=text] "
+          "[--generic-functions=true] [--time-step-scaling-factor=value] "
+          "[--tangent-operator=type] "
+          "[--perturbation-of-internal-state-variables=amplitude] "
+diff --git a/test-suite/material-properties/generic-parallel/stlpar-parunseq-gcc/test.check b/test-suite/material-properties/generic-parallel/stlpar-parunseq-gcc/test.check
+index 13d036636..16cf1a09c 100644
+--- a/test-suite/material-properties/generic-parallel/stlpar-parunseq-gcc/test.check
++++ b/test-suite/material-properties/generic-parallel/stlpar-parunseq-gcc/test.check
+@@ -18,6 +18,9 @@
+ @Command "sh ../build-libraries.sh @mfront@ config-stlpar-parunseq-gcc.json";
+ @Command "@TFEL_GXX_COMPILER@ -O2 -march=native --std=c++@TFEL_CXX_STANDARD@ -I @TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl";
+ @Command "sh ../compare-all.sh ./compare stlpar";
++// reading the file of parameters does not change errno (`generic` interface)
++@Command "@TFEL_GXX_COMPILER@ -I @TFEL_INCLUDE_DIR@ -O2 --std=c++@TFEL_CXX_STANDARD@ ../test-parameters-errno.cxx -o test-parameters-errno -L @TFEL_LIBRARY_DIR@ -lTFELTests -L src -lGenericUO2";
++@Command "./test-parameters-errno test-parameters-errno-stlpar-parunseq-gcc";
+ // library also containing the functions of the `generic` interface
+ @Command "sh ../check-generic-functions.sh @mfront@ config-stlpar-parunseq-gcc.json ./compare stlpar";
+ 
+@@ -30,5 +33,5 @@
+ // the name of a material property must not contain `_generic_parallel`
+ @Command "sh ../check-refused-name.sh @mfront@ config-stlpar-parunseq-gcc.json";
+ 
+-@CleanFiles {"test-stlpar", "test-invalid-parameters", "compare", "UO2_YoungModulus_Martin1989-parameters.txt", "test-no-runtime-checks"};
++@CleanFiles {"test-stlpar", "test-invalid-parameters", "test-parameters-errno", "compare", "UO2_YoungModulus_Martin1989-parameters.txt", "test-no-runtime-checks"};
+ @CleanDirectories {"include", "src", "refused-name", "generic-functions"};
+\ No newline at end of file
+diff --git a/test-suite/material-properties/generic-parallel/test-invalid-parameters.cxx b/test-suite/material-properties/generic-parallel/test-invalid-parameters.cxx
+index 10f5608b5..30d278d56 100644
+--- a/test-suite/material-properties/generic-parallel/test-invalid-parameters.cxx
++++ b/test-suite/material-properties/generic-parallel/test-invalid-parameters.cxx
+@@ -51,7 +51,9 @@ struct InvalidParametersTest : public tfel::tests::TestCase {
+     const auto file = std::string{"UO2_YoungModulus_Martin1989-parameters.txt"};
+     {
+       auto out = std::ofstream{file};
+-      out << "f0 abc\n";
++      // the invalid value is on the third line, after a comment and an
++      // empty line: the error gives this line
++      out << "# parameters\n\nf0 abc\n";
+     }
+     // nothing is computed: the output and the statuses of the points are
+     // not modified
+@@ -71,6 +73,8 @@ struct InvalidParametersTest : public tfel::tests::TestCase {
+     TFEL_TESTS_ASSERT(std::string{output.msg}.find(
+                           "can't convert 'abc' to floating point value") !=
+                       std::string::npos);
++    TFEL_TESTS_ASSERT(std::string{output.msg}.find("error at line '3'") !=
++                      std::string::npos);
+     for (std::size_t i = 0; i != E.size(); ++i) {
+       TFEL_TESTS_CHECK_EQUAL(E[i], 3.);
+       TFEL_TESTS_CHECK_EQUAL(statuses[i], 12);
+diff --git a/test-suite/material-properties/generic-parallel/test-parameters-errno.cxx b/test-suite/material-properties/generic-parallel/test-parameters-errno.cxx
+new file mode 100644
+index 000000000..689ff6929
+--- /dev/null
++++ b/test-suite/material-properties/generic-parallel/test-parameters-errno.cxx
+@@ -0,0 +1,81 @@
++/*!
++ * \file   test-parameters-errno.cxx
++ * \brief  This file tests that reading the file of parameters of a material
++ * property generated by the `generic` interface does not change `errno`:
++ * a value which sets `errno` while being converted (a subnormal number) must
++ * not make the first evaluation fail with the status `-3`. The library is
++ * the one built by `build-libraries.sh`.
++ * \date   21/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#include <cmath>
++#include <cerrno>
++#include <cstdio>
++#include <string>
++#include <fstream>
++#include <iostream>
++
++#include "TFEL/Tests/TestCase.hxx"
++#include "TFEL/Tests/TestProxy.hxx"
++#include "TFEL/Tests/TestManager.hxx"
++
++#include "MFront/GenericMaterialProperty/MaterialProperty.h"
++
++extern "C" mfront_gmp_real UO2_YoungModulus_Martin1989(
++    mfront_gmp_OutputStatus* const,
++    const mfront_gmp_real* const,
++    const mfront_gmp_size_type,
++    const mfront_gmp_OutOfBoundsPolicy);
++
++struct ParametersErrnoTest : public tfel::tests::TestCase {
++  ParametersErrnoTest()
++      : tfel::tests::TestCase("MFront/MaterialProperty/Generic",
++                              "ParametersErrnoTest") {
++  }  // end of ParametersErrnoTest
++
++  tfel::tests::TestResult execute() override {
++    // the file of parameters is read at the first call of the function:
++    // no other call is made by this test
++    const auto file = std::string{"UO2_YoungModulus_Martin1989-parameters.txt"};
++    {
++      auto out = std::ofstream{file};
++      out << "d2E_dT2 1e-310\n";
++    }
++    const double args[2] = {300, 0.1};
++    auto s = mfront_gmp_OutputStatus{};
++    errno = 0;
++    const auto E = UO2_YoungModulus_Martin1989(
++        &s, args, 2, GENERIC_MATERIALPROPERTY_NONE_POLICY);
++    TFEL_TESTS_CHECK_EQUAL(s.status, 0);
++    TFEL_TESTS_CHECK_EQUAL(errno, 0);
++    // value with the parameter of the file (the default value of `d2E_dT2`
++    // gives another value)
++    const auto E0 = 2.2693e11;
++    const auto dE_dT = -1.53994698e7;
++    const auto Eref = (1 - 0.1 / 0.4) * (E0 + dE_dT * 300);
++    TFEL_TESTS_ASSERT(std::abs(E - Eref) < 1e-12 * std::abs(Eref));
++    std::remove(file.c_str());
++    return this->result;
++  }  // end of execute
++};
++
++TFEL_TESTS_GENERATE_PROXY(ParametersErrnoTest, "ParametersErrnoTest");
++
++/* coverity [UNCAUGHT_EXCEPT]*/
++int main(const int argc, const char* const* argv) {
++  if (argc != 2) {
++    std::cerr << "no test name given on the command line (argc: " << argc
++              << ")";
++    return EXIT_FAILURE;
++  }
++  auto& m = tfel::tests::TestManager::getTestManager();
++  m.addTestOutput(std::cout);
++  m.addXMLTestOutput(std::string{argv[1]} + ".xml");
++  return m.execute().success() ? EXIT_SUCCESS : EXIT_FAILURE;
++}  // end of main
+diff --git a/tfel-check/src/TestLauncher.cxx b/tfel-check/src/TestLauncher.cxx
+index 7f71c30a8..786e33945 100644
+--- a/tfel-check/src/TestLauncher.cxx
++++ b/tfel-check/src/TestLauncher.cxx
+@@ -762,6 +762,12 @@ namespace tfel::check {
+         manager.execute(this->directory, c.command, "", output_file, envs);
+       }
+       this->ClockAction(STOP);
++      if (c.shall_fail) {
++        this->log.addTestResult(this->testname, step, c.command,
++                                this->ClockAction(GET), false,
++                                "the command succeeded but shall fail");
++        return false;
++      }
+       if (c.output_check) {
+         const auto output = getFileContent(output_file);
+         const auto [success, msg] = c.output_check(output);
+-- 
+2.43.0
+

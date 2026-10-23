@@ -15,7 +15,9 @@
 # The tests whose name selects a device (cuda, gpu, debug) are excluded:
 # they run with `ctest -R "cuda|gpu|GPU|AmgX|HypreDevicePoolSize|okkos"`.
 # `DeviceForallTest-cpu` and `DeviceOptionTest-none`, which require the
-# absence of device, are expected to fail.
+# absence of device, are expected to fail. `TwoLayerCube-1-MatrixFreeExecution`,
+# which checks that the option `--execution` gives no warning about the
+# variables of placement, is excluded: this suite sets them.
 #
 # usage: scripts/mfem-mgis-gpu-suite.sh [default|kernels] [build directory]
 set -u
@@ -41,4 +43,5 @@ case "$mode" in
     ;;
 esac
 cd "$build" || exit 1
-env "${settings[@]}" ctest -j 1 -E "cuda|gpu|GPU|debug" --output-on-failure
+env "${settings[@]}" ctest -j 1 \
+  -E "cuda|gpu|GPU|debug|^TwoLayerCube-1-MatrixFreeExecution$" --output-on-failure

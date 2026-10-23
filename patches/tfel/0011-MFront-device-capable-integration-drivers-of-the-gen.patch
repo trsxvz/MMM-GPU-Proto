@@ -1,4 +1,4 @@
-From 9ace5d20f6a3ec8ee443f9c73ecfc0a0767f2cc7 Mon Sep 17 00:00:00 2001
+From 00b46292a8c3b2ef77df61ffe808fc2664155ff0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:38:40 +0200
 Subject: [PATCH] MFront: device capable integration drivers of the generic

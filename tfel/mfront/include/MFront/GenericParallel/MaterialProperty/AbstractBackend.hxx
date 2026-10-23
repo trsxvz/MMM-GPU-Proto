@@ -34,7 +34,7 @@ namespace mfront::generic_parallel::material_property {
 
   /*!
    * \brief an abstract class which aims at writing code for a specific backend
-   * (CUDA, HIP, Kokkos, OpenACC, OpenMP, parallel STL, RAJA, SYCL)
+   * (Arcane, CUDA, HIP, Kokkos, OpenACC, OpenMP, parallel STL, RAJA, SYCL)
    */
   struct MFRONT_VISIBILITY_EXPORT AbstractBackend {
     //! \brief return the name of the backend
@@ -83,6 +83,14 @@ namespace mfront::generic_parallel::material_property {
      * `host`, `device` or `any`
      */
     [[nodiscard]] virtual std::string getMemorySpace() const = 0;
+    /*!
+     * \return the type of the execution policy of the backend (see
+     * `MFront/GenericParallel/AbstractBackendExecutionPolicy.hxx`), checked
+     * by the generated functions
+     */
+    [[nodiscard]] virtual std::string getExecutionPolicyType() const = 0;
+    //! \return the header declaring the execution policy of the backend
+    [[nodiscard]] virtual std::string getExecutionPolicyHeader() const = 0;
     /*!
      * \brief write the `<name>_generic_parallel_report` function, which
      * analyses the statistics of an evaluation and fills an output status

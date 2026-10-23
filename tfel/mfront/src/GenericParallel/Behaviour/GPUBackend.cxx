@@ -39,6 +39,12 @@ namespace mfront::generic_parallel::behaviour {
     return "mfront::generic_parallel::device_memory_space";
   }  // end of getMemorySpace
 
+  std::string GPUBackend::getExecutionPolicyType() const {
+    return this->getName() == "hip"
+               ? "::mfront::generic_parallel::HIPBackendExecutionPolicy"
+               : "::mfront::generic_parallel::CUDABackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
   std::string GPUBackend::getSharedDataCopy(const std::string_view getter,
                                             const std::string_view) const {
     return "mfront::gpb::gpu::getSharedDataCopy<" + std::string{getter} + ">()";

@@ -5,12 +5,17 @@
  * results of the `generic` interface (one call per point).
  *
  * Two time steps of a random loading are computed: the second one starts from
- * the results of the first one. The first step is computed synchronously and
- * the second one asynchronously: the statistics of the batch are then given
- * by the execution options (see `mfront_gpb_ExecutionOptions`) and analysed
+ * the results of the first one. The first step is computed synchronously,
+ * with the default execution policy of the backend (except for the `sycl`
+ * and `arcane` backends, which have none), and the second one
+ * asynchronously: the statistics of the batch are then given by the calling
+ * code (see the `statistics` member of `mfront_gpb_BatchData`) and analysed
  * by the report function of the library
  * (`<behaviour>_generic_parallel_report`) after the synchronization of the
- * device. All the combinations of the
+ * device. The execution policies are created from
+ * the identifier exported by the library
+ * (`<behaviour>_generic_parallel_execution_policy`, see
+ * `makeExecutionPolicy`). All the combinations of the
  * following cases are tested:
  *
  * - type of computation: consistent tangent operator (or the type of
@@ -69,11 +74,16 @@
  * allocated in shared USM memory (or in host memory if the
  * `MFRONT_GPB_COMPARE_USE_HOST_MEMORY` macro is defined) and the
  * computations are performed on the device selected by the default SYCL
- * selector. The `raja` configuration needs no macro: this file is compiled
- * by `nvcc` if RAJA is built with CUDA (data in managed memory, null queue,
- * i.e. the default stream of the current device), by the C++ compiler
- * otherwise. The preserved stack size is only checked for the libraries
- * computing on the device.
+ * selector. With the `raja` configuration, the `MFRONT_GPB_COMPARE_USE_RAJA`
+ * macro gives the execution policies of RAJA: this file is compiled by
+ * `nvcc` if RAJA is built with CUDA (data in managed memory, default
+ * policy, i.e. the default stream of the current device), by the C++
+ * compiler otherwise. With the `arcane` configuration, the
+ * `MFRONT_GPB_COMPARE_USE_ARCANE` macro initializes the accelerator runtime
+ * of Arccore: the computations are launched on a queue whose execution
+ * policy (`cuda`, `thread` or `sequential`) is given by the
+ * `MFRONT_GPB_COMPARE_ARCANE_QUEUE` environment variable. The preserved
+ * stack size is only checked for the libraries computing on the device.
  *
  * \date   05/10/2026
  */
@@ -392,9 +402,23 @@ static std::string_view getMemorySpace(const std::string& lib,
 }
 
 /*!
+ * \return the identifier of the execution policy expected by the tested
+ * function, exported by the library
+ * \param[in] lib: library
+ * \param[in] f: tested function
+ */
+static std::string getExecutionPolicyIdentifier(const std::string& lib,
+                                                const FunctionName& f) {
+  const auto* const p = static_cast<const char* const*>(
+      findSymbol(lib, f, "generic_parallel_execution_policy"));
+  return ((p != nullptr) && (*p != nullptr)) ? std::string{*p} : std::string{};
+}
+
+/*!
  * \brief check that the version of the data structures exported by the
  * library is the one of `MFront/GenericParallelBehaviour/BatchData.h`, and
- * that the library exports the memory space of the fields
+ * that the library exports the memory space of the fields and the
+ * identifier of its execution policy
  * \param[in] lib: library
  * \param[in] f: tested function
  */
@@ -408,6 +432,9 @@ static void checkVersion(const std::string& lib, const FunctionName& f) {
   if ((memory_space != "host") && (memory_space != "device") &&
       (memory_space != "any")) {
     fail("invalid memory space in library '" + lib + "'");
+  }
+  if (getExecutionPolicyIdentifier(lib, f).empty()) {
+    fail("no execution policy exported by library '" + lib + "'");
   }
 }
 
@@ -604,7 +631,7 @@ struct BatchFields {
     prefetch(this->status, n);
     synchronize();
     auto& d = this->data;
-    d.execution.queue = queue();
+    d.execution_policy = executionPolicy();
     d.number_of_points = n;
     d.dt = dt;
     d.options[0] = K0;
@@ -700,29 +727,31 @@ static mfront_gpb_OutputStatus measure(double& ms, const Function& f) {
 /*!
  * \brief batch integration with the `generic-parallel` interface
  * \param[in] report: if not null, the statistics of the batch are given by
- * the execution options and the device is synchronized after the call. The
+ * the calling code and the device is synchronized after the call. The
  * returned output status is then built by this function from those
  * statistics.
- * \param[in] q: queue passed to the behaviour
+ * \param[in] p: execution policy
  */
-static mfront_gpb_OutputStatus integrateBatch(States& st,
-                                              const Sizes& s,
-                                              const FiniteStrainOptions& fs,
-                                              const std::size_t n,
-                                              const double dt,
-                                              const double K0,
-                                              const Storage storage,
-                                              BatchFunction f,
-                                              const mfront_gpb_ReportPtr report,
-                                              double& ms,
-                                              void* const q = queue()) {
+static mfront_gpb_OutputStatus integrateBatch(
+    States& st,
+    const Sizes& s,
+    const FiniteStrainOptions& fs,
+    const std::size_t n,
+    const double dt,
+    const double K0,
+    const Storage storage,
+    BatchFunction f,
+    const mfront_gpb_ReportPtr report,
+    double& ms,
+    const mfront_gp_AbstractBackendExecutionPolicy* const p =
+        executionPolicy()) {
   auto b = BatchFields(st, s, fs, n, dt, K0, storage);
-  b.data.execution.queue = q;
+  b.data.execution_policy = p;
   auto* const statistics =
       report != nullptr ? allocate<mfront_gpb_Statistics>(1) : nullptr;
   if (statistics != nullptr) {
     mfront_gpb_initializeStatistics(statistics, b.data.rdt);
-    b.data.execution.statistics = statistics;
+    b.data.statistics = statistics;
   }
   auto o = measure(ms, [&b, f, statistics](mfront_gpb_OutputStatus& r) {
     f(&r, &b.data);
@@ -995,6 +1024,8 @@ static Options parseOptions(const int argc,
  */
 struct Test {
   std::string generic_library, batch_library, function;
+  //! \brief identifier of the execution policy expected by the library
+  std::string execution_policy;
   //! \brief components of the name of the tested function
   FunctionName name;
   Sizes sizes;
@@ -1085,7 +1116,7 @@ static bool testEmptyBatch(BatchFunction f,
   d.options[1] = fs.stress_measure;
   d.options[2] = fs.tangent_operator;
   d.rdt = 1;
-  d.execution.queue = queue();
+  d.execution_policy = executionPolicy();
   auto o = mfront_gpb_OutputStatus{};
   f(&o, &d);
   const auto pass = o.status == 1;
@@ -1140,8 +1171,8 @@ static bool testOtherDevice(const Test& t,
                             GenericFunction fg,
                             BatchFunction fb,
                             const double K0) {
-  auto* const q = otherQueue();
-  if (q == nullptr) {
+  const auto* const p = otherDeviceExecutionPolicy();
+  if (p == nullptr) {
     std::printf("%-12s %-12s | skipped: no other device\n", "other", "device");
     return true;
   }
@@ -1152,7 +1183,7 @@ static bool testOtherDevice(const Test& t,
   auto ms = 0.;
   integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
   const auto o = integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point,
-                                fb, nullptr, ms, q);
+                                fb, nullptr, ms, p);
   const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
   const auto pass = (ref.status == batch.status) &&
                     isConsistent(o, batch.status) && (dth < tolerance);
@@ -1164,7 +1195,7 @@ static bool testOtherDevice(const Test& t,
 #if defined(GPU_API)
 /*!
  * \return true if the stack size of the threads, preserved by the
- * execution options, is not modified and reported as too small (status
+ * execution policy, is not modified and reported as too small (status
  * `-7`). The kernels require at least 1024 bytes (see
  * `mfront::generic_parallel::gpu::ensureStackSize`).
  * \param[in] t: test
@@ -1180,8 +1211,9 @@ static bool testPreserveStackSize(const Test& t,
   auto st = t.initial;
   auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n, t.dt, K0,
                        Storage::by_point);
-  b.data.execution.queue = queue();
-  b.data.execution.preserve_stack_size = 1;
+  const auto preserve =
+      makeExecutionPolicy(t.execution_policy, {.preserve_stack_size = true});
+  b.data.execution_policy = preserve.get();
   auto o = mfront_gpb_OutputStatus{};
   fb(&o, &b.data);
   auto stack_size = std::size_t{};
@@ -1199,11 +1231,11 @@ static bool testPreserveStackSize(const Test& t,
 
 #if defined(MFRONT_GPB_COMPARE_USE_SYCL)
 /*!
- * \return true if the queues given by the execution options are treated as
- * documented: a null queue is an invalid argument (status `-5`), an
+ * \return true if the queues of the execution policies are treated as
+ * documented: a null policy is an invalid argument (status `-5`), an
  * asynchronous integration requires an in-order queue (status `-5`
  * otherwise), and a synchronous integration on an out-of-order queue gives
- * the results of the reference.
+ * the results of the reference, with or without statistics.
  * \param[in] t: test
  * \param[in] fg: function of the `generic` interface
  * \param[in] fb: batch function
@@ -1222,25 +1254,227 @@ static bool testSYCLQueues(const Test& t,
   // out-of-order queue sharing the device and the context of the queue of
   // the other tests, hence the allocations of the fields
   auto q = ::sycl::queue{getQueue().get_context(), getQueue().get_device()};
+  const auto asynchronous =
+      mfront::generic_parallel::makeSyclBackendExecutionPolicy(
+          q, {.asynchronous = true});
   auto st2 = t.initial;
   const auto o2 = integrateBatch(st2, s, fs, t.n, t.dt, K0, Storage::by_point,
-                                 fb, loadReportFunction(t), ms, &q);
+                                 fb, loadReportFunction(t), ms, &asynchronous);
+  const auto synchronous =
+      mfront::generic_parallel::makeSyclBackendExecutionPolicy(q);
   auto ref = t.initial;
   auto batch = t.initial;
   integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
   const auto o3 = integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point,
-                                 fb, nullptr, ms, &q);
-  const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
-  const auto pass = (o1.status == -5) && (o2.status == -5) &&
-                    (ref.status == batch.status) &&
-                    isConsistent(o3, batch.status) && (dth < tolerance);
+                                 fb, nullptr, ms, &synchronous);
+  // statistics with a synchronous integration on an out-of-order queue
+  auto batch2 = t.initial;
+  const auto o4 =
+      integrateBatch(batch2, s, fs, t.n, t.dt, K0, Storage::by_point, fb,
+                     loadReportFunction(t), ms, &synchronous);
+  const auto dth =
+      std::max(relativeDifference(ref.th1, batch.th1, ref.status, s.th),
+               relativeDifference(ref.th1, batch2.th1, ref.status, s.th));
+  const auto pass =
+      (o1.status == -5) && (o2.status == -5) && (ref.status == batch.status) &&
+      (ref.status == batch2.status) && isConsistent(o3, batch.status) &&
+      isConsistent(o4, batch2.status) && (dth < tolerance);
   std::printf(
-      "%-12s %-12s status=%2d/%2d/%2d | relative difference %.1e | %s\n",
-      "sycl", "queues", o1.status, o2.status, o3.status, dth,
+      "%-12s %-12s status=%2d/%2d/%2d/%2d | relative difference %.1e | %s\n",
+      "sycl", "queues", o1.status, o2.status, o3.status, o4.status, dth,
       pass ? "OK" : "FAILED");
   return pass;
 }
 #endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
+
+#if defined(MFRONT_GPB_COMPARE_USE_ARCANE)
+/*!
+ * \return true if the queues of the execution policies are treated as
+ * documented: a null policy and a policy holding a null queue are invalid
+ * arguments (status `-5`), and a synchronous or asynchronous integration on
+ * another queue of the runner of the tests gives the results of the
+ * reference. The asynchronous launch does not change the asynchronous state
+ * of the queue, which is synchronized by the test. A synchronous
+ * integration on an asynchronous queue waits for the completion of the
+ * computations and leaves the queue asynchronous.
+ * \param[in] t: test
+ * \param[in] fg: function of the `generic` interface
+ * \param[in] fb: batch function
+ * \param[in] K0: type of computation
+ */
+static bool testArcaneQueues(const Test& t,
+                             GenericFunction fg,
+                             BatchFunction fb,
+                             const double K0) {
+  const auto& s = t.sizes;
+  const auto& fs = t.options.finite_strain;
+  auto ms = 0.;
+  auto st1 = t.initial;
+  const auto o1 = integrateBatch(st1, s, fs, t.n, t.dt, K0, Storage::by_point,
+                                 fb, nullptr, ms, nullptr);
+  const auto null_queue =
+      mfront::generic_parallel::makeArcaneBackendExecutionPolicy(
+          Arcane::Accelerator::RunQueue{});
+  auto st2 = t.initial;
+  const auto o2 = integrateBatch(st2, s, fs, t.n, t.dt, K0, Storage::by_point,
+                                 fb, nullptr, ms, &null_queue);
+  auto ref = t.initial;
+  integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
+  // synchronous integration on another queue
+  auto q = Arcane::Accelerator::makeQueue(Runtime::current->runner);
+  const auto synchronous =
+      mfront::generic_parallel::makeArcaneBackendExecutionPolicy(q);
+  auto batch = t.initial;
+  const auto o3 = integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point,
+                                 fb, nullptr, ms, &synchronous);
+  // asynchronous integration on this queue, synchronized here
+  const auto asynchronous =
+      mfront::generic_parallel::makeArcaneBackendExecutionPolicy(
+          q, {.asynchronous = true});
+  auto batch2 = t.initial;
+  auto b = BatchFields(batch2, s, fs, t.n, t.dt, K0, Storage::by_point);
+  auto* const statistics = allocate<mfront_gpb_Statistics>(1);
+  mfront_gpb_initializeStatistics(statistics, b.data.rdt);
+  b.data.statistics = statistics;
+  b.data.execution_policy = &asynchronous;
+  auto o4 = mfront_gpb_OutputStatus{};
+  fb(&o4, &b.data);
+  const auto restored = !q.isAsync();
+  q.barrier();
+  if (o4.status == 1) {
+    loadReportFunction(t)(&o4, statistics);
+  }
+  deallocate(statistics);
+  b.copyResults(batch2);
+  // synchronous integration on an asynchronous queue: the results are read
+  // without synchronization
+  q.setAsync(true);
+  auto batch3 = t.initial;
+  const auto o5 =
+      integrateBatch(batch3, s, fs, t.n, t.dt, K0, Storage::by_point, fb,
+                     nullptr, ms, &synchronous);
+  const auto still_asynchronous = q.isAsync();
+  q.setAsync(false);
+  auto has = [](const mfront_gpb_OutputStatus& o, const char* const m) {
+    return std::string_view{o.msg}.find(m) != std::string_view::npos;
+  };
+  const auto dth =
+      std::max({relativeDifference(ref.th1, batch.th1, ref.status, s.th),
+                relativeDifference(ref.th1, batch2.th1, ref.status, s.th),
+                relativeDifference(ref.th1, batch3.th1, ref.status, s.th)});
+  const auto pass =
+      (o1.status == -5) && has(o1, "the arcane backend requires a queue") &&
+      (o2.status == -5) &&
+      has(o2, "the queue of the execution policy is null") && restored &&
+      still_asynchronous && (ref.status == batch.status) &&
+      (ref.status == batch2.status) && (ref.status == batch3.status) &&
+      isConsistent(o3, batch.status) && isConsistent(o4, batch2.status) &&
+      isConsistent(o5, batch3.status) && (dth < tolerance);
+  std::printf(
+      "%-12s %-12s status=%2d/%2d/%2d/%2d/%2d | relative difference %.1e | "
+      "%s\n",
+      "arcane", "queues", o1.status, o2.status, o3.status, o4.status, o5.status,
+      dth, pass ? "OK" : "FAILED");
+  return pass;
+}
+#endif /* defined(MFRONT_GPB_COMPARE_USE_ARCANE) */
+
+//! \brief result of a call of a function of the library (see
+//! `checkExecutionPolicies`)
+struct PolicyCall {
+  //! \brief output status returned by the function
+  mfront_gpb_OutputStatus status;
+  //! \brief values computed by the function
+  std::vector<double> values;
+  //! \brief true if no computation was pending once the function returned
+  bool idle;
+};
+
+/*!
+ * \return true if a function of the library treats the execution policies
+ * as documented: a policy of another backend and an asynchronous
+ * computation without statistics are invalid arguments (status `-5`, with
+ * the messages of `mfront::generic_parallel::checkBackendExecutionPolicy`), and
+ * a synchronous computation with statistics returns once the computations are
+ * completed (checked with CUDA and HIP, see `isQueueIdle`; the test does not
+ * synchronise the device before reading the results), its output status
+ * reporting no error of the batch, its report and its values being the ones
+ * of the default execution policy of the tests.
+ * \param[in] t: test
+ * \param[in] what: name of the function in the output
+ * \param[in] call: function calling the function of the library on a new
+ * batch with the given execution policy and statistics, and returning its
+ * output status and its values (see `PolicyCall`)
+ */
+template <typename Call>
+static bool checkExecutionPolicies(const Test& t,
+                                   const char* const what,
+                                   const Call& call) {
+  const auto other = makeOtherBackendExecutionPolicy(t.execution_policy);
+  const auto asynchronous =
+      makeExecutionPolicy(t.execution_policy, {.asynchronous = true});
+  const auto synchronous = makeExecutionPolicy(t.execution_policy, {});
+  const auto r0 = call(executionPolicy(), nullptr);
+  const auto r1 = call(other.get(), nullptr);
+  const auto r2 = call(asynchronous.get(), nullptr);
+  auto* const statistics = allocate<mfront_gpb_Statistics>(1);
+  mfront_gpb_initializeStatistics(statistics, initial_time_step_scaling_factor);
+  const auto r3 = call(synchronous.get(), statistics);
+  auto o3 = mfront_gpb_OutputStatus{};
+  loadReportFunction(t)(&o3, statistics);
+  deallocate(statistics);
+  auto has = [](const mfront_gpb_OutputStatus& o, const char* const m) {
+    return std::string_view{o.msg}.find(m) != std::string_view::npos;
+  };
+  const auto pass =
+      (r1.status.status == -5) &&
+      has(r1.status, "the execution policy is not the one of the backend") &&
+      (r2.status.status == -5) &&
+      has(r2.status, "an asynchronous computation requires statistics") &&
+      (r3.status.status == 1) && r3.idle && (o3.status == r0.status.status) &&
+      (o3.number_of_failures == r0.status.number_of_failures) &&
+      (o3.first_failure_index == r0.status.first_failure_index) &&
+      (o3.number_of_unreliable_results ==
+       r0.status.number_of_unreliable_results) &&
+      (r3.values == r0.values);
+  std::printf(
+      "%-12s %-12s status=%2d/%2d/%2d, report %2d | idle %d, same values %d "
+      "| %s\n",
+      what, "policies", r1.status.status, r2.status.status, r3.status.status,
+      o3.status, static_cast<int>(r3.idle),
+      static_cast<int>(r3.values == r0.values), pass ? "OK" : "FAILED");
+  return pass;
+}  // end of checkExecutionPolicies
+
+/*!
+ * \return true if the integration treats the execution policies as
+ * documented (see `checkExecutionPolicies`)
+ * \param[in] t: test
+ * \param[in] fb: batch function
+ * \param[in] K0: type of computation
+ */
+static bool testExecutionPolicies(const Test& t,
+                                  BatchFunction fb,
+                                  const double K0) {
+  return checkExecutionPolicies(
+      t, "execution",
+      [&t, fb, K0](const mfront_gp_AbstractBackendExecutionPolicy* const p,
+                   mfront_gpb_Statistics* const s) {
+        auto st = t.initial;
+        auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n, t.dt,
+                             K0, Storage::by_point);
+        b.data.execution_policy = p;
+        b.data.statistics = s;
+        auto r = PolicyCall{};
+        fb(&r.status, &b.data);
+        r.idle = isQueueIdle();
+        synchronize();
+        b.copyResults(st);
+        r.values = st.th1;
+        r.values.insert(r.values.end(), st.isv1.begin(), st.isv1.end());
+        return r;
+      });
+}  // end of testExecutionPolicies
 
 /*!
  * \return true if an invalid file of parameters is reported as invalid
@@ -1257,7 +1491,6 @@ static bool testInvalidParameters(const Test& t) {
   auto st = t.initial;
   auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n, t.dt,
                        t.options.tangent_operator, Storage::by_point);
-  b.data.execution.queue = queue();
   auto o = mfront_gpb_OutputStatus{};
   fb(&o, &b.data);
   synchronize();
@@ -1290,6 +1523,9 @@ static bool testIntegration(const Test& t) {
   const auto speed_of_sound = t.initial.mass_density > 0;
   const auto o0 = speed_of_sound ? 100. : 0.;
   const auto Kt = t.options.tangent_operator;
+  // execution policy of the asynchronous steps
+  const auto asynchronous =
+      makeExecutionPolicy(t.execution_policy, {.asynchronous = true});
   auto ok = testEmptyBatch(fb, fs, Kt + o0);
   ok = testReportFunction(t) && ok;
   if (fs.finite_strain) {
@@ -1326,7 +1562,7 @@ static bool testIntegration(const Test& t) {
       }
       integrateReference(ref, s, fs, n, t.dt, K0 + o0, fg);
       const auto o2 = integrateBatch(batch, s, fs, n, t.dt, K0 + o0, storage,
-                                     fb, report, ms2);
+                                     fb, report, ms2, asynchronous.get());
       const auto nfailures =
           std::count(ref.status.begin(), ref.status.end(), -1);
       const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
@@ -1385,14 +1621,20 @@ static bool testIntegration(const Test& t) {
   if (t.options.other_device) {
     ok = testOtherDevice(t, fg, fb, Kt + o0) && ok;
   }
+  ok = testExecutionPolicies(t, fb, Kt + o0) && ok;
 #if defined(MFRONT_GPB_COMPARE_USE_SYCL)
   ok = testSYCLQueues(t, fg, fb, Kt + o0) && ok;
 #endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
+#if defined(MFRONT_GPB_COMPARE_USE_ARCANE)
+  ok = testArcaneQueues(t, fg, fb, Kt + o0) && ok;
+#endif /* defined(MFRONT_GPB_COMPARE_USE_ARCANE) */
 #if defined(GPU_API)
   // the stack size of the threads of the device only concerns the libraries
   // computing on the device, not those computing on the host compiled by a
-  // GPU compiler (`config-raja-host.json` with a RAJA built with CUDA)
-  if (getMemorySpace(t.batch_library, t.name) == "device") {
+  // GPU compiler (`config-raja-host.json` with a RAJA built with CUDA, or
+  // the `Thread` and `Sequential` queues of Arcane)
+  if ((getMemorySpace(t.batch_library, t.name) == "device") &&
+      computesOnGPU()) {
     ok = testPreserveStackSize(t, fb, Kt + o0) && ok;
   }
 #endif /* defined(GPU_API) */
@@ -1459,6 +1701,28 @@ static bool testInitializeFunction(const Test& t) {
                       isConsistent(o, batch.status) && (d < tolerance);
     ok = print("initialize", storage, pass, o, batch.status, d, ms) && ok;
   }
+  ok = checkExecutionPolicies(
+           t, "initialize",
+           [&t, fb, &inputs, ni](
+               const mfront_gp_AbstractBackendExecutionPolicy* const p,
+               mfront_gpb_Statistics* const statistics) {
+             auto st = t.initial;
+             auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n,
+                                  t.dt, 0, Storage::by_point);
+             b.data.execution_policy = p;
+             b.data.statistics = statistics;
+             const auto in = BatchField(inputs, t.n, ni, b.by_component);
+             const auto in_field = in.const_field();
+             auto r = PolicyCall{};
+             fb(&r.status, &b.data, ni == 0 ? nullptr : &in_field);
+             r.idle = isQueueIdle();
+             synchronize();
+             b.copyResults(st);
+             r.values = st.th1;
+             r.values.insert(r.values.end(), st.isv1.begin(), st.isv1.end());
+             return r;
+           }) &&
+       ok;
   return ok;
 }  // end of testInitializeFunction
 
@@ -1509,6 +1773,27 @@ static bool testPostProcessing(const Test& t) {
                       isConsistent(o, batch.status) && (d < tolerance);
     ok = print("post-processing", storage, pass, o, batch.status, d, ms) && ok;
   }
+  ok = checkExecutionPolicies(
+           t, "post-proc.",
+           [&t, fb, no](const mfront_gp_AbstractBackendExecutionPolicy* const p,
+                        mfront_gpb_Statistics* const statistics) {
+             auto st = t.initial;
+             auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n,
+                                  t.dt, 0, Storage::by_point);
+             b.data.execution_policy = p;
+             b.data.statistics = statistics;
+             const auto out = BatchField(std::vector<double>(t.n * no), t.n, no,
+                                         b.by_component);
+             const auto out_field = out.field();
+             auto r = PolicyCall{};
+             fb(&r.status, &out_field, &b.data);
+             r.idle = isQueueIdle();
+             synchronize();
+             r.values.resize(t.n * no);
+             out.copy(r.values);
+             return r;
+           }) &&
+       ok;
   return ok;
 }  // end of testPostProcessing
 
@@ -1575,7 +1860,7 @@ static bool testRotation(const Test& t) {
       if (uniform) {
         d.rotation_matrices.point_stride = 0;
       }
-      d.execution.queue = queue();
+      d.execution_policy = executionPolicy();
       auto ms = 0.;
       const auto o =
           measure(ms, [&](mfront_gpb_OutputStatus& r) { fb(&r, &d); });
@@ -1595,10 +1880,37 @@ static bool testRotation(const Test& t) {
           pass ? "OK" : "FAILED");
     }
   }
+  // execution policies (see checkExecutionPolicies)
+  ok = checkExecutionPolicies(
+           t, "rotation",
+           [&](const mfront_gp_AbstractBackendExecutionPolicy* const p,
+               mfront_gpb_Statistics* const statistics) {
+             const auto source = BatchField(src, n, ns, false);
+             const auto destination =
+                 BatchField(std::vector<double>(n * ns), n, ns, false);
+             const auto matrices = BatchField(rotations, n, 9, false);
+             auto d = mfront_gpb_RotationData{};
+             d.number_of_points = n;
+             d.destination = destination.field();
+             d.source = source.const_field();
+             d.rotation_matrices = matrices.const_field();
+             d.execution_policy = p;
+             d.statistics = statistics;
+             auto r = PolicyCall{};
+             fb(&r.status, &d);
+             r.idle = isQueueIdle();
+             synchronize();
+             r.values.resize(n * ns);
+             destination.copy(r.values);
+             return r;
+           }) &&
+       ok;
   // asynchronous rotation: the rotations never lower the time step scaling
   // factor, so that the statistics are not modified on all the backends,
   // even if their time step scaling factor is greater than one
   {
+    const auto asynchronous =
+        makeExecutionPolicy(t.execution_policy, {.asynchronous = true});
     const auto source = BatchField(src, n, ns, false);
     const auto destination =
         BatchField(std::vector<double>(n * ns), n, ns, false);
@@ -1610,8 +1922,8 @@ static bool testRotation(const Test& t) {
     d.destination = destination.field();
     d.source = source.const_field();
     d.rotation_matrices = matrices.const_field();
-    d.execution.queue = queue();
-    d.execution.statistics = statistics;
+    d.execution_policy = asynchronous.get();
+    d.statistics = statistics;
     auto o = mfront_gpb_OutputStatus{};
     fb(&o, &d);
     synchronize();
@@ -1728,6 +2040,7 @@ int main(const int argc, const char* const* const argv) {
   auto t = Test{.generic_library = argv[1],
                 .batch_library = argv[2],
                 .function = argv[3],
+                .execution_policy = getExecutionPolicyIdentifier(argv[2], name),
                 .name = name,
                 .sizes = s,
                 .options = options,

@@ -54,10 +54,13 @@ namespace mfront::generic_parallel::material_property {
     const auto types = i.getTypesDescription();
     os << "using mfront_execution_policy = " << this->execution_policy
        << ";\n"
-       // resource given by the execution options
+       // resource of the execution policy (default resource for the default
+       // policy)
        << "auto mfront_resource = "
-       << "::mfront::generic_parallel::raja::getResource<"
-       << "mfront_execution_policy>(mfront_options.queue);\n";
+       << "(mfront_backend_policy.policy == nullptr) ? "
+       << "::mfront::generic_parallel::raja::getDefaultResource<"
+       << "mfront_execution_policy>() : "
+       << "mfront_backend_policy.policy->resource;\n";
     if (this->isBoundsCheckingRequired(mpd)) {
       // the statistics are written by the kernels and read on the host. The
       // blocks of managed memory, by device, are kept until the end of the
@@ -77,7 +80,7 @@ namespace mfront::generic_parallel::material_property {
       os << "const auto mfront_stack_size_error = "
          << "::mfront::generic_parallel::raja::ensureStackSize<"
          << "mfront_execution_policy>(" << kernel
-         << ", mfront_options.preserve_stack_size != 0);\n"
+         << ", mfront_preserve_stack_size);\n"
          << "if (!mfront_stack_size_error.empty()) {\n";
       writeBatchError(os, -7, "mfront_stack_size_error");
       os << "}\n";
@@ -117,6 +120,16 @@ namespace mfront::generic_parallel::material_property {
            "> ? mfront::generic_parallel::device_memory_space : "
            "mfront::generic_parallel::host_memory_space)";
   }  // end of getMemorySpace
+
+  std::string RAJABackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::RAJABackendExecutionPolicy<"
+           "::mfront::generic_parallel::raja::Resource<" +
+           this->execution_policy + ">>";
+  }  // end of getExecutionPolicyType
+
+  std::string RAJABackend::getExecutionPolicyHeader() const {
+    return "MFront/GenericParallel/RAJABackendExecutionPolicy.hxx";
+  }  // end of getExecutionPolicyHeader
 
   RAJABackend::~RAJABackend() noexcept = default;
 

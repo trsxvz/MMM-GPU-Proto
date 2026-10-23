@@ -1,0 +1,24 @@
+@Requires {"mfront::behaviour::generic-parallel_interface::supported_configuration::arcane"};
+
+@Environment {"LD_LIBRARY_PATH": "src:reference/src"};
+// libraries of the reference (`generic` interface, host compiler) and of the
+// tested configuration (see build-libraries.sh)
+@Command "sh ../build-libraries.sh @mfront@ config-arcane.json";
+@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
+// comparisons with the `generic` interface (see compare-all.sh). The
+// library computes on the GPU or on the cores of the host, as selected by
+// the queue of the execution policy: CUDA queue (default), `Thread` queue
+// and, for an integration, a rotation, an initialize function, a
+// post-processing and shared data, `Sequential` queue (see runtime.hxx and
+// compare-sequential.sh)
+@Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-arcane.so";
+@Command "env MFRONT_GPB_COMPARE_ARCANE_QUEUE=thread sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-arcane.so";
+@Command "sh compare-sequential.sh ./compare src/libGenericParallelBehaviour-arcane.so";
+// library also containing the functions of the `generic` interface
+@Command "sh ../check-generic-functions.sh @mfront@ config-arcane.json ./compare arcane";
+
+// the name of a behaviour or of a model must not contain `_generic_parallel`
+@Command "sh ../check-refused-name.sh @mfront@ config-arcane.json";
+
+@CleanFiles {"compare"};
+@CleanDirectories {"include", "src", "reference", "refused-name", "generic-functions"};

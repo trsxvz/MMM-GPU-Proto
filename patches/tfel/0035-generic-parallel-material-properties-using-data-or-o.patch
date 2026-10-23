@@ -1,4 +1,4 @@
-From f1f14c537f43e019a29294a7b9457571407d474f Mon Sep 17 00:00:00 2001
+From c061026bc15b81e49f6154b494d488a1c9b814fe Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 06:40:06 +0200
 Subject: [PATCH] generic-parallel: material properties using data or other
@@ -78,10 +78,10 @@ index a91404869..ef7989226 100644
     * \brief an helper function which writes the declaration of some `TFEL`
     * standard scalar alias. The `tfel::config::ScalarTypes` class for details.
 diff --git a/mfront/src/CodeGeneratorUtilities.cxx b/mfront/src/CodeGeneratorUtilities.cxx
-index d19462475..e0f014847 100644
+index 785af81ab..2b0974f74 100644
 --- a/mfront/src/CodeGeneratorUtilities.cxx
 +++ b/mfront/src/CodeGeneratorUtilities.cxx
-@@ -449,12 +449,19 @@ namespace mfront {
+@@ -443,12 +443,19 @@ namespace mfront {
    }  // end of writeMaterialKnowledgeTypeSymbol
  
    void writeMaterialLaws(std::ostream& os,

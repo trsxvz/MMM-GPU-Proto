@@ -53,8 +53,9 @@ namespace mfront::generic_parallel::material_property {
       const MaterialPropertyDescription& mpd,
       const FileDescription& fd) const {
     const auto types = i.getTypesDescription();
-    // the queue of the execution options is not used: the computations are
-    // performed by the OpenMP threads or the default device of OpenMP
+    // only the common options of the execution policy are used: the
+    // computations are performed by the OpenMP threads or the default device
+    // of OpenMP
     if (this->offload) {
       writeDeviceStackSizeSetting(os, this->device_stack_size);
     }
@@ -136,6 +137,14 @@ namespace mfront::generic_parallel::material_property {
     }
     return "mfront::generic_parallel::host_memory_space";
   }  // end of getMemorySpace
+
+  std::string OpenMPBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::OpenMPBackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
+  std::string OpenMPBackend::getExecutionPolicyHeader() const {
+    return "MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx";
+  }  // end of getExecutionPolicyHeader
 
   OpenMPBackend::~OpenMPBackend() noexcept = default;
 

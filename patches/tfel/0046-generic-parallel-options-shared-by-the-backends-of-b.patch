@@ -1,4 +1,4 @@
-From 70aa1f9c76da721391f306e8680f439dd3d2f0da Mon Sep 17 00:00:00 2001
+From 5b688873ee5a110e2fa0ffa9bb2eba20565595f7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:01:09 +0200
 Subject: [PATCH] generic-parallel: options shared by the backends of both
@@ -67,7 +67,7 @@ index 1b639e4cb..a74ee1537 100644
  messages of the points (`error_message` of the `generic` interface) are not
  reported: the code executed on a device can't throw exceptions, and a
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 2165c8bd9..96b0a2a6c 100644
+index 703c6d180..6a9241b74 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
 @@ -115,6 +115,7 @@ install_mfront_header(MFront UMATInterfaceBase.hxx)

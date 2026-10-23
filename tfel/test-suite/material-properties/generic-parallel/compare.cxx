@@ -13,8 +13,10 @@
  * - layout: contiguous arrays, strided output and arguments, uniform first
  *   argument, batch of one point with a uniform output;
  * - execution: synchronous, or asynchronous (statistics given by the
- *   execution options, analysed by the report function once the
- *   computations are completed).
+ *   calling code, analysed by the report function once the computations are
+ *   completed). The asynchronous execution policy is created from the
+ *   identifier exported by the library
+ *   (`<name>_generic_parallel_execution_policy`, see `makeExecutionPolicy`).
  *
  * At each point, the status of the batch is the status of the `generic`
  * interface, and the output is the value of the `generic` interface (`NaN`
@@ -137,6 +139,8 @@ struct Functions {
   mfront_gpmp_BatchMaterialPropertyPtr batch;
   mfront_gpmp_ReportPtr report;
   std::size_t nargs;
+  //! \brief identifier of the execution policy expected by the library
+  std::string execution_policy;
   //! \brief interval of the values of the arguments
   double minimum = -std::numeric_limits<double>::max();
   double maximum = std::numeric_limits<double>::max();
@@ -162,8 +166,8 @@ static bool areEqual(const double a, const double b, const double t) {
  * \param[in] n: number of points
  * \param[in] l: layout
  * \param[in] p: out of bounds policy
- * \param[in] asynchronous: if true, the statistics are given by the
- * execution options
+ * \param[in] asynchronous: if true, the evaluation is asynchronous and the
+ * statistics are given by the calling code
  * \param[in] tolerance: relative tolerance on the values
  * \param[in,out] rng: random number generator
  */
@@ -258,19 +262,20 @@ static bool compare(const Functions& f,
   }
   auto statistics = Array<mfront_gpmp_Statistics>(1);
   mfront_gpmp_initializeStatistics(statistics.values);
+  const auto asynchronous_policy =
+      makeExecutionPolicy(f.execution_policy, {.asynchronous = true});
   const auto d = mfront_gpmp_BatchData{
       .number_of_points = n,
       .output = mfront_gpmp_Field{.values = output.values,
-                                  .point_stride = static_cast<std::size_t>(
-                                      output_stride)},
+                                  .point_stride =
+                                      static_cast<std::size_t>(output_stride)},
       .arguments = fields.empty() ? nullptr : fields.data(),
       .number_of_arguments = f.nargs,
       .out_of_bounds_policy = p,
       .statuses = statuses.values,
-      .execution = mfront_gpmp_ExecutionOptions{
-          .queue = queue(),
-          .statistics = asynchronous ? statistics.values : nullptr,
-          .preserve_stack_size = 0}};
+      .statistics = asynchronous ? statistics.values : nullptr,
+      .execution_policy =
+          asynchronous ? asynchronous_policy.get() : executionPolicy()};
   auto o = mfront_gpmp_OutputStatus{};
   auto r = f.batch(&o, &d);
   if (asynchronous) {
@@ -403,7 +408,9 @@ int main(const int argc, const char* const* const argv) {
       .report = reinterpret_cast<mfront_gpmp_ReportPtr>(
           load(batch_library, function + "_generic_parallel_report")),
       .nargs = *static_cast<const unsigned short*>(
-          load(generic_library, function + "_nargs"))};
+          load(generic_library, function + "_nargs")),
+      .execution_policy = *static_cast<const char* const*>(load(
+          batch_library, function + "_generic_parallel_execution_policy"))};
   f.minimum = minimum;
   f.maximum = maximum;
   auto ok = true;

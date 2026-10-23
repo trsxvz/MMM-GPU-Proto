@@ -73,27 +73,22 @@ namespace mfront::generic_parallel::raja {
   /*!
    * \brief resource of camp associated with an execution policy
    * (`camp::resources::Cuda`, `camp::resources::Hip` or
-   * `camp::resources::Host`, for instance). The queue given by the
-   * execution options is a pointer to such a resource.
+   * `camp::resources::Host`, for instance), held by the execution policies
+   * of the `raja` backend (see
+   * `MFront/GenericParallel/RAJABackendExecutionPolicy.hxx`)
    */
   template <typename ExecutionPolicy>
   using Resource = RAJA::resources::resource_from_pol_t<ExecutionPolicy>;
 
   /*!
-   * \return the resource used when the queue of the execution options is
-   * null: the default stream of the current device with CUDA and HIP, as
-   * for the `cuda` and `hip` backends (the default resource of camp is a
-   * stream created by camp on the device 0), the default resource of camp
-   * otherwise. The unsupported execution policies are refused at compile
-   * time (see `isSupportedExecutionPolicy`).
-   * \tparam ExecutionPolicy: execution policy
+   * \return the default resource of a type: the default stream of the
+   * current device with CUDA and HIP, as for the `cuda` and `hip` backends
+   * (the default resource of camp is a stream created by camp on the device
+   * 0), the default resource of camp otherwise
+   * \tparam ResourceType: type of the resource
    */
-  template <typename ExecutionPolicy>
-  Resource<ExecutionPolicy> getDefaultResource() {
-    static_assert(isSupportedExecutionPolicy<ExecutionPolicy>,
-                  "the execution policies of OpenMP target and SYCL are not "
-                  "supported by the raja backend");
-    using ResourceType = Resource<ExecutionPolicy>;
+  template <typename ResourceType>
+  ResourceType getDefaultResourceOfType() {
 #if defined(RAJA_CUDA_ACTIVE)
     if constexpr (std::is_same_v<ResourceType, camp::resources::Cuda>) {
       return camp::resources::Cuda::CudaFromStream(0);
@@ -105,21 +100,21 @@ namespace mfront::generic_parallel::raja {
     }
 #endif
     return ResourceType::get_default();
-  }  // end of getDefaultResource
+  }  // end of getDefaultResourceOfType
 
   /*!
-   * \return the resource given by the execution options, or the default
-   * resource (see `getDefaultResource`) if the queue is null
+   * \return the resource used by the default execution policy of the `raja`
+   * backend (see `getDefaultResourceOfType`). The unsupported execution
+   * policies are refused at compile time (see `isSupportedExecutionPolicy`).
    * \tparam ExecutionPolicy: execution policy
-   * \param[in] queue: queue of the execution options
    */
   template <typename ExecutionPolicy>
-  Resource<ExecutionPolicy> getResource(const void* const queue) {
-    if (queue == nullptr) {
-      return getDefaultResource<ExecutionPolicy>();
-    }
-    return *static_cast<const Resource<ExecutionPolicy>*>(queue);
-  }  // end of getResource
+  Resource<ExecutionPolicy> getDefaultResource() {
+    static_assert(isSupportedExecutionPolicy<ExecutionPolicy>,
+                  "the execution policies of OpenMP target and SYCL are not "
+                  "supported by the raja backend");
+    return getDefaultResourceOfType<Resource<ExecutionPolicy>>();
+  }  // end of getDefaultResource
 
   /*!
    * \return the identifier of the device of a resource (CUDA and HIP), 0

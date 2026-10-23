@@ -1,4 +1,4 @@
-From b3f0bc4732517165d00215cf819f2ed7539cadd0 Mon Sep 17 00:00:00 2001
+From 51961ab9de1a3b24a1a962480e45d4fdbc76f161 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 04:15:39 +0200
 Subject: [PATCH] MFront: generic integration drivers work on copies of the

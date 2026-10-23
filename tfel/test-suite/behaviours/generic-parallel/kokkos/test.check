@@ -4,7 +4,7 @@
 // libraries of the reference (`generic` interface, host compiler) and of the
 // tested configuration (see build-libraries.sh)
 @Command "sh ../build-libraries.sh @mfront@ config-kokkos.json";
-@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
+@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
 // comparisons with the `generic` interface, which gives the reference
 // results (see compare-all.sh)
 @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-kokkos.so";

@@ -1,4 +1,4 @@
-From eaffc7ed82177ea5c064b3ce1ba062c4cfd22782 Mon Sep 17 00:00:00 2001
+From 1bf5f0f6248f30c7c0ae1bfea89aa460d5e726dc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:34 +0200
 Subject: [PATCH] MFront: rotation functions, method calls and slip systems
@@ -30,8 +30,8 @@ Subject: [PATCH] MFront: rotation functions, method calls and slip systems
  mfront/src/BehaviourCodeGeneratorBase.cxx     |   81 +-
  mfront/src/BehaviourRotationFunctions.cxx     |  271 ++++
  mfront/src/CMakeLists.txt                     |    1 +
- mfront/src/GenericBehaviourInterface.cxx      | 1102 ++---------------
- 11 files changed, 738 insertions(+), 1094 deletions(-)
+ mfront/src/GenericBehaviourInterface.cxx      | 1133 ++---------------
+ 11 files changed, 738 insertions(+), 1125 deletions(-)
  create mode 100644 mfront/include/MFront/BehaviourRotationFunctions.hxx
  create mode 100644 mfront/src/BehaviourRotationFunctions.cxx
 
@@ -1306,7 +1306,7 @@ index 66d83c06e..595c0d38a 100644
      OptionDescription.cxx
      BrickUtilities.cxx
 diff --git a/mfront/src/GenericBehaviourInterface.cxx b/mfront/src/GenericBehaviourInterface.cxx
-index 0a186e447..87aa450ef 100644
+index 5e6edfcb5..6013314d8 100644
 --- a/mfront/src/GenericBehaviourInterface.cxx
 +++ b/mfront/src/GenericBehaviourInterface.cxx
 @@ -23,6 +23,7 @@
@@ -1317,7 +1317,7 @@ index 0a186e447..87aa450ef 100644
  #include "MFront/GenericBehaviourInterface.hxx"
  
  namespace mfront {
-@@ -32,943 +33,78 @@ namespace mfront {
+@@ -32,974 +33,78 @@ namespace mfront {
     * \param[out] os: output stream
     * \param[in] i: generic behaviour interface
     * \param[in] bd: behaviour description
@@ -1369,7 +1369,10 @@ index 0a186e447..87aa450ef 100644
 -         << "const mfront_gb_real* const, "
 -         << "const mfront_gb_size_type);\n\n";
 -      if (is_finite_strain) {
--        os << "/*!\n"
++    for (const auto h : i.getModellingHypothesesToBeTreated(bd)) {
++      const auto fn = i.getFunctionNameForHypothesis(name, h);
++      for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
+         os << "/*!\n"
 -              " * \\brief rotate the Cauchy stress from the material "
 -              " frame to the global frame\n"
 -              " * \\param[out] dest: Cauchy stress in the global frame\n"
@@ -1410,8 +1413,15 @@ index 0a186e447..87aa450ef 100644
 -           << "_rotateThermodynamicForces_PK2Stress("
 -           << "mfront_gb_real* const, "
 -           << "const mfront_gb_real* const, "
--           << "const mfront_gb_real* const);\n\n"
--           << "/*!\n"
++           << " * \\brief rotate " << f.description << "\n"
++           << " * \\param[out] dest: rotated values\n"
++           << " * \\param[in] src: values to be rotated\n"
++           << " * \\param[in] rv: rotation matrix\n"
++           << " */\n"
++           << "MFRONT_SHAREDOBJ void " << fn << "_" << f.name
++           << "(mfront_gb_real* const, const mfront_gb_real* const, "
+            << "const mfront_gb_real* const);\n\n"
+            << "/*!\n"
 -              " * \\brief rotate an array of second Piola-Kirchhoff stresses"
 -              " from the material frame to the global frame\n"
 -              " * \\param[out] dest: array of second Piola-Kirchhoff stresses"
@@ -1606,10 +1616,7 @@ index 0a186e447..87aa450ef 100644
 -           << "const mfront_gb_real* const, "
 -           << "const mfront_gb_size_type);\n\n";
 -      } else {
-+    for (const auto h : i.getModellingHypothesesToBeTreated(bd)) {
-+      const auto fn = i.getFunctionNameForHypothesis(name, h);
-+      for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
-         os << "/*!\n"
+-        os << "/*!\n"
 -              " * \\brief rotate the thermodynamic forces from the material "
 -              " * frame to the global frame\n"
 -              " * \\param[out] dest: thermodynamic forces in the global frame\n"
@@ -1619,15 +1626,8 @@ index 0a186e447..87aa450ef 100644
 -           << "MFRONT_SHAREDOBJ void " << f << "_rotateThermodynamicForces("
 -           << "mfront_gb_real* const, "
 -           << "const mfront_gb_real* const, "
-+           << " * \\brief rotate " << f.description << "\n"
-+           << " * \\param[out] dest: rotated values\n"
-+           << " * \\param[in] src: values to be rotated\n"
-+           << " * \\param[in] rv: rotation matrix\n"
-+           << " */\n"
-+           << "MFRONT_SHAREDOBJ void " << fn << "_" << f.name
-+           << "(mfront_gb_real* const, const mfront_gb_real* const, "
-            << "const mfront_gb_real* const);\n\n"
-            << "/*!\n"
+-           << "const mfront_gb_real* const);\n\n"
+-           << "/*!\n"
 -              " * \\brief rotate the thermodynamic forces from the material "
 -              " * frame to the global frame\n"
 -              " * \\param[out] dest: array of thermodynamic forces in the"
@@ -1694,21 +1694,14 @@ index 0a186e447..87aa450ef 100644
 -      os << "return tfel::math::transpose(m);\n";
 -    } else {
 -      os << "return m;\n";
-     }
+-    }
 -    os << "}();\n";
 -  }  // end of writeRotationMatrixDefinition
-+  }  // end of writeRotationFunctionsDeclarations
- 
+-
 -  /*
 -   * \brief a simple helper structure to store the arguments of the functions in
 -   * charge of writing the rotations of tensors.
-+  /*!
-+   * \brief write the implementation of the rotation functions
-+   * \param[out] os: output stream
-+   * \param[in] i: generic behaviour interface
-+   * \param[in] bd: behaviour description
-+   * \param[in] name: name of the behaviour
-    */
+-   */
 -  struct WriteRotationFunctionArgument {
 -    //! \brief output stream
 -    std::ostream& os;
@@ -1724,6 +1717,24 @@ index 0a186e447..87aa450ef 100644
 -     */
 -    const std::string array_offset;
 -  };  // end of WriteRotationFunctionArgument
+-
+-  //! \return the offset of the variable, including the offset of the point
+-  static std::string getOffset(const WriteRotationFunctionArgument& args) {
+-    if (args.array_offset.empty()) {
+-      return std::to_string(args.variable_offset);
+     }
+-    return args.array_offset + " + " + std::to_string(args.variable_offset);
+-  }  // end of getOffset
++  }  // end of writeRotationFunctionsDeclarations
+ 
+   /*!
+-   * \brief write the copy of a scalar, which is not changed by the rotation
+-   * but must be copied if the destination is not the source
+-   */
+-  static void writeScalarCopy(WriteRotationFunctionArgument& args) {
+-    const auto o = getOffset(args);
+-    args.os << "dest[" << o << "] = src[" << o << "];\n";
+-  }  // end of writeScalarCopy
 -
 -  static void writeSecondOrderTensorsRotation(
 -      WriteRotationFunctionArgument& args,
@@ -1764,7 +1775,8 @@ index 0a186e447..87aa450ef 100644
 -              << args.variable_offset << "};\n"
 -              << "auto " << args.variable_name
 -              << "_view = tfel::math::" << view_type << "<" << d
--              << ",mfront::gb::real>(dest + " << args.variable_offset << ");\n"
+-              << ",mfront::gb::real>(dest + " << args.array_offset << " + "
+-              << args.variable_offset << ");\n"
 -              << args.variable_name << "_view = tfel::math::change_basis("
 -              << args.variable_name << ", r);\n";
 -    }
@@ -1777,6 +1789,12 @@ index 0a186e447..87aa450ef 100644
 -  static void writeTensorRotation(WriteRotationFunctionArgument& args) {
 -    writeSecondOrderTensorsRotation(args, "tensor", "TensorView");
 -  }  // end of writeTensorRotation
+-
+-  static void writeVectorRotation(WriteRotationFunctionArgument& args) {
+-    // the code rotating vectors by `change_basis` is the one of second
+-    // order tensors
+-    writeSecondOrderTensorsRotation(args, "tvector", "TVectorView");
+-  }  // end of writeVectorRotation
 -
 -  static void writeFourthOrderTensorsRotation(
 -      WriteRotationFunctionArgument& args,
@@ -1839,13 +1857,30 @@ index 0a186e447..87aa450ef 100644
 -    writeFourthOrderTensorsRotation(args, "t2tost2", "T2toST2View");
 -  }  // end of writeT2toST2Rotation
 -
--  static void writeST2toT2Rotation(WriteRotationFunctionArgument& args) {
--    writeFourthOrderTensorsRotation(args, "st2tot2", "ST2toT2View");
--  }  // end of writeST2toT2Rotation
--
 -  static void writeT2toT2Rotation(WriteRotationFunctionArgument& args) {
 -    writeFourthOrderTensorsRotation(args, "t2tot2", "T2toT2View");
 -  }  // end of writeT2toT2Rotation
+-
+-  /*!
+-   * \brief write the rotation of a scalar, a vector, a symmetric tensor or a
+-   * tensor
+-   * \param[in] args: arguments
+-   * \param[in] f: type of the object
+-   */
+-  static void writeObjectRotation(WriteRotationFunctionArgument& args,
+-                                  const SupportedTypes::TypeFlag f) {
+-    if (f == SupportedTypes::SCALAR) {
+-      writeScalarCopy(args);
+-    } else if (f == SupportedTypes::TVECTOR) {
+-      writeVectorRotation(args);
+-    } else if (f == SupportedTypes::STENSOR) {
+-      writeStensorRotation(args);
+-    } else if (f == SupportedTypes::TENSOR) {
+-      writeTensorRotation(args);
+-    } else {
+-      tfel::raise("writeObjectRotation: unsupported type");
+-    }
+-  }  // end of writeObjectRotation
 -
 -  static void writeVariableRotation(
 -      std::ostream& os,
@@ -1863,18 +1898,7 @@ index 0a186e447..87aa450ef 100644
 -        static_cast<size_type>(o.getValueForModellingHypothesis(h));
 -    auto args =
 -        WriteRotationFunctionArgument{os, h, v.name, variable_offset, ao};
--    const auto f = SupportedTypes::getTypeFlag(v.type);
--    if (f == SupportedTypes::SCALAR) {
--    } else if (f == SupportedTypes::TVECTOR) {
--      os << "std::cerr << \"rotation of vector is unsupported\";\n"
--         << "std::exit(-1);\n";
--    } else if (f == SupportedTypes::STENSOR) {
--      writeStensorRotation(args);
--    } else if (f == SupportedTypes::TENSOR) {
--      writeTensorRotation(args);
--    } else {
--      tfel::raise("writeVariableRotation: unsupported variable type");
--    }
+-    writeObjectRotation(args, SupportedTypes::getTypeFlag(v.type));
 -  }  // end of writeVariableRotation
 -
 -  static void writeGradientsRotationFunctionsImplementation(
@@ -1925,10 +1949,9 @@ index 0a186e447..87aa450ef 100644
 -  }  // end of writeGradientsRotationFunctionsImplementation
 -
 -  static void writeThermodynamicForcesRotationFunctionsImplementation(
-+  static void writeRotationFunctionsImplementations(
-       std::ostream& os,
-       const GenericBehaviourInterface& i,
-       const BehaviourDescription& bd,
+-      std::ostream& os,
+-      const GenericBehaviourInterface& i,
+-      const BehaviourDescription& bd,
 -      const std::string& name,
 -      const tfel::material::ModellingHypothesis::Hypothesis h) {
 -    if (bd.getSymmetryType() != mfront::ORTHOTROPIC) {
@@ -2046,9 +2069,65 @@ index 0a186e447..87aa450ef 100644
 -    }
 -  }  // end of writeThermodynamicForcesRotationFunctionsImplementation
 -
+-  //! \return the type of TFEL associated with a vector or a tensorial object
+-  static std::string getRotatedObjectType(const SupportedTypes::TypeFlag f,
+-                                          const unsigned short d) {
+-    const auto type = [f]() -> std::string {
+-      if (f == SupportedTypes::TVECTOR) {
+-        return "tvector";
+-      } else if (f == SupportedTypes::STENSOR) {
+-        return "stensor";
+-      } else if (f == SupportedTypes::TENSOR) {
+-        return "tensor";
+-      }
+-      tfel::raise("getRotatedObjectType: unsupported type");
+-    }();
+-    return "tfel::math::" + type + "<" + std::to_string(d) +
+-           ",mfront::gb::real>";
+-  }  // end of getRotatedObjectType
+-
+-  /*!
+-   * \brief write the rotation of a tangent operator block
+-   * \param[in] args: arguments
+-   * \param[in] f1: type of the derivated variable
+-   * \param[in] f2: type of the variable with respect to which the derivative
+-   * is taken
++   * \brief write the implementation of the rotation functions
++   * \param[out] os: output stream
++   * \param[in] i: generic behaviour interface
++   * \param[in] bd: behaviour description
++   * \param[in] name: name of the behaviour
+    */
+-  static void writeTangentOperatorBlockRotation(
+-      WriteRotationFunctionArgument& args,
+-      const SupportedTypes::TypeFlag f1,
+-      const SupportedTypes::TypeFlag f2) {
+-    if (f2 == SupportedTypes::SCALAR) {
+-      writeObjectRotation(args, f1);
+-    } else if (f1 == SupportedTypes::SCALAR) {
+-      writeObjectRotation(args, f2);
+-    } else if ((f1 == SupportedTypes::STENSOR) &&
+-               (f2 == SupportedTypes::STENSOR)) {
+-      writeST2toST2Rotation(args);
+-    } else if ((f1 == SupportedTypes::STENSOR) &&
+-               (f2 == SupportedTypes::TENSOR)) {
+-      writeT2toST2Rotation(args);
+-    } else if ((f1 == SupportedTypes::TENSOR) &&
+-               (f2 == SupportedTypes::TENSOR)) {
+-      writeT2toT2Rotation(args);
+-    } else {
+-      // TFEL has no type with a `change_basis` function for this block
+-      const auto d = tfel::material::getSpaceDimension(args.hypothesis);
+-      const auto o = getOffset(args);
+-      args.os << "mfront::gb::rotateTangentOperatorBlock<"
+-              << getRotatedObjectType(f1, d) << ", "
+-              << getRotatedObjectType(f2, d) << ">(dest + " << o
+-              << ", src + " << o << ", r);\n";
+-    }
+-  }  // end of writeTangentOperatorBlockRotation
+-
 -  static void writeTangentOperatorRotationFunctionsImplementationBody(
 -      std::ostream& os,
--      const std::string& f,
 -      const BehaviourDescription& bd,
 -      const tfel::material::ModellingHypothesis::Hypothesis h,
 -      const std::string& array_offset = "") {
@@ -2057,105 +2136,31 @@ index 0a186e447..87aa450ef 100644
 -    for (const auto& b : bd.getTangentOperatorBlocks()) {
 -      const auto& v1 = b.first;
 -      const auto& v2 = b.second;
--      if ((v1.arraySize != 1) || (v2.arraySize != 1)) {
--        os << "std::cerr << \"" << f << ": \"\n"
--           << "          << \"array of gradients are not supported\";\n"
--           << "std::exit(-1);\n";
--      } else {
--        const auto to_name = "d" + v1.name + "_d" + v2.name;
--        auto args =
--            WriteRotationFunctionArgument{os, h, to_name, o, array_offset};
--        const auto f1 = SupportedTypes::getTypeFlag(v1.type);
--        const auto f2 = SupportedTypes::getTypeFlag(v2.type);
--        if (f1 == SupportedTypes::SCALAR) {
--          if (f2 == SupportedTypes::SCALAR) {
--          } else if (f2 == SupportedTypes::TVECTOR) {
--            os << "std::cerr << \"" << f << ": \"\n"
--               << "          << \"unsupported tangent operator type\";\n"
--               << "std::exit(-1);\n";
--          } else if (f2 == SupportedTypes::STENSOR) {
--            writeStensorRotation(args);
--          } else if (f2 == SupportedTypes::TENSOR) {
--            writeTensorRotation(args);
--          } else {
--            os << "std::cerr << \"" << f << ": \"\n"
--               << "          << \"unsupported gradient type\";\n"
--               << "std::exit(-1);\n";
--          }
--        } else if (f1 == SupportedTypes::TVECTOR) {
--          os << "std::cerr << \"" << f << ": \"\n"
--             << "          << \"unsupported tangent operator type\";\n"
--             << "std::exit(-1);\n";
--        } else if (f1 == SupportedTypes::STENSOR) {
--          if (f2 == SupportedTypes::SCALAR) {
--            writeStensorRotation(args);
--          } else if (f2 == SupportedTypes::TVECTOR) {
--            os << "std::cerr << \"" << f << ": \"\n"
--               << "          << \"unsupported tangent operator type\";\n"
--               << "std::exit(-1);\n";
--          } else if (f2 == SupportedTypes::STENSOR) {
--            writeST2toST2Rotation(args);
--          } else if (f2 == SupportedTypes::TENSOR) {
--            writeT2toST2Rotation(args);
--          } else {
--            os << "std::cerr << \"" << f << ": \"\n"
--               << "          << \"unsupported gradient type\";\n"
--               << "std::exit(-1);\n";
--          }
--        } else if (f1 == SupportedTypes::TENSOR) {
--          if (f2 == SupportedTypes::SCALAR) {
--            writeTensorRotation(args);
--          } else if (f2 == SupportedTypes::TVECTOR) {
--            os << "std::cerr << \"" << f << ": \"\n"
--               << "          << \"unsupported tangent operator type\";\n"
--               << "std::exit(-1);\n";
--          } else if (f2 == SupportedTypes::STENSOR) {
--            writeST2toT2Rotation(args);
--          } else if (f2 == SupportedTypes::TENSOR) {
--            writeT2toT2Rotation(args);
--          } else {
--            os << "std::cerr << \"" << f << ": \"\n"
--               << "          << \"unsupported gradient type\";\n"
--               << "std::exit(-1);\n";
--          }
-+      const std::string& name) {
-+    for (const auto h : i.getModellingHypothesesToBeTreated(bd)) {
-+      const auto fn = i.getFunctionNameForHypothesis(name, h);
-+      for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
-+        os << "void " << fn << "_" << f.name << "(mfront_gb_real* const dest, "
-+           << "const mfront_gb_real* const src, "
-+           << "const mfront_gb_real* const rv){\n";
-+        if (f.error.empty()) {
-+          writePointRotation(os, f);
-         } else {
--          os << "std::cerr << \"" << f << ": \"\n"
--             << "          << \"unsupported gradient type\";\n"
--             << "std::exit(-1);\n";
-+          os << "static_cast<void>(dest);\n"
-+             << "static_cast<void>(src);\n"
-+             << "static_cast<void>(rv);\n"
-+             << "tfel::raise(\"" << fn << "_" << f.name << ": " << f.error
-+             << "\");\n";
-         }
-+        os << "} // end of " << fn << "_" << f.name << "\n\n"
-+           << "void " << fn << "_" << f.array_name
-+           << "(mfront_gb_real* const dest, "
-+           << "const mfront_gb_real* const src, "
-+           << "const mfront_gb_real* const rv, "
-+           << "const mfront_gb_size_type s){\n"
-+           << "for (mfront_gb_size_type i = 0; i != s; ++i) {\n"
-+           << fn << "_" << f.name << "(dest + i * " << f.size << ", src + i * "
-+           << f.size << ", rv);\n"
-+           << "}\n"
-+           << "} // end of " << fn << "_" << f.array_name << "\n\n";
-       }
+-      const auto f1 = SupportedTypes::getTypeFlag(v1.type);
+-      const auto f2 = SupportedTypes::getTypeFlag(v2.type);
 -      const auto s1 = static_cast<size_type>(
--          SupportedTypes::getTypeSize(v1.type, v1.arraySize)
+-          SupportedTypes::getTypeSize(v1.type, 1u)
 -              .getValueForModellingHypothesis(h));
 -      const auto s2 = static_cast<size_type>(
--          SupportedTypes::getTypeSize(v2.type, v2.arraySize)
+-          SupportedTypes::getTypeSize(v2.type, 1u)
 -              .getValueForModellingHypothesis(h));
--      o += static_cast<size_type>(s1 * s2);
+-      // a block associated with arrays of variables is made of one
+-      // sub-block for each pair of entries, stored contiguously
+-      for (unsigned short idx1 = 0; idx1 != v1.arraySize; ++idx1) {
+-        for (unsigned short idx2 = 0; idx2 != v2.arraySize; ++idx2) {
+-          auto to_name = "d" + v1.name + "_d" + v2.name;
+-          if (v1.arraySize != 1u) {
+-            to_name += "_" + std::to_string(idx1);
+-          }
+-          if (v2.arraySize != 1u) {
+-            to_name += "_" + std::to_string(idx2);
+-          }
+-          auto args =
+-              WriteRotationFunctionArgument{os, h, to_name, o, array_offset};
+-          writeTangentOperatorBlockRotation(args, f1, f2);
+-          o += s1 * s2;
+-        }
+-      }
 -    }
 -  }  // end of writeTangentOperatorRotationFunctionsImplementationBody
 -
@@ -2272,8 +2277,7 @@ index 0a186e447..87aa450ef 100644
 -         << "const mfront_gb_real* const src,"
 -         << "const mfront_gb_real* const rv){\n";
 -      writeRotationMatrixDefinition(os, true);
--      writeTangentOperatorRotationFunctionsImplementationBody(
--          os, f + "_rotateTangentOperatorBlocks", bd, h);
+-      writeTangentOperatorRotationFunctionsImplementationBody(os, bd, h);
 -      os << "}\n\n";
 -      auto tob_size = size_type{};
 -      for (const auto& to : bd.getTangentOperatorBlocks()) {
@@ -2293,28 +2297,55 @@ index 0a186e447..87aa450ef 100644
 -         << "const mfront_gb_size_type s){\n";
 -      writeRotationMatrixDefinition(os, true);
 -      os << "for(mfront_gb_size_type idx=0; idx != s; ++idx){\n";
--      writeTangentOperatorRotationFunctionsImplementationBody(
--          os, f + "_rotateArrayOfTangentOperatorBlocks", bd, h, tob_offset);
+-      writeTangentOperatorRotationFunctionsImplementationBody(os, bd, h,
+-                                                              tob_offset);
 -      os << "}\n";
 -      os << "}\n\n";
 -    }
 -  }  // end of writeTangentOperatorRotationFunctionsImplementation
 -
--  static void writeRotationFunctionsImplementations(
--      std::ostream& os,
--      const GenericBehaviourInterface& i,
--      const BehaviourDescription& bd,
--      const std::string& name) {
+   static void writeRotationFunctionsImplementations(
+       std::ostream& os,
+       const GenericBehaviourInterface& i,
+       const BehaviourDescription& bd,
+       const std::string& name) {
 -    const auto mhs = i.getModellingHypothesesToBeTreated(bd);
 -    for (const auto h : mhs) {
 -      writeGradientsRotationFunctionsImplementation(os, i, bd, name, h);
 -      writeThermodynamicForcesRotationFunctionsImplementation(os, i, bd, name,
 -                                                              h);
 -      writeTangentOperatorRotationFunctionsImplementation(os, i, bd, name, h);
++    for (const auto h : i.getModellingHypothesesToBeTreated(bd)) {
++      const auto fn = i.getFunctionNameForHypothesis(name, h);
++      for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
++        os << "void " << fn << "_" << f.name << "(mfront_gb_real* const dest, "
++           << "const mfront_gb_real* const src, "
++           << "const mfront_gb_real* const rv){\n";
++        if (f.error.empty()) {
++          writePointRotation(os, f);
++        } else {
++          os << "static_cast<void>(dest);\n"
++             << "static_cast<void>(src);\n"
++             << "static_cast<void>(rv);\n"
++             << "tfel::raise(\"" << fn << "_" << f.name << ": " << f.error
++             << "\");\n";
++        }
++        os << "} // end of " << fn << "_" << f.name << "\n\n"
++           << "void " << fn << "_" << f.array_name
++           << "(mfront_gb_real* const dest, "
++           << "const mfront_gb_real* const src, "
++           << "const mfront_gb_real* const rv, "
++           << "const mfront_gb_size_type s){\n"
++           << "for (mfront_gb_size_type i = 0; i != s; ++i) {\n"
++           << fn << "_" << f.name << "(dest + i * " << f.size << ", src + i * "
++           << f.size << ", rv);\n"
++           << "}\n"
++           << "} // end of " << fn << "_" << f.array_name << "\n\n";
++      }
      }
    }  // end of writeRotationFunctionsImplementations
  
-@@ -1283,63 +419,7 @@ namespace mfront {
+@@ -1318,63 +423,7 @@ namespace mfront {
  
      this->writeGetOutOfBoundsPolicyFunctionImplementation(out, bd, name);
  
@@ -2379,7 +2410,7 @@ index 0a186e447..87aa450ef 100644
  
      out << "#ifdef __cplusplus\n"
          << "extern \"C\"{\n"
-@@ -2419,7 +1499,7 @@ namespace mfront {
+@@ -2454,7 +1503,7 @@ namespace mfront {
        const auto& initialize_function_variables =
            c.attributes.at(CodeBlock::used_initialize_function_variables)
                .get<std::vector<VariableDescription>>();
@@ -2388,7 +2419,7 @@ index 0a186e447..87aa450ef 100644
           << "InitializeFunction(const NumericType* const ";
        if (!initialize_function_variables.empty()) {
          os << "mfront_initialize_function_inputs){\n";
-@@ -2468,7 +1548,8 @@ namespace mfront {
+@@ -2503,7 +1552,8 @@ namespace mfront {
        const auto& postprocessing_variables =
            c.attributes.at(CodeBlock::used_postprocessing_variables)
                .get<std::vector<VariableDescription>>();
@@ -2398,7 +2429,7 @@ index 0a186e447..87aa450ef 100644
           << "mfront_postprocessing_outputs,\n"
           << "const BehaviourData& initial_state){\n"
           << "using namespace std;\n"
-@@ -2482,6 +1563,73 @@ namespace mfront {
+@@ -2517,6 +1567,73 @@ namespace mfront {
      }
    }  // end of writeBehaviourPostProcessings
  

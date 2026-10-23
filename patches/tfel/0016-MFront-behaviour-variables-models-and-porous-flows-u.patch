@@ -1,4 +1,4 @@
-From 612dce7a9a503f01f4aef13506df1e1f60c10437 Mon Sep 17 00:00:00 2001
+From a01c96d368680b6c640a726c425c83af2526c51b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
 Subject: [PATCH] MFront: behaviour variables, models and porous flows usable
@@ -22,9 +22,9 @@ Subject: [PATCH] MFront: behaviour variables, models and porous flows usable
  .../include/MFront/GenericModelInterface.hxx  |  43 ++
  mfront/src/BehaviourCodeGeneratorBase.cxx     | 167 ++++---
  mfront/src/DataIsotropicHardeningRule.cxx     |  10 +-
- mfront/src/GenericModelInterface.cxx          | 452 +++++++++++-------
+ mfront/src/GenericModelInterface.cxx          | 452 ++++++++++--------
  .../StandardElastoViscoPlasticityBrick.cxx    |  13 +-
- 6 files changed, 435 insertions(+), 259 deletions(-)
+ 6 files changed, 432 insertions(+), 262 deletions(-)
 
 diff --git a/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx b/mfront/include/MFront/BehaviourCodeGeneratorBase.hxx
 index c9f2468be..202855051 100644
@@ -380,10 +380,10 @@ index 72aa2abfb..044eff9a2 100644
      if (this->values.size() == 1) {
        const auto& v = *(this->values.begin());
 diff --git a/mfront/src/GenericModelInterface.cxx b/mfront/src/GenericModelInterface.cxx
-index 6864ab5f1..8b17b7237 100644
+index d1b394e3f..8b17b7237 100644
 --- a/mfront/src/GenericModelInterface.cxx
 +++ b/mfront/src/GenericModelInterface.cxx
-@@ -77,189 +77,43 @@ namespace mfront {
+@@ -77,192 +77,43 @@ namespace mfront {
      }
    }  // end of writeScalarStandardTypedefs
  
@@ -588,12 +588,15 @@ index 6864ab5f1..8b17b7237 100644
      const auto has_constructor =
          (!md.constantMaterialProperties.empty()) || (hasRealParameters(md));
      //
--    os << "namespace mfront::gm{\n\n";
+-    // the classes are local to the library: two libraries defining a
+-    // model of the same name must not share their parameters
+-    os << "namespace mfront::gm{\n\n"
+-       << "namespace {\n\n";
 -    //
      if ((hasRealParameters(md)) &&
          (!areParametersTreatedAsStaticVariables(md))) {
        os << "struct " << cn << "{\n";
-@@ -287,12 +141,24 @@ namespace mfront {
+@@ -290,12 +141,24 @@ namespace mfront {
      os << "struct " << md.className << "{\n\n";
      writeScalarStandardTypedefs(os, md);
      os << '\n';
@@ -619,13 +622,13 @@ index 6864ab5f1..8b17b7237 100644
        auto first = true;
        for (const auto& mp : md.constantMaterialProperties) {
          os << (first ? "" : ",\n");
-@@ -302,22 +168,38 @@ namespace mfront {
+@@ -305,23 +168,38 @@ namespace mfront {
          first = false;
        }
        for (const auto& p : md.parameters) {
--        if (!isRealParameter(p)) {
+-        // parameters treated as static variables are not members
 +        // parameters treated as static variables are not initialized here
-+        if ((!isRealParameter(p)) || (!hasRealParameters(md))) {
+         if ((!isRealParameter(p)) || (!hasRealParameters(md))) {
            continue;
          }
          os << (first ? "" : ",\n");
@@ -664,7 +667,7 @@ index 6864ab5f1..8b17b7237 100644
        if (useQuantities(md)) {
          os << "using PhysicalConstants [[maybe_unused]] = "
             << "tfel::PhysicalConstants<NumericType, true>;\n";
-@@ -362,9 +244,13 @@ namespace mfront {
+@@ -366,9 +244,13 @@ namespace mfront {
               << "]};\n";
          }
        }
@@ -681,7 +684,7 @@ index 6864ab5f1..8b17b7237 100644
          if (!v.hasPhysicalBounds()) {
            return;
          }
-@@ -372,9 +258,10 @@ namespace mfront {
+@@ -376,9 +258,10 @@ namespace mfront {
            raise("error while treating physical bounds of variable '" + v.name +
                  "' (only scalar variable are supported)");
          }
@@ -694,7 +697,7 @@ index 6864ab5f1..8b17b7237 100644
          }
        };
        if (!areRuntimeChecksDisabled(md)) {
-@@ -394,9 +281,10 @@ namespace mfront {
+@@ -398,9 +281,10 @@ namespace mfront {
          }
        }
        //
@@ -708,7 +711,7 @@ index 6864ab5f1..8b17b7237 100644
          if (!v.hasBounds()) {
            return;
          }
-@@ -404,9 +292,10 @@ namespace mfront {
+@@ -408,9 +292,10 @@ namespace mfront {
            raise("error while treating bounds of variable '" + v.name +
                  "' (only scalar variable are supported)");
          }
@@ -721,7 +724,7 @@ index 6864ab5f1..8b17b7237 100644
          }
        };
        if (!areRuntimeChecksDisabled(md)) {
-@@ -436,8 +325,28 @@ namespace mfront {
+@@ -440,8 +325,28 @@ namespace mfront {
             << "]) = " << v.name << ";\n";
          static_cast<void>(vdepth);
        }
@@ -750,7 +753,7 @@ index 6864ab5f1..8b17b7237 100644
      os << "private:\n";
      if (!md.members.empty()) {
        os << md.members << "\n\n";
-@@ -462,6 +371,9 @@ namespace mfront {
+@@ -466,6 +371,9 @@ namespace mfront {
          os << "const " << p.type << " " << p.name << ";\n";
          continue;
        }
@@ -760,15 +763,8 @@ index 6864ab5f1..8b17b7237 100644
        if (p.type == "string") {
          os << "const std::string " << p.name << " = "
             << p.getAttribute<std::string>(VariableDescription::defaultValue);
-@@ -481,10 +393,180 @@ namespace mfront {
-       if (!getDebugMode()) {
-         printLinePragma(os, v.lineNumber, fd.fileName);
-       }
--      os << "static constexpr " << v.type << " " << v.name << " = "  //
--         << v.value << ";\n";
-+      // brace initialisation is required by quantities
-+      os << "static constexpr auto " << v.name << " = " << v.type << "{"
-+         << v.value << "};\n";
+@@ -490,6 +398,175 @@ namespace mfront {
+          << v.value << "};\n";
      }
      os << "}; // end of struct " << md.className << "\n\n";
 +  }  // end of writeGenericModelClass
@@ -943,6 +939,16 @@ index 6864ab5f1..8b17b7237 100644
      //
  
      os << "static int " << name
+@@ -510,8 +587,7 @@ namespace mfront {
+        << "}\n"
+        << "return 1;\n"
+        << "}\n\n";
+-    os << "} // end of anonymous namespace\n\n"
+-       << "} // end of namespace mfront::gm\n\n";
++    os << "} // end of namespace mfront::gm\n\n";
+     //
+     if ((hasRealParameters(md)) &&
+         (!areParametersTreatedAsStaticVariables(md))) {
 diff --git a/mfront/src/StandardElastoViscoPlasticityBrick.cxx b/mfront/src/StandardElastoViscoPlasticityBrick.cxx
 index c622f0609..83ffae43e 100644
 --- a/mfront/src/StandardElastoViscoPlasticityBrick.cxx

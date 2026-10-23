@@ -38,6 +38,7 @@
 #include "MFront/GenericBehaviour/Integrate.hxx"
 #include "MFront/GenericParallel/StatisticsKeys.hxx"
 #include "MFront/GenericParallelBehaviour/BatchData.h"
+#include "MFront/GenericParallel/BackendExecutionPolicyBase.hxx"
 
 /*!
  * \brief attribute of the computations at a point which must not be inlined
@@ -907,29 +908,50 @@ namespace mfront::gpb {
   }  // end of report
 
   /*!
+   * \brief execution of the computations on a batch, as given by the
+   * calling code: the policy, checked by the backend against its own policy
+   * (see `mfront::generic_parallel::checkBackendExecutionPolicy`), and the
+   * statistics
+   */
+  struct BatchExecution {
+    //! \brief execution policy, or null for the default policy
+    const mfront_gp_AbstractBackendExecutionPolicy* policy;
+    //! \brief statistics, or null
+    AtomicBatchStatistics* statistics;
+  };  // end of struct BatchExecution
+
+  /*!
+   * \return the execution of the computations on a batch
+   * \param[in] d: data of the batch
+   */
+  template <typename Data>
+  constexpr BatchExecution getBatchExecution(const Data& d) noexcept {
+    return {.policy = d.execution_policy, .statistics = d.statistics};
+  }  // end of getBatchExecution
+
+  /*!
    * \brief report the statistics of a batch computed by a backend which
    * waits for the completion of the computations: the statistics are
-   * reported in the output status or, if the execution options give
-   * statistics, accumulated in those statistics (see
-   * `mfront_gpb_ExecutionOptions`).
+   * reported in the output status or, if the calling code gave statistics,
+   * accumulated in those statistics (see `mfront_gpb_BatchData`).
    * \return the status
    * \param[in,out] s: output status
-   * \param[in] o: execution options
+   * \param[in] e: execution of the batch
    * \param[in] rdt0: initial value of the time step scaling factor of the
    * batch
    * \param[in] r: statistics of the batch
    */
   inline int report(OutputStatus& s,
-                    const ExecutionOptions& o,
+                    const BatchExecution& e,
                     const real rdt0,
                     const BatchStatistics& r) noexcept {
-    if (o.statistics == nullptr) {
+    if (e.statistics == nullptr) {
       return report(s, r);
     }
     // as with the backends updating the statistics by atomic operations,
     // the time step scaling factor of the statistics is only lowered by the
     // points which decreased the initial value of the batch
-    accumulate(*(o.statistics), r, r.rdt < rdt0);
+    accumulate(*(e.statistics), r, r.rdt < rdt0);
     return s.status;
   }  // end of report
 
@@ -1378,10 +1400,11 @@ namespace mfront::gpb {
    * \tparam Behaviour: class implementing the behaviour
    * \tparam PointTraits: description of the data of an integration point
    * \tparam ParametersType: type of the structure holding the parameters
-   * \tparam Apply: callable object such that `apply(n, o, rdt0, f)` applies
+   * \tparam Apply: callable object such that `apply(n, e, rdt0, f)` applies
    * the function object `f` at the `n` points of a batch with the execution
-   * options `o`, the initial value of the time step scaling factor being
-   * `rdt0`, and returns the status, reported in the output status
+   * `e` (see `BatchExecution`), the initial value of the time step scaling
+   * factor being `rdt0`, and returns the status, reported in the output
+   * status
    * \param[out] s: output status
    * \param[in] d: batch data
    * \param[in] parameters: values of the parameters
@@ -1404,7 +1427,8 @@ namespace mfront::gpb {
     }
     using Integrator = PointIntegrator<Behaviour, PointTraits, ParametersType>;
     const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
-    return apply(d.number_of_points, d.execution, d.rdt, Integrator{data});
+    return apply(d.number_of_points, getBatchExecution(d), d.rdt,
+                 Integrator{data});
   }  // end of integrateBatch
 
   /*!
@@ -1446,7 +1470,7 @@ namespace mfront::gpb {
         InitializeFunctionExecutor<Behaviour, PointTraits, InitializeFunction,
                                    number_of_inputs, ParametersType>;
     const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
-    return apply(d.number_of_points, d.execution, d.rdt,
+    return apply(d.number_of_points, getBatchExecution(d), d.rdt,
                  Executor{data, inputs});
   }  // end of executeInitializeFunctionOnBatch
 
@@ -1491,7 +1515,7 @@ namespace mfront::gpb {
                                             PostProcessing, use_initial_state,
                                             number_of_outputs, ParametersType>;
     const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
-    return apply(d.number_of_points, d.execution, d.rdt,
+    return apply(d.number_of_points, getBatchExecution(d), d.rdt,
                  Executor{data, outputs});
   }  // end of executePostProcessingOnBatch
 
@@ -1511,7 +1535,7 @@ namespace mfront::gpb {
     if (!checkRotationData(s, d)) {
       return s.status;
     }
-    return apply(d.number_of_points, d.execution, real{1},
+    return apply(d.number_of_points, getBatchExecution(d), real{1},
                  RotationExecutor<PointRotation>{d});
   }  // end of rotateBatch
 

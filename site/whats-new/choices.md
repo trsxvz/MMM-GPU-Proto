@@ -84,7 +84,7 @@ of the computation, without copying the data of the points.
   the memory: each library only declares where its data must be
   accessible (memory space symbol).
 - **Symmetry between behaviours and material properties**: same
-  execution options, same synchronous and asynchronous modes, same
+  execution policies, same synchronous and asynchronous modes, same
   symbols. The remaining difference, the optional per-point status
   array, was not added to material properties.
 

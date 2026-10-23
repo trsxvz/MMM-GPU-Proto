@@ -51,6 +51,10 @@ namespace mfront::generic_parallel::behaviour {
     return "mfront::generic_parallel::device_memory_space";
   }  // end of getMemorySpace
 
+  std::string SYCLBackend::getExecutionPolicyType() const {
+    return "::mfront::generic_parallel::SyclBackendExecutionPolicy";
+  }  // end of getExecutionPolicyType
+
   std::string SYCLBackend::getSharedDataCopy(
       const std::string_view getter, const std::string_view execution) const {
     return "mfront::gpb::sycl::getSharedDataCopy<" + std::string{getter} +

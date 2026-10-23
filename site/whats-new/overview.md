@@ -24,7 +24,8 @@ law.
 - **TFEL/MFront** generates, for each behaviour, model and material
   property, functions that process a whole batch of integration points. The
   same MFront file compiles for CUDA, HIP, Kokkos, RAJA, SYCL, OpenMP,
-  OpenACC and the C++ parallel algorithms. The results are systematically
+  OpenACC, Arcane (accelerator API of Arccore) and the C++ parallel
+  algorithms. The results are systematically
   compared with those of the `generic` interface.
 - **MGIS** loads these libraries and computes batches without copying
   the data. Its existing functions switch to batch computation by
@@ -117,8 +118,8 @@ function processes all these points in one call.
 
 | Part | Status |
 |---|---|
-| TFEL/MFront: `generic-parallel` interface of behaviours and models | done, validated on 17 configurations |
-| TFEL/MFront: `generic-parallel` interface of material properties | extended (execution options, asynchronous calls, new backends) |
+| TFEL/MFront: `generic-parallel` interface of behaviours and models | done, validated on 18 configurations |
+| TFEL/MFront: `generic-parallel` interface of material properties | extended (execution policies, asynchronous calls, new backends) |
 | TFEL/MFront: GPU code and corrections | done |
 | MGIS: batches of behaviours, models and material properties | done |
 | MGIS: asynchronous computation | done, synchronous by default |

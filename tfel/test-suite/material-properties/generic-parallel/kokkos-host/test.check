@@ -9,12 +9,12 @@
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-kokkos-host.json ../LinearDataInterpolationTest.mfront";
 @Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-kokkos-host.json ../MaterialLawCallTest.mfront";
 @Command "@mfront@ --obuild --configuration-file=config-kokkos-host.json";
-@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=kokkos -DMFRONT_GPMP_TEST_USE_KOKKOS -DMFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE=Kokkos::DefaultHostExecutionSpace -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-kokkos -L@TFEL_LIBRARY_DIR@ -lTFELTests -Lsrc -lGenericParallelUO2-kokkos -lGenericParallelInconel600-kokkos -lGenericParallelMaterialLaw-kokkos @TFEL_KOKKOS_LINKER_FLAGS@";
+@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=kokkos -DMFRONT_GPMP_TEST_USE_KOKKOS -DMFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE=Kokkos::DefaultHostExecutionSpace -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-kokkos -L@TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -Lsrc -lGenericParallelUO2-kokkos -lGenericParallelInconel600-kokkos -lGenericParallelMaterialLaw-kokkos @TFEL_KOKKOS_LINKER_FLAGS@";
 @Command "./test-kokkos test-kokkos-kokkos-host";
 
 // comparison with the `generic` interface (see compare.cxx)
 @Command "sh ../build-libraries.sh @mfront@ config-kokkos-host.json";
-@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
+@Command "@TFEL_KOKKOS_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_KOKKOS_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_KOKKOS -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_KOKKOS_LINKER_FLAGS@";
 @Command "sh ../compare-all.sh ./compare kokkos";
 // library also containing the functions of the `generic` interface
 @Command "sh ../check-generic-functions.sh @mfront@ config-kokkos-host.json ./compare kokkos";

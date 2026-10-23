@@ -35,10 +35,11 @@ namespace mfront::generic_parallel::behaviour {
    *   `RAJA::cuda_exec<128>` or `RAJA::omp_parallel_for_exec`. The
    *   execution policies of OpenMP target and SYCL are not supported.
    *
-   * The queue given by the execution options is a pointer to a resource of
-   * camp matching the execution policy. If null, the default stream of the
-   * current device is used with CUDA and HIP, the default resource of camp
-   * otherwise (see `mfront::generic_parallel::raja::getDefaultResource`).
+   * The execution policy of the backend (`RAJABackendExecutionPolicy`)
+   * holds a resource of camp matching the execution policy of RAJA. With
+   * the default policy, the default stream of the current device is used
+   * with CUDA and HIP, the default resource of camp otherwise (see
+   * `mfront::generic_parallel::raja::getDefaultResource`).
    */
   struct MFRONT_VISIBILITY_EXPORT RAJABackend final : AbstractBackend {
     /*!
@@ -52,6 +53,7 @@ namespace mfront::generic_parallel::behaviour {
     void writeSpecificIncludes(std::ostream&) const override;
     [[nodiscard]] std::string getApply(std::string_view) const override;
     [[nodiscard]] std::string getMemorySpace() const override;
+    [[nodiscard]] std::string getExecutionPolicyType() const override;
     [[nodiscard]] std::string getSharedDataCopy(
         std::string_view, std::string_view) const override;
     //! \brief destructor

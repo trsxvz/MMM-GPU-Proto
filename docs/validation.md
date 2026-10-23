@@ -224,6 +224,22 @@ tests of TFEL, `-O3` tests of `stlpar-parunseq-gcc` and
 `stlpar-parunseq-nvhpc-gpu` 4/4
 (`results/generic-parallel-tests-2026-10-21-fixes-O3.txt`), 58 tests of
 MGIS and 360 of mfem-mgis, all green.
+After the rebase on `1dd066c7e`, the execution policies and the `arcane`
+backend (23/10, `validate3.sh 2026-10-23-arcane-rebase`): 6993 tests of
+TFEL, `-O3` matrix 43/43
+(`results/generic-parallel-tests-2026-10-23-arcane-rebase-O3.txt`), nvcc
+and clang sweeps 553 OK each, 58 tests of MGIS, 360 of mfem-mgis, 25 of the
+examples, 9 of mm-opera-hpc and 143 cases, all green. The rebase on
+`4d50821c9` (fix of the runtime path found by this validation) gives the
+same tree. GPU suite of mfem-mgis (`scripts/mfem-mgis-gpu-suite.sh`, 265
+tests): 262 with the kernels forced, 261 with the default computations,
+the two tests requiring the absence of a device failing as expected;
+`TwoLayerCube-1-MatrixFreeExecution` (added on 17/10), which checks that
+`--execution` gives no warning about the variables of placement, failed
+because the suite sets them: it is now excluded from the suite.
+`PETScSolversTest` exceeded its time limit once with the default
+computations, without any output, and passes three times out of three
+alone.
 
 The tracked sweeps in `results/compile-sweep-*-2026-10-06.tsv` give
 the state of the morning of 06/10: 504 OK, 36 blocking user codes, 1 call

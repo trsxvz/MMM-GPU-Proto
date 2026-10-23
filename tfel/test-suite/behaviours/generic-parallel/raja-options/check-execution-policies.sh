@@ -1,10 +1,11 @@
 #!/bin/sh
 # Checks the `execution_policy` option of the raja backend, which is copied
 # in the generated code (generation of the sources only): a valid policy
-# must be found in the generated sources, an invalid one must be refused by
-# mfront. tfel-check only tolerates the failure of a command, it does not
-# require it: this script returns an error if an invalid policy is
-# accepted.
+# must be found in the generated sources, with the identifier of the
+# execution policy of the backend exported between parentheses, an invalid
+# one must be refused by mfront. tfel-check only tolerates the failure of a
+# command, it does not require it: this script returns an error if an
+# invalid policy is accepted.
 #
 # usage: sh check-execution-policies.sh mfront
 mfront=${1:?usage: check-execution-policies.sh mfront}
@@ -37,6 +38,13 @@ for policy in 'RAJA::cuda_exec<128, true>' \
     status=1
   elif ! grep -qF "$policy" "$source"; then
     echo "valid execution policy not found in $source: '$policy'"
+    status=1
+  elif ! grep -qF '_generic_parallel_execution_policy, (' "$source"; then
+    # the type of the execution policy of the backend contains the policy of
+    # RAJA, whose commas must not split the arguments of the macro exporting
+    # the identifier of the policy
+    echo "identifier of the execution policy not protected in" \
+      "$source: '$policy'"
     status=1
   fi
 done

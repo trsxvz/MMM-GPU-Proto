@@ -10,8 +10,12 @@
  *
  * - `test_vector<T>`, an array of values accessible by the host and by the
  *   device;
- * - `testOptions()`, a function returning the execution options of a
- *   synchronous evaluation (queue of the backend);
+ * - `testExecution()`, a function returning the execution of a synchronous
+ *   evaluation (`TestExecution`): no statistics, and the execution policy
+ *   of the tests (null for the default policy, queue of the tests with the
+ *   `sycl` backend);
+ * - `makeTestPolicy(o)`, a function returning an execution policy of the
+ *   backend with the common options `o`, on the queue of the tests;
  * - the `MFRONT_GPMP_TEST_BACKEND_NAME` macro, giving the name of the
  *   backend.
  * \date   20/10/2026
@@ -29,12 +33,15 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <string>
 #include <tuple>
 #include <utility>
 #include "TFEL/Tests/TestCase.hxx"
 #include "TFEL/Tests/TestProxy.hxx"
 #include "MFront/GenericParallelMaterialProperty/PointStatus.hxx"
+#include "MFront/GenericParallel/ParallelSTLBackendExecutionPolicy.hxx"
+#include "MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx"
 #include "symbols.hxx"
 #include "batch.hxx"
 
@@ -110,10 +117,10 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto args = std::array<const double*, 1u>{T.data()};
     const auto r =
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.data(), 1,
-                 args, contiguous<1>(), 4, policy, testOptions());
+                 args, contiguous<1>(), 4, policy, testExecution());
     const auto r_qt = evaluate(Inconel600_YoungModulus_qt_generic_parallel,
                                output_qt, E_qt.data(), 1, args, contiguous<1>(),
-                               4, policy, testOptions());
+                               4, policy, testExecution());
     this->checkSuccess(output, r);
     this->checkSuccess(output_qt, r_qt);
     for (std::size_t i = 0; i != E.size(); ++i) {
@@ -135,10 +142,10 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto strides = std::array<mfront_gmp_size_type, 1u>{0};
     const auto r =
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.data(), 1,
-                 args, strides, 4, policy, testOptions());
+                 args, strides, 4, policy, testExecution());
     const auto r_qt =
         evaluate(Inconel600_YoungModulus_qt_generic_parallel, output_qt,
-                 E_qt.data(), 1, args, strides, 4, policy, testOptions());
+                 E_qt.data(), 1, args, strides, 4, policy, testExecution());
     this->checkSuccess(output, r);
     this->checkSuccess(output_qt, r_qt);
     for (std::size_t i = 0; i != E.size(); ++i) {
@@ -162,7 +169,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
           static_cast<mfront_gmp_size_type>(stride)};
       const auto r =
           evaluate(Inconel600_YoungModulus_generic_parallel, output, E.data(),
-                   0, args, strides, 1, policy, testOptions());
+                   0, args, strides, 1, policy, testExecution());
       this->checkSuccess(output, r);
       TFEL_TESTS_ASSERT(std::abs(E[0] - fct(T[0])) < eps);
     }
@@ -179,7 +186,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto r =
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.data(), 1,
                  args, contiguous<1>(), 4, GENERIC_MATERIALPROPERTY_NONE_POLICY,
-                 testOptions(), statuses.data());
+                 testExecution(), statuses.data());
     TFEL_TESTS_CHECK_EQUAL(r, -1);
     TFEL_TESTS_CHECK_EQUAL(statuses[0], -1);
     for (std::size_t i = 1; i != 4; ++i) {
@@ -195,7 +202,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto r2 = evaluate(UO2_YoungModulus_Martin1989_generic_parallel,
                              output, E2.data(), 1, args2, contiguous<2>(), 4,
                              GENERIC_MATERIALPROPERTY_WARNING_POLICY,
-                             testOptions(), statuses.data());
+                             testExecution(), statuses.data());
     TFEL_TESTS_CHECK_EQUAL(r2, 1);
     TFEL_TESTS_CHECK_EQUAL(output.status, 1);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 1);
@@ -228,10 +235,10 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto args = std::array<const double*, 1u>{T.data()};
     const auto r =
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.data(), 1,
-                 args, contiguous<1>(), 4, policy, testOptions());
+                 args, contiguous<1>(), 4, policy, testExecution());
     const auto r_qt = evaluate(Inconel600_YoungModulus_qt_generic_parallel,
                                output_qt, E_qt.data(), 1, args, contiguous<1>(),
-                               4, policy, testOptions());
+                               4, policy, testExecution());
     for (const auto& [s, rv] :
          {std::pair{output, r}, std::pair{output_qt, r_qt}}) {
       TFEL_TESTS_CHECK_EQUAL(rv, -1);
@@ -265,7 +272,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto r = evaluate(UO2_YoungModulus_Martin1989_generic_parallel,
                             output, E.data(), 1, args, contiguous<2>(), 4,
                             GENERIC_MATERIALPROPERTY_WARNING_POLICY,
-                            testOptions(), statuses.data());
+                            testExecution(), statuses.data());
     TFEL_TESTS_CHECK_EQUAL(r, -1);
     TFEL_TESTS_CHECK_EQUAL(output.status, -1);
     // the porosity, second argument, is out of its physical bounds
@@ -303,10 +310,10 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto strides = std::array<mfront_gmp_size_type, 1u>{2};
     const auto r =
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.data(), 3,
-                 args, strides, 4, policy, testOptions());
+                 args, strides, 4, policy, testExecution());
     const auto r_qt =
         evaluate(Inconel600_YoungModulus_qt_generic_parallel, output_qt,
-                 E_qt.data(), 3, args, strides, 4, policy, testOptions());
+                 E_qt.data(), 3, args, strides, 4, policy, testExecution());
     this->checkSuccess(output, r);
     this->checkSuccess(output_qt, r_qt);
     for (std::size_t i = 0; i != E.size(); ++i) {
@@ -340,24 +347,24 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     };
     const auto f = Inconel600_YoungModulus_generic_parallel;
     check(evaluate(f, output, E.data(), 1, args, contiguous<1>(), 1, policy,
-                   testOptions(), statuses.data(), 3),
+                   testExecution(), statuses.data(), 3),
           "invalid number of arguments (3 given, 1 expected)");
     check(evaluate(f, output, E.data(), 0, args, contiguous<1>(), 10, policy,
-                   testOptions(), statuses.data()),
+                   testExecution(), statuses.data()),
           "if the output is uniform, the number of points must be equal to "
           "one (10 given)");
     check(evaluate(f, output, nullptr, 1, args, contiguous<1>(), 10, policy,
-                   testOptions(), statuses.data()),
+                   testExecution(), statuses.data()),
           "no output values given");
     const auto null_args = std::array<const double*, 1u>{nullptr};
     check(evaluate(f, output, E.data(), 1, null_args, contiguous<1>(), 10,
-                   policy, testOptions(), statuses.data()),
+                   policy, testExecution(), statuses.data()),
           "no values given for argument 'Temperature'");
     // first number of points above the limit (2^48 - 1)
     const auto n =
         mfront_gmp_size_type{::mfront::gpmp::maximal_number_of_points} + 1;
     check(evaluate(f, output, E.data(), 1, args, contiguous<1>(), n, policy,
-                   testOptions(), statuses.data()),
+                   testExecution(), statuses.data()),
           "too many points (" + std::to_string(n) + " given)");
     check(f(&output, nullptr), "no batch data given");
     auto d = mfront_gpmp_BatchData{
@@ -367,7 +374,8 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
         .number_of_arguments = 1,
         .out_of_bounds_policy = policy,
         .statuses = statuses.data(),
-        .execution = testOptions()};
+        .statistics = testExecution().statistics,
+        .execution_policy = testExecution().policy};
     check(f(&output, &d), "no arguments given");
     // an empty batch is accepted without any check
     d.number_of_points = 0;
@@ -386,7 +394,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto r = evaluate(PoissonRatioTest_generic_parallel, output,
                             nu.data(), 1, std::array<const double*, 0u>{},
                             std::array<mfront_gmp_size_type, 0u>{}, 4, policy,
-                            testOptions());
+                            testExecution());
     this->checkSuccess(output, r);
     for (std::size_t i = 0; i != nu.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(nu[i] - 0.39991) < eps);
@@ -396,7 +404,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto r2 = evaluate(PoissonRatioTest_generic_parallel, output,
                              nu.data(), 0, std::array<const double*, 0u>{},
                              std::array<mfront_gmp_size_type, 0u>{}, 1, policy,
-                             testOptions());
+                             testExecution());
     this->checkSuccess(output, r2);
     TFEL_TESTS_ASSERT(std::abs(nu[0] - 0.39991) < eps);
   }
@@ -414,7 +422,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto r =
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.data(), 1,
                  args, contiguous<1>(), 4, GENERIC_MATERIALPROPERTY_NONE_POLICY,
-                 testOptions(), statuses.data());
+                 testExecution(), statuses.data());
     TFEL_TESTS_CHECK_EQUAL(r, -4);
     TFEL_TESTS_CHECK_EQUAL(output.status, -4);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
@@ -438,7 +446,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto r2 =
         evaluate(UO2_YoungModulus_Martin1989_generic_parallel, output, E.data(),
                  1, args2, contiguous<2>(), 1,
-                 GENERIC_MATERIALPROPERTY_WARNING_POLICY, testOptions());
+                 GENERIC_MATERIALPROPERTY_WARNING_POLICY, testExecution());
     TFEL_TESTS_CHECK_EQUAL(r2, -4);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.number_of_unreliable_results,
@@ -455,7 +463,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto args = std::array<const double*, 2u>{T.data(), f.data()};
     const auto r =
         evaluate(UO2_YoungModulus_Martin1989_generic_parallel, output, E.data(),
-                 1, args, contiguous<2>(), 4, policy, testOptions());
+                 1, args, contiguous<2>(), 4, policy, testExecution());
     this->checkSuccess(output, r);
     for (std::size_t i = 0; i != E.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(E[i] - uo2_young(T[i], f[i])) < eps);
@@ -493,7 +501,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto r =
         evaluate(UO2_YoungModulus_Martin1989_generic_parallel, output, E.data(),
                  1, args, contiguous<2>(), 4,
-                 GENERIC_MATERIALPROPERTY_WARNING_POLICY, testOptions());
+                 GENERIC_MATERIALPROPERTY_WARNING_POLICY, testExecution());
     TFEL_TESTS_CHECK_EQUAL(r, 1);
     TFEL_TESTS_CHECK_EQUAL(output.status, 1);
     TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
@@ -535,7 +543,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto r =
         evaluate(UO2_YoungModulus_Martin1989_generic_parallel, output, E.data(),
                  1, args, contiguous<2>(), 4,
-                 GENERIC_MATERIALPROPERTY_STRICT_POLICY, testOptions());
+                 GENERIC_MATERIALPROPERTY_STRICT_POLICY, testExecution());
     TFEL_TESTS_CHECK_EQUAL(r, -1);
     TFEL_TESTS_CHECK_EQUAL(output.bounds_status, -1);
     TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{2});
@@ -565,8 +573,9 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
                   const mfront_gmp_OutOfBoundsPolicy p) {
           auto output = mfront_gpmp_OutputStatus{};
           const auto args = std::array<const double*, 2u>{x.data(), y.data()};
-          const auto r = evaluate(f, output, z.data(), 1, args, contiguous<2>(),
-                                  x.size(), p, testOptions(), statuses.data());
+          const auto r =
+              evaluate(f, output, z.data(), 1, args, contiguous<2>(), x.size(),
+                       p, testExecution(), statuses.data());
           TFEL_TESTS_CHECK_EQUAL(r, output.status);
           return output;
         };
@@ -640,7 +649,7 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
     const auto args = std::array<const double*, 1u>{T.data()};
     const auto r =
         evaluate(mp, output, v.data(), 1, args, contiguous<1>(), T.size(),
-                 mfront_gmp_OutOfBoundsPolicy{}, testOptions());
+                 mfront_gmp_OutOfBoundsPolicy{}, testExecution());
     this->checkSuccess(output, r);
     for (std::size_t i = 0; i != v.size(); ++i) {
       TFEL_TESTS_ASSERT(std::abs(v[i] - references[i]) < eps);
@@ -650,5 +659,118 @@ struct GenericParallelMaterialPropertyTest : public tfel::tests::TestCase {
 
 TFEL_TESTS_GENERATE_PROXY(GenericParallelMaterialPropertyTest,
                           "GenericParallelMaterialPropertyTest");
+
+//! \brief execution policies given to the generated functions
+struct ExecutionPolicyTest : public tfel::tests::TestCase {
+  ExecutionPolicyTest()
+      : tfel::tests::TestCase("MFront/MaterialProperty/GenericParallel",
+                              "ExecutionPolicyTest") {
+  }  // end of ExecutionPolicyTest
+
+  tfel::tests::TestResult execute() override {
+    this->test1();
+    this->test2();
+    this->test3();
+    this->test4();
+    return this->result;
+  }  // end of execute
+
+ private:
+  [[nodiscard]] static double fct(const double TK) noexcept {
+    const double TC = TK - 273.15;
+    return (-3.1636e-3 * TC * TC - 3.8654 * TC + 2.1421e+4) * 1e7;
+  }  // end of fct
+
+  void test1() {
+    // identifier of the policy expected by the library
+    const auto p = makeTestPolicy({});
+    TFEL_TESTS_CHECK_EQUAL(
+        std::string{Inconel600_YoungModulus_generic_parallel_execution_policy},
+        std::string{p->getIdentifier()});
+  }
+
+  void test2() {
+    // a policy of another backend is an invalid argument: nothing is
+    // computed
+    namespace mgp = mfront::generic_parallel;
+    const auto stlpar =
+        std::string_view{
+            Inconel600_YoungModulus_generic_parallel_execution_policy} ==
+        mgp::ParallelSTLBackendExecutionPolicy::identifier();
+    const auto other =
+        stlpar
+            ? std::unique_ptr<mgp::AbstractBackendExecutionPolicy>(
+                  std::make_unique<mgp::OpenMPBackendExecutionPolicy>())
+            : std::unique_ptr<mgp::AbstractBackendExecutionPolicy>(
+                  std::make_unique<mgp::ParallelSTLBackendExecutionPolicy>());
+    this->checkInvalidPolicy(
+        TestExecution{.policy = other.get()},
+        "the execution policy is not the one of the backend");
+  }
+
+  void test3() {
+    // an asynchronous evaluation requires statistics
+    const auto p = makeTestPolicy({.asynchronous = true});
+    this->checkInvalidPolicy(TestExecution{.policy = p.get()},
+                             "an asynchronous computation requires statistics");
+  }
+
+  void test4() {
+    // synchronous evaluation with statistics: the function returns once the
+    // values are computed, the output status only reports the errors of the
+    // batch, and the result is given by the report function. The second
+    // temperature is out of its physical bounds.
+    constexpr auto eps = double{1e-2};
+    auto statistics = test_vector<mfront_gpmp_Statistics>(1);
+    mfront_gpmp_initializeStatistics(statistics.data());
+    const auto p = makeTestPolicy({});
+    auto output = mfront_gpmp_OutputStatus{};
+    auto E = test_vector<double>(4);
+    const auto T = test_vector<double>{300, -1, 500, 800};
+    const auto args = std::array<const double*, 1u>{T.data()};
+    const auto r = evaluate(
+        Inconel600_YoungModulus_generic_parallel, output, E.data(), 1, args,
+        contiguous<1>(), 4, mfront_gmp_OutOfBoundsPolicy{},
+        TestExecution{.statistics = statistics.data(), .policy = p.get()});
+    TFEL_TESTS_CHECK_EQUAL(r, 0);
+    TFEL_TESTS_CHECK_EQUAL(output.status, 0);
+    for (const auto i : {0, 2, 3}) {
+      TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
+    }
+    TFEL_TESTS_ASSERT(std::isnan(E[1]));
+    TFEL_TESTS_CHECK_EQUAL(Inconel600_YoungModulus_generic_parallel_report(
+                               &output, statistics.data()),
+                           -1);
+    TFEL_TESTS_CHECK_EQUAL(output.status, -1);
+    TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{1});
+    TFEL_TESTS_CHECK_EQUAL(output.first_failure_index, mfront_gmp_size_type{1});
+  }
+
+  /*!
+   * \brief check that an evaluation is refused as an invalid argument,
+   * nothing being computed
+   * \param[in] e: execution of the evaluation
+   * \param[in] msg: expected error message
+   */
+  void checkInvalidPolicy(const TestExecution& e, const std::string& msg) {
+    auto output = mfront_gpmp_OutputStatus{};
+    auto E = test_vector<double>(2, 3);
+    auto statuses = test_vector<int>(2, 12);
+    const auto T = test_vector<double>{300, 500};
+    const auto args = std::array<const double*, 1u>{T.data()};
+    const auto r = evaluate(Inconel600_YoungModulus_generic_parallel, output,
+                            E.data(), 1, args, contiguous<1>(), 2,
+                            mfront_gmp_OutOfBoundsPolicy{}, e, statuses.data());
+    TFEL_TESTS_CHECK_EQUAL(r, -5);
+    TFEL_TESTS_CHECK_EQUAL(output.status, -5);
+    TFEL_TESTS_CHECK_EQUAL(std::string(output.msg), msg);
+    for (std::size_t i = 0; i != 2; ++i) {
+      TFEL_TESTS_CHECK_EQUAL(E[i], 3.);
+      TFEL_TESTS_CHECK_EQUAL(statuses[i], 12);
+    }
+  }
+};
+
+TFEL_TESTS_GENERATE_PROXY(ExecutionPolicyTest, "ExecutionPolicyTest");
 
 #endif /* LIB_MFRONT_GENERICPARALLEL_MATERIALPROPERTY_TESTS_TESTS_HXX */

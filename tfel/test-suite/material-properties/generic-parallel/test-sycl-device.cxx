@@ -23,6 +23,7 @@
 #include "TFEL/Tests/TestManager.hxx"
 
 #include "MFront/GenericMaterialProperty/MaterialProperty.h"
+#include "MFront/GenericParallel/SyclBackendExecutionPolicy.hxx"
 #include "PoissonRatioTest-generic-parallel-sycl.hxx"
 #include "Inconel600_YoungModulus-generic-parallel-sycl.hxx"
 #include "Inconel600_YoungModulus_qt-generic-parallel-sycl.hxx"
@@ -83,7 +84,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{sycl::gpu_selector_v};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
+    const auto options = TestExecution{.policy = &execution_policy};
     auto usm_allocator = usm_allocator_type{Q};
     //
     auto E = usm_vector(4, Q);
@@ -124,7 +127,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{sycl::gpu_selector_v};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
+    const auto options = TestExecution{.policy = &execution_policy};
     auto usm_allocator = usm_allocator_type{Q};
     //
     auto E = usm_vector(4, Q);
@@ -165,7 +170,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{sycl::gpu_selector_v};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
+    const auto options = TestExecution{.policy = &execution_policy};
     auto usm_allocator = usm_allocator_type{Q};
     //
     auto E = usm_vector(1, Q);
@@ -205,7 +212,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{sycl::gpu_selector_v};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
+    const auto options = TestExecution{.policy = &execution_policy};
     auto usm_allocator = usm_allocator_type{Q};
     //
     auto E = usm_vector(4, Q);
@@ -252,7 +261,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{sycl::gpu_selector_v};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
+    const auto options = TestExecution{.policy = &execution_policy};
     auto usm_allocator = usm_allocator_type{Q};
     //
     auto E = usm_vector(4 * 3, Q);
@@ -292,7 +303,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{sycl::gpu_selector_v};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
+    const auto options = TestExecution{.policy = &execution_policy};
     auto usm_allocator = usm_allocator_type{Q};
     //
     auto E = usm_vector(1, Q);
@@ -331,7 +344,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto output_qt = mfront_gpmp_OutputStatus{};
     //
     auto Q = sycl::queue{sycl::gpu_selector_v};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
+    const auto options = TestExecution{.policy = &execution_policy};
     auto usm_allocator = usm_allocator_type{Q};
     //
     auto nu = usm_vector(4, Q);
@@ -373,7 +388,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     //
     auto Q = sycl::queue{sycl::gpu_selector_v};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
+    const auto options = TestExecution{.policy = &execution_policy};
     auto E = usm_vector(4, Q);
     const auto T = usm_vector({300, 500, 300, 800}, Q);
     const auto f = usm_vector({0, 0.1, 0.15, 0.12}, Q);
@@ -428,7 +445,9 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
     auto output = mfront_gpmp_OutputStatus{};
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
     auto Q = sycl::queue{sycl::gpu_selector_v};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &Q};
+    const auto execution_policy =
+        mfront::generic_parallel::makeSyclBackendExecutionPolicy(Q);
+    const auto options = TestExecution{.policy = &execution_policy};
     auto v = usm_vector(T_values.size(), Q);
     const auto T = usm_vector(T_values.begin(), T_values.end(), Q);
     auto d_v = to_device(v, Q);

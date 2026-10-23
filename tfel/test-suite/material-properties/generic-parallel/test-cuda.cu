@@ -8,6 +8,7 @@
 #include <new>
 #include <array>
 #include <cmath>
+#include <memory>
 #include <tuple>
 #include <vector>
 #include <iostream>
@@ -20,6 +21,7 @@
 #include "TFEL/Tests/TestManager.hxx"
 
 #include "MFront/GenericMaterialProperty/MaterialProperty.h"
+#include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
 #include "PoissonRatioTest-generic-parallel-cuda.hxx"
 #include "BoundsOrderTest-generic-parallel-cuda.hxx"
 #include "Inconel600_YoungModulus-generic-parallel-cuda.hxx"
@@ -74,11 +76,23 @@ struct TestAllocator {
 template <typename T>
 using test_vector = std::vector<T, TestAllocator<T>>;
 
-//! \return the execution options of a synchronous evaluation (default
-//! stream)
-static mfront_gpmp_ExecutionOptions testOptions() {
-  return mfront_gpmp_ExecutionOptions{};
-}  // end of testOptions
+#include "batch.hxx"
+
+//! \return the execution of a synchronous evaluation (default policy)
+static TestExecution testExecution() {
+  return TestExecution{};
+}  // end of testExecution
+
+/*!
+ * \return an execution policy of the `cuda` backend (default stream)
+ * \param[in] o: common options
+ */
+static std::unique_ptr<mfront::generic_parallel::AbstractBackendExecutionPolicy>
+makeTestPolicy(const mfront::generic_parallel::BackendExecutionCommonPolicy& o) {
+  using namespace mfront::generic_parallel;
+  return std::make_unique<CUDABackendExecutionPolicy>(
+      CUDABackendExecutionOptions{.common_options = o});
+}  // end of makeTestPolicy
 
 #include "tests.hxx"
 
@@ -103,7 +117,7 @@ struct CUDATest : public tfel::tests::TestCase {
   }  // end of fct
 
   void test1() {
-    // computations on a stream given by the execution options, which is not
+    // computations on a stream given by the execution policy, which is not
     // the default stream
     constexpr auto eps = double{1e-2};
     auto stream = cudaStream_t{};
@@ -122,12 +136,15 @@ struct CUDATest : public tfel::tests::TestCase {
     const auto args =
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = stream};
+    const auto execution_policy =
+        mfront::generic_parallel::makeCUDABackendExecutionPolicy(
+            {.stream = stream});
+    const auto execution = TestExecution{.policy = &execution_policy};
     auto output = mfront_gpmp_OutputStatus{};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output,
                  thrust::raw_pointer_cast(d_E.data()), 1, args, args_strides, 4,
-                 mfront_gmp_OutOfBoundsPolicy{}, options),
+                 mfront_gmp_OutOfBoundsPolicy{}, execution),
         0);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     const auto E = thrust::host_vector<double>(d_E);
@@ -139,7 +156,7 @@ struct CUDATest : public tfel::tests::TestCase {
 
   void test2() {
     // asynchronous evaluation on a stream: the statistics, in managed memory,
-    // are given by the execution options and reported once the stream is
+    // are given by the calling code and reported once the stream is
     // synchronized. The second temperature is out of its physical bounds.
     constexpr auto eps = double{1e-2};
     auto stream = cudaStream_t{};
@@ -162,13 +179,16 @@ struct CUDATest : public tfel::tests::TestCase {
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
-    const auto options =
-        mfront_gpmp_ExecutionOptions{.queue = stream, .statistics = statistics};
+    const auto execution_policy =
+        mfront::generic_parallel::makeCUDABackendExecutionPolicy(
+            {.common_options = {.asynchronous = true}, .stream = stream});
+    const auto execution = TestExecution{.statistics = statistics,
+                                         .policy = &execution_policy};
     auto output = mfront_gpmp_OutputStatus{};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output,
                  thrust::raw_pointer_cast(d_E.data()), 1, args, args_strides, 4,
-                 policy, options),
+                 policy, execution),
         0);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     // the function returns once the computations are submitted
@@ -191,7 +211,7 @@ struct CUDATest : public tfel::tests::TestCase {
   }
 
   void test3() {
-    // stack size of the threads preserved by the execution options: an
+    // stack size of the threads preserved by the execution policy: an
     // error is reported if it is too small for the kernel. Otherwise, the
     // stack size is increased if required.
     constexpr auto eps = double{1e-2};
@@ -214,8 +234,9 @@ struct CUDATest : public tfel::tests::TestCase {
         std::array<const double *, 1u>{thrust::raw_pointer_cast(d_T.data())};
     const auto args_strides = std::array<mfront_gmp_size_type, 1u>{1};
     auto output = mfront_gpmp_OutputStatus{};
-    const auto preserve = mfront_gpmp_ExecutionOptions{
-        .queue = nullptr, .statistics = nullptr, .preserve_stack_size = 1};
+    const auto preserve_policy =
+        makeTestPolicy({.preserve_stack_size = true});
+    const auto preserve = TestExecution{.policy = preserve_policy.get()};
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output,
                  thrust::raw_pointer_cast(d_E.data()), 1, args, args_strides,
@@ -227,7 +248,7 @@ struct CUDATest : public tfel::tests::TestCase {
     TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&stack_size, cudaLimitStackSize) ==
                       cudaSuccess);
     TFEL_TESTS_ASSERT(stack_size < 1024);
-    // default options: the stack size is increased
+    // default policy: the stack size is increased
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(Inconel600_YoungModulus_generic_parallel, output,
                  thrust::raw_pointer_cast(d_E.data()), 1, args, args_strides,
@@ -258,7 +279,7 @@ struct CUDATest : public tfel::tests::TestCase {
     const auto r =
         evaluate(Inconel600_YoungModulus_generic_parallel, output, E.data(), 1,
                  args, contiguous<1>(), n, mfront_gmp_OutOfBoundsPolicy{},
-                 testOptions(), statuses.data());
+                 testExecution(), statuses.data());
     TFEL_TESTS_CHECK_EQUAL(r, -5);
     TFEL_TESTS_CHECK_EQUAL(output.status, -5);
     TFEL_TESTS_CHECK_EQUAL(std::string(output.msg),

@@ -395,6 +395,10 @@ namespace mfront {
       }
     }
     out << "#include\"MFront/GenericBehaviour/GenericBehaviourTraits.hxx\"\n";
+    if (bd.getSymmetryType() == mfront::ORTHOTROPIC) {
+      out << "#include\"MFront/GenericBehaviour/"
+          << "RotateTangentOperatorBlock.hxx\"\n";
+    }
     // behaviour integration
     if ((type == BehaviourDescription::GENERALBEHAVIOUR) ||
         (type == BehaviourDescription::COHESIVEZONEMODEL)) {

@@ -1,4 +1,4 @@
-From 87e65c97513c335f928abf8b09d4cfbef83166e4 Mon Sep 17 00:00:00 2001
+From 285e6b735718f268d3f5f06f98ca6a5531bf935e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:35:40 +0200
 Subject: [PATCH] MFront: fixes of the generic-parallel interface for material
@@ -28,7 +28,7 @@ Subject: [PATCH] MFront: fixes of the generic-parallel interface for material
  6 files changed, 41 insertions(+), 98 deletions(-)
 
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index 26f1ca258..1811b8816 100644
+index 76bd5b596..585a91c3e 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
 @@ -128,10 +128,10 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty SYCLBackend.hxx)

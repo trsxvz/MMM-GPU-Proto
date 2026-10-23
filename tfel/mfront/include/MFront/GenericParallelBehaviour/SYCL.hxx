@@ -25,6 +25,7 @@
 #include "MFront/GenericParallel/DeviceStackSize.hxx"
 #include "MFront/GenericParallel/SYCLDeviceCopies.hxx"
 #include "MFront/GenericParallel/StatusBlockPool.hxx"
+#include "MFront/GenericParallel/SyclBackendExecutionPolicy.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
 namespace mfront::gpb::sycl {
@@ -112,7 +113,7 @@ namespace mfront::gpb::sycl {
         this->transfer(this->data.rdts, 1, true);
         this->transfer(this->data.speed_of_sound, 1, true);
         this->transfer(this->data.statuses, this->data.number_of_points, true);
-        this->transfer(this->data.execution.statistics, 1, true);
+        this->transfer(this->data.statistics, 1, true);
       }
       //! \brief batch data whose fields are accessible by the device
       BatchData data;
@@ -215,22 +216,44 @@ namespace mfront::gpb::sycl {
       return pool;
     }  // end of getStatisticsBlocks
 
+    /*!
+     * \return the policy given by the calling code, checked against the
+     * policy of the backend (see
+     * `mfront::generic_parallel::checkBackendExecutionPolicy`). The `sycl`
+     * backend has no default policy: a null policy is refused.
+     * \param[in] p: policy given by the calling code
+     * \param[in] has_statistics: true if the calling code gave statistics
+     */
+    inline ::mfront::generic_parallel::CheckedBackendExecutionPolicy<
+        ::mfront::generic_parallel::SyclBackendExecutionPolicy>
+    checkExecutionPolicy(
+        const mfront_gp_AbstractBackendExecutionPolicy* const p,
+        const bool has_statistics) noexcept {
+      auto r = ::mfront::generic_parallel::checkBackendExecutionPolicy<
+          ::mfront::generic_parallel::SyclBackendExecutionPolicy>(
+          p, has_statistics);
+      if ((r.error == nullptr) && (r.policy == nullptr)) {
+        r.error =
+            "no execution policy given: the sycl backend requires a queue";
+      }
+      return r;
+    }  // end of checkExecutionPolicy
+
   }  // end of namespace internals
 
   /*!
    * \brief apply a function at the points of a batch and report the
    * statistics of the batch.
    *
-   * If the execution options give statistics, this function returns once
-   * the computations are submitted to the queue. Otherwise, it waits for
-   * their completion.
+   * If the computations are asynchronous, this function returns once they
+   * are submitted to the queue. Otherwise, it waits for their completion.
    *
    * \tparam PointFunction: function object taking the index of a point and
    * returning the statistics associated with this point
    * \param[in,out] s: output status, which must have been initialized
    * \param[in] n: number of points
-   * \param[in] o: execution options. The queue must point to a
-   * `sycl::queue`.
+   * \param[in] e: execution of the batch. The policy must be a
+   * `SyclBackendExecutionPolicy`.
    * \param[in] rdt0: initial value of the time step scaling factor
    * \param[in] f: function
    * \param[in] device_stack_size: minimal stack size, in bytes, of the
@@ -243,27 +266,29 @@ namespace mfront::gpb::sycl {
   template <typename PointFunction>
   int apply(OutputStatus& s,
             const size_type n,
-            const ExecutionOptions& o,
+            const BatchExecution& e,
             const real rdt0,
             const PointFunction& f,
             const std::size_t device_stack_size = 0) {
     if (n == 0) {
       return s.status;
     }
-    if (o.queue == nullptr) {
-      return report(s, -5, "no SYCL queue given");
+    const auto p =
+        internals::checkExecutionPolicy(e.policy, e.statistics != nullptr);
+    if (p.error != nullptr) {
+      return report(s, -5, p.error);
     }
     if (!mfront::generic_parallel::setMinimalCUDAStackSize(
-            device_stack_size, o.preserve_stack_size != 0)) {
+            device_stack_size, p.common_options.preserve_stack_size)) {
       return report(s, -7, mfront::generic_parallel::stack_size_error_message);
     }
-    auto& q = *static_cast<::sycl::queue*>(o.queue);
+    auto q = p.policy->queue;
     // the kernel must be executed after the computations already submitted
     // to the queue, which may compute the inputs. This is guaranteed by an
     // in-order queue. With an out-of-order queue, the computations are
     // synchronous and the queue is synchronized before the kernel.
     if (!q.is_in_order()) {
-      if (o.statistics != nullptr) {
+      if (p.common_options.asynchronous) {
         return report(s, -5,
                       "asynchronous computations require an in-order SYCL "
                       "queue");
@@ -273,8 +298,11 @@ namespace mfront::gpb::sycl {
     const auto range = ::sycl::range<1>{n};
     const auto rdt_key = toOrderedKey(rdt0);
     using Kernel = internals::Kernel<PointFunction>;
-    if (o.statistics != nullptr) {
-      q.parallel_for(range, Kernel{f, o.statistics, rdt_key});
+    if (e.statistics != nullptr) {
+      auto event = q.parallel_for(range, Kernel{f, e.statistics, rdt_key});
+      if (!p.common_options.asynchronous) {
+        event.wait_and_throw();
+      }
       return s.status;
     }
     // synchronous computations: the statistics are held by a block of
@@ -303,9 +331,9 @@ namespace mfront::gpb::sycl {
    */
   inline auto makeApply(OutputStatus& s,
                         const std::size_t device_stack_size = 0) {
-    return [&s, device_stack_size](const size_type n, const ExecutionOptions& o,
+    return [&s, device_stack_size](const size_type n, const BatchExecution& e,
                                    const real rdt0, const auto& f) {
-      return sycl::apply(s, n, o, rdt0, f, device_stack_size);
+      return sycl::apply(s, n, e, rdt0, f, device_stack_size);
     };
   }  // end of makeApply
 
@@ -330,22 +358,24 @@ namespace mfront::gpb::sycl {
   /*!
    * \return a copy of a data shared by all the integration points (see the
    * `@SharedData` keyword) in the memory of the device associated with the
-   * queue given by the execution options. A copy is made at the first call
-   * for each device and context, and is never freed.
-   * \return the copy, or a null pointer if no queue is given (the call
+   * queue of the execution policy. A copy is made at the first call for
+   * each device and context, and is never freed.
+   * \return the copy, or a null pointer if the policy is invalid (the call
    * reports this invalid argument before any computation)
    * \tparam get_shared_data: function returning the data
-   * \param[in] o: execution options
+   * \param[in] policy: execution policy
    */
   template <auto get_shared_data>
-  const auto* getSharedDataCopy(const ExecutionOptions& o) {
+  const auto* getSharedDataCopy(
+      const mfront_gp_AbstractBackendExecutionPolicy* const policy) {
     using T = std::remove_cvref_t<decltype(get_shared_data())>;
     using Device = std::pair<::sycl::device, ::sycl::context>;
     static auto copies = SharedDataCopies<T, Device>{};
-    if (o.queue == nullptr) {
+    const auto p = internals::checkExecutionPolicy(policy, true);
+    if (p.error != nullptr) {
       return static_cast<const T*>(nullptr);
     }
-    auto& q = *static_cast<::sycl::queue*>(o.queue);
+    auto q = p.policy->queue;
     return copies.get(Device{q.get_device(), q.get_context()},
                       [&q] { return copyToDevice(get_shared_data(), q); });
   }  // end of getSharedDataCopy
@@ -369,11 +399,19 @@ namespace mfront::gpb::sycl {
                            const BatchData& d,
                            const DataTransferPolicy transfers,
                            Function&& call) {
-      if (d.execution.queue == nullptr) {
+      const auto p =
+          checkExecutionPolicy(d.execution_policy, d.statistics != nullptr);
+      if (p.error != nullptr) {
         initialize(s, d.rdt);
-        return report(s, -5, "no SYCL queue given");
+        // the policy is only needed to transfer the fields: an empty batch
+        // is accepted without any check of the policy, as with the other
+        // backends
+        if (d.number_of_points == 0) {
+          return s.status;
+        }
+        return report(s, -5, p.error);
       }
-      auto& q = *static_cast<::sycl::queue*>(d.execution.queue);
+      auto q = p.policy->queue;
       auto dd = DeviceBatchData<PointTraits>(q, d, transfers);
       const auto r = call(dd.data, static_cast<DeviceCopies&>(dd));
       dd.copyOutputs();
@@ -386,12 +424,11 @@ namespace mfront::gpb::sycl {
    * \brief integrate the behaviour at the points of a batch (see
    * `mfront::gpb::integrateBatch`).
    *
-   * The queue given by the execution options must point to a `sycl::queue`.
-   * With the `NONE` data transfer policy, the fields must be accessible by
-   * the device associated with this queue (shared, device or host USM
-   * allocations, or any memory if the device is the host). The computations
-   * are asynchronous if the execution options give statistics and if no
-   * field is copied.
+   * The execution policy must be a `SyclBackendExecutionPolicy`. With the
+   * `NONE` data transfer policy, the fields must be accessible by the device
+   * associated with its queue (shared, device or host USM allocations, or
+   * any memory if the device is the host). The computations are
+   * asynchronous if the policy requests it and if no field is copied.
    *
    * \param[in] transfers: policy for the transfer of the fields
    * \param[in] apply: primitive of the backend (see `makeApply`)
@@ -480,19 +517,25 @@ namespace mfront::gpb::sycl {
                   const RotationData& d,
                   const DataTransferPolicy transfers,
                   const Apply& apply) {
-    if (d.execution.queue == nullptr) {
+    const auto p = internals::checkExecutionPolicy(d.execution_policy,
+                                                   d.statistics != nullptr);
+    if (p.error != nullptr) {
       initialize(s, 1);
-      return report(s, -5, "no SYCL queue given");
+      // empty batch accepted without any check of the policy (see
+      // `callWithDeviceData`)
+      if (d.number_of_points == 0) {
+        return s.status;
+      }
+      return report(s, -5, p.error);
     }
     constexpr auto n = static_cast<size_type>(PointRotation::size);
-    auto copies =
-        internals::DeviceCopies(*static_cast<::sycl::queue*>(d.execution.queue),
-                                d.number_of_points, transfers);
+    auto q = p.policy->queue;
+    auto copies = internals::DeviceCopies(q, d.number_of_points, transfers);
     auto dd = d;
     copies.transfer(dd.source, n, false);
     copies.transfer(dd.rotation_matrices, 9, false);
     copies.transfer(dd.destination, n, true);
-    copies.transfer(dd.execution.statistics, 1, true);
+    copies.transfer(dd.statistics, 1, true);
     const auto r = mfront::gpb::rotateBatch<PointRotation>(s, dd, apply);
     copies.copyOutputs();
     return r;

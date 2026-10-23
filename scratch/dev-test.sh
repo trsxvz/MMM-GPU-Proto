@@ -84,14 +84,16 @@ compilation_options : {
 }
 EOF
 export MFRONT_GPB_REFERENCE_CONFIGURATION_FILE=$PWD/config-reference.json
-export LD_LIBRARY_PATH=src:reference/src:$LD_LIBRARY_PATH
+# libraries of the development tree after the installed ones: those which
+# are not installed yet (for instance MFrontGenericParallelRuntime)
+export LD_LIBRARY_PATH=src:reference/src:$LD_LIBRARY_PATH:$BUILD/mfront/src
 grep '^@Command' test.check | sed 's/^@Command "//; s/";$//' | while read -r cmd; do
   cmd=$(apply "$cmd")
   cmd=${cmd//@mfront@/./mfront-dev.sh}
   # headers of the development tree first (substituted by tfel-check)
   cmd=${cmd//-I @TFEL_INCLUDE_DIR@/$dev_includes -I$PROTO_TFEL_INSTALL/include}
   cmd=${cmd//-I@TFEL_INCLUDE_DIR@/$dev_includes -I$PROTO_TFEL_INSTALL/include}
-  cmd=${cmd//@TFEL_LIBRARY_DIR@/$PROTO_TFEL_INSTALL/lib}
+  cmd=${cmd//@TFEL_LIBRARY_DIR@/$PROTO_TFEL_INSTALL/lib -L$BUILD/mfront/src}
   case "$cmd" in
     *compare-all.sh*) cmd="$cmd '$pattern'" ;;
     # DEVTEST_BEHAVIOURS restricts the built behaviours (all by default)

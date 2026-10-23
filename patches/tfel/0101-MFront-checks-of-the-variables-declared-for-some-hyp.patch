@@ -1,0 +1,345 @@
+From 93c4defb520a1cc56f2d8c58290b79b0fb170601 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:52:18 +0200
+Subject: [PATCH] MFront: checks of the variables declared for some hypotheses
+ only
+
+BehaviourDescription::checkVariableExistence returns a pair whose first
+member tells if the variable is declared for all the modelling hypotheses
+and whose second member tells if it is declared for at least one of them.
+Its callers tested them the other way around (`if (first)` then
+`!second`), so that their checks never triggered: a variable declared for
+some hypotheses only was treated as not declared, and the error came later,
+as a conflict of names. The checks of BrickUtilities,
+BehaviourBrickBase, HookeStressPotentialBase, IsotropicBehaviourDSLBase,
+ImplicitDSLBase and RungeKuttaCodeGeneratorBase now test that the
+variable is declared for at least one hypothesis, then for all of them,
+and report it. Missing space fixed in one of their messages.
+
+The code generated for the 757 MFront files of TFEL, MGIS, mfem-mgis and
+the examples which mfront accepts is identical; DSLTest checks the new
+messages of two partial declarations (and fails with the previous code).
+---
+ mfront/src/BehaviourBrickBase.cxx          | 62 ++++++++++++----------
+ mfront/src/BrickUtilities.cxx              | 62 ++++++++++++----------
+ mfront/src/HookeStressPotentialBase.cxx    |  6 ++-
+ mfront/src/ImplicitDSLBase.cxx             |  6 ++-
+ mfront/src/IsotropicBehaviourDSLBase.cxx   |  6 ++-
+ mfront/src/RungeKuttaCodeGeneratorBase.cxx |  6 ++-
+ mfront/tests/unit-tests/DSLTest.cxx        | 39 ++++++++++++++
+ 7 files changed, 123 insertions(+), 64 deletions(-)
+
+diff --git a/mfront/src/BehaviourBrickBase.cxx b/mfront/src/BehaviourBrickBase.cxx
+index 5886aeecb..4e5a3a4af 100644
+--- a/mfront/src/BehaviourBrickBase.cxx
++++ b/mfront/src/BehaviourBrickBase.cxx
+@@ -54,24 +54,27 @@ namespace mfront {
+           b, "BehaviourBrickBase::addMaterialPropertyIfNotDefined: " + m);
+     };
+     // treating material properties
++    // `second` is true if the variable is declared for at least one
++    // specialisation of the behaviour, `first` if it is declared for all of
++    // them
+     const auto b = this->bd.checkVariableExistence(n);
+-    if (b.first) {
+-      throw_if(!b.second, "variable '" + n +
+-                              "' is not declared for all specialisations "
+-                              "of the behaviour");
++    if (b.second) {
++      throw_if(!b.first, "variable '" + n +
++                             "' is not declared for all specialisations "
++                             "of the behaviour");
+       auto r = this->bd.checkVariableExistence(n, "Parameter", false);
+-      if (r.first) {
+-        throw_if(!r.second, "parameter '" + n +
+-                                "' is not declared for all specialisations "
+-                                "of the behaviour");
++      if (r.second) {
++        throw_if(!r.first, "parameter '" + n +
++                               "' is not declared for all specialisations "
++                               "of the behaviour");
+       } else {
+         r = this->bd.checkVariableExistence(n, "MaterialProperty", false);
+-        throw_if(!r.first, "variable '" + n +
+-                               "' is neither declared as a parameter nor "
+-                               "a material property");
+-        throw_if(!r.second, "material property '" + n +
+-                                "' is not declared"
+-                                "for all specialisations of the behaviour");
++        throw_if(!r.second, "variable '" + n +
++                                "' is neither declared as a parameter nor "
++                                "a material property");
++        throw_if(!r.first, "material property '" + n +
++                               "' is not declared "
++                               "for all specialisations of the behaviour");
+       }
+       this->bd.checkVariableGlossaryName(n, g);
+     } else {
+@@ -91,24 +94,27 @@ namespace mfront {
+           b, "BehaviourBrickBase::addMaterialPropertyIfNotDefined: " + m);
+     };
+     // treating material properties
++    // `second` is true if the variable is declared for at least one
++    // specialisation of the behaviour, `first` if it is declared for all of
++    // them
+     const auto b = this->bd.checkVariableExistence(n);
+-    if (b.first) {
+-      throw_if(!b.second, "variable '" + n +
+-                              "' is not declared for all specialisations "
+-                              "of the behaviour");
++    if (b.second) {
++      throw_if(!b.first, "variable '" + n +
++                             "' is not declared for all specialisations "
++                             "of the behaviour");
+       auto r = this->bd.checkVariableExistence(n, "Parameter", false);
+-      if (r.first) {
+-        throw_if(!r.second, "parameter '" + n +
+-                                "' is not declared for all specialisations "
+-                                "of the behaviour");
++      if (r.second) {
++        throw_if(!r.first, "parameter '" + n +
++                               "' is not declared for all specialisations "
++                               "of the behaviour");
+       } else {
+         r = this->bd.checkVariableExistence(n, "MaterialProperty", false);
+-        throw_if(!r.first, "variable '" + n +
+-                               "' is neither declared as a parameter nor "
+-                               "a material property");
+-        throw_if(!r.second, "material property '" + n +
+-                                "' is not declared"
+-                                "for all specialisations of the behaviour");
++        throw_if(!r.second, "variable '" + n +
++                                "' is neither declared as a parameter nor "
++                                "a material property");
++        throw_if(!r.first, "material property '" + n +
++                               "' is not declared "
++                               "for all specialisations of the behaviour");
+       }
+       this->bd.checkVariableEntryName(n, e);
+     } else {
+diff --git a/mfront/src/BrickUtilities.cxx b/mfront/src/BrickUtilities.cxx
+index ace341ee4..ace1c27d0 100644
+--- a/mfront/src/BrickUtilities.cxx
++++ b/mfront/src/BrickUtilities.cxx
+@@ -127,24 +127,27 @@ namespace mfront::bbrick {
+       tfel::raise_if(b, "addMaterialPropertyIfNotDefined: " + m);
+     };
+     // treating material properties
++    // `second` is true if the variable is declared for at least one
++    // specialisation of the behaviour, `first` if it is declared for all of
++    // them
+     const auto b = bd.checkVariableExistence(n);
+-    if (b.first) {
+-      throw_if(!b.second, "variable '" + n +
+-                              "' is not declared for all specialisations "
+-                              "of the behaviour");
++    if (b.second) {
++      throw_if(!b.first, "variable '" + n +
++                             "' is not declared for all specialisations "
++                             "of the behaviour");
+       auto r = bd.checkVariableExistence(n, "Parameter", false);
+-      if (r.first) {
+-        throw_if(!r.second, "parameter '" + n +
+-                                "' is not declared for all specialisations "
+-                                "of the behaviour");
++      if (r.second) {
++        throw_if(!r.first, "parameter '" + n +
++                               "' is not declared for all specialisations "
++                               "of the behaviour");
+       } else {
+         r = bd.checkVariableExistence(n, "MaterialProperty", false);
+-        throw_if(!r.first, "variable '" + n +
+-                               "' is neither declared as a parameter nor "
+-                               "a material property");
+-        throw_if(!r.second, "material property '" + n +
+-                                "' is not declared"
+-                                "for all specialisations of the behaviour");
++        throw_if(!r.second, "variable '" + n +
++                                "' is neither declared as a parameter nor "
++                                "a material property");
++        throw_if(!r.first, "material property '" + n +
++                               "' is not declared "
++                               "for all specialisations of the behaviour");
+       }
+       bd.checkVariableGlossaryName(n, g);
+     } else {
+@@ -164,24 +167,27 @@ namespace mfront::bbrick {
+       tfel::raise_if(b, "addMaterialPropertyIfNotDefined: " + m);
+     };
+     // treating material properties
++    // `second` is true if the variable is declared for at least one
++    // specialisation of the behaviour, `first` if it is declared for all of
++    // them
+     const auto b = bd.checkVariableExistence(n);
+-    if (b.first) {
+-      throw_if(!b.second, "variable '" + n +
+-                              "' is not declared for all specialisations "
+-                              "of the behaviour");
++    if (b.second) {
++      throw_if(!b.first, "variable '" + n +
++                             "' is not declared for all specialisations "
++                             "of the behaviour");
+       auto r = bd.checkVariableExistence(n, "Parameter", false);
+-      if (r.first) {
+-        throw_if(!r.second, "parameter '" + n +
+-                                "' is not declared for all specialisations "
+-                                "of the behaviour");
++      if (r.second) {
++        throw_if(!r.first, "parameter '" + n +
++                               "' is not declared for all specialisations "
++                               "of the behaviour");
+       } else {
+         r = bd.checkVariableExistence(n, "MaterialProperty", false);
+-        throw_if(!r.first, "variable '" + n +
+-                               "' is neither declared as a parameter nor "
+-                               "a material property");
+-        throw_if(!r.second, "material property '" + n +
+-                                "' is not declared"
+-                                "for all specialisations of the behaviour");
++        throw_if(!r.second, "variable '" + n +
++                                "' is neither declared as a parameter nor "
++                                "a material property");
++        throw_if(!r.first, "material property '" + n +
++                               "' is not declared "
++                               "for all specialisations of the behaviour");
+       }
+       bd.checkVariableEntryName(n, e);
+     } else {
+diff --git a/mfront/src/HookeStressPotentialBase.cxx b/mfront/src/HookeStressPotentialBase.cxx
+index 97c14971f..edf95a34e 100644
+--- a/mfront/src/HookeStressPotentialBase.cxx
++++ b/mfront/src/HookeStressPotentialBase.cxx
+@@ -436,9 +436,11 @@ namespace mfront::bbrick {
+     // modelling hypotheses supported by the behaviour
+     const auto bmh = bd.getModellingHypotheses();
+     // elastic strain
++    // `second` is true if `eel` is declared for at least one specialisation
++    // of the behaviour, `first` if it is declared for all of them
+     const auto b = bd.checkVariableExistence("eel");
+-    if (b.first) {
+-      throw_if(!b.second,
++    if (b.second) {
++      throw_if(!b.first,
+                "'eel' is not declared for all specialisation of the behaviour");
+       bd.checkVariableExistence("eel", "IntegrationVariable");
+       bd.checkVariableGlossaryName("eel", Glossary::ElasticStrain);
+diff --git a/mfront/src/ImplicitDSLBase.cxx b/mfront/src/ImplicitDSLBase.cxx
+index c6c0517c7..48f84724c 100644
+--- a/mfront/src/ImplicitDSLBase.cxx
++++ b/mfront/src/ImplicitDSLBase.cxx
+@@ -1387,14 +1387,16 @@ namespace mfront {
+       auto add_lv = [this](BehaviourDescription& bd, const std::string& t,
+                            const std::string& sn, const std::string& n,
+                            const std::string& g, const std::string d) {
++        // `second` is true if the parameter is declared for at least one
++        // modelling hypothesis, `first` if it is declared for all of them
+         auto r = bd.checkVariableExistence(n, "Parameter", false);
+-        if (!r.first) {
++        if (!r.second) {
+           auto v = (!sn.empty()) ? VariableDescription(t, sn, n, 1u, 0u)
+                                  : VariableDescription(t, n, 1u, 0u);
+           v.description = d;
+           bd.addLocalVariable(uh, v, BehaviourData::UNREGISTRED);
+         } else {
+-          if (!r.second) {
++          if (!r.first) {
+             this->throwRuntimeError(
+                 "ImplicitDSLBase::completeVariableDeclaration",
+                 "Parameter '" + n + "' is not defined for all hypotheses");
+diff --git a/mfront/src/IsotropicBehaviourDSLBase.cxx b/mfront/src/IsotropicBehaviourDSLBase.cxx
+index 84e31d155..f037da65f 100644
+--- a/mfront/src/IsotropicBehaviourDSLBase.cxx
++++ b/mfront/src/IsotropicBehaviourDSLBase.cxx
+@@ -565,14 +565,16 @@ namespace mfront {
+                      const std::string& sn, const std::string& n,
+                      const std::string& g, const std::string d) {
+       const auto h = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
++      // `second` is true if the parameter is declared for at least one
++      // modelling hypothesis, `first` if it is declared for all of them
+       auto r = bd.checkVariableExistence(n, "Parameter", false);
+-      if (!r.first) {
++      if (!r.second) {
+         auto v = (!sn.empty()) ? VariableDescription(t, sn, n, 1u, 0u)
+                                : VariableDescription(t, n, 1u, 0u);
+         v.description = d;
+         bd.addLocalVariable(h, v, BehaviourData::UNREGISTRED);
+       } else {
+-        tfel::raise_if(!r.second,
++        tfel::raise_if(!r.first,
+                        "ImplicitDSLBase::completeVariableDeclaration: "
+                        "Parameter '" +
+                            n + "' is not defined for all hypotheses");
+diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
+index 9557e5d75..f94d1c110 100644
+--- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
++++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
+@@ -1134,9 +1134,11 @@ namespace mfront {
+                                            const std::string& k,
+                                            const std::string& n,
+                                            const std::string& e) {
++      // `second` is true if the variable is defined for at least one
++      // modelling hypothesis, `first` if it is defined for all of them
+       const auto exists = bd.checkVariableExistence(n, k, false);
+-      if (exists.first) {
+-        if (!exists.second) {
++      if (exists.second) {
++        if (!exists.first) {
+           tfel::raise("findStressErrorNormalizationFactor: the `" + n +
+                       "` variable is not "
+                       "defined for all modelling hypotheses as a '" +
+diff --git a/mfront/tests/unit-tests/DSLTest.cxx b/mfront/tests/unit-tests/DSLTest.cxx
+index d47b27d5a..61bbe2153 100644
+--- a/mfront/tests/unit-tests/DSLTest.cxx
++++ b/mfront/tests/unit-tests/DSLTest.cxx
+@@ -183,9 +183,48 @@ struct DSLTest final : public tfel::tests::TestCase {
+     this->check("DefaultDSL", "@StateVariable real v;@Bounds v in ]*:*[;");
+     this->check("DefaultDSL", "@StateVariable real v;@Bounds v in ]-*:0];");
+     this->check("DefaultDSL", "@ComputeThermalExpansion {\"test.mfront\"};");
++    // variables declared for some modelling hypotheses only: the error
++    // reports it (checks of BehaviourDescription::checkVariableExistence)
++    this->check("IsotropicMisesCreep",
++                "@Behaviour PartialParameter;"
++                "@ModellingHypotheses {PlaneStrain, Tridimensional};"
++                "@ElasticMaterialProperties {150e9, 0.3};"
++                "@Parameter<PlaneStrain> real lambda = 1;"
++                "@FlowRule{f = seq; df_dseq = 1;}",
++                "is not defined for all hypotheses");
++    this->check("Implicit",
++                "@Behaviour PartialMaterialProperty;"
++                "@ModellingHypotheses {PlaneStrain, Tridimensional};"
++                "@MaterialProperty<PlaneStrain> stress young;"
++                "@MaterialProperty<PlaneStrain> real nu;"
++                "@Brick StandardElasticity;"
++                "@Integrator{}",
++                "is not declared for all specialisations");
+     return this->result;
+   }  // end of execute()
+  private:
++  /*!
++   * \brief checks that analysing the given string throws an exception whose
++   * message contains the given text
++   * \param[in] n: name of the domain specific language
++   * \param[in] s: string to be analysed
++   * \param[in] m: text expected in the message of the exception
++   */
++  void check(const std::string& n, const std::string& s, const std::string& m) {
++    auto& f = mfront::DSLFactory::getDSLFactory();
++    auto dsl = f.createNewDSL(n);
++    try {
++      dsl->analyseString(s);
++    } catch (std::runtime_error& e) {
++      const auto msg = std::string(e.what());
++      TestCase::registerResult("analysing '" + s + "' has thrown (" + msg +
++                                   "), the message containing '" + m + "'",
++                               msg.find(m) != std::string::npos);
++      return;
++    }
++    TestCase::registerResult(
++        "analysing '" + s + "' did *not* throw as expected", false);
++  }
+   void check(const std::string& n, const std::string& s) {
+     auto& f = mfront::DSLFactory::getDSLFactory();
+     auto dsl = f.createNewDSL(n);
+-- 
+2.43.0
+

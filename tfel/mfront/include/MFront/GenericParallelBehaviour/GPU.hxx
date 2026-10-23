@@ -26,17 +26,29 @@
 #include "MFront/GenericParallel/GPUStackSize.hxx"
 #define MFRONT_GPB_GPU_API(f) MFRONT_GENERIC_PARALLEL_GPU_API(f)
 #include "MFront/GenericParallel/StatusBlockPool.hxx"
+#if defined(__HIPCC__) || defined(__HIP__)
+#include "MFront/GenericParallel/HIPBackendExecutionPolicy.hxx"
+#else
+#include "MFront/GenericParallel/CUDABackendExecutionPolicy.hxx"
+#endif
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
 namespace mfront::gpb::gpu {
 
   namespace internals {
 
-    //! \brief device attribute giving the warp size
 #if defined(__HIPCC__) || defined(__HIP__)
+    //! \brief device attribute giving the warp size
     inline constexpr auto warp_size_attribute = hipDeviceAttributeWarpSize;
+    //! \brief execution policy of the backend
+    using ExecutionPolicy =
+        ::mfront::generic_parallel::HIPBackendExecutionPolicy;
 #else
+    //! \brief device attribute giving the warp size
     inline constexpr auto warp_size_attribute = cudaDevAttrWarpSize;
+    //! \brief execution policy of the backend
+    using ExecutionPolicy =
+        ::mfront::generic_parallel::CUDABackendExecutionPolicy;
 #endif
 
     /*!
@@ -193,16 +205,17 @@ namespace mfront::gpb::gpu {
    * \brief apply a function at the points of a batch, one thread per point,
    * and report the statistics of the batch.
    *
-   * The kernel is launched on the queue given by the execution options. If
-   * the execution options give statistics, this function returns once the
+   * The kernel is launched on the stream given by the execution policy. If
+   * the computations are asynchronous, this function returns once the
    * kernel is launched. Otherwise, it waits for its completion.
    *
    * \tparam PointFunction: function object taking the index of a point and
    * returning the statistics associated with this point
    * \param[in,out] s: output status, which must have been initialized
    * \param[in] n: number of points
-   * \param[in] o: execution options. The queue is a stream (default stream
-   * if null).
+   * \param[in] e: execution of the batch. The policy is a
+   * `CUDABackendExecutionPolicy` (`HIPBackendExecutionPolicy` with HIP), or
+   * null for the default stream.
    * \param[in] rdt0: initial value of the time step scaling factor
    * \param[in] f: function
    * \param[in] threads_per_block: number of threads per block, rounded up to
@@ -212,7 +225,7 @@ namespace mfront::gpb::gpu {
   template <typename PointFunction>
   int apply(OutputStatus& s,
             const size_type n,
-            const ExecutionOptions& o,
+            const BatchExecution& e,
             const real rdt0,
             const PointFunction& f,
             const unsigned int threads_per_block) {
@@ -221,8 +234,14 @@ namespace mfront::gpb::gpu {
     if (n == 0) {
       return s.status;
     }
+    const auto p = ::mfront::generic_parallel::checkBackendExecutionPolicy<
+        internals::ExecutionPolicy>(e.policy, e.statistics != nullptr);
+    if (p.error != nullptr) {
+      return report(s, -5, p.error);
+    }
     constexpr auto k = internals::apply<PointFunction>;
-    if (!internals::ensureStackSize<k>(s, o.preserve_stack_size != 0)) {
+    if (!internals::ensureStackSize<k>(s,
+                                       p.common_options.preserve_stack_size)) {
       return s.status;
     }
     auto device = 0;
@@ -241,11 +260,17 @@ namespace mfront::gpb::gpu {
         static_cast<decltype(nblocks)>(std::numeric_limits<int>::max())) {
       return report(s, -5, "too many points for the grid of the device");
     }
-    const auto stream = static_cast<Stream>(o.queue);
+    const auto stream = p.policy == nullptr ? Stream{} : p.policy->stream;
     const auto rdt_key = toOrderedKey(rdt0);
-    if (o.statistics != nullptr) {
-      k<<<nblocks, nthreads, 0, stream>>>(f, n, o.statistics, rdt_key);
-      failed(s, MFRONT_GPB_GPU_API(GetLastError)());
+    if (e.statistics != nullptr) {
+      // statistics given by the calling code: the result is given by the
+      // report function of the library
+      k<<<nblocks, nthreads, 0, stream>>>(f, n, e.statistics, rdt_key);
+      if (failed(s, MFRONT_GPB_GPU_API(GetLastError)()) ||
+          p.common_options.asynchronous) {
+        return s.status;
+      }
+      failed(s, MFRONT_GPB_GPU_API(StreamSynchronize)(stream));
       return s.status;
     }
     // synchronous computations: the statistics are held by a block of
@@ -320,9 +345,9 @@ namespace mfront::gpb::gpu {
    * \param[in] threads_per_block: number of threads per block
    */
   inline auto makeApply(OutputStatus& s, const unsigned int threads_per_block) {
-    return [&s, threads_per_block](const size_type n, const ExecutionOptions& o,
+    return [&s, threads_per_block](const size_type n, const BatchExecution& e,
                                    const real rdt0, const auto& f) {
-      return gpu::apply(s, n, o, rdt0, f, threads_per_block);
+      return gpu::apply(s, n, e, rdt0, f, threads_per_block);
     };
   }  // end of makeApply
 

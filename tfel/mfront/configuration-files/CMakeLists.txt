@@ -82,3 +82,7 @@ if(_tfel-enable-generic-parallel-raja-configuration)
   install_configuration_file(config-raja.json)
   install_configuration_file(config-raja-host.json)
 endif(_tfel-enable-generic-parallel-raja-configuration)
+
+if(_tfel-enable-generic-parallel-arcane-configuration)
+  install_configuration_file(config-arcane.json)
+endif(_tfel-enable-generic-parallel-arcane-configuration)

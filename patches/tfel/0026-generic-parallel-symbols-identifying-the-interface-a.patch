@@ -1,4 +1,4 @@
-From dac2093388cfc5035c2a97d52d7039d5150222f1 Mon Sep 17 00:00:00 2001
+From 5d63987e0c17dc945e5360330ee774cc71269c81 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 02:21:09 +0200
 Subject: [PATCH] generic-parallel: symbols identifying the interface and the

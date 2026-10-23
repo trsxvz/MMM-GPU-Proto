@@ -43,7 +43,8 @@ previous ones. The technical details are in [tfel.md](tfel.md).
    documentation.
 5. **Additional backends and compilers**: Kokkos, RAJA, SYCL, OpenACC,
    offload of `nvc++` (`stdpar` and OpenMP), clang CUDA and HIP. Most of the
-   compiler workarounds go into this contribution.
+   compiler workarounds go into this contribution. The `arcane` backend
+   (accelerator API of Arccore) is a prototype, not proposed for TFEL 5.2.
 6. **Extensions of the interface of the material properties**: Kokkos, RAJA,
    OpenMP and OpenACC backends, properties defined by data or calling other
    laws on CUDA and HIP, version 3 of the functions (one function

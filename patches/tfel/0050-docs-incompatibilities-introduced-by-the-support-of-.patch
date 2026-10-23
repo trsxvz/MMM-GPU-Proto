@@ -1,4 +1,4 @@
-From 25b80e59c2d8fd6ed7e289fbc775caf518ecc674 Mon Sep 17 00:00:00 2001
+From a2ce193a577ea43cf37ae02ce8ac3c0ba791e141 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:10:49 +0200
 Subject: [PATCH] docs: incompatibilities introduced by the support of device

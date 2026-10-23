@@ -17,6 +17,7 @@
 #include <vector>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <stdexcept>
 #include <type_traits>
 #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
@@ -24,10 +25,24 @@
 #ifdef KOKKOS_ENABLE_CUDA
 #include <cuda_runtime.h>
 #endif /* KOKKOS_ENABLE_CUDA */
+#include "MFront/GenericParallel/KokkosBackendExecutionPolicy.hxx"
 #endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
 #ifdef MFRONT_GPMP_TEST_USE_RAJA
 #include "MFront/GenericParallel/RAJAExecutionPolicy.hxx"
+#include "MFront/GenericParallel/RAJABackendExecutionPolicy.hxx"
 #endif /* MFRONT_GPMP_TEST_USE_RAJA */
+#ifdef MFRONT_GPMP_TEST_USE_ARCANE
+#include <cstdlib>
+#include <arccore/common/accelerator/Runner.h>
+#include <arccore/accelerator/AcceleratorInitializer.h>
+#include "MFront/GenericParallel/ArcaneBackendExecutionPolicy.hxx"
+#if defined(ARCCORE_HAS_CUDA)
+#include <cuda_runtime.h>
+#endif /* defined(ARCCORE_HAS_CUDA) */
+#endif /* MFRONT_GPMP_TEST_USE_ARCANE */
+#include "MFront/GenericParallel/ParallelSTLBackendExecutionPolicy.hxx"
+#include "MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx"
+#include "MFront/GenericParallel/OpenACCBackendExecutionPolicy.hxx"
 #ifdef __NVCOMPILER_OPENACC_GPU
 #include <dlfcn.h>
 #include <openacc.h>
@@ -41,13 +56,17 @@
 #include "MFront/GenericMaterialProperty/MaterialProperty.h"
 
 // This test is shared by the backends based on the C++ programming model
-// (`stlpar`, `openmp`, `openacc`, `kokkos`, `raja`), selected by the
-// `MFRONT_GPMP_TEST_BACKEND` macro (`stlpar` by default). The arrays are
+// (`stlpar`, `openmp`, `openacc`, `kokkos`, `raja`, `arcane`), selected by
+// the `MFRONT_GPMP_TEST_BACKEND` macro (`stlpar` by default). The arrays are
 // allocated by `std::vector` (on the host, or in managed memory with
 // `nvc++ -gpu=mem:managed`), in the shared memory space of Kokkos if the
-// `MFRONT_GPMP_TEST_USE_KOKKOS` macro is defined, or in the managed memory
+// `MFRONT_GPMP_TEST_USE_KOKKOS` macro is defined, in the managed memory
 // of the resource of camp of the execution policy of RAJA if the
-// `MFRONT_GPMP_TEST_USE_RAJA` macro is defined.
+// `MFRONT_GPMP_TEST_USE_RAJA` macro is defined, or in managed memory if the
+// `MFRONT_GPMP_TEST_USE_ARCANE` macro is defined and Arccore is built with
+// CUDA. With Arcane, the execution policy of the queue of the tests is given
+// by the `MFRONT_GPMP_TEST_ARCANE_QUEUE` environment variable (see
+// `ArcaneTestRuntime`).
 #ifndef MFRONT_GPMP_TEST_BACKEND
 #define MFRONT_GPMP_TEST_BACKEND stlpar
 #endif /* MFRONT_GPMP_TEST_BACKEND */
@@ -98,14 +117,14 @@ struct TestAllocator {
 #define MFRONT_GPMP_TEST_RAJA_EXECUTION_POLICY \
   mfront::generic_parallel::raja::DefaultExecutionPolicy
 #endif /* MFRONT_GPMP_TEST_RAJA_EXECUTION_POLICY */
-//! \return the resource of camp used by the material properties when the
-//! queue is null (default stream of the current device with CUDA)
+//! \return the resource of camp used by the material properties with the
+//! default policy (default stream of the current device with CUDA)
 static auto getTestResource() {
   return mfront::generic_parallel::raja::getDefaultResource<
       MFRONT_GPMP_TEST_RAJA_EXECUTION_POLICY>();
 }
 /*!
- * \return a resource given explicitly by the execution options: a resource
+ * \return a resource given explicitly by the execution policy: a resource
  * on a stream created here with CUDA (not the default stream, see
  * `test15`), the default resource otherwise
  */
@@ -142,6 +161,79 @@ struct TestAllocator {
     return true;
   }
 };
+#elif defined(MFRONT_GPMP_TEST_USE_ARCANE)
+/*!
+ * \brief accelerator runtime of Arccore (4 threads for the `Thread` queues),
+ * runner and queue of the tests, and execution policy on this queue. The
+ * execution policy of the queue is given by the
+ * `MFRONT_GPMP_TEST_ARCANE_QUEUE` environment variable: `cuda`, `thread` or
+ * `sequential` (`cuda` by default if Arccore is built with CUDA, `thread`
+ * otherwise). The members are destroyed before the runtime is finalized.
+ */
+struct ArcaneTestRuntime {
+  //! \return the execution policy of the queue of the tests
+  static Arcane::Accelerator::eExecutionPolicy getExecutionPolicy() {
+    using Arcane::Accelerator::eExecutionPolicy;
+    const auto* const e = std::getenv("MFRONT_GPMP_TEST_ARCANE_QUEUE");
+#if defined(ARCCORE_HAS_CUDA)
+    const auto q = std::string_view{e == nullptr ? "cuda" : e};
+#else
+    const auto q = std::string_view{e == nullptr ? "thread" : e};
+#endif
+    if (q == "cuda") {
+      return eExecutionPolicy::CUDA;
+    }
+    if (q == "sequential") {
+      return eExecutionPolicy::Sequential;
+    }
+    if (q != "thread") {
+      throw std::runtime_error("invalid queue '" + std::string{q} + "'");
+    }
+    return eExecutionPolicy::Thread;
+  }
+  ArcaneTestRuntime()
+      : runner(getExecutionPolicy()),
+        queue(Arcane::Accelerator::makeQueue(this->runner)),
+        policy(this->queue) {
+    ArcaneTestRuntime::current = this;
+  }
+  ArcaneTestRuntime(ArcaneTestRuntime&&) = delete;
+  ArcaneTestRuntime(const ArcaneTestRuntime&) = delete;
+  ArcaneTestRuntime& operator=(ArcaneTestRuntime&&) = delete;
+  ArcaneTestRuntime& operator=(const ArcaneTestRuntime&) = delete;
+  ~ArcaneTestRuntime() { ArcaneTestRuntime::current = nullptr; }
+  Arcane::Accelerator::AcceleratorInitializer initializer{true, 4};
+  Arcane::Accelerator::Runner runner;
+  Arcane::Accelerator::RunQueue queue;
+  mfront::generic_parallel::ArcaneBackendExecutionPolicy policy;
+  //! \brief runtime of the tests, created by `main`
+  static inline ArcaneTestRuntime* current = nullptr;
+};
+#if defined(ARCCORE_HAS_CUDA)
+//! \brief allocator in managed memory, accessible by all the queues
+template <typename T>
+struct TestAllocator {
+  using value_type = T;
+  TestAllocator() = default;
+  template <typename T2>
+  TestAllocator(const TestAllocator<T2>&) noexcept {}
+  T* allocate(const std::size_t n) {
+    T* p = nullptr;
+    if (cudaMallocManaged(&p, n * sizeof(T)) != cudaSuccess) {
+      throw std::bad_alloc();
+    }
+    return p;
+  }
+  void deallocate(T* const p, const std::size_t) noexcept { cudaFree(p); }
+  template <typename T2>
+  bool operator==(const TestAllocator<T2>&) const noexcept {
+    return true;
+  }
+};
+#else  /* defined(ARCCORE_HAS_CUDA) */
+template <typename T>
+using TestAllocator = std::allocator<T>;
+#endif /* defined(ARCCORE_HAS_CUDA) */
 #else  /* MFRONT_GPMP_TEST_USE_KOKKOS */
 template <typename T>
 using TestAllocator = std::allocator<T>;
@@ -201,10 +293,54 @@ static bool accessOpenACCStackSize(std::size_t& s, const bool set) {
 #define MFRONT_GPMP_TEST_BACKEND_NAME \
   MFRONT_GPMP_TEST_STRINGIFY(MFRONT_GPMP_TEST_BACKEND)
 
-//! \return the execution options of a synchronous evaluation
-static mfront_gpmp_ExecutionOptions testOptions() {
-  return mfront_gpmp_ExecutionOptions{};
-}  // end of testOptions
+#include "batch.hxx"
+
+/*!
+ * \return the execution of a synchronous evaluation: default policy, or
+ * policy on the queue of the tests with Arcane (the `arcane` backend has no
+ * default policy)
+ */
+static TestExecution testExecution() {
+#if defined(MFRONT_GPMP_TEST_USE_ARCANE)
+  return TestExecution{.policy = &(ArcaneTestRuntime::current->policy)};
+#else
+  return TestExecution{};
+#endif
+}  // end of testExecution
+
+/*!
+ * \return an execution policy of the tested backend: instance of the
+ * execution space with Kokkos, resource of the tests with RAJA, queue of the
+ * tests with Arcane, common options only otherwise
+ * \param[in] o: common options
+ */
+static std::unique_ptr<mfront::generic_parallel::AbstractBackendExecutionPolicy>
+makeTestPolicy(
+    const mfront::generic_parallel::BackendExecutionCommonPolicy& o) {
+  using namespace mfront::generic_parallel;
+#if defined(MFRONT_GPMP_TEST_USE_KOKKOS)
+  using ExecutionSpace = MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE;
+  return std::make_unique<KokkosBackendExecutionPolicy<ExecutionSpace>>(
+      KokkosBackendExecutionOptions<ExecutionSpace>{.common_options = o});
+#elif defined(MFRONT_GPMP_TEST_USE_RAJA)
+  using Resource = decltype(getTestResource());
+  return std::make_unique<RAJABackendExecutionPolicy<Resource>>(
+      RAJABackendExecutionOptions<Resource>{.common_options = o,
+                                            .resource = getTestResource()});
+#elif defined(MFRONT_GPMP_TEST_USE_ARCANE)
+  return std::make_unique<ArcaneBackendExecutionPolicy>(
+      ArcaneTestRuntime::current->queue, o);
+#else
+  const auto backend = std::string_view{MFRONT_GPMP_TEST_BACKEND_NAME};
+  if (backend == "openmp") {
+    return std::make_unique<OpenMPBackendExecutionPolicy>(o);
+  }
+  if (backend == "openacc") {
+    return std::make_unique<OpenACCBackendExecutionPolicy>(o);
+  }
+  return std::make_unique<ParallelSTLBackendExecutionPolicy>(o);
+#endif
+}  // end of makeTestPolicy
 
 #include "tests.hxx"
 
@@ -218,6 +354,9 @@ struct BackendTest : public tfel::tests::TestCase {
     this->test1();
     this->test2();
     this->test3();
+#if defined(MFRONT_GPMP_TEST_USE_ARCANE)
+    this->test4();
+#endif
     return this->result;
   }  // end of execute
 
@@ -228,26 +367,39 @@ struct BackendTest : public tfel::tests::TestCase {
   }  // end of fct
 
   void test1() {
-    // execution options given explicitly: instance of the execution space
+    // execution policy given explicitly: instance of the execution space
     // with Kokkos, resource of camp with RAJA (on a stream created by the
-    // test with CUDA), no queue otherwise
+    // test with CUDA), queue created by the test with Arcane, common options
+    // only otherwise
     constexpr auto eps = double{1e-2};
 #if defined(MFRONT_GPMP_TEST_USE_KOKKOS)
-    auto space = MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE{};
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &space};
+    using ExecutionSpace = MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE;
+    const auto execution_policy =
+        mfront::generic_parallel::makeKokkosBackendExecutionPolicy(
+            mfront::generic_parallel::KokkosBackendExecutionOptions<
+                ExecutionSpace>{.execution_space = ExecutionSpace {}});
 #elif defined(MFRONT_GPMP_TEST_USE_RAJA)
     auto resource = makeExplicitTestResource();
-    const auto options = mfront_gpmp_ExecutionOptions{.queue = &resource};
+    const auto execution_policy =
+        mfront::generic_parallel::makeRAJABackendExecutionPolicy(
+            mfront::generic_parallel::RAJABackendExecutionOptions<
+                decltype(resource)>{.resource = resource});
+#elif defined(MFRONT_GPMP_TEST_USE_ARCANE)
+    const auto execution_policy =
+        mfront::generic_parallel::makeArcaneBackendExecutionPolicy(
+            Arcane::Accelerator::makeQueue(ArcaneTestRuntime::current->runner));
 #else
-    const auto options = mfront_gpmp_ExecutionOptions{};
+    const auto execution_policy_holder = makeTestPolicy({});
+    const auto& execution_policy = *execution_policy_holder;
 #endif
+    const auto execution = TestExecution{.policy = &execution_policy};
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(4);
     const auto T = test_vector<double>{300, 500, 300, 800};
     const auto args = std::array<const double *, 1u>{T.data()};
     const auto r = evaluate(Inconel600_YoungModulus_generic_parallel, output,
                             E.data(), 1, args, contiguous<1>(), 4,
-                            mfront_gmp_OutOfBoundsPolicy{}, options);
+                            mfront_gmp_OutOfBoundsPolicy{}, execution);
     TFEL_TESTS_CHECK_EQUAL(r, 0);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     for (std::size_t i = 0; i != E.size(); ++i) {
@@ -267,38 +419,55 @@ struct BackendTest : public tfel::tests::TestCase {
   }
 
   void test2() {
-    // statistics given by the execution options: the output status only
-    // reports the errors of the batch, the result is given by the report
-    // function once the computations are completed. The second temperature
-    // is out of its physical bounds.
+    // asynchronous evaluation: the statistics are given by the calling code,
+    // the output status only reports the errors of the batch, and the result
+    // is given by the report function once the computations are completed
+    // (the backends computing on the host compute synchronously). The second
+    // temperature is out of its physical bounds.
     constexpr auto eps = double{1e-2};
     auto statistics = test_vector<mfront_gpmp_Statistics>(1);
     mfront_gpmp_initializeStatistics(statistics.data());
 #if defined(MFRONT_GPMP_TEST_USE_KOKKOS)
     auto space = MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE{};
-    const auto options = mfront_gpmp_ExecutionOptions{
-        .queue = &space, .statistics = statistics.data()};
+    const auto execution_policy =
+        mfront::generic_parallel::makeKokkosBackendExecutionPolicy(
+            mfront::generic_parallel::KokkosBackendExecutionOptions<
+                MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE>{
+                .common_options = {.asynchronous = true},
+                .execution_space = space});
 #elif defined(MFRONT_GPMP_TEST_USE_RAJA)
     auto resource = getTestResource();
-    const auto options = mfront_gpmp_ExecutionOptions{
-        .queue = &resource, .statistics = statistics.data()};
+    const auto execution_policy =
+        mfront::generic_parallel::makeRAJABackendExecutionPolicy(
+            mfront::generic_parallel::RAJABackendExecutionOptions<
+                decltype(resource)>{.common_options = {.asynchronous = true},
+                                    .resource = resource});
+#elif defined(MFRONT_GPMP_TEST_USE_ARCANE)
+    auto queue = ArcaneTestRuntime::current->queue;
+    const auto execution_policy =
+        mfront::generic_parallel::makeArcaneBackendExecutionPolicy(
+            queue, {.asynchronous = true});
 #else
-    const auto options =
-        mfront_gpmp_ExecutionOptions{.statistics = statistics.data()};
+    const auto execution_policy_holder = makeTestPolicy({.asynchronous = true});
+    const auto& execution_policy = *execution_policy_holder;
 #endif
+    const auto execution = TestExecution{.statistics = statistics.data(),
+                                         .policy = &execution_policy};
     auto output = mfront_gpmp_OutputStatus{};
     auto E = test_vector<double>(4);
     const auto T = test_vector<double>{300, -1, 500, 800};
     const auto args = std::array<const double *, 1u>{T.data()};
     const auto r = evaluate(Inconel600_YoungModulus_generic_parallel, output,
                             E.data(), 1, args, contiguous<1>(), 4,
-                            mfront_gmp_OutOfBoundsPolicy{}, options);
+                            mfront_gmp_OutOfBoundsPolicy{}, execution);
     TFEL_TESTS_CHECK_EQUAL(r, 0);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
 #if defined(MFRONT_GPMP_TEST_USE_KOKKOS)
     space.fence();
 #elif defined(MFRONT_GPMP_TEST_USE_RAJA)
     resource.wait();
+#elif defined(MFRONT_GPMP_TEST_USE_ARCANE)
+    queue.barrier();
 #endif
     const auto r2 = Inconel600_YoungModulus_generic_parallel_report(
         &output, statistics.data());
@@ -315,7 +484,7 @@ struct BackendTest : public tfel::tests::TestCase {
 
   void test3() {
     // stack size of the threads of the device preserved by the execution
-    // options. With a CUDA execution space of Kokkos, an execution policy of
+    // policy. With a CUDA execution space of Kokkos, an execution policy of
     // RAJA for CUDA or OpenACC on an NVIDIA GPU, a runtime error is reported
     // if it is too small for the kernel. On the host, the option has no
     // effect.
@@ -325,8 +494,8 @@ struct BackendTest : public tfel::tests::TestCase {
     const auto T = test_vector<double>{300, 500};
     const auto args = std::array<const double *, 1u>{T.data()};
     const auto policy = mfront_gmp_OutOfBoundsPolicy{};
-    const auto preserve = mfront_gpmp_ExecutionOptions{
-        .queue = nullptr, .statistics = nullptr, .preserve_stack_size = 1};
+    const auto preserve_policy = makeTestPolicy({.preserve_stack_size = true});
+    const auto preserve = TestExecution{.policy = preserve_policy.get()};
     const auto f = Inconel600_YoungModulus_generic_parallel;
 #if defined(MFRONT_GPMP_TEST_USE_KOKKOS) && defined(KOKKOS_ENABLE_CUDA)
     if constexpr (std::is_same_v<MFRONT_GPMP_TEST_KOKKOS_EXECUTION_SPACE,
@@ -367,6 +536,26 @@ struct BackendTest : public tfel::tests::TestCase {
                                            initial_stack_size) == cudaSuccess);
     }
 #endif /* defined(MFRONT_GPMP_TEST_USE_RAJA) && defined(RAJA_CUDA_ACTIVE) */
+#if defined(MFRONT_GPMP_TEST_USE_ARCANE) && defined(ARCCORE_HAS_CUDA)
+    if (ArcaneTestRuntime::current->queue.executionPolicy() ==
+        Arcane::Accelerator::eExecutionPolicy::CUDA) {
+      auto initial_stack_size = std::size_t{};
+      TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&initial_stack_size,
+                                           cudaLimitStackSize) == cudaSuccess);
+      // the kernels require at least 1024 bytes (see
+      // mfront::generic_parallel::gpu::ensureStackSize)
+      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize, 256) ==
+                        cudaSuccess);
+      TFEL_TESTS_CHECK_EQUAL(evaluate(f, output, E.data(), 1, args,
+                                      contiguous<1>(), 2, policy, preserve),
+                             -7);
+      TFEL_TESTS_ASSERT(std::string(output.msg)
+                            .starts_with("the stack size of the threads of the "
+                                         "device must be at least"));
+      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
+                                           initial_stack_size) == cudaSuccess);
+    }
+#endif /* defined(MFRONT_GPMP_TEST_USE_ARCANE) && defined(ARCCORE_HAS_CUDA) */
 #ifdef __NVCOMPILER_OPENACC_GPU
     // stack size of the threads of the GPU of OpenACC, set through the CUDA
     // driver on the context of OpenACC (see `OpenACCStackSize.hxx`)
@@ -401,6 +590,35 @@ struct BackendTest : public tfel::tests::TestCase {
       TFEL_TESTS_ASSERT(std::abs(E[i] - fct(T[i])) < eps);
     }
   }
+
+#if defined(MFRONT_GPMP_TEST_USE_ARCANE)
+  void test4() {
+    // the `arcane` backend has no default policy: a null policy and a policy
+    // holding a null queue are invalid arguments
+    auto output = mfront_gpmp_OutputStatus{};
+    auto E = test_vector<double>(2);
+    const auto T = test_vector<double>{300, 500};
+    const auto args = std::array<const double*, 1u>{T.data()};
+    const auto policy = mfront_gmp_OutOfBoundsPolicy{};
+    const auto f = Inconel600_YoungModulus_generic_parallel;
+    TFEL_TESTS_CHECK_EQUAL(
+        evaluate(f, output, E.data(), 1, args, contiguous<1>(), 2, policy,
+                 TestExecution{}),
+        -5);
+    TFEL_TESTS_ASSERT(std::string_view(output.msg)
+                          .ends_with("the arcane backend requires a queue"));
+    const auto null_queue =
+        mfront::generic_parallel::makeArcaneBackendExecutionPolicy(
+            Arcane::Accelerator::RunQueue{});
+    TFEL_TESTS_CHECK_EQUAL(
+        evaluate(f, output, E.data(), 1, args, contiguous<1>(), 2, policy,
+                 TestExecution{.policy = &null_queue}),
+        -5);
+    TFEL_TESTS_ASSERT(
+        std::string_view(output.msg)
+            .ends_with("the queue of the execution policy is null"));
+  }
+#endif /* defined(MFRONT_GPMP_TEST_USE_ARCANE) */
 };
 
 TFEL_TESTS_GENERATE_PROXY(BackendTest, "BackendTest");
@@ -415,6 +633,9 @@ int main(const int argc, const char *const *argv) {
 #ifdef MFRONT_GPMP_TEST_USE_KOKKOS
   auto kokkos = Kokkos::ScopeGuard{};
 #endif /* MFRONT_GPMP_TEST_USE_KOKKOS */
+#ifdef MFRONT_GPMP_TEST_USE_ARCANE
+  const auto arcane = ArcaneTestRuntime{};
+#endif /* MFRONT_GPMP_TEST_USE_ARCANE */
   auto &m = tfel::tests::TestManager::getTestManager();
   m.addTestOutput(std::cout);
   m.addXMLTestOutput(std::string{argv[1]} + ".xml");

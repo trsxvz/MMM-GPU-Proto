@@ -1,4 +1,4 @@
-From ee4ac3807226c92c1b46dd918a3d9a500b60beb7 Mon Sep 17 00:00:00 2001
+From 0096428944432312b790fd84a6ec5c70ca683374 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 15:51:26 +0200
 Subject: [PATCH] generic-parallel: one implementation of the entry points for

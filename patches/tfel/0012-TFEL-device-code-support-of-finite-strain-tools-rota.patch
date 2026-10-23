@@ -1,4 +1,4 @@
-From 8cb16e9070d915d4522609fff494487875670d62 Mon Sep 17 00:00:00 2001
+From 1c79a1ab8583d44d67124b71a58e3898b91c645e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:28 +0200
 Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
@@ -54,7 +54,7 @@ Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
  .../TFEL/Math/Matrix/TMatrixTVectorExpr.hxx   |   2 +-
  .../TFEL/Math/Matrix/TVectorTMatrixExpr.hxx   |   2 +-
  include/TFEL/Math/Matrix/TinyMatrixInvert.ixx |  24 +-
- include/TFEL/Math/Matrix/tmatrix.ixx          |  38 +++
+ include/TFEL/Math/Matrix/tmatrix.ixx          |  21 ++
  .../TinyNonLinearSolverBase.hxx               |   8 +-
  include/TFEL/Math/Quantity/qtOperations.hxx   |  52 ++--
  include/TFEL/Math/Quantity/qtOperations.ixx   |  12 +-
@@ -97,7 +97,7 @@ Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
  include/TFEL/Math/fsarray.hxx                 |   6 +-
  include/TFEL/Math/qt.hxx                      |  22 +-
  include/TFEL/Math/stensor.hxx                 |  80 +++---
- include/TFEL/Math/tmatrix.hxx                 |  60 ++++-
+ include/TFEL/Math/tmatrix.hxx                 |  44 +++-
  include/TFEL/Utilities/ConstantObject.hxx     |  73 +++++
  include/TFEL/Utilities/GenTypeBase.hxx        |  56 +++-
  include/TFEL/Utilities/TrivialGenTypeBase.hxx | 249 ++++++++++++++++++
@@ -107,7 +107,7 @@ Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
  tests/Math/ChangeBasisTest.cxx                | 115 ++++++++
  tests/Utilities/CMakeLists.txt                |   1 +
  tests/Utilities/TrivialGenTypeBaseTest.cxx    |  89 +++++++
- 82 files changed, 1607 insertions(+), 913 deletions(-)
+ 82 files changed, 1574 insertions(+), 913 deletions(-)
  create mode 100644 include/TFEL/Utilities/ConstantObject.hxx
  create mode 100644 include/TFEL/Utilities/TrivialGenTypeBase.hxx
  delete mode 100644 src/Material/LogarithmicStrainHandler.cxx
@@ -2335,30 +2335,13 @@ index 0cfbc42e5..e683ff8a5 100644
  
  }  // end of namespace tfel::math
 diff --git a/include/TFEL/Math/Matrix/tmatrix.ixx b/include/TFEL/Math/Matrix/tmatrix.ixx
-index 4753b4e07..e2ab4986d 100644
+index ab33c2b89..e2ab4986d 100644
 --- a/include/TFEL/Math/Matrix/tmatrix.ixx
 +++ b/include/TFEL/Math/Matrix/tmatrix.ixx
-@@ -568,6 +568,44 @@ namespace tfel::math {
+@@ -585,6 +585,27 @@ namespace tfel::math {
      }
-   }  // end of map_derivative_strided
+   }  // end of change_basis
  
-+  template <unsigned short N, typename T>
-+  TFEL_HOST_DEVICE constexpr tvector<N, T> change_basis(
-+      const tvector<N, T>& v, const rotation_matrix<T>& r) noexcept {
-+    static_assert((N == 1) || (N == 2) || (N == 3), "invalid space dimension");
-+    if constexpr (N == 1) {
-+      return v;
-+    } else {
-+      auto rv = tvector<N, T>{T{0}};
-+      for (unsigned short i = 0; i != N; ++i) {
-+        for (unsigned short k = 0; k != N; ++k) {
-+          rv(i) += r(k, i) * v(k);
-+        }
-+      }
-+      return rv;
-+    }
-+  }  // end of change_basis
-+
 +  template <unsigned short N, typename T>
 +  TFEL_HOST_DEVICE constexpr tmatrix<N, N, T> change_basis(
 +      const tmatrix<N, N, T>& m, const rotation_matrix<T>& r) noexcept {
@@ -5124,7 +5107,7 @@ index cded9da44..632ff278a 100644
          const FunctionDerivative&,
          const ValueType,
 diff --git a/include/TFEL/Math/tmatrix.hxx b/include/TFEL/Math/tmatrix.hxx
-index d39550da8..47c4630a1 100644
+index ad979605b..47c4630a1 100644
 --- a/include/TFEL/Math/tmatrix.hxx
 +++ b/include/TFEL/Math/tmatrix.hxx
 @@ -327,15 +327,15 @@ namespace tfel::math {
@@ -5227,25 +5210,10 @@ index d39550da8..47c4630a1 100644
  
      TFEL_HOST_DEVICE constexpr void swap_rows(const unsigned short i,
                                                const unsigned short j);
-@@ -600,6 +600,38 @@ namespace tfel::math {
-       const unsigned short,
-       const unsigned short);
- 
-+  /*!
-+   * \brief rotate a vector using a rotation matrix.
-+   *
-+   * The convention is the one of the other mathematical objects: the
-+   * components of the rotated vector are \f$v'_{i}=r_{ki}\,v_{k}\f$. In 1D,
-+   * the vector is unchanged. In 2D, only the in-plane block of the rotation
-+   * matrix is used.
-+   *
-+   * \param[in] v: vector to be rotated
-+   * \param[in] r: rotation matrix
-+   * \return the rotated vector
-+   */
-+  template <unsigned short N, typename T>
-+  TFEL_HOST_DEVICE constexpr tvector<N, T> change_basis(
-+      const tvector<N, T>&, const rotation_matrix<T>&) noexcept;
+@@ -615,6 +615,22 @@ namespace tfel::math {
+   template <unsigned short N, typename T>
+   TFEL_HOST_DEVICE constexpr tvector<N, T> change_basis(
+       const tvector<N, T>&, const rotation_matrix<T>&) noexcept;
 +  /*!
 +   * \brief rotate a square matrix, representing a linear map between vectors
 +   * (a non symmetric second order tensor), using a rotation matrix.
@@ -5262,10 +5230,9 @@ index d39550da8..47c4630a1 100644
 +  template <unsigned short N, typename T>
 +  TFEL_HOST_DEVICE constexpr tmatrix<N, N, T> change_basis(
 +      const tmatrix<N, N, T>&, const rotation_matrix<T>&) noexcept;
-+
+ 
  }  // end of namespace tfel::math
  
- namespace tfel::typetraits {
 diff --git a/include/TFEL/Utilities/ConstantObject.hxx b/include/TFEL/Utilities/ConstantObject.hxx
 new file mode 100644
 index 000000000..1f836af09

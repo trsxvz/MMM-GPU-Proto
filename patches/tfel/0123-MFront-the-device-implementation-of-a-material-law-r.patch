@@ -1,0 +1,48 @@
+From 06151eef9a30e1deccc878ef32f3c80f2be4ac74 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 20 Oct 2026 23:44:43 +0200
+Subject: [PATCH] MFront: the device implementation of a material law returns
+ NaN for a result which is not finite
+
+The implementation of a material law called in device code (`mfront::device`
+namespace) now returns NaN if its result is not finite, as the implementation
+of the host does: unless the runtime checks are disabled or the material law
+has no argument. It returned the computed value.
+---
+ mfront/src/MFrontMaterialPropertyInterface.cxx | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/mfront/src/MFrontMaterialPropertyInterface.cxx b/mfront/src/MFrontMaterialPropertyInterface.cxx
+index f0f767fc8..0002cf9eb 100644
+--- a/mfront/src/MFrontMaterialPropertyInterface.cxx
++++ b/mfront/src/MFrontMaterialPropertyInterface.cxx
+@@ -196,7 +196,8 @@ namespace mfront {
+        << " material property which can be\n"
+        << " * called in device code. This implementation does not use\n"
+        << " * exceptions nor errno: an invalid value (NaN) is returned if\n"
+-       << " * a physical bound is not satisfied.\n"
++       << " * a physical bound is not satisfied and, as by the implementation\n"
++       << " * of the host, if the result is not finite.\n"
+        << " */\n";
+     if (mpd.inputs.empty()) {
+       os << "template <typename mfront_ValueType = double>\n"
+@@ -260,6 +261,16 @@ namespace mfront {
+     if (!areRuntimeChecksDisabled(mpd)) {
+       write_physical_bounds_check(mpd.output, output);
+     }
++    // as the implementation of the host, a result which is not finite is
++    // replaced by NaN, unless the runtime checks are disabled or the
++    // material law has no argument
++    if ((!areRuntimeChecksDisabled(mpd)) && (!mpd.inputs.empty())) {
++      os << "#ifndef MFRONT_NOERRNO_HANDLING\n"
++         << "if(!tfel::math::ieee754::isfinite(" << output << ")){\n"
++         << "return " << nan << ";\n"
++         << "}\n"
++         << "#endif /* MFRONT_NOERRNO_HANDLING */\n";
++    }
+     os << "return " << output << ";\n";
+   }  // end of writeDeviceMaterialPropertyBody
+ 
+-- 
+2.43.0
+

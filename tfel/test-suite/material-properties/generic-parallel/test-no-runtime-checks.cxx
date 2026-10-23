@@ -57,14 +57,15 @@ struct RuntimeAllocator {
 template <typename T>
 using test_vector = std::vector<T, RuntimeAllocator<T>>;
 
-/*!
- * \return the execution options (queue of the backend)
- * \param[in] s: statistics, or null for a synchronous evaluation
- */
-static mfront_gpmp_ExecutionOptions testOptions(
-    mfront_gpmp_Statistics* const s = nullptr) {
-  return mfront_gpmp_ExecutionOptions{.queue = queue(), .statistics = s};
-}  // end of testOptions
+extern "C" {
+//! \brief identifier of the execution policy expected by the library
+extern const char* Inconel600_YoungModulus_generic_parallel_execution_policy;
+}
+
+//! \return the execution of a synchronous evaluation (see `runtime.hxx`)
+static TestExecution testExecution() {
+  return TestExecution{.policy = executionPolicy()};
+}  // end of testExecution
 
 struct NoRuntimeChecksTest : public tfel::tests::TestCase {
   NoRuntimeChecksTest()
@@ -87,8 +88,8 @@ struct NoRuntimeChecksTest : public tfel::tests::TestCase {
   void test1() {
     // the second temperature is out of its physical bounds, which are not
     // checked: the result is computed at all points, the statuses of the
-    // points are null and the statistics given by the execution options are
-    // not updated. As with the `generic` interface, the number of arguments
+    // points are null and the statistics given by the calling code are not
+    // updated. As with the `generic` interface, the number of arguments
     // is not checked.
     constexpr auto eps = double{1e-2};
     const auto T = test_vector<double>{300, -1, 500, 800};
@@ -102,7 +103,7 @@ struct NoRuntimeChecksTest : public tfel::tests::TestCase {
     const auto f = Inconel600_YoungModulus_generic_parallel;
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(f, output, E.data(), 1, args, contiguous<1>(), 4, policy,
-                 testOptions(), statuses.data(), 3),
+                 testExecution(), statuses.data(), 3),
         0);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     TFEL_TESTS_CHECK_EQUAL(output.number_of_failures, mfront_gmp_size_type{0});
@@ -113,9 +114,13 @@ struct NoRuntimeChecksTest : public tfel::tests::TestCase {
     // asynchronous evaluation: the result is given once the computations
     // are completed
     std::fill(E.begin(), E.end(), 0.);
+    const auto asynchronous = makeExecutionPolicy(
+        Inconel600_YoungModulus_generic_parallel_execution_policy,
+        {.asynchronous = true});
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(f, output, E.data(), 1, args, contiguous<1>(), 4, policy,
-                 testOptions(statistics.data())),
+                 TestExecution{.statistics = statistics.data(),
+                               .policy = asynchronous.get()}),
         0);
     synchronize();
     for (std::size_t i = 0; i != E.size(); ++i) {
@@ -135,13 +140,13 @@ struct NoRuntimeChecksTest : public tfel::tests::TestCase {
     const auto f = Inconel600_YoungModulus_generic_parallel;
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(f, output, nullptr, 1, args, contiguous<1>(), 0,
-                 mfront_gmp_OutOfBoundsPolicy{}, testOptions()),
+                 mfront_gmp_OutOfBoundsPolicy{}, testExecution()),
         0);
     TFEL_TESTS_CHECK_EQUAL(output.status, 0);
     // the checks of the structure of the batch remain
     TFEL_TESTS_CHECK_EQUAL(
         evaluate(f, output, nullptr, 1, args, contiguous<1>(), 4,
-                 mfront_gmp_OutOfBoundsPolicy{}, testOptions()),
+                 mfront_gmp_OutOfBoundsPolicy{}, testExecution()),
         -5);
     TFEL_TESTS_CHECK_EQUAL(std::string(output.msg), "no output values given");
     TFEL_TESTS_CHECK_EQUAL(

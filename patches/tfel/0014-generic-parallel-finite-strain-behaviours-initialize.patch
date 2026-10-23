@@ -1,4 +1,4 @@
-From a22408af01eeacd98f8c1b79c5f423ac13b38339 Mon Sep 17 00:00:00 2001
+From 33172d23b84a6634e8f78a494c830feb6ff92a91 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:34 +0200
 Subject: [PATCH] generic-parallel: finite strain behaviours, initialize
@@ -91,10 +91,10 @@ Subject: [PATCH] generic-parallel: finite strain behaviours, initialize
  create mode 100644 test-suite/behaviours/generic-parallel/compare-all.sh
 
 diff --git a/cmake/modules/tfel.cmake b/cmake/modules/tfel.cmake
-index eb5d84ccd..772b3750c 100644
+index 959b41845..0784090f9 100644
 --- a/cmake/modules/tfel.cmake
 +++ b/cmake/modules/tfel.cmake
-@@ -597,7 +597,7 @@ if(TFEL_REQUIRES_HIP)
+@@ -599,7 +599,7 @@ if(TFEL_REQUIRES_HIP)
   if(HIP_PLATFORM STREQUAL "nvidia")
     set(TFEL_REQUIRES_CUDA ON)
     # hipcc calls nvcc
@@ -265,7 +265,7 @@ index fa30c7b35..6e5c0b346 100644
  }
 \ No newline at end of file
 diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
-index c44646eb9..95b36a2b0 100644
+index 1f018ff6f..35030da9c 100644
 --- a/mfront/include/CMakeLists.txt
 +++ b/mfront/include/CMakeLists.txt
 @@ -127,6 +127,7 @@ install_mfront_header(MFront/GenericParallel/MaterialProperty ParallelSTLBackend
@@ -276,8 +276,8 @@ index c44646eb9..95b36a2b0 100644
  install_mfront_header(MFront GenericParallelBehaviourInterface.hxx)
  install_mfront_header(MFront/GenericParallel DeviceStackSize.hxx)
  install_mfront_header(MFront/GenericParallel/Behaviour AbstractBackend.hxx)
-@@ -252,6 +253,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.hxx)
- install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
+@@ -253,6 +254,7 @@ install_mfront_header(MFront/GenericBehaviour ComputeStiffnessTensor.ixx)
+ install_mfront_header(MFront/GenericBehaviour RotateTangentOperatorBlock.hxx)
  
  install_mfront_header(MFront/GenericParallelBehaviour BatchData.h)
 +install_mfront_header(MFront/GenericParallelBehaviour FiniteStrainIntegrators.hxx)

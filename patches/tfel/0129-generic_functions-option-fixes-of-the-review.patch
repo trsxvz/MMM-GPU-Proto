@@ -1,0 +1,422 @@
+From 2dbdc91d1cf4d758d73b84d627fe06b57305fc46 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 21 Oct 2026 04:10:47 +0200
+Subject: [PATCH] generic_functions option: fixes of the review
+
+- the out of bounds policy shared by the sources of a library of
+  behaviours and the parameters handler of the material properties of the
+  generic-parallel interface have a hidden visibility
+  (`TFEL_VISIBILITY_LOCAL`): libraries of several backends loaded in the
+  same process keep their own policies and parameters (no unique symbol
+  of the process, checked by the tests);
+- the header of the functions of the `generic` interface of a library of
+  behaviours has its own name
+  (`<name>-generic-parallel-<backend>-generic.hxx`), the `generic`
+  interface being possibly used in the same call of MFront;
+- `@GenerateMTestFileOnFailure` is treated by the interface: the functions
+  of a point generate MTest files on failure as with `generic`;
+- the configuration files of icpx request `-fp-model=precise` (errno set
+  by the mathematical functions, strict floating point model);
+- documentation: compilers translating host and device code in a single
+  pass, `errno` with nvc++ (`-Mnobuiltin`), statistics read on the host by
+  the report function, errors reported by asynchronous computations.
+---
+ .../generic-parallel-behaviour-interface.md   | 26 +++++++++++++++----
+ ...ic-parallel-material-property-interface.md | 25 +++++++++++++-----
+ .../config-stlpar-parunseq-icpx.json          |  2 +-
+ .../config-sycl-default-icpx.json             |  2 +-
+ .../include/MFront/BehaviourInterfaceBase.hxx |  6 +++--
+ .../include/MFront/GenericModelInterface.hxx  |  8 ++----
+ .../GenericParallelBehaviourInterface.hxx     |  8 ++++++
+ .../MaterialPropertyParametersHandler.hxx     |  7 +++++
+ mfront/src/BehaviourInterfaceBase.cxx         |  5 ++--
+ .../src/GenericParallelBehaviourInterface.cxx | 25 ++++++++++++++----
+ ...nericParallelMaterialPropertyInterface.cxx |  9 +++++--
+ .../src/MaterialPropertyParametersHandler.cxx |  4 +--
+ .../check-generic-functions.sh                | 11 ++++++++
+ .../check-generic-functions.sh                | 11 ++++++++
+ 14 files changed, 116 insertions(+), 33 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 19cbf9316..d617c8801 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -429,7 +429,10 @@ batch in the output status.
+ If `statistics` is not null, the statistics are accumulated in the given
+ structure, which must be accessible by the device as the fields (and by
+ the host with the `stlpar`, `openmp` and `openacc` backends, which
+-accumulate them on the host). With the automatic data transfers of the
++accumulate them on the host). The report function reads them on the host:
++statistics located in the memory of the device must be copied to the host
++before calling it (managed or shared memory avoids this copy, as for the
++material properties). With the automatic data transfers of the
+ `SYCL` backend, statistics which are not accessible by the device are
+ copied, as the fields:
+ 
+@@ -453,7 +456,7 @@ The computations may then be asynchronous: the function returns once they
+ are submitted to the queue (`CUDA`, `HIP`, `Kokkos` and `RAJA` backends,
+ `SYCL` backend if no field is copied). The calling code must synchronize the
+ queue before reading the outputs and the statistics. The output status only
+-reports invalid arguments and runtime errors. This allows to submit the
++reports the errors of the batch (`-5`, `-6` and `-7`). This allows to submit the
+ integration of several batches, and other computations such as the assembly
+ of a finite element system, before a single synchronization. The other
+ backends wait for the completion of the computations and accumulate the
+@@ -565,11 +568,17 @@ be used as a library of the `generic` interface (by `MTest` or `MGIS` for
+ instance), its functions of batches of points being detected by the
+ `<name>_generic_parallel_api_version` symbol. The functions of a point are
+ the ones of the `generic` interface, declared in the
+-`MFront/GenericBehaviour/<name>-generic.hxx` header. The library has one
++`MFront/GenericBehaviour/<name>-generic-parallel-<backend>-generic.hxx`
++header (the `generic` interface may be used in the same call of `MFront`
++for other modelling hypotheses). The library has one
+ set of parameters and one out of bounds policy, changed by the functions
+ of the `generic` interface (`<name>_setParameter`,
+ `<name>_setOutOfBoundsPolicy`, etc.) and used by all its functions. The
+-behaviour class has the constructors of both interfaces.
++behaviour class has the constructors of both interfaces. The
++`@GenerateMTestFileOnFailure` keyword makes the functions of a point
++generate an `MTest` file when the integration fails, as with the
++`generic` interface: the functions of batches of points never generate
++such files.
+ 
+ The functions of a point of a behaviour are written in a separate source
+ file, compiled by the `C++` compiler of the configuration (the compiler of
+@@ -577,7 +586,14 @@ the backend for the backends based on `C++` programming models, the `C++`
+ compiler for the `CUDA` and `HIP` backends). The functions of a point of
+ a standalone model are written in the source of the functions of batches
+ of points. Their results are the ones of the `generic` interface up to
+-the rounding differences between compilers.
++the rounding differences between compilers. With the compilers which
++translate host and device code in a single pass (`nvc++ -stdpar=gpu`,
++`nvc++ -mp=gpu`, `nvc++ -acc=gpu`, generic compiler of AdaptiveCpp), the
++device code is selected in the whole translation unit (`TFEL_DEVICE_CODE`
++macro): the functions of a point then follow the rules of device code, as
++the functions of batches of points (for instance, a bound violated with
++the strict policy makes the integration fail without the message of the
++`generic` interface).
+ 
+ # Standalone models
+ 
+diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
+index e52ed8250..563ea23a6 100644
+--- a/docs/web/generic-parallel-material-property-interface.md
++++ b/docs/web/generic-parallel-material-property-interface.md
+@@ -342,11 +342,23 @@ separate source file, compiled by the `C++` compiler of the configuration
+ (the compiler of the backend for the backends based on `C++` programming
+ models, the `C++` compiler for the `CUDA` and `HIP` backends): its results
+ are the ones of the `generic` interface up to the rounding differences
+-between compilers. With the compilers whose default floating point model
+-is not strict (for instance `icpx`), the configuration file shall request
+-a strict floating point model, and the support of `errno` by the
++between compilers. With the compilers which translate host and device
++code in a single pass (`nvc++ -stdpar=gpu`, `nvc++ -mp=gpu`,
++`nvc++ -acc=gpu`, generic compiler of AdaptiveCpp), the device code is
++selected in the whole translation unit (`TFEL_DEVICE_CODE` macro): a
++material property called by the material property (`@MaterialLaw`) is
++then the one of device code, which returns `NaN` out of its physical
++bounds, as for the functions of batches of points.
++
++The configuration files of `icpx` delivered with `TFEL` request a strict
++floating point model (`-fp-model=precise`, the default model of `icpx`
++being fast), which also restores the support of `errno` by the
+ mathematical functions, so that the statuses `-3` are reported as with
+-the `generic` interface.
++the `generic` interface. With `nvc++`, `errno` is only set by the
++mathematical functions with the `-Mnobuiltin` option, which the
++configuration files delivered with `TFEL` do not give (it may slow down
++the computations on the host): the functions of a point then do not
++report the statuses `-3`.
+ 
+ # Backends
+ 
+@@ -907,9 +919,8 @@ Each configuration runs:
+   are performed on the host by a compiler which neither contracts nor
+   reorders the floating point operations by default (`g++`, `clang++`,
+   `nvc++` with OpenACC on the cores of the host, `acpp` on the host), and
+-  up to a relative tolerance of \(10^{-13}\) otherwise (`icpx`, whose
+-  default floating point model is not strict, and computations on a
+-  device). The comparisons include a material property with bounds and
++  up to a relative tolerance of \(10^{-13}\) otherwise (`icpx` and
++  computations on a device). The comparisons include a material property with bounds and
+   physical bounds on two arguments and on its output
+   (`BoundsOrderTest.mfront`), which checks the retained check;
+ - the same comparisons for libraries built with the `generic_functions`
+diff --git a/mfront/configuration-files/config-stlpar-parunseq-icpx.json b/mfront/configuration-files/config-stlpar-parunseq-icpx.json
+index eed471506..12a363a72 100644
+--- a/mfront/configuration-files/config-stlpar-parunseq-icpx.json
++++ b/mfront/configuration-files/config-stlpar-parunseq-icpx.json
+@@ -9,7 +9,7 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_ICPX_COMPILER@",
+-    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native" 
++    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native -fp-model=precise" 
+   }
+ },
+ linking_options : {
+diff --git a/mfront/configuration-files/config-sycl-default-icpx.json b/mfront/configuration-files/config-sycl-default-icpx.json
+index c7dd28e62..dcecd683c 100644
+--- a/mfront/configuration-files/config-sycl-default-icpx.json
++++ b/mfront/configuration-files/config-sycl-default-icpx.json
+@@ -8,7 +8,7 @@ interfaces_options: {
+ compilation_options : {
+   cxx : {
+     compiler: "@TFEL_ICPX_COMPILER@",
+-    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native -fsycl" 
++    compilation_flags: "-O2 -std=c++@TFEL_CXX_STANDARD@ -march=native -fp-model=precise -fsycl" 
+   }
+ },
+ linking_options : {
+diff --git a/mfront/include/MFront/BehaviourInterfaceBase.hxx b/mfront/include/MFront/BehaviourInterfaceBase.hxx
+index 9daba4258..2ce3a0e71 100644
+--- a/mfront/include/MFront/BehaviourInterfaceBase.hxx
++++ b/mfront/include/MFront/BehaviourInterfaceBase.hxx
+@@ -95,8 +95,10 @@ namespace mfront {
+         std::ostream&, const BehaviourDescription&, const std::string&) const;
+     /*!
+      * \brief write the function giving the out of bounds policy, with an
+-     * external linkage (`inline` function): several sources of a library
+-     * defining this function in the same way share the same policy.
++     * external linkage (`inline` function) and a hidden visibility
++     * (`TFEL_VISIBILITY_LOCAL`): several sources of a library defining this
++     * function in the same way share the same policy, but different
++     * libraries loaded in the same process do not.
+      * \param[out] out: output stream
+      * \param[in] bd: behaviour description
+      * \param[in] name: name of the behaviour
+diff --git a/mfront/include/MFront/GenericModelInterface.hxx b/mfront/include/MFront/GenericModelInterface.hxx
+index a55e22608..2b0705884 100644
+--- a/mfront/include/MFront/GenericModelInterface.hxx
++++ b/mfront/include/MFront/GenericModelInterface.hxx
+@@ -73,12 +73,8 @@ namespace mfront {
+    *
+    * This interface is based on the on-the-fly conversion of the
+    * model description in a behaviour description and using the interface for
+-   * behaviours.
+-   */
+-  /*!
+-   * \brief the `generic` interface for models. The `generic-parallel`
+-   * interface for models is built on it (see
+-   * `GenericParallelModelInterface`).
++   * behaviours. The `generic-parallel` interface for models is built on it
++   * (see `GenericParallelModelInterface`).
+    */
+   struct GenericModelInterface : public AbstractModelInterface {
+     //! \return the name of the interface
+diff --git a/mfront/include/MFront/GenericParallelBehaviourInterface.hxx b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+index 8fd69feac..37786a8e4 100644
+--- a/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+@@ -208,6 +208,14 @@ namespace mfront {
+      */
+     [[nodiscard]] virtual std::string getPointwiseSourceFileName(
+         const std::string&) const;
++    /*!
++     * \return the name of the header declaring the functions of the
++     * `generic` interface (`generic_functions` option), in the
++     * `MFront/GenericBehaviour` directory
++     * \param[in] name: name of the behaviour, including the library
++     */
++    [[nodiscard]] virtual std::string getPointwiseHeaderFileName(
++        const std::string&) const;
+     //! \brief backend
+     std::unique_ptr<generic_parallel::behaviour::AbstractBackend> backend;
+     /*!
+diff --git a/mfront/include/MFront/MaterialPropertyParametersHandler.hxx b/mfront/include/MFront/MaterialPropertyParametersHandler.hxx
+index 5c91a367e..f462e7602 100644
+--- a/mfront/include/MFront/MaterialPropertyParametersHandler.hxx
++++ b/mfront/include/MFront/MaterialPropertyParametersHandler.hxx
+@@ -30,6 +30,13 @@ namespace mfront {
+     const std::string floating_point_type;
+     //!\brief interface associated with the interface
+     const std::string interface_namespace;
++    /*!
++     * \brief if true, the class has a hidden visibility
++     * (`TFEL_VISIBILITY_LOCAL`): its unique instance is shared by the
++     * sources of a library, but not by different libraries loaded in the
++     * same process
++     */
++    const bool hidden_visibility = false;
+   };
+ 
+   /*!
+diff --git a/mfront/src/BehaviourInterfaceBase.cxx b/mfront/src/BehaviourInterfaceBase.cxx
+index 51e432bc9..c678a5d5b 100644
+--- a/mfront/src/BehaviourInterfaceBase.cxx
++++ b/mfront/src/BehaviourInterfaceBase.cxx
+@@ -155,14 +155,15 @@ namespace mfront {
+       const BehaviourDescription& bd,
+       const std::string& name) const {
+     if (allowRuntimeModificationOfTheOutOfBoundsPolicy(bd)) {
+-      out << "inline tfel::material::OutOfBoundsPolicy&\n"
++      out << "TFEL_VISIBILITY_LOCAL inline tfel::material::OutOfBoundsPolicy&\n"
+           << this->getFunctionNameBasis(name) << "_getOutOfBoundsPolicy(){\n"
+           << "static auto policy = tfel::material::"  //
+           << getDefaultOutOfBoundsPolicyAsString(bd) << ";\n"
+           << "return policy;\n"
+           << "}\n\n";
+     } else {
+-      out << "inline constexpr tfel::material::OutOfBoundsPolicy\n"
++      out << "TFEL_VISIBILITY_LOCAL inline constexpr "
++          << "tfel::material::OutOfBoundsPolicy\n"
+           << this->getFunctionNameBasis(name) << "_getOutOfBoundsPolicy(){\n"
+           << "return tfel::material::"  //
+           << getDefaultOutOfBoundsPolicyAsString(bd) << ";\n"
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index 68c5a7f7c..07b66c657 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -430,6 +430,14 @@ namespace mfront {
+     return std::make_unique<GenericBehaviourSymbolsGenerator>();
+   }  // end of makeSymbolsGenerator
+ 
++  std::string GenericParallelBehaviourInterface::getPointwiseHeaderFileName(
++      const std::string& name) const {
++    // the header differs from the one of the `generic` interface, which may
++    // be used in the same call of MFront for other modelling hypotheses
++    return name + "-generic-parallel-" + this->backend->getName() +
++           "-generic.hxx";
++  }  // end of getPointwiseHeaderFileName
++
+   std::string GenericParallelBehaviourInterface::getPointwiseSourceFileName(
+       const std::string& name) const {
+     return name + "-generic-parallel-" + this->backend->getName() +
+@@ -538,18 +546,22 @@ namespace mfront {
+     const auto is_hypotheses_selection =
+         (k == "@SelectedModellingHypothesis") ||
+         (k == "@SelectedModellingHypotheses");
++    // MTest files generated on failure by the functions of the `generic`
++    // interface of the library (`generic_functions` option), as by the
++    // `generic` interface
++    const auto is_mtest_file_generation = k == "@GenerateMTestFileOnFailure";
+     if (!i.empty()) {
+       if (std::find(i.begin(), i.end(), getName()) == i.end()) {
+         return {false, current};
+       }
+-      if (!is_hypotheses_selection) {
++      if ((!is_hypotheses_selection) && (!is_mtest_file_generation)) {
+         tfel::raise(
+             "GenericParallelBehaviourInterface::treatKeyword: "
+             "unsupported keyword '" +
+             k + "'");
+       }
+     }
+-    if (is_hypotheses_selection) {
++    if ((is_hypotheses_selection) || (is_mtest_file_generation)) {
+       return GenericBehaviourInterface::treatKeyword(bd, k, {}, current, end);
+     }
+     return {false, current};
+@@ -635,7 +647,8 @@ namespace mfront {
+       }
+       describeLibrary(d, this->getLibraryName(bd),
+                       this->getPointwiseSourceFileName(name),
+-                      "MFront/GenericBehaviour/" + name + "-generic.hxx",
++                      "MFront/GenericBehaviour/" +
++                          this->getPointwiseHeaderFileName(name),
+                       generic_entry_points);
+       if (this->shallGenerateMTestFileOnFailure(bd)) {
+         insert_if(d.getLibrary(this->getLibraryName(bd)).link_libraries,
+@@ -690,8 +703,10 @@ namespace mfront {
+       this->writeGenericFunctions(
+           bd, fd,
+           GenericFunctionsOptions{
+-              .header_file = name + "-generic.hxx",
+-              .header_guard = GenericBehaviourInterface{}.getHeaderGuard(bd),
++              .header_file = this->getPointwiseHeaderFileName(name),
++              .header_guard = GenericBehaviourInterface{}.getHeaderGuard(bd) +
++                              "_GENERIC_PARALLEL_" +
++                              makeUpperCase(this->backend->getName()),
+               .source_file = this->getPointwiseSourceFileName(name),
+               .symbols = false,
+               .shared_out_of_bounds_policy = true});
+diff --git a/mfront/src/GenericParallelMaterialPropertyInterface.cxx b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+index f89a4f647..b029c5a56 100644
+--- a/mfront/src/GenericParallelMaterialPropertyInterface.cxx
++++ b/mfront/src/GenericParallelMaterialPropertyInterface.cxx
+@@ -392,10 +392,14 @@ namespace mfront {
+     }
+     this->backend->writeSpecificIncludesInSourceFile(os, *this, mpd);
+ 
++    // the parameters handler has a hidden visibility: libraries of several
++    // backends for the same material property, loaded in the same process,
++    // have their own parameters
+     writeMaterialPropertyParametersHandler(os, mpd,
+                                            {.material_property_name = name,
+                                             .floating_point_type = "double",
+-                                            .interface_namespace = nname});
++                                            .interface_namespace = nname,
++                                            .hidden_visibility = true});
+ 
+     this->backend->writeGlobalFunctions(os, *this, mpd, fd);
+ 
+@@ -525,7 +529,8 @@ namespace mfront {
+         os, mpd,
+         {.material_property_name = name,
+          .floating_point_type = "double",
+-         .interface_namespace = d.interface_namespace});
++         .interface_namespace = d.interface_namespace,
++         .hidden_visibility = true});
+     os << "#ifdef __cplusplus\n"
+        << "extern \"C\"{\n"
+        << "#endif /* __cplusplus */\n\n";
+diff --git a/mfront/src/MaterialPropertyParametersHandler.cxx b/mfront/src/MaterialPropertyParametersHandler.cxx
+index c33ce8f90..d4233e31b 100644
+--- a/mfront/src/MaterialPropertyParametersHandler.cxx
++++ b/mfront/src/MaterialPropertyParametersHandler.cxx
+@@ -59,8 +59,8 @@ namespace mfront {
+        << " * using the Singleton pattern and optionaly overrides the values"
+        << " * of the parameters from a text file\n"
+        << " */\n"
+-       << "struct " << args.material_property_name
+-       << "MaterialPropertyParametersHandler\n"
++       << "struct " << (args.hidden_visibility ? "TFEL_VISIBILITY_LOCAL " : "")
++       << args.material_property_name << "MaterialPropertyParametersHandler\n"
+        << ": " << args.material_property_name << "MaterialPropertyParameters\n"
+        << "{\n"
+        << "//! return the unique instance of this class\n"
+diff --git a/test-suite/behaviours/generic-parallel/check-generic-functions.sh b/test-suite/behaviours/generic-parallel/check-generic-functions.sh
+index bd3598ecf..27b7b3c76 100644
+--- a/test-suite/behaviours/generic-parallel/check-generic-functions.sh
++++ b/test-suite/behaviours/generic-parallel/check-generic-functions.sh
+@@ -59,6 +59,17 @@ done
+ "$mfront" --obuild --search-path="$directory" --interface=generic-parallel \
+   --configuration-file="$configuration" \
+   --configuration-file="$PWD/config-generic-functions.json" $files
++# a library has its own out of bounds policies: the functions giving them are
++# not exported as unique symbols of the process, which would be shared with
++# the libraries of other backends (ELF libraries)
++if [ "$(uname)" = Linux ] && command -v nm > /dev/null 2>&1; then
++  for l in src/libGenericParallel*.so; do
++    if nm -DC "$l" | awk '$2 == "u"' | grep -q '_getOutOfBoundsPolicy'; then
++      echo "an out of bounds policy of '$l' is shared by the process" >&2
++      exit 1
++    fi
++  done
++fi
+ gf="--generic-functions=true $*"
+ # compare-functions.sh reads the comparison program and the batch library in
+ # the positional parameters (`.` does not take arguments in POSIX shells)
+diff --git a/test-suite/material-properties/generic-parallel/check-generic-functions.sh b/test-suite/material-properties/generic-parallel/check-generic-functions.sh
+index 8656495d4..2a8f0614e 100644
+--- a/test-suite/material-properties/generic-parallel/check-generic-functions.sh
++++ b/test-suite/material-properties/generic-parallel/check-generic-functions.sh
+@@ -58,4 +58,15 @@ done
+ "$mfront" --obuild --search-path="$directory" --interface=generic \
+   --interface=generic-parallel --configuration-file="$configuration" \
+   --configuration-file="$PWD/config-generic-functions.json" $files
++# a library of this interface has its own parameters: the parameters
++# handler is not exported as a unique symbol of the process, which would be
++# shared with the libraries of other backends (ELF libraries)
++if [ "$(uname)" = Linux ] && command -v nm > /dev/null 2>&1; then
++  for l in src/libGenericParallel*.so; do
++    if nm -DC "$l" | awk '$2 == "u"' | grep -q 'ParametersHandler'; then
++      echo "the parameters handler of '$l' is shared by the process" >&2
++      exit 1
++    fi
++  done
++fi
+ sh "$directory/compare-all.sh" "$compare" "$backend" --generic-functions=true "$@"
+-- 
+2.43.0
+

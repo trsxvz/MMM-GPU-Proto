@@ -30,10 +30,11 @@ namespace mfront::generic_parallel::material_property {
    *   see `MFront/GenericParallel/RAJAExecutionPolicy.hxx`). The arguments
    *   and the output must be accessible from this execution policy.
    *
-   * The queue given by the execution options is a pointer to a resource of
-   * camp matching the execution policy. If null, the default stream of the
-   * current device is used with CUDA and HIP, the default resource of camp
-   * otherwise (see `mfront::generic_parallel::raja::getDefaultResource`).
+   * The execution policy of the backend (`RAJABackendExecutionPolicy`)
+   * holds a resource of camp matching the execution policy of RAJA. With
+   * the default policy, the default stream of the current device is used
+   * with CUDA and HIP, the default resource of camp otherwise (see
+   * `mfront::generic_parallel::raja::getDefaultResource`).
    * The execution policies of OpenMP target and SYCL are not supported.
    */
   struct MFRONT_VISIBILITY_EXPORT RAJABackend : CxxProgrammingModelBackendBase {
@@ -51,6 +52,8 @@ namespace mfront::generic_parallel::material_property {
         const GenericParallelMaterialPropertyInterface&,
         const MaterialPropertyDescription&) const override;
     [[nodiscard]] std::string getMemorySpace() const override;
+    [[nodiscard]] std::string getExecutionPolicyType() const override;
+    [[nodiscard]] std::string getExecutionPolicyHeader() const override;
     //! \brief destructor
     ~RAJABackend() noexcept override;
 
