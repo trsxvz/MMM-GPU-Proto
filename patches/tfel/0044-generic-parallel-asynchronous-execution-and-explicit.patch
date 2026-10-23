@@ -1,4 +1,4 @@
-From cbe2e82fac7f37e86eb01fe53741dd6bbd364882 Mon Sep 17 00:00:00 2001
+From 638238b57bcfc437053382c8049de29581cd2b77 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 15:58:01 +0200
 Subject: [PATCH] generic-parallel: asynchronous execution and explicit stack

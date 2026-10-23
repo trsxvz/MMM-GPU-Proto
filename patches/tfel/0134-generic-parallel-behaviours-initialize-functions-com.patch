@@ -1,4 +1,4 @@
-From 7080af8eae9780fe8e4523d3ad23300422fd79f6 Mon Sep 17 00:00:00 2001
+From 9c7ff3beeb264b12e39af0873342be9135b9f890 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 11:30:21 +0200
 Subject: [PATCH] generic-parallel behaviours: initialize functions computed

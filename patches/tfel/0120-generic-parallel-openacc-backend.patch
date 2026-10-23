@@ -1,4 +1,4 @@
-From 13eba51469d798fdfd9985c450faccc15550dae6 Mon Sep 17 00:00:00 2001
+From 3f459a4e3fbe2598ce3488a2536a39d0578d3738 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 07:48:12 +0200
 Subject: [PATCH] generic-parallel: openacc backend
@@ -875,7 +875,7 @@ index 6319c03a6..f2cf21de2 100644
  ### Notes
  
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 30604ab69..874516357 100644
+index 4417a064d..499fdf463 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -51,8 +51,8 @@ The `generic-parallel` interface integrates a behaviour, or executes a

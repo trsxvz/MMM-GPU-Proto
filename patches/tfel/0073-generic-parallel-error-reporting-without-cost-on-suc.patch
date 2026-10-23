@@ -1,4 +1,4 @@
-From 9bac2bdac6c4c168cdab0513e31b6db2e59d59c1 Mon Sep 17 00:00:00 2001
+From 7a11d30d329bf529ce9ca8e3c106c0856d18cdd3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 05:40:45 +0200
 Subject: [PATCH] generic-parallel: error reporting without cost on success

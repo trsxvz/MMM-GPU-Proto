@@ -1,4 +1,4 @@
-From ae5050c67dae5e581a246349350f014adb7182e9 Mon Sep 17 00:00:00 2001
+From 06ab840cee6bc5749699e38c8beb5443d6c3eec8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 19:51:20 +0200
 Subject: [PATCH] Generic interfaces: displacement gradient for finite strain
@@ -121,7 +121,7 @@ index 4a2047bbe..70b042a75 100644
  All the fields and the `statuses` array must be located in the memory
  space exported by the library (see the `<name>_generic_parallel_memory_space`
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index a61fdd1df..6714fdf71 100644
+index 50c843b4f..a875485e2 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -917,6 +917,17 @@ $ mfront --obuild --interface=generic --dsl-option=real_type:float \

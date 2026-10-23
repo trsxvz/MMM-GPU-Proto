@@ -1,4 +1,4 @@
-From a2ce193a577ea43cf37ae02ce8ac3c0ba791e141 Mon Sep 17 00:00:00 2001
+From db54b0f9a307b93e58dd09d47963c4d19dedf903 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 16:10:49 +0200
 Subject: [PATCH] docs: incompatibilities introduced by the support of device
@@ -9,7 +9,7 @@ Subject: [PATCH] docs: incompatibilities introduced by the support of device
  1 file changed, 20 insertions(+)
 
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index efee822c2..6cff8d85e 100644
+index 4e002cd86..0db2482f2 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -49,6 +49,26 @@ library, see below.

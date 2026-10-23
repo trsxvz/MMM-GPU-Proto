@@ -1,4 +1,4 @@
-From 93c4defb520a1cc56f2d8c58290b79b0fb170601 Mon Sep 17 00:00:00 2001
+From 6267b8cd10ff565fcf0fc20dffe8afc91499d3d0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:52:18 +0200
 Subject: [PATCH] MFront: checks of the variables declared for some hypotheses

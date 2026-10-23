@@ -1,4 +1,4 @@
-From 7cbb56be427b8e595d5ad184d75f2f144d5d46b7 Mon Sep 17 00:00:00 2001
+From 9106f9a1ed6e8696f1a5c174422f761a35df81ec Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 03:12:32 +0200
 Subject: [PATCH] generic-parallel: raja backend
@@ -997,7 +997,7 @@ index dad0de5cc..6319c03a6 100644
    threads of the host.
  - `openmp-offload-nvhpc-gpu`: compilation with `nvc++ -mp=gpu`,
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index bee199e29..30604ab69 100644
+index 7bf74eea4..4417a064d 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -48,10 +48,10 @@ library, see below.

@@ -1,4 +1,4 @@
-From 8189639310163b268563564246588bfa6d652160 Mon Sep 17 00:00:00 2001
+From dd5b1945f192d91d9b75226e37a2f01f3a6175f5 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 23:44:43 +0200
 Subject: [PATCH] generic-parallel material properties: version 3 of the
@@ -729,7 +729,7 @@ index f2cf21de2..c20948073 100644
  
  - `cuda-nvcc`: compilation of `CUDA` files using the `nvcc` compiler.
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 874516357..b701fb4c9 100644
+index 499fdf463..1019b9082 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -790,42 +790,72 @@ details](generic-parallel-material-property-interface.html).

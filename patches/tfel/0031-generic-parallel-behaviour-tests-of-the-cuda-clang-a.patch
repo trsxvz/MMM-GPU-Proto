@@ -1,4 +1,4 @@
-From a574cc2749135eec13c59b5e822618a799b29688 Mon Sep 17 00:00:00 2001
+From 59d5fa5d6508dcb2c3c6df71e14f6dd713ad263f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 06:03:41 +0200
 Subject: [PATCH] generic-parallel: behaviour tests of the cuda-clang and

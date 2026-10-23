@@ -1,4 +1,4 @@
-From 4d2e8eaa256693a50439694e9fb5807a93924633 Mon Sep 17 00:00:00 2001
+From ddd32c6c0cf26e05edb3f0faf53500a7df6a10da Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 04:21:52 +0200
 Subject: [PATCH] MFront: stress of the initialize functions exported for all

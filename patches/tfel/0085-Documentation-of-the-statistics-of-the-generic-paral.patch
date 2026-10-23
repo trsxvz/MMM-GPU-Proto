@@ -1,4 +1,4 @@
-From 78b67f60f4974f3142c5726094926ff0637534f5 Mon Sep 17 00:00:00 2001
+From cc0100469202af370dfa56e698fafa3fec6de955 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 18:12:04 +0200
 Subject: [PATCH] Documentation of the statistics of the generic-parallel
@@ -305,7 +305,7 @@ index 71e2c057d..a759e65d7 100644
  
  ### Options
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 68cb7a831..45461d24b 100644
+index 1c59a6567..278f62336 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -738,17 +738,25 @@ details](generic-parallel-material-property-interface.html).
@@ -341,7 +341,7 @@ index 68cb7a831..45461d24b 100644
  - a bound violated with the warning policy gives the status `1`, as with
    the `generic` interface.
  - the `stlpar` and `sycl` backends have a new `device_stack_size` option.
-@@ -987,6 +995,12 @@ code:
+@@ -995,6 +1003,12 @@ code:
  - `StandardElastoViscoPlasticity` brick: wrong name of the derivative of
    a yield radius interpolated by a cubic spline when an identifier is
    used.

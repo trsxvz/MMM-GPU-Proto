@@ -1,4 +1,4 @@
-From f74a545545c4b7af2056d99c87ac5d7677b06147 Mon Sep 17 00:00:00 2001
+From 3f903ba9bf17e57d5d5aa92b51d88641c4d369d6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 04:00:31 +0200
 Subject: [PATCH] Float bounds: warnings for double only, tests with
@@ -37,7 +37,7 @@ Subject: [PATCH] Float bounds: warnings for double only, tests with
  create mode 100644 mfront-query/tests/references/mfront-query-norton-convergence-criterion-float.ref
 
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index bc46a8cf0..55daa630e 100644
+index 2c0ba303d..38293a674 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -894,7 +894,14 @@ $ mfront --obuild --interface=generic --dsl-option=real_type:float \

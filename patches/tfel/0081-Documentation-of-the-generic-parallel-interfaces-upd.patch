@@ -1,4 +1,4 @@
-From 895c540d08056a85c1221e87b63f8128b1be32cc Mon Sep 17 00:00:00 2001
+From 90168fb18d253e4052a045b1ae325e624a8b0fe3 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 16:04:36 +0200
 Subject: [PATCH] Documentation of the generic-parallel interfaces updated
@@ -126,10 +126,10 @@ index c048df5ca..2278b9678 100644
 +`@Members` block and `Np` is the number of grains, declared by the
 +`@IntegerConstant` keyword.
 diff --git a/docs/web/CMakeLists.txt b/docs/web/CMakeLists.txt
-index a2d4b4af0..b1b0d0e73 100644
+index 23e2d8ae1..3aa9c274a 100644
 --- a/docs/web/CMakeLists.txt
 +++ b/docs/web/CMakeLists.txt
-@@ -236,6 +236,7 @@ pandoc_html(tfel-python "--toc" "--toc-depth=3")
+@@ -237,6 +237,7 @@ pandoc_html(tfel-python "--toc" "--toc-depth=3")
  pandoc_html(generic-material-property-interface "--toc")
  pandoc_html(generic-behaviours-interface "--toc" "--toc-depth=3")
  pandoc_html(generic-parallel-material-property-interface "--toc")
@@ -1152,7 +1152,7 @@ index a935b2236..83600449e 100644
  Because initialize functions are called before any behaviour
  integration, special care must be taken regarding the meaning of the variables:
 diff --git a/docs/web/mfront-template.html b/docs/web/mfront-template.html
-index 2882f8412..0b14d73ad 100644
+index 5c290e912..b077381a2 100644
 --- a/docs/web/mfront-template.html
 +++ b/docs/web/mfront-template.html
 @@ -252,6 +252,8 @@
@@ -1186,7 +1186,7 @@ index c3b4e4488..0438674ae 100644
  Because post-processings are called independently of the behaviour
  integration step, special care to the meaning of the variables must be
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 2d0b22130..50e1ed91d 100644
+index b04ab2afc..d3bca5378 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -45,6 +45,16 @@ designed for maximum GPU performance:
@@ -1536,7 +1536,7 @@ index 2d0b22130..50e1ed91d 100644
  
  ## Improvements to the `Cast3M` interface
  
-@@ -759,3 +946,55 @@ For more details, see <https://github.com/thelfer/tfel/issues/905>
+@@ -767,3 +954,55 @@ For more details, see <https://github.com/thelfer/tfel/issues/905>
  ## Issue 853: [tfel-fcheck] Have the possibility to launch multiple call to `tfel-check` simultaenously in a CI context
  
  For more details, see <https://github.com/thelfer/tfel/issues/853>

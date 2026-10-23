@@ -1,4 +1,4 @@
-From 93f410299634e2486078e818283b6e03029cacca Mon Sep 17 00:00:00 2001
+From c8ce37462b2356528fba77c106c8c6fa5968abd1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 03:25:57 +0200
 Subject: [PATCH] MFront tests: derivative of the flow rule of

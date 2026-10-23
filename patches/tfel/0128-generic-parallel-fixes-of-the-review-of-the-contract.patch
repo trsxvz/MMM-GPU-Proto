@@ -1,4 +1,4 @@
-From c4e6a0b88e9dc9ac3a8675d575bfaa0d0c2b3df9 Mon Sep 17 00:00:00 2001
+From 7cfbcbac2d10f1b4168e9eab6982c6414270e0b6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 03:59:21 +0200
 Subject: [PATCH] generic-parallel: fixes of the review of the contract of the

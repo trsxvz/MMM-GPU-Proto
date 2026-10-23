@@ -1,4 +1,4 @@
-From 2c22a81570525b4c599fe1f8921d6f3c1615b502 Mon Sep 17 00:00:00 2001
+From 648e96d5e8fd7e05b490f1fc8634f002cd28d125 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:25:58 +0200
 Subject: [PATCH] real_type option: numerical type of the generic interfaces

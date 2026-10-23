@@ -1,4 +1,4 @@
-From 2dbdc91d1cf4d758d73b84d627fe06b57305fc46 Mon Sep 17 00:00:00 2001
+From 3e7d784d1eb37367b2b3e7dc52882907fb5e529b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 04:10:47 +0200
 Subject: [PATCH] generic_functions option: fixes of the review

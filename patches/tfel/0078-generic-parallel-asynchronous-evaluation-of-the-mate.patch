@@ -1,4 +1,4 @@
-From 663a3bd4b75850432fd9c549792d79ecddcae84e Mon Sep 17 00:00:00 2001
+From 5441849225e215453404cc7d20de7a51f461ea18 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 15:21:03 +0200
 Subject: [PATCH] generic-parallel: asynchronous evaluation of the material

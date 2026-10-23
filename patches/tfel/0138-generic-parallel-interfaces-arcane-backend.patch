@@ -1,4 +1,4 @@
-From 987d5ac8213c52194aa9496296e23c5ee319cbcf Mon Sep 17 00:00:00 2001
+From d6a93654edd640c5481ee08b79dc2b69515980a0 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 23 Oct 2026 01:03:07 +0200
 Subject: [PATCH] generic-parallel interfaces: arcane backend
@@ -866,7 +866,7 @@ index 980b9ded8..39c28afcb 100644
    threads of the host.
  - `openmp-offload-nvhpc-gpu`: compilation with `nvc++ -mp=gpu`,
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 90f8d9767..20a6e04d4 100644
+index a7a2d6dc2..b58523a4f 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -51,7 +51,8 @@ The `generic-parallel` interface integrates a behaviour, or executes a

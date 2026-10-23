@@ -1,4 +1,4 @@
-From 33d9a783567462180c3f92eeff21720e8154f50f Mon Sep 17 00:00:00 2001
+From 63bf76777fc41b21867b71e60193b9f7b768f0be Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:58:57 +0200
 Subject: [PATCH] MFront: configuration files searched where they are installed
@@ -38,7 +38,7 @@ index c6463137b..cd7d507e4 100644
  | Configuration file                      | Backend  | Compiler and target                                   |
  |:----------------------------------------|:---------|:------------------------------------------------------|
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 3793494d2..28256d50b 100644
+index 2432ab3c6..97acf9ce1 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -185,11 +185,9 @@ If a file given by the `--configuration-file` option is not found in the

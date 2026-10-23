@@ -1,4 +1,4 @@
-From 5e4e50ebb84856f3c8dc9c0d3bf8894592339c21 Mon Sep 17 00:00:00 2001
+From f54ffd7765c4bbb0fb9a65c906b3c7d4be0f93c8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 19:23:25 +0200
 Subject: [PATCH] generic-parallel: optimisation flags of the libraries of the

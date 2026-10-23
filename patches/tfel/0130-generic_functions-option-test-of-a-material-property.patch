@@ -1,4 +1,4 @@
-From 02080c91eee1193433d50b4544681f380c578fd5 Mon Sep 17 00:00:00 2001
+From 8ae1a2fbe069cd7f1b2dd735c67ddd0c32923631 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 04:25:59 +0200
 Subject: [PATCH] generic_functions option: test of a material property with

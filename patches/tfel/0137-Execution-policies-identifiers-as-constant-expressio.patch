@@ -1,4 +1,4 @@
-From 6959196f9af78cebc0a06ae960f047b968eead27 Mon Sep 17 00:00:00 2001
+From c93f5371e1f6e7cbf024e726d5073e7035629f2f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 22 Oct 2026 23:22:27 +0200
 Subject: [PATCH] Execution policies: identifiers as constant expressions

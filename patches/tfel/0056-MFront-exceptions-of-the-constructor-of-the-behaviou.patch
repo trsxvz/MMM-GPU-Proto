@@ -1,4 +1,4 @@
-From 3e0feea0fc231ad69b27ac10d8e200c6c4254f69 Mon Sep 17 00:00:00 2001
+From 90be6227c71f8cd01f006751682983322c09fbcc Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 22:54:31 +0200
 Subject: [PATCH] MFront: exceptions of the constructor of the behaviour

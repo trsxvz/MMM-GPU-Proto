@@ -1,11 +1,11 @@
 # Patches
 
-Series of patches giving this tree from TFEL master, commit `4d50821c9`
+Series of patches giving this tree from TFEL master, commit `d489171ee`
 (23/10/2026):
 
 ```bash
 git clone <official TFEL repository> tfel && cd tfel
-git checkout 4d50821c9
+git checkout d489171ee
 git am --keep-cr /path/to/patches/*.patch
 ```
 

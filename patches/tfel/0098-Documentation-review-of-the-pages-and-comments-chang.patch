@@ -1,4 +1,4 @@
-From 20ebed8ff161965c36d3533ad2438d128521c8a8 Mon Sep 17 00:00:00 2001
+From 3cc4a1bc5d7d2c49f04e460101a67123c8fc4ee9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 16:45:48 +0200
 Subject: [PATCH] Documentation: review of the pages and comments changed by
@@ -828,7 +828,7 @@ index 2fc834628..308c65d58 100644
  Some default compiler settings are detected by `cmake`, depending on
  your system. To explicitly specify the compilers to be used, one may
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 74854d1cf..55d6680df 100644
+index ff1d1ef62..3e913bd15 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -76,7 +76,11 @@ changes:
@@ -950,7 +950,7 @@ index 74854d1cf..55d6680df 100644
  
  ## Improvements to the `Cast3M` interface
  
-@@ -1023,3 +1048,22 @@ code:
+@@ -1031,3 +1056,22 @@ code:
    headers of the backends overwrote each other; the device memory of the
    `SYCL` backend was never freed; the values between the values of a
    strided output were overwritten.

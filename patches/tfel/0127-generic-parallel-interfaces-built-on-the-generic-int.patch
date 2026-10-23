@@ -1,4 +1,4 @@
-From 14d56cd8eb305c30ac3edb18fcec4f4331e0cb12 Mon Sep 17 00:00:00 2001
+From 234551717696347113d2fe9baa0621758dad69db Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 03:46:05 +0200
 Subject: [PATCH] generic-parallel interfaces built on the generic interfaces,

@@ -1,4 +1,4 @@
-From 3638293e112dccb7c60aad984c54759a6cfce2a5 Mon Sep 17 00:00:00 2001
+From bbe5d228fcb35b3e6f334c5e1a8300661ed05a29 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 23:00:05 +0200
 Subject: [PATCH] Plane stress: axial deformation gradient computed by the
@@ -63,7 +63,7 @@ index 9983e7443..01a59cf94 100644
  This option is given at runtime: the stress measure, second value of
  the `K` array, is offset by `10` (constant
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 80f2d78fa..bee199e29 100644
+index 513cfa514..7bf74eea4 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -952,6 +952,31 @@ given at runtime and accepted by the behaviours exporting the symbol

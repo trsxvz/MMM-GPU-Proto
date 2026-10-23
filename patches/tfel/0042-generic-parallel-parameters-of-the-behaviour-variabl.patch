@@ -1,4 +1,4 @@
-From 476b649097cdf611b06e2cc4a3822e608e756f51 Mon Sep 17 00:00:00 2001
+From 60dcfb05330d00cbd6e2668b107aa6e03fd50873 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 15:34:53 +0200
 Subject: [PATCH] generic-parallel: parameters of the behaviour variables

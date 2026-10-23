@@ -1,4 +1,4 @@
-From 9ebc9071f06b9ae4be1b7f15f765e15c57c3536c Mon Sep 17 00:00:00 2001
+From 0cf75d2ad3fe08dd814f5f2267f43490db3482d9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 05:22:01 +0200
 Subject: [PATCH] Float: warning for a convergence criterion looser than 1e-5
@@ -15,7 +15,7 @@ isotropic DSLs, with an advice suited to float (a value of the order of
  3 files changed, 25 insertions(+), 1 deletion(-)
 
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 55daa630e..a61fdd1df 100644
+index 38293a674..50c843b4f 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -897,7 +897,9 @@ $ mfront --obuild --interface=generic --dsl-option=real_type:float \

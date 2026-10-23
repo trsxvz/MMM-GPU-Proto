@@ -5,7 +5,7 @@ why. It is meant for readers who want to understand or review these
 changes. The use of the interfaces, with their complete examples, is
 documented in the TFEL tree (see [the last section](#documentation-in-the-tfel-tree)).
 
-- Base: TFEL master `4d50821c9` (23/10/2026, runtime path of the libraries linked by nvcc, found by the tests of the prototype). The branch of the prototype is rebased on this version. It was previously based on `1dd066c7e` (merge of PR #1075), `1dc3ac594` (merge of PR #1064), `fdeb6abf8` (merge of PR #1067) and `d24a5cfe8` of 20/10/2026, and on `ff0959ece` of 12/10/2026.
+- Base: TFEL master `d489171ee` (23/10/2026, after the merge of PR #1085, coding guidelines). The branch of the prototype is rebased on this version. It was previously based on `4d50821c9` (runtime path of the libraries linked by nvcc, found by the tests of the prototype), `1dd066c7e` (merge of PR #1075), `1dc3ac594` (merge of PR #1064), `fdeb6abf8` (merge of PR #1067) and `d24a5cfe8` of 20/10/2026, and on `ff0959ece` of 12/10/2026.
 - Modified sources: `tfel/` (copy of the last commit, without the history of
   TFEL). Patch series: `patches/tfel/` (`git am --keep-cr`).
 - Planned split into upstream contributions: [upstream-integration.md](upstream-integration.md).

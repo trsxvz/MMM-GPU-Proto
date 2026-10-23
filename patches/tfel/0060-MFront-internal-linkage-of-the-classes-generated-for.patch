@@ -1,4 +1,4 @@
-From db80e7e851900fc61e31d4f5b0b45b528de77670 Mon Sep 17 00:00:00 2001
+From 833ad3ad8a35dd8d9725504170d3ca7a9f7653db Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 7 Oct 2026 03:26:02 +0200
 Subject: [PATCH] MFront: internal linkage of the classes generated for the

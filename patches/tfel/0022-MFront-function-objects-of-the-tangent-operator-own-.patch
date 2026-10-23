@@ -1,4 +1,4 @@
-From f40afd3c339f6320d9174a8f7d9ef2f470fba157 Mon Sep 17 00:00:00 2001
+From 1991ba88d203213b9aff0639599ad9bdc5d0ecca Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 6 Oct 2026 01:47:43 +0200
 Subject: [PATCH] MFront: function objects of the tangent operator own their

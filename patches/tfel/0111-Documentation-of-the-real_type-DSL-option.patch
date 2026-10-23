@@ -1,4 +1,4 @@
-From 9a3dcd95dc5244e1f3d8a265783fc8e0c793cf77 Mon Sep 17 00:00:00 2001
+From 744e4af3afdea07daf0a9ea791e28665c85595a7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 22:55:00 +0200
 Subject: [PATCH] Documentation of the real_type DSL option
@@ -74,7 +74,7 @@ index cd7d507e4..4a2047bbe 100644
  
  The interface is also available for standalone models (`@DSL Model`). As
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 28256d50b..bc46a8cf0 100644
+index 97acf9ce1..2c0ba303d 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -855,6 +855,59 @@ are shared with the `generic-parallel` interface for material properties.

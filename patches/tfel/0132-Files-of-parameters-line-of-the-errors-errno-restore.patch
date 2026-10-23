@@ -1,4 +1,4 @@
-From 657bda8424c4a6c25c6b7124f9e29140a772d05b Mon Sep 17 00:00:00 2001
+From d28f7812508de044701459e076afc940a7880a7b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 06:51:12 +0200
 Subject: [PATCH] Files of parameters: line of the errors, errno restored;
@@ -34,10 +34,10 @@ stlpar-parunseq-gcc).
  create mode 100644 test-suite/material-properties/generic-parallel/test-parameters-errno.cxx
 
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 249828cb6..210c600d6 100644
+index 049a830f0..a56873f08 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
-@@ -1243,3 +1243,11 @@ code:
+@@ -1251,3 +1251,11 @@ code:
  - isotropic DSLs: with the `use_stress_update_algorithm` option, the code
    evaluating a non constant Poisson ratio at the beginning of the time
    step did not compile with `@UseQt true`.

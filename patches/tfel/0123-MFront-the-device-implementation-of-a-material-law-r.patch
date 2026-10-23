@@ -1,4 +1,4 @@
-From 06151eef9a30e1deccc878ef32f3c80f2be4ac74 Mon Sep 17 00:00:00 2001
+From 5dcf30cab3792f85271176ad06f57342a20dae08 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 23:44:43 +0200
 Subject: [PATCH] MFront: the device implementation of a material law returns

@@ -1,4 +1,4 @@
-From 4ff07f87fb48a1cd57c1be88aa2cd7d92e969504 Mon Sep 17 00:00:00 2001
+From 44401ed6074ee85cdbba1a18164dcfed44458699 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 02:44:09 +0200
 Subject: [PATCH] generic-parallel behaviours: common contract with the
@@ -352,7 +352,7 @@ index 9976a2770..38ad5ac04 100644
  compared on random states.
  The list of the comparisons, shared by all the configurations, is given by
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index b701fb4c9..249828cb6 100644
+index 1019b9082..049a830f0 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -867,7 +867,8 @@ standalone model, over a batch of integration points, on GPUs or on CPUs,

@@ -1,4 +1,4 @@
-From 604d4389f27eae1f8116c421444c55e96e9a74f9 Mon Sep 17 00:00:00 2001
+From 9ee9904d2b83a686cc17273df1cbd1aad7e7e903 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 19:55:44 +0200
 Subject: [PATCH] LogarithmicStrainHandler: divided differences without
@@ -31,7 +31,7 @@ deformation gradient in single precision.
  4 files changed, 182 insertions(+), 293 deletions(-)
 
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 6714fdf71..80f2d78fa 100644
+index a875485e2..513cfa514 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -367,6 +367,30 @@ supported (see [this page](tfel-math.html)).

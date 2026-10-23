@@ -1,4 +1,4 @@
-From 434baf206648de1a88c047b8c0af839fe6f1418f Mon Sep 17 00:00:00 2001
+From bf9d60243b38af568815e651e09898e9a2b78291 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 19:51:20 +0200
 Subject: [PATCH] LogarithmicStrainHandler built from the Green-Lagrange strain

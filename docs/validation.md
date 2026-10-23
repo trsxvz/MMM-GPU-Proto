@@ -231,7 +231,9 @@ TFEL, `-O3` matrix 43/43
 and clang sweeps 553 OK each, 58 tests of MGIS, 360 of mfem-mgis, 25 of the
 examples, 9 of mm-opera-hpc and 143 cases, all green. The rebase on
 `4d50821c9` (fix of the runtime path found by this validation) gives the
-same tree. GPU suite of mfem-mgis (`scripts/mfem-mgis-gpu-suite.sh`, 265
+same tree; the one on `d489171ee` only adds the changes of master
+(documentation, docstrings of the Python bindings, not built by the
+prototype). GPU suite of mfem-mgis (`scripts/mfem-mgis-gpu-suite.sh`, 265
 tests): 262 with the kernels forced, 261 with the default computations,
 the two tests requiring the absence of a device failing as expected;
 `TwoLayerCube-1-MatrixFreeExecution` (added on 17/10), which checks that

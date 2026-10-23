@@ -1,4 +1,4 @@
-From bcb0ec0d923f38cbf3bb3947a32df2e3ca4a0e7c Mon Sep 17 00:00:00 2001
+From 47a833ed1082b25803352781678e31f5c7995e0e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 8 Oct 2026 17:29:52 +0200
 Subject: [PATCH] Configuration files of sycl-default-acpp also installed for
@@ -11,7 +11,7 @@ failed if sycl-default-acpp was not selected.
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
-index 50e1ed91d..68cb7a831 100644
+index d3bca5378..1c59a6567 100644
 --- a/docs/web/release-notes/release-notes-5.2.md
 +++ b/docs/web/release-notes/release-notes-5.2.md
 @@ -161,8 +161,8 @@ The following configurations are supported for parallel computations:

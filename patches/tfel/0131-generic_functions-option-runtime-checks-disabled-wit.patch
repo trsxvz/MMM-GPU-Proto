@@ -1,4 +1,4 @@
-From c5b58f390f867b91ff8a7ae1871c216665d6a890 Mon Sep 17 00:00:00 2001
+From 3043303d7958ae0a4b9b470cdf539e99863dd505 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 04:40:16 +0200
 Subject: [PATCH] generic_functions option: runtime checks disabled with the
