@@ -1,0 +1,1749 @@
+From c5d17dd031e2c4b968ade7047e4839f64ab14625 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Fri, 23 Oct 2026 15:29:12 +0200
+Subject: [PATCH] DeferredReportBatchExecutionPolicy: name of the policy whose
+ report is deferred
+
+`AsynchronousBatchExecutionPolicy` is renamed
+`DeferredReportBatchExecutionPolicy` (and `checkAsynchronousBatchExecutionPolicy`
+`checkDeferredReportBatchExecutionPolicy`): since the execution policies of
+the backends, the computations are asynchronous if the policy of the backend
+requests it, and this policy only defers the report: the status of the
+computations is held by the returned object, which gives the result once the
+queue is synchronized. The name is the one used by TFEL for this case
+(deferred report).
+---
+ docs/web/bindings-cxx.md                      |  2 +-
+ docs/web/generic-parallel.md                  | 19 +++---
+ docs/web/orthotropic-behaviours.md            |  2 +-
+ docs/web/release-notes-3.2.md                 |  5 +-
+ docs/web/views.md                             |  3 +-
+ include/MGIS/BatchExecutionPolicy.hxx         | 45 ++++++++------
+ include/MGIS/Behaviour/BatchDataView.hxx      |  2 +-
+ .../MGIS/Behaviour/BatchExecutionPolicy.hxx   |  4 +-
+ include/MGIS/Behaviour/Behaviour.hxx          | 58 ++++++++---------
+ include/MGIS/Behaviour/Integrate.hxx          | 44 ++++++-------
+ .../Behaviour/PendingBatchComputation.hxx     |  4 +-
+ .../MaterialProperty/MaterialProperty.hxx     | 12 ++--
+ .../PendingBatchEvaluation.hxx                |  4 +-
+ src/BatchExecutionPolicy.cxx                  |  6 +-
+ src/Behaviour.cxx                             | 62 +++++++++----------
+ src/Integrate.cxx                             | 38 ++++++------
+ src/MaterialProperty.cxx                      | 12 ++--
+ tests/FieldOperationsCUDATest.cu              |  4 +-
+ tests/FieldOperationsParallelSTLTest.cxx      |  4 +-
+ tests/FieldOperationsTest.hxx                 |  2 +-
+ tests/GenericParallelCUDATest.cxx             | 27 ++++----
+ tests/GenericParallelEvaluateTest.cxx         | 10 +--
+ tests/GenericParallelIntegrateTest.cxx        | 12 ++--
+ tests/MaterialDataManagerLayoutTest.cxx       | 23 +++----
+ tests/MaterialDataViewTest.cxx                | 35 ++++++-----
+ 25 files changed, 226 insertions(+), 213 deletions(-)
+
+diff --git a/docs/web/bindings-cxx.md b/docs/web/bindings-cxx.md
+index 5b31a61..5e5bb23 100644
+--- a/docs/web/bindings-cxx.md
++++ b/docs/web/bindings-cxx.md
+@@ -545,7 +545,7 @@ overloads taking a `MaterialDataManager` integrate the points as one
+ batch, with the execution policy of the manager (the thread pool is not
+ used). Additional overloads take a synchronous or an asynchronous
+ execution policy (`mgis::BatchExecutionPolicy`,
+-`mgis::AsynchronousBatchExecutionPolicy`) as first argument, and act on a
++`mgis::DeferredReportBatchExecutionPolicy`) as first argument, and act on a
+ `MaterialDataManager` or on a `MaterialDataView`. Those policies point to
+ the execution policy of the backend (`backend_policy` member), defined by
+ `TFEL`, which gives the queue of the computations. The first overload
+diff --git a/docs/web/generic-parallel.md b/docs/web/generic-parallel.md
+index 78b39aa..67f8d44 100644
+--- a/docs/web/generic-parallel.md
++++ b/docs/web/generic-parallel.md
+@@ -39,7 +39,8 @@ through its usual objects (`Behaviour`, `MaterialDataManager`,
+   the execution policy of the backend, defined by `TFEL`: queue of the
+   computations (`CUDA` stream, `SYCL` queue, etc.) and options of the
+   backend. The computations are synchronous by default, or asynchronous
+-  with an asynchronous execution policy whose backend policy requests it.
++  with an execution policy whose report is deferred and whose backend
++  policy requests it.
+ - No data is copied: the batch is described by views on the arrays of the
+   material data manager. The arrays may also be owned by the calling code
+   and described by views with arbitrary strides (see [this
+@@ -60,7 +61,7 @@ identifier of the execution policy expected by the library are read. They
+ are stored in the description of the behaviour (members `interface`,
+ `backend`, `memory_space` and `execution_policy`). The batch functions
+ (`<function>_generic_parallel`) and the function analysing the statistics
+-of the computations with an asynchronous execution policy
++of the computations with an execution policy whose report is deferred
+ (`<behaviour>_generic_parallel_report`, member `batch_report`) are loaded.
+ The `isGenericParallelBehaviour` function tells if a behaviour processes
+ batches.
+@@ -382,13 +383,15 @@ With this policy, the computations are synchronous: the functions return
+ once the computations are completed. A backend policy requesting
+ asynchronous computations (`asynchronous` option) is refused, since such
+ computations require statistics, which only the functions taking an
+-asynchronous execution policy allocate. This is the default: the
++execution policy whose report is deferred allocate. This is the default: the
+ functions without execution policy are synchronous.
+ 
+ ## Asynchronous computations
+ 
+-Each batch function also exists with an asynchronous execution policy
+-(`mgis::AsynchronousBatchExecutionPolicy`). If its backend policy requests
++Each batch function also exists with an execution policy whose report is
++deferred (`mgis::DeferredReportBatchExecutionPolicy`): the function returns
++a pending computation, which holds the status of the computations and gives
++the result once the queue is synchronized. If its backend policy requests
+ asynchronous computations (`asynchronous` option), the function returns
+ once the computations are submitted to the queue. The calling code can
+ submit other computations, for instance the batches of other materials,
+@@ -402,7 +405,7 @@ an asynchronous computation.
+ const auto backend_policy =
+     mfront::generic_parallel::makeCUDABackendExecutionPolicy(
+         {.common_options = {.asynchronous = true}, .stream = stream});
+-auto p = AsynchronousBatchExecutionPolicy{};
++auto p = DeferredReportBatchExecutionPolicy{};
+ p.backend_policy = &backend_policy;
+ p.resource = &resource;  // managed memory
+ p.location = MemoryLocation::SHARED;
+@@ -414,7 +417,7 @@ if (cudaStreamSynchronize(stream) != cudaSuccess) {
+ const auto r = pending.getResult();
+ ~~~~
+ 
+-The asynchronous policy has the members of the synchronous one, plus:
++This policy has the members of `mgis::BatchExecutionPolicy`, plus:
+ 
+ - `resource`: memory resource allocating the status of the computations,
+   or null for the default memory resource (memory of the host unless
+@@ -438,7 +441,7 @@ resource avoids it:
+ ~~~~{.cxx}
+ auto managed = mgis::memory_resources::CUDAManagedMemoryResource{};
+ auto pool = std::pmr::synchronized_pool_resource(&managed);
+-auto p = AsynchronousBatchExecutionPolicy{};
++auto p = DeferredReportBatchExecutionPolicy{};
+ p.resource = &pool;
+ p.location = MemoryLocation::SHARED;
+ ~~~~
+diff --git a/docs/web/orthotropic-behaviours.md b/docs/web/orthotropic-behaviours.md
+index 2074f91..2518a84 100644
+--- a/docs/web/orthotropic-behaviours.md
++++ b/docs/web/orthotropic-behaviours.md
+@@ -224,7 +224,7 @@ a uniform rotation, or 9 values per integration point) or by a
+ `RotationMatrix2D` or a `RotationMatrix3D` object, which builds the
+ rotation matrices from the material axes. Overloads take views with
+ arbitrary strides (see [this page](views.html)), and an asynchronous
+-execution policy (`mgis::AsynchronousBatchExecutionPolicy`).
++execution policy (`mgis::DeferredReportBatchExecutionPolicy`).
+ 
+ For a behaviour generated by the `generic-parallel` interface, those
+ functions rotate all the points by one call of the batch rotation
+diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
+index bb897f8..f1d8cd8 100644
+--- a/docs/web/release-notes-3.2.md
++++ b/docs/web/release-notes-3.2.md
+@@ -182,8 +182,9 @@ material properties). In short:
+   (`MGIS/BackendExecutionPolicy.h`) and does not depend on `TFEL` at
+   compile time. The codes creating policies include the headers of `TFEL`
+   and link its `MFrontGenericParallelRuntime` library;
+-- each batch function also exists with an asynchronous execution policy
+-  (`mgis::AsynchronousBatchExecutionPolicy`): the returned object gives
++- each batch function also exists with an execution policy whose report is
++  deferred (`mgis::DeferredReportBatchExecutionPolicy`), required by the
++  asynchronous computations: the returned object gives
+   the result once the calling code has synchronized the queue, given by
+   the report function of the library (`<name>_generic_parallel_report`).
+   The computations are asynchronous only if the backend policy requests
+diff --git a/docs/web/views.md b/docs/web/views.md
+index a810375..fb5fa3c 100644
+--- a/docs/web/views.md
++++ b/docs/web/views.md
+@@ -219,7 +219,8 @@ const auto pending = integrate(asynchronous_policy, v, opts, dt);
+   integrated point by point on the host. If the components of a group of
+   variables are not contiguous, the values of a point are gathered in the
+   workspace, whose buffers are allocated once by its constructor.
+-- With a synchronous or an asynchronous execution policy, the library must
++- With an execution policy, whose report is immediate or deferred, the
++  library must
+   be generated by the `generic-parallel` interface.
+ - `integrate_debug` only takes a workspace.
+ 
+diff --git a/include/MGIS/BatchExecutionPolicy.hxx b/include/MGIS/BatchExecutionPolicy.hxx
+index bedc0b7..f3b6140 100644
+--- a/include/MGIS/BatchExecutionPolicy.hxx
++++ b/include/MGIS/BatchExecutionPolicy.hxx
+@@ -29,7 +29,7 @@ namespace mgis {
+    *
+    * The computations performed with this policy are synchronous: the
+    * functions return once the computations are completed. See
+-   * `AsynchronousBatchExecutionPolicy` for asynchronous computations.
++   * `DeferredReportBatchExecutionPolicy` for asynchronous computations.
+    */
+   struct BatchExecutionPolicy {
+     /*!
+@@ -43,7 +43,7 @@ namespace mgis {
+      * refused by the library. With this policy, the computations are
+      * synchronous: a backend policy requesting asynchronous computations is
+      * refused (asynchronous computations require the statistics allocated by
+-     * the functions taking an `AsynchronousBatchExecutionPolicy`). The
++     * the functions taking a `DeferredReportBatchExecutionPolicy`). The
+      * generated functions copy what they need from the policy, which does
+      * not have to outlive the call, even for asynchronous computations.
+      */
+@@ -52,7 +52,10 @@ namespace mgis {
+   };
+ 
+   /*!
+-   * \brief asynchronous execution of the computations on a batch of points.
++   * \brief execution of the computations on a batch of points whose report
++   * is deferred: the status of the computations is held by the object
++   * returned by the functions taking this policy, required by asynchronous
++   * computations.
+    *
+    * The functions taking this policy return an object which gives the
+    * result of the computations once the calling code has synchronized the
+@@ -65,7 +68,8 @@ namespace mgis {
+    * by this object, which must not be destroyed before the computations are
+    * completed. This memory is allocated by the memory resource `resource`,
+    * and is initialized and read by the host: it must be accessible by the
+-   * host and by the computations (see `checkAsynchronousBatchExecutionPolicy`).
++   * host and by the computations (see
++   * `checkDeferredReportBatchExecutionPolicy`).
+    *
+    * Errors of the device raised after the submission (for instance an
+    * invalid memory access) are not seen by `MGIS`: they are reported by the
+@@ -79,13 +83,13 @@ namespace mgis {
+    * of the backend, the functions return once the computations are
+    * completed, the result being given by the returned object as for an
+    * asynchronous computation. Some backends compute synchronously even with
+-   * an asynchronous policy: `stlpar`, `openmp`, `openacc`, and `sycl` when
+-   * data are transferred. The result is then available as soon as the
++   * an asynchronous backend policy: `stlpar`, `openmp`, `openacc`, and
++   * `sycl` when data are transferred. The result is then available as soon as the
+    * function returns. With the `sycl` backend, asynchronous computations
+    * require an in-order queue: an out-of-order queue gives no order between
+    * the computations, and is refused.
+    */
+-  struct AsynchronousBatchExecutionPolicy {
++  struct DeferredReportBatchExecutionPolicy {
+     /*!
+      * \brief execution policy of the backend of the library (see
+      * `BatchExecutionPolicy::backend_policy`), which may request asynchronous
+@@ -105,35 +109,36 @@ namespace mgis {
+      * `resource` is only accepted with the `HOST` location: the `SHARED`
+      * location requires a memory resource, even if the default memory
+      * resource has been changed, and the `DEVICE` location is refused (see
+-     * `checkAsynchronousBatchExecutionPolicy`).
++     * `checkDeferredReportBatchExecutionPolicy`).
+      */
+     MemoryLocation location = MemoryLocation::HOST;
+   };
+ 
+   /*!
+-   * \return the memory resource allocating the status of asynchronous
+-   * computations: the one of the policy, or the default memory resource
+-   * \param[in] p: asynchronous policy
++   * \return the memory resource allocating the status of the computations
++   * whose report is deferred: the one of the policy, or the default memory
++   * resource
++   * \param[in] p: policy
+    */
+   inline std::pmr::memory_resource* getMemoryResource(
+-      const AsynchronousBatchExecutionPolicy& p) noexcept {
++      const DeferredReportBatchExecutionPolicy& p) noexcept {
+     return p.resource != nullptr ? p.resource
+                                  : std::pmr::get_default_resource();
+   }  // end of getMemoryResource
+ 
+   /*!
+-   * \brief check that the status of asynchronous computations can be
+-   * allocated with the given policy for a library: the memory must be
+-   * allocated in the memory of the host, or in shared memory by a memory
+-   * resource (see `canAllocateIn`), and be accessible by the computations of
+-   * the library. An exception is thrown otherwise.
++   * \brief check that the status of the computations whose report is
++   * deferred can be allocated with the given policy for a library: the
++   * memory must be allocated in the memory of the host, or in shared memory
++   * by a memory resource (see `canAllocateIn`), and be accessible by the
++   * computations of the library. An exception is thrown otherwise.
+    * \param[in] f: calling function
+-   * \param[in] p: asynchronous policy
++   * \param[in] p: policy
+    * \param[in] s: memory space of the library
+    */
+-  MGIS_EXPORT void checkAsynchronousBatchExecutionPolicy(
++  MGIS_EXPORT void checkDeferredReportBatchExecutionPolicy(
+       std::string_view,
+-      const AsynchronousBatchExecutionPolicy&,
++      const DeferredReportBatchExecutionPolicy&,
+       std::string_view);
+ 
+ }  // end of namespace mgis
+diff --git a/include/MGIS/Behaviour/BatchDataView.hxx b/include/MGIS/Behaviour/BatchDataView.hxx
+index da4f93d..fa10cb7 100644
+--- a/include/MGIS/Behaviour/BatchDataView.hxx
++++ b/include/MGIS/Behaviour/BatchDataView.hxx
+@@ -204,7 +204,7 @@ typedef struct mgis_bv_BatchDataView {
+    * statistics are accumulated in the given structure, the output status only
+    * reports the errors of the batch, and the report function gives the
+    * result once the computations are completed (see
+-   * `AsynchronousBatchExecutionPolicy`). Asynchronous computations require
++   * `DeferredReportBatchExecutionPolicy`). Asynchronous computations require
+    * statistics.
+    */
+   mgis_bv_BatchStatistics* statistics;
+diff --git a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
+index fe69f29..ce9af84 100644
+--- a/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
++++ b/include/MGIS/Behaviour/BatchExecutionPolicy.hxx
+@@ -23,7 +23,7 @@ namespace mgis::behaviour {
+   //! \brief execution of the computations on a batch
+   using mgis::BatchExecutionPolicy;
+   //! \brief asynchronous execution of the computations on a batch
+-  using mgis::AsynchronousBatchExecutionPolicy;
++  using mgis::DeferredReportBatchExecutionPolicy;
+ 
+   /*!
+    * \return the options of a synchronous execution of the computations on a
+@@ -44,7 +44,7 @@ namespace mgis::behaviour {
+    * computations
+    */
+   constexpr BatchExecutionOptions getBatchExecutionOptions(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       BatchStatistics* const s) noexcept {
+     return {.statistics = s, .execution_policy = p.backend_policy};
+   }  // end of getBatchExecutionOptions
+diff --git a/include/MGIS/Behaviour/Behaviour.hxx b/include/MGIS/Behaviour/Behaviour.hxx
+index 70e6074..cefd347 100644
+--- a/include/MGIS/Behaviour/Behaviour.hxx
++++ b/include/MGIS/Behaviour/Behaviour.hxx
+@@ -922,9 +922,9 @@ namespace mgis::behaviour {
+    *
+    * The arguments are the ones of the overloads taking a synchronous
+    * execution policy. The policy is also checked (see
+-   * `checkAsynchronousBatchExecutionPolicy`). The rotated values must not be
++   * `checkDeferredReportBatchExecutionPolicy`). The rotated values must not be
+    * read before the calling code has synchronized the queue (see
+-   * `AsynchronousBatchExecutionPolicy`). The rotations never fail: the
++   * `DeferredReportBatchExecutionPolicy`). The rotations never fail: the
+    * returned object keeps the memory used by the computations until they
+    * are completed.
+    *
+@@ -934,7 +934,7 @@ namespace mgis::behaviour {
+    * and kept by the returned object.
+    */
+   MGIS_EXPORT PendingBatchComputation
+-  rotateGradients(const AsynchronousBatchExecutionPolicy &,
++  rotateGradients(const DeferredReportBatchExecutionPolicy &,
+                   std::span<real>,
+                   const Behaviour &,
+                   const std::span<const real> &,
+@@ -942,7 +942,7 @@ namespace mgis::behaviour {
+                   const MemoryLocation = MemoryLocation::HOST);
+   //! \brief see the previous overload
+   MGIS_EXPORT PendingBatchComputation
+-  rotateGradients(const AsynchronousBatchExecutionPolicy &,
++  rotateGradients(const DeferredReportBatchExecutionPolicy &,
+                   std::span<real>,
+                   const Behaviour &,
+                   const std::span<const real> &,
+@@ -950,7 +950,7 @@ namespace mgis::behaviour {
+                   const MemoryLocation = MemoryLocation::HOST);
+   //! \brief see the previous overload
+   MGIS_EXPORT PendingBatchComputation
+-  rotateGradients(const AsynchronousBatchExecutionPolicy &,
++  rotateGradients(const DeferredReportBatchExecutionPolicy &,
+                   std::span<real>,
+                   const Behaviour &,
+                   const std::span<const real> &,
+@@ -958,7 +958,7 @@ namespace mgis::behaviour {
+                   const MemoryLocation = MemoryLocation::HOST);
+   //! \brief asynchronous version (see `rotateGradients`)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
++  rotateThermodynamicForces(const DeferredReportBatchExecutionPolicy &,
+                             std::span<real>,
+                             const Behaviour &,
+                             const std::span<const real> &,
+@@ -966,7 +966,7 @@ namespace mgis::behaviour {
+                             const MemoryLocation = MemoryLocation::HOST);
+   //! \brief see the previous overload
+   MGIS_EXPORT PendingBatchComputation
+-  rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
++  rotateThermodynamicForces(const DeferredReportBatchExecutionPolicy &,
+                             std::span<real>,
+                             const Behaviour &,
+                             const std::span<const real> &,
+@@ -974,7 +974,7 @@ namespace mgis::behaviour {
+                             const MemoryLocation = MemoryLocation::HOST);
+   //! \brief see the previous overload
+   MGIS_EXPORT PendingBatchComputation
+-  rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
++  rotateThermodynamicForces(const DeferredReportBatchExecutionPolicy &,
+                             std::span<real>,
+                             const Behaviour &,
+                             const std::span<const real> &,
+@@ -982,7 +982,7 @@ namespace mgis::behaviour {
+                             const MemoryLocation = MemoryLocation::HOST);
+   //! \brief asynchronous version (see `rotateGradients`)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
++  rotateTangentOperatorBlocks(const DeferredReportBatchExecutionPolicy &,
+                               std::span<real>,
+                               const Behaviour &,
+                               const std::span<const real> &,
+@@ -990,7 +990,7 @@ namespace mgis::behaviour {
+                               const MemoryLocation = MemoryLocation::HOST);
+   //! \brief see the previous overload
+   MGIS_EXPORT PendingBatchComputation
+-  rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
++  rotateTangentOperatorBlocks(const DeferredReportBatchExecutionPolicy &,
+                               std::span<real>,
+                               const Behaviour &,
+                               const std::span<const real> &,
+@@ -998,7 +998,7 @@ namespace mgis::behaviour {
+                               const MemoryLocation = MemoryLocation::HOST);
+   //! \brief see the previous overload
+   MGIS_EXPORT PendingBatchComputation
+-  rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
++  rotateTangentOperatorBlocks(const DeferredReportBatchExecutionPolicy &,
+                               std::span<real>,
+                               const Behaviour &,
+                               const std::span<const real> &,
+@@ -1144,7 +1144,7 @@ namespace mgis::behaviour {
+    * `isMemoryLocationAccessible`)
+    */
+   MGIS_EXPORT PendingBatchComputation
+-  rotateGradients(const AsynchronousBatchExecutionPolicy &,
++  rotateGradients(const DeferredReportBatchExecutionPolicy &,
+                   const FieldView<real> &,
+                   const Behaviour &,
+                   const FieldView<const real> &,
+@@ -1156,7 +1156,7 @@ namespace mgis::behaviour {
+    * memory resource of the policy, and kept by the returned object.
+    */
+   MGIS_EXPORT PendingBatchComputation
+-  rotateGradients(const AsynchronousBatchExecutionPolicy &,
++  rotateGradients(const DeferredReportBatchExecutionPolicy &,
+                   const FieldView<real> &,
+                   const Behaviour &,
+                   const FieldView<const real> &,
+@@ -1164,7 +1164,7 @@ namespace mgis::behaviour {
+                   const MemoryLocation = MemoryLocation::HOST);
+   //! \brief see the previous overload
+   MGIS_EXPORT PendingBatchComputation
+-  rotateGradients(const AsynchronousBatchExecutionPolicy &,
++  rotateGradients(const DeferredReportBatchExecutionPolicy &,
+                   const FieldView<real> &,
+                   const Behaviour &,
+                   const FieldView<const real> &,
+@@ -1172,21 +1172,21 @@ namespace mgis::behaviour {
+                   const MemoryLocation = MemoryLocation::HOST);
+   //! \brief rotation in place (see the previous overloads)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateGradients(const AsynchronousBatchExecutionPolicy &,
++  rotateGradients(const DeferredReportBatchExecutionPolicy &,
+                   const FieldView<real> &,
+                   const Behaviour &,
+                   const FieldView<const real> &,
+                   const MemoryLocation = MemoryLocation::HOST);
+   //! \brief rotation in place (see the previous overloads)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateGradients(const AsynchronousBatchExecutionPolicy &,
++  rotateGradients(const DeferredReportBatchExecutionPolicy &,
+                   const FieldView<real> &,
+                   const Behaviour &,
+                   const RotationMatrix2D &,
+                   const MemoryLocation = MemoryLocation::HOST);
+   //! \brief rotation in place (see the previous overloads)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateGradients(const AsynchronousBatchExecutionPolicy &,
++  rotateGradients(const DeferredReportBatchExecutionPolicy &,
+                   const FieldView<real> &,
+                   const Behaviour &,
+                   const RotationMatrix3D &,
+@@ -1331,7 +1331,7 @@ namespace mgis::behaviour {
+    * `isMemoryLocationAccessible`)
+    */
+   MGIS_EXPORT PendingBatchComputation
+-  rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
++  rotateThermodynamicForces(const DeferredReportBatchExecutionPolicy &,
+                             const FieldView<real> &,
+                             const Behaviour &,
+                             const FieldView<const real> &,
+@@ -1343,7 +1343,7 @@ namespace mgis::behaviour {
+    * memory resource of the policy, and kept by the returned object.
+    */
+   MGIS_EXPORT PendingBatchComputation
+-  rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
++  rotateThermodynamicForces(const DeferredReportBatchExecutionPolicy &,
+                             const FieldView<real> &,
+                             const Behaviour &,
+                             const FieldView<const real> &,
+@@ -1351,7 +1351,7 @@ namespace mgis::behaviour {
+                             const MemoryLocation = MemoryLocation::HOST);
+   //! \brief see the previous overload
+   MGIS_EXPORT PendingBatchComputation
+-  rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
++  rotateThermodynamicForces(const DeferredReportBatchExecutionPolicy &,
+                             const FieldView<real> &,
+                             const Behaviour &,
+                             const FieldView<const real> &,
+@@ -1359,21 +1359,21 @@ namespace mgis::behaviour {
+                             const MemoryLocation = MemoryLocation::HOST);
+   //! \brief rotation in place (see the previous overloads)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
++  rotateThermodynamicForces(const DeferredReportBatchExecutionPolicy &,
+                             const FieldView<real> &,
+                             const Behaviour &,
+                             const FieldView<const real> &,
+                             const MemoryLocation = MemoryLocation::HOST);
+   //! \brief rotation in place (see the previous overloads)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
++  rotateThermodynamicForces(const DeferredReportBatchExecutionPolicy &,
+                             const FieldView<real> &,
+                             const Behaviour &,
+                             const RotationMatrix2D &,
+                             const MemoryLocation = MemoryLocation::HOST);
+   //! \brief rotation in place (see the previous overloads)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateThermodynamicForces(const AsynchronousBatchExecutionPolicy &,
++  rotateThermodynamicForces(const DeferredReportBatchExecutionPolicy &,
+                             const FieldView<real> &,
+                             const Behaviour &,
+                             const RotationMatrix3D &,
+@@ -1518,7 +1518,7 @@ namespace mgis::behaviour {
+    * `isMemoryLocationAccessible`)
+    */
+   MGIS_EXPORT PendingBatchComputation
+-  rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
++  rotateTangentOperatorBlocks(const DeferredReportBatchExecutionPolicy &,
+                               const FieldView<real> &,
+                               const Behaviour &,
+                               const FieldView<const real> &,
+@@ -1530,7 +1530,7 @@ namespace mgis::behaviour {
+    * memory resource of the policy, and kept by the returned object.
+    */
+   MGIS_EXPORT PendingBatchComputation
+-  rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
++  rotateTangentOperatorBlocks(const DeferredReportBatchExecutionPolicy &,
+                               const FieldView<real> &,
+                               const Behaviour &,
+                               const FieldView<const real> &,
+@@ -1538,7 +1538,7 @@ namespace mgis::behaviour {
+                               const MemoryLocation = MemoryLocation::HOST);
+   //! \brief see the previous overload
+   MGIS_EXPORT PendingBatchComputation
+-  rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
++  rotateTangentOperatorBlocks(const DeferredReportBatchExecutionPolicy &,
+                               const FieldView<real> &,
+                               const Behaviour &,
+                               const FieldView<const real> &,
+@@ -1546,21 +1546,21 @@ namespace mgis::behaviour {
+                               const MemoryLocation = MemoryLocation::HOST);
+   //! \brief rotation in place (see the previous overloads)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
++  rotateTangentOperatorBlocks(const DeferredReportBatchExecutionPolicy &,
+                               const FieldView<real> &,
+                               const Behaviour &,
+                               const FieldView<const real> &,
+                               const MemoryLocation = MemoryLocation::HOST);
+   //! \brief rotation in place (see the previous overloads)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
++  rotateTangentOperatorBlocks(const DeferredReportBatchExecutionPolicy &,
+                               const FieldView<real> &,
+                               const Behaviour &,
+                               const RotationMatrix2D &,
+                               const MemoryLocation = MemoryLocation::HOST);
+   //! \brief rotation in place (see the previous overloads)
+   MGIS_EXPORT PendingBatchComputation
+-  rotateTangentOperatorBlocks(const AsynchronousBatchExecutionPolicy &,
++  rotateTangentOperatorBlocks(const DeferredReportBatchExecutionPolicy &,
+                               const FieldView<real> &,
+                               const Behaviour &,
+                               const RotationMatrix3D &,
+diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
+index 0f2eceb..6c0f347 100644
+--- a/include/MGIS/Behaviour/Integrate.hxx
++++ b/include/MGIS/Behaviour/Integrate.hxx
+@@ -384,34 +384,34 @@ namespace mgis::behaviour {
+    *
+    * The arguments and the checks are the ones of the overloads taking a
+    * synchronous execution policy, plus the check of the policy (see
+-   * `checkAsynchronousBatchExecutionPolicy`). The result is given by the
++   * `checkDeferredReportBatchExecutionPolicy`). The result is given by the
+    * returned object once the calling code has synchronized the queue (see
+-   * `AsynchronousBatchExecutionPolicy`).
++   * `DeferredReportBatchExecutionPolicy`).
+    *
+    * \param[in] p: execution policy
+    * \param[in,out] m: material data manager
+    * \param[in] n: name of the initialize function
+    */
+   MGIS_EXPORT PendingBatchComputation
+-  executeInitializeFunction(const AsynchronousBatchExecutionPolicy&,
++  executeInitializeFunction(const DeferredReportBatchExecutionPolicy&,
+                             MaterialDataManager&,
+                             const std::string_view);
+   //! \brief asynchronous version, with inputs (see the previous overload)
+   MGIS_EXPORT PendingBatchComputation
+-  executeInitializeFunction(const AsynchronousBatchExecutionPolicy&,
++  executeInitializeFunction(const DeferredReportBatchExecutionPolicy&,
+                             MaterialDataManager&,
+                             const std::string_view,
+                             std::span<const real>);
+   //! \brief asynchronous version, over a range of integration points
+   MGIS_EXPORT PendingBatchComputation
+-  executeInitializeFunction(const AsynchronousBatchExecutionPolicy&,
++  executeInitializeFunction(const DeferredReportBatchExecutionPolicy&,
+                             MaterialDataManager&,
+                             const std::string_view,
+                             const size_type,
+                             const size_type);
+   //! \brief asynchronous version, with inputs, over a range of points
+   MGIS_EXPORT PendingBatchComputation
+-  executeInitializeFunction(const AsynchronousBatchExecutionPolicy&,
++  executeInitializeFunction(const DeferredReportBatchExecutionPolicy&,
+                             MaterialDataManager&,
+                             const std::string_view,
+                             std::span<const real>,
+@@ -581,9 +581,9 @@ namespace mgis::behaviour {
+    *
+    * The arguments and the checks are the ones of the overloads taking a
+    * synchronous execution policy, plus the check of the policy (see
+-   * `checkAsynchronousBatchExecutionPolicy`). The result is given by the
++   * `checkDeferredReportBatchExecutionPolicy`). The result is given by the
+    * returned object once the calling code has synchronized the queue (see
+-   * `AsynchronousBatchExecutionPolicy`). The outputs (thermodynamic forces,
++   * `DeferredReportBatchExecutionPolicy`). The outputs (thermodynamic forces,
+    * internal state variables, tangent operators, etc.) must not be read
+    * before.
+    *
+@@ -593,13 +593,13 @@ namespace mgis::behaviour {
+    * \param[in] dt: time step
+    */
+   MGIS_EXPORT PendingBatchComputation
+-  integrate(const AsynchronousBatchExecutionPolicy&,
++  integrate(const DeferredReportBatchExecutionPolicy&,
+             MaterialDataManager&,
+             const BehaviourIntegrationOptions&,
+             const real);
+   //! \brief asynchronous version, over a range of integration points
+   MGIS_EXPORT PendingBatchComputation
+-  integrate(const AsynchronousBatchExecutionPolicy&,
++  integrate(const DeferredReportBatchExecutionPolicy&,
+             MaterialDataManager&,
+             const BehaviourIntegrationOptions&,
+             const real,
+@@ -920,9 +920,9 @@ namespace mgis::behaviour {
+    *
+    * The arguments and the checks are the ones of the overloads taking a
+    * synchronous execution policy, plus the check of the policy (see
+-   * `checkAsynchronousBatchExecutionPolicy`). The result is given by the
++   * `checkDeferredReportBatchExecutionPolicy`). The result is given by the
+    * returned object once the calling code has synchronized the queue (see
+-   * `AsynchronousBatchExecutionPolicy`). The outputs must not be read
++   * `DeferredReportBatchExecutionPolicy`). The outputs must not be read
+    * before.
+    *
+    * \param[out] outputs: post-processing results, in the layout of the material
+@@ -933,13 +933,13 @@ namespace mgis::behaviour {
+    */
+   MGIS_EXPORT PendingBatchComputation
+   executePostProcessing(std::span<real>,
+-                        const AsynchronousBatchExecutionPolicy&,
++                        const DeferredReportBatchExecutionPolicy&,
+                         MaterialDataManager&,
+                         const std::string_view);
+   //! \brief asynchronous version, over a range of integration points
+   MGIS_EXPORT PendingBatchComputation
+   executePostProcessing(std::span<real>,
+-                        const AsynchronousBatchExecutionPolicy&,
++                        const DeferredReportBatchExecutionPolicy&,
+                         MaterialDataManager&,
+                         const std::string_view,
+                         const size_type,
+@@ -1058,14 +1058,14 @@ namespace mgis::behaviour {
+                             const FieldView<const real>&);
+   //! \brief asynchronous version, over a range of points
+   MGIS_EXPORT PendingBatchComputation
+-  executeInitializeFunction(const AsynchronousBatchExecutionPolicy&,
++  executeInitializeFunction(const DeferredReportBatchExecutionPolicy&,
+                             const MaterialDataView&,
+                             const std::string_view,
+                             const size_type,
+                             const size_type);
+   //! \brief asynchronous version, with inputs, over a range of points
+   MGIS_EXPORT PendingBatchComputation
+-  executeInitializeFunction(const AsynchronousBatchExecutionPolicy&,
++  executeInitializeFunction(const DeferredReportBatchExecutionPolicy&,
+                             const MaterialDataView&,
+                             const std::string_view,
+                             const FieldView<const real>&,
+@@ -1073,12 +1073,12 @@ namespace mgis::behaviour {
+                             const size_type);
+   //! \brief asynchronous version, on all the points
+   MGIS_EXPORT PendingBatchComputation
+-  executeInitializeFunction(const AsynchronousBatchExecutionPolicy&,
++  executeInitializeFunction(const DeferredReportBatchExecutionPolicy&,
+                             const MaterialDataView&,
+                             const std::string_view);
+   //! \brief asynchronous version, with inputs, on all the points
+   MGIS_EXPORT PendingBatchComputation
+-  executeInitializeFunction(const AsynchronousBatchExecutionPolicy&,
++  executeInitializeFunction(const DeferredReportBatchExecutionPolicy&,
+                             const MaterialDataView&,
+                             const std::string_view,
+                             const FieldView<const real>&);
+@@ -1148,7 +1148,7 @@ namespace mgis::behaviour {
+             const real);
+   //! \brief asynchronous version, over a range of points
+   MGIS_EXPORT PendingBatchComputation
+-  integrate(const AsynchronousBatchExecutionPolicy&,
++  integrate(const DeferredReportBatchExecutionPolicy&,
+             const MaterialDataView&,
+             const BehaviourIntegrationOptions&,
+             const real,
+@@ -1156,7 +1156,7 @@ namespace mgis::behaviour {
+             const size_type);
+   //! \brief asynchronous version, on all the points
+   MGIS_EXPORT PendingBatchComputation
+-  integrate(const AsynchronousBatchExecutionPolicy&,
++  integrate(const DeferredReportBatchExecutionPolicy&,
+             const MaterialDataView&,
+             const BehaviourIntegrationOptions&,
+             const real);
+@@ -1252,7 +1252,7 @@ namespace mgis::behaviour {
+   //! \brief asynchronous version, over a range of points
+   MGIS_EXPORT PendingBatchComputation
+   executePostProcessing(const FieldView<real>&,
+-                        const AsynchronousBatchExecutionPolicy&,
++                        const DeferredReportBatchExecutionPolicy&,
+                         const MaterialDataView&,
+                         const std::string_view,
+                         const size_type,
+@@ -1260,7 +1260,7 @@ namespace mgis::behaviour {
+   //! \brief asynchronous version, on all the points
+   MGIS_EXPORT PendingBatchComputation
+   executePostProcessing(const FieldView<real>&,
+-                        const AsynchronousBatchExecutionPolicy&,
++                        const DeferredReportBatchExecutionPolicy&,
+                         const MaterialDataView&,
+                         const std::string_view);
+ 
+diff --git a/include/MGIS/Behaviour/PendingBatchComputation.hxx b/include/MGIS/Behaviour/PendingBatchComputation.hxx
+index 226ff48..e613346 100644
+--- a/include/MGIS/Behaviour/PendingBatchComputation.hxx
++++ b/include/MGIS/Behaviour/PendingBatchComputation.hxx
+@@ -31,7 +31,7 @@ namespace mgis::behaviour {
+ 
+   /*!
+    * \brief computations on a batch of integration points submitted
+-   * asynchronously (see `AsynchronousBatchExecutionPolicy`): integration,
++   * asynchronously (see `DeferredReportBatchExecutionPolicy`): integration,
+    * initialize function, post-processing or rotation.
+    *
+    * This object holds the statistics of the computations, written by the
+@@ -55,7 +55,7 @@ namespace mgis::behaviour {
+      * the result reports the time step scaling factor (integrations)
+      * \param[in] n: number of values of the workspace
+      */
+-    PendingBatchComputation(const AsynchronousBatchExecutionPolicy&,
++    PendingBatchComputation(const DeferredReportBatchExecutionPolicy&,
+                             const BatchReportFctPtr,
+                             std::string_view,
+                             const size_type,
+diff --git a/include/MGIS/MaterialProperty/MaterialProperty.hxx b/include/MGIS/MaterialProperty/MaterialProperty.hxx
+index df21ee2..233730c 100644
+--- a/include/MGIS/MaterialProperty/MaterialProperty.hxx
++++ b/include/MGIS/MaterialProperty/MaterialProperty.hxx
+@@ -35,7 +35,7 @@ namespace mgis::material_property {
+   //! \brief execution of the evaluation on a set of points
+   using mgis::BatchExecutionPolicy;
+   //! \brief asynchronous execution of the evaluation on a set of points
+-  using mgis::AsynchronousBatchExecutionPolicy;
++  using mgis::DeferredReportBatchExecutionPolicy;
+ 
+   /*!
+    * \brief structure describing a material property
+@@ -272,9 +272,9 @@ namespace mgis::material_property {
+    * The arguments and the checks are the ones of the overload taking a
+    * synchronous execution policy. An exception is also thrown if the memory
+    * resource of the policy can't allocate the status of the computations
+-   * (see `checkAsynchronousBatchExecutionPolicy`), or if the submission
++   * (see `checkDeferredReportBatchExecutionPolicy`), or if the submission
+    * fails. The result is given by the returned object once the calling code
+-   * has synchronized the queue (see `AsynchronousBatchExecutionPolicy`).
++   * has synchronized the queue (see `DeferredReportBatchExecutionPolicy`).
+    * The values must not be read before.
+    *
+    * \return the pending evaluation
+@@ -286,7 +286,7 @@ namespace mgis::material_property {
+    * \param[in] p: out of bounds policy
+    */
+   MGIS_EXPORT PendingBatchEvaluation
+-  evaluate(const AsynchronousBatchExecutionPolicy &,
++  evaluate(const DeferredReportBatchExecutionPolicy &,
+            std::span<real>,
+            const MaterialProperty &,
+            std::span<const std::span<const real>>,
+@@ -341,7 +341,7 @@ namespace mgis::material_property {
+    * `generic-parallel` interface on a set of points described by views,
+    * asynchronously (see the previous overloads). An exception is also thrown
+    * if the memory resource of the policy can't allocate the status of the
+-   * computations (see `checkAsynchronousBatchExecutionPolicy`), or if the
++   * computations (see `checkDeferredReportBatchExecutionPolicy`), or if the
+    * submission fails.
+    * \return the pending evaluation
+    * \param[in] e: execution policy
+@@ -352,7 +352,7 @@ namespace mgis::material_property {
+    * \param[in] p: out of bounds policy
+    */
+   MGIS_EXPORT PendingBatchEvaluation
+-  evaluate(const AsynchronousBatchExecutionPolicy &,
++  evaluate(const DeferredReportBatchExecutionPolicy &,
+            const FieldView<real> &,
+            const MaterialProperty &,
+            std::span<const FieldView<const real>>,
+diff --git a/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx b/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx
+index a6fbcb3..9890023 100644
+--- a/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx
++++ b/include/MGIS/MaterialProperty/PendingBatchEvaluation.hxx
+@@ -29,7 +29,7 @@ namespace mgis::material_property {
+ 
+   /*!
+    * \brief evaluation of a material property on a set of points submitted
+-   * asynchronously (see `AsynchronousBatchExecutionPolicy`).
++   * asynchronously (see `DeferredReportBatchExecutionPolicy`).
+    *
+    * This object holds the statistics of the evaluation, written by the
+    * computations when an event occurs at a point (bound violated, invalid
+@@ -47,7 +47,7 @@ namespace mgis::material_property {
+      * \param[in] r: function analysing the statistics, or null if nothing
+      * is evaluated
+      */
+-    PendingBatchEvaluation(const AsynchronousBatchExecutionPolicy&,
++    PendingBatchEvaluation(const DeferredReportBatchExecutionPolicy&,
+                            std::string_view,
+                            const BatchReportFctPtr);
+     /*!
+diff --git a/src/BatchExecutionPolicy.cxx b/src/BatchExecutionPolicy.cxx
+index 12391fb..754b1fe 100644
+--- a/src/BatchExecutionPolicy.cxx
++++ b/src/BatchExecutionPolicy.cxx
+@@ -17,9 +17,9 @@
+ 
+ namespace mgis {
+ 
+-  void checkAsynchronousBatchExecutionPolicy(
++  void checkDeferredReportBatchExecutionPolicy(
+       std::string_view f,
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       std::string_view s) {
+     // the status is initialized and read by the host
+     if (!canAllocateIn(p.location, p.resource)) {
+@@ -38,6 +38,6 @@ namespace mgis {
+                   ", is not accessible by the computations (memory space '" +
+                   std::string{s} + "')");
+     }
+-  }  // end of checkAsynchronousBatchExecutionPolicy
++  }  // end of checkDeferredReportBatchExecutionPolicy
+ 
+ }  // end of namespace mgis
+diff --git a/src/Behaviour.cxx b/src/Behaviour.cxx
+index 7315494..c719478 100644
+--- a/src/Behaviour.cxx
++++ b/src/Behaviour.cxx
+@@ -857,7 +857,7 @@ namespace mgis::behaviour {
+    */
+   static PendingBatchComputation rotateBatch(
+       const RotationFunctions &f,
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const Behaviour &b,
+       const FieldView<real> &d,
+       const FieldView<const real> &s,
+@@ -868,7 +868,7 @@ namespace mgis::behaviour {
+     if (n != 0) {
+       checkRotationMatricesView(f.name, r, n);
+     }
+-    checkAsynchronousBatchExecutionPolicy(f.name, p, b.memory_space);
++    checkDeferredReportBatchExecutionPolicy(f.name, p, b.memory_space);
+     if ((n != 0) && (b.batch_report == nullptr)) {
+       mgis::raise(std::string{f.name} +
+                   ": no report function of the asynchronous computations "
+@@ -940,7 +940,7 @@ namespace mgis::behaviour {
+   template <RotationFromMaterialAxes RotationType>
+   static PendingBatchComputation rotateBatch(
+       const RotationFunctions &f,
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const Behaviour &b,
+       const FieldView<real> &d,
+       const FieldView<const real> &s,
+@@ -948,7 +948,7 @@ namespace mgis::behaviour {
+       const MemoryLocation l) {
+     checkBatchRotationFunction(f.name, f.batch);
+     const auto n = checkRotationViews(f, b, d, s, l);
+-    checkAsynchronousBatchExecutionPolicy(f.name, p, b.memory_space);
++    checkDeferredReportBatchExecutionPolicy(f.name, p, b.memory_space);
+     if (n == 0) {
+       return PendingBatchComputation(p, nullptr, f.name, 0, std::nullopt);
+     }
+@@ -1207,7 +1207,7 @@ namespace mgis::behaviour {
+   }  // end of rotateGradients
+ 
+   PendingBatchComputation rotateGradients(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::span<real> mg,
+       const Behaviour &b,
+       const std::span<const real> &gg,
+@@ -1221,7 +1221,7 @@ namespace mgis::behaviour {
+   }  // end of rotateGradients
+ 
+   PendingBatchComputation rotateGradients(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::span<real> mg,
+       const Behaviour &b,
+       const std::span<const real> &gg,
+@@ -1233,7 +1233,7 @@ namespace mgis::behaviour {
+   }  // end of rotateGradients
+ 
+   PendingBatchComputation rotateGradients(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::span<real> mg,
+       const Behaviour &b,
+       const std::span<const real> &gg,
+@@ -1331,7 +1331,7 @@ namespace mgis::behaviour {
+   }  // end of rotateThermodynamicForces
+ 
+   PendingBatchComputation rotateThermodynamicForces(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::span<real> gtf,
+       const Behaviour &b,
+       const std::span<const real> &mtf,
+@@ -1345,7 +1345,7 @@ namespace mgis::behaviour {
+   }  // end of rotateThermodynamicForces
+ 
+   PendingBatchComputation rotateThermodynamicForces(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::span<real> gtf,
+       const Behaviour &b,
+       const std::span<const real> &mtf,
+@@ -1357,7 +1357,7 @@ namespace mgis::behaviour {
+   }  // end of rotateThermodynamicForces
+ 
+   PendingBatchComputation rotateThermodynamicForces(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::span<real> gtf,
+       const Behaviour &b,
+       const std::span<const real> &mtf,
+@@ -1455,7 +1455,7 @@ namespace mgis::behaviour {
+   }  // end of rotateTangentOperatorBlocks
+ 
+   PendingBatchComputation rotateTangentOperatorBlocks(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::span<real> gK,
+       const Behaviour &b,
+       const std::span<const real> &mK,
+@@ -1469,7 +1469,7 @@ namespace mgis::behaviour {
+   }  // end of rotateTangentOperatorBlocks
+ 
+   PendingBatchComputation rotateTangentOperatorBlocks(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::span<real> gK,
+       const Behaviour &b,
+       const std::span<const real> &mK,
+@@ -1481,7 +1481,7 @@ namespace mgis::behaviour {
+   }  // end of rotateTangentOperatorBlocks
+ 
+   PendingBatchComputation rotateTangentOperatorBlocks(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::span<real> gK,
+       const Behaviour &b,
+       const std::span<const real> &mK,
+@@ -1589,7 +1589,7 @@ namespace mgis::behaviour {
+   }  // end of rotateGradients
+ 
+   PendingBatchComputation rotateGradients(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &mg,
+       const Behaviour &b,
+       const FieldView<const real> &gg,
+@@ -1599,7 +1599,7 @@ namespace mgis::behaviour {
+   }  // end of rotateGradients
+ 
+   PendingBatchComputation rotateGradients(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &mg,
+       const Behaviour &b,
+       const FieldView<const real> &gg,
+@@ -1609,7 +1609,7 @@ namespace mgis::behaviour {
+   }  // end of rotateGradients
+ 
+   PendingBatchComputation rotateGradients(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &mg,
+       const Behaviour &b,
+       const FieldView<const real> &gg,
+@@ -1619,7 +1619,7 @@ namespace mgis::behaviour {
+   }  // end of rotateGradients
+ 
+   PendingBatchComputation rotateGradients(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &g,
+       const Behaviour &b,
+       const FieldView<const real> &r,
+@@ -1628,7 +1628,7 @@ namespace mgis::behaviour {
+   }  // end of rotateGradients
+ 
+   PendingBatchComputation rotateGradients(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &g,
+       const Behaviour &b,
+       const RotationMatrix2D &r,
+@@ -1637,7 +1637,7 @@ namespace mgis::behaviour {
+   }  // end of rotateGradients
+ 
+   PendingBatchComputation rotateGradients(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &g,
+       const Behaviour &b,
+       const RotationMatrix3D &r,
+@@ -1745,7 +1745,7 @@ namespace mgis::behaviour {
+   }  // end of rotateThermodynamicForces
+ 
+   PendingBatchComputation rotateThermodynamicForces(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &gtf,
+       const Behaviour &b,
+       const FieldView<const real> &mtf,
+@@ -1756,7 +1756,7 @@ namespace mgis::behaviour {
+   }  // end of rotateThermodynamicForces
+ 
+   PendingBatchComputation rotateThermodynamicForces(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &gtf,
+       const Behaviour &b,
+       const FieldView<const real> &mtf,
+@@ -1767,7 +1767,7 @@ namespace mgis::behaviour {
+   }  // end of rotateThermodynamicForces
+ 
+   PendingBatchComputation rotateThermodynamicForces(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &gtf,
+       const Behaviour &b,
+       const FieldView<const real> &mtf,
+@@ -1778,7 +1778,7 @@ namespace mgis::behaviour {
+   }  // end of rotateThermodynamicForces
+ 
+   PendingBatchComputation rotateThermodynamicForces(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &tf,
+       const Behaviour &b,
+       const FieldView<const real> &r,
+@@ -1788,7 +1788,7 @@ namespace mgis::behaviour {
+   }  // end of rotateThermodynamicForces
+ 
+   PendingBatchComputation rotateThermodynamicForces(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &tf,
+       const Behaviour &b,
+       const RotationMatrix2D &r,
+@@ -1798,7 +1798,7 @@ namespace mgis::behaviour {
+   }  // end of rotateThermodynamicForces
+ 
+   PendingBatchComputation rotateThermodynamicForces(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &tf,
+       const Behaviour &b,
+       const RotationMatrix3D &r,
+@@ -1907,7 +1907,7 @@ namespace mgis::behaviour {
+   }  // end of rotateTangentOperatorBlocks
+ 
+   PendingBatchComputation rotateTangentOperatorBlocks(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &gK,
+       const Behaviour &b,
+       const FieldView<const real> &mK,
+@@ -1918,7 +1918,7 @@ namespace mgis::behaviour {
+   }  // end of rotateTangentOperatorBlocks
+ 
+   PendingBatchComputation rotateTangentOperatorBlocks(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &gK,
+       const Behaviour &b,
+       const FieldView<const real> &mK,
+@@ -1929,7 +1929,7 @@ namespace mgis::behaviour {
+   }  // end of rotateTangentOperatorBlocks
+ 
+   PendingBatchComputation rotateTangentOperatorBlocks(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &gK,
+       const Behaviour &b,
+       const FieldView<const real> &mK,
+@@ -1940,7 +1940,7 @@ namespace mgis::behaviour {
+   }  // end of rotateTangentOperatorBlocks
+ 
+   PendingBatchComputation rotateTangentOperatorBlocks(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &K,
+       const Behaviour &b,
+       const FieldView<const real> &r,
+@@ -1950,7 +1950,7 @@ namespace mgis::behaviour {
+   }  // end of rotateTangentOperatorBlocks
+ 
+   PendingBatchComputation rotateTangentOperatorBlocks(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &K,
+       const Behaviour &b,
+       const RotationMatrix2D &r,
+@@ -1960,7 +1960,7 @@ namespace mgis::behaviour {
+   }  // end of rotateTangentOperatorBlocks
+ 
+   PendingBatchComputation rotateTangentOperatorBlocks(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       const FieldView<real> &K,
+       const Behaviour &b,
+       const RotationMatrix3D &r,
+diff --git a/src/Integrate.cxx b/src/Integrate.cxx
+index 65f199e..f42968c 100644
+--- a/src/Integrate.cxx
++++ b/src/Integrate.cxx
+@@ -603,13 +603,13 @@ namespace mgis::behaviour::internals {
+   template <typename SubmitFunction>
+   static PendingBatchComputation executeBatch(
+       const char* const f,
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       const MaterialDataView& v,
+       const size_type b,
+       const size_type e,
+       const std::optional<real> rdt,
+       const SubmitFunction& submit) {
+-    checkAsynchronousBatchExecutionPolicy(f, p, v.b->memory_space);
++    checkDeferredReportBatchExecutionPolicy(f, p, v.b->memory_space);
+     checkBatchReportFunction(f, *(v.b), b != e);
+     // the statistics of an empty batch are not analysed
+     auto r = PendingBatchComputation(p, (b != e) ? v.b->batch_report : nullptr,
+@@ -1394,7 +1394,7 @@ namespace mgis::behaviour::internals {
+ namespace mgis::behaviour {
+ 
+   PendingBatchComputation::PendingBatchComputation(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       const BatchReportFctPtr r,
+       std::string_view f,
+       const size_type b,
+@@ -1819,7 +1819,7 @@ namespace mgis::behaviour {
+   }  // end of executeInitializeFunction
+ 
+   PendingBatchComputation executeInitializeFunction(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       const MaterialDataView& v,
+       const std::string_view n,
+       const size_type b,
+@@ -1828,7 +1828,7 @@ namespace mgis::behaviour {
+   }  // end of executeInitializeFunction
+ 
+   PendingBatchComputation executeInitializeFunction(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       const MaterialDataView& v,
+       const std::string_view n,
+       const FieldView<const real>& inputs,
+@@ -1838,14 +1838,14 @@ namespace mgis::behaviour {
+   }  // end of executeInitializeFunction
+ 
+   PendingBatchComputation executeInitializeFunction(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       const MaterialDataView& v,
+       const std::string_view n) {
+     return executeInitializeFunctionOnBatch(p, v, n, std::nullopt, 0, v.n);
+   }  // end of executeInitializeFunction
+ 
+   PendingBatchComputation executeInitializeFunction(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       const MaterialDataView& v,
+       const std::string_view n,
+       const FieldView<const real>& inputs) {
+@@ -1943,7 +1943,7 @@ namespace mgis::behaviour {
+   }  // end of executeInitializeFunction
+ 
+   PendingBatchComputation executeInitializeFunction(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       MaterialDataManager& m,
+       const std::string_view n,
+       const size_type b,
+@@ -1952,7 +1952,7 @@ namespace mgis::behaviour {
+   }  // end of executeInitializeFunction
+ 
+   PendingBatchComputation executeInitializeFunction(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       MaterialDataManager& m,
+       const std::string_view n,
+       std::span<const real> inputs,
+@@ -1962,14 +1962,14 @@ namespace mgis::behaviour {
+   }  // end of executeInitializeFunction
+ 
+   PendingBatchComputation executeInitializeFunction(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       MaterialDataManager& m,
+       const std::string_view n) {
+     return executeInitializeFunctionOnBatch(p, m, n, std::nullopt, 0, m.n);
+   }  // end of executeInitializeFunction
+ 
+   PendingBatchComputation executeInitializeFunction(
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       MaterialDataManager& m,
+       const std::string_view n,
+       std::span<const real> inputs) {
+@@ -2051,7 +2051,7 @@ namespace mgis::behaviour {
+     return internals::integrateBatch(p, v, opts, dt, 0, v.n);
+   }  // end of integrate
+ 
+-  PendingBatchComputation integrate(const AsynchronousBatchExecutionPolicy& p,
++  PendingBatchComputation integrate(const DeferredReportBatchExecutionPolicy& p,
+                                     const MaterialDataView& v,
+                                     const BehaviourIntegrationOptions& opts,
+                                     const real dt,
+@@ -2060,7 +2060,7 @@ namespace mgis::behaviour {
+     return internals::integrateBatch(p, v, opts, dt, b, e);
+   }  // end of integrate
+ 
+-  PendingBatchComputation integrate(const AsynchronousBatchExecutionPolicy& p,
++  PendingBatchComputation integrate(const DeferredReportBatchExecutionPolicy& p,
+                                     const MaterialDataView& v,
+                                     const BehaviourIntegrationOptions& opts,
+                                     const real dt) {
+@@ -2214,14 +2214,14 @@ namespace mgis::behaviour {
+     return integrateOnBatch(p, m, opts, dt, b, e);
+   }  // end of integrate
+ 
+-  PendingBatchComputation integrate(const AsynchronousBatchExecutionPolicy& p,
++  PendingBatchComputation integrate(const DeferredReportBatchExecutionPolicy& p,
+                                     MaterialDataManager& m,
+                                     const BehaviourIntegrationOptions& opts,
+                                     const real dt) {
+     return integrateOnBatch(p, m, opts, dt, 0, m.n);
+   }  // end of integrate
+ 
+-  PendingBatchComputation integrate(const AsynchronousBatchExecutionPolicy& p,
++  PendingBatchComputation integrate(const DeferredReportBatchExecutionPolicy& p,
+                                     MaterialDataManager& m,
+                                     const BehaviourIntegrationOptions& opts,
+                                     const real dt,
+@@ -2553,7 +2553,7 @@ namespace mgis::behaviour {
+ 
+   PendingBatchComputation executePostProcessing(
+       const FieldView<real>& outputs,
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       const MaterialDataView& v,
+       const std::string_view n,
+       const size_type b,
+@@ -2563,7 +2563,7 @@ namespace mgis::behaviour {
+ 
+   PendingBatchComputation executePostProcessing(
+       const FieldView<real>& outputs,
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       const MaterialDataView& v,
+       const std::string_view n) {
+     return executePostProcessingOnBatch(outputs, p, v, n, 0, v.n);
+@@ -2633,7 +2633,7 @@ namespace mgis::behaviour {
+ 
+   PendingBatchComputation executePostProcessing(
+       std::span<real> outputs,
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       MaterialDataManager& m,
+       const std::string_view n,
+       const size_type b,
+@@ -2643,7 +2643,7 @@ namespace mgis::behaviour {
+ 
+   PendingBatchComputation executePostProcessing(
+       std::span<real> outputs,
+-      const AsynchronousBatchExecutionPolicy& p,
++      const DeferredReportBatchExecutionPolicy& p,
+       MaterialDataManager& m,
+       const std::string_view n) {
+     return executePostProcessingOnBatch(outputs, p, m, n, 0, m.n);
+diff --git a/src/MaterialProperty.cxx b/src/MaterialProperty.cxx
+index 5820795..ae0f038 100644
+--- a/src/MaterialProperty.cxx
++++ b/src/MaterialProperty.cxx
+@@ -441,7 +441,7 @@ namespace mgis::material_property {
+   }  // end of checkGenericParallelMaterialProperty
+ 
+   PendingBatchEvaluation::PendingBatchEvaluation(
+-      const AsynchronousBatchExecutionPolicy &p,
++      const DeferredReportBatchExecutionPolicy &p,
+       std::string_view mp,
+       const BatchReportFctPtr r)
+       : statistics(1, getMemoryResource(p)), material_property(mp), report(r) {
+@@ -479,7 +479,7 @@ namespace mgis::material_property {
+    * \param[in] p: out of bounds policy
+    */
+   static PendingBatchEvaluation submitBatchEvaluation(
+-      const AsynchronousBatchExecutionPolicy &e,
++      const DeferredReportBatchExecutionPolicy &e,
+       const FieldView<real> &values,
+       const MaterialProperty &mp,
+       const std::span<const FieldView<const real>> inputs,
+@@ -546,7 +546,7 @@ namespace mgis::material_property {
+                          views, p);
+   }  // end of evaluate
+ 
+-  PendingBatchEvaluation evaluate(const AsynchronousBatchExecutionPolicy &e,
++  PendingBatchEvaluation evaluate(const DeferredReportBatchExecutionPolicy &e,
+                                   std::span<real> values,
+                                   const MaterialProperty &mp,
+                                   std::span<const std::span<const real>> inputs,
+@@ -555,7 +555,7 @@ namespace mgis::material_property {
+     checkGenericParallelMaterialProperty(mp);
+     const auto n = static_cast<size_type>(values.size());
+     checkEvaluationArguments(n, mp, inputs, l);
+-    checkAsynchronousBatchExecutionPolicy("evaluate", e, mp.memory_space);
++    checkDeferredReportBatchExecutionPolicy("evaluate", e, mp.memory_space);
+     if (n == 0) {
+       return PendingBatchEvaluation(e, mp.material_property, nullptr);
+     }
+@@ -592,7 +592,7 @@ namespace mgis::material_property {
+     return evaluateBatch(e, values, mp, inputs, p);
+   }  // end of evaluate
+ 
+-  PendingBatchEvaluation evaluate(const AsynchronousBatchExecutionPolicy &e,
++  PendingBatchEvaluation evaluate(const DeferredReportBatchExecutionPolicy &e,
+                                   const FieldView<real> &values,
+                                   const MaterialProperty &mp,
+                                   std::span<const FieldView<const real>> inputs,
+@@ -600,7 +600,7 @@ namespace mgis::material_property {
+                                   const OutOfBoundsPolicy p) {
+     checkGenericParallelMaterialProperty(mp);
+     checkEvaluationArguments(values, mp, inputs, l);
+-    checkAsynchronousBatchExecutionPolicy("evaluate", e, mp.memory_space);
++    checkDeferredReportBatchExecutionPolicy("evaluate", e, mp.memory_space);
+     return submitBatchEvaluation(e, values, mp, inputs, p);
+   }  // end of evaluate
+ 
+diff --git a/tests/FieldOperationsCUDATest.cu b/tests/FieldOperationsCUDATest.cu
+index 596da84..6ef5c40 100644
+--- a/tests/FieldOperationsCUDATest.cu
++++ b/tests/FieldOperationsCUDATest.cu
+@@ -58,8 +58,8 @@ struct CUDABackend {
+   mgis::BatchExecutionPolicy policy() const {
+     return {.backend_policy = &(this->synchronous_policy)};
+   }
+-  mgis::AsynchronousBatchExecutionPolicy asynchronousPolicy() {
+-    auto p = mgis::AsynchronousBatchExecutionPolicy{};
++  mgis::DeferredReportBatchExecutionPolicy asynchronousPolicy() {
++    auto p = mgis::DeferredReportBatchExecutionPolicy{};
+     p.backend_policy = &(this->asynchronous_policy);
+     p.resource = &(this->pool);
+     p.location = shared_location;
+diff --git a/tests/FieldOperationsParallelSTLTest.cxx b/tests/FieldOperationsParallelSTLTest.cxx
+index bd79d21..66afe68 100644
+--- a/tests/FieldOperationsParallelSTLTest.cxx
++++ b/tests/FieldOperationsParallelSTLTest.cxx
+@@ -88,8 +88,8 @@ struct ParallelSTLBackend {
+   ParallelSTLBackend(const ParallelSTLBackend&) = delete;
+   mgis::FieldOperations& operations() { return this->ops; }
+   mgis::BatchExecutionPolicy policy() const { return {}; }
+-  mgis::AsynchronousBatchExecutionPolicy asynchronousPolicy() {
+-    auto p = mgis::AsynchronousBatchExecutionPolicy{};
++  mgis::DeferredReportBatchExecutionPolicy asynchronousPolicy() {
++    auto p = mgis::DeferredReportBatchExecutionPolicy{};
+     p.resource = &(this->pool);
+     p.location = shared_location;
+     return p;
+diff --git a/tests/FieldOperationsTest.hxx b/tests/FieldOperationsTest.hxx
+index e0d5214..317947d 100644
+--- a/tests/FieldOperationsTest.hxx
++++ b/tests/FieldOperationsTest.hxx
+@@ -108,7 +108,7 @@ concept FieldOperationsTestBackend =
+       { b.policy() } -> std::same_as<mgis::BatchExecutionPolicy>;
+       {
+         b.asynchronousPolicy()
+-      } -> std::same_as<mgis::AsynchronousBatchExecutionPolicy>;
++      } -> std::same_as<mgis::DeferredReportBatchExecutionPolicy>;
+       { b.sharedResource() } -> std::same_as<std::pmr::memory_resource*>;
+       b.synchronize();
+       b.synchronizeDefaultQueue();
+diff --git a/tests/GenericParallelCUDATest.cxx b/tests/GenericParallelCUDATest.cxx
+index 265d5ec..12e7419 100644
+--- a/tests/GenericParallelCUDATest.cxx
++++ b/tests/GenericParallelCUDATest.cxx
+@@ -825,7 +825,7 @@ static void testPartialFailures(const std::string& gpu_library) {
+         "BoundsCheckTest, range: invalid index of the first failure");
+   const auto stream = Stream{};
+   auto resource = mgis::memory_resources::CUDAManagedMemoryResource{};
+-  auto p = AsynchronousBatchExecutionPolicy{};
++  auto p = DeferredReportBatchExecutionPolicy{};
+   p.backend_policy = &(stream.asynchronous_policy);
+   p.resource = &resource;
+   p.location = MemoryLocation::SHARED;
+@@ -867,7 +867,7 @@ static void testAsynchronousComputations(const std::string& library,
+   constexpr auto h = Hypothesis::TRIDIMENSIONAL;
+   const auto stream = Stream{};
+   auto resource = mgis::memory_resources::CUDAManagedMemoryResource{};
+-  auto p = AsynchronousBatchExecutionPolicy{};
++  auto p = DeferredReportBatchExecutionPolicy{};
+   p.backend_policy = &(stream.asynchronous_policy);
+   p.resource = &resource;
+   p.location = MemoryLocation::SHARED;
+@@ -905,14 +905,15 @@ static void testAsynchronousComputations(const std::string& library,
+                    gpu_r.time_step_increase_factor) < tolerance(1e-12),
+           "Norton, asynchronous: invalid time step increase factor");
+     // the status must be accessible by the computations
+-    check(throws(
+-              [&managers, &opts] {
+-                static_cast<void>(integrate(AsynchronousBatchExecutionPolicy{},
+-                                            managers.gpu_m, opts, 180));
+-              },
+-              "is not accessible by the computations"),
+-          "Norton, asynchronous: a status in the memory of the host must be "
+-          "refused");
++    check(
++        throws(
++            [&managers, &opts] {
++              static_cast<void>(integrate(DeferredReportBatchExecutionPolicy{},
++                                          managers.gpu_m, opts, 180));
++            },
++            "is not accessible by the computations"),
++        "Norton, asynchronous: a status in the memory of the host must be "
++        "refused");
+   }
+   // rotation with material axes: the rotation matrices are built in managed
+   // memory, kept by the pending rotation
+@@ -977,7 +978,7 @@ static void testAsynchronousComputations(const std::string& library,
+  * of the behaviour gives the identifier of the policy expected by the
+  * library, a policy of another backend is refused, as an asynchronous
+  * backend policy with a synchronous execution policy (no statistics), and a
+- * synchronous backend policy with an asynchronous execution policy gives
++ * synchronous backend policy with a deferred report execution policy gives
+  * computations completed when the function returns
+  */
+ static void testExecutionPolicies(const std::string& library,
+@@ -1032,9 +1033,9 @@ static void testExecutionPolicies(const std::string& library,
+             "an asynchronous computation requires statistics"),
+         "an asynchronous backend policy must be refused by a synchronous "
+         "execution policy");
+-  // synchronous backend policy with an asynchronous execution policy
++  // synchronous backend policy with a deferred report execution policy
+   auto resource = mgis::memory_resources::CUDAManagedMemoryResource{};
+-  auto p = AsynchronousBatchExecutionPolicy{};
++  auto p = DeferredReportBatchExecutionPolicy{};
+   p.backend_policy = &(stream.synchronous_policy);
+   p.resource = &resource;
+   p.location = MemoryLocation::SHARED;
+diff --git a/tests/GenericParallelEvaluateTest.cxx b/tests/GenericParallelEvaluateTest.cxx
+index a96d62e..2fa7bab 100644
+--- a/tests/GenericParallelEvaluateTest.cxx
++++ b/tests/GenericParallelEvaluateTest.cxx
+@@ -227,7 +227,7 @@ static void testInvalidResults(const std::string& library,
+   const auto s = evaluate(E, mp, inputs);
+   const auto gp_s = evaluate(gp_E, gp_mp, inputs);
+   const auto pending =
+-      evaluate(AsynchronousBatchExecutionPolicy{}, gp_E, gp_mp, inputs);
++      evaluate(DeferredReportBatchExecutionPolicy{}, gp_E, gp_mp, inputs);
+   const auto async_s = pending.getResult();
+   check((s.status == -4) && (gp_s.status == -4) && (async_s.status == -4) &&
+             (s.n == 1) && (gp_s.n == 1) && (async_s.n == 1),
+@@ -276,7 +276,7 @@ static void testInvalidArguments(const std::string& library,
+ static void testAsynchronousEvaluations(const std::string& library,
+                                         const std::string& gp_library) {
+   using namespace mgis::material_property;
+-  const auto e = AsynchronousBatchExecutionPolicy{};
++  const auto e = DeferredReportBatchExecutionPolicy{};
+   const auto mp = load(library, "MaterialPropertyBoundCheck");
+   const auto gp_mp = load(gp_library, "MaterialPropertyBoundCheck");
+   check(gp_mp.batch_report_fct != nullptr,
+@@ -388,7 +388,7 @@ static void testEvaluationsOnViews(const std::string& library,
+       check(same_result(r, rs), msg + ", synchronous: invalid result");
+       check_values(E, E3, msg + ", synchronous");
+       std::fill(E3.begin(), E3.end(), sentinel);
+-      const auto ra = evaluate(AsynchronousBatchExecutionPolicy{}, v, mp, Tv,
++      const auto ra = evaluate(DeferredReportBatchExecutionPolicy{}, v, mp, Tv,
+                                MemoryLocation::HOST, p)
+                           .getResult();
+       check(same_result(r, ra), msg + ", asynchronous: invalid result");
+@@ -519,11 +519,11 @@ static void testOtherEvaluationsOnViews(const std::string& library,
+                      no_input)
+                     .status == 0,
+             msg + "invalid status without point (synchronous policy)");
+-      check(evaluate(AsynchronousBatchExecutionPolicy{},
++      check(evaluate(DeferredReportBatchExecutionPolicy{},
+                      mgis::FieldView<mgis::real>{}, mp, no_input)
+                     .getResult()
+                     .status == 0,
+-            msg + "invalid status without point (asynchronous policy)");
++            msg + "invalid status without point (deferred report policy)");
+     }
+   }
+ }  // end of testOtherEvaluationsOnViews
+diff --git a/tests/GenericParallelIntegrateTest.cxx b/tests/GenericParallelIntegrateTest.cxx
+index 6e4afe2..c3bfe66 100644
+--- a/tests/GenericParallelIntegrateTest.cxx
++++ b/tests/GenericParallelIntegrateTest.cxx
+@@ -1065,7 +1065,7 @@ static void testFailure(const std::string& library,
+ static void testAsynchronousComputations(const std::string& library,
+                                          const std::string& gp_library) {
+   using namespace mgis::behaviour;
+-  const auto p = AsynchronousBatchExecutionPolicy{};
++  const auto p = DeferredReportBatchExecutionPolicy{};
+   // integration, failures at the points 5 and 9
+   {
+     constexpr auto n = mgis::size_type{12};
+@@ -1136,7 +1136,7 @@ static void testAsynchronousComputations(const std::string& library,
+             "refused");
+     }
+     // the memory of the host can't be a shared memory
+-    auto shared = AsynchronousBatchExecutionPolicy{};
++    auto shared = DeferredReportBatchExecutionPolicy{};
+     shared.location = MemoryLocation::SHARED;
+     check(throws(
+               [&shared, &managers, &opts] {
+@@ -1354,7 +1354,7 @@ static void testRotationOnViews(const std::string& name,
+       } else if (policy == 1) {
+         rotate(BatchExecutionPolicy{}, args...);
+       } else {
+-        const auto r = rotate(AsynchronousBatchExecutionPolicy{}, args...);
++        const auto r = rotate(DeferredReportBatchExecutionPolicy{}, args...);
+         check(r.getResult().exit_status == 1,
+               "asynchronous rotation: invalid status");
+       }
+@@ -1605,7 +1605,7 @@ static void testRotationsOnViews(const std::string& library,
+       check(throws(
+                 [&] {
+                   static_cast<void>(rotateTangentOperatorBlocks(
+-                      AsynchronousBatchExecutionPolicy{},
++                      DeferredReportBatchExecutionPolicy{},
+                       mgis::makePointByPointFieldView(std::span(K), n,
+                                                       Ksize - 1, Ksize),
+                       b, r3d));
+@@ -1614,7 +1614,7 @@ static void testRotationsOnViews(const std::string& library,
+                 "blocks"),
+             name +
+                 ": invalid tangent operator blocks must be refused "
+-                "(asynchronous policy)");
++                "(deferred report policy)");
+     }
+     check(throws(
+               [&] {
+@@ -1632,7 +1632,7 @@ static void testRotationsOnViews(const std::string& library,
+                 "no rotation function of a batch"),
+             name + ": a policy must be refused");
+     } else {
+-      check(rotateGradients(AsynchronousBatchExecutionPolicy{},
++      check(rotateGradients(DeferredReportBatchExecutionPolicy{},
+                             FieldView<real>{}, b, r3d)
+                     .getResult()
+                     .exit_status == 1,
+diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
+index fb10507..7711339 100644
+--- a/tests/MaterialDataManagerLayoutTest.cxx
++++ b/tests/MaterialDataManagerLayoutTest.cxx
+@@ -519,8 +519,8 @@ static void testExecutionForms(const std::string& library) {
+     compare("synchronous policy, range", 1, 6, [&](MaterialDataManager& m) {
+       return integrate(BatchExecutionPolicy{}, m, opts, 180, 1, 6).exit_status;
+     });
+-    compare("asynchronous policy", 0, n, [&](MaterialDataManager& m) {
+-      return integrate(AsynchronousBatchExecutionPolicy{}, m, opts, 180)
++    compare("deferred report policy", 0, n, [&](MaterialDataManager& m) {
++      return integrate(DeferredReportBatchExecutionPolicy{}, m, opts, 180)
+           .getResult()
+           .exit_status;
+     });
+@@ -626,9 +626,9 @@ static void testInitializeFunctionsAndPostProcessingsForms(
+                                          pressures, 3, 7)
+             .exit_status;
+       });
+-      compare("asynchronous policy", [&](MaterialDataManager& m) {
+-        return executeInitializeFunction(AsynchronousBatchExecutionPolicy{}, m,
+-                                         f2)
++      compare("deferred report policy", [&](MaterialDataManager& m) {
++        return executeInitializeFunction(DeferredReportBatchExecutionPolicy{},
++                                         m, f2)
+             .getResult()
+             .exit_status;
+       });
+@@ -679,12 +679,13 @@ static void testInitializeFunctionsAndPostProcessingsForms(
+       return executePostProcessing(o, BatchExecutionPolicy{}, m, pp, 1, 7)
+           .exit_status;
+     });
+-    compare("asynchronous policy", [&](std::vector<real>& o,
+-                                       MaterialDataManager& m) {
+-      return executePostProcessing(o, AsynchronousBatchExecutionPolicy{}, m, pp)
+-          .getResult()
+-          .exit_status;
+-    });
++    compare("deferred report policy",
++            [&](std::vector<real>& o, MaterialDataManager& m) {
++              return executePostProcessing(
++                         o, DeferredReportBatchExecutionPolicy{}, m, pp)
++                  .getResult()
++                  .exit_status;
++            });
+   }
+ }  // end of testInitializeFunctionsAndPostProcessingsForms
+ 
+diff --git a/tests/MaterialDataViewTest.cxx b/tests/MaterialDataViewTest.cxx
+index 5fe2bff..d675dcd 100644
+--- a/tests/MaterialDataViewTest.cxx
++++ b/tests/MaterialDataViewTest.cxx
+@@ -434,7 +434,7 @@ static void compareIntegrations(const std::string& name,
+       m.allocateArrayOfSpeedOfSounds();
+     }
+     // views integrated with a workspace, and with a synchronous and an
+-    // asynchronous policy (generic-parallel interface) or by integrate_debug
++    // deferred report policy (generic-parallel interface) or by integrate_debug
+     // (generic interface). Each one is a copy of the manager before its
+     // integration.
+     auto views = std::array<std::unique_ptr<ViewData>, 3>{};
+@@ -468,17 +468,17 @@ static void compareIntegrations(const std::string& name,
+                   "policy)");
+         check(views[1]->hasSameOutputs(m, tangent, speed_of_sound, failed),
+               test + ": invalid outputs (synchronous policy)");
+-        const auto pending = integrate(AsynchronousBatchExecutionPolicy{},
++        const auto pending = integrate(DeferredReportBatchExecutionPolicy{},
+                                        views[2]->v, opts, 1, first, last);
+         const auto ra = pending.getResult();
+         check(ra.exit_status == r.exit_status,
+-              test + ": invalid status (asynchronous policy)");
++              test + ": invalid status (deferred report policy)");
+         check(same(ra.time_step_increase_factor, r.time_step_increase_factor),
+               test +
+                   ": invalid time step increase factor (asynchronous "
+                   "policy)");
+         check(views[2]->hasSameOutputs(m, tangent, speed_of_sound, failed),
+-              test + ": invalid outputs (asynchronous policy)");
++              test + ": invalid outputs (deferred report policy)");
+       } else {
+         const auto rd = integrate_debug(ws, views[1]->v, opts, 1, first, last);
+         check(rd.exit_status == r.exit_status,
+@@ -698,14 +698,14 @@ static void testInitializeFunctions(const std::string& library) {
+             test + t + ": invalid outputs (synchronous policy)");
+       const auto ra = execute_a(views[2]->v).getResult();
+       check(r.exit_status == ra.exit_status,
+-            test + t + ": invalid status (asynchronous policy)");
++            test + t + ": invalid status (deferred report policy)");
+       check(views[2]->hasSameOutputs(m, false),
+-            test + t + ": invalid outputs (asynchronous policy)");
++            test + t + ": invalid outputs (deferred report policy)");
+     };
+     const auto* const f1 = "StressFromInitialPressure";
+     const auto* const f2 = "ElasticStrainFromInitialStress";
+     const auto sp = BatchExecutionPolicy{};
+-    const auto ap = AsynchronousBatchExecutionPolicy{};
++    const auto ap = DeferredReportBatchExecutionPolicy{};
+     // with inputs, on all the points
+     compare(
+         ", inputs", [&] { return executeInitializeFunction(m, f1, pressures); },
+@@ -839,15 +839,16 @@ static void testPostProcessings(const std::string& library) {
+       compare(", synchronous policy", 0, n, [&](const FieldView<real>& o) {
+         return executePostProcessing(o, BatchExecutionPolicy{}, d.v, pp);
+       });
+-      compare(", asynchronous policy, range", 4, 9,
++      compare(", deferred report policy, range", 4, 9,
+               [&](const FieldView<real>& o) {
+                 return executePostProcessing(
+-                           o, AsynchronousBatchExecutionPolicy{}, d.v, pp, 4, 9)
++                           o, DeferredReportBatchExecutionPolicy{}, d.v, pp, 4,
++                           9)
+                     .getResult();
+               });
+-      compare(", asynchronous policy", 0, n, [&](const FieldView<real>& o) {
+-        return executePostProcessing(o, AsynchronousBatchExecutionPolicy{}, d.v,
+-                                     pp)
++      compare(", deferred report policy", 0, n, [&](const FieldView<real>& o) {
++        return executePostProcessing(o, DeferredReportBatchExecutionPolicy{},
++                                     d.v, pp)
+             .getResult();
+       });
+     }
+@@ -991,7 +992,7 @@ static void testErrors(const std::string& library,
+   auto gd = ViewData(gp_b, n, Arrangement::PADDED_COMPONENT_BY_COMPONENT);
+   gd.copyFrom(MaterialDataManager(gp_b, n));
+   const auto sp = BatchExecutionPolicy{};
+-  const auto ap = AsynchronousBatchExecutionPolicy{};
++  const auto ap = DeferredReportBatchExecutionPolicy{};
+   check(throws([&] { static_cast<void>(integrate(sp, gd.v, opts, 1)); },
+                "no value given for the external state variable 'Temperature'"),
+         "errors: missing external state variable not detected (policy)");
+@@ -1002,7 +1003,7 @@ static void testErrors(const std::string& library,
+       FieldView<real>(std::span<real>(gd.t1.values).subspan(0, 6), n, 6, 0, 1);
+   check(throws([&] { static_cast<void>(integrate(ap, gcopy, opts, 1)); },
+                "overlap"),
+-        "errors: uniform output not detected (asynchronous policy)");
++        "errors: uniform output not detected (deferred report policy)");
+   gcopy = gd.v;
+   gcopy.s0.internal_state_variables = getComponents(
+       gd.v.s0.internal_state_variables, 0,
+@@ -1017,7 +1018,7 @@ static void testErrors(const std::string& library,
+         "errors: inaccessible memory not detected (generic-parallel)");
+   check(throws([&] { static_cast<void>(integrate(ap, gcopy, opts, 1)); },
+                "not accessible by the computations"),
+-        "errors: inaccessible memory not detected (asynchronous policy)");
++        "errors: inaccessible memory not detected (deferred report policy)");
+   check(throws([&] { static_cast<void>(integrate(sp, gd.v, opts, 1, 3, 5)); },
+                "invalid upper bound"),
+         "errors: invalid range not detected (policy)");
+@@ -1533,7 +1534,7 @@ static void testEmptySets(const std::string& library) {
+     if (gp) {
+       check(integrate(BatchExecutionPolicy{}, d.v, opts, 1).exit_status == 1,
+             msg + "invalid status of a view without point (synchronous)");
+-      check(integrate(AsynchronousBatchExecutionPolicy{}, d.v, opts, 1)
++      check(integrate(DeferredReportBatchExecutionPolicy{}, d.v, opts, 1)
+                     .getResult()
+                     .exit_status == 1,
+             msg + "invalid status of a view without point (asynchronous)");
+@@ -1557,7 +1558,7 @@ static void testEmptySets(const std::string& library) {
+       check(integrate(BatchExecutionPolicy{}, d.v, opts, 1, 3, 3).exit_status ==
+                 1,
+             msg + "invalid status of an empty range (synchronous)");
+-      check(integrate(AsynchronousBatchExecutionPolicy{}, d.v, opts, 1, 3, 3)
++      check(integrate(DeferredReportBatchExecutionPolicy{}, d.v, opts, 1, 3, 3)
+                     .getResult()
+                     .exit_status == 1,
+             msg + "invalid status of an empty range (asynchronous)");
+-- 
+2.43.0
+

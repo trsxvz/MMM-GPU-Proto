@@ -68,4 +68,8 @@ Patches, by subject (independently of their numbers; the details are in
 - Arcane (patch 0089): field operations launched on a queue of Arccore,
   the core component of the Arcane framework, and memory resource of the
   unified memory of Arccore, counterparts of the `arcane` backend of
-  MFront.
+  MFront;
+- name of the execution policy whose report is deferred (patch 0090):
+  `DeferredReportBatchExecutionPolicy`, formerly
+  `AsynchronousBatchExecutionPolicy` (the computations are asynchronous if
+  the policy of the backend requests it).

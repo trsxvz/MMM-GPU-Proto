@@ -258,9 +258,9 @@ compilation and linking only).
   behaviours, models and material properties: a pointer to an execution
   policy of the backend defined by TFEL (queue, protection of the GPU
   stack size, asynchronous option). Synchronous by default.
-- **Asynchronous computation** (`mgis::AsynchronousBatchExecutionPolicy`)
-  for every batch function, asynchronous when the backend policy requests
-  it. It returns a pending computation (`PendingBatchComputation`,
+- **Deferred report** (`mgis::DeferredReportBatchExecutionPolicy`) for
+  every batch function, required by asynchronous computations, which are
+  asynchronous when the backend policy requests it. It returns a pending computation (`PendingBatchComputation`,
   `PendingBatchEvaluation`), whose `getResult` gives the result once the
   caller has synchronised the queue.
 - **Views and layouts.** `FieldView` (values with a stride between

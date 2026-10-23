@@ -5999,3 +5999,13 @@ formula as MTest). All the others give the Newton solution to within
   placement set by the suite (now excluded from it), and, once with the
   default computations, `PETScSolversTest` blocked at startup (3/3 when
   run alone).
+
+### 2026-10-23, deferred report
+
+- MGIS: `AsynchronousBatchExecutionPolicy` is renamed
+  `DeferredReportBatchExecutionPolicy`. Since the execution policies of the
+  backends, the computations are asynchronous if the policy of the backend
+  requests it: this policy only defers the report (status held by the
+  returned pending computation, result given once the queue is
+  synchronized), which is required by asynchronous computations. The name
+  is the one used by TFEL for this case. 58 tests of MGIS.

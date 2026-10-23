@@ -284,15 +284,17 @@ must then be passed, or given to the manager.
 
 ## Asynchronous computation
 
-Each batch function also exists with an asynchronous policy
-(`mgis::AsynchronousBatchExecutionPolicy`): integration, initialize
-functions, post-processings, rotations, evaluation of material properties.
+Each batch function also exists with a policy whose report is deferred
+(`mgis::DeferredReportBatchExecutionPolicy`), required by asynchronous
+computations: integration, initialize functions, post-processings,
+rotations, evaluation of material properties. The computations are
+asynchronous if the backend policy requests it.
 Nothing changes for the code that does not use it.
 
 ```cpp
 const auto cuda = mfront::generic_parallel::makeCUDABackendExecutionPolicy(
     {.common_options = {.asynchronous = true}, .stream = stream});
-auto p = AsynchronousBatchExecutionPolicy{};
+auto p = DeferredReportBatchExecutionPolicy{};
 p.backend_policy = &cuda;
 p.resource = &resource;  // managed memory
 p.location = MemoryLocation::SHARED;
