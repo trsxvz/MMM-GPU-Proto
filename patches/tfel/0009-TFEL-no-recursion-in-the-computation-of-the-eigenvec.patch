@@ -1,4 +1,4 @@
-From 0d2210c29e43ab005fb6bc2dc0236d7ca8f44809 Mon Sep 17 00:00:00 2001
+From a289208437ef578c0b9f8943531bbaa8908d2947 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:28:41 +0200
 Subject: [PATCH] TFEL: no recursion in the computation of the eigenvectors of
@@ -17,7 +17,7 @@ algorithm (`fses::syevj3`).
  1 file changed, 9 insertions(+), 1 deletion(-)
 
 diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-index 3503478ce..4cf08e705 100644
+index b2e364f25..35b6a5f2f 100644
 --- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 @@ -27,6 +27,7 @@

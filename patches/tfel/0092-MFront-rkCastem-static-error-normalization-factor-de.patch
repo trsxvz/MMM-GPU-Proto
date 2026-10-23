@@ -1,0 +1,34 @@
+From 79ee33c7e83863a71a88cdf14baae1eefcac74a7 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 12 Oct 2026 02:34:20 +0200
+Subject: [PATCH] MFront rkCastem: static error normalization factor, debug
+ message
+
+- a static variable used as the stress error normalization factor of the
+  rkCastem algorithm is written with TFEL_STATIC_VARIABLE. This branch
+  is not reached today: the result of `checkVariable("young")` is
+  discarded in findStressErrorNormalizationFactor, which is left
+  unchanged since returning it would change the time steps of existing
+  behaviours;
+- the debug message of the division of the time step by rkcastem_div
+  printed rkcastem_fac.
+---
+ mfront/src/RungeKuttaCodeGeneratorBase.cxx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
+index effab80e3..3a06042c3 100644
+--- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
++++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
+@@ -1220,7 +1220,7 @@ namespace mfront {
+         }
+       }
+       if (found_as_static_variable) {
+-        return bd.getClassName() + "::" + n;
++        return "TFEL_STATIC_VARIABLE(" + bd.getClassName() + "::" + n + ")";
+       }
+       tfel::raise("findStressErrorNormalizationFactor: the `" + n +
+                   "` variable is not defined as a material property, a static "
+-- 
+2.43.0
+

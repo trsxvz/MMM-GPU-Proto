@@ -1,0 +1,203 @@
+From 990e3870f415a1c50d5b9e725883c276e61ccec6 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 7 Oct 2026 03:26:10 +0200
+Subject: [PATCH] generic-parallel: arrays of gradients, tensorial external
+ state variables
+
+The sizes of the gradients and of the thermodynamic forces of a point were
+computed by `BehaviourDescription::getMainVariablesSize`, which ignores the
+arrays (as the interfaces which do not support them): only the first
+element of an array of gradients was copied. The size of the arrays is
+now taken into account.
+
+In the comparison program, the external state variables given variable by
+variable were given component by component, so that vectors and tensors
+were not tested in this layout. The sizes of the variables are read in the
+reference library and each variable is given by one field.
+
+The new TensorialVariablesTest behaviour covers arrays of gradients and of
+thermodynamic forces, and external and internal state variables of all the
+supported types. Both comparisons fail without those fixes.
+---
+ .../src/GenericParallelBehaviourInterface.cxx | 10 +++--
+ .../TensorialVariablesTest.mfront             | 45 +++++++++++++++++++
+ .../generic-parallel/build-libraries.sh       |  2 +-
+ .../generic-parallel/compare-all.sh           |  7 +++
+ .../behaviours/generic-parallel/compare.cxx   | 26 ++++++++---
+ 5 files changed, 79 insertions(+), 11 deletions(-)
+ create mode 100644 test-suite/behaviours/generic-parallel/TensorialVariablesTest.mfront
+
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index 7ed53989b..94f792a34 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -154,9 +154,13 @@ namespace mfront {
+     };
+     const auto& d = bd.getBehaviourData(h);
+     auto r = GenericParallelBehaviourPointDataSizes{};
+-    const auto mvsizes = bd.getMainVariablesSize();
+-    r.gradients = size(mvsizes.first);
+-    r.thermodynamic_forces = size(mvsizes.second);
++    // arrays of gradients and of thermodynamic forces are taken into account
++    // (`BehaviourDescription::getMainVariablesSize` ignores them)
++    for (const auto& [g, th] : bd.getMainVariables()) {
++      r.gradients += size(SupportedTypes::getTypeSize(g.type, g.arraySize));
++      r.thermodynamic_forces +=
++          size(SupportedTypes::getTypeSize(th.type, th.arraySize));
++    }
+     // the material properties read by the behaviour start with the elastic
+     // properties and the thermal expansion coefficients if the behaviour
+     // requires the stiffness tensor or the thermal expansion coefficient
+diff --git a/test-suite/behaviours/generic-parallel/TensorialVariablesTest.mfront b/test-suite/behaviours/generic-parallel/TensorialVariablesTest.mfront
+new file mode 100644
+index 000000000..75356c8bc
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/TensorialVariablesTest.mfront
+@@ -0,0 +1,45 @@
++@DSL DefaultGenericBehaviour;
++@Behaviour TensorialVariablesTest;
++@Description {
++  "Arrays of gradients and of thermodynamic forces, and external and "
++  "internal state variables of all the supported types: scalars, vectors, "
++  "symmetric tensors, tensors and arrays. The thermodynamic forces and the "
++  "internal state variables depend on the external state variables, so that "
++  "a wrong layout of any of those variables changes the results."
++}
++
++@Gradient Stensor a[2];
++@Flux Stensor b[2];
++@ProvidesSymmetricTangentOperator;
++
++@ExternalStateVariable real r_esv;
++@ExternalStateVariable tvector<N, real> v_esv;
++@ExternalStateVariable Stensor s_esv[2];
++@ExternalStateVariable Tensor t_esv;
++
++@StateVariable real r_isv;
++@StateVariable tvector<N, real> v_isv;
++@StateVariable Stensor s_isv[2];
++@StateVariable Tensor t_isv;
++
++@Integrator {
++  for (unsigned short i = 0; i != 2u; ++i) {
++    b[i] = 2 * (a[i] + da[i]) + s_esv[i] + ds_esv[i];
++    if (computeTangentOperator_) {
++      static_cast<void>(smt);  // discard the stiffness matrix type
++      for (unsigned short j = 0; j != 2u; ++j) {
++        if (i == j) {
++          db_dda(i, j) = 2 * Stensor4::Id();
++        } else {
++          db_dda(i, j) = Stensor4(real(0));
++        }
++      }
++    }
++  }
++  dr_isv = r_esv + dr_esv - r_isv;
++  dv_isv = v_esv + dv_esv - v_isv;
++  for (unsigned short i = 0; i != 2u; ++i) {
++    ds_isv[i] = s_esv[i] + ds_esv[i] - s_isv[i];
++  }
++  dt_isv = t_esv + dt_esv - t_isv;
++}
+diff --git a/test-suite/behaviours/generic-parallel/build-libraries.sh b/test-suite/behaviours/generic-parallel/build-libraries.sh
+index 5d2563398..1888565b6 100644
+--- a/test-suite/behaviours/generic-parallel/build-libraries.sh
++++ b/test-suite/behaviours/generic-parallel/build-libraries.sh
+@@ -41,7 +41,7 @@ behaviours=${*:-"
+   StandardElastoViscoPlasticityTest
+   OrthotropicStandardElastoViscoPlasticityTest
+   PorousStandardElastoViscoPlasticityTest GenericParallelModelTest
+-  GenericParallelModelWithQuantitiesTest
++  GenericParallelModelWithQuantitiesTest TensorialVariablesTest
+ "}
+ files=$(for b in $behaviours; do echo "$directory/$b.mfront"; done)
+ reference_configuration=""
+diff --git a/test-suite/behaviours/generic-parallel/compare-all.sh b/test-suite/behaviours/generic-parallel/compare-all.sh
+index 038ab42a1..86c905d2e 100644
+--- a/test-suite/behaviours/generic-parallel/compare-all.sh
++++ b/test-suite/behaviours/generic-parallel/compare-all.sh
+@@ -60,6 +60,13 @@ run ImplicitNortonWithEnergies_Tridimensional --material-properties=150e9,0.3 \
+ # Runge-Kutta algorithm (no consistent tangent operator)
+ run Norton_rk42_Tridimensional --material-properties=150e9,0.3,8e-67,8.2 \
+   --amplitude=1e-4 --tangent-operator=3
++# arrays of gradients and of thermodynamic forces, external and internal
++# state variables of all the types (one value per component, the
++# temperature being the first external state variable)
++tv="--external-state-variables=1,2,3,4,5,6,7,8,9,10,11,12,\
++13,14,15,16,17,18,19,20,21,22,23,24,25"
++run TensorialVariablesTest_Tridimensional $tv
++run TensorialVariablesTest_PlaneStrain $tv
+ # cohesive zone model
+ run Tvergaard_Tridimensional --material-properties=2e16,2e16,200e6,3e-6 \
+   --amplitude=1e-6
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index 0053ed1ae..5d1bb387a 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -100,6 +100,8 @@ using BatchFunction = int (*)(mfront_gpb_OutputStatus*,
+ //! \brief sizes of the data of an integration point
+ struct Sizes {
+   std::size_t g, th, mp, isv, esv, K;
++  //! \brief sizes of the external state variables, temperature first
++  std::vector<std::size_t> esvs;
+ };
+ 
+ /*!
+@@ -472,7 +474,11 @@ static Sizes readSizes(const std::string& lib,
+                  .mp = getVariables(lib, f, "MaterialProperties").size(),
+                  .isv = getSize(isvs),
+                  .esv = 1 + getSize(esvs),
+-                 .K = 0};
++                 .K = 0,
++                 .esvs = {1}};
++  for (const auto& v : esvs) {
++    s.esvs.push_back(v.size);
++  }
+   // the elastic material properties and the thermal expansion coefficients
+   // are the first material properties if the behaviour requires the
+   // stiffness tensor or the thermal expansion coefficients tensor (see
+@@ -633,8 +639,9 @@ static void integrateReference(States& st,
+  * - `by_variable`: as `by_component`, but the material properties and the
+  *   external state variables are given variable by variable, with uniform
+  *   values (null point stride). This storage assumes that the material
+- *   properties and the external state variables are scalars and uniform,
+- *   as in all the tests.
++ *   properties and the external state variables are uniform, as in all
++ *   the tests. The material properties are scalars. The external state
++ *   variables may be vectors or tensors.
+  */
+ enum struct Storage { by_point, by_component, by_variable };
+ 
+@@ -685,10 +692,13 @@ struct BatchField {
+     const auto f = this->field();
+     return {f.values, f.point_stride, f.component_stride};
+   }
+-  //! \return a field giving the values of the `j`-th component of the first
+-  //! point at all points
++  /*!
++   * \return a field giving the values of the first point at all points,
++   * starting from the `j`-th component
++   */
+   mfront_gpb_ConstField uniform(const std::size_t j) const {
+-    return {this->values + this->index(0, j), 0, 1};
++    return {this->values + this->index(0, j), 0,
++            this->by_component ? this->n : 1};
+   }
+ 
+  private:
+@@ -764,9 +774,11 @@ struct BatchFields {
+       for (std::size_t j = 0; j != s.mp; ++j) {
+         this->mps.push_back(this->mp.uniform(j));
+       }
+-      for (std::size_t j = 0; j != s.esv; ++j) {
++      // one field per external state variable
++      for (std::size_t j = 0; const auto size : s.esvs) {
+         this->esvs0.push_back(this->esv0.uniform(j));
+         this->esvs1.push_back(this->esv1.uniform(j));
++        j += size;
+       }
+       // the group fields are ignored
+       d.s0.material_properties = d.s1.material_properties = {};
+-- 
+2.43.0
+

@@ -1,0 +1,1063 @@
+From 9f857b73d2f36c55f09679113fb6a6fbfe2cf0c2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 02:21:02 +0200
+Subject: [PATCH] generic-parallel: material properties and external variables
+ by variable
+
+The material properties and the external state variables of a batch can
+be given either as a group (one field) or variable by variable (one
+field per variable), through the optional members
+material_properties_by_variable and external_state_variables_by_variable
+of the states. The second form allows a different layout per variable,
+for instance uniform values for some material properties only, as in
+MGIS. The structures initialized as before keep their meaning.
+
+Both forms are converted on the host into the same description
+(VariableFields, InputFields), passed by value to the kernels: the code
+executed at each point does not depend on the form. The material
+properties and the external state variables of a point are always
+copied, so that the direct mode only depends on the other fields.
+
+- PointTraits: number of components of each material property and of
+  each external state variable (behaviours and models).
+- SYCL backend: per variable fields copied on the device when needed.
+- compare.cxx: third storage, by variable, with uniform values.
+- documentation of the two forms.
+---
+ .../generic-parallel-behaviour-interface.md   |  28 ++
+ .../GenericParallelBehaviour/BatchData.h      |  28 +-
+ .../GenericParallelBehaviour/Integrate.hxx    | 296 ++++++++++++++----
+ .../MFront/GenericParallelBehaviour/SYCL.hxx  |  39 +++
+ .../src/GenericParallelBehaviourInterface.cxx |  57 +++-
+ mfront/src/GenericParallelModelInterface.cxx  |  20 +-
+ .../behaviours/generic-parallel/compare.cxx   |  88 ++++--
+ 7 files changed, 473 insertions(+), 83 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 410b0ce45..4367dce37 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -132,6 +132,34 @@ The `j`-th component at the `i`-th point is stored at
+ group of variables of a point are the ones of the `generic` interface: for
+ instance, the temperature is the first external state variable.
+ 
++### Material properties and external state variables given variable by variable
++
++The material properties and the external state variables can also be given
++variable by variable, with one field per variable. This allows a different
++layout for each variable, for instance uniform values for some material
++properties only, as in `MGIS`:
++
++~~~~{.cxx}
++mfront_gpb_ConstField mps[2];
++mps[0] = {&young_modulus, 0, 1};       // uniform value
++mps[1] = {poisson_ratios, 1, 1};       // one value per point
++d.s0.material_properties_by_variable = mps;
++d.s1.material_properties_by_variable = mps;
++~~~~
++
++The variables follow the order of the material properties (or of the
++external state variables) of a point, the elements of an array being
++distinct variables. The components of a variable are given by the
++`component_stride` of its field. If `material_properties_by_variable` (or
++`external_state_variables_by_variable`) is null, the group field
++`material_properties` (or `external_state_variables`) is used.
++
++The arrays of fields are only read on the host: only the values must be
++accessible by the device. Both forms are converted on the host in the same
++description, so that the code executed at each point does not depend on
++the form. The material properties and the external state variables of a
++point are always copied in local arrays.
++
+ ## Batch data
+ 
+ ~~~~{.cxx}
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+index 5fa0c81c2..b54e22740 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
++++ b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+@@ -56,7 +56,15 @@ typedef struct mfront_gpb_Field {
+   mfront_gb_size_type component_stride;
+ } mfront_gpb_Field;
+ 
+-//! \brief state of the material at the beginning of the time step
++/*!
++ * \brief state of the material at the beginning of the time step
++ *
++ * The material properties and the external state variables can be given
++ * either as a group (one field holding all the variables) or variable by
++ * variable (one field per variable, see `material_properties_by_variable`).
++ * The second form allows different layouts for each variable, for instance
++ * uniform values (null point stride) for some variables only.
++ */
+ typedef struct mfront_gpb_InitialState {
+   mfront_gpb_ConstField gradients;
+   mfront_gpb_ConstField thermodynamic_forces;
+@@ -66,6 +74,20 @@ typedef struct mfront_gpb_InitialState {
+   mfront_gpb_ConstField stored_energy;
+   mfront_gpb_ConstField dissipated_energy;
+   mfront_gpb_ConstField external_state_variables;
++  /*!
++   * \brief material properties given variable by variable (optional).
++   *
++   * If not null, this array holds one field per material property, in the
++   * order of the material properties of a point (the elements of an array
++   * being distinct variables), and `material_properties` is ignored. The
++   * array itself is only read on the host.
++   */
++  const mfront_gpb_ConstField* material_properties_by_variable;
++  /*!
++   * \brief external state variables given variable by variable
++   * (optional), see `material_properties_by_variable`
++   */
++  const mfront_gpb_ConstField* external_state_variables_by_variable;
+ } mfront_gpb_InitialState;
+ 
+ //! \brief state of the material at the end of the time step
+@@ -82,6 +104,10 @@ typedef struct mfront_gpb_State {
+   //! \brief output, optional
+   mfront_gpb_Field dissipated_energy;
+   mfront_gpb_ConstField external_state_variables;
++  //! \brief see `mfront_gpb_InitialState`
++  const mfront_gpb_ConstField* material_properties_by_variable;
++  //! \brief see `mfront_gpb_InitialState`
++  const mfront_gpb_ConstField* external_state_variables_by_variable;
+ } mfront_gpb_State;
+ 
+ /*!
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index 72be4f5ab..8dcf63eaf 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -16,6 +16,8 @@
+ #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_INTEGRATE_HXX
+ 
+ #include <bit>
++#include <array>
++#include <cstddef>
+ #include <type_traits>
+ #include <cstring>
+ #include <exception>
+@@ -45,9 +47,11 @@ namespace mfront::gpb {
+    *
+    * The templates of this file take the description of the data of a point
+    * through a type `PointTraits`, generated by `MFront`, whose static member
+-   * `value` gives the maximal sizes of the data of a point and whose member
+-   * type `Integrator` gives the integration strategy (see
+-   * `StandardIntegrator`). CUDA compilers don't support class types as
++   * `value` gives the maximal sizes of the data of a point, whose static
++   * members `material_properties_sizes` and `external_state_variables_sizes`
++   * give the number of components of each material property and of each
++   * external state variable, and whose member type `Integrator` gives the
++   * integration strategy (see `StandardIntegrator`). CUDA compilers don't support class types as
+    * non-type template parameters of kernels. For finite strain behaviours,
+    * the sizes of the thermodynamic forces and of the tangent operator depend
+    * on the stress measure and on the tangent operator requested by the
+@@ -217,6 +221,125 @@ namespace mfront::gpb {
+ 
+   }  // end of namespace internals
+ 
++  /*!
++   * \brief fields of the variables of a group, one field per variable, and
++   * number of components of each variable.
++   *
++   * The material properties and the external state variables of a batch may
++   * be given as a group or variable by variable. Both forms are converted on
++   * the host in this structure, which is passed by value to the kernels: the
++   * code executed at each point is the same for both forms.
++   *
++   * \tparam N: number of variables
++   */
++  template <std::size_t N>
++  struct VariableFields {
++    //! \brief field of each variable
++    ConstField fields[N == 0 ? 1 : N];
++    //! \brief number of components of each variable
++    size_type sizes[N == 0 ? 1 : N];
++  };
++
++  /*!
++   * \brief fields of the material properties and of the external state
++   * variables at the beginning and at the end of the time step
++   * \tparam PointTraits: description of the data of an integration point
++   */
++  template <typename PointTraits>
++  struct InputFields {
++    //! \brief number of material properties
++    static constexpr auto number_of_material_properties =
++        PointTraits::material_properties_sizes.size();
++    //! \brief number of external state variables
++    static constexpr auto number_of_external_state_variables =
++        PointTraits::external_state_variables_sizes.size();
++    VariableFields<number_of_material_properties> mp0;
++    VariableFields<number_of_material_properties> mp1;
++    VariableFields<number_of_external_state_variables> esv0;
++    VariableFields<number_of_external_state_variables> esv1;
++  };
++
++  namespace internals {
++
++    /*!
++     * \return the fields of the variables of a group
++     * \param[in] group: values of the group
++     * \param[in] by_variable: values of each variable, if not null
++     * \param[in] sizes: number of components of each variable
++     */
++    template <std::size_t N>
++    VariableFields<N> makeVariableFields(
++        const ConstField& group,
++        const ConstField* const by_variable,
++        const std::array<size_type, N>& sizes) noexcept {
++      auto r = VariableFields<N>{};
++      auto offset = size_type{};
++      for (std::size_t v = 0; v != N; ++v) {
++        r.sizes[v] = sizes[v];
++        if (by_variable != nullptr) {
++          r.fields[v] = by_variable[v];
++        } else if (group.values != nullptr) {
++          r.fields[v] =
++              ConstField{group.values + offset * group.component_stride,
++                         group.point_stride, group.component_stride};
++        }
++        offset += sizes[v];
++      }
++      return r;
++    }  // end of makeVariableFields
++
++    /*!
++     * \brief copy the values of the variables of a group at the given point
++     * \param[out] dest: local copy
++     * \param[in] f: fields of the variables
++     * \param[in] i: index of the point
++     */
++    template <size_type M, std::size_t N>
++    TFEL_HOST_DEVICE constexpr void gather(LocalValues<M>& dest,
++                                           const VariableFields<N>& f,
++                                           const size_type i) noexcept {
++      if constexpr ((M != 0) && (N != 0)) {
++        auto* p = dest.values;
++        for (std::size_t v = 0; v != N; ++v) {
++          const auto& fv = f.fields[v];
++          const auto nc = f.sizes[v];
++          if (fv.values != nullptr) {
++            const auto* const src = fv.values + i * fv.point_stride;
++            for (size_type c = 0; c != nc; ++c) {
++              p[c] = src[c * fv.component_stride];
++            }
++          }
++          p += nc;
++        }
++      }
++    }  // end of gather
++
++  }  // end of namespace internals
++
++  /*!
++   * \return the fields of the material properties and of the external
++   * state variables of a batch
++   * \tparam PointTraits: description of the data of an integration point
++   * \param[in] d: batch data
++   */
++  template <typename PointTraits>
++  InputFields<PointTraits> makeInputFields(const BatchData& d) noexcept {
++    using internals::makeVariableFields;
++    constexpr const auto& mps = PointTraits::material_properties_sizes;
++    constexpr const auto& esvs = PointTraits::external_state_variables_sizes;
++    return {
++        .mp0 = makeVariableFields(d.s0.material_properties,
++                                  d.s0.material_properties_by_variable, mps),
++        .mp1 = makeVariableFields(d.s1.material_properties,
++                                  d.s1.material_properties_by_variable, mps),
++        .esv0 = makeVariableFields(d.s0.external_state_variables,
++                                   d.s0.external_state_variables_by_variable,
++                                   esvs),
++        .esv1 = makeVariableFields(d.s1.external_state_variables,
++                                   d.s1.external_state_variables_by_variable,
++                                   esvs)};
++  }  // end of makeInputFields
++
+   /*!
+    * \brief integration strategy of the behaviours which are not finite
+    * strain behaviours: the behaviour is directly integrated by
+@@ -310,8 +433,24 @@ namespace mfront::gpb {
+   namespace internals {
+ 
+     /*!
+-     * \brief local copies of the values of a point, used when some fields
+-     * are not stored point by point
++     * \brief local copies of the material properties and of the external
++     * state variables of a point, which are always gathered (they are read
++     * variable by variable, see `VariableFields`)
++     * \tparam PointTraits: description of the data of an integration point
++     */
++    template <typename PointTraits>
++    struct InputCopies {
++      //! \brief maximal sizes of the data of a point
++      static constexpr auto capacities = PointDataSizes{PointTraits::value};
++      LocalValues<capacities.material_properties> mp0;
++      LocalValues<capacities.material_properties> mp1;
++      LocalValues<capacities.external_state_variables> esvs0;
++      LocalValues<capacities.external_state_variables> esvs1;
++    };
++
++    /*!
++     * \brief local copies of the other values of a point, used when some
++     * fields are not stored point by point
+      * \tparam PointTraits: description of the data of an integration point
+      */
+     template <typename PointTraits>
+@@ -323,12 +462,8 @@ namespace mfront::gpb {
+       LocalValues<capacities.gradients> g1;
+       LocalValues<capacities.thermodynamic_forces> th0;
+       LocalValues<capacities.thermodynamic_forces> th1;
+-      LocalValues<capacities.material_properties> mp0;
+-      LocalValues<capacities.material_properties> mp1;
+       LocalValues<capacities.internal_state_variables> isvs0;
+       LocalValues<capacities.internal_state_variables> isvs1;
+-      LocalValues<capacities.external_state_variables> esvs0;
+-      LocalValues<capacities.external_state_variables> esvs1;
+     };
+ 
+     //! \brief no local copies, used when all fields are stored point by point
+@@ -343,7 +478,8 @@ namespace mfront::gpb {
+    * If all the fields are stored point by point (`direct` is true), the
+    * behaviour data point to the fields of the batch. Otherwise, the values
+    * of the point are copied in local arrays, and the outputs must be copied
+-   * back by the `scatter` methods.
++   * back by the `scatter` methods. The material properties and the external
++   * state variables are always copied.
+    *
+    * The behaviour data point to the members of this object, which can't be
+    * copied.
+@@ -366,6 +502,8 @@ namespace mfront::gpb {
+     /*!
+      * \brief constructor
+      * \param[in] d: batch data
++     * \param[in] inputs: fields of the material properties and of the
++     * external state variables
+      * \param[in] i: index of the integration point
+      * \param[in] s: sizes of the data of the point
+      * \param[in] rdt0: initial value of the time step scaling factor
+@@ -376,6 +514,7 @@ namespace mfront::gpb {
+      */
+     TFEL_HOST_DEVICE PointView(
+         const BatchData& d,
++        const InputFields<PointTraits>& inputs,
+         const size_type i,
+         const PointDataSizes& s,
+         const real rdt0,
+@@ -401,29 +540,30 @@ namespace mfront::gpb {
+       // only exported if requested
+       bd.s1.stored_energy = this->energies1.data();
+       bd.s1.dissipated_energy = this->energies1.data() + 1;
++      auto& ic = this->input_copies;
++      gather(ic.mp0, inputs.mp0, i);
++      gather(ic.mp1, inputs.mp1, i);
++      gather(ic.esvs0, inputs.esv0, i);
++      gather(ic.esvs1, inputs.esv1, i);
++      bd.s0.material_properties = ic.mp0.data();
++      bd.s1.material_properties = ic.mp1.data();
++      bd.s0.external_state_variables = ic.esvs0.data();
++      bd.s1.external_state_variables = ic.esvs1.data();
+       if constexpr (direct) {
+         bd.K = pointer(d.tangent_operators, i);
+         bd.s0.gradients = pointer(d.s0.gradients, i);
+         bd.s1.gradients = pointer(d.s1.gradients, i);
+         bd.s0.thermodynamic_forces = pointer(d.s0.thermodynamic_forces, i);
+         bd.s1.thermodynamic_forces = pointer(d.s1.thermodynamic_forces, i);
+-        bd.s0.material_properties = pointer(d.s0.material_properties, i);
+-        bd.s1.material_properties = pointer(d.s1.material_properties, i);
+         bd.s0.internal_state_variables =
+             pointer(d.s0.internal_state_variables, i);
+         bd.s1.internal_state_variables =
+             pointer(d.s1.internal_state_variables, i);
+-        bd.s0.external_state_variables =
+-            pointer(d.s0.external_state_variables, i);
+-        bd.s1.external_state_variables =
+-            pointer(d.s1.external_state_variables, i);
+       } else {
+         auto& c = this->copies;
+         gather(c.g0, d.s0.gradients, i, s.gradients);
+         gather(c.g1, d.s1.gradients, i, s.gradients);
+         gather(c.th0, d.s0.thermodynamic_forces, i, s.thermodynamic_forces);
+-        gather(c.mp0, d.s0.material_properties, i, s.material_properties);
+-        gather(c.mp1, d.s1.material_properties, i, s.material_properties);
+         gather(c.isvs0, d.s0.internal_state_variables, i,
+                s.internal_state_variables);
+         if (gather_end_of_step_state) {
+@@ -431,21 +571,13 @@ namespace mfront::gpb {
+           gather(c.isvs1, d.s1.internal_state_variables, i,
+                  s.internal_state_variables);
+         }
+-        gather(c.esvs0, d.s0.external_state_variables, i,
+-               s.external_state_variables);
+-        gather(c.esvs1, d.s1.external_state_variables, i,
+-               s.external_state_variables);
+         bd.K = c.K.data();
+         bd.s0.gradients = c.g0.data();
+         bd.s1.gradients = c.g1.data();
+         bd.s0.thermodynamic_forces = c.th0.data();
+         bd.s1.thermodynamic_forces = c.th1.data();
+-        bd.s0.material_properties = c.mp0.data();
+-        bd.s1.material_properties = c.mp1.data();
+         bd.s0.internal_state_variables = c.isvs0.data();
+         bd.s1.internal_state_variables = c.isvs1.data();
+-        bd.s0.external_state_variables = c.esvs0.data();
+-        bd.s1.external_state_variables = c.esvs1.data();
+       }
+     }  // end of PointView
+     //! \brief copy constructor (deleted)
+@@ -520,6 +652,9 @@ namespace mfront::gpb {
+      * value-initializing an array.
+      */
+     LocalValues<2> energies1;
++    //! \brief local copies of the material properties and of the external
++    //! state variables
++    internals::InputCopies<PointTraits> input_copies;
+     //! \brief local copies of the values of the point
+     [[no_unique_address]] std::conditional_t<
+         direct,
+@@ -554,6 +689,8 @@ namespace mfront::gpb {
+    * after the integration.
+    * \tparam ParametersType: type of the structure holding the parameters
+    * \param[in] d: batch data
++   * \param[in] inputs: fields of the material properties and of the
++   * external state variables
+    * \param[in] i: index of the integration point
+    * \param[in] parameters: values of the parameters
+    * \param[in] p: out of bounds policy
+@@ -564,6 +701,7 @@ namespace mfront::gpb {
+             typename ParametersType>
+   TFEL_HOST_DEVICE PointResult
+   integrate(const BatchData& d,
++            const InputFields<PointTraits>& inputs,
+             const size_type i,
+             const ParametersType& parameters,
+             const tfel::material::OutOfBoundsPolicy p) {
+@@ -572,7 +710,8 @@ namespace mfront::gpb {
+     auto r = PointResult{.status = -1, .rdt = d.rdt};
+     {
+       auto v = PointView<PointTraits, direct>(
+-          d, i, Integrator::template getPointDataSizes<PointTraits>(o), d.rdt);
++          d, inputs, i, Integrator::template getPointDataSizes<PointTraits>(o),
++          d.rdt);
+       r.status =
+           Integrator::template integrate<Behaviour>(v.data, o, p, parameters);
+       r.rdt = v.getTimeStepScalingFactor();
+@@ -739,6 +878,26 @@ namespace mfront::gpb {
+       }
+       return true;
+     };
++    // material properties and external state variables, given as a group
++    // or variable by variable
++    auto check_inputs = [&s, &check_input](
++                            const ConstField& f,
++                            const ConstField* const by_variable,
++                            const auto& variables_sizes, const size_type size,
++                            const std::string_view name) {
++      if (by_variable == nullptr) {
++        return check_input(f, size, name);
++      }
++      for (std::size_t v = 0; v != variables_sizes.size(); ++v) {
++        if ((variables_sizes[v] != 0) && (by_variable[v].values == nullptr)) {
++          report(s, -2, name);
++          return false;
++        }
++      }
++      return true;
++    };
++    constexpr const auto& mps = PointTraits::material_properties_sizes;
++    constexpr const auto& esvs = PointTraits::external_state_variables_sizes;
+     auto check_output = [&s, n](const auto& f, const size_type size,
+                                 const bool required,
+                                 const std::string_view name) {
+@@ -766,24 +925,30 @@ namespace mfront::gpb {
+            check_input(d.s0.thermodynamic_forces, sizes.thermodynamic_forces,
+                        "missing thermodynamic forces at the beginning of the "
+                        "time step") &&
+-           check_input(d.s0.material_properties, sizes.material_properties,
+-                       "missing material properties at the beginning of the "
+-                       "time step") &&
+-           check_input(d.s1.material_properties, sizes.material_properties,
+-                       "missing material properties at the end of the time "
+-                       "step") &&
++           check_inputs(d.s0.material_properties,
++                        d.s0.material_properties_by_variable, mps,
++                        sizes.material_properties,
++                        "missing material properties at the beginning of the "
++                        "time step") &&
++           check_inputs(d.s1.material_properties,
++                        d.s1.material_properties_by_variable, mps,
++                        sizes.material_properties,
++                        "missing material properties at the end of the time "
++                        "step") &&
+            check_input(d.s0.internal_state_variables,
+                        sizes.internal_state_variables,
+                        "missing internal state variables at the beginning "
+                        "of the time step") &&
+-           check_input(d.s0.external_state_variables,
+-                       sizes.external_state_variables,
+-                       "missing external state variables at the beginning "
+-                       "of the time step") &&
+-           check_input(d.s1.external_state_variables,
+-                       sizes.external_state_variables,
+-                       "missing external state variables at the end of the "
+-                       "time step") &&
++           check_inputs(d.s0.external_state_variables,
++                        d.s0.external_state_variables_by_variable, esvs,
++                        sizes.external_state_variables,
++                        "missing external state variables at the beginning "
++                        "of the time step") &&
++           check_inputs(d.s1.external_state_variables,
++                        d.s1.external_state_variables_by_variable, esvs,
++                        sizes.external_state_variables,
++                        "missing external state variables at the end of the "
++                        "time step") &&
+            check_input(d.s0.mass_density, o.speed_of_sound ? 1 : 0,
+                        "missing mass density at the beginning of the time "
+                        "step") &&
+@@ -840,7 +1005,9 @@ namespace mfront::gpb {
+ 
+   /*!
+    * \return true if all the fields are stored point by point, i.e. if the
+-   * behaviour can directly read and write the values of a point.
++   * behaviour can directly read and write the values of a point. The
++   * material properties and the external state variables are not
++   * considered, since they are always copied.
+    * \tparam PointTraits: description of the data of an integration point
+    * \param[in] d: batch data
+    */
+@@ -856,16 +1023,10 @@ namespace mfront::gpb {
+                          sizes.thermodynamic_forces) &&
+            is_contiguous(d.s1.thermodynamic_forces,
+                          sizes.thermodynamic_forces) &&
+-           is_contiguous(d.s0.material_properties, sizes.material_properties) &&
+-           is_contiguous(d.s1.material_properties, sizes.material_properties) &&
+            is_contiguous(d.s0.internal_state_variables,
+                          sizes.internal_state_variables) &&
+            is_contiguous(d.s1.internal_state_variables,
+                          sizes.internal_state_variables) &&
+-           is_contiguous(d.s0.external_state_variables,
+-                         sizes.external_state_variables) &&
+-           is_contiguous(d.s1.external_state_variables,
+-                         sizes.external_state_variables) &&
+            is_contiguous(d.tangent_operators, sizes.tangent_operator);
+   }  // end of areAllFieldsStoredPointByPoint
+ 
+@@ -889,10 +1050,13 @@ namespace mfront::gpb {
+     //! \return the statistics of the integration at the `i`-th point
+     TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
+       return BatchStatistics::from(integrate<Behaviour, PointTraits, direct>(
+-          this->data, i, this->parameters, this->policy));
++          this->data, this->input_fields, i, this->parameters, this->policy));
+     }
+     //! \brief batch data
+     BatchData data;
++    //! \brief fields of the material properties and of the external state
++    //! variables
++    InputFields<PointTraits> input_fields;
+     //! \brief values of the parameters
+     ParametersType parameters;
+     //! \brief out of bounds policy
+@@ -918,12 +1082,13 @@ namespace mfront::gpb {
+                           const ParametersType& parameters,
+                           const tfel::material::OutOfBoundsPolicy p,
+                           Function&& f) {
++    const auto inputs = makeInputFields<PointTraits>(d);
+     if (areAllFieldsStoredPointByPoint<PointTraits>(d)) {
+       return f(PointIntegrator<Behaviour, PointTraits, true, ParametersType>{
+-          d, parameters, p});
++          d, inputs, parameters, p});
+     }
+     return f(PointIntegrator<Behaviour, PointTraits, false, ParametersType>{
+-        d, parameters, p});
++        d, inputs, parameters, p});
+   }  // end of dispatch
+ 
+   /*!
+@@ -957,7 +1122,8 @@ namespace mfront::gpb {
+       {
+         // the initialize function may only update a part of the state
+         auto v = PointView<PointTraits, direct>(
+-            d, i, Integrator::template getPointDataSizes<PointTraits>(o), d.rdt,
++            d, this->input_fields, i,
++            Integrator::template getPointDataSizes<PointTraits>(o), d.rdt,
+             true);
+         auto values = LocalValues<number_of_inputs>{};
+         internals::gather(values, this->inputs, i, number_of_inputs);
+@@ -975,6 +1141,9 @@ namespace mfront::gpb {
+     }
+     //! \brief batch data
+     BatchData data;
++    //! \brief fields of the material properties and of the external state
++    //! variables
++    InputFields<PointTraits> input_fields;
+     //! \brief values of the inputs of the initialize function
+     ConstField inputs;
+     //! \brief values of the parameters
+@@ -1015,7 +1184,8 @@ namespace mfront::gpb {
+       {
+         // the post-processing uses the state at the end of the time step
+         auto v = PointView<PointTraits, direct>(
+-            d, i, Integrator::template getPointDataSizes<PointTraits>(o), d.rdt,
++            d, this->input_fields, i,
++            Integrator::template getPointDataSizes<PointTraits>(o), d.rdt,
+             true);
+         auto values = LocalValues<number_of_outputs>{};
+         // the outputs are written and read through the same pointer
+@@ -1036,6 +1206,9 @@ namespace mfront::gpb {
+     Field outputs;
+     //! \brief batch data
+     BatchData data;
++    //! \brief fields of the material properties and of the external state
++    //! variables
++    InputFields<PointTraits> input_fields;
+     //! \brief values of the parameters
+     ParametersType parameters;
+     //! \brief out of bounds policy
+@@ -1071,16 +1244,17 @@ namespace mfront::gpb {
+       const ParametersType& parameters,
+       const tfel::material::OutOfBoundsPolicy p,
+       Function&& f) {
++    const auto input_fields = makeInputFields<PointTraits>(d);
+     if (areAllFieldsStoredPointByPoint<PointTraits>(d)) {
+       return f(
+           InitializeFunctionExecutor<Behaviour, PointTraits, InitializeFunction,
+                                      number_of_inputs, true, ParametersType>{
+-              d, inputs, parameters, p});
++              d, input_fields, inputs, parameters, p});
+     }
+     return f(
+         InitializeFunctionExecutor<Behaviour, PointTraits, InitializeFunction,
+                                    number_of_inputs, false, ParametersType>{
+-            d, inputs, parameters, p});
++            d, input_fields, inputs, parameters, p});
+   }  // end of dispatchInitializeFunction
+ 
+   /*!
+@@ -1115,15 +1289,17 @@ namespace mfront::gpb {
+       const ParametersType& parameters,
+       const tfel::material::OutOfBoundsPolicy p,
+       Function&& f) {
++    const auto input_fields = makeInputFields<PointTraits>(d);
+     if (areAllFieldsStoredPointByPoint<PointTraits>(d)) {
+-      return f(
+-          PostProcessingExecutor<Behaviour, PointTraits, PostProcessing,
+-                                 use_initial_state, number_of_outputs, true,
+-                                 ParametersType>{outputs, d, parameters, p});
++      return f(PostProcessingExecutor<Behaviour, PointTraits, PostProcessing,
++                                      use_initial_state, number_of_outputs,
++                                      true, ParametersType>{
++          outputs, d, input_fields, parameters, p});
+     }
+     return f(PostProcessingExecutor<Behaviour, PointTraits, PostProcessing,
+                                     use_initial_state, number_of_outputs, false,
+-                                    ParametersType>{outputs, d, parameters, p});
++                                    ParametersType>{outputs, d, input_fields,
++                                                    parameters, p});
+   }  // end of dispatchPostProcessing
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+index 00a2ffefb..a8e8a75bf 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+@@ -198,6 +198,17 @@ namespace mfront::gpb::sycl {
+                        sizes.external_state_variables, false);
+         this->transfer(s1.external_state_variables,
+                        sizes.external_state_variables, false);
++        constexpr const auto& mps = PointTraits::material_properties_sizes;
++        constexpr const auto& esvs =
++            PointTraits::external_state_variables_sizes;
++        this->transferVariables(s0.material_properties_by_variable, mps,
++                                this->material_properties0);
++        this->transferVariables(s1.material_properties_by_variable, mps,
++                                this->material_properties1);
++        this->transferVariables(s0.external_state_variables_by_variable, esvs,
++                                this->external_state_variables0);
++        this->transferVariables(s1.external_state_variables_by_variable, esvs,
++                                this->external_state_variables1);
+         this->transfer(this->data.tangent_operators, sizes.tangent_operator,
+                        true);
+         this->transfer(this->data.rdts, 1, true);
+@@ -207,6 +218,34 @@ namespace mfront::gpb::sycl {
+       }
+       //! \brief batch data whose fields are accessible by the device
+       BatchData data;
++
++     private:
++      /*!
++       * \brief copy in device memory the fields of the variables of a group
++       * given variable by variable which are not accessible by the device
++       * \param[in,out] fields: fields of the variables, replaced by the
++       * fields referring to the copies (this array is only read on the host)
++       * \param[in] sizes: number of components of each variable
++       * \param[out] copies: storage of the fields referring to the copies
++       */
++      template <std::size_t N>
++      void transferVariables(const ConstField*& fields,
++                             const std::array<size_type, N>& sizes,
++                             std::vector<ConstField>& copies) {
++        if (fields == nullptr) {
++          return;
++        }
++        copies.assign(fields, fields + N);
++        for (std::size_t v = 0; v != N; ++v) {
++          this->transfer(copies[v], sizes[v], false);
++        }
++        fields = copies.data();
++      }
++      //! \brief fields of the material properties, variable by variable
++      std::vector<ConstField> material_properties0, material_properties1;
++      //! \brief fields of the external state variables, variable by variable
++      std::vector<ConstField> external_state_variables0,
++          external_state_variables1;
+     };
+ 
+     //! \brief a simple alias
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index 4cbe0ef34..8da116f42 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -11,6 +11,8 @@
+  */
+ 
+ #include <set>
++#include <vector>
++#include <string_view>
+ #include <fstream>
+ #include <functional>
+ #include <algorithm>
+@@ -107,6 +109,43 @@ namespace mfront {
+    * \param[in] bd: behaviour description
+    * \param[in] h: modelling hypothesis
+    */
++  /*!
++   * \brief write the declaration of an array giving the number of
++   * components of the variables of a group
++   * \param[out] os: output stream
++   * \param[in] name: name of the array
++   * \param[in] sizes: number of components of each variable
++   */
++  static void writeVariablesSizes(std::ostream& os,
++                                  const std::string_view name,
++                                  const std::vector<int>& sizes) {
++    os << "static constexpr std::array<mfront::gpb::size_type, "
++       << sizes.size() << "> " << name << " = {";
++    for (std::size_t i = 0; i != sizes.size(); ++i) {
++      os << (i == 0 ? "" : ", ") << sizes[i];
++    }
++    os << "};\n";
++  }  // end of writeVariablesSizes
++
++  /*!
++   * \return the number of components of each variable of a list, the
++   * elements of an array being distinct variables
++   * \param[in] variables: variables
++   * \param[in] h: modelling hypothesis
++   */
++  template <typename VariablesContainer>
++  static std::vector<int> getVariablesSizes(
++      const VariablesContainer& variables,
++      const tfel::material::ModellingHypothesis::Hypothesis h) {
++    auto sizes = std::vector<int>{};
++    for (const auto& v : variables) {
++      const auto s = SupportedTypes::getTypeSize(v.type, 1)
++                         .getValueForModellingHypothesis(h);
++      sizes.insert(sizes.end(), v.arraySize, s);
++    }
++    return sizes;
++  }  // end of getVariablesSizes
++
+   static GenericParallelBehaviourPointDataSizes getPointDataSizes(
+       const GenericParallelBehaviourInterface& i,
+       const BehaviourDescription& bd,
+@@ -627,8 +666,22 @@ namespace mfront {
+          << ", "
+          << ".external_state_variables = " << sizes.external_state_variables
+          << ", "
+-         << ".tangent_operator = " << sizes.tangent_operator << "};\n"
+-         << "//! \\brief integration strategy\n"
++         << ".tangent_operator = " << sizes.tangent_operator << "};\n";
++      // the material properties of a point (including the elastic
++      // properties added when the behaviour requires the stiffness tensor)
++      // and the external state variables, variable by variable
++      os << "//! \\brief number of components of each material property\n";
++      writeVariablesSizes(
++          os, "material_properties_sizes",
++          getVariablesSizes(this->buildMaterialPropertiesList(bd, h).first,
++                            h));
++      os << "//! \\brief number of components of each external state "
++            "variable\n";
++      writeVariablesSizes(
++          os, "external_state_variables_sizes",
++          getVariablesSizes(
++              bd.getBehaviourData(h).getExternalStateVariables(), h));
++      os << "//! \\brief integration strategy\n"
+          << "using Integrator = " << getIntegrator(bd) << ";\n"
+          << "};\n\n";
+       writeParametersStructure(os, bd, h);
+diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
+index 3b11141d4..6548101ab 100644
+--- a/mfront/src/GenericParallelModelInterface.cxx
++++ b/mfront/src/GenericParallelModelInterface.cxx
+@@ -11,6 +11,7 @@
+  */
+ 
+ #include <fstream>
++#include <string_view>
+ #include <algorithm>
+ #include "TFEL/Raise.hxx"
+ #include "TFEL/Config/GetInstallPath.hxx"
+@@ -260,8 +261,23 @@ namespace mfront {
+        << ".material_properties = " << md.constantMaterialProperties.size()
+        << ", .internal_state_variables = " << md.outputs.size()
+        << ", .external_state_variables = " << md.inputs.size()
+-       << ", .tangent_operator = 0};\n"
+-       << "//! \\brief integration strategy\n"
++       << ", .tangent_operator = 0};\n";
++    // the material properties and the inputs of a model are scalars
++    auto write_scalars = [&os](const std::string_view n,
++                               const std::size_t size) {
++      os << "static constexpr std::array<mfront::gpb::size_type, " << size
++         << "> " << n << " = {";
++      for (std::size_t i = 0; i != size; ++i) {
++        os << (i == 0 ? "1" : ", 1");
++      }
++      os << "};\n";
++    };
++    os << "//! \\brief number of components of each material property\n";
++    write_scalars("material_properties_sizes",
++                  md.constantMaterialProperties.size());
++    os << "//! \\brief number of components of each input\n";
++    write_scalars("external_state_variables_sizes", md.inputs.size());
++    os << "//! \\brief integration strategy\n"
+        << "using Integrator = mfront::gpb::ModelIntegrator;\n"
+        << "};\n\n"
+        << "} // end of anonymous namespace\n\n";
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index ec4033c3f..70c0aceaf 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -375,6 +375,31 @@ static void integrateReference(States& st,
+  * \brief a field of the batch, stored point by point or component by
+  * component
+  */
++/*!
++ * \brief storages of the fields of a batch:
++ *
++ * - `by_point`: the values of a point are contiguous;
++ * - `by_component`: the values of a component are contiguous;
++ * - `by_variable`: as `by_component`, but the material properties and the
++ *   external state variables are given variable by variable, with uniform
++ *   values (null point stride). This storage assumes that the material
++ *   properties and the external state variables are scalars and uniform,
++ *   as in all the tests.
++ */
++enum struct Storage { by_point, by_component, by_variable };
++
++//! \return a description of a storage
++static const char* toString(const Storage s) {
++  if (s == Storage::by_point) {
++    return "by point";
++  }
++  return s == Storage::by_component ? "by component" : "by variable";
++}
++
++//! \brief all the storages
++static constexpr Storage storages[] = {Storage::by_point, Storage::by_component,
++                                       Storage::by_variable};
++
+ struct BatchField {
+   BatchField(const std::vector<double>& v,
+              const std::size_t n_,
+@@ -410,6 +435,11 @@ struct BatchField {
+     const auto f = this->field();
+     return {f.values, f.point_stride, f.component_stride};
+   }
++  //! \return a field giving the values of the `j`-th component of the first
++  //! point at all points
++  mfront_gpb_ConstField uniform(const std::size_t j) const {
++    return {this->values + this->index(0, j), 0, 1};
++  }
+ 
+  private:
+   std::size_t index(const std::size_t i, const std::size_t j) const {
+@@ -431,8 +461,9 @@ struct BatchFields {
+               const std::size_t n,
+               const double dt,
+               const double K0,
+-              const bool by_component)
+-      : g0(st.g0, n, s.g, by_component),
++              const Storage storage)
++      : by_component(storage != Storage::by_point),
++        g0(st.g0, n, s.g, by_component),
+         g1(st.g1, n, s.g, by_component),
+         th0(st.th0, n, s.th, by_component),
+         th1(st.th1, n, s.th, by_component),
+@@ -479,6 +510,22 @@ struct BatchFields {
+     d.s0.dissipated_energy = this->dissipated_energy0.const_field();
+     d.s1.dissipated_energy = this->dissipated_energy1.field();
+     d.speed_of_sound = this->speed_of_sound.field();
++    if (storage == Storage::by_variable) {
++      for (std::size_t j = 0; j != s.mp; ++j) {
++        this->mps.push_back(this->mp.uniform(j));
++      }
++      for (std::size_t j = 0; j != s.esv; ++j) {
++        this->esvs0.push_back(this->esv0.uniform(j));
++        this->esvs1.push_back(this->esv1.uniform(j));
++      }
++      // the group fields are ignored
++      d.s0.material_properties = d.s1.material_properties = {};
++      d.s0.external_state_variables = d.s1.external_state_variables = {};
++      d.s0.material_properties_by_variable = this->mps.data();
++      d.s1.material_properties_by_variable = this->mps.data();
++      d.s0.external_state_variables_by_variable = this->esvs0.data();
++      d.s1.external_state_variables_by_variable = this->esvs1.data();
++    }
+     if (st.mass_density > 0) {
+       // uniform mass density
+       d.s0.mass_density = d.s1.mass_density = this->mass_density.const_field();
+@@ -500,9 +547,14 @@ struct BatchFields {
+     std::copy(this->status, this->status + this->number_of_points,
+               st.status.begin());
+   }
++  const bool by_component;
+   const BatchField g0, g1, th0, th1, mp, isv0, isv1, esv0, esv1, K, rdt,
+       stored_energy0, stored_energy1, dissipated_energy0, dissipated_energy1,
+       speed_of_sound, mass_density;
++  //! \brief fields of the material properties, variable by variable
++  std::vector<mfront_gpb_ConstField> mps;
++  //! \brief fields of the external state variables, variable by variable
++  std::vector<mfront_gpb_ConstField> esvs0, esvs1;
+   int* const status;
+   const std::size_t number_of_points;
+   mfront_gpb_BatchData data = {};
+@@ -531,10 +583,10 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
+                                               const std::size_t n,
+                                               const double dt,
+                                               const double K0,
+-                                              const bool by_component,
++                                              const Storage storage,
+                                               BatchFunction f,
+                                               double& ms) {
+-  const auto b = BatchFields(st, s, fs, n, dt, K0, by_component);
++  const auto b = BatchFields(st, s, fs, n, dt, K0, storage);
+   const auto o =
+       measure(ms, [&b, f](mfront_gpb_OutputStatus& r) { f(&r, &b.data); });
+   b.copyResults(st);
+@@ -747,7 +799,7 @@ struct Test {
+ 
+ //! \brief print the results of a comparison
+ static bool print(const char* const what,
+-                  const bool by_component,
++                  const Storage storage,
+                   const bool pass,
+                   const mfront_gpb_OutputStatus& o,
+                   const std::vector<int>& status,
+@@ -756,7 +808,7 @@ static bool print(const char* const what,
+   std::printf(
+       "%-12s %-12s status=%2d failures=%6ld | relative difference %.1e | "
+       "%.2f ms | %s\n",
+-      what, by_component ? "by component" : "by point", o.status,
++      what, toString(storage), o.status,
+       static_cast<long>(std::count(status.begin(), status.end(), -1)), d, ms,
+       pass ? "OK" : "FAILED");
+   return pass;
+@@ -784,14 +836,14 @@ static bool testIntegration(const Test& t) {
+     if ((s.K == 0) && (K0 < -0.25)) {
+       continue;
+     }
+-    for (const auto by_component : {false, true}) {
++    for (const auto storage : storages) {
+       // first step from the initial state, second step from its results
+       auto ref = t.initial;
+       auto batch = t.initial;
+       auto ms1 = 0., ms2 = 0.;
+       integrateReference(ref, s, fs, n, t.dt, Kt + o0, fg);
+       const auto o1 =
+-          integrateBatch(batch, s, fs, n, t.dt, Kt + o0, by_component, fb, ms1);
++          integrateBatch(batch, s, fs, n, t.dt, Kt + o0, storage, fb, ms1);
+       // the test is meaningless if the integration fails at all points
+       const auto pass1 = (ref.status == batch.status) &&
+                          isConsistent(o1, batch.status) &&
+@@ -812,7 +864,7 @@ static bool testIntegration(const Test& t) {
+       }
+       integrateReference(ref, s, fs, n, t.dt, K0 + o0, fg);
+       const auto o2 =
+-          integrateBatch(batch, s, fs, n, t.dt, K0 + o0, by_component, fb, ms2);
++          integrateBatch(batch, s, fs, n, t.dt, K0 + o0, storage, fb, ms2);
+       const auto nfailures =
+           std::count(ref.status.begin(), ref.status.end(), -1);
+       const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
+@@ -863,7 +915,7 @@ static bool testIntegration(const Test& t) {
+           "K0=%4.1f %-12s status=%2d/%2d failures=%6ld same statuses=%d | "
+           "relative differences: forces %.1e, isvs %.1e, K %.1e, energies "
+           "%.1e, speed of sound %.1e | %.2f ms, %.2f ms | %s\n",
+-          K0, by_component ? "by component" : "by point", o1.status, o2.status,
++          K0, toString(storage), o1.status, o2.status,
+           static_cast<long>(nfailures), same_status, dth, disv, dK, de, dsos,
+           ms1, ms2, pass ? "OK" : "FAILED");
+     }
+@@ -902,7 +954,7 @@ static bool testInitializeFunction(const Test& t) {
+   auto inputs = std::vector<double>(t.n * ni);
+   std::generate(inputs.begin(), inputs.end(), [&] { return u(rng); });
+   auto ok = true;
+-  for (const auto by_component : {false, true}) {
++  for (const auto storage : storages) {
+     auto ref = t.initial;
+     auto batch = t.initial;
+     forEachReferencePoint(
+@@ -913,8 +965,8 @@ static bool testInitializeFunction(const Test& t) {
+     convertReferenceStatuses(ref.status);
+     auto ms = 0.;
+     const auto b = BatchFields(batch, s, t.options.finite_strain, t.n, t.dt, 0,
+-                               by_component);
+-    const auto in = BatchField(inputs, t.n, ni, by_component);
++                               storage);
++    const auto in = BatchField(inputs, t.n, ni, b.by_component);
+     const auto in_field = in.const_field();
+     const auto o = measure(ms, [&](mfront_gpb_OutputStatus& r) {
+       // no field is given if the function has no input
+@@ -929,7 +981,7 @@ static bool testInitializeFunction(const Test& t) {
+         (ref.th1 != t.initial.th1) || (ref.isv1 != t.initial.isv1);
+     const auto pass = changed && (ref.status == batch.status) &&
+                       isConsistent(o, batch.status) && (d < tolerance);
+-    ok = print("initialize", by_component, pass, o, batch.status, d, ms) && ok;
++    ok = print("initialize", storage, pass, o, batch.status, d, ms) && ok;
+   }
+   return ok;
+ }  // end of testInitializeFunction
+@@ -951,7 +1003,7 @@ static bool testPostProcessing(const Test& t) {
+   const auto& s = t.sizes;
+   const auto no = t.options.number_of_values;
+   auto ok = true;
+-  for (const auto by_component : {false, true}) {
++  for (const auto storage : storages) {
+     auto ref = t.initial;
+     auto batch = t.initial;
+     auto ref_outputs = std::vector<double>(t.n * no);
+@@ -963,9 +1015,9 @@ static bool testPostProcessing(const Test& t) {
+     convertReferenceStatuses(ref.status);
+     auto ms = 0.;
+     const auto b = BatchFields(batch, s, t.options.finite_strain, t.n, t.dt, 0,
+-                               by_component);
++                               storage);
+     const auto out =
+-        BatchField(std::vector<double>(t.n * no), t.n, no, by_component);
++        BatchField(std::vector<double>(t.n * no), t.n, no, b.by_component);
+     const auto out_field = out.field();
+     const auto o = measure(
+         ms, [&](mfront_gpb_OutputStatus& r) { fb(&r, &out_field, &b.data); });
+@@ -979,7 +1031,7 @@ static bool testPostProcessing(const Test& t) {
+                                       [](const double v) { return v != 0; });
+     const auto pass = computed && (ref.status == batch.status) &&
+                       isConsistent(o, batch.status) && (d < tolerance);
+-    ok = print("post-processing", by_component, pass, o, batch.status, d, ms) &&
++    ok = print("post-processing", storage, pass, o, batch.status, d, ms) &&
+          ok;
+   }
+   return ok;
+-- 
+2.43.0
+

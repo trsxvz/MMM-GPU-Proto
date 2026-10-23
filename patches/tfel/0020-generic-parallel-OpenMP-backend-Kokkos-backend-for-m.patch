@@ -1,4 +1,4 @@
-From 6e56846c6789e3ddb8ecef5a1805a852e374c60d Mon Sep 17 00:00:00 2001
+From ae014e66093cff4cecce9c3018b75a12f841307f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 23:06:55 +0200
 Subject: [PATCH] generic-parallel: OpenMP backend, Kokkos backend for material

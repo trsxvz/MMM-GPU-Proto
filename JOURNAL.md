@@ -6009,3 +6009,18 @@ formula as MTest). All the others give the Newton solution to within
   returned pending computation, result given once the queue is
   synchronized), which is required by asynchronous computations. The name
   is the one used by TFEL for this case. 58 tests of MGIS.
+
+### 2026-10-23, TFEL onto master 9b810aa15 (#1060, #1071)
+
+- Rebase onto master `9b810aa15`, after the merges of #1060 (defects of
+  DSLs, bricks and TFEL/Material) and #1071 (tfel-check): 132 patches, six
+  patches already upstream dropped. Conflicts resolved by keeping the code
+  of master with the additions of the prototype for the GPU (annotations of
+  the interaction matrices of the sliding systems, modifiers of the
+  Runge-Kutta DSLs with `TFEL_STATIC_VARIABLE`, eigenvectors without
+  assertions); the parameter `theta` of the nucleation models removed by
+  master stays removed. Three-way check of all the files, order of the
+  headers of #1060 kept.
+- Results: 6993 tests of TFEL, `-O3` tests of four configurations 8/8, 58
+  tests of MGIS, 360 of mfem-mgis, 25 of the examples, 9 of mm-opera-hpc,
+  143 cases.

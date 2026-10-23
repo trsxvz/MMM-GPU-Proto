@@ -1,0 +1,83 @@
+From ef7e80b4f15cd3210c98d0b68ccfd6cfe15c4bc7 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 05:53:21 +0200
+Subject: [PATCH] TFEL: pull_back and invert of st2tost2 usable in device code
+
+pull_back and invert(st2tost2) were host functions. nvcc accepted them in
+device code thanks to --expt-relaxed-constexpr, clang does not. They are
+reached by the conversions of the stress and of the tangent operator of
+the finite strain behaviours (LogarithmicStrainHandler,
+FiniteStrainBehaviourTangentOperator).
+
+invert(st2tost2) relies on TinyMatrixInvert, which already supports
+device code: on the host, an exception is thrown if the st2tost2 is
+singular; in device code, the result is filled with NaN values.
+---
+ include/TFEL/Math/ST2toST2/st2tost2.ixx | 10 +++++-----
+ include/TFEL/Math/st2tost2.hxx          | 14 +++++++++-----
+ 2 files changed, 14 insertions(+), 10 deletions(-)
+
+diff --git a/include/TFEL/Math/ST2toST2/st2tost2.ixx b/include/TFEL/Math/ST2toST2/st2tost2.ixx
+index 0702176bc..7da2e1157 100644
+--- a/include/TFEL/Math/ST2toST2/st2tost2.ixx
++++ b/include/TFEL/Math/ST2toST2/st2tost2.ixx
+@@ -281,7 +281,7 @@ namespace tfel::math {
+                        StensorDimeToSize<N>::value>::exe(p, *this);
+   }
+ 
+-  TFEL_HOST constexpr auto invert(const ST2toST2Concept auto& s) {
++  TFEL_HOST_DEVICE constexpr auto invert(const ST2toST2Concept auto& s) {
+     using ST2toST2Type = decltype(s);
+     constexpr auto N = getSpaceDimension<ST2toST2Type>();
+     constexpr auto StensorSize = StensorDimeToSize<N>::value;
+@@ -335,10 +335,10 @@ namespace tfel::math {
+   }  // end of push_forward
+ 
+   template <ST2toST2Concept ST2toST2Type, TensorConcept TensorType>
+-  TFEL_HOST constexpr auto pull_back(
+-      const ST2toST2Type& C,
+-      const TensorType& F) requires(getSpaceDimension<ST2toST2Type>() ==
+-                                    getSpaceDimension<TensorType>()) {
++  TFEL_HOST_DEVICE constexpr auto pull_back(const ST2toST2Type& C,
++                                            const TensorType& F) noexcept
++      requires(getSpaceDimension<ST2toST2Type>() ==
++               getSpaceDimension<TensorType>()) {
+     const auto iF = invert(F);
+     return push_forward(C, iF);
+   }  // end of pull_back
+diff --git a/include/TFEL/Math/st2tost2.hxx b/include/TFEL/Math/st2tost2.hxx
+index 6922569a6..e5f034a65 100644
+--- a/include/TFEL/Math/st2tost2.hxx
++++ b/include/TFEL/Math/st2tost2.hxx
+@@ -270,8 +270,12 @@ namespace tfel::math {
+   /*!
+    * \return the invert of a st2tost2
+    * \param[in] s : st2tost2 to be inverted
++   *
++   * On the host, an exception is thrown if the st2tost2 is singular. In
++   * device code, the result is filled with NaN values (see
++   * `TinyMatrixInvert`).
+    */
+-  TFEL_HOST constexpr auto invert(const ST2toST2Concept auto&);
++  TFEL_HOST_DEVICE constexpr auto invert(const ST2toST2Concept auto&);
+   /*!
+    * \return the push-forward of a fourth order tensor:
+    * \f[
+@@ -291,10 +295,10 @@ namespace tfel::math {
+    * \param[in] F: deformation gradient
+    */
+   template <ST2toST2Concept ST2toST2Type, TensorConcept TensorType>
+-  TFEL_HOST constexpr auto pull_back(
+-      const ST2toST2Type&,
+-      const TensorType&) requires(getSpaceDimension<ST2toST2Type>() ==
+-                                  getSpaceDimension<TensorType>());
++  TFEL_HOST_DEVICE constexpr auto pull_back(const ST2toST2Type&,
++                                            const TensorType&) noexcept
++      requires(getSpaceDimension<ST2toST2Type>() ==
++               getSpaceDimension<TensorType>());
+   /*!
+    * \brief compute the second derivative of determinant of a
+    * \param[in] s: tensor
+-- 
+2.43.0
+

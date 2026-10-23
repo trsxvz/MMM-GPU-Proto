@@ -56,7 +56,7 @@ previous ones. The technical details are in [tfel.md](tfel.md).
    evaluation and report function, symbols of backend, version and memory
    space, code of the kernels shared by the backends, statuses in reused
    blocks, tests written once and comparison with the `generic` interface.
-7. **Float precision** (DSL option `real_type`, patches 0105 to 0113):
+7. **Float precision** (DSL option `real_type`, patches 0099 to 0107):
    numerical type of the `generic` and `generic-parallel` interfaces,
    symbol `<f>_real_size` and shifted API versions, refusal of float by the
    other interfaces and by the models of the `Model` DSL, `IsAssignableTo`
@@ -77,7 +77,7 @@ Later, without changing the published functions: the three
 `generic-parallel` interfaces built on their `generic` interface, with the
 code at one point written once. Then the `generic_functions` option, which
 adds the functions of the `generic` interface to a library of the
-`generic-parallel` interface (patches 0127 and 0129 to 0131). The name of
+`generic-parallel` interface (patches 0121 and 0123 to 0125). The name of
 the option is to be agreed.
 
 ### Checks for each contribution

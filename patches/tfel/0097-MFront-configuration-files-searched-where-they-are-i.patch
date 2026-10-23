@@ -1,0 +1,61 @@
+From d6c4a03466585ac1f63f40961918529efafe604d Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 13 Oct 2026 17:58:57 +0200
+Subject: [PATCH] MFront: configuration files searched where they are installed
+ with a suffix
+
+With TFEL_APPEND_SUFFIX, the configuration files are installed in
+share/tfel-<suffix>/mfront/configuration-files (TFEL_DATAROOTDIR), while
+MFront searched share/tfel/mfront-<suffix>/configuration-files, so that
+they were not found unless given by their path, --search-path or
+MFRONT_INCLUDE_PATH. MFront now searches the directory where they are
+installed; the stray tokens after the #else are removed. The pages of the
+generic-parallel interface and the release notes are updated.
+
+The suffixed path was checked by compiling the same expression; the TFEL
+build of the prototype has no suffix.
+---
+ docs/web/generic-parallel-behaviour-interface.md | 7 ++-----
+ docs/web/release-notes/release-notes-5.2.md      | 8 +++-----
+ 2 files changed, 5 insertions(+), 10 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index c6463137b..cd7d507e4 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -537,11 +537,8 @@ by the `MFRONT_INCLUDE_PATH` environment variable, then in this directory.
+ 
+ > **Note**
+ >
+-> If `TFEL_APPEND_SUFFIX` is set, the files are installed in
+-> `share/tfel-<suffix>/mfront/configuration-files`, whereas `MFront`
+-> searches `share/tfel/mfront-<suffix>/configuration-files`: the
+-> configuration files must then be given by their path, or found through
+-> the `--search-path` option or the `MFRONT_INCLUDE_PATH` variable.
++> If `TFEL_APPEND_SUFFIX` is set, the files are installed in, and searched
++> by `MFront` in, `share/tfel-<suffix>/mfront/configuration-files`.
+ 
+ | Configuration file                      | Backend  | Compiler and target                                   |
+ |:----------------------------------------|:---------|:------------------------------------------------------|
+diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
+index 2432ab3c6..97acf9ce1 100644
+--- a/docs/web/release-notes/release-notes-5.2.md
++++ b/docs/web/release-notes/release-notes-5.2.md
+@@ -185,11 +185,9 @@ If a file given by the `--configuration-file` option is not found in the
+ current directory, `MFront` searches it in the directories given by the
+ preceding `--search-path` options, then in the directories listed by the
+ `MFRONT_INCLUDE_PATH` variable, then in
+-`share/tfel/mfront/configuration-files`. If `TFEL_APPEND_SUFFIX` is set,
+-`MFront` searches `share/tfel/mfront-<suffix>/configuration-files`
+-instead, where the configuration files are not installed: they must then
+-be found through the `--search-path` option or the `MFRONT_INCLUDE_PATH`
+-variable.
++`share/tfel/mfront/configuration-files` (or
++`share/tfel-<suffix>/mfront/configuration-files` if `TFEL_APPEND_SUFFIX`
++is set).
+ 
+ ## Add a `build-tests` target
+ 
+-- 
+2.43.0
+

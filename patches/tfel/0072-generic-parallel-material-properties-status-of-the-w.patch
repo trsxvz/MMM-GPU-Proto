@@ -1,0 +1,172 @@
+From 101ab0b817a43b333e599dc241956d50bbfdfd8f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 05:44:57 +0200
+Subject: [PATCH] generic-parallel material properties: status of the warning
+ policy
+
+As with the generic interface, a bound violated with the warning policy
+gives the status 1: the result is computed at all points but must be used
+with caution. The status stayed null.
+
+The statuses of the interface are documented, including the ones which are
+specific to it (-2, -5, -6 and -7). The tests of the C++ backends and of
+CUDA check the warning policy.
+---
+ ...ic-parallel-material-property-interface.md | 34 +++++++++++++++++
+ .../generic-parallel/test-cuda.cu             | 38 +++++++++++++++++++
+ .../generic-parallel/test-cxx.cxx             | 31 +++++++++++++++
+ 3 files changed, 103 insertions(+)
+
+diff --git a/docs/web/generic-parallel-material-property-interface.md b/docs/web/generic-parallel-material-property-interface.md
+index 76b9c57ae..207287c81 100644
+--- a/docs/web/generic-parallel-material-property-interface.md
++++ b/docs/web/generic-parallel-material-property-interface.md
+@@ -101,6 +101,40 @@ the output are stored contiguously in memory. In other words, this
+ prototype is equivalent to the first prototype when all strides are
+ equal to one.
+ 
++## Output status
++
++The output status (`mfront_gmp_OutputStatus`) follows the conventions of
++the `generic` interface for material properties:
++
++- `0`: the result has been evaluated at all points;
++- `1`: an argument or the result is out of its bounds at one point at
++  least, with the warning policy. The result is evaluated at all points
++  but must be used with caution. `bounds_status` gives the rank of the
++  variable (starting at one);
++- `-1`: an argument or the result is out of its physical bounds, or out
++  of its bounds with the strict policy, at one point at least. The result
++  is not evaluated at those points. `bounds_status` gives the rank of the
++  variable, negative for a physical bound;
++- `-4`: the result is not finite (`nan` or infinite) at one point at
++  least.
++
++The following statuses are specific to this interface:
++
++- `-2`: an exception was thrown on the host (backends based on C++
++  programming models, for instance by a data transfer);
++- `-5`: invalid arguments (number of points, number of arguments,
++  negative stride);
++- `-6`: runtime error of the backend (allocation, launch of a kernel, stack
++  size of the threads of the device), or invalid parameters;
++- `-7`: uniform output (null stride) with several points or with non
++  uniform arguments.
++
++As for behaviours, the error message describes the first error found. It
++is only meaningful if the status is not null. The devices only write the
++statuses when an error occurs: the reporting of the errors costs nothing
++when the evaluation succeeds (see the internal details of the `CUDA`
++backend).
++
+ # Backends
+ 
+ Backends are associated with parallel programming models.
+diff --git a/test-suite/material-properties/generic-parallel/test-cuda.cu b/test-suite/material-properties/generic-parallel/test-cuda.cu
+index 0f5762695..6fc975e33 100644
+--- a/test-suite/material-properties/generic-parallel/test-cuda.cu
++++ b/test-suite/material-properties/generic-parallel/test-cuda.cu
+@@ -45,6 +45,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test11();
+     this->test12();
+     this->test13();
++    this->test14();
+     TFEL_TESTS_ASSERT(checkGenericParallelSymbols("cuda"));
+     return this->result;
+   }  // end of execute
+@@ -428,6 +429,43 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     }
+   }
+ 
++  // bound violated with the warning policy: the result is computed at all
++  // points and must be used with caution (status 1), as with the `generic`
++  // interface
++  void test14() {
++    constexpr auto eps = double{1e-2};
++    auto young = [](const double T, const double f) {
++      constexpr auto E0 = 2.2693e11;
++      constexpr auto dE_dT = -1.53994698e7;
++      constexpr auto d2E_dT2 = -1.9198278e4;
++      constexpr auto f0 = 0.4;
++      return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
++    };
++    auto output = mfront_gmp_OutputStatus{};
++    auto E = thrust::host_vector<double>(4);
++    const auto T = thrust::host_vector<double>{300, 3000, 300, 800};
++    const auto f = thrust::host_vector<double>{0, 0.1, 0.15, 0.12};
++    thrust::device_vector<double> d_T(T);
++    thrust::device_vector<double> d_f(f);
++    thrust::device_vector<double> d_E(E.size());
++    const auto policy = GENERIC_MATERIALPROPERTY_WARNING_POLICY;
++    const auto args =
++        std::array<const double *, 2u>{thrust::raw_pointer_cast(d_T.data()),
++                                       thrust::raw_pointer_cast(d_f.data())};
++    const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 1};
++    UO2_YoungModulus_Martin1989(&output, thrust::raw_pointer_cast(d_E.data()),
++                                1, args.data(), args_strides.data(),
++                                args.size(), 4, policy);
++    E = d_E;
++    TFEL_TESTS_CHECK_EQUAL(output.status, 1);
++    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 1);
++    for (std::size_t i = 0; i != E.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) <
++                        eps * std::abs(young(T[i], f[i])));
++    }
++  }
++
+   void test12() {
+     // linear interpolation of data
+     this->checkTemperatureDependentMaterialProperty(
+diff --git a/test-suite/material-properties/generic-parallel/test-cxx.cxx b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+index 0e81a9c8c..28625c6e1 100644
+--- a/test-suite/material-properties/generic-parallel/test-cxx.cxx
++++ b/test-suite/material-properties/generic-parallel/test-cxx.cxx
+@@ -98,6 +98,7 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     this->test11();
+     this->test12();
+     this->test13();
++    this->test14();
+     TFEL_TESTS_ASSERT(checkGenericParallelSymbols(
+         MFRONT_GPMP_TEST_STRINGIFY(MFRONT_GPMP_TEST_BACKEND)));
+     return this->result;
+@@ -387,6 +388,36 @@ struct Iconel600YoungModulusTest : public tfel::tests::TestCase {
+     }
+   }
+ 
++  // bound violated with the warning policy: the result is computed at all
++  // points and must be used with caution (status 1), as with the `generic`
++  // interface
++  void test14() {
++    constexpr auto eps = double{1e-2};
++    auto young = [](const double T, const double f) {
++      constexpr auto E0 = 2.2693e11;
++      constexpr auto dE_dT = -1.53994698e7;
++      constexpr auto d2E_dT2 = -1.9198278e4;
++      constexpr auto f0 = 0.4;
++      return (1 - f / f0) * (E0 + dE_dT * T + (d2E_dT2 / 2) * T * T);
++    };
++    auto output = mfront_gmp_OutputStatus{};
++    auto E = test_vector<double>(4);
++    const auto T = test_vector<double>{300, 3000, 300, 800};
++    const auto f = test_vector<double>{0, 0.1, 0.15, 0.12};
++    const auto policy = GENERIC_MATERIALPROPERTY_WARNING_POLICY;
++    const auto args = std::array<const double *, 2u>{T.data(), f.data()};
++    const auto args_strides = std::array<mfront_gmp_size_type, 2u>{1, 1};
++    UO2_YoungModulus_Martin1989(&output, E.data(), 1, args.data(),
++                                args_strides.data(), args.size(), 4, policy);
++    TFEL_TESTS_CHECK_EQUAL(output.status, 1);
++    TFEL_TESTS_CHECK_EQUAL(output.c_error_number, 0);
++    TFEL_TESTS_CHECK_EQUAL(output.bounds_status, 1);
++    for (std::size_t i = 0; i != E.size(); ++i) {
++      TFEL_TESTS_ASSERT(std::abs(E[i] - young(T[i], f[i])) <
++                        eps * std::abs(young(T[i], f[i])));
++    }
++  }
++
+   void test12() {
+     // linear interpolation of data
+     this->checkTemperatureDependentMaterialProperty(
+-- 
+2.43.0
+

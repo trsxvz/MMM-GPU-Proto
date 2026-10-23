@@ -1,0 +1,219 @@
+From 2bd1b04755e887ed7bd63b08bb70f01dc926e7cb Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 20 Oct 2026 22:05:21 +0200
+Subject: [PATCH] generic-parallel behaviours: one definition of the time step
+ scaling factor of the statistics
+
+On all the backends, the time step scaling factor of the statistics given
+by the execution options is the minimum of their initial value and of the
+factors of the points which are lower than the initial value of the batch.
+The backends updating the statistics by atomic operations already did so.
+The `stlpar`, `openmp` and `openacc` backends merged the factor of the
+batch even if no point lowered it: statistics initialized with a factor
+greater than the one of the batch were lowered, for instance by the
+rotations, which use `1`.
+
+The rotations never lower the time step scaling factor and leave the
+statistics unchanged on all the backends: this is tested by the
+comparison with the `generic` interface.
+---
+ .../generic-parallel-behaviour-interface.md   | 14 ++++-----
+ .../GenericParallelBehaviour/BatchData.h      | 11 +++----
+ .../GenericParallelBehaviour/Integrate.hxx    | 19 +++++++++---
+ .../GenericParallelBehaviour/OpenACC.hxx      |  2 +-
+ .../GenericParallelBehaviour/OpenMP.hxx       |  2 +-
+ .../GenericParallelBehaviour/ParallelSTL.hxx  |  2 +-
+ .../behaviours/generic-parallel/compare.cxx   | 30 +++++++++++++++++++
+ 7 files changed, 60 insertions(+), 20 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 18f0b7b6e..9976a2770 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -432,14 +432,12 @@ operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`, and
+ generated functions do in synchronous mode (status, numbers of points,
+ index of the first failure, time step scaling factor and error message),
+ as the `<name>_generic_parallel_report` functions of the material
+-properties. The rotations never fail. The `stlpar`, `openmp` and `openacc`
+-backends merge the time step scaling factor of the batch (the `rdt` member
+-of the batch data for the integration, `1` for the rotations) with the one
+-of the statistics, even if no event occurs, whereas the other backends only
+-update the statistics when an event occurs (see below). The statistics
+-must thus be initialized with a time step scaling factor not greater than
+-the one of the batches (`1` for the rotations): the rotations then leave
+-them unchanged with all the backends.
++properties. On all the backends, the time step scaling factor of the
++statistics is the minimum of the value given to
++`mfront_gpb_initializeBatchStatistics` and of the factors of the points
++which are lower than the initial value of the batch (the `rdt` member of
++the batch data). The rotations never fail and never lower the time step
++scaling factor: they leave the statistics unchanged.
+ 
+ The devices only write in the statistics when an event occurs at a point
+ (failure, unreliable result, decrease of the time step scaling factor), by
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+index 702c36990..a39315968 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
++++ b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+@@ -54,7 +54,10 @@ typedef struct mfront_gpb_BatchStatistics {
+    * \brief minimum of the time step scaling factors, stored as an unsigned
+    * integer with the same ordering (see
+    * `mfront_gpb_getTimeStepScalingFactor`), so that the device can update
+-   * it with an integer atomic operation
++   * it with an integer atomic operation. On all backends, this is the
++   * minimum of the value given to `mfront_gpb_initializeBatchStatistics`
++   * and of the factors of the points which are lower than the initial value
++   * of the batch (`rdt` member of `mfront_gpb_BatchData`).
+    */
+   unsigned long long rdt;
+ } mfront_gpb_BatchStatistics;
+@@ -266,10 +269,8 @@ typedef struct mfront_gpb_RotationData {
+   mfront_gpb_ConstField rotation_matrices;
+   /*!
+    * \brief options of the execution of the computations. The rotations
+-   * never fail: the statistics, if given, are not modified if their time
+-   * step scaling factor is not greater than `1`. Otherwise, the `stlpar`
+-   * and `openmp` backends set it to `1`, since they merge the time step
+-   * scaling factor of the batch with the one of the statistics.
++   * never fail and never lower the time step scaling factor: the
++   * statistics, if given, are not modified.
+    */
+   mfront_gpb_ExecutionOptions execution;
+ } mfront_gpb_RotationData;
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index 5114654bc..fbd1c794f 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -768,10 +768,12 @@ namespace mfront::gpb {
+    * \brief accumulate the statistics of a batch
+    * \param[in,out] s: accumulated statistics
+    * \param[in] r: statistics of a batch
++   * \param[in] merge_rdt: if false, the time step scaling factor of the
++   * accumulated statistics is not modified
+    */
+   constexpr void accumulate(AtomicBatchStatistics& s,
+-                            const BatchStatistics& r) noexcept {
+-    const auto rdt = toOrderedKey(r.rdt);
++                            const BatchStatistics& r,
++                            const bool merge_rdt = true) noexcept {
+     const auto first_failure_index =
+         static_cast<unsigned long long>(r.first_failure_index);
+     s.number_of_failures += r.number_of_failures;
+@@ -779,7 +781,10 @@ namespace mfront::gpb {
+                                 ? first_failure_index
+                                 : s.first_failure_index;
+     s.number_of_unreliable_results += r.number_of_unreliable_results;
+-    s.rdt = rdt < s.rdt ? rdt : s.rdt;
++    if (merge_rdt) {
++      const auto rdt = toOrderedKey(r.rdt);
++      s.rdt = rdt < s.rdt ? rdt : s.rdt;
++    }
+   }  // end of accumulate
+ 
+   //! \brief function object combining two statistics
+@@ -829,15 +834,21 @@ namespace mfront::gpb {
+    * \return the status
+    * \param[in,out] s: output status
+    * \param[in] o: execution options
++   * \param[in] rdt0: initial value of the time step scaling factor of the
++   * batch
+    * \param[in] r: statistics of the batch
+    */
+   inline int report(OutputStatus& s,
+                     const ExecutionOptions& o,
++                    const real rdt0,
+                     const BatchStatistics& r) noexcept {
+     if (o.statistics == nullptr) {
+       return report(s, r);
+     }
+-    accumulate(*(o.statistics), r);
++    // as with the backends updating the statistics by atomic operations,
++    // the time step scaling factor of the statistics is only lowered by the
++    // points which decreased the initial value of the batch
++    accumulate(*(o.statistics), r, r.rdt < rdt0);
+     return s.status;
+   }  // end of report
+ 
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx b/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
+index f77e9b059..7e02ca813 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
+@@ -83,7 +83,7 @@ namespace mfront::gpb::openacc {
+       number_of_unreliable_results += r.number_of_unreliable_results;
+       rdt = r.rdt < rdt ? r.rdt : rdt;
+     }
+-    return report(s, o,
++    return report(s, o, rdt0,
+                   BatchStatistics{.number_of_failures = number_of_failures,
+                                   .first_failure_index = first_failure_index,
+                                   .number_of_unreliable_results =
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx b/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx
+index a212e7d8b..c3ea5a274 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx
+@@ -93,7 +93,7 @@ namespace mfront::gpb::openmp {
+         rdt = r.rdt < rdt ? r.rdt : rdt;
+       }
+     }
+-    return report(s, o,
++    return report(s, o, rdt0,
+                   BatchStatistics{.number_of_failures = number_of_failures,
+                                   .first_failure_index = first_failure_index,
+                                   .number_of_unreliable_results =
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+index 082c2ce6e..1b4ed59ae 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+@@ -67,7 +67,7 @@ namespace mfront::gpb::stlpar {
+     const auto r = std::transform_reduce(
+         policy, CountingIterator{0}, CountingIterator{n},
+         BatchStatistics{.rdt = rdt0}, CombineStatistics{}, f);
+-    return report(s, o, r);
++    return report(s, o, rdt0, r);
+   }  // end of apply
+ 
+   /*!
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index c0b9bdeca..91a6db637 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -1693,6 +1693,36 @@ static bool testRotation(const Test& t) {
+           pass ? "OK" : "FAILED");
+     }
+   }
++  // asynchronous rotation: the rotations never lower the time step scaling
++  // factor, so that the statistics are not modified on all the backends,
++  // even if their time step scaling factor is greater than one
++  {
++    const auto source = BatchField(src, n, ns, false);
++    const auto destination =
++        BatchField(std::vector<double>(n * ns), n, ns, false);
++    const auto matrices = BatchField(rotations, n, 9, false);
++    auto* const statistics = allocate<mfront_gpb_BatchStatistics>(1);
++    mfront_gpb_initializeBatchStatistics(statistics, 2);
++    auto d = mfront_gpb_RotationData{};
++    d.number_of_points = n;
++    d.destination = destination.field();
++    d.source = source.const_field();
++    d.rotation_matrices = matrices.const_field();
++    d.execution.queue = queue();
++    d.execution.statistics = statistics;
++    auto o = mfront_gpb_OutputStatus{};
++    fb(&o, &d);
++    synchronize();
++    const auto rdt = mfront_gpb_getTimeStepScalingFactor(statistics);
++    const auto pass = (o.status == 1) &&
++                      (statistics->number_of_failures == 0) &&
++                      (statistics->number_of_unreliable_results == 0) &&
++                      (rdt == 2);
++    deallocate(statistics);
++    ok = pass && ok;
++    std::printf("rotation with statistics: status=%2d | rdt %g | %s\n",
++                o.status, rdt, pass ? "OK" : "FAILED");
++  }
+   return ok;
+ }  // end of testRotation
+ 
+-- 
+2.43.0
+

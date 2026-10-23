@@ -1,4 +1,4 @@
-From 934a6af5502f1f772f9144e4be1c85c8b5090c31 Mon Sep 17 00:00:00 2001
+From 0718557a5b505af072c6c8848e2ed237ffa0ccc9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 17:04:52 +0200
 Subject: [PATCH] TFEL: behaviours without virtual functions
@@ -284,10 +284,10 @@ index 24e867f27..d4944babd 100644
            "this->computeAPosterioriTimeStepScalingFactorII();\n"
            "return {time_scaling_factor.first,\n"
 diff --git a/mfront/src/ImplicitCodeGeneratorBase.cxx b/mfront/src/ImplicitCodeGeneratorBase.cxx
-index 1766c2395..330b34fe0 100644
+index 810c8f137..263a3e954 100644
 --- a/mfront/src/ImplicitCodeGeneratorBase.cxx
 +++ b/mfront/src/ImplicitCodeGeneratorBase.cxx
-@@ -1108,12 +1108,12 @@ namespace mfront {
+@@ -1121,12 +1121,12 @@ namespace mfront {
         << " */\n"
         << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult ";
      if (this->bd.hasAttribute(h, BehaviourData::hasConsistentTangentOperator)) {
@@ -304,7 +304,7 @@ index 1766c2395..330b34fe0 100644
      }
      os << "using namespace std;\n";
 diff --git a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
-index e387cc444..c86bb1fc0 100644
+index a48154ba9..adf8f6e38 100644
 --- a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
 @@ -143,7 +143,7 @@ namespace mfront {
@@ -369,10 +369,10 @@ index 8538ffcf5..8a64f72af 100644
         << "if(" << this->getInvalidStandardTangentOperatorFlagCondition()
         << "){\n";
 diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-index e53cc3860..25c96841b 100644
+index 70f833e02..3004df865 100644
 --- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
 +++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-@@ -2233,16 +2233,16 @@ namespace mfront {
+@@ -2237,16 +2237,16 @@ namespace mfront {
         << "*/\n"
         << "[[nodiscard]] TFEL_HOST_DEVICE IntegrationResult\n";
      if (this->bd.hasAttribute(h, BehaviourData::hasConsistentTangentOperator)) {

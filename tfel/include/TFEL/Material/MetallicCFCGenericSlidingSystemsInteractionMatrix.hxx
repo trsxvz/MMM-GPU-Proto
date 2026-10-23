@@ -21,12 +21,8 @@
 namespace tfel::material {
 
   /*!
-   * \brief Given six interaction coefficients, this class builds a generic
-   * interaction matrix.
-   *
-   * \note in previous versions, the matrix was only computed at the first
-   * call. It is now computed at each call, which allows its use in device
-   * code.
+   * \brief Given six interaction coefficients, this class builds
+   * a generic interaction matrix. The matrix is computed at each call.
    */
   template <typename NumType>
   struct MetallicCFCGenericSlidingSystemsInteractionMatrix {

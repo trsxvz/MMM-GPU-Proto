@@ -1,0 +1,121 @@
+From 7f34ec5e340c828bdeed3c0e90eace80965ac7d4 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Thu, 8 Oct 2026 03:28:42 +0200
+Subject: [PATCH] generic-parallel material properties: bounds writers without
+ unused argument
+
+The flag stating if quantities are used is no longer used by the writers of
+the checks of the bounds. The parameter giving the prefix of the out of
+bounds policies is named accordingly.
+---
+ .../MaterialProperty/BackendBase.hxx          | 19 ++++++++++++++----
+ .../MaterialProperty/BackendBase.cxx          | 20 +++++++++----------
+ 2 files changed, 24 insertions(+), 15 deletions(-)
+
+diff --git a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+index 42736a3de..a0896cc62 100644
+--- a/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
++++ b/mfront/include/MFront/GenericParallel/MaterialProperty/BackendBase.hxx
+@@ -148,15 +148,26 @@ namespace mfront::generic_parallel::material_property {
+                               const GenericParallelMaterialPropertyInterface&,
+                               const MaterialPropertyDescription&) const;
+     //
++    /*!
++     * \brief write the check of the physical bounds of a variable in a kernel
++     * \param[in] os: output stream
++     * \param[in] v: variable
++     * \param[in] i: index of the variable (the output is after the inputs)
++     */
+     virtual void writePhysicalBounds(std::ostream&,
+                                      const VariableDescription&,
+-                                     const size_t,
+-                                     const bool) const;
++                                     const size_t) const;
++    /*!
++     * \brief write the check of the standard bounds of a variable in a kernel
++     * \param[in] os: output stream
++     * \param[in] prefix: prefix of the out of bounds policies
++     * \param[in] v: variable
++     * \param[in] i: index of the variable (the output is after the inputs)
++     */
+     virtual void writeBounds(std::ostream&,
+                              const std::string&,
+                              const VariableDescription&,
+-                             const size_t,
+-                             const bool) const;
++                             const size_t) const;
+     /*!
+      * \brief write the code analysing the array `mfront_bounds_statuses`
+      *
+diff --git a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+index ccbad6c4e..1c5dfec71 100644
+--- a/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
++++ b/mfront/src/GenericParallel/MaterialProperty/BackendBase.cxx
+@@ -177,8 +177,7 @@ namespace mfront::generic_parallel::material_property {
+ 
+   void BackendBase::writePhysicalBounds(std::ostream& os,
+                                         const VariableDescription& v,
+-                                        const size_t i,
+-                                        const bool) const {
++                                        const size_t i) const {
+     if (!v.hasPhysicalBounds()) {
+       return;
+     }
+@@ -200,10 +199,9 @@ namespace mfront::generic_parallel::material_property {
+   }  // end of writePhysicalBounds
+ 
+   void BackendBase::writeBounds(std::ostream& os,
+-                                const std::string& iucname,
++                                const std::string& prefix,
+                                 const VariableDescription& v,
+-                                const size_t i,
+-                                const bool) const {
++                                const size_t i) const {
+     if (!v.hasBounds()) {
+       return;
+     }
+@@ -212,7 +210,7 @@ namespace mfront::generic_parallel::material_property {
+         (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
+       os << "if(" << v.name << " < " << v.type << "(" << b.lowerBound << ")){\n"
+          << "mfront_bounds_statuses[" << 2 * i + 1 << "] = -1;\n"
+-         << "if (mfront_out_of_bounds_policy==" << iucname
++         << "if (mfront_out_of_bounds_policy==" << prefix
+          << "_STRICT_POLICY){\n"
+          << "return;\n"
+          << "}\n"
+@@ -222,7 +220,7 @@ namespace mfront::generic_parallel::material_property {
+         (b.boundsType == VariableBoundsDescription::LOWERANDUPPER)) {
+       os << "if(" << v.name << " > " << v.type << "(" << b.upperBound << ")){\n"
+          << "mfront_bounds_statuses[" << 2 * i + 1 << "] = 1;\n"
+-         << "if (mfront_out_of_bounds_policy==" << iucname
++         << "if (mfront_out_of_bounds_policy==" << prefix
+          << "_STRICT_POLICY){\n"
+          << "return;\n"
+          << "}\n"
+@@ -534,10 +532,10 @@ namespace mfront::generic_parallel::material_property {
+         ((hasPhysicalBounds(mpd.inputs)) || (hasBounds(mpd.inputs)))) {
+       os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-        this->writePhysicalBounds(os, mpd.inputs[idx], idx, qt);
++        this->writePhysicalBounds(os, mpd.inputs[idx], idx);
+       }
+       for (std::size_t idx = 0; idx != mpd.inputs.size(); ++idx) {
+-        this->writeBounds(os, prefix, mpd.inputs[idx], idx, qt);
++        this->writeBounds(os, prefix, mpd.inputs[idx], idx);
+       }
+       os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+     }
+@@ -546,8 +544,8 @@ namespace mfront::generic_parallel::material_property {
+     if (checks) {
+       if ((mpd.output.hasPhysicalBounds()) || (mpd.output.hasBounds())) {
+         os << "#ifndef NO_" << iucname << "_BOUNDS_CHECK\n";
+-        this->writePhysicalBounds(os, mpd.output, mpd.inputs.size(), qt);
+-        this->writeBounds(os, prefix, mpd.output, mpd.inputs.size(), qt);
++        this->writePhysicalBounds(os, mpd.output, mpd.inputs.size());
++        this->writeBounds(os, prefix, mpd.output, mpd.inputs.size());
+         os << "#endif /* NO_" << iucname << "_BOUNDS_CHECK */\n";
+       }
+       this->writeInvalidResultCheck(os, mpd);
+-- 
+2.43.0
+

@@ -1,0 +1,103 @@
+From e034e9286ab31919ef68e16a7d27d761a197f32f Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 7 Oct 2026 04:23:20 +0200
+Subject: [PATCH] TFEL/Math: cubic spline interpolation in device code compiled
+ by nvcc
+
+The `std::advance`, `std::next` and `std::prev` functions of libstdc++
+call the `__builtin_constant_p` built-in, which nvcc (13.0) treats as a
+host function: in device code, nvcc silently compiles them as functions
+doing nothing. The interpolation by a cubic spline then read the same
+collocation point twice and returned NaN on GPUs between and above the
+collocation points. The device compatible functions of `CubicSpline.ixx`
+now use internal functions advancing the iterators.
+
+The new CubicSplineHardeningTest behaviour of the tests of the
+`generic-parallel` interface uses an isotropic hardening interpolated by a
+cubic spline, with a plastic loading.
+---
+ include/TFEL/Math/CubicSpline.ixx             |  4 ++--
+ .../CubicSplineHardeningTest.mfront           | 22 +++++++++++++++++++
+ .../generic-parallel/build-libraries.sh       |  1 +
+ .../generic-parallel/compare-all.sh           |  2 ++
+ 4 files changed, 27 insertions(+), 2 deletions(-)
+ create mode 100644 test-suite/behaviours/generic-parallel/CubicSplineHardeningTest.mfront
+
+diff --git a/include/TFEL/Math/CubicSpline.ixx b/include/TFEL/Math/CubicSpline.ixx
+index 67a1ca77b..8e4477816 100644
+--- a/include/TFEL/Math/CubicSpline.ixx
++++ b/include/TFEL/Math/CubicSpline.ixx
+@@ -33,7 +33,7 @@ namespace tfel::math {
+      * and nvcc 13.0 silently compiles them as functions doing nothing.
+      */
+     template <typename Iterator>
+-    constexpr void advance(
++    TFEL_HOST_DEVICE constexpr void advance(
+         Iterator& i,
+         const typename std::iterator_traits<Iterator>::difference_type n) {
+       if constexpr (std::random_access_iterator<Iterator>) {
+@@ -50,7 +50,7 @@ namespace tfel::math {
+ 
+     //! \return the iterator preceding the given one (see `advance`)
+     template <typename Iterator>
+-    constexpr Iterator previous(Iterator i) {
++    TFEL_HOST_DEVICE constexpr Iterator previous(Iterator i) {
+       internals::advance(i, -1);
+       return i;
+     }  // end of previous
+diff --git a/test-suite/behaviours/generic-parallel/CubicSplineHardeningTest.mfront b/test-suite/behaviours/generic-parallel/CubicSplineHardeningTest.mfront
+new file mode 100644
+index 000000000..ad67915c2
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/CubicSplineHardeningTest.mfront
+@@ -0,0 +1,22 @@
++@DSL Implicit;
++@Behaviour CubicSplineHardeningTest;
++@Description {
++  "Plastic behaviour whose isotropic hardening is defined by data "
++  "interpolated by a cubic spline (`computeCubicSplineInterpolation`)."
++}
++
++@Algorithm NewtonRaphson;
++@Epsilon 1.e-14;
++@Theta 1;
++
++@Brick StandardElastoViscoPlasticity{
++  stress_potential : "Hooke" {young_modulus : 150e9, poisson_ratio : 0.3},
++  inelastic_flow : "Plastic" {
++    criterion : "Mises",
++    isotropic_hardening : "Data" {
++      values : {0 : 150e6, 1e-3 : 200e6, 2e-3 : 400e6},
++      interpolation : "cubic_spline",
++      extrapolation : "bound_to_last_value"
++    }
++  }
++};
+diff --git a/test-suite/behaviours/generic-parallel/build-libraries.sh b/test-suite/behaviours/generic-parallel/build-libraries.sh
+index 1888565b6..395602b37 100644
+--- a/test-suite/behaviours/generic-parallel/build-libraries.sh
++++ b/test-suite/behaviours/generic-parallel/build-libraries.sh
+@@ -42,6 +42,7 @@ behaviours=${*:-"
+   OrthotropicStandardElastoViscoPlasticityTest
+   PorousStandardElastoViscoPlasticityTest GenericParallelModelTest
+   GenericParallelModelWithQuantitiesTest TensorialVariablesTest
++  CubicSplineHardeningTest
+ "}
+ files=$(for b in $behaviours; do echo "$directory/$b.mfront"; done)
+ reference_configuration=""
+diff --git a/test-suite/behaviours/generic-parallel/compare-all.sh b/test-suite/behaviours/generic-parallel/compare-all.sh
+index 651f6bc6b..38c8121ec 100644
+--- a/test-suite/behaviours/generic-parallel/compare-all.sh
++++ b/test-suite/behaviours/generic-parallel/compare-all.sh
+@@ -159,6 +159,8 @@ run ${ohs}_Tridimensional_rotateGradients
+ run ${ohs}_PlaneStrain_rotateThermodynamicForces
+ run ${ohs}_Tridimensional_rotateTangentOperatorBlocks
+ run ${ohs}_Axisymmetrical_rotateTangentOperatorBlocks
++# isotropic hardening interpolated by a cubic spline (plastic loading)
++run CubicSplineHardeningTest_Tridimensional --amplitude=3e-3
+ # StandardElastoViscoPlasticity brick: plastic flow with isotropic hardening
+ # defined by data and kinematic hardening rules, Norton flow with the Hill
+ # criterion, porous flow (Gurson-Tvergaard-Needleman criterion, nucleation,
+-- 
+2.43.0
+

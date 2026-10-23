@@ -1,4 +1,4 @@
-From 61cb3865ddd61743cb9996bf78fae566a4fd7a7b Mon Sep 17 00:00:00 2001
+From 76157a051b40d219710e3233500f55d3684d7838 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:36 +0200
 Subject: [PATCH] MFront: generated code compatible with device code
@@ -1468,7 +1468,7 @@ index be9cedf5e..d91c67355 100644
              if (bd.hasAttribute(
                      BehaviourDescription::requiresUnAlteredStiffnessTensor)) {
 diff --git a/mfront/src/ImplicitCodeGeneratorBase.cxx b/mfront/src/ImplicitCodeGeneratorBase.cxx
-index 637472ed9..1766c2395 100644
+index cf92b0e3a..810c8f137 100644
 --- a/mfront/src/ImplicitCodeGeneratorBase.cxx
 +++ b/mfront/src/ImplicitCodeGeneratorBase.cxx
 @@ -441,8 +441,9 @@ namespace mfront {
@@ -1543,7 +1543,7 @@ index 637472ed9..1766c2395 100644
                 << "df" << v.name << "_dd" << v2.name
                 << "(const ushort mfront_idx, "
                 << "const ushort mfront_idx2){\n"
-@@ -1121,15 +1127,9 @@ namespace mfront {
+@@ -1134,15 +1140,9 @@ namespace mfront {
             BehaviourDescription::COHESIVEZONEMODEL) ||
            (this->bd.getBehaviourType() ==
             BehaviourDescription::GENERALBEHAVIOUR)) {
@@ -1562,7 +1562,7 @@ index 637472ed9..1766c2395 100644
        }
      }
      if (this->bd.hasCode(h, BehaviourData::ComputePredictor)) {
-@@ -1183,10 +1183,10 @@ namespace mfront {
+@@ -1196,10 +1196,10 @@ namespace mfront {
      os << "}\n";
      if (!areRuntimeChecksDisabled(this->bd)) {
        for (const auto& v : d.getPersistentVariables()) {
@@ -1575,7 +1575,7 @@ index 637472ed9..1766c2395 100644
        }
      }
      if (!this->bd.getTangentOperatorBlocks().empty()) {
-@@ -1208,10 +1208,9 @@ namespace mfront {
+@@ -1221,10 +1221,9 @@ namespace mfront {
          }
          os << "}\n";
        } else {
@@ -1590,7 +1590,7 @@ index 637472ed9..1766c2395 100644
        os << "}\n";
      }
 diff --git a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
-index 7c8aea87c..e387cc444 100644
+index 1896a3e04..a48154ba9 100644
 --- a/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
 +++ b/mfront/src/IsotropicBehaviourCodeGeneratorBase.cxx
 @@ -145,27 +145,22 @@ namespace mfront {
@@ -2117,7 +2117,7 @@ index 9d0189dbc..da2ae6276 100644
  
    void writeStandardPerformanceProfilingEnd(std::ostream& os) {
 diff --git a/mfront/src/RungeKuttaCodeGeneratorBase.cxx b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
-index 5037b18ef..e53cc3860 100644
+index 02e2ac611..70f833e02 100644
 --- a/mfront/src/RungeKuttaCodeGeneratorBase.cxx
 +++ b/mfront/src/RungeKuttaCodeGeneratorBase.cxx
 @@ -318,7 +318,8 @@ namespace mfront {
@@ -2191,7 +2191,7 @@ index 5037b18ef..e53cc3860 100644
         << "}\n"
         << "}\n";
    }  // end of writeBehaviourRK54Integrator
-@@ -1301,9 +1306,10 @@ namespace mfront {
+@@ -1305,9 +1310,10 @@ namespace mfront {
           << "::integrate() : failed while computing initial stress\" << endl;\n"
           << "}\n";
      }
@@ -2205,7 +2205,7 @@ index 5037b18ef..e53cc3860 100644
         << "const auto asig = "
         << "tfel::math::power<1, 2>((this->sig) | (this->sig));\n";
      const auto error_normalization_factor =
-@@ -1323,12 +1329,17 @@ namespace mfront {
+@@ -1327,12 +1333,17 @@ namespace mfront {
           << "::integrate() : beginning of resolution\" << endl;\n";
      }
      os << "while(!converged){\n"
@@ -2229,8 +2229,8 @@ index 5037b18ef..e53cc3860 100644
      if (getDebugMode()) {
        os << "cout << \"" << this->bd.getClassName()
           << "::integrate() : from \" << t <<  \" to \" << t+dt_ << \" with "
-@@ -1660,9 +1671,10 @@ namespace mfront {
-          << this->bd.getClassName() << "::rkcastem_fac) << endl;\n";
+@@ -1664,9 +1675,10 @@ namespace mfront {
+          << this->bd.getClassName() << "::rkcastem_div) << endl;\n";
      }
      os << "}\n"
 -       << "if(dt_<dtprec){\n"
@@ -2243,7 +2243,7 @@ index 5037b18ef..e53cc3860 100644
         << "if(!converged){\n"
         << "if((tfel::math::abs(this->dt-t-dt_)<2*dtprec) || "
            "(t+dt_>this->dt)){\n"
-@@ -2013,9 +2025,10 @@ namespace mfront {
+@@ -2017,9 +2029,10 @@ namespace mfront {
            "RungeKuttaCodeGeneratorBase::writeBehaviourRK42Integrator",
            "internal error, unsupported error evaluation");
      }
@@ -2257,7 +2257,7 @@ index 5037b18ef..e53cc3860 100644
      if (getDebugMode()) {
        os << "cout << \"" << this->bd.getClassName()
           << "::integrate() : error \" << error << endl;\n";
-@@ -2077,9 +2090,10 @@ namespace mfront {
+@@ -2081,9 +2094,10 @@ namespace mfront {
        os << "}\n";
      }
      os << "}\n"
@@ -2271,7 +2271,7 @@ index 5037b18ef..e53cc3860 100644
         << "if((tfel::math::abs(this->dt-t-dt_)<2*dtprec)||(t+dt_>this->dt)){\n"
         << "dt_=this->dt-t;\n"
         << "}\n"
-@@ -2087,9 +2101,10 @@ namespace mfront {
+@@ -2091,9 +2105,10 @@ namespace mfront {
         << "} else {\n"
         << "// failed is true\n"
         << "dt_ *= real(0.1f);\n"
@@ -2285,7 +2285,7 @@ index 5037b18ef..e53cc3860 100644
         << "}\n"
         << "}\n";
    }  // end of writeBehaviourRK42Integrator
-@@ -2216,7 +2231,7 @@ namespace mfront {
+@@ -2220,7 +2235,7 @@ namespace mfront {
      os << "/*!\n"
         << "* \\brief Integrate behaviour law over the time step\n"
         << "*/\n"
@@ -2294,7 +2294,7 @@ index 5037b18ef..e53cc3860 100644
      if (this->bd.hasAttribute(h, BehaviourData::hasConsistentTangentOperator)) {
        os << "integrate(const SMFlag smflag,const SMType smt) final{\n";
      } else {
-@@ -2284,10 +2299,10 @@ namespace mfront {
+@@ -2288,10 +2303,10 @@ namespace mfront {
      os << "}\n";
      if (!areRuntimeChecksDisabled(this->bd)) {
        for (const auto& v : d.getPersistentVariables()) {
@@ -2307,7 +2307,7 @@ index 5037b18ef..e53cc3860 100644
        }
      }
      if (this->bd.getAttribute(BehaviourData::profiling, false)) {
-@@ -2304,9 +2319,9 @@ namespace mfront {
+@@ -2308,9 +2323,9 @@ namespace mfront {
        writeReturnFailure(os, this->bd);
        os << "}\n";
      } else {

@@ -1,0 +1,29 @@
+From 54bc46dc29ba20da80fb0cba214afa7f3e7b53f3 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 16:11:27 +0200
+Subject: [PATCH] MFront: comment on the deduplication of the code written by
+ the interfaces
+
+---
+ mfront/src/BehaviourCodeGeneratorBase.cxx | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/mfront/src/BehaviourCodeGeneratorBase.cxx b/mfront/src/BehaviourCodeGeneratorBase.cxx
+index 0a3c34fa9..1bfad4f98 100644
+--- a/mfront/src/BehaviourCodeGeneratorBase.cxx
++++ b/mfront/src/BehaviourCodeGeneratorBase.cxx
+@@ -49,7 +49,10 @@ namespace mfront {
+    *
+    * Identical blocks of code are only written once. This allows interfaces
+    * which add the same members to the generated classes (for instance, the
+-   * `generic` and `generic-parallel` interfaces) to be used together.
++   * `generic` and `generic-parallel` interfaces) to be used together. The
++   * blocks which differ are all written: if two interfaces define the same
++   * member differently, the generated code does not compile, so the
++   * deduplication can't silently select the code of one interface.
+    *
+    * \param[out] os: output stream
+    * \param[in] interfaces: interfaces
+-- 
+2.43.0
+

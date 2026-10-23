@@ -1,0 +1,89 @@
+From 36cfcd05b320c3e4dd7c2e8a48588825c24b0c03 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 6 Oct 2026 02:21:09 +0200
+Subject: [PATCH] generic-parallel: symbols identifying the interface and the
+ backend
+
+- the libraries of the behaviours and of the standalone models export
+  the `generic_parallel_backend` symbol (cuda, hip, stlpar, kokkos, sycl
+  or openmp), which tells the calling code where the fields must be
+  allocated.
+- the `mfront_interface` symbol of the standalone models is now
+  `GenericParallel` (it was `Generic`, so that a library integrating a
+  batch could be taken for a library of the generic interface).
+---
+ docs/web/generic-parallel-behaviour-interface.md |  6 +++++-
+ mfront/src/GenericParallelBehaviourInterface.cxx |  4 ++++
+ mfront/src/GenericParallelModelInterface.cxx     | 11 ++++++++---
+ 3 files changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 4367dce37..ca5322be4 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -100,7 +100,11 @@ to the material frame, stored in column-major format).
+ The library also exports the same symbols as the `generic` interface
+ (names and types of the variables, parameters, etc.) and the functions
+ changing the parameters and the out of bounds policy. The `mfront_interface`
+-symbol is equal to `GenericParallel`.
++symbol is equal to `GenericParallel`, for the behaviours and for the
++standalone models. The `generic_parallel_backend` symbol gives the backend
++of the library (`cuda`, `hip`, `stlpar`, `kokkos`, `sycl` or `openmp`),
++which tells the calling code where the fields must be allocated (see the
++section of each backend).
+ 
+ The data structures are declared in
+ `MFront/GenericParallelBehaviour/BatchData.h`.
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index 8da116f42..e8d16560c 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -693,6 +693,10 @@ namespace mfront {
+        << "#endif /* __cplusplus */\n\n";
+     GenericBehaviourSymbolsGenerator sg;
+     sg.generateGeneralSymbols(os, *this, bd, fd, mhs, name);
++    // backend of the library, to select the memory of the fields
++    os << "MFRONT_EXPORT_SYMBOL(const char*, "
++       << this->getFunctionNameBasis(name) << "_generic_parallel_backend, \""
++       << this->backend->getName() << "\");\n\n";
+     if (!bd.areAllMechanicalDataSpecialised(mhs)) {
+       const auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
+       sg.generateSymbols(os, *this, bd, fd, name, uh);
+diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
+index 6548101ab..06e403e98 100644
+--- a/mfront/src/GenericParallelModelInterface.cxx
++++ b/mfront/src/GenericParallelModelInterface.cxx
+@@ -25,7 +25,7 @@
+ #include "MFront/ModelDescription.hxx"
+ #include "MFront/BehaviourDescription.hxx"
+ #include "MFront/GenericBehaviourSymbolsGenerator.hxx"
+-#include "MFront/GenericBehaviourInterface.hxx"
++#include "MFront/GenericParallelBehaviourInterface.hxx"
+ #include "MFront/GenericModelInterface.hxx"
+ #include "MFront/GenericParallel/Behaviour/BackendFactory.hxx"
+ #include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
+@@ -218,14 +218,19 @@ namespace mfront {
+     if (!md.includes.empty()) {
+       os << md.includes << "\n\n";
+     }
+-    // symbols: the same as the ones of the `generic` interface
+     const auto mhs = ModellingHypothesis::getModellingHypotheses();
+     const auto hypotheses =
+         std::set<ModellingHypothesis::Hypothesis>{mhs.begin(), mhs.end()};
+     const auto bd = convertToBehaviourDescription(md);
+     GenericBehaviourSymbolsGenerator sg;
+-    GenericBehaviourInterface bi;
++    // the symbols are the ones of a behaviour of the `generic-parallel`
++    // interface: in particular, the interface name tells that the entry
++    // points integrate a batch
++    GenericParallelBehaviourInterface bi;
+     sg.generateGeneralSymbols(os, bi, bd, fd, hypotheses, name);
++    os << "MFRONT_EXPORT_SYMBOL(const char*, "
++       << bi.getFunctionNameBasis(name) << "_generic_parallel_backend, \""
++       << this->backend->getName() << "\");\n";
+     os << '\n';
+     sg.generateSymbols(os, bi, bd, fd, name, uh);
+     if (!md.sources.empty()) {
+-- 
+2.43.0
+

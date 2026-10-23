@@ -1,0 +1,2645 @@
+From 020ab77da109131648f1b7830c2a3fb70fa09211 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 21 Oct 2026 02:44:09 +0200
+Subject: [PATCH] generic-parallel behaviours: common contract with the
+ material properties
+
+- the batch functions (integration, initialize functions, post-processings,
+  rotations, standalone models) are named after the functions of the
+  `generic` interface followed by `_generic_parallel`; the name of a
+  behaviour or of a model can't contain `_generic_parallel`;
+- version 3 of the data structures (`MFRONT_GPB_API_VERSION`):
+  `mfront_gpb_Statistics` has the members of `mfront_gpmp_Statistics`
+  (opaque keys of the first failure and of the first unreliable result,
+  `MFront/GenericParallel/StatisticsKeys.hxx`) followed by `rdt`; the
+  output status gives the index of the first unreliable result; `statuses`
+  is placed after `s1` in the batch data; types of the pointers to the
+  generated functions;
+- `<name>_generic_parallel_report`, exported by each library, analyses the
+  statistics of asynchronous computations (`mfront_gpb_report`,
+  `mfront_gpb_getStatus` removed); `mfront_gpb_initializeStatistics` takes
+  the time step scaling factor of the batch;
+- errors of the batch: `-5` invalid arguments (a null output status
+  included), `-6` invalid parameters (parameters file which can't be read),
+  `-7` runtime error of the backend, as for the material properties;
+- tests: report function, index of the first unreliable result, invalid
+  parameters files of a behaviour and of a behaviour variable, refused
+  names of a behaviour and of a model; documentation and release notes.
+---
+ .../generic-parallel-behaviour-interface.md   | 136 +++++++++-----
+ docs/web/release-notes/release-notes-5.2.md   |  22 ++-
+ mfront/include/CMakeLists.txt                 |   1 +
+ .../MFront/GenericParallel/StatisticsKeys.hxx |  61 +++++++
+ .../GenericParallelBehaviour/BatchData.h      | 158 ++++++++++-------
+ .../MFront/GenericParallelBehaviour/GPU.hxx   |  24 +--
+ .../GenericParallelBehaviour/Integrate.hxx    | 166 ++++++++++++++----
+ .../GenericParallelBehaviour/Kokkos.hxx       |  14 +-
+ .../GenericParallelBehaviour/OpenACC.hxx      |  42 +++--
+ .../GenericParallelBehaviour/OpenMP.hxx       |  41 +++--
+ .../GenericParallelBehaviour/ParallelSTL.hxx  |   2 +-
+ .../MFront/GenericParallelBehaviour/RAJA.hxx  |  14 +-
+ .../MFront/GenericParallelBehaviour/SYCL.hxx  |  20 ++-
+ .../GenericParallelBehaviourInterface.hxx     |  34 ++++
+ .../PointStatus.hxx                           |  45 +----
+ .../src/GenericParallelBehaviourInterface.cxx |  88 ++++++++--
+ mfront/src/GenericParallelModelInterface.cxx  |  22 ++-
+ ...validNameModelTest_generic_parallel.mfront |  13 ++
+ .../InvalidNameTest_generic_parallel.mfront   |  10 ++
+ .../generic-parallel/check-refused-name.sh    |  47 +++++
+ .../generic-parallel/compare-all.sh           |   9 +
+ .../behaviours/generic-parallel/compare.cxx   | 158 +++++++++++++----
+ .../generic-parallel/cuda-clang/test.check    |   5 +-
+ .../generic-parallel/cuda-nvcc/test.check     |   5 +-
+ .../hip-clang-nvidia-platform/test.check      |   5 +-
+ .../generic-parallel/hip-hipcc/test.check     |   5 +-
+ .../generic-parallel/kokkos-host/test.check   |   5 +-
+ .../generic-parallel/kokkos/test.check        |   5 +-
+ .../openacc-nvhpc-gpu/test.check              |   5 +-
+ .../openacc-nvhpc-multicore/test.check        |   5 +-
+ .../openmp-host-gcc/test.check                |   5 +-
+ .../openmp-offload-nvhpc-gpu/test.check       |   5 +-
+ .../generic-parallel/raja-host/test.check     |   5 +-
+ .../generic-parallel/raja/test.check          |   5 +-
+ .../stlpar-parunseq-clang/test.check          |   5 +-
+ .../stlpar-parunseq-gcc/test.check            |   5 +-
+ .../stlpar-parunseq-icpx/test.check           |   5 +-
+ .../stlpar-parunseq-nvhpc-gpu/test.check      |   5 +-
+ .../sycl-default-acpp-2/test.check            |   5 +-
+ .../sycl-default-acpp-omp/test.check          |   5 +-
+ .../sycl-default-acpp/test.check              |   5 +-
+ .../sycl-default-icpx/test.check              |   5 +-
+ 42 files changed, 896 insertions(+), 331 deletions(-)
+ create mode 100644 mfront/include/MFront/GenericParallel/StatisticsKeys.hxx
+ create mode 100644 test-suite/behaviours/generic-parallel/InvalidNameModelTest_generic_parallel.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/InvalidNameTest_generic_parallel.mfront
+ create mode 100644 test-suite/behaviours/generic-parallel/check-refused-name.sh
+
+diff --git a/docs/web/generic-parallel-behaviour-interface.md b/docs/web/generic-parallel-behaviour-interface.md
+index 9976a2770..38ad5ac04 100644
+--- a/docs/web/generic-parallel-behaviour-interface.md
++++ b/docs/web/generic-parallel-behaviour-interface.md
+@@ -47,14 +47,29 @@ The following libraries have been built :
+ 
+ # Generated functions
+ 
+-For each modelling hypothesis, the interface generates a function with the
+-same name as the one generated by the `generic` interface:
++For each modelling hypothesis, the interface generates a function whose
++name is the one generated by the `generic` interface followed by
++`_generic_parallel`:
+ 
+ ~~~~{.cxx}
+-int Plasticity_Tridimensional(mfront_gpb_OutputStatus* const,
+-                              const mfront_gpb_BatchData* const);
++int Plasticity_Tridimensional_generic_parallel(
++    mfront_gpb_OutputStatus* const, const mfront_gpb_BatchData* const);
+ ~~~~
+ 
++The library also exports the function analysing the statistics of
++asynchronous computations, common to all the modelling hypotheses and
++to all the functions of the behaviour (see the `Execution options`
++section):
++
++~~~~{.cxx}
++int Plasticity_generic_parallel_report(mfront_gpb_OutputStatus* const,
++                                       const mfront_gpb_Statistics* const);
++~~~~
++
++This is the naming of the functions of the material properties
++(`S_generic_parallel` and `S_generic_parallel_report`). The name of a
++behaviour or of a model can't contain `_generic_parallel`.
++
+ The functions are declared in the
+ `MFront/GenericParallelBehaviour/<name>-generic-parallel-<backend>.hxx`
+ header, where `<name>` is the name of the generated functions without the
+@@ -65,11 +80,11 @@ The initialize functions and the post-processings are also executed over
+ a batch:
+ 
+ ~~~~{.cxx}
+-int Plasticity_Tridimensional_InitializeFunction_ElasticStrainFromInitialStress(
++int Plasticity_Tridimensional_InitializeFunction_ElasticStrainFromInitialStress_generic_parallel(
+     mfront_gpb_OutputStatus* const,
+     const mfront_gpb_BatchData* const,
+     const mfront_gpb_ConstField* const inputs);
+-int Plasticity_Tridimensional_PostProcessing_PrincipalStrain(
++int Plasticity_Tridimensional_PostProcessing_PrincipalStrain_generic_parallel(
+     mfront_gpb_OutputStatus* const,
+     const mfront_gpb_Field* const outputs,
+     const mfront_gpb_BatchData* const);
+@@ -97,7 +112,7 @@ strain behaviours the variants associated with the stress measures and the
+ tangent operators, such as `rotateThermodynamicForces_PK1Stress`):
+ 
+ ~~~~{.cxx}
+-int OrthotropicElastic_Tridimensional_rotateGradients(
++int OrthotropicElastic_Tridimensional_rotateGradients_generic_parallel(
+     mfront_gpb_OutputStatus* const, const mfront_gpb_RotationData* const);
+ ~~~~
+ 
+@@ -163,7 +178,11 @@ an `unsigned short`), so that the calling code can check that it uses the same
+ structures. The structures are named (`typedef struct mfront_gpb_BatchData
+ {...} mfront_gpb_BatchData;`), so that they can be forward declared.
+ In `C++`, they are also available in the `mfront::gpb` namespace
+-(`mfront::gpb::BatchData`, `mfront::gpb::OutputStatus`, etc.).
++(`mfront::gpb::BatchData`, `mfront::gpb::OutputStatus`, etc.). The header
++also declares the types of the pointers to the generated functions
++(`mfront_gpb_BatchBehaviourPtr`, `mfront_gpb_BatchInitializeFunctionPtr`,
++`mfront_gpb_BatchPostProcessingPtr`, `mfront_gpb_BatchRotationPtr` and
++`mfront_gpb_ReportPtr`).
+ 
+ ## Fields
+ 
+@@ -273,9 +292,9 @@ typedef struct mfront_gpb_BatchData {
+   mfront_gpb_Field tangent_operators;
+   mfront_gpb_Field rdts;       // optional
+   mfront_gpb_Field speed_of_sound;
+-  int* statuses;               // optional
+   mfront_gpb_InitialState s0;
+   mfront_gpb_State s1;
++  int* statuses;               // optional
+   mfront_gpb_ExecutionOptions execution;  // see below
+ } mfront_gpb_BatchData;
+ ~~~~
+@@ -307,7 +326,7 @@ by `10`, see the [`generic` interface
+ page](generic-behaviours-interface.html#sec:generic_behaviour_interface:displacement_gradient)).
+ Invalid options of a finite strain behaviour (invalid stress measure or
+ tangent operator) are reported for the whole batch, as invalid arguments
+-(status `-2`), whereas the function of the `generic` interface reports an
++(status `-5`), whereas the function of the `generic` interface reports an
+ integration failure (`-1`) at the point.
+ 
+ All the fields and the `statuses` array must be located in the memory
+@@ -323,11 +342,16 @@ typedef struct mfront_gpb_OutputStatus {
+   mfront_gb_size_type number_of_failures;
+   mfront_gb_size_type first_failure_index;
+   mfront_gb_size_type number_of_unreliable_results;
++  mfront_gb_size_type first_unreliable_result_index;
+   mfront_gb_real rdt;  // minimum over the batch
+   char msg[512];
+ } mfront_gpb_OutputStatus;
+ ~~~~
+ 
++The members are the ones of the output status of the material properties
++(`mfront_gpmp_OutputStatus`), the time step scaling factor taking the place
++of the check retained at the reported point.
++
+ The status, also returned by the function, is:
+ 
+ - `1` if the integration succeeded at all points;
+@@ -335,9 +359,23 @@ The status, also returned by the function, is:
+   factor is lower than `0.99` at some points;
+ - `-1` if the integration failed at some points (`first_failure_index`
+   gives the first one, `statuses` locates all of them);
+-- `-2` if the arguments are invalid (nothing is computed);
+-- `-3` in case of a runtime error of the backend (allocation, launch of a
+-  kernel, etc.).
++- `-5` if the arguments are invalid: no output status or no batch data, an
++  invalid option of a finite strain behaviour, more than \(2^{48}-1\)
++  points, more blocks of threads than the grid of the device can hold
++  (`CUDA` and `HIP` backends), no queue given to the `SYCL` backend,
++  statistics with an out-of-order `SYCL` queue, or no statistics given to
++  the report function. Nothing is computed;
++- `-6` if the parameters are invalid: a parameters file read at the first
++  call (`<name>-parameters.txt`) can't be read. Nothing is computed;
++- `-7` in case of a runtime error of the backend (allocation, data
++  transfer, launch or execution of a kernel, stack size of the threads of
++  the device, exceptions thrown on the host by the runtimes). No exception
++  goes through the generated functions.
++
++Those codes are the ones of the material properties. The codes `1`, `0`
++and `-1` are the ones of the reported point: the first point where the
++integration failed, otherwise the first point where the time step scaling
++factor is too low.
+ 
+ An empty batch (no point) is accepted without any check: nothing is read,
+ written or submitted, the fields and the queue may be null, and the status
+@@ -359,14 +397,16 @@ first point where the integration failed is reported, whatever the order
+ of the computations, and the `statuses` field locates all of them: the
+ error message of such a point can be obtained by integrating it with the
+ `generic` interface. If no point failed, `first_failure_index` is the
+-maximal value of its type.
++maximal value of its type. `first_unreliable_result_index` gives the first
++point where the time step scaling factor is lower than `0.99`, or the
++maximal value of its type if there is no such point.
+ 
+ ## Execution options
+ 
+ ~~~~{.cxx}
+ typedef struct mfront_gpb_ExecutionOptions {
+   void* queue;
+-  mfront_gpb_BatchStatistics* statistics;  // optional
++  mfront_gpb_Statistics* statistics;  // optional
+   int preserve_stack_size;
+ } mfront_gpb_ExecutionOptions;
+ ~~~~
+@@ -377,7 +417,7 @@ backends, the default instance of the execution space of the `Kokkos`
+ backend, and, for the `RAJA` backend, the default stream of the current
+ device with `CUDA` and `HIP` and the default resource of camp otherwise.
+ The `SYCL` backend requires a queue: the arguments are reported as invalid
+-(status `-2`) otherwise. The queue is not used by the `stlpar`, `openmp` and
++(status `-5`) otherwise. The queue is not used by the `stlpar`, `openmp` and
+ `openacc` backends.
+ 
+ By default (`statistics` is null), the computations are synchronous: the
+@@ -392,14 +432,21 @@ accumulate them on the host). With the automatic data transfers of the
+ copied, as the fields:
+ 
+ ~~~~{.cxx}
+-typedef struct mfront_gpb_BatchStatistics {
++typedef struct mfront_gpb_Statistics {
+   unsigned long long number_of_failures;
+-  unsigned long long first_failure_index;
++  unsigned long long first_failure;            // opaque key
+   unsigned long long number_of_unreliable_results;
++  unsigned long long first_unreliable_result;  // opaque key
+   unsigned long long rdt;  // see mfront_gpb_getTimeStepScalingFactor
+-} mfront_gpb_BatchStatistics;
++} mfront_gpb_Statistics;
+ ~~~~
+ 
++The members are the ones of the statistics of the material properties
++(`mfront_gpmp_Statistics`), followed by the minimum of the time step
++scaling factors. The keys are opaque: the minimum of the keys gives the
++first point, whatever the order of the computations, and only the report
++function of the same library decodes them.
++
+ The computations may then be asynchronous: the function returns once they
+ are submitted to the queue (`CUDA`, `HIP`, `Kokkos` and `RAJA` backends,
+ `SYCL` backend if no field is copied). The calling code must synchronize the
+@@ -416,27 +463,28 @@ backend, an out-of-order queue gives no order between the kernels:
+ 
+ - asynchronous computations require an in-order queue
+   (`sycl::property::queue::in_order`). If statistics are given with an
+-  out-of-order queue, the arguments are reported as invalid (status `-2`).
++  out-of-order queue, the arguments are reported as invalid (status `-5`).
+ - in synchronous mode, an out-of-order queue is synchronized before the
+   kernel, so that the computations already submitted to the queue are
+   completed.
+ 
+ The statistics are initialized on the host by
+-`mfront_gpb_initializeBatchStatistics`, then copied in device memory if
+-needed. The minimum of the time step scaling factors is stored as an
+-unsigned integer, so that the device can update it with an integer atomic
+-operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`, and
+-`mfront_gpb_getStatus` gives the status associated with the statistics
+-(`1`, `0` or `-1`). Once the computations are completed,
+-`mfront_gpb_report` fills an output status from the statistics, as the
+-generated functions do in synchronous mode (status, numbers of points,
+-index of the first failure, time step scaling factor and error message),
+-as the `<name>_generic_parallel_report` functions of the material
+-properties. On all the backends, the time step scaling factor of the
+-statistics is the minimum of the value given to
+-`mfront_gpb_initializeBatchStatistics` and of the factors of the points
+-which are lower than the initial value of the batch (the `rdt` member of
+-the batch data). The rotations never fail and never lower the time step
++`mfront_gpb_initializeStatistics`, whose second argument must be the
++initial value of the time step scaling factor of the batch (the `rdt`
++member of the batch data), then copied in device memory if needed. The
++minimum of the time step scaling factors is stored as an unsigned
++integer, so that the device can update it with an integer atomic
++operation: it is decoded by `mfront_gpb_getTimeStepScalingFactor`. Once
++the computations are completed, the report function of the library
++(`<name>_generic_parallel_report`) fills an output status from the
++statistics, as the generated functions do in synchronous mode (status,
++numbers of points, indices of the first failure and of the first
++unreliable result, time step scaling factor and error message), as the
++report functions of the material properties. The report function is only
++meaningful if the generated function returned `1`. On all the backends,
++the time step scaling factor of the statistics is the minimum of the
++value given to `mfront_gpb_initializeStatistics` and of the factors of
++the points which are lower than the initial value of the batch. The rotations never fail and never lower the time step
+ scaling factor: they leave the statistics unchanged.
+ 
+ The devices only write in the statistics when an event occurs at a point
+@@ -500,20 +548,22 @@ with the `generic` interface for models, a model is treated as a behaviour
+ without gradients: its outputs are internal state variables, its inputs are
+ external state variables and its constant material properties are material
+ properties. For each modelling hypothesis, the interface generates a
+-function with the same name as the one generated by the `generic` interface,
+-which executes all the functions of the model over a batch:
++function whose name is the one generated by the `generic` interface
++followed by `_generic_parallel`, which executes all the functions of the
++model over a batch. The library also exports the report function of the
++model (`NeutronFluence_generic_parallel_report`):
+ 
+ ~~~~{.bash}
+ $ mfront --obuild --interface=generic --interface=generic-parallel \
+          --configuration-file=config-cuda-nvcc.json NeutronFluence.mfront
+ The following libraries have been built :
+ - libModel.so :  NeutronFluence_Tridimensional ...
+-- libGenericParallelModel-cuda.so :  NeutronFluence_Tridimensional ...
++- libGenericParallelModel-cuda.so :  NeutronFluence_Tridimensional_generic_parallel ...
+ ~~~~
+ 
+ ~~~~{.cxx}
+-int NeutronFluence_Tridimensional(mfront_gpb_OutputStatus* const,
+-                                  const mfront_gpb_BatchData* const);
++int NeutronFluence_Tridimensional_generic_parallel(
++    mfront_gpb_OutputStatus* const, const mfront_gpb_BatchData* const);
+ ~~~~
+ 
+ The functions are declared in the
+@@ -1063,7 +1113,11 @@ for three layouts of the fields (point by point, component by component,
+ and component by component with the material properties and the external
+ state variables given variable by variable) and three types of computation, including
+ the energies, the speed of sound and the statuses of batches where the
+-integration fails at some points. The initialize functions, the
++integration fails at some points. The asynchronous step is analysed by
++the report function of the library, which is also tested on statistics
++where nothing happened and on null statistics (status `-5`). An invalid
++parameters file, of a behaviour and of a behaviour variable, is reported
++as invalid parameters (status `-6`). The initialize functions, the
+ post-processings, the rotation functions and the standalone models are
+ compared on random states.
+ The list of the comparisons, shared by all the configurations, is given by
+diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
+index 1019b9082..049a830f0 100644
+--- a/docs/web/release-notes/release-notes-5.2.md
++++ b/docs/web/release-notes/release-notes-5.2.md
+@@ -867,7 +867,8 @@ standalone model, over a batch of integration points, on GPUs or on CPUs,
+ with the backends of the interface for material properties. See [this page
+ for details](generic-parallel-behaviour-interface.html).
+ 
+-The generated libraries provide:
++The generated libraries provide, under the names of the functions of the
++`generic` interface followed by `_generic_parallel`:
+ 
+ - the integration of a batch, the initialize functions and the
+   post-processings over a batch;
+@@ -876,16 +877,21 @@ The generated libraries provide:
+ 
+ The data structures exchanged with the generated functions are declared
+ in `MFront/GenericParallelBehaviour/BatchData.h`. Their version is given
+-by the `MFRONT_GPB_API_VERSION` macro. The values of the variables at all
+-the points are described by fields, which support several layouts (point
+-by point, component by component, uniform values), and the material
+-properties and the external state variables can be given variable by
+-variable. The computations may be asynchronous: the statistics of the
+-batch are then accumulated on the device and analysed by the
+-`mfront_gpb_report` function. The libraries export the
++by the `MFRONT_GPB_API_VERSION` macro (`3`). The values of the variables
++at all the points are described by fields, which support several layouts
++(point by point, component by component, uniform values), and the
++material properties and the external state variables can be given
++variable by variable. The computations may be asynchronous: the
++statistics of the batch are then accumulated on the device and analysed
++by the `<name>_generic_parallel_report` function exported by the library.
++The output status, the statistics, the execution options and the errors
++of the batch (`-5` invalid arguments, `-6` invalid parameters, `-7`
++runtime error of the backend) are the ones of the material properties,
++the time step scaling factor being added. The libraries export the
+ `<name>_generic_parallel_backend`, `<name>_generic_parallel_memory_space`
+ and `<name>_generic_parallel_api_version` symbols. The configuration files
+ are shared with the `generic-parallel` interface for material properties.
++The name of a behaviour or of a model can't contain `_generic_parallel`.
+ 
+ ## Writing behaviours usable on GPUs
+ 
+diff --git a/mfront/include/CMakeLists.txt b/mfront/include/CMakeLists.txt
+index f99a7cdb2..cbddd1538 100644
+--- a/mfront/include/CMakeLists.txt
++++ b/mfront/include/CMakeLists.txt
+@@ -139,6 +139,7 @@ install_mfront_header(MFront/GenericParallel GPUStackSize.hxx)
+ install_mfront_header(MFront/GenericParallel KokkosStackSize.hxx)
+ install_mfront_header(MFront/GenericParallel RAJAExecutionPolicy.hxx)
+ install_mfront_header(MFront/GenericParallel OpenACCStackSize.hxx)
++install_mfront_header(MFront/GenericParallel StatisticsKeys.hxx)
+ install_mfront_header(MFront/GenericParallel StatusBlockPool.hxx)
+ install_mfront_header(MFront/GenericParallel SYCLDeviceCopies.hxx)
+ install_mfront_header(MFront/GenericParallel MemorySpace.hxx)
+diff --git a/mfront/include/MFront/GenericParallel/StatisticsKeys.hxx b/mfront/include/MFront/GenericParallel/StatisticsKeys.hxx
+new file mode 100644
+index 000000000..8c06876a0
+--- /dev/null
++++ b/mfront/include/MFront/GenericParallel/StatisticsKeys.hxx
+@@ -0,0 +1,61 @@
++/*!
++ * \file   mfront/include/MFront/GenericParallel/StatisticsKeys.hxx
++ * \brief  This file declares the opaque keys of the statistics of the
++ * computations on a batch of points, shared by the `generic-parallel`
++ * interfaces for material properties, behaviours and models.
++ * \date   21/10/2026
++ * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
++ * reserved.
++ * This project is publicly released under either the GNU GPL Licence with
++ * linking exception or the CECILL-A licence. A copy of thoses licences are
++ * delivered with the sources of TFEL. CEA or EDF may also distribute this
++ * project under specific licensing conditions.
++ */
++
++#ifndef LIB_MFRONT_GENERICPARALLEL_STATISTICSKEYS_HXX
++#define LIB_MFRONT_GENERICPARALLEL_STATISTICSKEYS_HXX
++
++#include "TFEL/Config/TFELConfig.hxx"
++
++namespace mfront::generic_parallel {
++
++  //! \brief value of a key meaning that no event occurred
++  inline constexpr unsigned long long no_event = ~0ull;
++  /*!
++   * \brief number of bits of the identifier of a check in a key. The other
++   * bits hold the index of the point.
++   */
++  inline constexpr unsigned int check_bits = 16;
++  //! \brief maximal number of checks
++  inline constexpr unsigned long long maximal_number_of_checks =
++      (1ull << check_bits) - 1;
++  //! \brief maximal number of points of a batch
++  inline constexpr unsigned long long maximal_number_of_points =
++      (1ull << (64 - check_bits)) - 1;
++
++  /*!
++   * \return the key of an event: the minimum of the keys gives the first
++   * point concerned, whatever the order of the computations
++   * \param[in] i: index of the point
++   * \param[in] c: identifier of the check retained at this point
++   */
++  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long makeKey(
++      const unsigned long long i, const unsigned long long c) noexcept {
++    return (i << check_bits) | c;
++  }  // end of makeKey
++
++  //! \return the index of the point of a key
++  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getPointIndex(
++      const unsigned long long k) noexcept {
++    return k >> check_bits;
++  }  // end of getPointIndex
++
++  //! \return the identifier of the check of a key
++  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getCheck(
++      const unsigned long long k) noexcept {
++    return k & maximal_number_of_checks;
++  }  // end of getCheck
++
++}  // end of namespace mfront::generic_parallel
++
++#endif /* LIB_MFRONT_GENERICPARALLEL_STATISTICSKEYS_HXX */
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+index a39315968..def019329 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
++++ b/mfront/include/MFront/GenericParallelBehaviour/BatchData.h
+@@ -14,7 +14,6 @@
+ #ifndef LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
+ #define LIB_MFRONT_GENERICPARALLELBEHAVIOUR_BATCHDATA_H
+ 
+-#include <stdio.h>
+ #include <string.h>
+ #include "MFront/GenericBehaviour/Types.h"
+ 
+@@ -23,7 +22,7 @@
+  * the generated libraries (`<name>_generic_parallel_api_version` symbol).
+  * It is incremented at each incompatible change of those structures.
+  */
+-#define MFRONT_GPB_API_VERSION 2
++#define MFRONT_GPB_API_VERSION 3
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -33,34 +32,43 @@ extern "C" {
+  * \brief statistics of the computations on a batch, accumulated on the
+  * device when the computations are asynchronous (see
+  * `mfront_gpb_ExecutionOptions`). They must be initialized by
+- * `mfront_gpb_initializeBatchStatistics`, on the host. They can then be
+- * copied in device memory.
++ * `mfront_gpb_initializeStatistics`, on the host. They can then be
++ * copied in device memory. They are analysed by the
++ * `<name>_generic_parallel_report` function of the library which computed
++ * them. The first members are the ones of the statistics of the material
++ * properties (`mfront_gpmp_Statistics`).
+  *
+  * The devices only update the statistics when an event occurs at a point
+  * (failure, unreliable result, decrease of the time step scaling factor).
+  */
+-typedef struct mfront_gpb_BatchStatistics {
++typedef struct mfront_gpb_Statistics {
+   //! \brief number of points where the integration failed
+   unsigned long long number_of_failures;
+   /*!
+-   * \brief index of the first point where the integration failed, or the
+-   * maximal value of the type if no point failed. This index does not
+-   * depend on the order of the computations.
++   * \brief opaque key of the first point where the integration failed, or
++   * `~0` if no point failed. This key does not depend on the order of the
++   * computations. Only the report function of the library decodes it.
+    */
+-  unsigned long long first_failure_index;
++  unsigned long long first_failure;
+   //! \brief number of points where the time step scaling factor is too low
+   unsigned long long number_of_unreliable_results;
++  /*!
++   * \brief opaque key of the first point where the time step scaling
++   * factor is too low, or `~0` if there is no such point
++   */
++  unsigned long long first_unreliable_result;
+   /*!
+    * \brief minimum of the time step scaling factors, stored as an unsigned
+    * integer with the same ordering (see
+    * `mfront_gpb_getTimeStepScalingFactor`), so that the device can update
+    * it with an integer atomic operation. On all backends, this is the
+-   * minimum of the value given to `mfront_gpb_initializeBatchStatistics`
+-   * and of the factors of the points which are lower than the initial value
+-   * of the batch (`rdt` member of `mfront_gpb_BatchData`).
++   * minimum of the value given to `mfront_gpb_initializeStatistics`, which
++   * must be the initial value of the time step scaling factor of the batch
++   * (`rdt` member of `mfront_gpb_BatchData`), and of the factors of the
++   * points which are lower than this value.
+    */
+   unsigned long long rdt;
+-} mfront_gpb_BatchStatistics;
++} mfront_gpb_Statistics;
+ 
+ /*!
+  * \brief options of the execution of the computations on a batch
+@@ -91,11 +99,11 @@ typedef struct mfront_gpb_ExecutionOptions {
+    * RAJA backends, SYCL backend if no field is transferred): the function
+    * returns once they are submitted to the queue, and the caller must
+    * synchronize the queue before reading the outputs and the statistics (see
+-   * `mfront_gpb_report`). The output status only reports invalid arguments and
+-   * runtime errors. With the `sycl` backend, the statistics require an in-order
+-   * queue (invalid arguments otherwise).
++   * `<name>_generic_parallel_report`). The output status only reports the
++   * errors of the batch. With the `sycl` backend, the statistics require an
++   * in-order queue (invalid arguments otherwise).
+    */
+-  mfront_gpb_BatchStatistics* statistics;
++  mfront_gpb_Statistics* statistics;
+   /*!
+    * \brief if not null, the stack size of the threads of the device is
+    * never modified and a runtime error is reported if it is too small.
+@@ -232,6 +240,10 @@ typedef struct mfront_gpb_BatchData {
+   mfront_gpb_Field rdts;
+   //! \brief speed of sound (output, only used if requested by the options)
+   mfront_gpb_Field speed_of_sound;
++  //! \brief state at the beginning of the time step
++  mfront_gpb_InitialState s0;
++  //! \brief state at the end of the time step
++  mfront_gpb_State s1;
+   /*!
+    * \brief status of each integration point (output, optional):
+    *
+@@ -241,10 +253,6 @@ typedef struct mfront_gpb_BatchData {
+    * - `1`: the integration succeeded.
+    */
+   int* statuses;
+-  //! \brief state at the beginning of the time step
+-  mfront_gpb_InitialState s0;
+-  //! \brief state at the end of the time step
+-  mfront_gpb_State s1;
+   //! \brief options of the execution of the computations
+   mfront_gpb_ExecutionOptions execution;
+ } mfront_gpb_BatchData;
+@@ -283,8 +291,15 @@ typedef struct mfront_gpb_RotationData {
+  * - `0`: the integration succeeded at all points, but the time step scaling
+  *   factor is lower than 0.99 at some points;
+  * - `-1`: the integration failed at some points;
+- * - `-2`: invalid arguments, nothing was computed;
+- * - `-3`: runtime error of the backend (allocation, kernel launch, etc.).
++ * - `-5`: invalid arguments, nothing was computed;
++ * - `-6`: invalid parameters, nothing was computed;
++ * - `-7`: runtime error of the backend (allocation, kernel launch,
++ *   exception thrown on the host, etc.).
++ *
++ * The codes `1`, `0` and `-1` are the ones of the reported point: the first
++ * point where the integration failed, otherwise the first point where the
++ * time step scaling factor is too low. Those codes are the ones of the
++ * `generic` interface.
+  */
+ typedef struct mfront_gpb_OutputStatus {
+   //! \brief status
+@@ -300,6 +315,11 @@ typedef struct mfront_gpb_OutputStatus {
+   mfront_gb_size_type first_failure_index;
+   //! \brief number of points where the time step scaling factor is too low
+   mfront_gb_size_type number_of_unreliable_results;
++  /*!
++   * \brief index of the first point where the time step scaling factor is
++   * too low, or the maximal value of the type if there is no such point
++   */
++  mfront_gb_size_type first_unreliable_result_index;
+   //! \brief minimum of the time step scaling factors over the batch
+   mfront_gb_real rdt;
+   //! \brief error message
+@@ -309,30 +329,31 @@ typedef struct mfront_gpb_OutputStatus {
+ /*!
+  * \brief initialize the statistics of a batch
+  * \param[out] s: statistics
+- * \param[in] rdt: initial value of the time step scaling factor
++ * \param[in] rdt: initial value of the time step scaling factor of the
++ * batch (`rdt` member of `mfront_gpb_BatchData`)
+  *
+  * \note the ordered key of the time step scaling factor is built from its
+  * value converted to `double`, whatever the numerical type of the
+  * interface, so that its 64 bits are defined
+  */
+-static inline void mfront_gpb_initializeBatchStatistics(
+-    mfront_gpb_BatchStatistics* const s, const mfront_gb_real rdt) {
++static inline void mfront_gpb_initializeStatistics(
++    mfront_gpb_Statistics* const s, const double rdt) {
+   const unsigned long long sign = 0x8000000000000000ull;
+-  const double v = rdt;
+   unsigned long long b;
+-  memcpy(&b, &v, sizeof(b));
++  memcpy(&b, &rdt, sizeof(b));
+   s->number_of_failures = 0;
+-  s->first_failure_index = ~0ull;
++  s->first_failure = ~0ull;
+   s->number_of_unreliable_results = 0;
++  s->first_unreliable_result = ~0ull;
+   s->rdt = (b & sign) ? ~b : (b | sign);
+-} /* end of mfront_gpb_initializeBatchStatistics */
++} /* end of mfront_gpb_initializeStatistics */
+ 
+ /*!
+  * \return the minimum of the time step scaling factors
+  * \param[in] s: statistics
+  */
+ static inline mfront_gb_real mfront_gpb_getTimeStepScalingFactor(
+-    const mfront_gpb_BatchStatistics* const s) {
++    const mfront_gpb_Statistics* const s) {
+   const unsigned long long sign = 0x8000000000000000ull;
+   const unsigned long long b = (s->rdt & sign) ? (s->rdt & ~sign) : ~(s->rdt);
+   double rdt;
+@@ -341,45 +362,48 @@ static inline mfront_gb_real mfront_gpb_getTimeStepScalingFactor(
+ } /* end of mfront_gpb_getTimeStepScalingFactor */
+ 
+ /*!
+- * \return the status associated with the statistics of a batch, as defined
+- * for the `status` member of `mfront_gpb_OutputStatus` (`1`, `0` or `-1`)
+- * \param[in] s: statistics
++ * \brief type of the functions integrating a behaviour, or executing a
++ * model, over a batch of integration points
++ * (`<name>_<hypothesis>_generic_parallel` functions)
+  */
+-static inline int mfront_gpb_getStatus(
+-    const mfront_gpb_BatchStatistics* const s) {
+-  if (s->number_of_failures != 0) {
+-    return -1;
+-  }
+-  return s->number_of_unreliable_results != 0 ? 0 : 1;
+-} /* end of mfront_gpb_getStatus */
++typedef int (*mfront_gpb_BatchBehaviourPtr)(mfront_gpb_OutputStatus* const,
++                                            const mfront_gpb_BatchData* const);
+ 
+ /*!
+- * \brief fill an output status from the statistics of a batch: status,
+- * numbers of points, index of the first failure, time step scaling factor
+- * and error message, as the generated functions do for synchronous
+- * computations. This function is meant to be called once asynchronous
+- * computations are completed.
+- * \return the status
+- * \param[out] o: output status
+- * \param[in] s: statistics
++ * \brief type of the functions executing an initialize function over a
++ * batch of integration points
++ * (`<name>_<hypothesis>_InitializeFunction_<f>_generic_parallel` functions)
++ */
++typedef int (*mfront_gpb_BatchInitializeFunctionPtr)(
++    mfront_gpb_OutputStatus* const,
++    const mfront_gpb_BatchData* const,
++    const mfront_gpb_ConstField* const);
++
++/*!
++ * \brief type of the functions executing a post-processing over a batch of
++ * integration points
++ * (`<name>_<hypothesis>_PostProcessing_<f>_generic_parallel` functions)
++ */
++typedef int (*mfront_gpb_BatchPostProcessingPtr)(
++    mfront_gpb_OutputStatus* const,
++    const mfront_gpb_Field* const,
++    const mfront_gpb_BatchData* const);
++
++/*!
++ * \brief type of the rotation functions over a batch of integration points
++ * (`<name>_<hypothesis>_rotate<X>_generic_parallel` functions)
++ */
++typedef int (*mfront_gpb_BatchRotationPtr)(
++    mfront_gpb_OutputStatus* const, const mfront_gpb_RotationData* const);
++
++/*!
++ * \brief type of the function analysing the statistics of a batch, once
++ * the computations are completed (`<name>_generic_parallel_report`
++ * function), and reporting the result in an output status, as a
++ * synchronous computation does
+  */
+-static inline int mfront_gpb_report(mfront_gpb_OutputStatus* const o,
+-                                    const mfront_gpb_BatchStatistics* const s) {
+-  o->status = mfront_gpb_getStatus(s);
+-  o->number_of_failures = (mfront_gb_size_type)s->number_of_failures;
+-  o->first_failure_index = (mfront_gb_size_type)s->first_failure_index;
+-  o->number_of_unreliable_results =
+-      (mfront_gb_size_type)s->number_of_unreliable_results;
+-  o->rdt = mfront_gpb_getTimeStepScalingFactor(s);
+-  o->msg[0] = '\0';
+-  if (o->status == -1) {
+-    snprintf(o->msg, sizeof(o->msg),
+-             "computations failed at %llu integration points, the first one "
+-             "being the point %llu",
+-             s->number_of_failures, s->first_failure_index);
+-  }
+-  return o->status;
+-} /* end of mfront_gpb_report */
++typedef int (*mfront_gpb_ReportPtr)(mfront_gpb_OutputStatus* const,
++                                    const mfront_gpb_Statistics* const);
+ 
+ #ifdef __cplusplus
+ }  // end of extern "C"
+@@ -390,7 +414,7 @@ static inline int mfront_gpb_report(mfront_gpb_OutputStatus* const o,
+ namespace mfront::gpb {
+ 
+   //! \brief a simple alias
+-  using AtomicBatchStatistics = ::mfront_gpb_BatchStatistics;
++  using AtomicBatchStatistics = ::mfront_gpb_Statistics;
+   //! \brief a simple alias
+   using ExecutionOptions = ::mfront_gpb_ExecutionOptions;
+   //! \brief a simple alias
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+index ab49bb56b..4b2da8fe7 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/GPU.hxx
+@@ -50,8 +50,8 @@ namespace mfront::gpb::gpu {
+       if (e == MFRONT_GPB_GPU_API(Success)) {
+         return false;
+       }
+-      if (s.status != -3) {
+-        report(s, -3, MFRONT_GPB_GPU_API(GetErrorString)(e));
++      if (s.status != -7) {
++        report(s, -7, MFRONT_GPB_GPU_API(GetErrorString)(e));
+       }
+       return true;
+     }  // end of failed
+@@ -73,7 +73,7 @@ namespace mfront::gpb::gpu {
+         return false;
+       }
+       if (r.required_stack_size != 0) {
+-        report(s, -3, r.getErrorMessage());
++        report(s, -7, r.getErrorMessage());
+         return false;
+       }
+       return true;
+@@ -132,17 +132,17 @@ namespace mfront::gpb::gpu {
+       const auto i = static_cast<size_type>(blockIdx.x) * blockDim.x +
+                      static_cast<size_type>(threadIdx.x);
+       auto failures = 0u;
+-      auto first_failure_index =
+-          static_cast<unsigned long long>(no_failure_index);
++      auto first_failure = ::mfront::generic_parallel::no_event;
+       auto unreliable_results = 0u;
++      auto first_unreliable_result = ::mfront::generic_parallel::no_event;
+       auto rdt = rdt0;
+       if (i < n) {
+         const auto r = f(i);
+         failures = static_cast<unsigned int>(r.number_of_failures);
+-        first_failure_index =
+-            static_cast<unsigned long long>(r.first_failure_index);
++        first_failure = r.first_failure;
+         unreliable_results =
+             static_cast<unsigned int>(r.number_of_unreliable_results);
++        first_unreliable_result = r.first_unreliable_result;
+         rdt = toOrderedKey(r.rdt);
+       }
+       // the statistics are only reduced and updated if a point of the warp
+@@ -153,18 +153,20 @@ namespace mfront::gpb::gpu {
+         return;
+       }
+       failures = warpSum(failures);
+-      first_failure_index = warpMin(first_failure_index);
++      first_failure = warpMin(first_failure);
+       unreliable_results = warpSum(unreliable_results);
++      first_unreliable_result = warpMin(first_unreliable_result);
+       rdt = warpMin(rdt);
+       if (threadIdx.x % warpSize == 0) {
+         if (failures != 0) {
+           atomicAdd(&(s->number_of_failures),
+                     static_cast<unsigned long long>(failures));
+-          atomicMin(&(s->first_failure_index), first_failure_index);
++          atomicMin(&(s->first_failure), first_failure);
+         }
+         if (unreliable_results != 0) {
+           atomicAdd(&(s->number_of_unreliable_results),
+                     static_cast<unsigned long long>(unreliable_results));
++          atomicMin(&(s->first_unreliable_result), first_unreliable_result);
+         }
+         if (rdt < rdt0) {
+           atomicMin(&(s->rdt), rdt);
+@@ -251,9 +253,9 @@ namespace mfront::gpb::gpu {
+     });
+     auto* const statistics = block.get();
+     if (statistics == nullptr) {
+-      return report(s, -3, "unable to allocate the statistics of the batch");
++      return report(s, -7, "unable to allocate the statistics of the batch");
+     }
+-    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
++    mfront_gpb_initializeStatistics(statistics, rdt0);
+     k<<<nblocks, nthreads, 0, stream>>>(f, n, statistics, rdt_key);
+     if (failed(s, MFRONT_GPB_GPU_API(GetLastError)()) ||
+         failed(s, MFRONT_GPB_GPU_API(StreamSynchronize)(stream))) {
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+index fbd1c794f..07411150a 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Integrate.hxx
+@@ -19,6 +19,7 @@
+ #include <array>
+ #include <cstddef>
+ #include <type_traits>
++#include <cstdio>
+ #include <cstring>
+ #include <exception>
+ #include <mutex>
+@@ -35,6 +36,7 @@
+ #include "MFront/GenericBehaviour/State.hxx"
+ #include "MFront/GenericBehaviour/BehaviourData.hxx"
+ #include "MFront/GenericBehaviour/Integrate.hxx"
++#include "MFront/GenericParallel/StatisticsKeys.hxx"
+ #include "MFront/GenericParallelBehaviour/BatchData.h"
+ 
+ namespace mfront::gpb {
+@@ -704,6 +706,31 @@ namespace mfront::gpb {
+   //! \brief index of the first failure when no point failed
+   inline constexpr auto no_failure_index = ~size_type{};
+ 
++  /*!
++   * \return the key of the statistics associated with an event at a point
++   * (see `MFront/GenericParallel/StatisticsKeys.hxx`). The behaviours and the
++   * models have no check to retain at a point: the identifier of the check
++   * is null.
++   * \param[in] i: index of the point
++   */
++  TFEL_HOST_DEVICE constexpr unsigned long long makeKey(
++      const size_type i) noexcept {
++    return ::mfront::generic_parallel::makeKey(
++        static_cast<unsigned long long>(i), 0);
++  }  // end of makeKey
++
++  /*!
++   * \return the index of the point of a key, or `no_failure_index` if no
++   * event occurred
++   * \param[in] k: key
++   */
++  constexpr size_type getPointIndex(const unsigned long long k) noexcept {
++    if (k == ::mfront::generic_parallel::no_event) {
++      return no_failure_index;
++    }
++    return static_cast<size_type>(::mfront::generic_parallel::getPointIndex(k));
++  }  // end of getPointIndex
++
+   /*!
+    * \brief statistics on the integration of a batch, combined by
+    * parallel reductions
+@@ -716,26 +743,35 @@ namespace mfront::gpb {
+      */
+     TFEL_HOST_DEVICE static constexpr BatchStatistics from(
+         const size_type i, const PointResult& r) noexcept {
++      constexpr auto none = ::mfront::generic_parallel::no_event;
+       return {.number_of_failures = r.status == -1 ? 1u : 0u,
+-              .first_failure_index = r.status == -1 ? i : no_failure_index,
++              .first_failure = r.status == -1 ? makeKey(i) : none,
+               .number_of_unreliable_results = r.status == 0 ? 1u : 0u,
++              .first_unreliable_result = r.status == 0 ? makeKey(i) : none,
+               .rdt = r.rdt};
+     }
+     //! \brief combine two statistics
+     TFEL_HOST_DEVICE friend constexpr BatchStatistics combine(
+         const BatchStatistics& a, const BatchStatistics& b) noexcept {
+-      return {
+-          .number_of_failures = a.number_of_failures + b.number_of_failures,
+-          .first_failure_index = a.first_failure_index < b.first_failure_index
+-                                     ? a.first_failure_index
+-                                     : b.first_failure_index,
+-          .number_of_unreliable_results =
+-              a.number_of_unreliable_results + b.number_of_unreliable_results,
+-          .rdt = a.rdt < b.rdt ? a.rdt : b.rdt};
++      return {.number_of_failures = a.number_of_failures + b.number_of_failures,
++              .first_failure = a.first_failure < b.first_failure
++                                   ? a.first_failure
++                                   : b.first_failure,
++              .number_of_unreliable_results = a.number_of_unreliable_results +
++                                              b.number_of_unreliable_results,
++              .first_unreliable_result =
++                  a.first_unreliable_result < b.first_unreliable_result
++                      ? a.first_unreliable_result
++                      : b.first_unreliable_result,
++              .rdt = a.rdt < b.rdt ? a.rdt : b.rdt};
+     }
+     size_type number_of_failures = 0;
+-    size_type first_failure_index = no_failure_index;
++    //! \brief key of the first failure (see `makeKey`)
++    unsigned long long first_failure = ::mfront::generic_parallel::no_event;
+     size_type number_of_unreliable_results = 0;
++    //! \brief key of the first unreliable result (see `makeKey`)
++    unsigned long long first_unreliable_result =
++        ::mfront::generic_parallel::no_event;
+     real rdt = 1;
+   };
+ 
+@@ -743,8 +779,8 @@ namespace mfront::gpb {
+    * \return an unsigned integer whose ordering is the same as the ordering
+    * of the given floating point values. This allows to compute the minimum
+    * of floating point values with an integer atomic operation. This is the
+-   * encoding of the time step scaling factor in `mfront_gpb_BatchStatistics`
+-   * (see `mfront_gpb_initializeBatchStatistics`), available in device code.
++   * encoding of the time step scaling factor in `mfront_gpb_Statistics`
++   * (see `mfront_gpb_initializeStatistics`), available in device code.
+    */
+   TFEL_HOST_DEVICE constexpr unsigned long long toOrderedKey(
+       const double v) noexcept {
+@@ -756,12 +792,12 @@ namespace mfront::gpb {
+   //! \return the statistics updated by atomic operations
+   inline BatchStatistics getBatchStatistics(
+       const AtomicBatchStatistics& s) noexcept {
+-    return {
+-        .number_of_failures = static_cast<size_type>(s.number_of_failures),
+-        .first_failure_index = static_cast<size_type>(s.first_failure_index),
+-        .number_of_unreliable_results =
+-            static_cast<size_type>(s.number_of_unreliable_results),
+-        .rdt = mfront_gpb_getTimeStepScalingFactor(&s)};
++    return {.number_of_failures = static_cast<size_type>(s.number_of_failures),
++            .first_failure = s.first_failure,
++            .number_of_unreliable_results =
++                static_cast<size_type>(s.number_of_unreliable_results),
++            .first_unreliable_result = s.first_unreliable_result,
++            .rdt = mfront_gpb_getTimeStepScalingFactor(&s)};
+   }  // end of getBatchStatistics
+ 
+   /*!
+@@ -774,13 +810,14 @@ namespace mfront::gpb {
+   constexpr void accumulate(AtomicBatchStatistics& s,
+                             const BatchStatistics& r,
+                             const bool merge_rdt = true) noexcept {
+-    const auto first_failure_index =
+-        static_cast<unsigned long long>(r.first_failure_index);
+     s.number_of_failures += r.number_of_failures;
+-    s.first_failure_index = first_failure_index < s.first_failure_index
+-                                ? first_failure_index
+-                                : s.first_failure_index;
++    s.first_failure =
++        r.first_failure < s.first_failure ? r.first_failure : s.first_failure;
+     s.number_of_unreliable_results += r.number_of_unreliable_results;
++    s.first_unreliable_result =
++        r.first_unreliable_result < s.first_unreliable_result
++            ? r.first_unreliable_result
++            : s.first_unreliable_result;
+     if (merge_rdt) {
+       const auto rdt = toOrderedKey(r.rdt);
+       s.rdt = rdt < s.rdt ? rdt : s.rdt;
+@@ -814,15 +851,32 @@ namespace mfront::gpb {
+   }  // end of report
+ 
+   /*!
+-   * \brief fill an output status from the statistics of a batch (see
+-   * `mfront_gpb_report`)
++   * \brief fill an output status from the statistics of a batch: status,
++   * numbers of points, indices of the first failure and of the first
++   * unreliable result, time step scaling factor and error message. This is
++   * the analysis performed by the `<name>_generic_parallel_report` functions.
+    * \return the status
++   * \param[out] s: output status
++   * \param[in] r: statistics
+    */
+   inline int report(OutputStatus& s, const BatchStatistics& r) noexcept {
+-    auto a = AtomicBatchStatistics{};
+-    mfront_gpb_initializeBatchStatistics(&a, r.rdt);
+-    accumulate(a, r);
+-    return mfront_gpb_report(&s, &a);
++    s.number_of_failures = r.number_of_failures;
++    s.first_failure_index = getPointIndex(r.first_failure);
++    s.number_of_unreliable_results = r.number_of_unreliable_results;
++    s.first_unreliable_result_index = getPointIndex(r.first_unreliable_result);
++    s.rdt = r.rdt;
++    s.msg[0] = '\0';
++    if (r.number_of_failures != 0) {
++      s.status = -1;
++      std::snprintf(s.msg, sizeof(s.msg),
++                    "computations failed at %llu integration points, the "
++                    "first one being the point %llu",
++                    static_cast<unsigned long long>(r.number_of_failures),
++                    static_cast<unsigned long long>(s.first_failure_index));
++    } else {
++      s.status = r.number_of_unreliable_results != 0 ? 0 : 1;
++    }
++    return s.status;
+   }  // end of report
+ 
+   /*!
+@@ -852,6 +906,26 @@ namespace mfront::gpb {
+     return s.status;
+   }  // end of report
+ 
++  /*!
++   * \brief analyse the statistics of a batch once the computations are
++   * completed (body of the `<name>_generic_parallel_report` functions)
++   * \return the status
++   * \param[out] s: output status
++   * \param[in] statistics: statistics of the batch, read on the host
++   */
++  inline int reportStatistics(
++      OutputStatus& s, const AtomicBatchStatistics* const statistics) noexcept {
++    if (statistics == nullptr) {
++      s.number_of_failures = 0;
++      s.first_failure_index = no_failure_index;
++      s.number_of_unreliable_results = 0;
++      s.first_unreliable_result_index = no_failure_index;
++      s.rdt = 1;
++      return report(s, -5, "no statistics given");
++    }
++    return report(s, getBatchStatistics(*statistics));
++  }  // end of reportStatistics
++
+   /*!
+    * \brief initialize an output status: success, no failure
+    * \param[out] s: output status
+@@ -862,6 +936,7 @@ namespace mfront::gpb {
+     s.number_of_failures = 0;
+     s.first_failure_index = no_failure_index;
+     s.number_of_unreliable_results = 0;
++    s.first_unreliable_result_index = no_failure_index;
+     s.rdt = rdt;
+     s.msg[0] = '\0';
+   }  // end of initialize
+@@ -879,6 +954,13 @@ namespace mfront::gpb {
+     constexpr auto sizes = PointDataSizes{PointTraits::value};
+     initialize(s, d.rdt);
+     const auto n = d.number_of_points;
++    // the index of a point is stored in 48 bits of the keys of the
++    // statistics
++    if (static_cast<unsigned long long>(n) >
++        ::mfront::generic_parallel::maximal_number_of_points) {
++      report(s, -5, "too many points");
++      return false;
++    }
+     if (n == 0) {
+       // nothing is read or written: the fields of an empty batch may be
+       // null (for example, the data of an empty `std::vector`)
+@@ -887,7 +969,7 @@ namespace mfront::gpb {
+     auto check_input = [&s](const ConstField& f, const size_type size,
+                             const std::string_view name) {
+       if ((size != 0) && (f.values == nullptr)) {
+-        report(s, -2, name);
++        report(s, -5, name);
+         return false;
+       }
+       return true;
+@@ -904,7 +986,7 @@ namespace mfront::gpb {
+       }
+       for (std::size_t v = 0; v != variables_sizes.size(); ++v) {
+         if ((variables_sizes[v] != 0) && (by_variable[v].values == nullptr)) {
+-          report(s, -2, name);
++          report(s, -5, name);
+           return false;
+         }
+       }
+@@ -919,11 +1001,11 @@ namespace mfront::gpb {
+         return true;
+       }
+       if ((required) && (f.values == nullptr)) {
+-        report(s, -2, name);
++        report(s, -5, name);
+         return false;
+       }
+       if ((f.values != nullptr) && (f.point_stride == 0) && (n > 1)) {
+-        report(s, -2, name);
++        report(s, -5, name);
+         return false;
+       }
+       return true;
+@@ -1003,7 +1085,7 @@ namespace mfront::gpb {
+                     Integrator::checkComputationOptions(o);
+                   }) {
+       if (!Integrator::checkComputationOptions(getComputationOptions(d))) {
+-        report(s, -2, "invalid computation options");
++        report(s, -5, "invalid computation options");
+         return false;
+       }
+     }
+@@ -1035,7 +1117,7 @@ namespace mfront::gpb {
+                    const size_type n,
+                    const std::string_view name) noexcept {
+     if ((n != 0) && (f.values == nullptr)) {
+-      report(s, -2, name);
++      report(s, -5, name);
+       return false;
+     }
+     return true;
+@@ -1235,10 +1317,15 @@ namespace mfront::gpb {
+   inline bool checkRotationData(OutputStatus& s,
+                                 const RotationData& d) noexcept {
+     initialize(s, 1);
++    if (static_cast<unsigned long long>(d.number_of_points) >
++        ::mfront::generic_parallel::maximal_number_of_points) {
++      report(s, -5, "too many points");
++      return false;
++    }
+     if ((d.number_of_points != 0) &&
+         ((d.destination.values == nullptr) || (d.source.values == nullptr) ||
+          (d.rotation_matrices.values == nullptr))) {
+-      report(s, -2, "invalid rotation data");
++      report(s, -5, "invalid rotation data");
+       return false;
+     }
+     return true;
+@@ -1444,13 +1531,14 @@ namespace mfront::gpb {
+   /*!
+    * \brief call the given function and convert exceptions to an error
+    * status. This is meant for the host part of the generated functions.
++   * \return the status, `-5` (invalid argument) if no output status is given
+    * \param[out] s: output status
+    * \param[in] f: function
+    */
+   template <typename Function>
+   int handleExceptions(OutputStatus* const s, Function&& f) noexcept {
+     if (s == nullptr) {
+-      return -2;
++      return -5;
+     }
+     // the output status is complete even if an exception is thrown before
+     // the batch data are checked
+@@ -1458,9 +1546,9 @@ namespace mfront::gpb {
+     try {
+       return f();
+     } catch (std::exception& e) {
+-      return report(*s, -3, e.what());
++      return report(*s, -7, e.what());
+     } catch (...) {
+-      return report(*s, -3, "unknown exception");
++      return report(*s, -7, "unknown exception");
+     }
+   }  // end of handleExceptions
+ 
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+index 6da51eaef..78f3e6c31 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
+@@ -43,12 +43,14 @@ namespace mfront::gpb::kokkos {
+         const auto r = this->f(i);
+         if (r.number_of_failures != 0) {
+           Kokkos::atomic_add(&(this->statistics->number_of_failures), 1ull);
+-          Kokkos::atomic_min(&(this->statistics->first_failure_index),
+-                             static_cast<unsigned long long>(i));
++          Kokkos::atomic_min(&(this->statistics->first_failure),
++                             r.first_failure);
+         }
+         if (r.number_of_unreliable_results != 0) {
+           Kokkos::atomic_add(&(this->statistics->number_of_unreliable_results),
+                              1ull);
++          Kokkos::atomic_min(&(this->statistics->first_unreliable_result),
++                             r.first_unreliable_result);
+         }
+         const auto rdt = toOrderedKey(r.rdt);
+         if (rdt < this->initial_rdt) {
+@@ -107,7 +109,7 @@ namespace mfront::gpb::kokkos {
+             const real rdt0,
+             const PointFunction& f) {
+     if (!Kokkos::is_initialized()) {
+-      return report(s, -3, "Kokkos is not initialized");
++      return report(s, -7, "Kokkos is not initialized");
+     }
+     if (n == 0) {
+       return s.status;
+@@ -115,7 +117,7 @@ namespace mfront::gpb::kokkos {
+     const auto e = mfront::generic_parallel::kokkos::ensureStackSize<
+         ExecutionSpace>(f, o.preserve_stack_size != 0);
+     if (!e.empty()) {
+-      return report(s, -3, e);
++      return report(s, -7, e);
+     }
+     const auto space = o.queue == nullptr
+                            ? ExecutionSpace{}
+@@ -143,9 +145,9 @@ namespace mfront::gpb::kokkos {
+     });
+     auto* const statistics = block.get();
+     if (statistics == nullptr) {
+-      return report(s, -3, "unable to allocate the statistics of the batch");
++      return report(s, -7, "unable to allocate the statistics of the batch");
+     }
+-    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
++    mfront_gpb_initializeStatistics(statistics, rdt0);
+     Kokkos::parallel_for(
+         "mfront::gpb::kokkos::apply", range,
+         internals::AtomicUpdate<PointFunction>{f, statistics, rdt_key});
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx b/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
+index 7e02ca813..c18e5541e 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/OpenACC.hxx
+@@ -59,36 +59,46 @@ namespace mfront::gpb::openacc {
+             const real rdt0,
+             const PointFunction& f,
+             const std::size_t device_stack_size = 0) {
+-    // the statistics are reduced member by member. The minimum reduction of
+-    // the index of the first failure is performed on `size_type`, an alias
+-    // of `size_t`: the minimum reductions on `unsigned long long` are wrong
+-    // on NVIDIA GPUs with `nvc++` 25.11 (see the material properties).
++    // the statistics are reduced member by member. The minimum reductions
++    // of the keys of the first failure and of the first unreliable result
++    // are performed on `size_type`, an alias of `size_t` of 64 bits: the
++    // minimum reductions on `unsigned long long` are wrong on NVIDIA GPUs
++    // with `nvc++` 25.11 (see the material properties).
++    static_assert(sizeof(size_type) == sizeof(unsigned long long));
++    constexpr auto none =
++        static_cast<size_type>(::mfront::generic_parallel::no_event);
+     auto number_of_failures = size_type{};
+-    auto first_failure_index = no_failure_index;
++    auto first_failure = none;
+     auto number_of_unreliable_results = size_type{};
++    auto first_unreliable_result = none;
+     auto rdt = rdt0;
+     if (!mfront::generic_parallel::openacc::setMinimalStackSize(
+             device_stack_size, o.preserve_stack_size != 0)) {
+-      return report(s, -3, mfront::generic_parallel::stack_size_error_message);
++      return report(s, -7, mfront::generic_parallel::stack_size_error_message);
+     }
+ #pragma acc parallel loop copyin(f)                                 \
+     reduction(+ : number_of_failures, number_of_unreliable_results) \
+-        reduction(min : first_failure_index, rdt)
++        reduction(min : first_failure, first_unreliable_result, rdt)
+     for (size_type i = 0; i < n; ++i) {
+       const auto r = f(i);
++      const auto ff = static_cast<size_type>(r.first_failure);
++      const auto fu = static_cast<size_type>(r.first_unreliable_result);
+       number_of_failures += r.number_of_failures;
+-      first_failure_index = r.first_failure_index < first_failure_index
+-                                ? r.first_failure_index
+-                                : first_failure_index;
++      first_failure = ff < first_failure ? ff : first_failure;
+       number_of_unreliable_results += r.number_of_unreliable_results;
++      first_unreliable_result =
++          fu < first_unreliable_result ? fu : first_unreliable_result;
+       rdt = r.rdt < rdt ? r.rdt : rdt;
+     }
+-    return report(s, o, rdt0,
+-                  BatchStatistics{.number_of_failures = number_of_failures,
+-                                  .first_failure_index = first_failure_index,
+-                                  .number_of_unreliable_results =
+-                                      number_of_unreliable_results,
+-                                  .rdt = rdt});
++    return report(
++        s, o, rdt0,
++        BatchStatistics{
++            .number_of_failures = number_of_failures,
++            .first_failure = static_cast<unsigned long long>(first_failure),
++            .number_of_unreliable_results = number_of_unreliable_results,
++            .first_unreliable_result =
++                static_cast<unsigned long long>(first_unreliable_result),
++            .rdt = rdt});
+   }  // end of apply
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx b/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx
+index c3ea5a274..a365d41cc 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/OpenMP.hxx
+@@ -57,48 +57,57 @@ namespace mfront::gpb::openmp {
+             const std::size_t device_stack_size = 0) {
+     // the statistics are reduced member by member
+     auto number_of_failures = size_type{};
+-    auto first_failure_index = no_failure_index;
++    auto first_failure = ::mfront::generic_parallel::no_event;
+     auto number_of_unreliable_results = size_type{};
++    auto first_unreliable_result = ::mfront::generic_parallel::no_event;
+     auto rdt = rdt0;
+     if constexpr (offload) {
+       if (!mfront::generic_parallel::setMinimalCUDAStackSize(
+               device_stack_size, o.preserve_stack_size != 0)) {
+-        return report(s, -3,
++        return report(s, -7,
+                       mfront::generic_parallel::stack_size_error_message);
+       }
+ #pragma omp target teams distribute parallel for map(to : f)        \
+     reduction(+ : number_of_failures, number_of_unreliable_results) \
+-    reduction(min : first_failure_index, rdt)
++    reduction(min : first_failure, first_unreliable_result, rdt)
+       for (size_type i = 0; i < n; ++i) {
+         const auto r = f(i);
+         number_of_failures += r.number_of_failures;
+-        first_failure_index = r.first_failure_index < first_failure_index
+-                                  ? r.first_failure_index
+-                                  : first_failure_index;
++        first_failure =
++            r.first_failure < first_failure ? r.first_failure : first_failure;
+         number_of_unreliable_results += r.number_of_unreliable_results;
++        first_unreliable_result =
++            r.first_unreliable_result < first_unreliable_result
++                ? r.first_unreliable_result
++                : first_unreliable_result;
+         rdt = r.rdt < rdt ? r.rdt : rdt;
+       }
+     } else {
+       static_cast<void>(device_stack_size);
+ #pragma omp parallel for reduction(+ : number_of_failures,           \
+                                        number_of_unreliable_results) \
+-    reduction(min : first_failure_index, rdt)
++    reduction(min : first_failure, first_unreliable_result, rdt)
+       for (size_type i = 0; i < n; ++i) {
+         const auto r = f(i);
+         number_of_failures += r.number_of_failures;
+-        first_failure_index = r.first_failure_index < first_failure_index
+-                                  ? r.first_failure_index
+-                                  : first_failure_index;
++        first_failure =
++            r.first_failure < first_failure ? r.first_failure : first_failure;
+         number_of_unreliable_results += r.number_of_unreliable_results;
++        first_unreliable_result =
++            r.first_unreliable_result < first_unreliable_result
++                ? r.first_unreliable_result
++                : first_unreliable_result;
+         rdt = r.rdt < rdt ? r.rdt : rdt;
+       }
+     }
+-    return report(s, o, rdt0,
+-                  BatchStatistics{.number_of_failures = number_of_failures,
+-                                  .first_failure_index = first_failure_index,
+-                                  .number_of_unreliable_results =
+-                                      number_of_unreliable_results,
+-                                  .rdt = rdt});
++    return report(
++        s, o, rdt0,
++        BatchStatistics{
++            .number_of_failures = number_of_failures,
++            .first_failure = first_failure,
++            .number_of_unreliable_results = number_of_unreliable_results,
++            .first_unreliable_result = first_unreliable_result,
++            .rdt = rdt});
+   }  // end of apply
+ 
+   /*!
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+index 1b4ed59ae..19fe853b1 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/ParallelSTL.hxx
+@@ -62,7 +62,7 @@ namespace mfront::gpb::stlpar {
+             const std::size_t device_stack_size = 0) {
+     if (!mfront::generic_parallel::setMinimalCUDAStackSize(
+             device_stack_size, o.preserve_stack_size != 0)) {
+-      return report(s, -3, mfront::generic_parallel::stack_size_error_message);
++      return report(s, -7, mfront::generic_parallel::stack_size_error_message);
+     }
+     const auto r = std::transform_reduce(
+         policy, CountingIterator{0}, CountingIterator{n},
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/RAJA.hxx b/mfront/include/MFront/GenericParallelBehaviour/RAJA.hxx
+index 1cf20d87d..566bba428 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/RAJA.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/RAJA.hxx
+@@ -40,13 +40,15 @@ namespace mfront::gpb::raja {
+         if (r.number_of_failures != 0) {
+           RAJA::atomicAdd<RAJA::auto_atomic>(
+               &(this->statistics->number_of_failures), 1ull);
+-          RAJA::atomicMin<RAJA::auto_atomic>(
+-              &(this->statistics->first_failure_index),
+-              static_cast<unsigned long long>(i));
++          RAJA::atomicMin<RAJA::auto_atomic>(&(this->statistics->first_failure),
++                                             r.first_failure);
+         }
+         if (r.number_of_unreliable_results != 0) {
+           RAJA::atomicAdd<RAJA::auto_atomic>(
+               &(this->statistics->number_of_unreliable_results), 1ull);
++          RAJA::atomicMin<RAJA::auto_atomic>(
++              &(this->statistics->first_unreliable_result),
++              r.first_unreliable_result);
+         }
+         const auto rdt = toOrderedKey(r.rdt);
+         if (rdt < this->initial_rdt) {
+@@ -117,7 +119,7 @@ namespace mfront::gpb::raja {
+         mfront::generic_parallel::raja::ensureStackSize<ExecutionPolicy>(
+             f, o.preserve_stack_size != 0);
+     if (!e.empty()) {
+-      return report(s, -3, e);
++      return report(s, -7, e);
+     }
+     auto resource =
+         mfront::generic_parallel::raja::getResource<ExecutionPolicy>(o.queue);
+@@ -138,9 +140,9 @@ namespace mfront::gpb::raja {
+         });
+     auto* const statistics = block.get();
+     if (statistics == nullptr) {
+-      return report(s, -3, "unable to allocate the statistics of the batch");
++      return report(s, -7, "unable to allocate the statistics of the batch");
+     }
+-    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
++    mfront_gpb_initializeStatistics(statistics, rdt0);
+     RAJA::forall<ExecutionPolicy>(
+         resource, range,
+         internals::AtomicUpdate<PointFunction>{f, statistics, rdt_key});
+diff --git a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+index 64db8bad1..16cb0b38c 100644
+--- a/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
+@@ -180,12 +180,14 @@ namespace mfront::gpb::sycl {
+         const auto r = this->f(i[0]);
+         if (r.number_of_failures != 0) {
+           AtomicCounter{this->statistics->number_of_failures}.fetch_add(1);
+-          AtomicCounter{this->statistics->first_failure_index}.fetch_min(
+-              static_cast<unsigned long long>(i[0]));
++          AtomicCounter{this->statistics->first_failure}.fetch_min(
++              r.first_failure);
+         }
+         if (r.number_of_unreliable_results != 0) {
+           AtomicCounter{this->statistics->number_of_unreliable_results}
+               .fetch_add(1);
++          AtomicCounter{this->statistics->first_unreliable_result}.fetch_min(
++              r.first_unreliable_result);
+         }
+         const auto rdt = toOrderedKey(r.rdt);
+         if (rdt < this->initial_rdt) {
+@@ -249,11 +251,11 @@ namespace mfront::gpb::sycl {
+       return s.status;
+     }
+     if (o.queue == nullptr) {
+-      return report(s, -2, "no SYCL queue given");
++      return report(s, -5, "no SYCL queue given");
+     }
+     if (!mfront::generic_parallel::setMinimalCUDAStackSize(
+             device_stack_size, o.preserve_stack_size != 0)) {
+-      return report(s, -3, mfront::generic_parallel::stack_size_error_message);
++      return report(s, -7, mfront::generic_parallel::stack_size_error_message);
+     }
+     auto& q = *static_cast<::sycl::queue*>(o.queue);
+     // the kernel must be executed after the computations already submitted
+@@ -262,7 +264,7 @@ namespace mfront::gpb::sycl {
+     // synchronous and the queue is synchronized before the kernel.
+     if (!q.is_in_order()) {
+       if (o.statistics != nullptr) {
+-        return report(s, -2,
++        return report(s, -5,
+                       "asynchronous computations require an in-order SYCL "
+                       "queue");
+       }
+@@ -284,9 +286,9 @@ namespace mfront::gpb::sycl {
+         [&q] { return ::sycl::malloc_shared<AtomicBatchStatistics>(1, q); });
+     auto* const statistics = block.get();
+     if (statistics == nullptr) {
+-      return report(s, -3, "unable to allocate the statistics of the batch");
++      return report(s, -7, "unable to allocate the statistics of the batch");
+     }
+-    mfront_gpb_initializeBatchStatistics(statistics, rdt0);
++    mfront_gpb_initializeStatistics(statistics, rdt0);
+     q.parallel_for(range, Kernel{f, statistics, rdt_key}).wait_and_throw();
+     return report(s, getBatchStatistics(*statistics));
+   }  // end of apply
+@@ -369,7 +371,7 @@ namespace mfront::gpb::sycl {
+                            Function&& call) {
+       if (d.execution.queue == nullptr) {
+         initialize(s, d.rdt);
+-        return report(s, -2, "no SYCL queue given");
++        return report(s, -5, "no SYCL queue given");
+       }
+       auto& q = *static_cast<::sycl::queue*>(d.execution.queue);
+       auto dd = DeviceBatchData<PointTraits>(q, d, transfers);
+@@ -480,7 +482,7 @@ namespace mfront::gpb::sycl {
+                   const Apply& apply) {
+     if (d.execution.queue == nullptr) {
+       initialize(s, 1);
+-      return report(s, -2, "no SYCL queue given");
++      return report(s, -5, "no SYCL queue given");
+     }
+     constexpr auto n = static_cast<size_type>(PointRotation::size);
+     auto copies =
+diff --git a/mfront/include/MFront/GenericParallelBehaviourInterface.hxx b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+index e1efd725c..57447dab9 100644
+--- a/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
++++ b/mfront/include/MFront/GenericParallelBehaviourInterface.hxx
+@@ -59,6 +59,40 @@ namespace mfront {
+                                             std::string_view,
+                                             std::string_view,
+                                             std::string_view);
++    /*!
++     * \return the name of a function of batches of points: the name of the
++     * function of the `generic` interface followed by `_generic_parallel`.
++     * This function is shared with the `generic-parallel` interface for
++     * models.
++     * \param[in] f: name of the function of the `generic` interface
++     */
++    static std::string getBatchFunctionName(std::string_view);
++    /*!
++     * \brief write the declaration of the `<base>_generic_parallel_report`
++     * function, which analyses the statistics of a batch once the
++     * computations are completed. This function is shared with the
++     * `generic-parallel` interface for models.
++     * \param[out] os: output stream
++     * \param[in] base: basis of the names of the functions
++     */
++    static void writeReportFunctionDeclaration(std::ostream&, std::string_view);
++    /*!
++     * \brief write the implementation of the
++     * `<base>_generic_parallel_report` function (see
++     * `writeReportFunctionDeclaration`)
++     * \param[out] os: output stream
++     * \param[in] base: basis of the names of the functions
++     */
++    static void writeReportFunction(std::ostream&, std::string_view);
++    /*!
++     * \brief throw an exception if the given name contains
++     * `_generic_parallel`, which ends the names of the functions of batches
++     * of points and of their metadata. This function is shared with the
++     * `generic-parallel` interface for models.
++     * \param[in] m: calling method
++     * \param[in] n: name of the behaviour or of the model
++     */
++    static void checkName(std::string_view, std::string_view);
+     /*!
+      * \brief write the end of a function started by
+      * `writeBatchFunctionBeginning`
+diff --git a/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx b/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
+index 92d0fa476..f04e9da36 100644
+--- a/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
++++ b/mfront/include/MFront/GenericParallelMaterialProperty/PointStatus.hxx
+@@ -15,46 +15,19 @@
+ #define LIB_MFRONT_GENERICPARALLELMATERIALPROPERTY_POINTSTATUS_HXX
+ 
+ #include "TFEL/Config/TFELConfig.hxx"
++#include "MFront/GenericParallel/StatisticsKeys.hxx"
+ #include "MFront/GenericParallelMaterialProperty/MaterialProperty.h"
+ 
+ namespace mfront::gpmp {
+ 
+-  //! \brief value of a key meaning that no event occurred
+-  inline constexpr unsigned long long no_event = ~0ull;
+-  /*!
+-   * \brief number of bits of the identifier of a check in a key. The other
+-   * bits hold the index of the point.
+-   */
+-  inline constexpr unsigned int check_bits = 16;
+-  //! \brief maximal number of checks of a material property
+-  inline constexpr unsigned long long maximal_number_of_checks =
+-      (1ull << check_bits) - 1;
+-  //! \brief maximal number of points of a batch
+-  inline constexpr unsigned long long maximal_number_of_points =
+-      (1ull << (64 - check_bits)) - 1;
+-
+-  /*!
+-   * \return the key of an event: the minimum of the keys gives the first
+-   * point concerned, whatever the order of the computations
+-   * \param[in] i: index of the point
+-   * \param[in] c: identifier of the check retained at this point
+-   */
+-  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long makeKey(
+-      const unsigned long long i, const unsigned long long c) noexcept {
+-    return (i << check_bits) | c;
+-  }  // end of makeKey
+-
+-  //! \return the index of the point of a key
+-  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getPointIndex(
+-      const unsigned long long k) noexcept {
+-    return k >> check_bits;
+-  }  // end of getPointIndex
+-
+-  //! \return the identifier of the check of a key
+-  [[nodiscard]] TFEL_HOST_DEVICE constexpr unsigned long long getCheck(
+-      const unsigned long long k) noexcept {
+-    return k & maximal_number_of_checks;
+-  }  // end of getCheck
++  // keys of the statistics (see `MFront/GenericParallel/StatisticsKeys.hxx`)
++  using ::mfront::generic_parallel::check_bits;
++  using ::mfront::generic_parallel::getCheck;
++  using ::mfront::generic_parallel::getPointIndex;
++  using ::mfront::generic_parallel::makeKey;
++  using ::mfront::generic_parallel::maximal_number_of_checks;
++  using ::mfront::generic_parallel::maximal_number_of_points;
++  using ::mfront::generic_parallel::no_event;
+ 
+   /*!
+    * \brief status of the evaluation of a material property at a point,
+diff --git a/mfront/src/GenericParallelBehaviourInterface.cxx b/mfront/src/GenericParallelBehaviourInterface.cxx
+index 2de960e17..19a930398 100644
+--- a/mfront/src/GenericParallelBehaviourInterface.cxx
++++ b/mfront/src/GenericParallelBehaviourInterface.cxx
+@@ -240,7 +240,9 @@ namespace mfront {
+   /*!
+    * \brief write the initialisation of the values of the parameters from
+    * the parameters initializers, which are only available on the host (see
+-   * `mfront_get_parameters_values`)
++   * `mfront_get_parameters_values`). The parameters initializers read the
++   * parameters files at the first call: an error is reported as invalid
++   * parameters (status `-6`), as for the material properties.
+    * \param[out] os: output stream
+    * \param[in] bd: behaviour description
+    * \param[in] h: modelling hypothesis
+@@ -250,7 +252,14 @@ namespace mfront {
+       const BehaviourDescription& bd,
+       const tfel::material::ModellingHypothesis::Hypothesis h) {
+     os << "auto mfront_parameters = " << getParametersStructureName(bd, h)
+-       << "{Behaviour::mfront_get_parameters_values()};\n";
++       << "{};\n"
++       << "try {\n"
++       << "static_cast<Behaviour::mfront_parameters_values&>("
++       << "mfront_parameters) = Behaviour::mfront_get_parameters_values();\n"
++       << "} catch (std::exception& mfront_exception) {\n"
++       << "return mfront::gpb::report(mfront_status, -6, "
++       << "mfront_exception.what());\n"
++       << "}\n";
+   }  // end of writeParametersInitialisation
+ 
+   /*!
+@@ -385,7 +394,7 @@ namespace mfront {
+        << "return mfront::gpb::handleExceptions(mfront_output_status, "
+        << "[mfront_output_status" << captures << "] {\n"
+        << "if (mfront_batch_data == nullptr) {\n"
+-       << "return mfront::gpb::report(*mfront_output_status, -2, "
++       << "return mfront::gpb::report(*mfront_output_status, -5, "
+        << "\"no batch data given\");\n"
+        << "}\n"
+        << "mfront::gpb::initialize(*mfront_output_status, "
+@@ -399,6 +408,44 @@ namespace mfront {
+        << "const auto& mfront_data = *mfront_batch_data;\n";
+   }  // end of writeBatchFunctionBeginning
+ 
++  std::string GenericParallelBehaviourInterface::getBatchFunctionName(
++      const std::string_view f) {
++    return std::string{f} + "_generic_parallel";
++  }  // end of getBatchFunctionName
++
++  void GenericParallelBehaviourInterface::writeReportFunctionDeclaration(
++      std::ostream& os, const std::string_view base) {
++    os << "/*!\n"
++       << " * \\brief analyse the statistics of a batch once the computations "
++       << "are completed, and report the result as a synchronous computation "
++       << "does\n"
++       << " * \\param[out] s: output status\n"
++       << " * \\param[in] statistics: statistics given by the execution "
++       << "options, read on the host\n"
++       << " * \\return the status, also stored in the output status\n"
++       << " */\n"
++       << "MFRONT_SHAREDOBJ int " << base << "_generic_parallel_report("
++       << "mfront_gpb_OutputStatus* const,\n"
++       << "const mfront_gpb_Statistics* const);\n\n";
++  }  // end of writeReportFunctionDeclaration
++
++  void GenericParallelBehaviourInterface::writeReportFunction(
++      std::ostream& os, const std::string_view base) {
++    os << "MFRONT_SHAREDOBJ int " << base << "_generic_parallel_report("
++       << "mfront_gpb_OutputStatus* const mfront_output_status,\n"
++       << "const mfront_gpb_Statistics* const mfront_statistics){\n"
++       << "return mfront::gpb::reportStatistics(*mfront_output_status, "
++       << "mfront_statistics);\n"
++       << "} // end of " << base << "_generic_parallel_report\n\n";
++  }  // end of writeReportFunction
++
++  void GenericParallelBehaviourInterface::checkName(const std::string_view m,
++                                                    const std::string_view n) {
++    tfel::raise_if(n.find("_generic_parallel") != std::string_view::npos,
++                   std::string{m} + ": the name '" + std::string{n} +
++                       "' must not contain '_generic_parallel'");
++  }  // end of checkName
++
+   void GenericParallelBehaviourInterface::writeBatchFunctionEnd(
+       std::ostream& os, const std::string_view f) {
+     os << "});\n"
+@@ -517,7 +564,8 @@ namespace mfront {
+     const auto name = bd.getLibrary() + bd.getClassName();
+     auto entry_points = std::vector<std::string>{};
+     for (const auto h : this->getModellingHypothesesToBeTreated(bd)) {
+-      entry_points.push_back(this->getFunctionNameForHypothesis(name, h));
++      entry_points.push_back(
++          getBatchFunctionName(this->getFunctionNameForHypothesis(name, h)));
+     }
+     describeLibrary(
+         d, this->getLibraryName(bd), this->getSourceFileName(name),
+@@ -555,6 +603,8 @@ namespace mfront {
+ 
+   void GenericParallelBehaviourInterface::endTreatment(
+       const BehaviourDescription& bd, const FileDescription& fd) const {
++    checkName("GenericParallelBehaviourInterface::endTreatment",
++              this->getFunctionNameBasis(bd.getLibrary() + bd.getClassName()));
+     checkSharedDataOfBehaviourVariables(bd);
+     tfel::system::systemCall::mkdir("include/MFront");
+     tfel::system::systemCall::mkdir("include/MFront/GenericParallelBehaviour");
+@@ -594,6 +644,7 @@ namespace mfront {
+        << "#endif /* __cplusplus */\n\n";
+     this->writeSetOutOfBoundsPolicyFunctionDeclaration(os, name);
+     this->writeSetParametersFunctionsDeclarations(os, bd, name);
++    writeReportFunctionDeclaration(os, this->getFunctionNameBasis(name));
+     for (const auto h : this->getModellingHypothesesToBeTreated(bd)) {
+       os << "/*!\n"
+          << " * \\brief integrate the behaviour over a batch of integration "
+@@ -603,7 +654,7 @@ namespace mfront {
+          << " * \\return the status, also stored in the output status\n"
+          << " */\n"
+          << "MFRONT_SHAREDOBJ int "
+-         << this->getFunctionNameForHypothesis(name, h)
++         << getBatchFunctionName(this->getFunctionNameForHypothesis(name, h))
+          << "(mfront_gpb_OutputStatus* const,\n"
+          << "const mfront_gpb_BatchData* const);\n\n";
+       const auto& d = bd.getBehaviourData(h);
+@@ -618,8 +669,8 @@ namespace mfront {
+            << " * \\return the status, also stored in the output status\n"
+            << " */\n"
+            << "MFRONT_SHAREDOBJ int "
+-           << this->getFunctionNameForHypothesis(name, h)
+-           << "_InitializeFunction_" << ifct.first
++           << getBatchFunctionName(this->getFunctionNameForHypothesis(name, h) +
++                                   "_InitializeFunction_" + ifct.first)
+            << "(mfront_gpb_OutputStatus* const,\n"
+            << "const mfront_gpb_BatchData* const,\n"
+            << "const mfront_gpb_ConstField* const);\n\n";
+@@ -634,8 +685,9 @@ namespace mfront {
+            << " * \\return the status, also stored in the output status\n"
+            << " */\n"
+            << "MFRONT_SHAREDOBJ int "
+-           << this->getFunctionNameForHypothesis(name, h) << "_PostProcessing_"
+-           << pp.first << "(mfront_gpb_OutputStatus* const,\n"
++           << getBatchFunctionName(this->getFunctionNameForHypothesis(name, h) +
++                                   "_PostProcessing_" + pp.first)
++           << "(mfront_gpb_OutputStatus* const,\n"
+            << "const mfront_gpb_Field* const,\n"
+            << "const mfront_gpb_BatchData* const);\n\n";
+       }
+@@ -648,7 +700,8 @@ namespace mfront {
+            << " * \\return the status, also stored in the output status\n"
+            << " */\n"
+            << "MFRONT_SHAREDOBJ int "
+-           << this->getFunctionNameForHypothesis(name, h) << "_" << f.name
++           << getBatchFunctionName(this->getFunctionNameForHypothesis(name, h) +
++                                   "_" + f.name)
+            << "(mfront_gpb_OutputStatus* const,\n"
+            << "const mfront_gpb_RotationData* const);\n\n";
+       }
+@@ -751,6 +804,7 @@ namespace mfront {
+     }
+     this->writeSetOutOfBoundsPolicyFunctionImplementation(os, bd, name);
+     this->writeSetParametersFunctionsImplementations(os, bd, name);
++    writeReportFunction(os, this->getFunctionNameBasis(name));
+     // write a function of the generated library
+     // \param[in] h: modelling hypothesis
+     // \param[in] f: name of the function
+@@ -793,7 +847,7 @@ namespace mfront {
+     };
+     for (const auto h : mhs) {
+       const auto f = this->getFunctionNameForHypothesis(name, h);
+-      write_function(h, f,
++      write_function(h, getBatchFunctionName(f),
+                      "const mfront_gpb_BatchData* const mfront_batch_data",
+                      ", mfront_batch_data", [this, &os] {
+                        this->backend->writeCall(
+@@ -805,7 +859,8 @@ namespace mfront {
+       for (const auto& [ifct, c] : d.getInitializeFunctions()) {
+         const auto n = getNumberOfValues(
+             c, CodeBlock::used_initialize_function_variables, h);
+-        write_function(h, f + "_InitializeFunction_" + ifct,
++        write_function(h,
++                       getBatchFunctionName(f + "_InitializeFunction_" + ifct),
+                        "const mfront_gpb_BatchData* const mfront_batch_data,\n"
+                        "const mfront_gpb_ConstField* const mfront_inputs",
+                        ", mfront_batch_data, mfront_inputs",
+@@ -826,7 +881,7 @@ namespace mfront {
+         const auto n =
+             getNumberOfValues(c, CodeBlock::used_postprocessing_variables, h);
+         write_function(
+-            h, f + "_PostProcessing_" + pp,
++            h, getBatchFunctionName(f + "_PostProcessing_" + pp),
+             "const mfront_gpb_Field* const mfront_outputs,\n"
+             "const mfront_gpb_BatchData* const mfront_batch_data",
+             ", mfront_outputs, mfront_batch_data", [this, &os, &bd, &pp, n] {
+@@ -856,7 +911,8 @@ namespace mfront {
+       const Hypothesis h) const {
+     const auto fn = this->getFunctionNameForHypothesis(name, h);
+     for (const auto& f : getBehaviourRotationFunctions(bd, h)) {
+-      os << "MFRONT_SHAREDOBJ int " << fn << "_" << f.name
++      const auto bf = getBatchFunctionName(fn + "_" + f.name);
++      os << "MFRONT_SHAREDOBJ int " << bf
+          << "(mfront_gpb_OutputStatus* const mfront_output_status,\n"
+          << "const mfront_gpb_RotationData* const mfront_rotation_data){\n"
+          << "return mfront::gpb::handleExceptions(mfront_output_status, "
+@@ -864,7 +920,7 @@ namespace mfront {
+          << "auto& mfront_status = *mfront_output_status;\n"
+          << "if (mfront_rotation_data == nullptr) {\n"
+          << "mfront::gpb::initialize(mfront_status, 1);\n"
+-         << "return mfront::gpb::report(mfront_status, -2, "
++         << "return mfront::gpb::report(mfront_status, -5, "
+          << "\"no rotation data given\");\n"
+          << "}\n"
+          // an empty batch is accepted without any check, as for the
+@@ -878,7 +934,7 @@ namespace mfront {
+                                getPointRotationName(bd, h, f), "mfront_status",
+                                "mfront_data");
+       os << "});\n"
+-         << "} // end of " << fn << "_" << f.name << "\n\n";
++         << "} // end of " << bf << "\n\n";
+     }
+   }  // end of writeRotationFunctions
+ 
+diff --git a/mfront/src/GenericParallelModelInterface.cxx b/mfront/src/GenericParallelModelInterface.cxx
+index 301ab816b..6428df7c5 100644
+--- a/mfront/src/GenericParallelModelInterface.cxx
++++ b/mfront/src/GenericParallelModelInterface.cxx
+@@ -92,6 +92,9 @@ namespace mfront {
+ 
+   void GenericParallelModelInterface::writeOutputFiles(
+       const FileDescription& fd, const ModelDescription& md) {
++    GenericParallelBehaviourInterface::checkName(
++        "GenericParallelModelInterface::writeOutputFiles",
++        md.library + md.className);
+     this->writeHeaderFile(fd, md);
+     this->writeSourceFile(fd, md);
+   }  // end of writeOutputFiles
+@@ -137,6 +140,11 @@ namespace mfront {
+          << "MFRONT_SHAREDOBJ int\n"
+          << name << "_setParameter(const char *const, const double);\n\n";
+     }
++    {
++      GenericParallelBehaviourInterface bi;
++      GenericParallelBehaviourInterface::writeReportFunctionDeclaration(
++          os, bi.getFunctionNameBasis(name));
++    }
+     for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
+       os << "/*!\n"
+          << " * \\brief execute the " << name
+@@ -146,8 +154,9 @@ namespace mfront {
+          << " * \\param[in] d: batch data\n"
+          << " * \\return the status, also stored in the output status\n"
+          << " */\n"
+-         << "MFRONT_SHAREDOBJ int " << name << "_"
+-         << ModellingHypothesis::toString(h)
++         << "MFRONT_SHAREDOBJ int "
++         << GenericParallelBehaviourInterface::getBatchFunctionName(
++                name + "_" + ModellingHypothesis::toString(h))
+          << "(mfront_gpb_OutputStatus* const,\n"
+          << "const mfront_gpb_BatchData* const);\n\n";
+     }
+@@ -271,6 +280,8 @@ namespace mfront {
+     os << "#ifdef __cplusplus\n"
+        << "extern \"C\"{\n"
+        << "#endif /* __cplusplus */\n\n";
++    GenericParallelBehaviourInterface::writeReportFunction(
++        os, bi.getFunctionNameBasis(name));
+     const auto initializer = getGenericModelParametersInitializerName(md);
+     if (hasGenericModelParametersInitializer(md)) {
+       os << "MFRONT_SHAREDOBJ int\n"
+@@ -293,7 +304,8 @@ namespace mfront {
+          << "} // end of " << name << "_setParameter\n\n";
+     }
+     for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
+-      const auto f = name + "_" + ModellingHypothesis::toString(h);
++      const auto f = GenericParallelBehaviourInterface::getBatchFunctionName(
++          name + "_" + ModellingHypothesis::toString(h));
+       GenericParallelBehaviourInterface::writeBatchFunctionBeginning(
+           os, f, "const mfront_gpb_BatchData* const mfront_batch_data",
+           ", mfront_batch_data");
+@@ -336,7 +348,9 @@ namespace mfront {
+     const auto name = md.library + md.className;
+     auto entry_points = std::vector<std::string>{};
+     for (const auto& h : ModellingHypothesis::getModellingHypotheses()) {
+-      entry_points.push_back(name + "_" + ModellingHypothesis::toString(h));
++      entry_points.push_back(
++          GenericParallelBehaviourInterface::getBatchFunctionName(
++              name + "_" + ModellingHypothesis::toString(h)));
+     }
+     GenericParallelBehaviourInterface::describeLibrary(
+         td, this->getLibraryName(md), this->getSourceFileName(name),
+diff --git a/test-suite/behaviours/generic-parallel/InvalidNameModelTest_generic_parallel.mfront b/test-suite/behaviours/generic-parallel/InvalidNameModelTest_generic_parallel.mfront
+new file mode 100644
+index 000000000..36f000f4d
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/InvalidNameModelTest_generic_parallel.mfront
+@@ -0,0 +1,13 @@
++@DSL Model;
++@Model InvalidNameModelTest_generic_parallel;
++@Description {
++  "The name of a model must not contain `_generic_parallel`: "
++  "the generic-parallel interface refuses this model."
++}
++
++@Output s;
++s.setEntryName("TestOutput");
++
++@Function compute {
++  s = 1;
++}
+diff --git a/test-suite/behaviours/generic-parallel/InvalidNameTest_generic_parallel.mfront b/test-suite/behaviours/generic-parallel/InvalidNameTest_generic_parallel.mfront
+new file mode 100644
+index 000000000..1a28df037
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/InvalidNameTest_generic_parallel.mfront
+@@ -0,0 +1,10 @@
++@DSL Default;
++@Behaviour InvalidNameTest_generic_parallel;
++@Description {
++  "The name of a behaviour must not contain `_generic_parallel`: "
++  "the generic-parallel interface refuses this behaviour."
++}
++
++@Integrator {
++  sig = 0 * (eto + deto);
++}
+diff --git a/test-suite/behaviours/generic-parallel/check-refused-name.sh b/test-suite/behaviours/generic-parallel/check-refused-name.sh
+new file mode 100644
+index 000000000..fc2571ebe
+--- /dev/null
++++ b/test-suite/behaviours/generic-parallel/check-refused-name.sh
+@@ -0,0 +1,47 @@
++# Check that the `generic-parallel` interface refuses a behaviour and a
++# model whose names contain `_generic_parallel`, the suffix of the
++# generated functions, whereas the `generic` interface accepts them.
++#
++# usage: sh ../check-refused-name.sh mfront configuration_file
++#
++# The sources are generated in the `refused-name` directory.
++set -e
++mfront=$1
++configuration=$2
++case "$mfront" in
++  /*) ;;
++  */*) mfront=$PWD/$mfront ;;
++esac
++# the configuration file is looked for in the current directory, then in
++# the configuration files installed with TFEL, as MFront does
++find_configuration() {
++  if [ -f "$1" ]; then
++    echo "$PWD/$1"
++    return
++  fi
++  prefix=$(cd "$(dirname "$(command -v "$mfront")")/.." && pwd)
++  for d in "$prefix"/share/tfel*/mfront/configuration-files; do
++    if [ -f "$d/$1" ]; then
++      echo "$d/$1"
++      return
++    fi
++  done
++  echo "configuration file '$1' not found" >&2
++  exit 1
++}
++configuration=$(find_configuration "$configuration")
++directory=$(cd "$(dirname "$0")" && pwd)
++mkdir -p refused-name
++cd refused-name
++for name in InvalidNameTest_generic_parallel \
++  InvalidNameModelTest_generic_parallel; do
++  file=$directory/$name.mfront
++  "$mfront" --interface=generic "$file" > "$name-generic.log" 2>&1
++  if "$mfront" --interface=generic-parallel \
++    --configuration-file="$configuration" "$file" \
++    > "$name-generic-parallel.log" 2>&1; then
++    echo "the name '$name' has not been refused" >&2
++    exit 1
++  fi
++  grep -q "must not contain '_generic_parallel'" "$name-generic-parallel.log"
++done
+diff --git a/test-suite/behaviours/generic-parallel/compare-all.sh b/test-suite/behaviours/generic-parallel/compare-all.sh
+index 56990ef7b..c5a63c895 100644
+--- a/test-suite/behaviours/generic-parallel/compare-all.sh
++++ b/test-suite/behaviours/generic-parallel/compare-all.sh
+@@ -189,6 +189,15 @@ echo "hardening_factor 2" > BehaviourVariableTestPlasticity-parameters.txt
+ run BehaviourVariableTest_Tridimensional \
+   --material-properties=1e9,300e6,200e9,0.3 --amplitude=3e-3
+ rm -f BehaviourVariableTestPlasticity-parameters.txt
++# invalid file of parameters, of the behaviour and of a behaviour variable:
++# the integration is refused (status -6)
++echo "YoungModulus abc" > IsotropicLinearHardeningPlasticity-parameters.txt
++run IsotropicLinearHardeningPlasticity_Tridimensional --invalid-parameters=true
++rm -f IsotropicLinearHardeningPlasticity-parameters.txt
++echo "hardening_factor abc" > BehaviourVariableTestPlasticity-parameters.txt
++run BehaviourVariableTest_Tridimensional \
++  --material-properties=1e9,300e6,200e9,0.3 --invalid-parameters=true
++rm -f BehaviourVariableTestPlasticity-parameters.txt
+ run ExternalModelCallerTest_Tridimensional --amplitude=0 \
+   --initial-internal-state-variables=1,2 --tangent-operator=0
+ # standalone models, treated as behaviours without gradients: the outputs
+diff --git a/test-suite/behaviours/generic-parallel/compare.cxx b/test-suite/behaviours/generic-parallel/compare.cxx
+index 02c6bc073..c279ab411 100644
+--- a/test-suite/behaviours/generic-parallel/compare.cxx
++++ b/test-suite/behaviours/generic-parallel/compare.cxx
+@@ -7,8 +7,10 @@
+  * Two time steps of a random loading are computed: the second one starts from
+  * the results of the first one. The first step is computed synchronously and
+  * the second one asynchronously: the statistics of the batch are then given
+- * by the execution options (see `mfront_gpb_ExecutionOptions`) and read
+- * after the synchronization of the device. All the combinations of the
++ * by the execution options (see `mfront_gpb_ExecutionOptions`) and analysed
++ * by the report function of the library
++ * (`<behaviour>_generic_parallel_report`) after the synchronization of the
++ * device. All the combinations of the
+  * following cases are tested:
+  *
+  * - type of computation: consistent tangent operator (or the type of
+@@ -689,9 +691,10 @@ static mfront_gpb_OutputStatus measure(double& ms, const Function& f) {
+ 
+ /*!
+  * \brief batch integration with the `generic-parallel` interface
+- * \param[in] asynchronous: if true, the statistics of the batch are given
+- * by the execution options and the device is synchronized after the call.
+- * The returned output status is then built from those statistics.
++ * \param[in] report: if not null, the statistics of the batch are given by
++ * the execution options and the device is synchronized after the call. The
++ * returned output status is then built by this function from those
++ * statistics.
+  * \param[in] q: queue passed to the behaviour
+  */
+ static mfront_gpb_OutputStatus integrateBatch(States& st,
+@@ -702,15 +705,15 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
+                                               const double K0,
+                                               const Storage storage,
+                                               BatchFunction f,
+-                                              const bool asynchronous,
++                                              const mfront_gpb_ReportPtr report,
+                                               double& ms,
+                                               void* const q = queue()) {
+   auto b = BatchFields(st, s, fs, n, dt, K0, storage);
+   b.data.execution.queue = q;
+   auto* const statistics =
+-      asynchronous ? allocate<mfront_gpb_BatchStatistics>(1) : nullptr;
++      report != nullptr ? allocate<mfront_gpb_Statistics>(1) : nullptr;
+   if (statistics != nullptr) {
+-    mfront_gpb_initializeBatchStatistics(statistics, b.data.rdt);
++    mfront_gpb_initializeStatistics(statistics, b.data.rdt);
+     b.data.execution.statistics = statistics;
+   }
+   auto o = measure(ms, [&b, f, statistics](mfront_gpb_OutputStatus& r) {
+@@ -722,7 +725,7 @@ static mfront_gpb_OutputStatus integrateBatch(States& st,
+   if (statistics != nullptr) {
+     // the output status only reports the submission of the computations
+     if (o.status == 1) {
+-      mfront_gpb_report(&o, statistics);
++      report(&o, statistics);
+     }
+     deallocate(statistics);
+   }
+@@ -843,10 +846,16 @@ static bool isConsistent(const mfront_gpb_OutputStatus& o,
+       first_failure != status.end()
+           ? static_cast<std::size_t>(first_failure - status.begin())
+           : ~std::size_t{};
++  const auto first_unreliable = std::find(status.begin(), status.end(), 0);
++  const auto first_unreliable_result_index =
++      first_unreliable != status.end()
++          ? static_cast<std::size_t>(first_unreliable - status.begin())
++          : ~std::size_t{};
+   const auto expected = nfailures != 0 ? -1 : (nunreliable != 0 ? 0 : 1);
+   return (o.status == expected) && (o.number_of_failures == nfailures) &&
+          (o.first_failure_index == first_failure_index) &&
+-         (o.number_of_unreliable_results == nunreliable);
++         (o.number_of_unreliable_results == nunreliable) &&
++         (o.first_unreliable_result_index == first_unreliable_result_index);
+ }
+ 
+ //! \brief function tested
+@@ -886,6 +895,11 @@ struct Options {
+    * (see `testOtherDevice`)
+    */
+   bool other_device = false;
++  /*!
++   * \brief if true, the file of parameters written by the calling script is
++   * invalid: the integration must be refused (see `testInvalidParameters`)
++   */
++  bool invalid_parameters = false;
+   //! \brief type of the tangent operator (consistent tangent operator by
+   //! default)
+   double tangent_operator = 4;
+@@ -937,6 +951,8 @@ static Options parseOptions(const int argc,
+       r.energies = v == "true";
+     } else if (o == "--other-device") {
+       r.other_device = v == "true";
++    } else if (o == "--invalid-parameters") {
++      r.invalid_parameters = v == "true";
+     } else if (o == "--speed-of-sound") {
+       r.mass_density = std::stod(v);
+     } else if (o == "--initial-internal-state-variables") {
+@@ -975,6 +991,42 @@ struct Test {
+   double dt;
+ };
+ 
++/*!
++ * \return the report function of the library of the `generic-parallel`
++ * interface, which analyses the statistics of a batch
++ * \param[in] t: test
++ */
++static mfront_gpb_ReportPtr loadReportFunction(const Test& t) {
++  return reinterpret_cast<mfront_gpb_ReportPtr>(
++      load(t.batch_library, t.name.behaviour + "_generic_parallel_report"));
++}
++
++/*!
++ * \return true if the report function of the library treats the
++ * statistics of a batch where nothing happened as a success, keeping the
++ * initial value of the time step scaling factor, and null statistics as an
++ * invalid argument (status `-5`)
++ * \param[in] t: test
++ */
++static bool testReportFunction(const Test& t) {
++  const auto report = loadReportFunction(t);
++  auto statistics = mfront_gpb_Statistics{};
++  mfront_gpb_initializeStatistics(&statistics, 0.5);
++  auto o1 = mfront_gpb_OutputStatus{};
++  const auto r1 = report(&o1, &statistics);
++  auto o2 = mfront_gpb_OutputStatus{};
++  const auto r2 = report(&o2, nullptr);
++  const auto pass =
++      (r1 == 1) && (o1.status == 1) && (o1.number_of_failures == 0) &&
++      (o1.first_failure_index == ~mfront_gb_size_type{}) &&
++      (o1.number_of_unreliable_results == 0) &&
++      (o1.first_unreliable_result_index == ~mfront_gb_size_type{}) &&
++      (o1.rdt == 0.5) && (r2 == -5) && (o2.status == -5);
++  std::printf("%-12s %-12s status=%2d/%2d | rdt %g | %s\n", "report",
++              "function", o1.status, o2.status, o1.rdt, pass ? "OK" : "FAILED");
++  return pass;
++}
++
+ //! \brief print the results of a comparison
+ static bool print(const char* const what,
+                   const Storage storage,
+@@ -1021,7 +1073,7 @@ static bool testEmptyBatch(BatchFunction f,
+ 
+ /*!
+  * \return true if an invalid stress measure given to a finite strain
+- * behaviour is reported as an invalid argument (status `-2`) for the whole
++ * behaviour is reported as an invalid argument (status `-5`) for the whole
+  * batch, and not as an integration failure at every point. General
+  * behaviours, which do not use those options, are not tested.
+  * \param[in] t: test
+@@ -1044,7 +1096,7 @@ static bool testInvalidComputationOptions(const Test& t,
+   auto o = mfront_gpb_OutputStatus{};
+   f(&o, &b.data);
+   synchronize();
+-  const auto pass = o.status == -2;
++  const auto pass = o.status == -5;
+   std::printf("%-12s %-12s status=%2d | %s\n", "invalid", "options", o.status,
+               pass ? "OK" : "FAILED");
+   return pass;
+@@ -1077,7 +1129,7 @@ static bool testOtherDevice(const Test& t,
+   auto ms = 0.;
+   integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
+   const auto o = integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point,
+-                                fb, false, ms, q);
++                                fb, nullptr, ms, q);
+   const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
+   const auto pass = (ref.status == batch.status) &&
+                     isConsistent(o, batch.status) && (dth < tolerance);
+@@ -1090,7 +1142,7 @@ static bool testOtherDevice(const Test& t,
+ /*!
+  * \return true if the stack size of the threads, preserved by the
+  * execution options, is not modified and reported as too small (status
+- * `-3`). The kernels require at least 1024 bytes (see
++ * `-7`). The kernels require at least 1024 bytes (see
+  * `mfront::generic_parallel::gpu::ensureStackSize`).
+  * \param[in] t: test
+  * \param[in] fb: batch function
+@@ -1113,7 +1165,7 @@ static bool testPreserveStackSize(const Test& t,
+   check(GPU_API(DeviceGetLimit)(&stack_size, GPU_API(LimitStackSize)));
+   check(GPU_API(DeviceSetLimit)(GPU_API(LimitStackSize), initial));
+   const auto pass =
+-      (o.status == -3) && (stack_size < 1024) &&
++      (o.status == -7) && (stack_size < 1024) &&
+       (std::string_view{o.msg}.starts_with(
+           "the stack size of the threads of the device must be at least"));
+   std::printf("%-12s %-12s status=%2d | %s\n", "preserved", "stack size",
+@@ -1125,8 +1177,8 @@ static bool testPreserveStackSize(const Test& t,
+ #if defined(MFRONT_GPB_COMPARE_USE_SYCL)
+ /*!
+  * \return true if the queues given by the execution options are treated as
+- * documented: a null queue is an invalid argument (status `-2`), an
+- * asynchronous integration requires an in-order queue (status `-2`
++ * documented: a null queue is an invalid argument (status `-5`), an
++ * asynchronous integration requires an in-order queue (status `-5`
+  * otherwise), and a synchronous integration on an out-of-order queue gives
+  * the results of the reference.
+  * \param[in] t: test
+@@ -1143,20 +1195,20 @@ static bool testSYCLQueues(const Test& t,
+   auto ms = 0.;
+   auto st1 = t.initial;
+   const auto o1 = integrateBatch(st1, s, fs, t.n, t.dt, K0, Storage::by_point,
+-                                 fb, false, ms, nullptr);
++                                 fb, nullptr, ms, nullptr);
+   // out-of-order queue sharing the device and the context of the queue of
+   // the other tests, hence the allocations of the fields
+   auto q = ::sycl::queue{getQueue().get_context(), getQueue().get_device()};
+   auto st2 = t.initial;
+   const auto o2 = integrateBatch(st2, s, fs, t.n, t.dt, K0, Storage::by_point,
+-                                 fb, true, ms, &q);
++                                 fb, loadReportFunction(t), ms, &q);
+   auto ref = t.initial;
+   auto batch = t.initial;
+   integrateReference(ref, s, fs, t.n, t.dt, K0, fg);
+-  const auto o3 = integrateBatch(batch, s, fs, t.n, t.dt, K0,
+-                                 Storage::by_point, fb, false, ms, &q);
++  const auto o3 = integrateBatch(batch, s, fs, t.n, t.dt, K0, Storage::by_point,
++                                 fb, nullptr, ms, &q);
+   const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
+-  const auto pass = (o1.status == -2) && (o2.status == -2) &&
++  const auto pass = (o1.status == -5) && (o2.status == -5) &&
+                     (ref.status == batch.status) &&
+                     isConsistent(o3, batch.status) && (dth < tolerance);
+   std::printf(
+@@ -1167,6 +1219,34 @@ static bool testSYCLQueues(const Test& t,
+ }
+ #endif /* defined(MFRONT_GPB_COMPARE_USE_SYCL) */
+ 
++/*!
++ * \return true if an invalid file of parameters is reported as invalid
++ * parameters (status `-6`) for the whole batch, nothing being computed.
++ * The file, written by the calling script, is read by the parameters
++ * initializers at the first call: this call must be the first one.
++ * \param[in] t: test
++ */
++static bool testInvalidParameters(const Test& t) {
++  const auto fb = reinterpret_cast<BatchFunction>(
++      load(t.batch_library, t.function + "_generic_parallel"));
++  auto st = t.initial;
++  auto b = BatchFields(st, t.sizes, t.options.finite_strain, t.n, t.dt,
++                       t.options.tangent_operator, Storage::by_point);
++  b.data.execution.queue = queue();
++  auto o = mfront_gpb_OutputStatus{};
++  fb(&o, &b.data);
++  synchronize();
++  b.copyResults(st);
++  const auto unchanged =
++      (st.th1 == t.initial.th1) && (st.isv1 == t.initial.isv1);
++  const auto pass =
++      (o.status == -6) && (o.number_of_failures == 0) && unchanged &&
++      (std::string_view{o.msg}.find("can't convert") != std::string_view::npos);
++  std::printf("%-12s %-12s status=%2d | %s | %s\n", "invalid", "parameters",
++              o.status, o.msg, pass ? "OK" : "FAILED");
++  return pass;
++}
++
+ /*!
+  * \brief compare two time steps integrated by both interfaces, for all
+  * types of computation and storages of the fields
+@@ -1174,8 +1254,9 @@ static bool testSYCLQueues(const Test& t,
+ static bool testIntegration(const Test& t) {
+   const auto fg =
+       reinterpret_cast<GenericFunction>(load(t.generic_library, t.function));
+-  const auto fb =
+-      reinterpret_cast<BatchFunction>(load(t.batch_library, t.function));
++  const auto fb = reinterpret_cast<BatchFunction>(
++      load(t.batch_library, t.function + "_generic_parallel"));
++  const auto report = loadReportFunction(t);
+   const auto& s = t.sizes;
+   const auto& fs = t.options.finite_strain;
+   const auto n = t.n;
+@@ -1184,6 +1265,7 @@ static bool testIntegration(const Test& t) {
+   const auto o0 = speed_of_sound ? 100. : 0.;
+   const auto Kt = t.options.tangent_operator;
+   auto ok = testEmptyBatch(fb, fs, Kt + o0);
++  ok = testReportFunction(t) && ok;
+   if (fs.finite_strain) {
+     ok = testInvalidComputationOptions(t, fb, Kt + o0) && ok;
+   }
+@@ -1197,7 +1279,7 @@ static bool testIntegration(const Test& t) {
+       auto ms1 = 0., ms2 = 0.;
+       integrateReference(ref, s, fs, n, t.dt, Kt + o0, fg);
+       const auto o1 = integrateBatch(batch, s, fs, n, t.dt, Kt + o0, storage,
+-                                     fb, false, ms1);
++                                     fb, nullptr, ms1);
+       // the test is meaningless if the integration fails at all points
+       const auto pass1 = (ref.status == batch.status) &&
+                          isConsistent(o1, batch.status) &&
+@@ -1218,7 +1300,7 @@ static bool testIntegration(const Test& t) {
+       }
+       integrateReference(ref, s, fs, n, t.dt, K0 + o0, fg);
+       const auto o2 = integrateBatch(batch, s, fs, n, t.dt, K0 + o0, storage,
+-                                     fb, true, ms2);
++                                     fb, report, ms2);
+       const auto nfailures =
+           std::count(ref.status.begin(), ref.status.end(), -1);
+       const auto dth = relativeDifference(ref.th1, batch.th1, ref.status, s.th);
+@@ -1314,7 +1396,7 @@ static bool testInitializeFunction(const Test& t) {
+   const auto fg = reinterpret_cast<GenericInitializeFunction>(
+       load(t.generic_library, t.function));
+   const auto fb = reinterpret_cast<BatchInitializeFunction>(
+-      load(t.batch_library, t.function));
++      load(t.batch_library, t.function + "_generic_parallel"));
+   const auto& s = t.sizes;
+   const auto ni = t.number_of_values;
+   auto rng = std::mt19937{1};
+@@ -1366,8 +1448,8 @@ static bool testPostProcessing(const Test& t) {
+               const mfront_gpb_BatchData*);
+   const auto fg = reinterpret_cast<GenericPostProcessing>(
+       load(t.generic_library, t.function));
+-  const auto fb =
+-      reinterpret_cast<BatchPostProcessing>(load(t.batch_library, t.function));
++  const auto fb = reinterpret_cast<BatchPostProcessing>(
++      load(t.batch_library, t.function + "_generic_parallel"));
+   const auto& s = t.sizes;
+   const auto no = t.number_of_values;
+   auto ok = true;
+@@ -1416,8 +1498,8 @@ static bool testRotation(const Test& t) {
+       int (*)(mfront_gpb_OutputStatus*, const mfront_gpb_RotationData*);
+   const auto fg =
+       reinterpret_cast<GenericRotation>(load(t.generic_library, t.function));
+-  const auto fb =
+-      reinterpret_cast<BatchRotation>(load(t.batch_library, t.function));
++  const auto fb = reinterpret_cast<BatchRotation>(
++      load(t.batch_library, t.function + "_generic_parallel"));
+   const auto n = t.n;
+   const auto ns = t.number_of_values;
+   auto rng = std::mt19937{3};
+@@ -1495,8 +1577,8 @@ static bool testRotation(const Test& t) {
+     const auto destination =
+         BatchField(std::vector<double>(n * ns), n, ns, false);
+     const auto matrices = BatchField(rotations, n, 9, false);
+-    auto* const statistics = allocate<mfront_gpb_BatchStatistics>(1);
+-    mfront_gpb_initializeBatchStatistics(statistics, 2);
++    auto* const statistics = allocate<mfront_gpb_Statistics>(1);
++    mfront_gpb_initializeStatistics(statistics, 2);
+     auto d = mfront_gpb_RotationData{};
+     d.number_of_points = n;
+     d.destination = destination.field();
+@@ -1508,10 +1590,13 @@ static bool testRotation(const Test& t) {
+     fb(&o, &d);
+     synchronize();
+     const auto rdt = mfront_gpb_getTimeStepScalingFactor(statistics);
++    // the report function analyses the statistics as for an integration
++    auto o2 = mfront_gpb_OutputStatus{};
++    loadReportFunction(t)(&o2, statistics);
+     const auto pass = (o.status == 1) &&
+                       (statistics->number_of_failures == 0) &&
+                       (statistics->number_of_unreliable_results == 0) &&
+-                      (rdt == 2);
++                      (rdt == 2) && (o2.status == 1) && (o2.rdt == 2);
+     deallocate(statistics);
+     ok = pass && ok;
+     std::printf("rotation with statistics: status=%2d | rdt %g | %s\n",
+@@ -1585,7 +1670,7 @@ int main(const int argc, const char* const* const argv) {
+          "[--finite-strain=stress_measure,tangent_operator] "
+          "[--initial-internal-state-variables=values] "
+          "[--speed-of-sound=mass_density] [--energies=true] "
+-         "[--other-device=true] "
++         "[--other-device=true] [--invalid-parameters=true] "
+          "[--tangent-operator=type] "
+          "[--perturbation-of-internal-state-variables=amplitude] "
+          "[--out-of-bounds-policy=policy] "
+@@ -1698,6 +1783,9 @@ int main(const int argc, const char* const* const argv) {
+     }
+   }
+   const auto ok = [&t] {
++    if (t.options.invalid_parameters) {
++      return testInvalidParameters(t);
++    }
+     switch (t.mode) {
+       case Mode::INITIALIZE_FUNCTION:
+         return testInitializeFunction(t);
+diff --git a/test-suite/behaviours/generic-parallel/cuda-clang/test.check b/test-suite/behaviours/generic-parallel/cuda-clang/test.check
+index a955d8851..9197e874a 100644
+--- a/test-suite/behaviours/generic-parallel/cuda-clang/test.check
++++ b/test-suite/behaviours/generic-parallel/cuda-clang/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-cuda.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-cuda-clang.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check b/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check
+index 4bf25da02..d76d2dc2b 100644
+--- a/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check
++++ b/test-suite/behaviours/generic-parallel/cuda-nvcc/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-cuda.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-cuda-nvcc.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check b/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
+index 3af7458ae..121b11965 100644
+--- a/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
++++ b/test-suite/behaviours/generic-parallel/hip-clang-nvidia-platform/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-hip.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-hip-clang-nvidia-platform.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/hip-hipcc/test.check b/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
+index 83b000ffd..6ad5937ec 100644
+--- a/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
++++ b/test-suite/behaviours/generic-parallel/hip-hipcc/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-hip.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-hip-hipcc.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/kokkos-host/test.check b/test-suite/behaviours/generic-parallel/kokkos-host/test.check
+index 5ddebd91e..bb31d2cec 100644
+--- a/test-suite/behaviours/generic-parallel/kokkos-host/test.check
++++ b/test-suite/behaviours/generic-parallel/kokkos-host/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-kokkos-host.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/kokkos/test.check b/test-suite/behaviours/generic-parallel/kokkos/test.check
+index 8ae7ccc4f..e5b8b140e 100644
+--- a/test-suite/behaviours/generic-parallel/kokkos/test.check
++++ b/test-suite/behaviours/generic-parallel/kokkos/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-kokkos.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-kokkos.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/openacc-nvhpc-gpu/test.check b/test-suite/behaviours/generic-parallel/openacc-nvhpc-gpu/test.check
+index 25aa1e45d..71608d33c 100644
+--- a/test-suite/behaviours/generic-parallel/openacc-nvhpc-gpu/test.check
++++ b/test-suite/behaviours/generic-parallel/openacc-nvhpc-gpu/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-openacc.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-openacc-nvhpc-gpu.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/openacc-nvhpc-multicore/test.check b/test-suite/behaviours/generic-parallel/openacc-nvhpc-multicore/test.check
+index a2332037f..9793f4e6d 100644
+--- a/test-suite/behaviours/generic-parallel/openacc-nvhpc-multicore/test.check
++++ b/test-suite/behaviours/generic-parallel/openacc-nvhpc-multicore/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-openacc.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-openacc-nvhpc-multicore.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/openmp-host-gcc/test.check b/test-suite/behaviours/generic-parallel/openmp-host-gcc/test.check
+index 0955f6985..aa22a4adc 100644
+--- a/test-suite/behaviours/generic-parallel/openmp-host-gcc/test.check
++++ b/test-suite/behaviours/generic-parallel/openmp-host-gcc/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-openmp.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-openmp-host-gcc.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/test.check b/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/test.check
+index b6a4c1b2f..757f558b5 100644
+--- a/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/test.check
++++ b/test-suite/behaviours/generic-parallel/openmp-offload-nvhpc-gpu/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-openmp.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-openmp-offload-nvhpc-gpu.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/raja-host/test.check b/test-suite/behaviours/generic-parallel/raja-host/test.check
+index cc28d01b4..46bd59ffc 100644
+--- a/test-suite/behaviours/generic-parallel/raja-host/test.check
++++ b/test-suite/behaviours/generic-parallel/raja-host/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-raja.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-raja-host.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/raja/test.check b/test-suite/behaviours/generic-parallel/raja/test.check
+index c7c8ac54c..5b7ffb584 100644
+--- a/test-suite/behaviours/generic-parallel/raja/test.check
++++ b/test-suite/behaviours/generic-parallel/raja/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-raja.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-raja.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/test.check
+index 8abf680c5..ec3428e5b 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-clang/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-stlpar-parunseq-clang.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check
+index cb2621429..d5607d387 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-gcc/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-stlpar-parunseq-gcc.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/test.check
+index 370ba1eab..50e626501 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-icpx/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-stlpar-parunseq-icpx.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+index 5b70f63f9..79a8b762e 100644
+--- a/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
++++ b/test-suite/behaviours/generic-parallel/stlpar-parunseq-nvhpc-gpu/test.check
+@@ -9,5 +9,8 @@
+ // results (see compare-all.sh)
+ @Command "sh ../compare-all.sh ./compare src/libGenericParallelBehaviour-stlpar.so";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-stlpar-parunseq-nvhpc-gpu.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp-2/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp-2/test.check
+index b9ac33f1b..70517579d 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-acpp-2/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp-2/test.check
+@@ -13,5 +13,8 @@
+ // data shared by all the integration points (@SharedData)
+ @Command "./compare reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so PolyCrystalSharedDataTest_Tridimensional --material-properties=145200,145200,145200,0.3,0.3,0.3,55846,55846,55846,10,40,0,75.5,9.77,19.34,1,36.68,55846 --amplitude=1e-4 --tangent-operator=1";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-sycl-default-acpp-2.json";
++
+ @CleanFiles {"compare"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
+index 920614ab7..7d8fb8b6a 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp-omp/test.check
+@@ -18,5 +18,8 @@
+ @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure";
+ @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain --material-properties=150e9,0.3";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-sycl-default-acpp.json";
++
+ @CleanFiles {"compare", "compare-host"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check b/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
+index 76546b3f3..b874b40b3 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-acpp/test.check
+@@ -16,5 +16,8 @@
+ @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure";
+ @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain --material-properties=150e9,0.3";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-sycl-default-acpp.json";
++
+ @CleanFiles {"compare", "compare-host"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+diff --git a/test-suite/behaviours/generic-parallel/sycl-default-icpx/test.check b/test-suite/behaviours/generic-parallel/sycl-default-icpx/test.check
+index c741a657d..8f4817d5f 100644
+--- a/test-suite/behaviours/generic-parallel/sycl-default-icpx/test.check
++++ b/test-suite/behaviours/generic-parallel/sycl-default-icpx/test.check
+@@ -16,5 +16,8 @@
+ @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so InitializeFunctionTest_Tridimensional_InitializeFunction_StressFromInitialPressure";
+ @Command "./compare-host reference/src/libBehaviour.so src/libGenericParallelBehaviour-sycl.so ImplicitNorton_PlaneStress_PostProcessing_EquivalentStressAndStrain --material-properties=150e9,0.3";
+ 
++// the name of a behaviour or of a model must not contain `_generic_parallel`
++@Command "sh ../check-refused-name.sh @mfront@ config-sycl-default-icpx.json";
++
+ @CleanFiles {"compare", "compare-host"};
+-@CleanDirectories {"include", "src", "reference"};
++@CleanDirectories {"include", "src", "reference", "refused-name"};
+-- 
+2.43.0
+

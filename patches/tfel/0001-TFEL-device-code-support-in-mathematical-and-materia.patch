@@ -1,4 +1,4 @@
-From fd64f9497183cde2f8118047a1a0a6c27bd48f1d Mon Sep 17 00:00:00 2001
+From cd0569f2a5c33d94ea49d724d2b02d8d96a5ff41 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 14:22:18 +0200
 Subject: [PATCH] TFEL: device code support in mathematical and material
@@ -2224,7 +2224,7 @@ index ca13fbeb7..ae7ee6155 100644
        static_assert(tfel::typetraits::IsFundamentalNumericType<T>::cond);
        static_assert(tfel::typetraits::IsReal<T>::cond);
 diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-index 2c405bb64..3503478ce 100644
+index 49a0ae34e..b2e364f25 100644
 --- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 @@ -36,14 +36,14 @@ namespace tfel::math::internals {

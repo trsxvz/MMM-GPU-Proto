@@ -1,4 +1,4 @@
-From a4f1d092904a07c61b0ed511c80e0b573b805547 Mon Sep 17 00:00:00 2001
+From 8db273520ac9655d51ed6a6f3d48b35df530b5ed Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
 Subject: [PATCH] TFEL: consistent host and device annotations, device code of
@@ -25,39 +25,27 @@ Subject: [PATCH] TFEL: consistent host and device annotations, device code of
  .../Material/Cazacu2001YieldCriterion.ixx     |  33 ++--
  .../Cazacu2004IsotropicYieldCriterion.ixx     |  22 +--
  .../Cazacu2004OrthotropicYieldCriterion.ixx   |  25 +--
- ...eedleman1980StrainBasedNucleationModel.hxx |  13 +-
  ...eedleman1980StrainBasedNucleationModel.ixx |  10 +-
  ...eedleman1980StressBasedNucleationModel.ixx |  17 +-
  include/TFEL/Material/DDIF2Base.hxx           |  18 +-
  include/TFEL/Material/DDIF2Base.ixx           | 111 ++++++------
  .../Material/Drucker1949YieldCriterion.ixx    |  22 +--
- include/TFEL/Material/EshelbyTolerances.hxx   |   1 +
- .../Material/GursonTvergaardNeedleman.hxx     |   1 +
  ...nTvergaardNeedleman1982StressCriterion.ixx |  14 +-
  ...rmonicSumOfNortonHoffViscoplasticFlows.ixx |   8 +-
- .../TFEL/Material/InverseLangevinFunction.hxx |   1 +
  .../Material/LinearHomogenizationSchemes.ixx  | 168 +++++++++---------
  ...eAxialStrainIncrementElasticPrediction.ixx |   9 +-
  ...dSuquet1992HollowSphereStressCriterion.ixx |   6 +-
  .../Material/MohrCoulombYieldCriterion.ixx    |  40 +++--
  include/TFEL/Material/PiPlane.ixx             |  15 +-
- .../PowerLawStrainBasedNucleationModel.hxx    |   1 +
  .../PowerLawStrainBasedNucleationModel.ixx    |  10 +-
  .../PowerLawStressBasedNucleationModel.ixx    |   7 +-
- include/TFEL/Material/RambergOsgood.hxx       |   1 +
  ...sselierTanguyBesson2002StressCriterion.ixx |  14 +-
  .../AitkenAccelerationAlgorithm.hxx           |   5 +-
  .../AitkenAccelerationAlgorithm.ixx           |   6 +-
- include/TFEL/Math/Array/IndexingPolicies.hxx  |   1 +
- .../Math/Array/IterateOverMultipleIndices.hxx |   2 +
- .../Math/Array/MultipleIndicesFunctors.hxx    |   2 +
- ...dardTemplateLibraryCompatibilityLayers.hxx |   1 +
  include/TFEL/Math/CubicSpline.hxx             |   4 +-
  include/TFEL/Math/CubicSpline.ixx             |  17 +-
- .../TFEL/Math/General/ComputeObjectTag.hxx    |   2 +
  include/TFEL/Math/LinearInterpolation.hxx     |   9 +-
  include/TFEL/Math/LinearInterpolation.ixx     |   9 +-
- .../BissectionAlgorithmBase.hxx               |   1 +
  .../BissectionAlgorithmBase.ixx               |  14 +-
  .../NonLinearSolvers/ScalarNewtonRaphson.ixx  |   4 +-
  .../NonLinearSolvers/TinyBroyden2Solver.ixx   |  12 +-
@@ -67,13 +55,12 @@ Subject: [PATCH] TFEL: consistent host and device annotations, device code of
  .../TinyPowellDogLegBroydenSolver.ixx         |  12 +-
  .../TinyPowellDogLegNewtonRaphsonSolver.ixx   |   5 +-
  .../StensorSymmetricProductDerivative.hxx     |   2 +
- include/TFEL/Math/ScalarNewtonRaphson.hxx     |   1 +
  .../Stensor/Internals/SortEigenValues.hxx     |   2 +
  .../Stensor/Internals/SortEigenVectors.hxx    |   2 +
  .../StensorComputeEigenValuesDerivatives.hxx  |   2 +
  .../StensorComputeEigenVectorsDerivatives.hxx |   2 +
  ...nsorComputeIsotropicFunctionDerivative.hxx |   2 +
- 52 files changed, 424 insertions(+), 323 deletions(-)
+ 39 files changed, 398 insertions(+), 321 deletions(-)
 
 diff --git a/include/TFEL/Material/Barlat2004YieldCriterion.ixx b/include/TFEL/Material/Barlat2004YieldCriterion.ixx
 index d520c2407..aeb9bd4d2 100644
@@ -287,56 +274,8 @@ index 876bc4313..16407b5f5 100644
      const auto J2O = computeJ2O(sig, a);
      const auto J3O = computeJ3O(sig, b);
      const auto seq = std::cbrt(tfel::math::power<3>(sqrt(J2O)) - c * J3O);
-diff --git a/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.hxx b/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.hxx
-index 0188de7eb..d5fa2e3fb 100644
---- a/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.hxx
-+++ b/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.hxx
-@@ -16,6 +16,7 @@
- 
- #include <tuple>
- #include <ostream>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::material {
- 
-@@ -113,12 +114,16 @@ namespace tfel::material {
-    * \tparam real: numeric type
-    *
-    * \param[in] params: parameters
--   * \param[in] p: equivalent plastic strain
-+   * \param[in] p: equivalent plastic strain at the beginning of the time step.
-+   * \param[in] dp: increment of the equivalent plastic strain.
-+   * \param[in] theta: parameter of the theta method (unused).
-    */
-   template <typename real>
-   TFEL_HOST_DEVICE real
-   computeChuNeedleman1980StrainBasedNucleationModelPorosityIncrement(
-       const ChuNeedleman1980StrainBasedNucleationModelParameters<real>&,
-+      const real,
-+      const real,
-       const real);
- 
-   /*!
-@@ -133,12 +138,16 @@ namespace tfel::material {
-    * \tparam real: numeric type
-    *
-    * \param[in] params: parameters
--   * \param[in] p: equivalent plastic strain
-+   * \param[in] p: equivalent plastic strain at the beginning of the time step.
-+   * \param[in] dp: increment of the equivalent plastic strain.
-+   * \param[in] theta: parameter of the theta method (unused).
-    */
-   template <typename real>
-   TFEL_HOST_DEVICE std::tuple<real, real>
-   computeChuNeedleman1980StrainBasedNucleationModelPorosityIncrementAndDerivative(
-       const ChuNeedleman1980StrainBasedNucleationModelParameters<real>&,
-+      const real,
-+      const real,
-       const real);
- 
- }  // end of namespace tfel::material
 diff --git a/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx b/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx
-index d5ca2c7a2..2418cf9c5 100644
+index 66e0c07d7..cd4770e4e 100644
 --- a/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx
 +++ b/include/TFEL/Material/ChuNeedleman1980StrainBasedNucleationModel.ixx
 @@ -25,7 +25,8 @@ namespace tfel::material {
@@ -367,8 +306,8 @@ index d5ca2c7a2..2418cf9c5 100644
 +  computeChuNeedleman1980StrainBasedNucleationModelPorosityIncrement(
        const ChuNeedleman1980StrainBasedNucleationModelParameters<real>& params,
        const real p,
-       const real dp,
-@@ -70,7 +72,7 @@ namespace tfel::material {
+       const real dp) {
+@@ -69,7 +71,7 @@ namespace tfel::material {
       // computeChuNeedleman1980StrainBasedNucleationModelPorosityIncrement
  
    template <typename real>
@@ -378,7 +317,7 @@ index d5ca2c7a2..2418cf9c5 100644
        const ChuNeedleman1980StrainBasedNucleationModelParameters<real>& params,
        const real p,
 diff --git a/include/TFEL/Material/ChuNeedleman1980StressBasedNucleationModel.ixx b/include/TFEL/Material/ChuNeedleman1980StressBasedNucleationModel.ixx
-index 368440d82..1d53bedcb 100644
+index 0201d564a..641386ee0 100644
 --- a/include/TFEL/Material/ChuNeedleman1980StressBasedNucleationModel.ixx
 +++ b/include/TFEL/Material/ChuNeedleman1980StressBasedNucleationModel.ixx
 @@ -26,13 +26,14 @@ namespace tfel::material {
@@ -711,30 +650,6 @@ index 3f3246c4b..b5f529c5d 100644
      using stress = Drucker1949StressType<StressStensor>;
      using real = Drucker1949BaseType<StressStensor>;
      using istress = Drucker1949InvertStressType<StressStensor>;
-diff --git a/include/TFEL/Material/EshelbyTolerances.hxx b/include/TFEL/Material/EshelbyTolerances.hxx
-index 5fa5a5ea4..e5c5dce7b 100644
---- a/include/TFEL/Material/EshelbyTolerances.hxx
-+++ b/include/TFEL/Material/EshelbyTolerances.hxx
-@@ -14,6 +14,7 @@
- 
- #include <cmath>
- #include <type_traits>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::material {
- 
-diff --git a/include/TFEL/Material/GursonTvergaardNeedleman.hxx b/include/TFEL/Material/GursonTvergaardNeedleman.hxx
-index f2df3013f..c6b8fff2f 100644
---- a/include/TFEL/Material/GursonTvergaardNeedleman.hxx
-+++ b/include/TFEL/Material/GursonTvergaardNeedleman.hxx
-@@ -15,6 +15,7 @@
- #define LIB_TFEL_MATERIAL_GURSONTVERGAARDNEEDLEMAN_HXX
- 
- #include <cmath>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::material {
- 
 diff --git a/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx b/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx
 index 0893bd779..3233f8997 100644
 --- a/include/TFEL/Material/GursonTvergaardNeedleman1982StressCriterion.ixx
@@ -827,18 +742,6 @@ index 931684270..b8ddb5f3b 100644
        strainrate,
        tfel::math::BinaryOperationResult<strainrate, stress, tfel::math::OpDiv>>
    computeEquivalentStrainRateAndDerivativeOfHarmonicSumOfNortonHoffViscoplasticFlows(
-diff --git a/include/TFEL/Material/InverseLangevinFunction.hxx b/include/TFEL/Material/InverseLangevinFunction.hxx
-index bcfd4f7e9..e99c6d4fd 100644
---- a/include/TFEL/Material/InverseLangevinFunction.hxx
-+++ b/include/TFEL/Material/InverseLangevinFunction.hxx
-@@ -15,6 +15,7 @@
- #define LIB_TFEL_MATERIAL_INVERSELANGEVINFUNCTION_HXX
- 
- #include <utility>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::material {
- 
 diff --git a/include/TFEL/Material/LinearHomogenizationSchemes.ixx b/include/TFEL/Material/LinearHomogenizationSchemes.ixx
 index 8f89c65f8..7eb71f908 100644
 --- a/include/TFEL/Material/LinearHomogenizationSchemes.ixx
@@ -1269,20 +1172,8 @@ index abfb4f546..411409ecd 100644
      using namespace tfel::math;
      using real = tfel::typetraits::base_type<stress>;
      constexpr auto zero = stress{0};
-diff --git a/include/TFEL/Material/PowerLawStrainBasedNucleationModel.hxx b/include/TFEL/Material/PowerLawStrainBasedNucleationModel.hxx
-index ca1f3b43d..77515928f 100644
---- a/include/TFEL/Material/PowerLawStrainBasedNucleationModel.hxx
-+++ b/include/TFEL/Material/PowerLawStrainBasedNucleationModel.hxx
-@@ -16,6 +16,7 @@
- 
- #include <tuple>
- #include <ostream>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::material {
- 
 diff --git a/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx b/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx
-index e98925500..d1e2ccdaf 100644
+index b2ab38cdb..c047ba2d5 100644
 --- a/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx
 +++ b/include/TFEL/Material/PowerLawStrainBasedNucleationModel.ixx
 @@ -27,7 +27,8 @@ namespace tfel::material {
@@ -1304,7 +1195,7 @@ index e98925500..d1e2ccdaf 100644
    computePowerLawStrainBasedNucleationModelPorosityRateFactorAndDerivative(
        const PowerLawStrainBasedNucleationModelParameters<real>& params,
        const real p) {
-@@ -52,7 +53,8 @@ namespace tfel::material {
+@@ -53,7 +54,8 @@ namespace tfel::material {
    }  // end of computePowerLawStrainBasedNucleationModelPorosityRate
  
    template <typename real>
@@ -1313,7 +1204,7 @@ index e98925500..d1e2ccdaf 100644
 +  computePowerLawStrainBasedNucleationModelPorosityIncrement(
        const PowerLawStrainBasedNucleationModelParameters<real>& params,
        const real p,
-       const real dp,
+       const real dp) {
 @@ -69,7 +71,7 @@ namespace tfel::material {
    }
  
@@ -1324,7 +1215,7 @@ index e98925500..d1e2ccdaf 100644
        const PowerLawStrainBasedNucleationModelParameters<real>& params,
        const real p,
 diff --git a/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx b/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx
-index aad43f2c8..36be8b0d9 100644
+index 4214ce2fd..66deb905d 100644
 --- a/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx
 +++ b/include/TFEL/Material/PowerLawStressBasedNucleationModel.ixx
 @@ -26,7 +26,7 @@ namespace tfel::material {
@@ -1348,18 +1239,6 @@ index aad43f2c8..36be8b0d9 100644
    computePowerLawStressBasedNucleationModelPorosityRateFactorAndDerivative(
        const PowerLawStressBasedNucleationModelParameters<StressStensorType>&
            params,
-diff --git a/include/TFEL/Material/RambergOsgood.hxx b/include/TFEL/Material/RambergOsgood.hxx
-index 9eba03578..73efacb24 100644
---- a/include/TFEL/Material/RambergOsgood.hxx
-+++ b/include/TFEL/Material/RambergOsgood.hxx
-@@ -15,6 +15,7 @@
- #define LIB_TFEL_MATERIAL_RAMBERGOSGOOD_HXX
- 
- #include <cmath>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::material {
- 
 diff --git a/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx b/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx
 index 454d09a7e..d95ab79be 100644
 --- a/include/TFEL/Material/RousselierTanguyBesson2002StressCriterion.ixx
@@ -1464,56 +1343,6 @@ index 37466f1c1..7187f843b 100644
        NumericType& x) {
      using real = base_type<NumericType>;
      constexpr auto one = real{1};
-diff --git a/include/TFEL/Math/Array/IndexingPolicies.hxx b/include/TFEL/Math/Array/IndexingPolicies.hxx
-index 6bfc4e568..17383f3d7 100644
---- a/include/TFEL/Math/Array/IndexingPolicies.hxx
-+++ b/include/TFEL/Math/Array/IndexingPolicies.hxx
-@@ -17,6 +17,7 @@
- #include <tuple>
- #include <utility>
- #include <type_traits>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::math {
- 
-diff --git a/include/TFEL/Math/Array/IterateOverMultipleIndices.hxx b/include/TFEL/Math/Array/IterateOverMultipleIndices.hxx
-index f773f420d..8f915091b 100644
---- a/include/TFEL/Math/Array/IterateOverMultipleIndices.hxx
-+++ b/include/TFEL/Math/Array/IterateOverMultipleIndices.hxx
-@@ -14,6 +14,8 @@
- #ifndef LIB_TFEL_MATH_ARRAY_ITERATEOVERMULTIPLEINDICES_HXX
- #define LIB_TFEL_MATH_ARRAY_ITERATEOVERMULTIPLEINDICES_HXX
- 
-+#include "TFEL/Config/TFELConfig.hxx"
-+
- namespace tfel::math {
- 
-   template <typename TypeSize, TypeSize CurrentIndex, TypeSize FinalIndex>
-diff --git a/include/TFEL/Math/Array/MultipleIndicesFunctors.hxx b/include/TFEL/Math/Array/MultipleIndicesFunctors.hxx
-index 6c5b114b8..c127694e8 100644
---- a/include/TFEL/Math/Array/MultipleIndicesFunctors.hxx
-+++ b/include/TFEL/Math/Array/MultipleIndicesFunctors.hxx
-@@ -14,6 +14,8 @@
- #ifndef LIB_TFEL_MATH_ARRAY_MULTIPLEINDICESFUNCTORS_HXX
- #define LIB_TFEL_MATH_ARRAY_MULTIPLEINDICESFUNCTORS_HXX
- 
-+#include "TFEL/Config/TFELConfig.hxx"
-+
- namespace tfel::math {
- 
-   template <typename UnaryOperator, typename FirstArgument>
-diff --git a/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx b/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx
-index 8e42f3409..6d9848070 100644
---- a/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx
-+++ b/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx
-@@ -17,6 +17,7 @@
- #include <cstddef>
- #include <iterator>
- #include <type_traits>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::math {
- 
 diff --git a/include/TFEL/Math/CubicSpline.hxx b/include/TFEL/Math/CubicSpline.hxx
 index 7a470a51d..06b0d043c 100644
 --- a/include/TFEL/Math/CubicSpline.hxx
@@ -1592,19 +1421,6 @@ index 8a55f1bc0..67a1ca77b 100644
        const CollocationPointContainer& points, const AbscissaType x) {
      using collocation_point_type =
          typename CollocationPointContainer::value_type;
-diff --git a/include/TFEL/Math/General/ComputeObjectTag.hxx b/include/TFEL/Math/General/ComputeObjectTag.hxx
-index a6f29008f..8e4560fd1 100644
---- a/include/TFEL/Math/General/ComputeObjectTag.hxx
-+++ b/include/TFEL/Math/General/ComputeObjectTag.hxx
-@@ -14,6 +14,8 @@
- #ifndef LIB_TFEL_MATH_COMPUTEOBJECTTAG_HXX
- #define LIB_TFEL_MATH_COMPUTEOBJECTTAG_HXX
- 
-+#include "TFEL/Config/TFELConfig.hxx"
-+
- namespace tfel::math {
- 
-   /*!
 diff --git a/include/TFEL/Math/LinearInterpolation.hxx b/include/TFEL/Math/LinearInterpolation.hxx
 index ac00afc5f..3bda95456 100644
 --- a/include/TFEL/Math/LinearInterpolation.hxx
@@ -1666,18 +1482,6 @@ index bf8fae6e0..25808ea96 100644
        const AbscissaContainer& abscissae,
        const ValueContainer& values,
        const AbscissaType a) {
-diff --git a/include/TFEL/Math/NonLinearSolvers/BissectionAlgorithmBase.hxx b/include/TFEL/Math/NonLinearSolvers/BissectionAlgorithmBase.hxx
-index 80e7c2729..4ef88dae1 100644
---- a/include/TFEL/Math/NonLinearSolvers/BissectionAlgorithmBase.hxx
-+++ b/include/TFEL/Math/NonLinearSolvers/BissectionAlgorithmBase.hxx
-@@ -16,6 +16,7 @@
- 
- #include <limits>
- #include <ostream>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::math {
- 
 diff --git a/include/TFEL/Math/NonLinearSolvers/BissectionAlgorithmBase.ixx b/include/TFEL/Math/NonLinearSolvers/BissectionAlgorithmBase.ixx
 index 99da957c1..8b2d6dcec 100644
 --- a/include/TFEL/Math/NonLinearSolvers/BissectionAlgorithmBase.ixx
@@ -1937,18 +1741,6 @@ index d81a07d42..16babd66e 100644
  #ifndef LIB_TFEL_MATH_ST2TOST2_HXX
  #error "This file is not meant to be included directly"
  #endif
-diff --git a/include/TFEL/Math/ScalarNewtonRaphson.hxx b/include/TFEL/Math/ScalarNewtonRaphson.hxx
-index 710b32e5e..1a5be268a 100644
---- a/include/TFEL/Math/ScalarNewtonRaphson.hxx
-+++ b/include/TFEL/Math/ScalarNewtonRaphson.hxx
-@@ -16,6 +16,7 @@
- 
- #include <tuple>
- #include <limits>
-+#include "TFEL/Config/TFELConfig.hxx"
- 
- namespace tfel::math {
- 
 diff --git a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx b/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx
 index d84acab18..80f30759a 100644
 --- a/include/TFEL/Math/Stensor/Internals/SortEigenValues.hxx

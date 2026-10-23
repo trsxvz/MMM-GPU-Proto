@@ -1,0 +1,308 @@
+From 271962717dfd2ffe76ddfb988c7dbed968351afd Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Wed, 14 Oct 2026 04:00:31 +0200
+Subject: [PATCH] Float bounds: warnings for double only, tests with
+ mfront-query
+
+- The bounded default perturbation of the numerical jacobian (a tenth of
+  the convergence criterion) is raised without warning: every implicit
+  behaviour without @PerturbationValueForNumericalJacobianComputation
+  reported it with float.
+- The advice of the warnings on the convergence criteria (values too
+  stringent or too loose, default value, 1e-14 being a good choice) is
+  written for double: with float, these warnings are not reported, the
+  value given by @Epsilon being bounded with its own warning, and the
+  default value (1e-8) being close to the bound.
+- mfront-query tests: the convergence criterion and the perturbation of
+  AgeingBurger (@Epsilon 1e-11, default perturbation) are unchanged with
+  double and raised to 1.19209e-08 and 1.19209e-07 with float; the default
+  criterion of Norton (isotropic DSL) stays 1e-08 with float. The arguments
+  of these tests may be a list.
+- release notes: default criterion kept, default perturbation raised
+  without warning, criterion of @CompareToNumericalJacobian to give with
+  float.
+---
+ docs/web/release-notes/release-notes-5.2.md   |  9 ++++++-
+ mfront-query/tests/CMakeLists.txt             | 22 +++++++++++++++-
+ ...geingburger-convergence-criteria-float.ref |  2 ++
+ ...uery-ageingburger-convergence-criteria.ref |  2 ++
+ ...ery-norton-convergence-criterion-float.ref |  1 +
+ mfront/include/MFront/BehaviourDSLCommon.hxx  |  9 ++++---
+ mfront/src/BehaviourDSLCommon.cxx             | 23 +++++++++-------
+ mfront/src/ImplicitDSLBase.cxx                | 26 +++++++++++++------
+ mfront/src/IsotropicBehaviourDSLBase.cxx      | 23 +++++++++++-----
+ 9 files changed, 88 insertions(+), 29 deletions(-)
+ create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria-float.ref
+ create mode 100644 mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria.ref
+ create mode 100644 mfront-query/tests/references/mfront-query-norton-convergence-criterion-float.ref
+
+diff --git a/docs/web/release-notes/release-notes-5.2.md b/docs/web/release-notes/release-notes-5.2.md
+index 2c0ba303d..38293a674 100644
+--- a/docs/web/release-notes/release-notes-5.2.md
++++ b/docs/web/release-notes/release-notes-5.2.md
+@@ -894,7 +894,14 @@ $ mfront --obuild --interface=generic --dsl-option=real_type:float \
+   warning: the values chosen for `double` (`1e-14` or less) can't be
+   reached. The criteria of these DSLs are absolute and their residuals are
+   expressed in strains: a looser criterion leaves errors on the stresses
+-  of the order of the criterion times the elastic moduli.
++  of the order of the criterion times the elastic moduli. The default
++  criterion (`1e-8`, when `@Epsilon` is not used), close to this bound, is
++  kept, and the default perturbation (a tenth of the criterion) is raised
++  without warning. The comparison to a numerical jacobian
++  (`@CompareToNumericalJacobian`) uses by default the convergence
++  criterion, which is too strict for finite differences computed in
++  `float`: its criterion must then be given explicitly
++  (`@JacobianComparisonCriterion`).
+ - an expression of a floating-point type can be assigned to a
+   mathematical object of `TFEL` of another floating-point type, possibly
+   narrower (`IsAssignableTo`), so that the existing behaviours, which use
+diff --git a/mfront-query/tests/CMakeLists.txt b/mfront-query/tests/CMakeLists.txt
+index 7007634a3..2b9d1d190 100644
+--- a/mfront-query/tests/CMakeLists.txt
++++ b/mfront-query/tests/CMakeLists.txt
+@@ -3,10 +3,13 @@ macro(mfront_query_test args mfront_file file)
+     set(MFRONT_QUERY_TEST_ID 0)
+   endif(NOT MFRONT_QUERY_TEST_ID)
+   set(test "mfront-query-test-${MFRONT_QUERY_TEST_ID}")
++  # several arguments are given as a list, whose separators are kept for
++  # the script
++  string(REPLACE ";" "\\;" _mfront_query_test_args "${args}")
+   add_test(NAME ${test}
+       COMMAND ${CMAKE_COMMAND}
+       -D TEST_PROGRAM=$<TARGET_FILE:mfront-query>
+-      -D TEST_ARGS=${args}
++      -D TEST_ARGS=${_mfront_query_test_args}
+       -D MFRONT_FILE=${PROJECT_SOURCE_DIR}/mfront/tests/behaviours/${mfront_file}
+       -D TEST_OUTPUT=mfront-query-result-${MFRONT_QUERY_TEST_ID}.txt
+       -D REFERENCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/references/${file}
+@@ -33,5 +36,22 @@ mfront_query_test("--material-properties"
+ mfront_query_test("--slip-systems-by-index"
+   "FiniteStrainSingleCrystal/FiniteStrainSingleCrystal.mfront"
+   "mfront-query-finitestrainsinglecrystal.ref")
++# convergence criterion and perturbation of the numerical jacobian
++# (@Epsilon 1e-11, default perturbation): unchanged with double, raised to
++# a tenth of the machine epsilon of float and to this epsilon with the float
++# numerical type (real_type DSL option)
++mfront_query_test(
++  "--parameter-default-value=epsilon;--parameter-default-value=numerical_jacobian_epsilon"
++  "AgeingBurger.mfront"
++  "mfront-query-ageingburger-convergence-criteria.ref")
++mfront_query_test(
++  "--dsl-option=real_type:float;--parameter-default-value=epsilon;--parameter-default-value=numerical_jacobian_epsilon"
++  "AgeingBurger.mfront"
++  "mfront-query-ageingburger-convergence-criteria-float.ref")
++# default convergence criterion of the isotropic DSLs, kept with float
++mfront_query_test(
++  "--dsl-option=real_type:float;--parameter-default-value=epsilon"
++  "Norton.mfront"
++  "mfront-query-norton-convergence-criterion-float.ref")
+ # mfront_query_test("--state-variables" "Norton.mfront"
+ #   "mfront-query-norton-material-properites.ref")
+diff --git a/mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria-float.ref b/mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria-float.ref
+new file mode 100644
+index 000000000..9663db434
+--- /dev/null
++++ b/mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria-float.ref
+@@ -0,0 +1,2 @@
++1.19209e-08
++1.19209e-07
+diff --git a/mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria.ref b/mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria.ref
+new file mode 100644
+index 000000000..d2d43e01e
+--- /dev/null
++++ b/mfront-query/tests/references/mfront-query-ageingburger-convergence-criteria.ref
+@@ -0,0 +1,2 @@
++1e-11
++1e-12
+diff --git a/mfront-query/tests/references/mfront-query-norton-convergence-criterion-float.ref b/mfront-query/tests/references/mfront-query-norton-convergence-criterion-float.ref
+new file mode 100644
+index 000000000..80311cc22
+--- /dev/null
++++ b/mfront-query/tests/references/mfront-query-norton-convergence-criterion-float.ref
+@@ -0,0 +1 @@
++1e-08
+diff --git a/mfront/include/MFront/BehaviourDSLCommon.hxx b/mfront/include/MFront/BehaviourDSLCommon.hxx
+index e426e3d5c..99a6bd2dd 100644
+--- a/mfront/include/MFront/BehaviourDSLCommon.hxx
++++ b/mfront/include/MFront/BehaviourDSLCommon.hxx
+@@ -572,11 +572,14 @@ namespace mfront {
+      * \return the perturbation used to compute the numerical jacobian,
+      * bounded below, with the float numerical type (`real_type` DSL
+      * option), by the machine epsilon of this type (1.2e-7): smaller
+-     * perturbations of the unknowns are lost in their rounding. A warning
+-     * is reported when the value is changed.
++     * perturbations of the unknowns are lost in their rounding.
+      * \param[in] v: value
++     * \param[in] report: if true, a warning is reported when the value is
++     * changed (false for the default value, a tenth of the convergence
++     * criterion)
+      */
+-    double getNumericalJacobianPerturbationForRealType(const double) const;
++    double getNumericalJacobianPerturbationForRealType(const double,
++                                                       const bool = true) const;
+     /*!
+      * \brief treat the `@TangentOperator` keyword
+      * \note this method read the code block options and determines
+diff --git a/mfront/src/BehaviourDSLCommon.cxx b/mfront/src/BehaviourDSLCommon.cxx
+index 4fba1f67a..cf5ecb314 100644
+--- a/mfront/src/BehaviourDSLCommon.cxx
++++ b/mfront/src/BehaviourDSLCommon.cxx
+@@ -1684,19 +1684,24 @@ namespace mfront {
+    * \param[in] n: name of the parameter
+    * \param[in] v: value
+    * \param[in] vmin: lower bound
++   * \param[in] report: if true, a warning is reported when the value is
++   * raised
+    */
+   static double raiseForFloatRealType(const BehaviourDescription& bd,
+                                       const std::string_view n,
+                                       const double v,
+-                                      const double vmin) {
++                                      const double vmin,
++                                      const bool report) {
+     if ((getRealType(bd) != "float") || (v >= vmin)) {
+       return v;
+     }
+-    auto msg = std::ostringstream{};
+-    msg << std::scientific << "the value of '" << n << "' (" << v
+-        << ") is raised to " << vmin
+-        << " for the float numerical type (real_type option)";
+-    reportWarning(msg.str());
++    if (report) {
++      auto msg = std::ostringstream{};
++      msg << std::scientific << "the value of '" << n << "' (" << v
++          << ") is raised to " << vmin
++          << " for the float numerical type (real_type option)";
++      reportWarning(msg.str());
++    }
+     return vmin;
+   }  // end of raiseForFloatRealType
+ 
+@@ -1704,15 +1709,15 @@ namespace mfront {
+       const std::string_view n, const double v) const {
+     const auto vmin =
+         static_cast<double>(std::numeric_limits<float>::epsilon()) / 10;
+-    return raiseForFloatRealType(this->mb, n, v, vmin);
++    return raiseForFloatRealType(this->mb, n, v, vmin, true);
+   }  // end of getConvergenceCriterionForRealType
+ 
+   double BehaviourDSLCommon::getNumericalJacobianPerturbationForRealType(
+-      const double v) const {
++      const double v, const bool report) const {
+     const auto vmin =
+         static_cast<double>(std::numeric_limits<float>::epsilon());
+     return raiseForFloatRealType(this->mb, "numerical_jacobian_epsilon", v,
+-                                 vmin);
++                                 vmin, report);
+   }  // end of getNumericalJacobianPerturbationForRealType
+ 
+   void BehaviourDSLCommon::treatStrainMeasure() {
+diff --git a/mfront/src/ImplicitDSLBase.cxx b/mfront/src/ImplicitDSLBase.cxx
+index 4d99505ae..4a5c29b74 100644
+--- a/mfront/src/ImplicitDSLBase.cxx
++++ b/mfront/src/ImplicitDSLBase.cxx
+@@ -665,7 +665,11 @@ namespace mfront {
+       this->throwRuntimeError("ImplicitDSLBase::treatEpsilon",
+                               "Epsilon value must be positive.");
+     }
+-    if ((!safe) && (epsilon < 1e-18)) {
++    // the advice below is written for double: with the float numerical
++    // type, the value is bounded below by getConvergenceCriterionForRealType,
++    // which reports its own warning
++    const auto check_value = (!safe) && (getRealType(this->mb) != "float");
++    if (check_value && (epsilon < 1e-18)) {
+       auto converter = std::ostringstream{};
+       converter << std::scientific << epsilon;
+       reportWarning(
+@@ -675,7 +679,7 @@ namespace mfront {
+           "). You may want to consider a more stringent value (1e-14 "
+           "is generally a good choice).");
+     }
+-    if ((!safe) && (epsilon > 1e-12)) {
++    if (check_value && (epsilon > 1e-12)) {
+       auto converter = std::ostringstream{};
+       converter << std::scientific << epsilon;
+       reportWarning(
+@@ -1471,11 +1475,16 @@ namespace mfront {
+       this->mb.addParameter(uh, e, BehaviourData::ALREADYREGISTRED);
+       this->mb.setEntryName(uh, "epsilon", "epsilon");
+       this->mb.setParameterDefaultValue(uh, "epsilon", 1.e-8);
+-      reportWarning(
+-          "using the default value for the convergence threshold (1e-8). "
+-          "This value is generally considered too loose. You may "
+-          "want to consider a more stringent value (1e-14 is a good choice). "
+-          "See the `@Epsilon` keyword for details");
++      // with the float numerical type, the default value is close to the
++      // lower bound of the convergence criteria (a tenth of the machine
++      // epsilon, see getConvergenceCriterionForRealType) and is kept
++      if (getRealType(this->mb) != "float") {
++        reportWarning(
++            "using the default value for the convergence threshold (1e-8). "
++            "This value is generally considered too loose. You may "
++            "want to consider a more stringent value (1e-14 is a good "
++            "choice). See the `@Epsilon` keyword for details");
++      }
+     }
+     if (!this->mb.hasParameter(uh, "theta")) {
+       VariableDescription tv("NumericType", "\u03B8", "theta", 1u, 0u);
+@@ -1492,7 +1501,8 @@ namespace mfront {
+       if (!this->mb.hasParameter(uh, nje)) {
+         const auto eps = this->getNumericalJacobianPerturbationForRealType(
+             0.1 *
+-            this->mb.getFloattingPointParameterDefaultValue(uh, "epsilon"));
++                this->mb.getFloattingPointParameterDefaultValue(uh, "epsilon"),
++            false);
+         VariableDescription v("NumericType", nje, 1u, 0u);
+         v.description =
+             "perturbation value used to compute a numerical "
+diff --git a/mfront/src/IsotropicBehaviourDSLBase.cxx b/mfront/src/IsotropicBehaviourDSLBase.cxx
+index f867b21ae..744f190a3 100644
+--- a/mfront/src/IsotropicBehaviourDSLBase.cxx
++++ b/mfront/src/IsotropicBehaviourDSLBase.cxx
+@@ -202,7 +202,11 @@ namespace mfront {
+       this->throwRuntimeError("IsotropicBehaviourDSLBase::treatEpsilon",
+                               "Epsilon value must be positive");
+     }
+-    if ((!safe) && (epsilon < 1e-18)) {
++    // the advice below is written for double: with the float numerical
++    // type, the value is bounded below by getConvergenceCriterionForRealType,
++    // which reports its own warning
++    const auto check_value = (!safe) && (getRealType(this->mb) != "float");
++    if (check_value && (epsilon < 1e-18)) {
+       auto converter = std::ostringstream{};
+       converter << std::scientific << epsilon;
+       reportWarning(
+@@ -212,7 +216,7 @@ namespace mfront {
+           "). You may want to consider a more stringent value (1e-14 "
+           "is generally a good choice).");
+     }
+-    if ((!safe) && (epsilon > 1e-12)) {
++    if (check_value && (epsilon > 1e-12)) {
+       auto converter = std::ostringstream{};
+       converter << std::scientific << epsilon;
+       reportWarning(
+@@ -658,11 +662,16 @@ namespace mfront {
+           uh, VariableDescription("real", "\u03B5", "epsilon", 1u, 0u),
+           BehaviourData::ALREADYREGISTRED);
+       this->mb.setParameterDefaultValue(uh, "epsilon", 1.e-8);
+-      reportWarning(
+-          "using the default value for the convergence threshold. "
+-          "This value is generally considered too loose. You may "
+-          "want to consider a more stringent value (1e-14 is a good choice). "
+-          "See the `@Epsilon` keyword for details");
++      // with the float numerical type, the default value is close to the
++      // lower bound of the convergence criteria (a tenth of the machine
++      // epsilon, see getConvergenceCriterionForRealType) and is kept
++      if (getRealType(this->mb) != "float") {
++        reportWarning(
++            "using the default value for the convergence threshold. "
++            "This value is generally considered too loose. You may "
++            "want to consider a more stringent value (1e-14 is a good "
++            "choice). See the `@Epsilon` keyword for details");
++      }
+     }
+     if (!this->mb.hasParameter(uh, "iterMax")) {
+       unsigned short iterMax = 100u;
+-- 
+2.43.0
+

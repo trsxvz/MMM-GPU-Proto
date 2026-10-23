@@ -1,0 +1,8 @@
+behaviours           arcane                           SUCCESS  1003 s (2 passed, 0 skipped)
+behaviours           cuda-nvcc                        SUCCESS   524 s (2 passed, 0 skipped)
+behaviours           openmp-host-gcc                  SUCCESS   454 s (2 passed, 0 skipped)
+behaviours           stlpar-parunseq-gcc              SUCCESS   447 s (2 passed, 0 skipped)
+material-properties  arcane                           SUCCESS    25 s (1 passed, 0 skipped)
+material-properties  cuda-nvcc                        SUCCESS    31 s (1 passed, 0 skipped)
+material-properties  openmp-host-gcc                  SUCCESS    11 s (1 passed, 0 skipped)
+material-properties  stlpar-parunseq-gcc              SUCCESS    20 s (1 passed, 0 skipped)

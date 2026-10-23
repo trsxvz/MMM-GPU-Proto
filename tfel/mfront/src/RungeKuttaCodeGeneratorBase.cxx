@@ -136,8 +136,8 @@ namespace mfront {
   modifyVariableForStiffnessTensorComputation(const std::string& cn) {
     using MaterialPropertyInput = BehaviourDescription::MaterialPropertyInput;
     using Modifier = std::function<std::string(const MaterialPropertyInput&)>;
-    auto m =
-        Modifier{[cn](const BehaviourDescription::MaterialPropertyInput& i) {
+    const Modifier m =
+        [cn](const BehaviourDescription::MaterialPropertyInput& i) {
           if ((i.category == MaterialPropertyInput::TEMPERATURE) ||
               (i.category == MaterialPropertyInput::EXTERNALSTATEVARIABLE)) {
             return "this->" + i.name + "_";
@@ -158,7 +158,7 @@ namespace mfront {
                 "variable '" +
                 i.name + "'");
           }
-        }};
+        };
     return m;
   }  // end of modifyVariableForStiffnessTensorComputation
 
@@ -171,8 +171,8 @@ namespace mfront {
   modifyVariableForStiffnessTensorComputation2(const std::string& cn) {
     using MaterialPropertyInput = BehaviourDescription::MaterialPropertyInput;
     using Modifier = std::function<std::string(const MaterialPropertyInput&)>;
-    auto m = Modifier{[cn](const BehaviourDescription::MaterialPropertyInput&
-                               i) {
+    const Modifier m = [cn](const BehaviourDescription::MaterialPropertyInput&
+                                 i) {
       if ((i.category == MaterialPropertyInput::TEMPERATURE) ||
           (i.category ==
            MaterialPropertyInput::AUXILIARYSTATEVARIABLEFROMEXTERNALMODEL) ||
@@ -190,7 +190,7 @@ namespace mfront {
             "variable '" +
             i.name + "'");
       }
-    }};
+    };
     return m;
   }  // end of modifyVariableForStiffnessTensorComputation2
 

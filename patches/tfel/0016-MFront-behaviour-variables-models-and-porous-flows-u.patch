@@ -1,4 +1,4 @@
-From 6f8c79711dbd49cd5993126bacdb489f72d2b332 Mon Sep 17 00:00:00 2001
+From b7af5f8e586a3328f774a6b71d44c041a289b311 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 21:49:33 +0200
 Subject: [PATCH] MFront: behaviour variables, models and porous flows usable
@@ -338,7 +338,7 @@ index 4f6ba6fe3..c934abefe 100644
         << "/*!\n"
         << "* \\brief Copy constructor\n"
 diff --git a/mfront/src/DataIsotropicHardeningRule.cxx b/mfront/src/DataIsotropicHardeningRule.cxx
-index 72aa2abfb..044eff9a2 100644
+index a1a2a2c30..044eff9a2 100644
 --- a/mfront/src/DataIsotropicHardeningRule.cxx
 +++ b/mfront/src/DataIsotropicHardeningRule.cxx
 @@ -119,7 +119,7 @@ namespace mfront::bbrick {
@@ -374,7 +374,7 @@ index 72aa2abfb..044eff9a2 100644
        m += "return {};\n";
      }
      m += "} // end of " + m1 + "\n\n";
--    m += "std::pair<stress, stress> " + m2 + local_id +
+-    m += "std::pair<stress, stress> " + m2 +
 +    m += "TFEL_HOST_DEVICE std::pair<stress, stress> " + m2 +
           "(const strain mfront_arg_p) const {\n";
      if (this->values.size() == 1) {

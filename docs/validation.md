@@ -233,7 +233,13 @@ examples, 9 of mm-opera-hpc and 143 cases, all green. The rebase on
 `4d50821c9` (fix of the runtime path found by this validation) gives the
 same tree; the one on `d489171ee` only adds the changes of master
 (documentation, docstrings of the Python bindings, not built by the
-prototype). GPU suite of mfem-mgis (`scripts/mfem-mgis-gpu-suite.sh`, 265
+prototype). After the rebase on `9b810aa15` (merges of #1060 and #1071,
+six patches already upstream): 6993 tests of TFEL, `-O3` tests of the
+`arcane`, `cuda-nvcc`, `stlpar-parunseq-gcc` and `openmp-host-gcc`
+configurations 8/8
+(`results/generic-parallel-tests-2026-10-23-rebase-1060-1071-O3.txt`), 58
+tests of MGIS, 360 of mfem-mgis, 25 of the examples, 9 of mm-opera-hpc and
+143 cases, all green. GPU suite of mfem-mgis (`scripts/mfem-mgis-gpu-suite.sh`, 265
 tests): 262 with the kernels forced, 261 with the default computations,
 the two tests requiring the absence of a device failing as expected;
 `TwoLayerCube-1-MatrixFreeExecution` (added on 17/10), which checks that

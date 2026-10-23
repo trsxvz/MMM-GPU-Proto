@@ -1,4 +1,4 @@
-From 7e5d4b321331669eb468e7aa26c7edf0e797899d Mon Sep 17 00:00:00 2001
+From 1334dcc286a666fa871d112dd9e7839e83df0dc1 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 5 Oct 2026 20:30:28 +0200
 Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
@@ -34,8 +34,8 @@ Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
  .../Material/LogarithmicStrainHandler.hxx     |  98 +++----
  .../Material/LogarithmicStrainHandler.ixx     |  40 ++-
  include/TFEL/Material/MechanicalBehaviour.hxx |  48 ++--
- ...GenericSlidingSystemsInteractionMatrix.hxx |  41 ++-
- ...GenericSlidingSystemsInteractionMatrix.ixx |  36 +--
+ ...GenericSlidingSystemsInteractionMatrix.hxx |  31 ++-
+ ...GenericSlidingSystemsInteractionMatrix.ixx |  24 +-
  .../Material/MetallicCFCSlidingSystems.hxx    |  23 +-
  .../Material/MetallicCFCSlidingSystems.ixx    |  11 +-
  .../Math/Array/FixedSizeArrayDerivative.hxx   |  10 +-
@@ -107,7 +107,7 @@ Subject: [PATCH] TFEL: device code support of finite strain tools, rotations
  tests/Math/ChangeBasisTest.cxx                | 115 ++++++++
  tests/Utilities/CMakeLists.txt                |   1 +
  tests/Utilities/TrivialGenTypeBaseTest.cxx    |  89 +++++++
- 82 files changed, 1574 insertions(+), 913 deletions(-)
+ 82 files changed, 1562 insertions(+), 903 deletions(-)
  create mode 100644 include/TFEL/Utilities/ConstantObject.hxx
  create mode 100644 include/TFEL/Utilities/TrivialGenTypeBase.hxx
  delete mode 100644 src/Material/LogarithmicStrainHandler.cxx
@@ -1241,31 +1241,14 @@ index 84067e93d..79035b6f0 100644
  }  // end of namespace tfel::material
  
 diff --git a/include/TFEL/Material/MetallicCFCGenericSlidingSystemsInteractionMatrix.hxx b/include/TFEL/Material/MetallicCFCGenericSlidingSystemsInteractionMatrix.hxx
-index c4305878f..08c8d37eb 100644
+index 7cdb6031d..24ddd034b 100644
 --- a/include/TFEL/Material/MetallicCFCGenericSlidingSystemsInteractionMatrix.hxx
 +++ b/include/TFEL/Material/MetallicCFCGenericSlidingSystemsInteractionMatrix.hxx
-@@ -21,10 +21,12 @@
- namespace tfel::material {
- 
-   /*!
--   * \brief Given six interaction coefficients, this class builds
--   * only once a generic interaction matrix. This class shall not be
--   * called if the interaction coefficients may evolve with time~:
--   * the matrix is only compute at the first call.
-+   * \brief Given six interaction coefficients, this class builds a generic
-+   * interaction matrix.
-+   *
-+   * \note in previous versions, the matrix was only computed at the first
-+   * call. It is now computed at each call, which allows its use in device
-+   * code.
-    */
-   template <typename NumType>
-   struct MetallicCFCGenericSlidingSystemsInteractionMatrix {
-@@ -41,8 +43,13 @@ namespace tfel::material {
+@@ -39,8 +39,13 @@ namespace tfel::material {
       * The interaction matrix is the following :
       *
       */
--    static const tfel::math::tmatrix<12, 12, real>& getInteractionMatrix(
+-    static tfel::math::tmatrix<12, 12, real> getInteractionMatrix(
 -        const real, const real, const real, const real, const real, const real);
 +    TFEL_HOST_DEVICE static constexpr tfel::math::tmatrix<12, 12, real>
 +    getInteractionMatrix(const real,
@@ -1277,11 +1260,11 @@ index c4305878f..08c8d37eb 100644
      /*!
       * \return the interaction matrix
       * \param[in] h1 : first  interaction coefficient
-@@ -54,8 +61,13 @@ namespace tfel::material {
+@@ -52,8 +57,13 @@ namespace tfel::material {
       * The interaction matrix is the following :
       *
       */
--    static const tfel::math::tmatrix<12, 12, real>& getSecondInteractionMatrix(
+-    static tfel::math::tmatrix<12, 12, real> getSecondInteractionMatrix(
 -        const real, const real, const real, const real, const real, const real);
 +    TFEL_HOST_DEVICE static constexpr tfel::math::tmatrix<12, 12, real>
 +    getSecondInteractionMatrix(const real,
@@ -1293,7 +1276,7 @@ index c4305878f..08c8d37eb 100644
  
     private:
      /*!
-@@ -70,18 +82,23 @@ namespace tfel::material {
+@@ -68,18 +78,23 @@ namespace tfel::material {
       * \param[in] h5 : fifth  interaction coefficient
       * \param[in] h6 : sixth  interaction coefficient
       */
@@ -1322,7 +1305,7 @@ index c4305878f..08c8d37eb 100644
      tfel::math::tmatrix<12, 12, real> m;
    };
 diff --git a/include/TFEL/Material/MetallicCFCGenericSlidingSystemsInteractionMatrix.ixx b/include/TFEL/Material/MetallicCFCGenericSlidingSystemsInteractionMatrix.ixx
-index 13b0cb0f0..2c9075b79 100644
+index 6d6693a1f..2c9075b79 100644
 --- a/include/TFEL/Material/MetallicCFCGenericSlidingSystemsInteractionMatrix.ixx
 +++ b/include/TFEL/Material/MetallicCFCGenericSlidingSystemsInteractionMatrix.ixx
 @@ -18,13 +18,15 @@
@@ -1348,11 +1331,11 @@ index 13b0cb0f0..2c9075b79 100644
      using namespace tfel::math;
      for (typename tmatrix<12u, 12u, real>::size_type i = 0; i != 12; ++i) {
        this->m(i, i) = h1;
-@@ -99,32 +101,32 @@ namespace tfel::material {
+@@ -99,14 +101,14 @@ namespace tfel::material {
       // MetallicCFCGenericSlidingSystemsInteractionMatrix::MetallicCFCGenericSlidingSystemsInteractionMatrix
  
    template <typename NumType>
--  const tfel::math::tmatrix<12, 12, NumType>&
+-  tfel::math::tmatrix<12, 12, NumType>
 +  TFEL_HOST_DEVICE constexpr tfel::math::tmatrix<12, 12, NumType>
    MetallicCFCGenericSlidingSystemsInteractionMatrix<
        NumType>::getInteractionMatrix(const NumType h1,
@@ -1361,18 +1344,15 @@ index 13b0cb0f0..2c9075b79 100644
                                       const NumType h4,
                                       const NumType h5,
 -                                     const NumType h6) {
--    static MetallicCFCGenericSlidingSystemsInteractionMatrix s(h1, h2, h3, h4,
--                                                               h5, h6);
--    return s.m;
 +                                     const NumType h6) noexcept {
-+    return MetallicCFCGenericSlidingSystemsInteractionMatrix(h1, h2, h3, h4, h5,
-+                                                             h6)
-+        .m;
-   }  // end of
+     return MetallicCFCGenericSlidingSystemsInteractionMatrix(h1, h2, h3, h4, h5,
+                                                              h6)
+         .m;
+@@ -114,14 +116,14 @@ namespace tfel::material {
       // MetallicCFCGenericSlidingSystemsInteractionMatrix::getInteractionMatrix
  
    template <typename NumType>
--  const tfel::math::tmatrix<12, 12, NumType>&
+-  tfel::math::tmatrix<12, 12, NumType>
 +  TFEL_HOST_DEVICE constexpr tfel::math::tmatrix<12, 12, NumType>
    MetallicCFCGenericSlidingSystemsInteractionMatrix<
        NumType>::getSecondInteractionMatrix(const NumType h1,
@@ -1381,16 +1361,10 @@ index 13b0cb0f0..2c9075b79 100644
                                             const NumType h4,
                                             const NumType h5,
 -                                           const NumType h6) {
--    static MetallicCFCGenericSlidingSystemsInteractionMatrix s2(h1, h2, h3, h4,
--                                                                h5, h6);
--    return s2.m;
 +                                           const NumType h6) noexcept {
-+    return MetallicCFCGenericSlidingSystemsInteractionMatrix(h1, h2, h3, h4, h5,
-+                                                             h6)
-+        .m;
-   }  // end of
-      // MetallicCFCGenericSlidingSystemsInteractionMatrix::getInteractionMatrix
- 
+     return MetallicCFCGenericSlidingSystemsInteractionMatrix(h1, h2, h3, h4, h5,
+                                                              h6)
+         .m;
 diff --git a/include/TFEL/Material/MetallicCFCSlidingSystems.hxx b/include/TFEL/Material/MetallicCFCSlidingSystems.hxx
 index 510ca3cd7..792f12e83 100644
 --- a/include/TFEL/Material/MetallicCFCSlidingSystems.hxx
@@ -1976,10 +1950,10 @@ index b0292f0cb..bd230fd47 100644
        return this->n_columns;
      }
 diff --git a/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx b/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx
-index 355fe16de..8e42f3409 100644
+index 56ee42540..6d9848070 100644
 --- a/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx
 +++ b/include/TFEL/Math/Array/StandardTemplateLibraryCompatibilityLayers.hxx
-@@ -63,46 +63,46 @@ namespace tfel::math {
+@@ -64,46 +64,46 @@ namespace tfel::math {
       */
      using const_reverse_iterator = std::reverse_iterator<const_iterator>;
      //!
@@ -3268,7 +3242,7 @@ index abe7b6797..544ed1fcf 100644
        size_type zero = 0;
        size_type one = 1;
 diff --git a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
-index 4cf08e705..4075fa0f6 100644
+index 35b6a5f2f..062f936c9 100644
 --- a/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 +++ b/include/TFEL/Math/Stensor/Internals/StensorComputeEigenVectors.hxx
 @@ -38,15 +38,15 @@ namespace tfel::math::internals {
