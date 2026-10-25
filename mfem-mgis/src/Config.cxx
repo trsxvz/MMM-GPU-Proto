@@ -21,11 +21,21 @@
 #include <string_view>
 #ifdef MFEM_USE_MPI
 #include "mpi.h"
+#if __has_include(<mpi-ext.h>)
+// extensions of Open MPI, which state the support of the memory of the GPUs
+#include <mpi-ext.h>
+#endif
 #include "mfem/linalg/hypre.hpp"
 #include "HYPRE_utilities.h"
 #endif /* MFEM_USE_MPI */
 #include "mfem/general/error.hpp"
 #include "mfem/general/device.hpp"
+// after a header of MFEM, which defines MFEM_USE_UMPIRE
+#if defined(MFEM_USE_UMPIRE) && \
+    (defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP))
+#include <umpire/Umpire.hpp>
+#include <umpire/strategy/QuickPool.hpp>
+#endif
 #include "mfem/general/backends.hpp"
 #include "mfem/general/optparser.hpp"
 #include "mfem/general/communication.hpp"
@@ -86,6 +96,17 @@ namespace mfem_mgis {
     static const char* const no_kokkos_option;
     //! \brief short name of the option `no_kokkos_option`
     static const char* const no_kokkos_short_option;
+    /*!
+     * \brief option requesting that MFEM, hypre and AmgX give the arrays on
+     * the GPU to MPI, without copies on the host (GPU-aware MPI)
+     */
+    static const char* const gpu_aware_mpi_option;
+    //! \brief short name of the option `gpu_aware_mpi_option`
+    static const char* const gpu_aware_mpi_short_option;
+    //! \brief option cancelling the option `gpu_aware_mpi_option`
+    static const char* const no_gpu_aware_mpi_option;
+    //! \brief short name of the option `no_gpu_aware_mpi_option`
+    static const char* const no_gpu_aware_mpi_short_option;
     //! \return the unique instance of this class
     static Finalizer& get();
     /*!
@@ -189,6 +210,14 @@ namespace mfem_mgis {
   const char* const Finalizer::no_kokkos_option = "--no-kokkos";
 
   const char* const Finalizer::no_kokkos_short_option = "-no-kk";
+
+  const char* const Finalizer::gpu_aware_mpi_option = "--gpu-aware-mpi";
+
+  const char* const Finalizer::gpu_aware_mpi_short_option = "-gam";
+
+  const char* const Finalizer::no_gpu_aware_mpi_option = "--no-gpu-aware-mpi";
+
+  const char* const Finalizer::no_gpu_aware_mpi_short_option = "-no-gam";
 
   /*!
    * \brief sets the size of the pool of memory allocated at once by hypre
@@ -404,6 +433,92 @@ namespace mfem_mgis {
   }  // end of getDeviceIdentifier
 
   /*!
+   * \brief creates the allocators of Umpire of the device memory types of
+   * MFEM on the given GPU, before the configuration of the device of MFEM,
+   * unless they exist. MFEM 4.10 creates them on the resource `DEVICE` of
+   * Umpire, which is the GPU 0, whatever the GPU of the device
+   * (mfem/mfem#5696): MFEM uses these allocators instead, which have the
+   * names it looks for. Nothing is done for the GPU 0.
+   * \param[in] gpu: identifier of the GPU of the device of MFEM
+   */
+  static void createUmpireDeviceAllocators([[maybe_unused]] const int gpu) {
+#if defined(MFEM_USE_UMPIRE) && \
+    (defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP))
+    if (gpu == 0) {
+      return;
+    }
+    auto& rm = umpire::ResourceManager::getInstance();
+    const auto resource = "DEVICE::" + std::to_string(gpu);
+    for (const auto* const name :
+         {mfem::MemoryManager::GetUmpireDeviceAllocatorName(),
+          mfem::MemoryManager::GetUmpireDevice2AllocatorName()}) {
+      if (!rm.isAllocator(name)) {
+        static_cast<void>(rm.makeAllocator<umpire::strategy::QuickPool>(
+            name, rm.getAllocator(resource)));
+      }
+    }
+#endif
+  }  // end of createUmpireDeviceAllocators
+
+#ifdef MFEM_USE_MPI
+  /*!
+   * \return false if the MPI library states that it can't read the memory of
+   * the GPUs (extensions of Open MPI), true otherwise
+   */
+  static bool mayMPIReadGPUMemory() {
+#if defined(MFEM_USE_CUDA) && defined(MPIX_CUDA_AWARE_SUPPORT)
+    return MPIX_Query_cuda_support() == 1;
+#elif defined(MFEM_USE_HIP) && defined(MPIX_ROCM_AWARE_SUPPORT)
+    return MPIX_Query_rocm_support() == 1;
+#else
+    // unknown
+    return true;
+#endif
+  }  // end of mayMPIReadGPUMemory
+#endif /* MFEM_USE_MPI */
+
+  /*!
+   * \brief makes MFEM, hypre (if it computes on the GPU) and AmgX give the
+   * arrays on the GPU to MPI, without copies on the host, after the
+   * configuration of the device of MFEM and of the memory of hypre
+   * \param[in] environment: if true, the request is given by the
+   * environment, and is ignored with a warning if it can't be satisfied
+   */
+  static void setGPUAwareMPI(const bool environment) {
+    const auto refuse = [environment](const std::string& reason) {
+      const auto message = "initialize: GPU-aware MPI " + reason;
+      if (!environment) {
+        mgis::raise(message);
+      }
+      mfem_mgis::getErrorStream()
+          << message << ", the variable MFEM_MGIS_GPU_AWARE_MPI is ignored\n";
+    };
+#ifdef MFEM_USE_MPI
+    if ((!mfem::Device::IsConfigured()) ||
+        (!mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                               mfem::Backend::HIP_MASK))) {
+      refuse("requires a device of MFEM using a GPU");
+      return;
+    }
+    if (!mayMPIReadGPUMemory()) {
+      refuse("is not supported by the MPI library");
+      return;
+    }
+    // read by AmgX at the creation of its resources (see `AmgXSolvers.cxx`)
+    mfem::Device::SetGPUAwareMPI(true);
+#ifdef HYPRE_USING_GPU
+    if (mfem::HypreUsingGPU()) {
+      // the function only stores the choice: its result, the global error
+      // flag of hypre, may report a previous error
+      static_cast<void>(HYPRE_SetGpuAwareMPI(1));
+    }
+#endif /* HYPRE_USING_GPU */
+#else  /* MFEM_USE_MPI */
+    refuse("requires mfem-mgis built with MPI");
+#endif /* MFEM_USE_MPI */
+  }  // end of setGPUAwareMPI
+
+  /*!
    * \brief waits for the end of the kernels launched on the GPU, so that
    * their duration is counted in the profiling section which launched them
    */
@@ -485,6 +600,8 @@ namespace mfem_mgis {
     // initialization of Kokkos, requested by the option or by the
     // environment
     auto kokkos_requested = std::optional<bool>{};
+    // GPU-aware MPI, requested by the option or by the environment
+    auto gpu_aware_mpi_requested = std::optional<bool>{};
     for (const auto* a = argv; a != argv + argc; ++a) {
       if ((std::strcmp(*a, kokkos_option) == 0) ||
           (std::strcmp(*a, kokkos_short_option) == 0)) {
@@ -494,6 +611,16 @@ namespace mfem_mgis {
       if ((std::strcmp(*a, no_kokkos_option) == 0) ||
           (std::strcmp(*a, no_kokkos_short_option) == 0)) {
         kokkos_requested = false;
+        continue;
+      }
+      if ((std::strcmp(*a, gpu_aware_mpi_option) == 0) ||
+          (std::strcmp(*a, gpu_aware_mpi_short_option) == 0)) {
+        gpu_aware_mpi_requested = true;
+        continue;
+      }
+      if ((std::strcmp(*a, no_gpu_aware_mpi_option) == 0) ||
+          (std::strcmp(*a, no_gpu_aware_mpi_short_option) == 0)) {
+        gpu_aware_mpi_requested = false;
         continue;
       }
       if ((std::strcmp(*a, hypre_device_pool_size_option) == 0) ||
@@ -650,6 +777,9 @@ namespace mfem_mgis {
       }
       const auto identifier = getDeviceIdentifier(device_configuration);
       setMemoryTypes(device_configuration);
+      if (usesGPU(device_configuration)) {
+        createUmpireDeviceAllocators(identifier);
+      }
       this->device =
           std::make_unique<mfem::Device>(device_configuration, identifier);
       // the kernels are launched asynchronously on a GPU: the profiling
@@ -666,6 +796,18 @@ namespace mfem_mgis {
     // by default
     if (hypre_on_host) {
       setHypreOnHost(hypre_on_host_request.from_environment);
+    }
+    // GPU-aware MPI, after the configuration of the device and of the
+    // memory of hypre; requested by the option or by the environment
+    auto gpu_aware_mpi_from_environment = false;
+    if (!gpu_aware_mpi_requested.has_value()) {
+      const auto* const e = std::getenv("MFEM_MGIS_GPU_AWARE_MPI");
+      gpu_aware_mpi_requested =
+          (e != nullptr) && (*e != '\0') && (std::string_view{e} != "0");
+      gpu_aware_mpi_from_environment = *gpu_aware_mpi_requested;
+    }
+    if (*gpu_aware_mpi_requested) {
+      setGPUAwareMPI(gpu_aware_mpi_from_environment);
     }
     // Kokkos, after the device of MFEM, whose GPU it uses; requested by the
     // option or by the environment
@@ -987,6 +1129,19 @@ namespace mfem_mgis {
         "the generic-parallel interface (requires mfem-mgis "
         "built with Kokkos). Given by the variable "
         "MFEM_MGIS_KOKKOS if not given.");
+    // read by `initialize`: only declared here, so that the parser accepts
+    // it
+    static bool gpu_aware_mpi = false;
+    parser.AddOption(
+        &gpu_aware_mpi, Finalizer::gpu_aware_mpi_short_option,
+        Finalizer::gpu_aware_mpi_option,
+        Finalizer::no_gpu_aware_mpi_short_option,
+        Finalizer::no_gpu_aware_mpi_option,
+        "MFEM, hypre and AmgX give the arrays on the GPU to MPI, without "
+        "copies on the host (GPU-aware MPI, requires a device of MFEM using "
+        "a GPU and an MPI library reading its memory), set by "
+        "mfem_mgis::initialize. Given by the variable "
+        "MFEM_MGIS_GPU_AWARE_MPI if not given.");
 #ifdef MFEM_MGIS_HAVE_PETSC
     static bool use_petsc = false;
     static const char* petscrc_file = "";

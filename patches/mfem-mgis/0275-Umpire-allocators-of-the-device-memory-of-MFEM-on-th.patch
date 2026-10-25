@@ -1,0 +1,107 @@
+From 2185b2c59c03a71d6cb33ee1347e7af913d0cbf0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Sun, 25 Oct 2026 20:28:04 +0100
+Subject: [PATCH] Umpire: allocators of the device memory of MFEM on the GPU of
+ the process
+
+MFEM 4.10 creates them on the resource DEVICE of Umpire, the GPU 0, whatever the GPU of the device (mfem/mfem#5696). They are created before the device on the GPU of the process, with the names MFEM looks for.
+---
+ CHANGELOG.md                |  2 ++
+ include/MFEMMGIS/Config.hxx |  5 ++++-
+ src/Config.cxx              | 37 +++++++++++++++++++++++++++++++++++++
+ 3 files changed, 43 insertions(+), 1 deletion(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2dbe7cce66..4874f0b0d7 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -117,6 +117,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+ 
+ - the message of a failed time step described its first sub-step instead
+   of the failed time step
++- with Umpire, the processes of a node allocated the device memory of MFEM
++  on the GPU 0, whatever their GPU (MFEM 4.10, mfem/mfem#5696)
+ 
+ ### Removed
+ 
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index 5195590519..f2c8aa8ccb 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -155,7 +155,10 @@ namespace mfem_mgis {
+    * allocates the memory of the host with Umpire too, which slows down the
+    * computations made on the host; an application which creates its own
+    * `mfem::Device` may choose the memory types with
+-   * `mfem::Device::SetMemoryTypes` before. With a GPU, the profiling
++   * `mfem::Device::SetMemoryTypes` before. With Umpire, the allocators of
++   * the device memory types of MFEM are created on the GPU of the process
++   * before the device: MFEM 4.10 creates them on the GPU 0, whatever the
++   * GPU of the device (mfem/mfem#5696). With a GPU, the profiling
+    * sections wait for the end of the kernels launched on the GPU (see
+    * `mgis::setProfilingSynchronization`). An application which uses
+    * this option must neither create its own `mfem::Device` (MFEM refuses a
+diff --git a/src/Config.cxx b/src/Config.cxx
+index 28a954360d..c9f2eb3fa9 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -26,6 +26,12 @@
+ #endif /* MFEM_USE_MPI */
+ #include "mfem/general/error.hpp"
+ #include "mfem/general/device.hpp"
++// after a header of MFEM, which defines MFEM_USE_UMPIRE
++#if defined(MFEM_USE_UMPIRE) && \
++    (defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP))
++#include <umpire/Umpire.hpp>
++#include <umpire/strategy/QuickPool.hpp>
++#endif
+ #include "mfem/general/backends.hpp"
+ #include "mfem/general/optparser.hpp"
+ #include "mfem/general/communication.hpp"
+@@ -403,6 +409,34 @@ namespace mfem_mgis {
+ #endif /* defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP) */
+   }  // end of getDeviceIdentifier
+ 
++  /*!
++   * \brief creates the allocators of Umpire of the device memory types of
++   * MFEM on the given GPU, before the configuration of the device of MFEM,
++   * unless they exist. MFEM 4.10 creates them on the resource `DEVICE` of
++   * Umpire, which is the GPU 0, whatever the GPU of the device
++   * (mfem/mfem#5696): MFEM uses these allocators instead, which have the
++   * names it looks for. Nothing is done for the GPU 0.
++   * \param[in] gpu: identifier of the GPU of the device of MFEM
++   */
++  static void createUmpireDeviceAllocators([[maybe_unused]] const int gpu) {
++#if defined(MFEM_USE_UMPIRE) && \
++    (defined(MFEM_USE_CUDA) || defined(MFEM_USE_HIP))
++    if (gpu == 0) {
++      return;
++    }
++    auto& rm = umpire::ResourceManager::getInstance();
++    const auto resource = "DEVICE::" + std::to_string(gpu);
++    for (const auto* const name :
++         {mfem::MemoryManager::GetUmpireDeviceAllocatorName(),
++          mfem::MemoryManager::GetUmpireDevice2AllocatorName()}) {
++      if (!rm.isAllocator(name)) {
++        static_cast<void>(rm.makeAllocator<umpire::strategy::QuickPool>(
++            name, rm.getAllocator(resource)));
++      }
++    }
++#endif
++  }  // end of createUmpireDeviceAllocators
++
+   /*!
+    * \brief waits for the end of the kernels launched on the GPU, so that
+    * their duration is counted in the profiling section which launched them
+@@ -650,6 +684,9 @@ namespace mfem_mgis {
+       }
+       const auto identifier = getDeviceIdentifier(device_configuration);
+       setMemoryTypes(device_configuration);
++      if (usesGPU(device_configuration)) {
++        createUmpireDeviceAllocators(identifier);
++      }
+       this->device =
+           std::make_unique<mfem::Device>(device_configuration, identifier);
+       // the kernels are launched asynchronously on a GPU: the profiling
+-- 
+2.43.0
+

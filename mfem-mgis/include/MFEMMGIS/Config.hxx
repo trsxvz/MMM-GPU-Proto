@@ -155,7 +155,10 @@ namespace mfem_mgis {
    * allocates the memory of the host with Umpire too, which slows down the
    * computations made on the host; an application which creates its own
    * `mfem::Device` may choose the memory types with
-   * `mfem::Device::SetMemoryTypes` before. With a GPU, the profiling
+   * `mfem::Device::SetMemoryTypes` before. With Umpire, the allocators of
+   * the device memory types of MFEM are created on the GPU of the process
+   * before the device: MFEM 4.10 creates them on the GPU 0, whatever the
+   * GPU of the device (mfem/mfem#5696). With a GPU, the profiling
    * sections wait for the end of the kernels launched on the GPU (see
    * `mgis::setProfilingSynchronization`). An application which uses
    * this option must neither create its own `mfem::Device` (MFEM refuses a
@@ -209,6 +212,18 @@ namespace mfem_mgis {
    * call); otherwise, Kokkos chooses it. It requires mfem-mgis built with
    * Kokkos (CMake option `enable-kokkos`): otherwise, the option is an
    * error and the environment variable is ignored with a warning.
+   *
+   * The option `--gpu-aware-mpi` (or `-gam`, `--no-gpu-aware-mpi` and
+   * `-no-gam` cancelling it), or else the environment variable
+   * `MFEM_MGIS_GPU_AWARE_MPI` (any non empty value other than `0`), makes
+   * MFEM, hypre (if it computes on the GPU) and AmgX give the arrays on the
+   * GPU to MPI, without copies on the host: the MPI library then exchanges
+   * them directly between the GPUs (NVLink, GPUDirect RDMA), if it can. It
+   * requires a device of MFEM using a GPU and an MPI library reading the
+   * memory of the GPUs (checked with Open MPI only): otherwise, the option
+   * is an error and the environment variable is ignored with a warning.
+   * cuDSS always gives the arrays on the GPU to its communication layer;
+   * PETSc and Tpetra have their own settings.
    *
    * The option `--linear-solver-override` (or `-lso`), or else the
    * environment variable `MFEM_MGIS_LINEAR_SOLVER_OVERRIDE`, gives a linear
@@ -339,9 +354,10 @@ namespace mfem_mgis {
    * `--post-processings-execution`), the configuration of the MFEM device
    * (`--device`), the size of the pool of memory of hypre on
    * the GPU (`--hypre-device-pool-size`), the computations of hypre on the
-   * host (`--hypre-on-host`), the initialization of Kokkos (`--kokkos`), the
-   * solver overrides (`--linear-solver-override`,
-   * `--preconditioner-override`, `--non-linear-solver-override`), and the
+   * host (`--hypre-on-host`), the initialization of Kokkos (`--kokkos`),
+   * GPU-aware MPI (`--gpu-aware-mpi`), the solver overrides
+   * (`--linear-solver-override`, `--preconditioner-override`,
+   * `--non-linear-solver-override`), and the
    * PETSc options (`--use-petsc`, `--petsc-configuration-file`), if PETSc is
    * available.
    * \param[in, out] parser: options parser

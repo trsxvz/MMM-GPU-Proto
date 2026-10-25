@@ -121,6 +121,22 @@ if(MFEM_MGIS_HAVE_TFEL)
     endforeach()
   endforeach()
 
+  # GPU-aware MPI on the GPU (ignored with a warning if the MPI library can't
+  # read the memory of the GPUs): MFEM and hypre give the arrays on the GPU
+  # to MPI
+  if(MFEM_USE_MPI AND enable-gpu-tests AND
+     ((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES")))
+    add_test(NAME TwoLayerCube-0-HyprePCGP-gpu-aware-mpi
+             COMMAND mpirun -n 2 ./TwoLayerCube
+                     --mesh "${CMAKE_CURRENT_SOURCE_DIR}/cube_2mat_per.mesh"
+                     --library "$<TARGET_FILE:BehaviourTest>"
+                     --test-case 0 --linearsolver HyprePCG --parallel
+                     --refinement 1 --device gpu)
+    set_tests_properties(TwoLayerCube-0-HyprePCGP-gpu-aware-mpi PROPERTIES
+                         ENVIRONMENT MFEM_MGIS_GPU_AWARE_MPI=1
+                         DEPENDS BehaviourTest RESOURCE_LOCK gpu)
+  endif()
+
   # linear solver override, given by the variable
   # MFEM_MGIS_LINEAR_SOLVER_OVERRIDE (sequential test) or by the option
   # --linear-solver-override (parallel test, with a preconditioner whose
@@ -2228,8 +2244,14 @@ if(MFEM_MGIS_HAVE_AMGX AND enable-gpu-tests)
     # parallel matrices on one process (uploaded as sequential matrices)
     add_test(NAME AmgXSolverTestP1-gpu
              COMMAND mpirun -n 1 ./AmgXSolverTest --parallel)
+    # GPU-aware MPI (ignored with a warning if the MPI library can't read
+    # the memory of the GPUs): AmgX gives the arrays on the GPU to MPI
+    add_test(NAME AmgXSolverTestP-cuda-gpu-aware-mpi
+             COMMAND mpirun -n 2 ./AmgXSolverTest --parallel --device cuda)
+    set_tests_properties(AmgXSolverTestP-cuda-gpu-aware-mpi PROPERTIES
+                         ENVIRONMENT MFEM_MGIS_GPU_AWARE_MPI=1)
     list(APPEND amgx_tests AmgXSolverTestP-gpu AmgXSolverTestP-cuda
-         AmgXSolverTestP1-gpu)
+         AmgXSolverTestP1-gpu AmgXSolverTestP-cuda-gpu-aware-mpi)
   endif(MFEM_USE_MPI)
   # a deadlock fails quickly
   set_tests_properties(${amgx_tests} PROPERTIES RESOURCE_LOCK gpu TIMEOUT 300)
@@ -2452,6 +2474,59 @@ else()
   set_tests_properties(KokkosOptionTest-environment PROPERTIES
                        ENVIRONMENT MFEM_MGIS_KOKKOS=1)
 endif()
+
+# GPUAwareMPIOptionTest executable: the option --gpu-aware-mpi and the
+# variable MFEM_MGIS_GPU_AWARE_MPI make MFEM, hypre and AmgX give the arrays
+# on the GPU to MPI. Without a device of MFEM using a GPU, the option is
+# refused and the variable is ignored with a warning. The tests expecting
+# GPU-aware MPI are skipped if the MPI library can't read the memory of the
+# GPUs
+if(MFEM_USE_MPI)
+  add_test_executable(GPUAwareMPIOptionTest)
+  add_test(NAME GPUAwareMPIOptionTest-none
+           COMMAND GPUAwareMPIOptionTest --expected disabled)
+  add_test(NAME GPUAwareMPIOptionTest-cpu
+           COMMAND GPUAwareMPIOptionTest --device cpu --gpu-aware-mpi
+                   --expected error)
+  add_test(NAME GPUAwareMPIOptionTest-execution-cpu
+           COMMAND GPUAwareMPIOptionTest --execution cpu -gam
+                   --expected error)
+  add_test(NAME GPUAwareMPIOptionTest-environment-cpu
+           COMMAND GPUAwareMPIOptionTest --device cpu --expected disabled)
+  set_tests_properties(GPUAwareMPIOptionTest-environment-cpu PROPERTIES
+                       ENVIRONMENT MFEM_MGIS_GPU_AWARE_MPI=1)
+  if(((MFEM_USE_CUDA STREQUAL "YES") OR (MFEM_USE_HIP STREQUAL "YES"))
+     AND enable-gpu-tests)
+    add_test(NAME GPUAwareMPIOptionTest-gpu
+             COMMAND GPUAwareMPIOptionTest --device gpu --gpu-aware-mpi
+                     --expected enabled)
+    add_test(NAME GPUAwareMPIOptionTest-execution-gpu
+             COMMAND GPUAwareMPIOptionTest --execution gpu -gam
+                     --expected enabled)
+    add_test(NAME GPUAwareMPIOptionTest-environment-gpu
+             COMMAND GPUAwareMPIOptionTest --device gpu --expected enabled)
+    add_test(NAME GPUAwareMPIOptionTest-environment-overridden-gpu
+             COMMAND GPUAwareMPIOptionTest --device gpu --no-gpu-aware-mpi
+                     --expected disabled)
+    add_test(NAME GPUAwareMPIOptionTest-environment-zero-gpu
+             COMMAND GPUAwareMPIOptionTest --device gpu --expected disabled)
+    add_test(NAME GPUAwareMPIOptionTestP-gpu
+             COMMAND mpirun -n 2 ./GPUAwareMPIOptionTest --device gpu
+                     --gpu-aware-mpi --expected enabled)
+    set_tests_properties(GPUAwareMPIOptionTest-environment-gpu
+                         GPUAwareMPIOptionTest-environment-overridden-gpu
+                         PROPERTIES ENVIRONMENT MFEM_MGIS_GPU_AWARE_MPI=1)
+    set_tests_properties(GPUAwareMPIOptionTest-environment-zero-gpu
+                         PROPERTIES ENVIRONMENT MFEM_MGIS_GPU_AWARE_MPI=0)
+    set_tests_properties(GPUAwareMPIOptionTest-gpu
+                         GPUAwareMPIOptionTest-execution-gpu
+                         GPUAwareMPIOptionTest-environment-gpu
+                         GPUAwareMPIOptionTest-environment-overridden-gpu
+                         GPUAwareMPIOptionTest-environment-zero-gpu
+                         GPUAwareMPIOptionTestP-gpu
+                         PROPERTIES RESOURCE_LOCK gpu SKIP_RETURN_CODE 77)
+  endif()
+endif(MFEM_USE_MPI)
 
 # Install the example 1, based on UniaxialTensileTest
 

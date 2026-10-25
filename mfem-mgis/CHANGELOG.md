@@ -71,6 +71,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `MFEM_MGIS_DEVICE`, `MFEM_MGIS_HYPRE_DEVICE_POOL_SIZE`,
   `MFEM_MGIS_HYPRE_ON_HOST` and `MFEM_MGIS_KOKKOS`);
   CMake options `enable-gpu-tests` and `enable-kokkos`
+- option `--gpu-aware-mpi` read by `mfem_mgis::initialize` (environment
+  variable `MFEM_MGIS_GPU_AWARE_MPI`): MFEM, hypre and AmgX give the arrays
+  on the GPU to MPI, without copies on the host
 - CMake module `MFEMMGISDeviceCode.cmake`, compiling the sources containing
   kernels of MFEM as CUDA or HIP code; MFEM compiled with HIP is supported
   (compiled and linked, not run on an AMD GPU yet)
@@ -117,6 +120,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - the message of a failed time step described its first sub-step instead
   of the failed time step
+- with Umpire, the processes of a node allocated the device memory of MFEM
+  on the GPU 0, whatever their GPU (MFEM 4.10, mfem/mfem#5696)
 
 ### Removed
 

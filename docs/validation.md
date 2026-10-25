@@ -462,6 +462,18 @@ installation without looking for Kokkos; their tests `beam-gpu-kokkos` and
 `polycrystal-batch-kokkos` (with its comparison) use the behaviour generated
 by the kokkos backend.
 
+GPU-aware MPI (option `--gpu-aware-mpi` of `mfem_mgis::initialize`) is
+validated by `ctest -R "GPUAwareMPIOptionTest|gpu-aware-mpi"`: 12 tests.
+Four run without a GPU (option refused, variable ignored with a warning).
+Six check the option and the variable on the GPU; they are skipped if the
+MPI library can't read the memory of the GPUs. Two complete cases run on
+two processes: TwoLayerCube with HyprePCG, and the parallel solvers of
+AmgX, which then report their communicator `MPI_DIRECT` ("Using CUDA-Aware
+MPI (GPU Direct) communicator"). The Open MPI 5.0.10 of the environment
+reads the memory of the GPUs. With one GPU, the two processes share it:
+the exchanges between GPUs (NVLink, GPUDirect RDMA) are not run here, nor
+the allocators of Umpire created on another GPU than the GPU 0.
+
 The heterogeneous memory management (HMM) hides here the host data
 read by mistake on the GPU: the mutation that gives the kernel of a model
 at the points the host pointers of its inputs is not detected with HMM.

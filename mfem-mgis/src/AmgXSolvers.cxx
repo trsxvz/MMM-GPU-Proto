@@ -25,6 +25,7 @@
 #include <type_traits>
 #include <cuda_runtime_api.h>
 #include "MGIS/Raise.hxx"
+#include "mfem/general/device.hpp"
 #include "mfem/linalg/sparsemat.hpp"
 #include "mfem/fem/fespace.hpp"
 #ifdef MFEM_USE_MPI
@@ -140,8 +141,15 @@ namespace mfem_mgis::internals {
           checkAmgX(AMGX_initialize(), "initialisation");
           r.initialised = true;
           // without the parameter `exception_handling`, the errors are
-          // reported by the return codes (with it, AmgX aborts)
-          checkAmgX(AMGX_config_create(&(r.configuration), "config_version=2"),
+          // reported by the return codes (with it, AmgX aborts). With
+          // GPU-aware MPI (see `mfem_mgis::initialize`), the arrays on the
+          // GPU are given to MPI: AmgX reads its communicator from the
+          // configuration of the resources only
+          const auto* const configuration =
+              mfem::Device::GetGPUAwareMPI()
+                  ? "config_version=2, communicator=MPI_DIRECT"
+                  : "config_version=2";
+          checkAmgX(AMGX_config_create(&(r.configuration), configuration),
                     "creation of the configuration of the resources");
           // the current device of the process (see `mfem_mgis::initialize`)
           auto device = 0;

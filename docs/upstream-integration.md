@@ -202,6 +202,10 @@ The overall plan is in [plan-mfem-mgis.md](plan-mfem-mgis.md).
      the elements went through Umpire (2 to 5 times slower);
    - hypre on the host with the device on the GPU (`--hypre-on-host`), for
      the small linear systems;
+   - GPU-aware MPI (`--gpu-aware-mpi`): MFEM, hypre and AmgX give the
+     arrays on the GPU to MPI;
+   - allocators of Umpire of MFEM created on the GPU of the process (MFEM
+     4.10 allocates on the GPU 0, MFEM #5696);
    - cuDSS direct solver on the GPU (`CuDSSSolver`, wrapper of
      `mfem::CuDSSSolver` that recreates it when the size or the pattern
      changes), with the reuse of the analysis of contribution 2;
@@ -332,6 +336,9 @@ repositories (open on 13/10/2026):
   `SubMesh`, taken from the parent boundary element;
 - MFEM #5615: `HypreParaSails::SetOperator` takes the communicator of the
   new operator. mfem-mgis works around this defect in contribution 1;
+- MFEM #5697 (issue #5696, opened on 25/10/2026): the device memory types
+  of Umpire allocate on the GPU of the device, not on the GPU 0. mfem-mgis
+  works around this defect in contribution 3;
 - AmgX #386: classical multigrid with CUDA 13 ("invalid device
   function", reproducer `reproducers/amgx-classical-cuda13`).
 

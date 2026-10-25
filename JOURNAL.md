@@ -205,6 +205,11 @@ described in [docs/](docs/overview.md).
 | [2026-10-21, common contract of the behaviours and of the models](#2026-10-21-common-contract-of-the-behaviours-and-of-the-models) |
 | [2026-10-21, interfaces built on the generic interfaces, `generic_functions` option](#2026-10-21-interfaces-built-on-the-generic-interfaces-generic_functions-option) |
 | [2026-10-21, fixes found by the validation of the common contract](#2026-10-21-fixes-found-by-the-validation-of-the-common-contract) |
+| [2026-10-22, execution policies of the backends](#2026-10-22-execution-policies-of-the-backends) |
+| [2026-10-23, arcane backend, TFEL onto master 4d50821c9](#2026-10-23-arcane-backend-tfel-onto-master-4d50821c9) |
+| [2026-10-23, deferred report](#2026-10-23-deferred-report) |
+| [2026-10-23, TFEL onto master 9b810aa15 (#1060, #1071)](#2026-10-23-tfel-onto-master-9b810aa15-1060-1071) |
+| [2026-10-25, several GPUs per node: allocators of Umpire, GPU-aware MPI](#2026-10-25-several-gpus-per-node-allocators-of-umpire-gpu-aware-mpi) |
 
 ## Entries
 
@@ -6024,3 +6029,33 @@ formula as MTest). All the others give the Newton solution to within
 - Results: 6993 tests of TFEL, `-O3` tests of four configurations 8/8, 58
   tests of MGIS, 360 of mfem-mgis, 25 of the examples, 9 of mm-opera-hpc,
   143 cases.
+
+### 2026-10-25, several GPUs per node: allocators of Umpire, GPU-aware MPI
+
+- Analysis of the execution on a node with several GPUs. Each process
+  takes the GPU of its rank on the node, modulo the number of visible GPUs
+  (`getDeviceIdentifier`). TFEL, MGIS, hypre, AmgX, Ginkgo, Kokkos and
+  PETSc follow this GPU. The mesh is split by MFEM (METIS, same number of
+  elements per process). Nothing had run on more than one GPU.
+- Defect of MFEM found by reading the code: with Umpire, the device memory
+  types allocate on the resource `DEVICE` of Umpire, which is the GPU 0,
+  whatever the GPU of the device. When each process sees all the GPUs of
+  the node, all the arrays of MFEM land on the GPU 0. Reported upstream
+  (issue mfem/mfem#5696, pull request #5697, kept compatible with all the
+  versions of Umpire: `DEVICE::<id>` exists since Umpire 4.1).
+  mfem-mgis creates the allocators of MFEM on the GPU of the process before
+  the device, with the names MFEM looks for.
+- GPU-aware MPI: option `--gpu-aware-mpi` of `mfem_mgis::initialize`
+  (variable `MFEM_MGIS_GPU_AWARE_MPI`), off by default. MFEM
+  (`Device::SetGPUAwareMPI`), hypre (`HYPRE_SetGpuAwareMPI`, a choice at
+  run time in hypre 3.2) and AmgX (communicator `MPI_DIRECT`, read in the
+  configuration of the resources) give the arrays on the GPU to MPI. The
+  MPI library then exchanges them between the GPUs without copies on the
+  host. Refused without a device of MFEM using a GPU, or if Open MPI states
+  that it can't read the memory of the GPUs. cuDSS always gives the arrays
+  on the GPU to its communication layer; PETSc and Tpetra have their own
+  settings.
+- Results: targeted pass of 51 tests of mfem-mgis (options, devices, AmgX,
+  the 12 new tests), all passed. AmgX reports its communicator
+  `MPI_DIRECT` on two processes. With one GPU, the exchanges between GPUs
+  and the allocators of Umpire on another GPU than the GPU 0 are not run.
