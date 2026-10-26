@@ -11,6 +11,10 @@
 #     the base of the patches of the prototype (git bundle), and a copy of
 #     deploy.sh. The current commit of the prototype is packed: the changes
 #     which are not committed are not.
+#   scripts/offline/bundle.sh update WORK
+#     WORK/mmm-update.tar: the prototype (current commit) and deploy.sh
+#     only, to update a deployment (`tar -xf mmm-update.tar` in ROOT, then
+#     `deploy.sh setup`).
 #   scripts/offline/bundle.sh mirror WORK MACHINE SPACK_LOCK
 #     WORK/mmm-mirror-MACHINE.tar: mirror of the sources of the packages of
 #     the spack environment of MACHINE (deps/spack/mmm-light) concretized
@@ -22,7 +26,7 @@ set -eu
 P=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$P/scripts/offline/versions.sh"
 usage() {
-  sed -n '6,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '6,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 1
 }
 # spack of the work directory, isolated from the configuration and the
@@ -56,6 +60,18 @@ base() {
   checkout "$PROTO_MGIS_URL" "$W/mgis" "$PROTO_MGIS_BASE"
   git -C "$W/mgis" branch --force base "$PROTO_MGIS_BASE"
   git -C "$W/mgis" bundle create --quiet "$W/stage/mgis.bundle" base
+  prototype
+  # spack and spack-packages without their history
+  git -C "$W/spack" archive --prefix=spack/ HEAD > "$W/stage/spack.tar"
+  git -C "$W/spack-packages" archive --prefix=spack-packages/ HEAD \
+    > "$W/stage/spack-packages.tar"
+  tar -cf "$W/mmm-base.tar" -C "$W/stage" MANIFEST deploy.sh proto.bundle \
+    mgis.bundle spack.tar spack-packages.tar -C "$W" bootstrap
+  echo "bundle.sh: $W/mmm-base.tar ($(du -h "$W/mmm-base.tar" | cut -f1))"
+}
+# git bundle of the current commit of the prototype, copy of deploy.sh and
+# manifest, in WORK/stage
+prototype() {
   local commit
   commit=$(git -C "$P" rev-parse --short HEAD)
   echo "bundle.sh: prototype $commit"
@@ -72,13 +88,11 @@ spack-packages $PROTO_SPACK_PACKAGES_COMMIT
 mgis $PROTO_MGIS_BASE
 created $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(hostname)
 EOF
-  # spack and spack-packages without their history
-  git -C "$W/spack" archive --prefix=spack/ HEAD > "$W/stage/spack.tar"
-  git -C "$W/spack-packages" archive --prefix=spack-packages/ HEAD \
-    > "$W/stage/spack-packages.tar"
-  tar -cf "$W/mmm-base.tar" -C "$W/stage" MANIFEST deploy.sh proto.bundle \
-    mgis.bundle spack.tar spack-packages.tar -C "$W" bootstrap
-  echo "bundle.sh: $W/mmm-base.tar ($(du -h "$W/mmm-base.tar" | cut -f1))"
+}
+update() {
+  prototype
+  tar -cf "$W/mmm-update.tar" -C "$W/stage" MANIFEST deploy.sh proto.bundle
+  echo "bundle.sh: $W/mmm-update.tar ($(du -h "$W/mmm-update.tar" | cut -f1))"
 }
 mirror() {
   local machine=$1 lock=$2
@@ -113,6 +127,10 @@ case "$command" in
   base)
     [ $# -eq 2 ] || usage
     base
+    ;;
+  update)
+    [ $# -eq 2 ] || usage
+    update
     ;;
   mirror)
     [ $# -eq 4 ] || usage
