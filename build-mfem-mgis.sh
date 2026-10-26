@@ -2,8 +2,10 @@
 # Builds, tests and installs mfem-mgis, then builds and tests
 # mfem-mgis-examples, mm-opera-hpc and the cases of cases/ (repositories
 # `mfem-mgis/`, `mfem-mgis-examples/` and `mm-opera-hpc/`, branch
-# `gpu-proto`), against MFEM 4.10 of the spack environment `mmm-gpu`, the
-# MGIS installed by build-mgis.sh and the TFEL installed by build-tfel.sh.
+# `gpu-proto`), against MFEM 4.10 of the spack environment of the machine
+# (PROTO_SPACK_ENVIRONMENT, see scripts/env.sh: `mmm-gpu` on the
+# development machine), the MGIS installed by build-mgis.sh and the TFEL
+# installed by build-tfel.sh.
 #
 # The other builds do not go through this script: MFEM built with HIP for
 # an AMD GPU (scripts/build-hip-amd.sh), and the builds that validate the
@@ -19,10 +21,14 @@
 # An existing build directory is reused, and reconfigured with the options
 # of this script at each call. To start from scratch, delete it first.
 #
-# AmgX is the one given by the variable AMGX_DIR (scripts/env.sh defines it
-# for the environment mmm-gpu), otherwise the one of the spack environment.
-# A warning is printed if this AmgX does not have the patch for CUDA 13
-# (classical multigrid, see deps/spack/README.md).
+# AmgX is used unless the machine sets PROTO_AMGX=OFF. It is the one given
+# by the variable AMGX_DIR (the profile of the development machine defines
+# it for the environment mmm-gpu), otherwise the one of the spack
+# environment. A warning is printed if this AmgX does not have the patch for
+# CUDA 13 (classical multigrid, see deps/spack/README.md).
+#
+# The MPI library is the package PROTO_MPI_PACKAGE (openmpi by default) of
+# the spack environment, possibly an external package.
 #
 # The CUDA compilers (nvcc and its host compiler) are those of MFEM,
 # chosen by mfem-mgis (see cmake/modules/MFEMMGISDeviceCode.cmake): the
@@ -30,31 +36,34 @@
 set -e
 P=$(cd "$(dirname "$0")" && pwd)
 source "$P/scripts/env.sh"
-SPACK=${SPACK:-$HOME/Bureau/spack-mmm/bin/spack}
-MFEM=$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$P/deps/spack/mmm-gpu" \
-  location -i mfem)
-MPI=$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$P/deps/spack/mmm-gpu" \
-  location -i openmpi)
-# AmgX, used by mfem-mgis through its C interface: the one of the
-# environment, or the installation given by AMGX_DIR
-AMGX=${AMGX_DIR:-$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" \
-  -e "$P/deps/spack/mmm-gpu" location -i amgx)}
-# the patch for CUDA 13 is recorded in the specification of the installation
-amgx_patch=$P/deps/spack/repos/spack_repo/mmm_gpu/packages/amgx/amgx-cuda13-sequence-kernel.patch
-if ! /usr/bin/grep -qs "$(sha256sum "$amgx_patch" | cut -d' ' -f1)" \
-  "$AMGX/.spack/spec.json"; then
-  echo "build-mfem-mgis.sh: warning: the AmgX of $AMGX is not patched" \
-    "for CUDA 13 (classical multigrid), see deps/spack/README.md" >&2
+MFEM=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" location -i mfem)
+MPI=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" \
+  location -i "${PROTO_MPI_PACKAGE:-openmpi}")
+AMGX_OPTIONS=()
+if [ "${PROTO_AMGX:-ON}" = ON ]; then
+  # AmgX, used by mfem-mgis through its C interface: the one of the
+  # environment, or the installation given by AMGX_DIR
+  AMGX=${AMGX_DIR:-$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" \
+    location -i amgx)}
+  # the patch for CUDA 13 is recorded in the specification of the
+  # installation
+  amgx_patch=$P/deps/spack/repos/spack_repo/mmm_gpu/packages/amgx/amgx-cuda13-sequence-kernel.patch
+  if ! /usr/bin/grep -qs "$(sha256sum "$amgx_patch" | cut -d' ' -f1)" \
+    "$AMGX/.spack/spec.json"; then
+    echo "build-mfem-mgis.sh: warning: the AmgX of $AMGX is not patched" \
+      "for CUDA 13 (classical multigrid), see deps/spack/README.md" >&2
+  fi
+  AMGX_OPTIONS=(-Denable-amgx=ON -DAMGX_DIR="$AMGX")
 fi
 export PATH=$MPI/bin:$PATH
-JOBS=${JOBS:-8}
+JOBS=${JOBS:-${PROTO_JOBS:-8}}
 # usage: build name source-directory install(yes|no) cmake-options...
 build() {
   local name=$1 source=$2 install=$3
   shift 3
   local b=$P/build/$name
   cmake -S "$source" -B "$b" -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
+    -DCMAKE_C_COMPILER="$PROTO_CC" -DCMAKE_CXX_COMPILER="$PROTO_CXX" \
     -DMPI_C_COMPILER="$MPI/bin/mpicc" -DMPI_CXX_COMPILER="$MPI/bin/mpicxx" \
     -UCMAKE_CUDA_COMPILER -UCMAKE_CUDA_HOST_COMPILER \
     "$@"
@@ -70,7 +79,7 @@ for what in ${@:-mfem-mgis examples opera cases}; do
     mfem-mgis)
       build mfem-mgis "$P/mfem-mgis" yes \
         -DMFEM_DIR="$MFEM" \
-        -Denable-amgx=ON -DAMGX_DIR="$AMGX" \
+        "${AMGX_OPTIONS[@]}" \
         -DMFrontGenericInterface_DIR="$P/install/mgis/share/mgis/cmake" \
         -DTFEL_DIR="$PROTO_TFEL_INSTALL/share/tfel/cmake" \
         -DCMAKE_INSTALL_PREFIX="$P/install/mfem-mgis"

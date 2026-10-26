@@ -1,18 +1,21 @@
 #!/bin/bash
 # Builds, tests and installs the MGIS fork of the prototype (repository
 # `mgis/`, branch `gpu-proto`), against the TFEL installed by build-tfel.sh,
-# in the environment of scripts/env.sh (mmm-gpu by default).
+# in the environment of scripts/env.sh (machine profile PROTO_MACHINE,
+# workstation by default).
 #
 # usage: ./build-mgis.sh [full]
 #
-# Without argument: build in build/mgis (Release, CUDA tests of the batch
-# libraries, tests of the stlpar backend compiled by nvc++ for the GPU),
-# target `check` (tests included), then installation in install/mgis, where
-# mfem-mgis finds MGIS.
+# Without argument: build in build/mgis (Release, with the options of the
+# machine PROTO_MGIS_OPTIONS: on the development machine, CUDA tests of the
+# batch libraries, tests of the stlpar backend compiled by nvc++ for the
+# GPU), target `check` (tests included), then installation in install/mgis,
+# where mfem-mgis finds MGIS.
 #
-# With `full`: build in build/mgis-full, with HDF5 and the C, Fortran and
-# Python bindings (HDF5, pybind11, Python and numpy from the spack
-# installation of the machine), target `check`, without installation.
+# With `full` (development machine only): build in build/mgis-full, with
+# HDF5 and the C, Fortran and Python bindings (HDF5, pybind11, Python and
+# numpy from the spack installation of the machine), target `check`,
+# without installation.
 #
 # An existing build directory is reused, and reconfigured with the options
 # of this script at each call. To start from scratch, delete it first.
@@ -22,9 +25,7 @@ source "$P/scripts/env.sh"
 case "${1:-default}" in
   default)
     BUILD=$P/build/mgis
-    OPTIONS=(-Denable-generic-parallel-cuda-tests=ON
-      -Denable-generic-parallel-stlpar-nvhpc-gpu-tests=ON
-      -DMGIS_NVHPC_CXX_COMPILER="$PROTO_NVHPC/compilers/bin/nvc++"
+    OPTIONS=("${PROTO_MGIS_OPTIONS[@]}"
       -Denable-hdf5-automatic-support=OFF
       -DCMAKE_INSTALL_PREFIX="$P/install/mgis")
     ;;
@@ -38,7 +39,7 @@ case "${1:-default}" in
     export PYTHONPATH=$NUMPY/lib/python3.14/site-packages
     export LD_LIBRARY_PATH=$HDF5/lib:$PYTHON/lib:$LD_LIBRARY_PATH
     BUILD=$P/build/mgis-full
-    OPTIONS=(-DCMAKE_Fortran_COMPILER=gfortran-14
+    OPTIONS=(-DCMAKE_Fortran_COMPILER="$PROTO_FC"
       -DCMAKE_PREFIX_PATH="$PROTO_TFEL_INSTALL;$HDF5;$PYBIND11"
       -DPython_EXECUTABLE="$PYTHON/bin/python3"
       -Denable-hdf5-support=ON -Denable-c-bindings=ON
@@ -50,15 +51,15 @@ case "${1:-default}" in
     ;;
 esac
 cmake -S "$P/mgis" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
+  -DCMAKE_C_COMPILER="$PROTO_CC" -DCMAKE_CXX_COMPILER="$PROTO_CXX" \
   -DCMAKE_CUDA_COMPILER="$PROTO_CUDA/bin/nvcc" \
-  -DCMAKE_CUDA_HOST_COMPILER=g++-14 \
+  -DCMAKE_CUDA_HOST_COMPILER="$PROTO_CXX" \
   -DCMAKE_PREFIX_PATH="$PROTO_TFEL_INSTALL" \
   -Denable-testing=ON -Denable-mgis-function=ON "${OPTIONS[@]}"
-cmake --build "$BUILD" -j8
+cmake --build "$BUILD" -j"${PROTO_JOBS:-8}"
 # the tests of the C and Fortran bindings are built by `check`, not by
 # `build-tests`
-cmake --build "$BUILD" -j8 --target check
+cmake --build "$BUILD" -j"${PROTO_JOBS:-8}" --target check
 if [ "${1:-default}" = default ]; then
   cmake --install "$BUILD"
 fi
