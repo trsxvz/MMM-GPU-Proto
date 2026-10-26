@@ -61,9 +61,9 @@ source "$P/scripts/env.sh" > /dev/null
 # processor, and `spread` over the hardware threads only uses half of the
 # cores. The placement is left to OpenMPI.
 unset OMP_PROC_BIND OMP_PLACES
-SPACK=${SPACK:-$HOME/Bureau/spack-mmm/bin/spack}
-MPI=$(SPACK_DISABLE_LOCAL_CONFIG=1 "$SPACK" -e "$P/deps/spack/mmm-gpu" \
-  location -i openmpi)
+# MPI of the spack environment of the machine (scripts/env.sh)
+MPI=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" \
+  location -i "${PROTO_MPI_PACKAGE:-openmpi}")
 export PATH=$MPI/bin:$PATH
 case_name=${1:-beam}
 out=${2:-$P/results/$work_package-$case_name-$(date +%Y-%m-%d-%H%M)}
