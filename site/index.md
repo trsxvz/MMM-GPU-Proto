@@ -30,3 +30,14 @@ milestones of the work.
 
 whats-new/index
 ```
+
+## Installation on a cluster
+
+How the prototype is installed with spack on a cluster without access
+to the internet (Jean Zay, H100 partition, for a start).
+
+```{toctree}
+:maxdepth: 2
+
+install
+```
