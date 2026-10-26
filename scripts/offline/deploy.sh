@@ -24,6 +24,10 @@
 #     installed packages and spack.lock are then copied in this binary cache
 #     (a few files per package, for a filesystem with few inodes or whose
 #     unused files are deleted).
+#   deploy.sh cache MACHINE BUILDCACHE
+#     copies the installed packages of the environment (dependencies
+#     included) and its spack.lock in the binary cache BUILDCACHE (what
+#     `install` does when PROTO_BUILDCACHE is set).
 #   deploy.sh restore MACHINE BUILDCACHE
 #     installs the environment from the binary cache of `install`, without
 #     compiling, with the spack.lock kept in it.
@@ -41,7 +45,7 @@ ROOT=${PROTO_DEPLOY:-$ROOT}
 PROTO=$ROOT/MMM-GPU-Proto
 export PROTO_DEPLOY=$ROOT
 usage() {
-  sed -n '11,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '11,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 1
 }
 # spack of ROOT, isolated from the configuration of the user: its
@@ -150,13 +154,18 @@ install() {
   PATH=$(espack location -i patch)/bin:$PATH
   espack install --fail-fast -j "$PROTO_JOBS"
   if [ -n "${PROTO_BUILDCACHE:-}" ]; then
-    mkdir -p "$PROTO_BUILDCACHE"
-    espack buildcache push --unsigned --update-index --only package \
-      "file://$PROTO_BUILDCACHE"
-    cp "$E/spack.lock" "$PROTO_BUILDCACHE/spack.lock-$1"
-    echo "deploy.sh: binary cache $PROTO_BUILDCACHE" \
-      "($(find "$PROTO_BUILDCACHE" | wc -l) files)"
+    cache "$1" "$PROTO_BUILDCACHE"
   fi
+}
+cache() {
+  machine "$1"
+  mkdir -p "$2"
+  local c
+  c=$(cd "$2" && pwd)
+  # the packages and their dependencies, external packages excepted
+  espack buildcache push --unsigned --update-index "file://$c"
+  cp "$E/spack.lock" "$c/spack.lock-$1"
+  echo "deploy.sh: binary cache $c ($(find "$c" -type f | wc -l) files)"
 }
 restore() {
   machine "$1"
@@ -191,6 +200,10 @@ case "$command" in
   install)
     [ $# -ge 1 ] && [ $# -le 2 ] || usage
     install "$@"
+    ;;
+  cache)
+    [ $# -eq 2 ] || usage
+    cache "$@"
     ;;
   restore)
     [ $# -eq 2 ] || usage
