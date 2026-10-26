@@ -75,7 +75,8 @@ setup() {
     fi
   done
   if [ ! -d "$PROTO/.git" ]; then
-    git clone --quiet "$ROOT/proto.bundle" "$PROTO"
+    git -c init.defaultBranch=main -c advice.detachedHead=false \
+      clone --quiet "$ROOT/proto.bundle" "$PROTO"
   else
     if [ -n "$(git -C "$PROTO" status --porcelain --untracked-files=no)" ]; then
       echo "deploy.sh: $PROTO has changes which are not committed" >&2
@@ -87,11 +88,10 @@ setup() {
   echo "deploy.sh: prototype $(git -C "$PROTO" log -1 --format='%h %s')"
   # MGIS: base of the prototype and its patches
   if [ ! -d "$PROTO/mgis/.git" ]; then
-    git clone --quiet --no-checkout "$ROOT/mgis.bundle" "$PROTO/mgis"
-  else
-    git -C "$PROTO/mgis" fetch --quiet "$ROOT/mgis.bundle" base:base
+    git -c init.defaultBranch=main init --quiet "$PROTO/mgis"
   fi
-  git -C "$PROTO/mgis" checkout --quiet --force -B gpu-proto base
+  git -C "$PROTO/mgis" fetch --quiet "$ROOT/mgis.bundle" base
+  git -C "$PROTO/mgis" checkout --quiet --force -B gpu-proto FETCH_HEAD
   git -C "$PROTO/mgis" -c user.name=deploy -c user.email=deploy@localhost \
     am --quiet --keep-cr "$PROTO"/patches/mgis/*.patch
   echo "deploy.sh: mgis $(git -C "$PROTO/mgis" log -1 --format='%h %s')"
