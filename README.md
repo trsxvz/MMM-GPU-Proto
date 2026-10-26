@@ -81,7 +81,10 @@ To read in this order:
 11. [docs/displacement-gradient.md](docs/displacement-gradient.md):
     displacement gradient given to the finite strain behaviours, for the
     precision of small strains in float.
-12. [JOURNAL.md](JOURNAL.md): day by day progress.
+12. [docs/install.md](docs/install.md): installation on a cluster
+    without access to the internet (spack environment `mmm-light`,
+    machine profiles `deps/machines/`, Jean Zay).
+13. [JOURNAL.md](JOURNAL.md): day by day progress.
 
 The documentation of the interfaces, in English, is also in the tree of
 each library: `tfel/docs/web/generic-parallel-*.md` for TFEL,
@@ -101,12 +104,13 @@ each library: `tfel/docs/web/generic-parallel-*.md` for TFEL,
 | `build-tfel.sh` | configuration, build and installation of TFEL |
 | `build-mgis.sh`, `build-mfem-mgis.sh` | build and tests of MGIS, then of mfem-mgis, of the examples, of mm-opera-hpc and of the cases of `cases/`, against the TFEL installed by `build-tfel.sh` |
 | `cases/` | measurement cases (beam, thermal, polycrystal, bubble, cermet, ssna303, examples) and measurement scripts `measure-*.sh`, see `cases/README.md` |
-| `scripts/` | environment (`env.sh`), synchronisation of the sources and of the patches (`sync-tfel.sh`, `sync-mgis.sh`, `sync-repository.sh`) and their check (`verify-patches.sh`), test matrix, suite of mfem-mgis on the GPU (`mfem-mgis-gpu-suite.sh`), build for an AMD GPU (`build-hip-amd.sh`), GPU headers of MGIS (`check-mgis-gpu-headers.sh`), host and GPU annotations of the headers of TFEL (`clang-cuda-header-scan.sh`, `annotate-function-templates.py`), compilation and runtime sweeps, roundoff check, memory guard of the long compilations |
+| `deps/machines/` | machine profiles: paths, toolchains, spack configuration and jobs of each machine (`workstation`, `jean-zay-h100`), selected by `PROTO_MACHINE`, see [deps/machines/README.md](deps/machines/README.md) |
+| `scripts/` | environment (`env.sh`), installation without access to the internet (`offline/bundle.sh`, `offline/deploy.sh`, see [docs/install.md](docs/install.md)), synchronisation of the sources and of the patches (`sync-tfel.sh`, `sync-mgis.sh`, `sync-repository.sh`) and their check (`verify-patches.sh`), test matrix, suite of mfem-mgis on the GPU (`mfem-mgis-gpu-suite.sh`), build for an AMD GPU (`build-hip-amd.sh`), GPU headers of MGIS (`check-mgis-gpu-headers.sh`), host and GPU annotations of the headers of TFEL (`clang-cuda-header-scan.sh`, `annotate-function-templates.py`), compilation and runtime sweeps, roundoff check, memory guard of the long compilations |
 | `scratch/` | tracked development tools: complete validation (`validate3.sh`), tests with the development tree (`dev-test.sh`, `targeted-test.sh`), development configurations (`b2/`) |
 | `reproducers/` | small standalone programs that check a precise point |
 | `results/` | results of the matrices and of the sweeps; compiler defects and their reproducers (`results/nvhpc-bugs/`) |
 | `site/` | pages of the site of the prototype, in English (Sphinx, MyST); the complete site, with the documentations of TFEL, MGIS and mfem-mgis, is built by `scripts/build-site.sh` and published by `.github/workflows/pages.yml` |
-| `deps/spack/` | spack environments of the prototype (`mmm-gpu`; `mmm-solvers`, the solver libraries which require another build of MFEM or PETSc; `mmm-float-cpu` and its double twin `mmm-double-cpu`; `mmm-float-gpu`; `mmm-trilinos`, Trilinos 17.2.1 with Tacho and FROSch, and `mmm-trilinos-teko`, with FastILU and Teko too; `ci-cpu` and `ci-cpu-float`) and complementary recipes |
+| `deps/spack/` | spack environments of the prototype (`mmm-gpu`; `mmm-solvers`, the solver libraries which require another build of MFEM or PETSc; `mmm-float-cpu` and its double twin `mmm-double-cpu`; `mmm-float-gpu`; `mmm-trilinos`, Trilinos 17.2.1 with Tacho and FROSch, and `mmm-trilinos-teko`, with FastILU and Teko too; `ci-cpu` and `ci-cpu-float`; `mmm-light`, the libraries needed by mfem-mgis only, for the clusters, see [docs/install.md](docs/install.md)) and complementary recipes |
 | `deps/spack-sycl/` | specification of the LLVM of the old environment |
 
 The working repositories are local clones. `tfel/`, `mfem-mgis/`,
@@ -117,9 +121,12 @@ is tracked by its patch series.
 
 ## Build
 
-The paths of the scripts are those of the development machine.
-`scripts/env.sh` describes the environment: compilers, Kokkos,
-AdaptiveCpp, HIP, CUDA.
+The paths and toolchains of each machine are in its profile
+(`deps/machines/<machine>`), selected by `PROTO_MACHINE`; the default
+profile, `workstation`, is the development machine. `scripts/env.sh`
+gives the environment of the profile: compilers, Kokkos, AdaptiveCpp,
+HIP, CUDA. On a cluster, possibly without access to the internet, see
+[docs/install.md](docs/install.md).
 
 TFEL, from the sources of this repository:
 
