@@ -12,8 +12,10 @@
 # slot:PE=<t> (t cores per process). Ignored options: --bind-to and the
 # other options of placement (srun places the processes on the cores of the
 # allocation), -x VAR (srun exports the whole environment). The step shares
-# the resources of the job with the other steps (--overlap), as the
-# processes started by mpirun.
+# the resources of the job with the other steps (--overlap) and has all the
+# memory of the job on its nodes (--mem=0), as the processes started by
+# mpirun: by default, a step only has the memory of its processors (a few
+# GB per process, too little for the beam refined six times).
 set -u
 np=1
 cpus=()
@@ -52,4 +54,4 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-exec srun --overlap --ntasks="$np" "${cpus[@]}" "$@"
+exec srun --overlap --mem=0 --ntasks="$np" "${cpus[@]}" "$@"
