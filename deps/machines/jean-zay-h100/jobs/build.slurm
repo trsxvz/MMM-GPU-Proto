@@ -12,9 +12,11 @@
 #SBATCH --partition=gpu_p6
 #SBATCH --constraint=h100
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
+# 4 tasks: the parallel tests of mfem-mgis run `mpirun -n 2` (up to 4
+# processes), which needs as many slots in the job
+#SBATCH --ntasks=4
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=24
+#SBATCH --cpus-per-task=6
 #SBATCH --hint=nomultithread
 #SBATCH --time=06:00:00
 #SBATCH --output=%x-%j.out

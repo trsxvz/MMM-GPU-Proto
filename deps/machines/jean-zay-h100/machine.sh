@@ -27,8 +27,8 @@ export PROTO_CUDA=/lustre/fshomisc/sys/common/nvidia/cuda/13.0
 export PROTO_TFEL_BUILD=$P/build/tfel PROTO_TFEL_INSTALL=$P/install/tfel
 # AmgX is not part of mmm-light
 export PROTO_AMGX=OFF
-# parallel jobs of the builds: the cores of the job
-export PROTO_JOBS=${SLURM_CPUS_PER_TASK:-8}
+# parallel jobs of the builds: the cores of the job on the node
+export PROTO_JOBS=${PROTO_JOBS:-${SLURM_CPUS_ON_NODE:-8}}
 unset SPACK_ENV SPACK_ENV_VIEW
 export CUDA_HOME=$PROTO_CUDA
 export CMAKE_PREFIX_PATH=$PROTO_TFEL_INSTALL:$PROTO_SPACK_VIEW
