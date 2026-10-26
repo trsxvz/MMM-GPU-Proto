@@ -15,7 +15,9 @@
 # the resources of the job with the other steps (--overlap) and has all the
 # memory of the job on its nodes (--mem=0), as the processes started by
 # mpirun: by default, a step only has the memory of its processors (a few
-# GB per process, too little for the beam refined six times).
+# GB per process, too little for the beam refined six times). The
+# options of srun given by PROTO_SRUN_OPTIONS are added, for instance
+# `--gpu-bind=closest` (see cases/measure-multi-gpu.sh).
 set -u
 np=1
 cpus=()
@@ -54,4 +56,5 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-exec srun --overlap --mem=0 --ntasks="$np" "${cpus[@]}" "$@"
+read -r -a extra <<< "${PROTO_SRUN_OPTIONS:-}"
+exec srun --overlap --mem=0 --ntasks="$np" "${cpus[@]}" "${extra[@]}" "$@"
