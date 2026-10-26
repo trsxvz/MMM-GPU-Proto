@@ -4,7 +4,9 @@
 # mfem-mgis, of the examples and of mm-opera-hpc run `mpirun -n N`, and the
 # measurement scripts of cases/ `mpirun [options] -n N`. A machine profile
 # puts this directory first in its PATH with PROTO_MPI_LAUNCHERS (see
-# deps/machines/README.md).
+# deps/machines/README.md); mpiexec, a link to this script, is the
+# MPIEXEC_EXECUTABLE of the projects which find MPI with CMake (examples,
+# mm-opera-hpc, see build-mfem-mgis.sh).
 #
 # Translated options: -n and -np (number of processes), --map-by
 # slot:PE=<t> (t cores per process). Ignored options: --bind-to and the

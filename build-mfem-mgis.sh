@@ -58,6 +58,13 @@ fi
 # mpirun of the machine profile first, if any (PROTO_MPI_LAUNCHERS)
 export PATH=${PROTO_MPI_LAUNCHERS:+$PROTO_MPI_LAUNCHERS:}$MPI/bin:$PATH
 JOBS=${JOBS:-${PROTO_JOBS:-8}}
+# launcher of the parallel tests given by find_package(MPI) (examples,
+# mm-opera-hpc): the mpiexec of the machine profile, if any, instead of the
+# one of the MPI library
+MPIEXEC_OPTIONS=()
+if [ -n "${PROTO_MPI_LAUNCHERS:-}" ]; then
+  MPIEXEC_OPTIONS=(-DMPIEXEC_EXECUTABLE="$PROTO_MPI_LAUNCHERS/mpiexec")
+fi
 # usage: build name source-directory install(yes|no) cmake-options...
 build() {
   local name=$1 source=$2 install=$3
@@ -66,6 +73,7 @@ build() {
   cmake -S "$source" -B "$b" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$PROTO_CC" -DCMAKE_CXX_COMPILER="$PROTO_CXX" \
     -DMPI_C_COMPILER="$MPI/bin/mpicc" -DMPI_CXX_COMPILER="$MPI/bin/mpicxx" \
+    "${MPIEXEC_OPTIONS[@]}" \
     -UCMAKE_CUDA_COMPILER -UCMAKE_CUDA_HOST_COMPILER \
     "$@"
   cmake --build "$b" -j "$JOBS"
