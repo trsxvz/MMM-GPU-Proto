@@ -260,7 +260,13 @@ ones of before.
   (one whole node, 4 H100 and 96 cores, QoS dev, one hour at most):
   `cases/measure-multi-gpu.sh`, strong scaling of the beam on 1, 2 and 4
   GPUs (with and without `--gpu-aware-mpi`) and on 24, 48 and 96 processes
-  on the CPU. Each process takes the GPU of its rank on the node.
+  on the CPU. Each process takes the GPU of its rank on the node. The
+  processes must run on the cores close to their GPU: with one core per
+  process, the second process ran on the other socket than its GPU, and
+  the copies from the GPU to the host at the end of each step were 9 times
+  slower. The measurement spreads the processes over the cores of the node
+  and binds them to the closest GPUs (`--gpu-bind=closest`); in a job,
+  `srun --cpus-per-task=<cores per GPU> --gpu-bind=closest` does the same.
 - **mpirun**: the Open MPI of IDRIS has no `mpirun` (spack variant
   `~legacylaunchers`: its `mpirun` only prints a message), only `srun`. The
   tests run `mpirun -n N`: both profiles put first in the PATH
