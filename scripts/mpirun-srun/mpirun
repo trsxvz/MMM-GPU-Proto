@@ -1,0 +1,53 @@
+#!/bin/bash
+# mpirun for the machines whose MPI library is only launched by srun (Slurm),
+# such as the Open MPI of Jean Zay, built without mpirun: the tests of
+# mfem-mgis, of the examples and of mm-opera-hpc run `mpirun -n N`, and the
+# measurement scripts of cases/ `mpirun [options] -n N`. A machine profile
+# puts this directory first in its PATH with PROTO_MPI_LAUNCHERS (see
+# deps/machines/README.md).
+#
+# Translated options: -n and -np (number of processes), --map-by
+# slot:PE=<t> (t cores per process). Ignored options: --bind-to and the
+# other options of placement (srun places the processes on the cores of the
+# allocation), -x VAR (srun exports the whole environment). The step shares
+# the resources of the job with the other steps (--overlap), as the
+# processes started by mpirun.
+set -u
+np=1
+cpus=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n | -np | --np | -c)
+      np=$2
+      shift 2
+      ;;
+    --map-by)
+      case "$2" in
+        *PE=*) cpus=(--cpus-per-task="${2##*PE=}") ;;
+      esac
+      shift 2
+      ;;
+    --bind-to | --rank-by | -x | --mca)
+      if [ "$1" = --mca ]; then
+        shift 3
+      else
+        shift 2
+      fi
+      ;;
+    --oversubscribe | --report-bindings | --allow-run-as-root)
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "mpirun (srun): unsupported option $1" >&2
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+exec srun --overlap --ntasks="$np" "${cpus[@]}" "$@"

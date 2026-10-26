@@ -26,7 +26,10 @@ variable `PROTO_MACHINE` selects the profile (`workstation` by default):
   - `PROTO_MGIS_OPTIONS` (array): options of CMake of MGIS;
   - optionally `PROTO_AMGX` (`ON` by default; `OFF` builds mfem-mgis
     without AmgX), `PROTO_MPI_PACKAGE` (`openmpi` by default: the spack
-    package of MPI) and `PROTO_JOBS` (parallel jobs of the builds);
+    package of MPI), `PROTO_MPI_LAUNCHERS` (directory placed first in the
+    PATH of the tests and of the measurements, for instance
+    `scripts/mpirun-srun`, whose `mpirun` runs `srun`, for an MPI library
+    without mpirun) and `PROTO_JOBS` (parallel jobs of the builds);
   - `PATH`, `LD_LIBRARY_PATH`, `CMAKE_PREFIX_PATH` and the variables of
     the toolchains (modules of the machine, for instance).
 - `tfel.sh` (required by `build-tfel.sh`), sourced by `build-tfel.sh`. It

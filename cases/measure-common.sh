@@ -64,7 +64,8 @@ unset OMP_PROC_BIND OMP_PLACES
 # MPI of the spack environment of the machine (scripts/env.sh)
 MPI=$(proto_spack -e "$PROTO_SPACK_ENVIRONMENT" \
   location -i "${PROTO_MPI_PACKAGE:-openmpi}")
-export PATH=$MPI/bin:$PATH
+# mpirun of the machine profile first, if any (PROTO_MPI_LAUNCHERS)
+export PATH=${PROTO_MPI_LAUNCHERS:+$PROTO_MPI_LAUNCHERS:}$MPI/bin:$PATH
 case_name=${1:-beam}
 out=${2:-$P/results/$work_package-$case_name-$(date +%Y-%m-%d-%H%M)}
 case "$case_name" in
