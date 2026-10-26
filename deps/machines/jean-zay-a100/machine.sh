@@ -19,6 +19,9 @@ module load arch/a100 gcc/14.2.0 cuda/13.0.3 openmpi/4.1.8-cuda \
   return 1
 }
 export PROTO_DEPLOY=${PROTO_DEPLOY:-$(dirname "$P")}
+# the Open MPI of IDRIS has no mpirun (only srun): mpirun of
+# scripts/mpirun-srun, first in the PATH, for the tests and the measurements
+export PROTO_MPI_LAUNCHERS=$P/scripts/mpirun-srun
 export PROTO_CC=gcc PROTO_CXX=g++ PROTO_FC=gfortran
 export PROTO_SPACK=$PROTO_DEPLOY/spack/bin/spack
 # builtin repository of spack, read by deps/spack/mmm-light/spack.yaml
@@ -34,7 +37,7 @@ export PROTO_JOBS=${PROTO_JOBS:-${SLURM_CPUS_ON_NODE:-8}}
 unset SPACK_ENV SPACK_ENV_VIEW
 export CUDA_HOME=$PROTO_CUDA
 export CMAKE_PREFIX_PATH=$PROTO_TFEL_INSTALL:$PROTO_SPACK_VIEW
-export PATH=$PROTO_TFEL_INSTALL/bin:$PROTO_SPACK_VIEW/bin:$PATH
+export PATH=$PROTO_MPI_LAUNCHERS:$PROTO_TFEL_INSTALL/bin:$PROTO_SPACK_VIEW/bin:$PATH
 export LD_LIBRARY_PATH=$PROTO_TFEL_INSTALL/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export OMP_PROC_BIND=spread OMP_PLACES=threads
 # options of CMake of MGIS (build-mgis.sh): tests of the batch libraries of

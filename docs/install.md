@@ -252,9 +252,12 @@ ones of before.
   (one whole node, 4 H100 and 96 cores, QoS dev, one hour at most):
   `cases/measure-multi-gpu.sh`, strong scaling of the beam on 1, 2 and 4
   GPUs (with and without `--gpu-aware-mpi`) and on 24, 48 and 96 processes
-  on the CPU. The jobs of the measurement and the tests run `mpirun`
-  (Open MPI of IDRIS) in the allocation of the job; each process takes the
-  GPU of its rank on the node.
+  on the CPU. Each process takes the GPU of its rank on the node.
+- **mpirun**: the Open MPI of IDRIS has no `mpirun` (spack variant
+  `~legacylaunchers`: its `mpirun` only prints a message), only `srun`. The
+  tests run `mpirun -n N`: both profiles put first in the PATH
+  `scripts/mpirun-srun/mpirun` (`PROTO_MPI_LAUNCHERS`), which runs
+  `srun --overlap --ntasks=N` in the allocation of the job.
 
 ## Jean Zay, A100 partition (profile `jean-zay-a100`)
 

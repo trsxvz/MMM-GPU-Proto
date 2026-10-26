@@ -55,7 +55,8 @@ if [ "${PROTO_AMGX:-ON}" = ON ]; then
   fi
   AMGX_OPTIONS=(-Denable-amgx=ON -DAMGX_DIR="$AMGX")
 fi
-export PATH=$MPI/bin:$PATH
+# mpirun of the machine profile first, if any (PROTO_MPI_LAUNCHERS)
+export PATH=${PROTO_MPI_LAUNCHERS:+$PROTO_MPI_LAUNCHERS:}$MPI/bin:$PATH
 JOBS=${JOBS:-${PROTO_JOBS:-8}}
 # usage: build name source-directory install(yes|no) cmake-options...
 build() {
