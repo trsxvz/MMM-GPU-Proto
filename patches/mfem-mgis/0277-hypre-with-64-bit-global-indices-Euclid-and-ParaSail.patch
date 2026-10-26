@@ -1,0 +1,261 @@
+From fb0d262106a5d74af4733e0514c202652475b2c2 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 26 Oct 2026 10:47:21 +0100
+Subject: [PATCH] hypre with 64 bit global indices: Euclid and ParaSails
+ refused
+
+hypre built with mixedint (required with GPUs for more than 2^31 unknowns)
+or bigint does not support Euclid and ParaSails ("Euclid cannot be used in
+mixedint mode!"): their setup failed and stopped the program
+(LinearSolverFactoriesTestP, and ExecutionSettingsTest and
+HypreParaSailsTest once the preconditioners refused, with hypre 3.2.0
++mixedint on the A100 GPUs of Jean Zay). The function isHypreUsingBigInt
+tells if hypre uses 64 bit global indices; HypreEuclid and HypreParaSails
+are then refused when they are generated, with a message. The tests check
+the refusal: LinearSolverFactoriesTest, HypreParaSailsTest, and
+ExecutionSettingsTest, where Euclid, the preconditioner of hypre which only
+computes on the host, is refused for its placement when the linear solvers
+are placed on the GPU, and for the indices of hypre otherwise.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ docs/source/user_guide/linear_solvers.rst |  7 +++++
+ include/MFEMMGIS/Config.hxx               |  8 ++++++
+ src/Config.cxx                            |  8 ++++++
+ src/HypreLinearSolvers.cxx                | 16 ++++++++++++
+ tests/ExecutionSettingsTest.cxx           | 32 ++++++++++++++++-------
+ tests/HypreParaSailsTest.cxx              | 10 ++++---
+ tests/LinearSolverFactoriesTest.cxx       | 26 +++++++++++++++++-
+ 7 files changed, 93 insertions(+), 14 deletions(-)
+
+diff --git a/docs/source/user_guide/linear_solvers.rst b/docs/source/user_guide/linear_solvers.rst
+index e8047bda34..a3d146fc6b 100644
+--- a/docs/source/user_guide/linear_solvers.rst
++++ b/docs/source/user_guide/linear_solvers.rst
+@@ -485,6 +485,13 @@ on the GPU, and, when they are placed on the CPU in the :cxx:`mixed` mode,
+ the Krylov solvers of MFEM, which compute where MFEM computes, are refused:
+ they are then given to the Krylov solvers of PETSc.
+ 
++The preconditioners :cxx:`HypreEuclid` and :cxx:`HypreParaSails` are
++refused when hypre is built with 64 bit global indices (:cxx:`mixedint`,
++required with GPUs for more than :math:`2^{31}` unknowns, or
++:cxx:`bigint`), which hypre does not support for them; the function
++:cxx:`mfem_mgis::isHypreUsingBigInt` tells if hypre uses such indices.
++:cxx:`HypreParaSails` is also refused when hypre computes on a GPU.
++
+ The libraries which are not available (MFEM built without them, the
+ options :code:`enable-<library>` of mfem-mgis set to :code:`OFF`, see
+ :ref:`mfem_mgis_optional_libraries`, or mfem-mgis built without AmgX,
+diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
+index 6a18663892..27e3f0c0a7 100644
+--- a/include/MFEMMGIS/Config.hxx
++++ b/include/MFEMMGIS/Config.hxx
+@@ -370,6 +370,14 @@ namespace mfem_mgis {
+    * when MFEM is compiled with MPI, it can be called without guards.
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool isHypreUsingGPU() noexcept;
++  /*!
++   * \return true if hypre is built with 64 bit global indices
++   * (`HYPRE_BigInt`: hypre built with `mixedint`, required with GPUs, or
++   * `bigint`), false otherwise and without MPI. hypre then refuses the
++   * Euclid and ParaSails preconditioners, which mfem-mgis reports when they
++   * are generated.
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] bool isHypreUsingBigInt() noexcept;
+   /*!
+    * \return true if Kokkos is initialized (for instance by
+    * `mfem_mgis::initialize` with the option `--kokkos`, see the CMake option
+diff --git a/src/Config.cxx b/src/Config.cxx
+index e70ba831a7..877a1aa482 100644
+--- a/src/Config.cxx
++++ b/src/Config.cxx
+@@ -989,6 +989,14 @@ namespace mfem_mgis {
+ #endif /* MFEM_USE_MPI */
+   }  // end of isHypreUsingGPU
+ 
++  bool isHypreUsingBigInt() noexcept {
++#if defined(MFEM_USE_MPI) && (defined(HYPRE_MIXEDINT) || defined(HYPRE_BIGINT))
++    return true;
++#else
++    return false;
++#endif
++  }  // end of isHypreUsingBigInt
++
+   bool isKokkosInitialized() noexcept {
+ #ifdef MFEM_MGIS_HAVE_KOKKOS
+     return internals::isKokkosInitialized();
+diff --git a/src/HypreLinearSolvers.cxx b/src/HypreLinearSolvers.cxx
+index c892718f85..660c0baa0c 100644
+--- a/src/HypreLinearSolvers.cxx
++++ b/src/HypreLinearSolvers.cxx
+@@ -373,6 +373,14 @@ namespace mfem_mgis {
+     if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
+       return {};
+     }
++    // hypre refuses Euclid with 64 bit global indices ("Euclid cannot be
++    // used in mixedint mode!", failure of the setup)
++    if (isHypreUsingBigInt()) {
++      return ctx.registerErrorMessage(
++          "setHypreEuclidPreconditioner: the Euclid preconditioner is not "
++          "supported by hypre built with 64 bit global indices (mixedint or "
++          "bigint)");
++    }
+     auto euclid = std::make_unique<mfem::HypreEuclid>(p.GetComm());
+     return euclid;
+   }  // end of setHypreEuclidPreconditioner
+@@ -472,6 +480,14 @@ namespace mfem_mgis {
+           "setHypreParaSailsPreconditioner: the ParaSails preconditioner is "
+           "not supported when hypre computes on a GPU");
+     }
++    // hypre refuses ParaSails with 64 bit global indices ("ParaSails not
++    // usable in mixedint mode!")
++    if (isHypreUsingBigInt()) {
++      return ctx.registerErrorMessage(
++          "setHypreParaSailsPreconditioner: the ParaSails preconditioner is "
++          "not supported by hypre built with 64 bit global indices (mixedint "
++          "or bigint)");
++    }
+     auto parasails =
+         std::make_unique<internals::ReusableHypreParaSails>(p.GetComm());
+     // statistics of the setups printed by hypre (printed by default by
+diff --git a/tests/ExecutionSettingsTest.cxx b/tests/ExecutionSettingsTest.cxx
+index 7170fab52c..b567b76589 100644
+--- a/tests/ExecutionSettingsTest.cxx
++++ b/tests/ExecutionSettingsTest.cxx
+@@ -487,11 +487,15 @@ static void checkBehaviourLibraryRefusal(const char* const mesh,
+  * \param[in] solver: name of the linear solver
+  * \param[in] refused: expected result
+  * \param[in] preconditioner: name of the preconditioner, if any
++ * \param[in] reason: part of the message of a refusal
+  */
+-static void checkLinearSolver(const char* const mesh,
+-                              const char* const solver,
+-                              const bool refused,
+-                              const char* const preconditioner = nullptr) {
++static void checkLinearSolver(
++    const char* const mesh,
++    const char* const solver,
++    const bool refused,
++    const char* const preconditioner = nullptr,
++    const char* const reason =
++        "while the execution settings place the linear solvers") {
+   using namespace mfem_mgis;
+   auto ctx = Context{};
+   auto problem = makeProblem(ctx, mesh);
+@@ -503,8 +507,7 @@ static void checkLinearSolver(const char* const mesh,
+   const auto r = problem.setLinearSolver(ctx, solver, parameters);
+   const auto msg = std::string{ctx.getErrorMessage()};
+   if (refused) {
+-    check((!r) && (msg.find("while the execution settings place the linear "
+-                            "solvers") != std::string::npos),
++    check((!r) && (msg.find(reason) != std::string::npos),
+           "linear solver '" + std::string{solver} + "' not refused (" + msg +
+               ")");
+   } else {
+@@ -628,11 +631,20 @@ int main(int argc, char** argv) {
+     checkLinearSolver(mesh, "CGSolver",
+                       (s.mode == ExecutionMode::MIXED) &&
+                           (s.linear_solver == ExecutionLocation::CPU));
+-    // the preconditioner of hypre Euclid only computes on the host
++    // the preconditioner of hypre Euclid only computes on the host. With
++    // the 64 bit global indices of hypre, where it is refused, the
++    // placement is checked first: Euclid is refused for its placement when
++    // the linear solvers are placed on the GPU, and for the indices of
++    // hypre otherwise (no other preconditioner of hypre only computes on the
++    // host, ParaSails being refused in the same way)
+     if (hypre_accepted) {
+-      checkLinearSolver(mesh, "HyprePCG",
+-                        s.linear_solver == ExecutionLocation::GPU,
+-                        "HypreEuclid");
++      const auto gpu = s.linear_solver == ExecutionLocation::GPU;
++      if ((!gpu) && (isHypreUsingBigInt())) {
++        checkLinearSolver(mesh, "HyprePCG", true, "HypreEuclid",
++                          "64 bit global indices");
++      } else {
++        checkLinearSolver(mesh, "HyprePCG", gpu, "HypreEuclid");
++      }
+     }
+   }
+   std::cout << (failures == 0 ? "success" : "failure") << '\n';
+diff --git a/tests/HypreParaSailsTest.cxx b/tests/HypreParaSailsTest.cxx
+index e6b707dcbd..fc380f85a3 100644
+--- a/tests/HypreParaSailsTest.cxx
++++ b/tests/HypreParaSailsTest.cxx
+@@ -5,7 +5,9 @@
+  * two operators, the first one being destroyed before the second one is
+  * given, as the non linear solvers do (`mfem::HypreParaSails::SetOperator`
+  * reads the communicator of the previous operator). When hypre computes on
+- * a GPU, where ParaSails is not supported, the preconditioner is refused.
++ * a GPU, where ParaSails is not supported, or uses 64 bit global indices
++ * (mixedint or bigint), which ParaSails does not support, the
++ * preconditioner is refused.
+  * \date   11/10/2026
+  */
+ 
+@@ -80,8 +82,10 @@ int main(int argc, char** argv) {
+                  {"Preconditioner",
+                   Parameters{{"Name", "HypreParaSails"},
+                              {"Options", Parameters{{"VerbosityLevel", 0}}}}}});
+-  if (isHypreUsingGPU()) {
+-    check(isInvalid(h), "ParaSails is not refused on a GPU");
++  if (isHypreUsingGPU() || isHypreUsingBigInt()) {
++    check(isInvalid(h),
++          "ParaSails is not refused on a GPU or with the 64 bit global "
++          "indices of hypre");
+     if (verbose && isInvalid(h)) {
+       std::cout << "refused: " << ctx.getErrorMessage() << '\n';
+     }
+diff --git a/tests/LinearSolverFactoriesTest.cxx b/tests/LinearSolverFactoriesTest.cxx
+index 90b46039b0..27c26bcd31 100644
+--- a/tests/LinearSolverFactoriesTest.cxx
++++ b/tests/LinearSolverFactoriesTest.cxx
+@@ -116,6 +116,16 @@ static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
+   return true;
+ }  // end of isAvailable
+ 
++/*!
++ * \return true if hypre refuses the preconditioner: Euclid and ParaSails,
++ * with the 64 bit global indices of hypre (mixedint or bigint)
++ * \param[in] n: name of the preconditioner
++ */
++static bool isRefusedByHypre(const std::string& n) {
++  return mfem_mgis::isHypreUsingBigInt() &&
++         ((n == "HypreEuclid") || (n == "HypreParaSails"));
++}  // end of isRefusedByHypre
++
+ //! \return if the given option is accepted
+ static bool accepts(const mfem_mgis::LinearSolverDescription& d,
+                     const std::string& o) {
+@@ -186,7 +196,8 @@ static std::optional<mfem_mgis::Parameters> getTestParameters(
+     auto preconditioner = std::optional<std::string>{};
+     for (const auto& pn : f.getNames()) {
+       const auto* const pd = f.getDescription(pn);
+-      if ((pd->library != d.library) || (!isAvailable(*pd))) {
++      if ((pd->library != d.library) || (!isAvailable(*pd)) ||
++          (isRefusedByHypre(pn))) {
+         continue;
+       }
+       if (pn.find("Jacobi") != std::string::npos) {
+@@ -498,6 +509,19 @@ static void run(System<is_parallel>& s, const bool elasticity) {
+       print(n + ": skipped (unknowns with one component)");
+       continue;
+     }
++    // refused by mfem-mgis when hypre refuses it (its setup would fail)
++    if (isRefusedByHypre(n)) {
++      auto ctx = Context{};
++      auto ls =
++          lf.generate(ctx, "GMRESSolver", s.fespace,
++                      Parameters{{"Preconditioner", Parameters{{"Name", n}}}});
++      check(isInvalid(ls) &&
++                (ctx.getErrorMessage().find("64 bit global indices") !=
++                 std::string::npos),
++            n + ": not refused with the 64 bit global indices of hypre");
++      print(n + ": refused (64 bit global indices of hypre)");
++      continue;
++    }
+     auto ctx = Context{};
+     auto ls = lf.generate(
+         ctx, "GMRESSolver", s.fespace,
+-- 
+2.34.1
+

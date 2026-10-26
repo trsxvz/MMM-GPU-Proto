@@ -371,6 +371,14 @@ namespace mfem_mgis {
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool isHypreUsingGPU() noexcept;
   /*!
+   * \return true if hypre is built with 64 bit global indices
+   * (`HYPRE_BigInt`: hypre built with `mixedint`, required with GPUs, or
+   * `bigint`), false otherwise and without MPI. hypre then refuses the
+   * Euclid and ParaSails preconditioners, which mfem-mgis reports when they
+   * are generated.
+   */
+  MFEM_MGIS_EXPORT [[nodiscard]] bool isHypreUsingBigInt() noexcept;
+  /*!
    * \return true if Kokkos is initialized (for instance by
    * `mfem_mgis::initialize` with the option `--kokkos`, see the CMake option
    * `enable-kokkos`), false otherwise and if mfem-mgis is built without

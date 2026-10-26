@@ -989,6 +989,14 @@ namespace mfem_mgis {
 #endif /* MFEM_USE_MPI */
   }  // end of isHypreUsingGPU
 
+  bool isHypreUsingBigInt() noexcept {
+#if defined(MFEM_USE_MPI) && (defined(HYPRE_MIXEDINT) || defined(HYPRE_BIGINT))
+    return true;
+#else
+    return false;
+#endif
+  }  // end of isHypreUsingBigInt
+
   bool isKokkosInitialized() noexcept {
 #ifdef MFEM_MGIS_HAVE_KOKKOS
     return internals::isKokkosInitialized();

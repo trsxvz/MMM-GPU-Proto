@@ -116,6 +116,16 @@ static bool isAvailable(const mfem_mgis::LinearSolverDescription& d) {
   return true;
 }  // end of isAvailable
 
+/*!
+ * \return true if hypre refuses the preconditioner: Euclid and ParaSails,
+ * with the 64 bit global indices of hypre (mixedint or bigint)
+ * \param[in] n: name of the preconditioner
+ */
+static bool isRefusedByHypre(const std::string& n) {
+  return mfem_mgis::isHypreUsingBigInt() &&
+         ((n == "HypreEuclid") || (n == "HypreParaSails"));
+}  // end of isRefusedByHypre
+
 //! \return if the given option is accepted
 static bool accepts(const mfem_mgis::LinearSolverDescription& d,
                     const std::string& o) {
@@ -186,7 +196,8 @@ static std::optional<mfem_mgis::Parameters> getTestParameters(
     auto preconditioner = std::optional<std::string>{};
     for (const auto& pn : f.getNames()) {
       const auto* const pd = f.getDescription(pn);
-      if ((pd->library != d.library) || (!isAvailable(*pd))) {
+      if ((pd->library != d.library) || (!isAvailable(*pd)) ||
+          (isRefusedByHypre(pn))) {
         continue;
       }
       if (pn.find("Jacobi") != std::string::npos) {
@@ -496,6 +507,19 @@ static void run(System<is_parallel>& s, const bool elasticity) {
     // is tested on the linear elasticity, and by HypreMGRTest
     if ((n == "HypreMGR") && (s.fespace.GetVDim() < 2)) {
       print(n + ": skipped (unknowns with one component)");
+      continue;
+    }
+    // refused by mfem-mgis when hypre refuses it (its setup would fail)
+    if (isRefusedByHypre(n)) {
+      auto ctx = Context{};
+      auto ls =
+          lf.generate(ctx, "GMRESSolver", s.fespace,
+                      Parameters{{"Preconditioner", Parameters{{"Name", n}}}});
+      check(isInvalid(ls) &&
+                (ctx.getErrorMessage().find("64 bit global indices") !=
+                 std::string::npos),
+            n + ": not refused with the 64 bit global indices of hypre");
+      print(n + ": refused (64 bit global indices of hypre)");
       continue;
     }
     auto ctx = Context{};

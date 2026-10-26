@@ -485,6 +485,13 @@ on the GPU, and, when they are placed on the CPU in the :cxx:`mixed` mode,
 the Krylov solvers of MFEM, which compute where MFEM computes, are refused:
 they are then given to the Krylov solvers of PETSc.
 
+The preconditioners :cxx:`HypreEuclid` and :cxx:`HypreParaSails` are
+refused when hypre is built with 64 bit global indices (:cxx:`mixedint`,
+required with GPUs for more than :math:`2^{31}` unknowns, or
+:cxx:`bigint`), which hypre does not support for them; the function
+:cxx:`mfem_mgis::isHypreUsingBigInt` tells if hypre uses such indices.
+:cxx:`HypreParaSails` is also refused when hypre computes on a GPU.
+
 The libraries which are not available (MFEM built without them, the
 options :code:`enable-<library>` of mfem-mgis set to :code:`OFF`, see
 :ref:`mfem_mgis_optional_libraries`, or mfem-mgis built without AmgX,

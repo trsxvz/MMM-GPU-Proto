@@ -487,11 +487,15 @@ static void checkBehaviourLibraryRefusal(const char* const mesh,
  * \param[in] solver: name of the linear solver
  * \param[in] refused: expected result
  * \param[in] preconditioner: name of the preconditioner, if any
+ * \param[in] reason: part of the message of a refusal
  */
-static void checkLinearSolver(const char* const mesh,
-                              const char* const solver,
-                              const bool refused,
-                              const char* const preconditioner = nullptr) {
+static void checkLinearSolver(
+    const char* const mesh,
+    const char* const solver,
+    const bool refused,
+    const char* const preconditioner = nullptr,
+    const char* const reason =
+        "while the execution settings place the linear solvers") {
   using namespace mfem_mgis;
   auto ctx = Context{};
   auto problem = makeProblem(ctx, mesh);
@@ -503,8 +507,7 @@ static void checkLinearSolver(const char* const mesh,
   const auto r = problem.setLinearSolver(ctx, solver, parameters);
   const auto msg = std::string{ctx.getErrorMessage()};
   if (refused) {
-    check((!r) && (msg.find("while the execution settings place the linear "
-                            "solvers") != std::string::npos),
+    check((!r) && (msg.find(reason) != std::string::npos),
           "linear solver '" + std::string{solver} + "' not refused (" + msg +
               ")");
   } else {
@@ -628,11 +631,20 @@ int main(int argc, char** argv) {
     checkLinearSolver(mesh, "CGSolver",
                       (s.mode == ExecutionMode::MIXED) &&
                           (s.linear_solver == ExecutionLocation::CPU));
-    // the preconditioner of hypre Euclid only computes on the host
+    // the preconditioner of hypre Euclid only computes on the host. With
+    // the 64 bit global indices of hypre, where it is refused, the
+    // placement is checked first: Euclid is refused for its placement when
+    // the linear solvers are placed on the GPU, and for the indices of
+    // hypre otherwise (no other preconditioner of hypre only computes on the
+    // host, ParaSails being refused in the same way)
     if (hypre_accepted) {
-      checkLinearSolver(mesh, "HyprePCG",
-                        s.linear_solver == ExecutionLocation::GPU,
-                        "HypreEuclid");
+      const auto gpu = s.linear_solver == ExecutionLocation::GPU;
+      if ((!gpu) && (isHypreUsingBigInt())) {
+        checkLinearSolver(mesh, "HyprePCG", true, "HypreEuclid",
+                          "64 bit global indices");
+      } else {
+        checkLinearSolver(mesh, "HyprePCG", gpu, "HypreEuclid");
+      }
     }
   }
   std::cout << (failures == 0 ? "success" : "failure") << '\n';
