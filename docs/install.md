@@ -175,6 +175,13 @@ is partitioned by METIS with 32 bit indices: mfem-mgis refines it in
 sequential only until each process has 8 elements, the following
 refinements being parallel.
 
+With `+mixedint`, hypre refuses Euclid, ParaSails and Pilut, the CGC
+coarsening of BoomerAMG and its smoothers Euclid, ParaSails and Pilut
+("Euclid cannot be used in mixedint mode!", hypre 3.2.0): the
+preconditioners `HypreEuclid` and `HypreParaSails` of mfem-mgis fail at
+their setup (tests `LinearSolverFactoriesTestP` and
+`LinearSolverFactoriesTestP-elasticity` on the A100 partition of Jean Zay).
+
 The file holds nothing specific to a machine: the compilers, CUDA, MPI,
 the architecture of the GPUs and the target of the processors come from
 the profile of the machine (`include` of its `spack-config.yaml`).
