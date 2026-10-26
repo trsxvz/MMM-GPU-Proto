@@ -229,3 +229,14 @@ ones of before.
 
 - **TFEL**: configurations `cuda-nvcc` and `openmp-host-gcc`; the tests of
   TFEL are built only with `PROTO_TFEL_TESTING=ON`.
+- **Tests on the GPU**: job `jobs/tests-gpu.slurm` (one H100): the suite of
+  mfem-mgis on the GPU (`scripts/mfem-mgis-gpu-suite.sh`, modes kernels
+  and default), the tests selecting a device, and the tests of the
+  examples, of mm-opera-hpc and of the cases.
+- **Measurements on several GPUs**: job `jobs/measure-multi-gpu.slurm`
+  (one whole node, 4 H100 and 96 cores, QoS dev, one hour at most):
+  `cases/measure-multi-gpu.sh`, strong scaling of the beam on 1, 2 and 4
+  GPUs (with and without `--gpu-aware-mpi`) and on 24, 48 and 96 processes
+  on the CPU. The jobs of the measurement and the tests run `mpirun`
+  (Open MPI of IDRIS) in the allocation of the job; each process takes the
+  GPU of its rank on the node.
