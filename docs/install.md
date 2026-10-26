@@ -7,8 +7,8 @@ cluster never uses the network: everything is downloaded on another
 machine and copied. The same procedure works on a cluster with access to
 the internet.
 
-Jean Zay (IDRIS, H100 partition) is the first machine installed this way
-(profile `jean-zay-h100`, see the last section).
+Jean Zay (IDRIS) is the first machine installed this way (profiles
+`jean-zay-h100` and `jean-zay-a100`, see the last sections).
 
 ## Principle
 
@@ -65,6 +65,13 @@ ROOT/
   misc-cache/  user-cache/               caches of spack
   MMM-GPU-Proto/                         the prototype, with mgis/ (branch gpu-proto)
 ```
+
+A deployment directory serves one machine profile (recorded in
+`ROOT/MACHINE`, `deploy.sh` refuses another one): its spack environment,
+its `spack.lock` and the builds of the prototype are those of this
+profile. Two profiles of the same cluster (for instance the H100 and A100
+partitions of Jean Zay) are deployed in two directories, from the same
+`mmm-base.tar`.
 
 The configuration of spack is written in the site scope of this instance
 (`ROOT/spack/etc/spack`), and the configuration of the user (`~/.spack`)
@@ -240,3 +247,19 @@ ones of before.
   on the CPU. The jobs of the measurement and the tests run `mpirun`
   (Open MPI of IDRIS) in the allocation of the job; each process takes the
   GPU of its rank on the node.
+
+## Jean Zay, A100 partition (profile `jean-zay-a100`)
+
+Same organisation as `jean-zay-h100`, with the modules of `arch/a100`:
+
+- **Nodes**: partition `gpu_p5`, 8 A100 80 GB (`sm_80`) and 2 AMD EPYC
+  with 64 cores per node (no AVX-512: target `x86_64_v3`).
+- **External packages**: gcc 14.2.0, CUDA 13.0.3, Open MPI 4.1.8 with CUDA,
+  PSM2 (Omni-Path) and the PMIx of Slurm, CMake 3.31.4. These compilers
+  also run on the login nodes and on the CPU partition: the libraries are
+  installed by `jobs/install.slurm` on `cpu_p1` (QoS dev, `<project>@cpu`).
+- **Build, tests, measurements**: jobs `jobs/build.slurm`,
+  `jobs/tests-gpu.slurm` (one A100) and `jobs/measure-multi-gpu.slurm`
+  (one whole node: 1, 2, 4 and 8 GPUs, 32, 64 and 128 processes on the
+  CPU), with `<project>@a100`.
+- **Deployment**: in its own directory, for instance `$SCRATCH/mmm-a100`.

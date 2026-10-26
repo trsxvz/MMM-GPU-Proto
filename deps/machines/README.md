@@ -9,7 +9,8 @@ variable `PROTO_MACHINE` selects the profile (`workstation` by default):
   and `build-tfel.sh` before the profiles;
 - `jean-zay-h100`: Jean Zay (IDRIS), partition `gpu_p6` (H100), spack
   environment `mmm-light`, installed without access to the internet
-  (`docs/install.md`).
+  (`docs/install.md`);
+- `jean-zay-a100`: Jean Zay, partition `gpu_p5` (A100), the same way.
 
 ## Files of a profile
 

@@ -5,7 +5,8 @@
 # of spack), the mirrors of the sources and the prototype (MMM-GPU-Proto/).
 # ROOT is the directory of this script when it is the copy extracted from
 # mmm-base.tar, otherwise the parent directory of the prototype; PROTO_DEPLOY
-# overrides it.
+# overrides it. A deployment directory serves one machine profile (the
+# first one given to the commands below).
 #
 # usage:
 #   deploy.sh setup
@@ -40,7 +41,7 @@ ROOT=${PROTO_DEPLOY:-$ROOT}
 PROTO=$ROOT/MMM-GPU-Proto
 export PROTO_DEPLOY=$ROOT
 usage() {
-  sed -n '10,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '11,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 1
 }
 # spack of ROOT, isolated from the configuration of the user: its
@@ -49,13 +50,21 @@ rspack() {
   SPACK_DISABLE_LOCAL_CONFIG=1 SPACK_USER_CACHE_PATH="$ROOT/user-cache" \
     "$ROOT/spack/bin/spack" "$@"
 }
-# environment of the machine profile
+# environment of the machine profile. A deployment directory serves one
+# machine profile, recorded in ROOT/MACHINE: the spack environment, its
+# spack.lock and the builds of the prototype are those of this profile
 machine() {
   local m=$1
   if [ ! -f "$PROTO/deps/machines/$m/machine.sh" ]; then
     echo "deploy.sh: unknown machine '$m'" >&2
     exit 1
   fi
+  if [ -f "$ROOT/MACHINE" ] && [ "$(cat "$ROOT/MACHINE")" != "$m" ]; then
+    echo "deploy.sh: $ROOT is the deployment of the machine" \
+      "'$(cat "$ROOT/MACHINE")': deploy '$m' in another directory" >&2
+    exit 1
+  fi
+  echo "$m" > "$ROOT/MACHINE"
   export PROTO_MACHINE=$m
   set +u
   source "$PROTO/scripts/env.sh"
