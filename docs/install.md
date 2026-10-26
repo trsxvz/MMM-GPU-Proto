@@ -217,8 +217,11 @@ ones of before.
   instruction" on the login nodes and on the other partitions (Cascade
   Lake). Everything that compiles therefore runs on the partition
   `compil_h100` (compilation node of the H100 partition, no hours
-  consumed) or `gpu_p6`. The concretization, which compiles nothing, runs
-  on a login node.
+  consumed) or `gpu_p6`, the concretization included: spack checks that
+  each compiler compiles a test program, and ignores the others (without
+  its compiler, the concretizer then searches for a long time a solution
+  which does not exist; `deploy.sh concretize` checks the compiler first).
+  Job `jobs/concretize.slurm` on `compil_h100`.
 - **Installation of the libraries**: job `jobs/install.slurm` on the
   partition `compil_h100`, submitted from ROOT:
 
@@ -261,8 +264,9 @@ Same organisation as `jean-zay-h100`, with the modules of `arch/a100`:
   with 64 cores per node (no AVX-512: target `x86_64_v3`).
 - **External packages**: gcc 14.2.0, CUDA 13.0.3, Open MPI 4.1.8 with CUDA,
   PSM2 (Omni-Path) and the PMIx of Slurm, CMake 3.31.4. These compilers
-  also run on the login nodes and on the CPU partition: the libraries are
-  installed by `jobs/install.slurm` on `cpu_p1` (QoS dev, `<project>@cpu`).
+  also run on the login nodes and on the CPU partition: the concretization
+  runs on a login node, and the libraries are installed by
+  `jobs/install.slurm` on `cpu_p1` (QoS dev, `<project>@cpu`; 40 minutes).
 - **Build, tests, measurements**: jobs `jobs/build.slurm`,
   `jobs/tests-gpu.slurm` (one A100) and `jobs/measure-multi-gpu.slurm`
   (one whole node: 1, 2, 4 and 8 GPUs, 32, 64 and 128 processes on the
