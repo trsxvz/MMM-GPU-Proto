@@ -18,7 +18,11 @@ Two machines take part:
   internet. Nothing is compiled on it: it downloads and packs. Its power
   does not matter; it needs about 5 GB of disk and git, bash and Python 3;
 - the **target machine** (the cluster), which needs bash, Python 3 (for
-  spack), git, tar, its compilers, CUDA and MPI.
+  spack), tar, its compilers, CUDA and MPI, and git on the node where
+  `deploy.sh setup` runs (a login node). The compute nodes may lack git
+  and `patch` (Jean Zay): the sources of the mirror are archives, and
+  `deploy.sh install` builds GNU patch first (spec `patch` of `mmm-light`)
+  and puts it in the PATH of the other builds.
 
 Only files go from one to the other (`scp`, `rsync`, a disk):
 
