@@ -249,7 +249,11 @@ namespace mfem_mgis {
      * and of their contributions (`n * n * ne` integers per layout, plus one
      * per value of the matrix, on the host and on the device). Otherwise
      * (`cpu` backend), the stiffness matrices are added one element after
-     * the other on the host, which is already a fixed order.
+     * the other on the host, which is already a fixed order. With a device,
+     * the products of the matrices assembled this way by vectors are made
+     * by the kernel of MFEM (one thread per row, same result at each run),
+     * not by cuSPARSE or hipSPARSE, whose algorithm used by MFEM 4.10
+     * (CUSPARSE_SPMV_CSR_ALG1) does not give the same result at each run.
      * Otherwise (default), they are added without being stored, by atomic
      * additions whose order depends on the scheduling of the threads on a
      * device.
