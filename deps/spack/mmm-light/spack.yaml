@@ -1,0 +1,48 @@
+# Light environment of the prototype, for the clusters (spack 1.2.2,
+# packages of the develop branch of spack-packages, commit 3b7fdffc24, as
+# the other environments): the libraries needed by mfem-mgis on CPU and
+# GPU, nothing more. MFEM 4.10 with CUDA, MPI, Umpire, MUMPS, SuiteSparse
+# and gslib; hypre 3.2 with CUDA and Umpire.
+#
+# hypre uses 64 bit global indices and 32 bit local indices (`+mixedint`):
+# more than 2^31 unknowns in total, with CUDA, where `+int64` is refused.
+# The number of nonzero entries of the matrix of each process stays below
+# 2^31.
+#
+# Nothing in this file depends on the machine: the compilers, CUDA, MPI,
+# the architecture of the GPUs (cuda_arch) and the target of the
+# processors come from the file spack-config.yaml of the machine profile
+# (PROTO_MACHINE_DIR, defined by scripts/env.sh), and the builtin
+# repository from PROTO_SPACK_PACKAGES (clone of spack-packages, see
+# deps/machines/README.md). Installation without access to the internet:
+# docs/install.md.
+spack:
+  include:
+  - path: $PROTO_MACHINE_DIR/spack-config.yaml
+  specs:
+  - hypre@3.2.0 +mpi +cuda +umpire +mixedint ~int64
+  - mumps +mpi
+  # C++20: Umpire 2026 (camp) requires it, and mfem-mgis uses it
+  - mfem@4.10.0 +mpi +shared ~static +cuda cxxstd=20 +umpire +suite-sparse
+    +mumps +gslib
+  view: true
+  config:
+    # cache of this instance of spack (see deps/spack/mmm-gpu/spack.yaml)
+    misc_cache: $spack/var/spack/misc-cache
+  concretizer:
+    unify: true
+    reuse: false
+  # the packages of the repository mmm_gpu replace the ones of spack (MFEM
+  # 4.10 patched for CUDA 13, see deps/spack/README.md)
+  repos:
+    mmm_gpu: $env/../repos/spack_repo/mmm_gpu
+    builtin: $PROTO_SPACK_PACKAGES/repos/spack_repo/builtin
+  packages:
+    # shared library of gslib: libmfem.so links it, and its static library
+    # is not relocatable
+    gslib:
+      require: [+shared]
+    blas:
+      require: [openblas]
+    lapack:
+      require: [openblas]
