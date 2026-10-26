@@ -1,5 +1,5 @@
 # Machine profile: Jean Zay (IDRIS), partition gpu_p5 (nodes of 8 A100
-# 80 GB and 2 AMD EPYC with 64 cores, RHEL 9.6), sourced by scripts/env.sh,
+# 80 GB and 2 AMD EPYC of 32 cores, RHEL 9.6), sourced by scripts/env.sh,
 # which defines P (root of the prototype). Same organisation as the profile
 # jean-zay-h100, with the modules of the A100 partition (arch/a100), which
 # also run on the login nodes.

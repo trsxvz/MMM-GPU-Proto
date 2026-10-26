@@ -272,7 +272,9 @@ ones of before.
 Same organisation as `jean-zay-h100`, with the modules of `arch/a100`:
 
 - **Nodes**: partition `gpu_p5`, 8 A100 80 GB (`sm_80`) and 2 AMD EPYC
-  with 64 cores per node (no AVX-512: target `x86_64_v3`).
+  of 32 cores per node (no AVX-512: target `x86_64_v3`). 16 logical
+  processors are billed as one GPU: the jobs of build and tests take 16
+  cores (2 GPUs).
 - **External packages**: gcc 14.2.0, CUDA 13.0.3, Open MPI 4.1.8 with CUDA,
   PSM2 (Omni-Path) and the PMIx of Slurm, CMake 3.31.4. These compilers
   also run on the login nodes and on the CPU partition: the concretization
@@ -280,6 +282,6 @@ Same organisation as `jean-zay-h100`, with the modules of `arch/a100`:
   `jobs/install.slurm` on `cpu_p1` (QoS dev, `<project>@cpu`; 40 minutes).
 - **Build, tests, measurements**: jobs `jobs/build.slurm`,
   `jobs/tests-gpu.slurm` (one A100) and `jobs/measure-multi-gpu.slurm`
-  (one whole node: 1, 2, 4 and 8 GPUs, 32, 64 and 128 processes on the
+  (one whole node: 1, 2, 4 and 8 GPUs, 16, 32 and 64 processes on the
   CPU), with `<project>@a100`.
 - **Deployment**: in its own directory, for instance `$SCRATCH/mmm-a100`.
