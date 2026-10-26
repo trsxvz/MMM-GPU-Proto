@@ -131,6 +131,21 @@ setup() {
 }
 concretize() {
   machine "$1"
+  # spack ignores a compiler which does not compile a test program: without
+  # the compilers required by the machine profile, the concretizer searches
+  # for a long time a solution which does not exist
+  local t
+  t=$(mktemp -d)
+  echo "int main(void) { return 0; }" > "$t/t.c"
+  if ! "$PROTO_CC" "$t/t.c" -o "$t/t" > "$t/log" 2>&1 || ! "$t/t"; then
+    cat "$t/log" >&2
+    rm -rf "$t"
+    echo "deploy.sh: the compiler $PROTO_CC of the machine '$1' does not" \
+      "run on $(hostname): concretize on a node where it runs (see the" \
+      "jobs of the machine profile)" >&2
+    exit 1
+  fi
+  rm -rf "$t"
   espack concretize --force --fresh
   echo "deploy.sh: give $E/spack.lock to \`bundle.sh mirror\`"
 }
