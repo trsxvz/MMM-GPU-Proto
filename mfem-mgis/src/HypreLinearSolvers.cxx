@@ -373,6 +373,14 @@ namespace mfem_mgis {
     if (!checkParameters(ctx, opts, {Problem::SolverVerbosityLevel})) {
       return {};
     }
+    // hypre refuses Euclid with 64 bit global indices ("Euclid cannot be
+    // used in mixedint mode!", failure of the setup)
+    if (isHypreUsingBigInt()) {
+      return ctx.registerErrorMessage(
+          "setHypreEuclidPreconditioner: the Euclid preconditioner is not "
+          "supported by hypre built with 64 bit global indices (mixedint or "
+          "bigint)");
+    }
     auto euclid = std::make_unique<mfem::HypreEuclid>(p.GetComm());
     return euclid;
   }  // end of setHypreEuclidPreconditioner
@@ -471,6 +479,14 @@ namespace mfem_mgis {
       return ctx.registerErrorMessage(
           "setHypreParaSailsPreconditioner: the ParaSails preconditioner is "
           "not supported when hypre computes on a GPU");
+    }
+    // hypre refuses ParaSails with 64 bit global indices ("ParaSails not
+    // usable in mixedint mode!")
+    if (isHypreUsingBigInt()) {
+      return ctx.registerErrorMessage(
+          "setHypreParaSailsPreconditioner: the ParaSails preconditioner is "
+          "not supported by hypre built with 64 bit global indices (mixedint "
+          "or bigint)");
     }
     auto parasails =
         std::make_unique<internals::ReusableHypreParaSails>(p.GetComm());

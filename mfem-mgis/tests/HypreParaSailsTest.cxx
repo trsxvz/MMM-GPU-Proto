@@ -5,7 +5,9 @@
  * two operators, the first one being destroyed before the second one is
  * given, as the non linear solvers do (`mfem::HypreParaSails::SetOperator`
  * reads the communicator of the previous operator). When hypre computes on
- * a GPU, where ParaSails is not supported, the preconditioner is refused.
+ * a GPU, where ParaSails is not supported, or uses 64 bit global indices
+ * (mixedint or bigint), which ParaSails does not support, the
+ * preconditioner is refused.
  * \date   11/10/2026
  */
 
@@ -80,8 +82,10 @@ int main(int argc, char** argv) {
                  {"Preconditioner",
                   Parameters{{"Name", "HypreParaSails"},
                              {"Options", Parameters{{"VerbosityLevel", 0}}}}}});
-  if (isHypreUsingGPU()) {
-    check(isInvalid(h), "ParaSails is not refused on a GPU");
+  if (isHypreUsingGPU() || isHypreUsingBigInt()) {
+    check(isInvalid(h),
+          "ParaSails is not refused on a GPU or with the 64 bit global "
+          "indices of hypre");
     if (verbose && isInvalid(h)) {
       std::cout << "refused: " << ctx.getErrorMessage() << '\n';
     }
