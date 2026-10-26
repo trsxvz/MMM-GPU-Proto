@@ -20,6 +20,11 @@ spack:
   include:
   - path: $PROTO_MACHINE_DIR/spack-config.yaml
   specs:
+  # GNU patch, installed first by scripts/offline/deploy.sh and put in the
+  # PATH of the other builds: spack needs the command `patch` to apply the
+  # patches of the recipes, and the compute nodes of some clusters have
+  # none (Jean Zay)
+  - patch
   - hypre@3.2.0 +mpi +cuda +umpire +mixedint ~int64
   - mumps +mpi
   # C++20: Umpire 2026 (camp) requires it, and mfem-mgis uses it

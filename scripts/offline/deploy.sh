@@ -143,6 +143,11 @@ install() {
   if ! rspack mirror list | grep -q "^sources-$1 "; then
     rspack mirror add --scope site "sources-$1" "file://$mirror"
   fi
+  # GNU patch first, in the PATH of the other builds: spack applies the
+  # patches of the recipes with the command `patch`, missing on some compute
+  # nodes
+  espack install --fail-fast -j "$PROTO_JOBS" patch
+  PATH=$(espack location -i patch)/bin:$PATH
   espack install --fail-fast -j "$PROTO_JOBS"
   if [ -n "${PROTO_BUILDCACHE:-}" ]; then
     mkdir -p "$PROTO_BUILDCACHE"
