@@ -16,7 +16,9 @@
 # processes), which needs as many slots in the job
 #SBATCH --ntasks=4
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
+# 16 cores (32 logical processors): billed as 2 GPUs on gpu_p5, where 16
+# logical processors are billed as one GPU
+#SBATCH --cpus-per-task=4
 #SBATCH --hint=nomultithread
 #SBATCH --time=04:00:00
 #SBATCH --output=%x-%j.out
