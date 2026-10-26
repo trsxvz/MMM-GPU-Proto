@@ -149,7 +149,8 @@ again; spack only builds the packages which changed.
 
 With `PROTO_BUILDCACHE` set to a directory, `deploy.sh install` copies the
 installed packages in a binary cache of spack (a few files per package),
-with the `spack.lock` used. On a filesystem with few inodes, or whose
+with the `spack.lock` used (`deploy.sh cache MACHINE DIRECTORY` does the
+same after an installation). On a filesystem with few inodes, or whose
 unused files are deleted after some time, the installation is kept this
 way, and `deploy.sh restore MACHINE PROTO_BUILDCACHE` reinstalls it in a
 new deployment without compiling.
