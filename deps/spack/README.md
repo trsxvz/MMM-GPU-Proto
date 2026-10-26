@@ -51,6 +51,14 @@ Content:
   ptxas needs more than 12 GB even with `-O0`, and cicc 8.8 GB and 34 min;
   two jobs reached 12.5 GB for cicc, hence hypre and MFEM are compiled
   with one job;
+- `mmm-light/spack.yaml`: environment of the clusters (installation without
+  access to the internet, [docs/install.md](../../docs/install.md)): only
+  the libraries needed by mfem-mgis, hypre 3.2 with CUDA, Umpire and 64 bit
+  global indices (`+mixedint`), MUMPS, MFEM 4.10 with CUDA, Umpire, MUMPS,
+  SuiteSparse and gslib, and GNU patch (built first, for the compute nodes
+  without `patch`). The compilers, CUDA, MPI, `cuda_arch` and the target
+  come from the `spack-config.yaml` of the machine profile
+  (`deps/machines/`), included by the environment;
 - `repos/spack_repo/mmm_gpu`: complementary package repository, with
   priority over the one of spack:
   - `adaptivecpp`: AdaptiveCpp 25.10 (the `hipsycl` package of spack
