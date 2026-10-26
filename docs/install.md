@@ -188,24 +188,31 @@ ones of before.
 - **Nodes**: partition `gpu_p6`, 4 H100 80 GB (`sm_90`) and 2 Xeon
   Platinum 8468 (Sapphire Rapids) per node, RHEL 9.6, NVIDIA driver
   595.91 (CUDA 13). The login nodes are Cascade Lake, with the same
-  system. The login nodes reach some sites through a proxy of IDRIS, the
+  system (see the compilers below). The login nodes reach some sites through a proxy of IDRIS, the
   compute nodes none: the procedure above does not use this proxy.
 - **External packages** (modules after `module load arch/h100`):
   gcc 14.2.0, CUDA 13.0.3, Open MPI 4.1.8 with CUDA, UCX and the PMI of
-  Slurm, CMake 3.31.4. The libraries are built for `x86_64_v4` (AVX-512),
-  which runs on both kinds of processors.
+  Slurm, CMake 3.31.4. The libraries are built for `x86_64_v4` (AVX-512).
 - **Storage**: the WORK and STORE spaces have quotas per project, shared
   by its members; the SCRATCH space has very large quotas, and its files
   not read nor modified for 30 days are deleted. The deployment goes in
   `$SCRATCH/mmm`, and the binary cache (`PROTO_BUILDCACHE`, a few hundred
   files) in `$WORK`: after a deletion, `deploy.sh restore` reinstalls the
   libraries in a few minutes.
+- **Compilers of the H100 partition**: the modules loaded after
+  `module load arch/h100` are built for the Sapphire Rapids processors of
+  this partition. Their gcc stops with "internal compiler error: Illegal
+  instruction" on the login nodes and on the other partitions (Cascade
+  Lake). Everything that compiles therefore runs on the partition
+  `compil_h100` (compilation node of the H100 partition, no hours
+  consumed) or `gpu_p6`. The concretization, which compiles nothing, runs
+  on a login node.
 - **Installation of the libraries**: job `jobs/install.slurm` on the
-  partition `compil` (no hours consumed), submitted from ROOT:
+  partition `compil_h100`, submitted from ROOT:
 
   ```bash
   cd $SCRATCH/mmm && tar -xf mmm-mirror-jean-zay-h100.tar
-  PROTO_BUILDCACHE=$WORK/mmm-buildcache sbatch -A <project>@cpu \
+  PROTO_BUILDCACHE=$WORK/mmm-buildcache sbatch -A <project>@h100 \
     MMM-GPU-Proto/deps/machines/jean-zay-h100/jobs/install.slurm
   ```
 

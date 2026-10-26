@@ -3,9 +3,10 @@
 # the modules of IDRIS (deps/machines/jean-zay-h100/machine.sh) as external
 # packages, the architecture of the GPUs and the target of the processors.
 #
-# x86_64_v4 (AVX-512) runs on the processors of the login nodes (Cascade
-# Lake) and of the H100 nodes (Sapphire Rapids): the libraries can be built
-# on both.
+# x86_64_v4 (AVX-512): the libraries also run on the processors of the
+# login nodes (Cascade Lake). They are built on the H100 partition
+# (Sapphire Rapids) only, where the gcc of its modules runs (on Cascade
+# Lake, it stops with "Illegal instruction", see docs/install.md).
 packages:
   all:
     require: [target=x86_64_v4]
