@@ -401,7 +401,15 @@ dated figures below are those of the runs noted in the log):
   (`scratch/night-2026-10-12/determinisme-ordonne`, untracked). The test
   `FixedPointSolverTest-kernels-ordered-cuda` therefore always passes; the
   ordered cases of `BatchIntegrationTest` check that two identical computations
-  give the same results bit for bit.
+  give the same results bit for bit. On the A100 GPUs of Jean Zay
+  (26/10/2026), the case with the regularization of Faltus and the
+  prediction still differed by about one unit in the last place in 5 runs
+  out of 6: the prediction computes `B -= K X` with the assembled matrix,
+  and MFEM 4.10 makes this product on a GPU with cuSPARSE
+  (`CUSPARSE_SPMV_CSR_ALG1`), which does not give the same result at each
+  run. The matrices of the ordered assembly use the kernel of MFEM instead
+  (one thread per row, `UseGPUSparse(false)`): 15 runs out of 15
+  identical (patch 0278 of mfem-mgis).
 
 The execution settings (`--execution cpu|gpu|mixed`, see
 [plan-execution.md](plan-execution.md)) are checked by the 33 variants

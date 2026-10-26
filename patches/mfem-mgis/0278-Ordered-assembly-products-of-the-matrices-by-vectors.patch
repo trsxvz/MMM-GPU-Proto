@@ -1,0 +1,61 @@
+From fb18d3d9d80334f75cec79e65d8ac6da5e4c2c9b Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 26 Oct 2026 12:39:25 +0100
+Subject: [PATCH] Ordered assembly: products of the matrices by vectors by the
+ kernel of MFEM
+
+The products of the sparse matrices by vectors on a GPU go through cuSPARSE
+or hipSPARSE in MFEM 4.10, with CUSPARSE_SPMV_CSR_ALG1, which does not give
+the same result at each run. The prediction computes B -= K X with the
+matrix of the ordered assembly, X being non zero at the essential degrees of
+freedom only: on the A100 GPUs of Jean Zay, the results of
+BatchIntegrationTest-cuda (SaintVenantKirchhoffElasticity, Faltus and
+prediction, ordered assembly) differed by about one unit in the last place
+in 5 runs out of 6 (check "same results at each run"; the same case without
+prediction, or without the regularization of Faltus, was reproducible).
+The matrices assembled in the ordered mode on a device use the kernel of
+MFEM (one thread per row, UseGPUSparse(false)), which gives the same result
+at each run: 15 runs out of 15 identical.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx | 6 +++++-
+ src/MultiMaterialNonLinearIntegrator.cxx              | 5 +++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index 7ea9df07ce..eb02279a3a 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -249,7 +249,11 @@ namespace mfem_mgis {
+      * and of their contributions (`n * n * ne` integers per layout, plus one
+      * per value of the matrix, on the host and on the device). Otherwise
+      * (`cpu` backend), the stiffness matrices are added one element after
+-     * the other on the host, which is already a fixed order.
++     * the other on the host, which is already a fixed order. With a device,
++     * the products of the matrices assembled this way by vectors are made
++     * by the kernel of MFEM (one thread per row, same result at each run),
++     * not by cuSPARSE or hipSPARSE, whose algorithm used by MFEM 4.10
++     * (CUSPARSE_SPMV_CSR_ALG1) does not give the same result at each run.
+      * Otherwise (default), they are added without being stored, by atomic
+      * additions whose order depends on the scheduling of the threads on a
+      * device.
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index b049ba142d..a69102d4cc 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -819,6 +819,11 @@ namespace mfem_mgis {
+     // the other on the host, which is already a fixed order.
+     if ((this->ordered_stiffness_matrices_assembly) &&
+         (mfem::Device::IsEnabled())) {
++      // products of the matrix by vectors (for instance `B -= K X` in the
++      // prediction) by the kernel of MFEM, one thread per row, which gives
++      // the same result at each run, instead of cuSPARSE or hipSPARSE
++      // (CUSPARSE_SPMV_CSR_ALG1 in MFEM 4.10, which does not)
++      m.UseGPUSparse(false);
+       if (fes.GetNE() == 0) {
+         ++(this->ordered_stiffness_matrices_assemblies);
+         return true;
+-- 
+2.34.1
+

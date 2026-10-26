@@ -819,6 +819,11 @@ namespace mfem_mgis {
     // the other on the host, which is already a fixed order.
     if ((this->ordered_stiffness_matrices_assembly) &&
         (mfem::Device::IsEnabled())) {
+      // products of the matrix by vectors (for instance `B -= K X` in the
+      // prediction) by the kernel of MFEM, one thread per row, which gives
+      // the same result at each run, instead of cuSPARSE or hipSPARSE
+      // (CUSPARSE_SPMV_CSR_ALG1 in MFEM 4.10, which does not)
+      m.UseGPUSparse(false);
       if (fes.GetNE() == 0) {
         ++(this->ordered_stiffness_matrices_assemblies);
         return true;
