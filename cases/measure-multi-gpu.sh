@@ -9,14 +9,20 @@
 # - on 1, 2 and 4 GPUs, one process per GPU (each process takes the GPU of
 #   its rank on the node), the exchanges of MPI through the host, then, on
 #   more than one GPU, with the arrays of the GPUs given to MPI
-#   (--gpu-aware-mpi). With srun (scripts/mpirun-srun), each process runs on
-#   the NUMA node of its GPU (`--cpu-bind=map_ldom`, the NUMA node of each GPU
-#   being read in `nvidia-smi topo -m`), all the GPUs staying visible to all
-#   the processes: with one core per process, the second process ran on the
-#   other socket than its GPU, and the copies from the GPU to the host at
-#   the end of each step were 9 times slower; with `--gpu-bind=closest`,
-#   which hides the GPUs of the other socket, the GPU-aware MPI of Open MPI
-#   with PSM2 fails (cuIpcOpenMemHandle) (Jean Zay, 26/10/2026);
+#   (--gpu-aware-mpi). The processes are spread over the cores of the node
+#   (cores / processes each, the cores being the largest number of
+#   processes on the CPU), and the GPUs are ordered in CUDA_VISIBLE_DEVICES
+#   (PROTO_CUDA_VISIBLE_DEVICES, set in each process by scripts/mpirun-srun,
+#   srun replacing CUDA_VISIBLE_DEVICES) so that the GPU of each rank is on
+#   the NUMA node, or at least on the socket, of its cores
+#   (scripts/gpus-close-to-ranks.py), all the GPUs staying visible to all the
+#   processes. With one core per process, the
+#   second process ran on the other socket than its GPU, and the copies from
+#   the GPU to the host at the end of each step were 9 times slower; with
+#   `--gpu-bind=closest`, which hides the GPUs of the other socket, the
+#   GPU-aware MPI of Open MPI with PSM2 fails (cuIpcOpenMemHandle); and srun
+#   refuses `--cpu-bind=map_ldom` in a step which does not use the whole node
+#   (Jean Zay, 26-27/10/2026);
 # - on 24, 48 and 96 processes on the CPU.
 # The beam is refined `refinement` times (5 by default: 840,000 unknowns; 6:
 # about 6.5 million). The polycrystal (5 grains, single crystal behaviour of
@@ -58,35 +64,27 @@ if [ "$case_name" = polycrystal ]; then
 fi
 echo "refinement: $refinement" | tee -a "$out/summary.txt"
 device=cuda
-# NUMA node of each GPU (column "NUMA Affinity" of `nvidia-smi topo -m`,
-# after the CPU affinity), empty if unknown
-read -r -a gpu_numa <<< "$(nvidia-smi topo -m 2> /dev/null |
-  awk -F'\t' '/^GPU[0-9]/ {
-    for (i = 2; i < NF; ++i) {
-      if (($i ~ /^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$/) &&
-          ($(i + 1) ~ /^ *[0-9]+ *$/)) {
-        printf "%d ", $(i + 1); break
-      }
-    }
-  }')"
-echo "NUMA nodes of the GPUs: ${gpu_numa[*]:-unknown}" | tee -a "$out/summary.txt"
+cpu_list=(${cpu_processes:-24 48 96})
+cores=${cpu_list[-1]}
 for np in ${gpu_processes:-1 2 4}; do
-  # process r on the NUMA node of the GPU r (the GPU of its rank, see
-  # `getDeviceIdentifier` in mfem-mgis)
-  unset PROTO_SRUN_OPTIONS
-  if [ "${#gpu_numa[@]}" -ge "$np" ]; then
-    ldoms=$(IFS=,; echo "${gpu_numa[*]:0:$np}")
-    export PROTO_SRUN_OPTIONS="--cpu-bind=map_ldom:$ldoms"
+  threads=$((cores / np))
+  # GPU of the rank r close to its cores (cores r * threads and above)
+  order=$(python3 -I "$P/scripts/gpus-close-to-ranks.py" "$np" "$threads")
+  if [ -n "$order" ]; then
+    export PROTO_CUDA_VISIBLE_DEVICES=$order
   fi
+  echo "$np processes: $threads cores each, CUDA_VISIBLE_DEVICES=${order:-unchanged}" |
+    tee -a "$out/summary.txt"
   options="$base $amg"
-  run "$case_name-r$refinement-gpu-np$np" 1 "$np" "$cuda" "$batch" "${kernels[@]}"
+  run "$case_name-r$refinement-gpu-np$np" "$threads" "$np" "$cuda" "$batch" \
+    "${kernels[@]}"
   if [ "$np" != 1 ]; then
     options="$base $amg --gpu-aware-mpi"
-    run "$case_name-r$refinement-gpu-np$np-gpu-aware-mpi" 1 "$np" "$cuda" \
-      "$batch" "${kernels[@]}"
+    run "$case_name-r$refinement-gpu-np$np-gpu-aware-mpi" "$threads" "$np" \
+      "$cuda" "$batch" "${kernels[@]}"
   fi
 done
-unset PROTO_SRUN_OPTIONS
+unset PROTO_CUDA_VISIBLE_DEVICES
 device=""
 for np in ${cpu_processes:-24 48 96}; do
   options="$base $amg"
