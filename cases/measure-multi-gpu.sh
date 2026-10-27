@@ -1,5 +1,6 @@
 #!/bin/bash
-# Strong scaling of the beam on the GPUs and on the cores of one node (on
+# Strong scaling of the beam (or of the polycrystal of mm-opera-hpc, with
+# multi_gpu_case=polycrystal) on the GPUs and on the cores of one node (on
 # Jean Zay: 4 H100 and 96 cores per node of gpu_p6, job
 # deps/machines/jean-zay-h100/jobs/measure-multi-gpu.slurm), with the best
 # method of the work package L5 (NewtonK0, conjugate gradient preconditioned
@@ -18,14 +19,27 @@
 #   with PSM2 fails (cuIpcOpenMemHandle) (Jean Zay, 26/10/2026);
 # - on 24, 48 and 96 processes on the CPU.
 # The beam is refined `refinement` times (5 by default: 840,000 unknowns; 6:
-# about 6.5 million). The lists of processes are given by `gpu_processes`
-# and `cpu_processes`. Each computation gives the time of the loop over the
-# steps and the profiling tables (cases/summary-profiling.py).
+# about 6.5 million). The polycrystal (5 grains, single crystal behaviour of
+# UO2, periodic, uniaxial tension, 10 steps; NewtonK0 and Eisenstat-Walker 1,
+# the best method of results/L5-polycrystal-2026-10-10-0502) is refined
+# `refinement` times (2 by default: about 1.3 million unknowns; 0: 20,553);
+# its macroscopic stresses are compared to the ones of the computation on one
+# GPU. The lists of processes are given by `gpu_processes` and
+# `cpu_processes`. Each computation gives the profiling tables
+# (cases/summary-profiling.py), and, for the beam, the time of the loop over
+# the steps.
 #
-# usage: [refinement=6] cases/measure-multi-gpu.sh [results directory]
+# usage: [multi_gpu_case=beam|polycrystal] [refinement=n] \
+#   cases/measure-multi-gpu.sh [results directory]
 work_package=multi-gpu
-source "$(dirname "$0")/measure-common.sh" beam "$@"
-refinement=${refinement:-5}
+source "$(dirname "$0")/measure-common.sh" "${multi_gpu_case:-beam}" "$@"
+if [ "$case_name" = polycrystal ]; then
+  refinement=${refinement:-2}
+  # number of unknowns of the polycrystal
+  summary="$summary|number of finite element unknowns"
+else
+  refinement=${refinement:-5}
+fi
 batch=MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch
 kernels=(MFEM_MGIS_GRADIENTS_COMPUTATION=Kernels
   MFEM_MGIS_INNER_FORCES_COMPUTATION=Kernels
@@ -35,6 +49,13 @@ linear_solver=pcg-amg
 linear_tolerance=1e-4
 base="-nls fixed-point -fpm newton-k0 -k0 -pk0 -alst EisenstatWalker1 -alsti 0.1"
 amg="-els amg -amgo AggressiveCoarseningLevels=1"
+if [ "$case_name" = polycrystal ]; then
+  base="--non-linear-solver NewtonK0"
+  base="$base --adaptive-linear-solver-tolerance EisenstatWalker1"
+  base="$base --adaptive-linear-solver-initial-tolerance 0.1 -r $refinement"
+  amg=""
+  reference=polycrystal-r$refinement-gpu-np1
+fi
 echo "refinement: $refinement" | tee -a "$out/summary.txt"
 device=cuda
 # NUMA node of each GPU (column "NUMA Affinity" of `nvidia-smi topo -m`,
@@ -58,10 +79,10 @@ for np in ${gpu_processes:-1 2 4}; do
     export PROTO_SRUN_OPTIONS="--cpu-bind=map_ldom:$ldoms"
   fi
   options="$base $amg"
-  run "beam-r$refinement-gpu-np$np" 1 "$np" "$cuda" "$batch" "${kernels[@]}"
+  run "$case_name-r$refinement-gpu-np$np" 1 "$np" "$cuda" "$batch" "${kernels[@]}"
   if [ "$np" != 1 ]; then
     options="$base $amg --gpu-aware-mpi"
-    run "beam-r$refinement-gpu-np$np-gpu-aware-mpi" 1 "$np" "$cuda" \
+    run "$case_name-r$refinement-gpu-np$np-gpu-aware-mpi" 1 "$np" "$cuda" \
       "$batch" "${kernels[@]}"
   fi
 done
@@ -69,7 +90,7 @@ unset PROTO_SRUN_OPTIONS
 device=""
 for np in ${cpu_processes:-24 48 96}; do
   options="$base $amg"
-  run "beam-r$refinement-cpu-np$np" 1 "$np" "$generic" "$batch" \
+  run "$case_name-r$refinement-cpu-np$np" 1 "$np" "$generic" "$batch" \
     "${kernels[@]}"
 done
 echo "results in $out"
