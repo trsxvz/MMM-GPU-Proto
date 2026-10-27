@@ -76,7 +76,13 @@ case "$case_name" in
     ;;
   polycrystal)
     B=$P/build/mm-opera-hpc/polycrystal
-    generic=$B/src/libBehaviour.so
+    # library of the generic interface for the CPU (BehavioursPolycrystal of
+    # mm-opera-hpc, src/ in the builds before the libraries for the CPU and
+    # the GPU)
+    generic=$B/BehavioursPolycrystal/cpu/libBehaviour.so
+    if [ ! -f "$generic" ]; then
+      generic=$B/src/libBehaviour.so
+    fi
     gp=$P/build/cases/polycrystal
     ;;
   thermal)
