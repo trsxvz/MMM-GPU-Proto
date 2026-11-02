@@ -1,4 +1,4 @@
-From 2048e00b06c090cfe62a95810bfd18963ab8d088 Mon Sep 17 00:00:00 2001
+From 608db08de14180582a8d9f78266752c6b449d6af Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:49:29 +0200
 Subject: [PATCH] Options of BoomerAMG
@@ -50,7 +50,7 @@ index 552b32a450..af6206e77c 100644
        return this->Norm(r);
      };
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index 9f5a35a44a..8c1e43675b 100644
+index 5f084b919f..89d2bacda8 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
 @@ -6,6 +6,9 @@
@@ -62,8 +62,8 @@ index 9f5a35a44a..8c1e43675b 100644
 +#include <functional>
  #include <optional>
  #include <utility>
- #include "mfem/linalg/solvers.hpp"
-@@ -32,34 +35,35 @@
+ #include<optional>
+@@ -33,34 +36,35 @@
  namespace mfem_mgis::internals {
  
    /*!
@@ -118,9 +118,9 @@ index 9f5a35a44a..8c1e43675b 100644
 +    const std::vector<Setting> settings;
 +  };  // end of struct ConfiguredHypreBoomerAMG
  
- }  // end of namespace mfem_mgis::internals
- 
-@@ -69,64 +73,127 @@ namespace mfem_mgis {
+   #if MFEM_HYPRE_VERSION >= 21900
+   /*!
+@@ -112,64 +116,127 @@ namespace mfem_mgis {
  
  #ifdef MFEM_USE_MPI
  

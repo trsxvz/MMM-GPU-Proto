@@ -1,4 +1,4 @@
-From 89404b5f36ede90c33bc6f5eeeffd28e7d63a189 Mon Sep 17 00:00:00 2001
+From 5c679a0d1038aa8a31820a3b1909fca90b1366e8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 12:46:57 +0200
 Subject: [PATCH] Option --device: MFEM device created by initialize

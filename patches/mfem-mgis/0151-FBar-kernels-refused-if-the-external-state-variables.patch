@@ -1,4 +1,4 @@
-From 342061fcafb375fe6fc5517964305a74076d93e2 Mon Sep 17 00:00:00 2001
+From 268baf498815a95ae89b4ff4c9d9e4125377b17f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 18:08:59 +0200
 Subject: [PATCH] FBar: kernels refused if the external state variables follow

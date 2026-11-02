@@ -1,4 +1,4 @@
-From 8379798a3b29dd0c2e4c89f8b40ab68aab955718 Mon Sep 17 00:00:00 2001
+From ced8e1775fd47ab276f95b94db4ba376eba18471 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 16:39:32 +0200
 Subject: [PATCH] Documentation: point-wise models on the device, external

@@ -1,4 +1,4 @@
-From e40cb21ce15cdaa872c214b98db28d99787bbd8b Mon Sep 17 00:00:00 2001
+From df7451ab606103c703dc0800363ef45137854799 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 04:37:56 +0200
 Subject: [PATCH] Tests: solvers and preconditioners of Ginkgo

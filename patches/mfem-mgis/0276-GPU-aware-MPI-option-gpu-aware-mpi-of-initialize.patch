@@ -1,4 +1,4 @@
-From 1f7d9b127465b5b307503b5f464c08caa79c648d Mon Sep 17 00:00:00 2001
+From bfb61cb63c6e929a7c48ecafa08a18e7c263f065 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 25 Oct 2026 20:28:04 +0100
 Subject: [PATCH] GPU-aware MPI: option --gpu-aware-mpi of initialize

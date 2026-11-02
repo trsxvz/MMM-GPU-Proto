@@ -1,4 +1,4 @@
-From 55e02c8cb4bca2982e63515bee9508d2f855fd29 Mon Sep 17 00:00:00 2001
+From e7a0e204d5ba93ba54d5266f73c0e6c6031f3be7 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 16:05:11 +0200
 Subject: [PATCH] Newton solver: stagnation criterion fixed after an

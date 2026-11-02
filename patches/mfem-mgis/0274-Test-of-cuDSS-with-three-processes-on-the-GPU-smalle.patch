@@ -1,4 +1,4 @@
-From 79979467af6a1615aeb65b6ff3949f2a69aef636 Mon Sep 17 00:00:00 2001
+From 5ef3849b14c1631ca64c631b734cc26724bc396e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 21 Oct 2026 06:54:20 +0200
 Subject: [PATCH] Test of cuDSS with three processes on the GPU: smaller pools

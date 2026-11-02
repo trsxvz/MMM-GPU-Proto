@@ -1,4 +1,4 @@
-From d2654181ca372553f5b4f53a96af5862e9da7879 Mon Sep 17 00:00:00 2001
+From 1412e3592ca12db1dc766f7b390d5c8921418fed Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 01:21:34 +0200
 Subject: [PATCH] Fix the update on the device, the matrix-free diagonal and
@@ -474,10 +474,10 @@ index 223aaf6db5..cdf58dede3 100644
    bool getInformation<FiniteElementDiscretization>(
        Context& ctx,
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index ce62233bb1..daa89de46f 100644
+index 527df1b730..aad535287a 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -243,7 +243,9 @@ namespace mfem_mgis {
+@@ -286,7 +286,9 @@ namespace mfem_mgis {
       * diagonal is computed by the operator (`AssembleDiagonal`), or by
       * `GetDiag` for a sparse matrix of MFEM, which does not implement
       * `AssembleDiagonal`. The diagonal entries of the essential degrees of
@@ -488,7 +488,7 @@ index ce62233bb1..daa89de46f 100644
       */
      struct JacobiSmoother final : mfem::Solver {
        //! \param[in] d: damping factor
-@@ -259,8 +261,13 @@ namespace mfem_mgis {
+@@ -302,8 +304,13 @@ namespace mfem_mgis {
            this->diagonal.SetSize(op.Height());
            op.AssembleDiagonal(this->diagonal);
          }
@@ -504,7 +504,7 @@ index ce62233bb1..daa89de46f 100644
        }
        void Mult(const mfem::Vector& x, mfem::Vector& y) const override {
          if (this->smoother == nullptr) {
-@@ -274,6 +281,11 @@ namespace mfem_mgis {
+@@ -317,6 +324,11 @@ namespace mfem_mgis {
        const real damping;
        //! \brief diagonal of the operator
        mfem::Vector diagonal;

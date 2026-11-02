@@ -1,4 +1,4 @@
-From b3592b97e64e5da7ded6fb867f32299047177a1b Mon Sep 17 00:00:00 2001
+From 0222e8fb6f0631086479774ab181ff0cc3ddf938 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 07:51:37 +0200
 Subject: [PATCH] ElementsGeometry and heat transfer tests: review (nodes

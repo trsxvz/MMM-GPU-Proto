@@ -1,4 +1,4 @@
-From 79c28856334d4caa418544cd9105f8054d27f6b2 Mon Sep 17 00:00:00 2001
+From 1728a2cbc4a6282742f72454a5fad8f16ee55a69 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 15:31:43 +0200
 Subject: [PATCH] ParaSails in single precision: hypre with its internal LAPACK

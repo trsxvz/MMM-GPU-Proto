@@ -1,4 +1,4 @@
-From ed16f0fb2d881e97dcc73caf7894acf083b171c3 Mon Sep 17 00:00:00 2001
+From 2c71899aa9b824b2e86c3da954f37075c632d54d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:08:10 +0200
 Subject: [PATCH] Fix the findings of the review of the kernels and of the
@@ -461,10 +461,10 @@ index 3961d92a3f..eee47ca0e2 100644
      }
      this->final_iter = static_cast<int>(it);
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index 8c1e43675b..7428a9c3a8 100644
+index 89d2bacda8..1eebd57703 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -654,7 +654,7 @@ namespace mfem_mgis {
+@@ -697,7 +697,7 @@ namespace mfem_mgis {
    [[nodiscard]] static LinearSolverFactory<true>::Generator
    buildHypreBoomerAMGSolverGenerator() {
      return [](Context& ctx, FiniteElementSpace<true>& fespace,

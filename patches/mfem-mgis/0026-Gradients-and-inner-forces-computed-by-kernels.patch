@@ -1,4 +1,4 @@
-From a67790d7f64d2b0a6b52fddcf842428cce20075c Mon Sep 17 00:00:00 2001
+From df3539adf4986bb007abeb4caa13178da7a0c05f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 19:53:07 +0200
 Subject: [PATCH] Gradients and inner forces computed by kernels

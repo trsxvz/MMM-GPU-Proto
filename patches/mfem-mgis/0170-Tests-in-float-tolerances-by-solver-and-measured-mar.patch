@@ -1,4 +1,4 @@
-From 315dbd1516495143b613ab7e79f40d02b100aa47 Mon Sep 17 00:00:00 2001
+From d6e16ee4420bee1780aafd975780553e7326a46f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 04:01:39 +0200
 Subject: [PATCH] Tests in float: tolerances by solver and measured margins

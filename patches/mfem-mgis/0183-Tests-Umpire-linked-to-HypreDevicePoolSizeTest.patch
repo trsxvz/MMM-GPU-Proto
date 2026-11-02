@@ -1,4 +1,4 @@
-From 48f50c06e3b0d71d3a8cbd6573e7c139a4d11b84 Mon Sep 17 00:00:00 2001
+From 968b837e4235112108a2d9d493b1f4225da0ee18 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 22:08:14 +0200
 Subject: [PATCH] Tests: Umpire linked to HypreDevicePoolSizeTest

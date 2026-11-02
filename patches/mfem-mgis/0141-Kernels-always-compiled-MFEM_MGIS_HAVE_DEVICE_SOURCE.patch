@@ -1,4 +1,4 @@
-From 85fb53da8fa5397a7474246118f6699a85972e1b Mon Sep 17 00:00:00 2001
+From 415d337dcc60b3c6cf18184e7f550f5abfec6c9d Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 15:49:58 +0200
 Subject: [PATCH] Kernels always compiled: MFEM_MGIS_HAVE_DEVICE_SOURCES and

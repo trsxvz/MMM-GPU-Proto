@@ -68,7 +68,7 @@ jobs:
         }
         check tfel https://github.com/thelfer/tfel.git 9b810aa15
         check mgis https://github.com/thelfer/MFrontGenericInterfaceSupport.git a30dbf5
-        check mfem-mgis https://github.com/thelfer/mfem-mgis.git b63d1958ac
+        check mfem-mgis https://github.com/thelfer/mfem-mgis.git c951043fb7
         check mfem-mgis-examples https://github.com/latug0/mfem-mgis-examples.git f256bd8
         check mm-opera-hpc https://github.com/rprat-pro/mm-opera-hpc.git f3fc124
 

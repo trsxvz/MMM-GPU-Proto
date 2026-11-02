@@ -1,4 +1,4 @@
-From 78932b6060790ef2a7a9c891905f6e397472565e Mon Sep 17 00:00:00 2001
+From 686563457c8c5a9120476981f4ce0c4dc0086c47 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 17:17:30 +0200
 Subject: [PATCH] Doxygen: no warning, comments checked against the code

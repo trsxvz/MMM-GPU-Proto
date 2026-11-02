@@ -1,4 +1,4 @@
-From a840dd55f496ae250d82ec90be5ad5f82a507d25 Mon Sep 17 00:00:00 2001
+From a112dc87d40618f9c9154ee90d6904aa4d349a13 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:31:36 +0200
 Subject: [PATCH] Kernels: review (dead check, documentation, saturated

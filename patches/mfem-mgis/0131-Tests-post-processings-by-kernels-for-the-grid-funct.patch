@@ -1,4 +1,4 @@
-From 3f26eb1a4073e746c3fae2af37661678b5029543 Mon Sep 17 00:00:00 2001
+From 34363aef6441b4a44b19e49b9958a925ebac4c12 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 11:57:16 +0200
 Subject: [PATCH] Tests: post-processings by kernels for the grid functions and

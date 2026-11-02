@@ -1,4 +1,4 @@
-From f1c1d96aa8f4d5930df0d0fc224cf9dd90e32120 Mon Sep 17 00:00:00 2001
+From 313ea13fa09bdbb9755973c76fcad9060d987b6a Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 02:26:46 +0200
 Subject: [PATCH] Fix the findings of the review of the update on the device
@@ -293,7 +293,7 @@ index b01a151908..7d6bbe5462 100644
  
    void BehaviourIntegratorBase::revert() {
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index 54cdd7005b..9f5a35a44a 100644
+index c2cc35a84f..5f084b919f 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
 @@ -5,6 +5,8 @@
@@ -303,9 +303,9 @@ index 54cdd7005b..9f5a35a44a 100644
 +#include <memory>
 +#include <optional>
  #include <utility>
+ #include<optional>
  #include "mfem/linalg/solvers.hpp"
- #include "mfem/linalg/sparsemat.hpp"
-@@ -293,9 +295,19 @@ namespace mfem_mgis {
+@@ -336,9 +338,19 @@ namespace mfem_mgis {
      /*!
       * \brief preconditioner built on the assembled version of an operator
       * applied without assembly (see `AssembledOperatorProvider`), set up
@@ -328,7 +328,7 @@ index 54cdd7005b..9f5a35a44a 100644
       */
      struct AssembledOperatorPreconditioner final : mfem::Solver {
        /*!
-@@ -311,14 +323,22 @@ namespace mfem_mgis {
+@@ -354,14 +366,22 @@ namespace mfem_mgis {
          const auto* const provider =
              dynamic_cast<const AssembledOperatorProvider*>(&op);
          if (provider == nullptr) {
@@ -355,7 +355,7 @@ index 54cdd7005b..9f5a35a44a 100644
          }
          ++(this->count);
        }
-@@ -327,12 +347,28 @@ namespace mfem_mgis {
+@@ -370,12 +390,28 @@ namespace mfem_mgis {
        }
  
       private:

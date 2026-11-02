@@ -1,4 +1,4 @@
-From 20c48da3cbec619f202b1104a05c07d4e272253c Mon Sep 17 00:00:00 2001
+From d98c3d03db2aed4c7e250814f93ddae2e5e01a70 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 02:58:58 +0200
 Subject: [PATCH] Config: size of the pool of memory of hypre on the GPU

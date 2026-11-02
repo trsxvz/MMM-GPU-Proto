@@ -1,4 +1,4 @@
-From f58e55d5b67f20d89c859df9fc2715f4d9570f5b Mon Sep 17 00:00:00 2001
+From ee7c60b4995706d5c8778edbb39d36195beb78dd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 06:11:39 +0200
 Subject: [PATCH] Add the preconditioners of the sparse matrices of MFEM, KLU

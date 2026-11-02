@@ -1,4 +1,4 @@
-From 98694078e8e5289bb6b5f05ba6e64f9cb9825067 Mon Sep 17 00:00:00 2001
+From fa466d6439b39f8096464a289feb6e52b808fe35 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 19:11:04 +0200
 Subject: [PATCH] Tests: GPU lock given by the suffixes -cuda, -hip and -gpu

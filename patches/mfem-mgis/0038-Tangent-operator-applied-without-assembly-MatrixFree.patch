@@ -1,4 +1,4 @@
-From 668758ff58acadf99e7be731939daeda6d2f1443 Mon Sep 17 00:00:00 2001
+From 08e334dc69a933587c0620399894d0bb8c8c4d0e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 00:04:58 +0200
 Subject: [PATCH] Tangent operator applied without assembly (MatrixFree)
@@ -221,18 +221,18 @@ index 0deced3fdb..431ddff84a 100644
    AbstractDirichletBoundaryCondition.cxx
    DirichletBoundaryConditionBase.cxx
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index 3b8f4bf8db..99f3261219 100644
+index 1a53203b73..ddd3f2cef5 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -7,6 +7,7 @@
- 
+@@ -8,6 +8,7 @@
  #include <utility>
+ #include<optional>
  #include "mfem/linalg/solvers.hpp"
 +#include "mfem/linalg/sparsemat.hpp"
  #include "mfem/linalg/petsc.hpp"
  #include "mfem/config/config.hpp"
  #include "mfem/fem/fespace.hpp"
-@@ -234,6 +235,50 @@ namespace mfem_mgis {
+@@ -277,6 +278,50 @@ namespace mfem_mgis {
  
  #endif /* MFEM_USE_MPI */
  
@@ -283,7 +283,7 @@ index 3b8f4bf8db..99f3261219 100644
    template <bool parallel>
    std::unique_ptr<LinearSolverPreconditioner> getLinearSolverPreconditioner(
        Context& ctx,
-@@ -255,6 +300,22 @@ namespace mfem_mgis {
+@@ -298,6 +343,22 @@ namespace mfem_mgis {
              *oname + "'");
        }
        return {};

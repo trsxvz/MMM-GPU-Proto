@@ -1,4 +1,4 @@
-From 298c9654095dea69ff39ceb40ea70cff06c20675 Mon Sep 17 00:00:00 2001
+From d9287f146d1737519a2e99e400ae8d756e4be280 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 26 Oct 2026 12:39:25 +0100
 Subject: [PATCH] Ordered assembly: products of the matrices by vectors by the

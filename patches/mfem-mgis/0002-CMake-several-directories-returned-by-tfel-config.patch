@@ -1,4 +1,4 @@
-From fdefd855239b510d67b21f026f9689a15a34ba00 Mon Sep 17 00:00:00 2001
+From a150f0d167ba0968960cd6b0c38378384fc9d645 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 12:46:46 +0200
 Subject: [PATCH] CMake: several directories returned by tfel-config

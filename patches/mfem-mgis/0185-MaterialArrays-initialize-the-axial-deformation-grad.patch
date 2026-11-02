@@ -1,4 +1,4 @@
-From 13b472a9da1f4780a2d34a30b39c46bcaa642edc Mon Sep 17 00:00:00 2001
+From 4e5b09bc095ebc7153817dadc828cf33a38ca0d9 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 00:11:54 +0200
 Subject: [PATCH] MaterialArrays: initialize the axial deformation gradient to

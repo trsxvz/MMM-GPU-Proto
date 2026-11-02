@@ -1,4 +1,4 @@
-From 437c8a9ed35d32c39430911c4aca65e857450422 Mon Sep 17 00:00:00 2001
+From 0dc818860b2046511e78e2ce32c362c7c4763988 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 16 Oct 2026 20:03:55 +0200
 Subject: [PATCH] Preconditioner override

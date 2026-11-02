@@ -1,4 +1,4 @@
-From c567b28010783ef18317f8553f04d01f7e9c384e Mon Sep 17 00:00:00 2001
+From 7a7f583ff736163aed91bf3ee96b980928baa97e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 11:11:29 +0200
 Subject: [PATCH] Test and document the sparse solvers of MAGMA

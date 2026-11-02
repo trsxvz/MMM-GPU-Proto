@@ -1,4 +1,4 @@
-From 9b22de985b1db5ad007153ddb5d9de3f9d9eb6eb Mon Sep 17 00:00:00 2001
+From bb7f5d687a6f2b07e7c4582a5215ed150f9182eb Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:53:26 +0200
 Subject: [PATCH] MFront sources regenerated when mfront changes

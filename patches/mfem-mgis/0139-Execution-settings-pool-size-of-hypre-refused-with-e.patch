@@ -1,4 +1,4 @@
-From 88e064a5208a96b2bef4083367f8418ead521e73 Mon Sep 17 00:00:00 2001
+From bfedd544a41bd901a2c37032f66d2ce9d9319a18 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 15:49:45 +0200
 Subject: [PATCH] Execution settings: pool size of hypre refused with

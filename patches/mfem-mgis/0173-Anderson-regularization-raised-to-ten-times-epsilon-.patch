@@ -1,4 +1,4 @@
-From bb77eef1faa9598a5d4b96a1543fc09969ec2c20 Mon Sep 17 00:00:00 2001
+From 8836fbc0be1970c1625fdc868534af59c8304aab Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 05:36:40 +0200
 Subject: [PATCH] Anderson: regularization raised to ten times epsilon with

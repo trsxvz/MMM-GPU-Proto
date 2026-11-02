@@ -1,4 +1,4 @@
-From 71008d796be5c88857713a6afc0191643f415797 Mon Sep 17 00:00:00 2001
+From 028e4b13281deab7c36b99823df02b4ccd948047 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 03:51:33 +0200
 Subject: [PATCH] FixedPointSolver: iterative solvers of the factory, None for
@@ -674,10 +674,10 @@ index bd3b491755..7107a926fb 100644
      auto r = mfem::Vector(n);
      auto c = mfem::Vector(n);
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index 7428a9c3a8..fbb8c65ceb 100644
+index 1eebd57703..65db970969 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -1000,6 +1000,8 @@ namespace mfem_mgis {
+@@ -1043,6 +1043,8 @@ namespace mfem_mgis {
                  buildIterativeSolverGenerator<parallel, mfem::CGSolver>()));
      check(f.add(ctx, "GMRESSolver",
                  buildIterativeSolverGenerator<parallel, mfem::GMRESSolver>()));

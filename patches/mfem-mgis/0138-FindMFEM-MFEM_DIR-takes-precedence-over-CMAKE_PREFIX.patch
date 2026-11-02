@@ -1,4 +1,4 @@
-From 304a67042634ee230667e78be9af4fd246365497 Mon Sep 17 00:00:00 2001
+From dce7c9086fc2bcc71f4ef19496b4d2b11f6d9374 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 15:49:36 +0200
 Subject: [PATCH] FindMFEM: MFEM_DIR takes precedence over CMAKE_PREFIX_PATH

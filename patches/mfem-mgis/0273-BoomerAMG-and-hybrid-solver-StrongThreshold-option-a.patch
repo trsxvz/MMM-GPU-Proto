@@ -1,4 +1,4 @@
-From 273b3df437ba8a4934b0f9aa3fb9b1772ccef260 Mon Sep 17 00:00:00 2001
+From 94435e7d5852ce7ec8902e0f4157e27b42b037a6 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 20 Oct 2026 18:05:53 +0200
 Subject: [PATCH] BoomerAMG and hybrid solver: StrongThreshold option, as in

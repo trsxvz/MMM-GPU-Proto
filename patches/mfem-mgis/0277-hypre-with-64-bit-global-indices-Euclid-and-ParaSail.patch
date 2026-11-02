@@ -1,4 +1,4 @@
-From 3cc57f28a0929e5e196cde7b703cda3a3c207671 Mon Sep 17 00:00:00 2001
+From 9bdcdc7636973fc49061f6c1c25ffeb1f666a8cf Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 26 Oct 2026 10:47:21 +0100
 Subject: [PATCH] hypre with 64 bit global indices: Euclid and ParaSails

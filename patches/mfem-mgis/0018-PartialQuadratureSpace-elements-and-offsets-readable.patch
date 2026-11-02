@@ -1,4 +1,4 @@
-From 5a2e8bc98f63fdf254496ff102e78cdb9c042a78 Mon Sep 17 00:00:00 2001
+From 946acef5c8a9d9b8c004dcb778e895fc7a0d4bf8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 15:19:08 +0200
 Subject: [PATCH] PartialQuadratureSpace: elements and offsets readable on the

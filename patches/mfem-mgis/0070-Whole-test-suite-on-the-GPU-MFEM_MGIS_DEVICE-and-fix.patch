@@ -1,4 +1,4 @@
-From 7d79d8aa29f288ae068a055d23eb31a27626f0b2 Mon Sep 17 00:00:00 2001
+From 88b448fcbeaab0b018e893e1a3898784176904cd Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 10:31:36 +0200
 Subject: [PATCH] Whole test suite on the GPU: MFEM_MGIS_DEVICE and fixes of
@@ -55,7 +55,7 @@ cpu and DeviceOptionTest-none); 157/157 on the CPU.
  src/AnalyticalTests.cxx                    |  10 +-
  src/Config.cxx                             |  17 +++
  src/GridFunctionInterpolator.cxx           |   3 +
- src/LinearSolverFactory.cxx                |  89 +++++++++++---
+ src/LinearSolverFactory.cxx                |  98 ++++++++-------
  tests/CMakeLists.txt                       |   4 +
  tests/FixedPointSolverTest.cxx             |  13 +-
  tests/GridFunctionInterpolatorTest.cxx     |  12 +-
@@ -66,7 +66,7 @@ cpu and DeviceOptionTest-none); 157/157 on the CPU.
  tests/TwoLayerCube.cxx                     |   6 +-
  tests/UniaxialTensileTest.cxx              |   6 +-
  tests/UnitTestingUtilities.hxx             |   6 +-
- 17 files changed, 346 insertions(+), 52 deletions(-)
+ 17 files changed, 329 insertions(+), 78 deletions(-)
  create mode 100644 tests/HypreILUTest.cxx
 
 diff --git a/include/MFEMMGIS/Config.hxx b/include/MFEMMGIS/Config.hxx
@@ -259,52 +259,84 @@ index 420d5494d3..ee4d520e98 100644
        for (size_type i = 0; i != npoints; ++i) {
          for (size_type j = 0; j != fespace->GetVDim(); ++j) {
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index cd064a7b52..7267c0a881 100644
+index c2467c3520..7267c0a881 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -65,6 +65,41 @@ namespace mfem_mgis::internals {
+@@ -11,7 +11,6 @@
+ #include <functional>
+ #include <optional>
+ #include <utility>
+-#include<optional>
+ #include "mfem/linalg/solvers.hpp"
+ #include "mfem/linalg/sparsemat.hpp"
+ #include "mfem/linalg/petsc.hpp"
+@@ -66,44 +65,37 @@ namespace mfem_mgis::internals {
      const std::vector<Setting> settings;
    };  // end of struct ConfiguredHypreBoomerAMG
  
+-  #if MFEM_HYPRE_VERSION >= 21900
 +#if MFEM_HYPRE_VERSION >= 21900
 +
-+  /*!
+   /*!
+-   * \brief HypreILU preconditioner which keeps its options
+-   *
+-   * `HypreILU::SetOperator` destroys and recreates the underlying hypre
+-   * object (`ResetILUPrecond`) and restores the default options, so the
+-   * options (print level, level of fill) are lost whenever a new operator
+-   * is set. They are applied again after each call to `SetOperator`.
 +   * \brief incomplete factorisation of hypre whose settings are applied
 +   * again after each new operator: `mfem::HypreILU::SetOperator` creates a
 +   * new preconditioner of hypre with the default options of MFEM (a level
 +   * of fill of one), which lost the settings given by the user
-+   */
-+  struct ConfiguredHypreILU final : public mfem::HypreILU {
+    */
+   struct ConfiguredHypreILU final : public mfem::HypreILU {
+-    /*!
+-     * \brief constructor
+-     * \param[in] l: print level, if any
+-     * \param[in] f: level of fill, if any
+-     */
+-    ConfiguredHypreILU(const std::optional<int> l, const std::optional<int> f)
+-        : print_level(l), level_of_fill(f) {
+-      this->applyOptions();
 +    //! \brief a setting of the preconditioner
 +    using Setting = std::function<void(mfem::HypreILU&)>;
 +    //! \param[in] s: settings
 +    explicit ConfiguredHypreILU(std::vector<Setting> s)
 +        : settings(std::move(s)) {
 +      this->applySettings();
-+    }
+     }
+-    //! \brief set the operator and restore the options
 +    //! \brief set the operator, then the settings
-+    void SetOperator(const mfem::Operator& op) override {
-+      mfem::HypreILU::SetOperator(op);
+     void SetOperator(const mfem::Operator& op) override {
+       mfem::HypreILU::SetOperator(op);
+-      this->applyOptions();
 +      this->applySettings();
-+    }
+     }
 +
-+   private:
+    private:
+-    //! \brief apply the options to the underlying hypre object
+-    void applyOptions() {
+-      if (isValid(this->print_level)) {
+-        this->SetPrintLevel(*(this->print_level));
+-      }
+-      if (isValid(this->level_of_fill)) {
+-        this->SetLevelOfFill(*(this->level_of_fill));
 +    //! \brief apply the settings
 +    void applySettings() {
 +      for (const auto& setting : this->settings) {
 +        setting(*this);
-+      }
-+    }
+       }
+     }
+-    //! \brief print level
+-    const std::optional<int> print_level;
+-    //! \brief level of fill
+-    const std::optional<int> level_of_fill;
 +    //! \brief settings
 +    const std::vector<Setting> settings;
-+  };  // end of struct ConfiguredHypreILU
-+
-+#endif /* MFEM_HYPRE_VERSION >= 21900 */
-+
- }  // end of namespace mfem_mgis::internals
+   };  // end of struct ConfiguredHypreILU
  
- #endif /* MFEM_USE_MPI */
-@@ -115,16 +150,20 @@ namespace mfem_mgis {
+ #endif /* MFEM_HYPRE_VERSION >= 21900 */
+@@ -158,16 +150,20 @@ namespace mfem_mgis {
      }
      auto elasticity = false;
      if (*ostrategy == "Elasticity") {
@@ -334,44 +366,39 @@ index cd064a7b52..7267c0a881 100644
        }
      } else if ((*ostrategy != "System") && (*ostrategy != "None")) {
        return ctx.registerErrorMessage(
-@@ -228,23 +267,41 @@ namespace mfem_mgis {
+@@ -271,24 +267,42 @@ namespace mfem_mgis {
                                                    "HypreILULevelOfFill"})) {
        return {};
      }
--    const auto verbose = contains(opts, Problem::SolverVerbosityLevel);
--    const auto levelOfFill = contains(opts, "HypreILULevelOfFill");
--    auto ilu = std::make_unique<mfem::HypreILU>();
--    if (verbose) {
+-    auto print_level = std::optional<int>{};
 +    using Setting = internals::ConfiguredHypreILU::Setting;
 +    auto settings = std::vector<Setting>{};
-+    if (contains(opts, Problem::SolverVerbosityLevel)) {
+     if (contains(opts, Problem::SolverVerbosityLevel)) {
        const auto olvl = get<int>(ctx, opts, Problem::SolverVerbosityLevel);
        if (isInvalid(olvl)) {
          return {};
        }
--      ilu->SetPrintLevel(*olvl);
+-      print_level = *olvl;
 +      settings.push_back(
 +          [v = *olvl](mfem::HypreILU& ilu) { ilu.SetPrintLevel(v); });
      }
--    if (levelOfFill) {
 +    // the incomplete factorisations with a level of fill greater than zero
 +    // make the triangular solves of hypre fail when hypre computes on a GPU
 +    // (segmentation fault in hypre_ILUSolveLUDevice, reproduced with hypre
 +    // 3.0.2 and CUDA 13): the level of fill is then zero by default, one
 +    // being the default of MFEM
-+    auto level_of_fill = std::optional<int>{};
-+    if (contains(opts, "HypreILULevelOfFill")) {
+     auto level_of_fill = std::optional<int>{};
+     if (contains(opts, "HypreILULevelOfFill")) {
        const auto olvl = get<int>(ctx, opts, "HypreILULevelOfFill");
        if (isInvalid(olvl)) {
          return {};
        }
--      HYPRE_ILUSetLevelOfFill(*ilu, *olvl);
 +      if ((*olvl > 0) && (isHypreUsingGPU())) {
 +        return ctx.registerErrorMessage(
 +            "setHypreILUPreconditioner: a level of fill greater than zero "
 +            "is not supported when hypre computes on a GPU");
 +      }
-+      level_of_fill = *olvl;
+       level_of_fill = *olvl;
 +    } else if (isHypreUsingGPU()) {
 +      level_of_fill = 0;
 +    }
@@ -379,10 +406,13 @@ index cd064a7b52..7267c0a881 100644
 +      settings.push_back(
 +          [v = *level_of_fill](mfem::HypreILU& ilu) { ilu.SetLevelOfFill(v); });
      }
+-    return std::make_unique<internals::ConfiguredHypreILU>(print_level,
+-                                                           level_of_fill);
 +    auto ilu = std::make_unique<internals::ConfiguredHypreILU>(settings);
-     return ilu;
++    return ilu;
  #else  /*  HYPRE_OLD_VERSION */
      return ctx.registerErrorMessage(
+         "Support for HypreILU is not available with this version of MFEM");
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
 index c5a0056f07..3f34d633b5 100644
 --- a/tests/CMakeLists.txt

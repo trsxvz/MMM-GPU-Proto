@@ -1,4 +1,4 @@
-From b92f213e74f5741e16b25ce24f854f815e06a745 Mon Sep 17 00:00:00 2001
+From 391ef422791d40121e2b19667959a02a8821a13b Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 20:32:06 +0200
 Subject: [PATCH] L2 projection: exceptions reported in the execution context

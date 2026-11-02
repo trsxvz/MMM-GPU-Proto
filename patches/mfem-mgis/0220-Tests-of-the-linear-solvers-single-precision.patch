@@ -1,4 +1,4 @@
-From be7767e29e1d9ba68c8732c33e94ee3bacfba730 Mon Sep 17 00:00:00 2001
+From 5174782a12b81359610bbf603711763f287a4981 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 12:15:54 +0200
 Subject: [PATCH] Tests of the linear solvers: single precision

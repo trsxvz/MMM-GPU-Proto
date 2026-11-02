@@ -1,4 +1,4 @@
-From e285ec3f85e2d1703059ff518b16da66a96b7bcd Mon Sep 17 00:00:00 2001
+From 5f22af8fce366eb3938c4d70c96ac65f52fedaff Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 13:58:04 +0200
 Subject: [PATCH] CMake: only the -I and -L flags of tfel-config, several

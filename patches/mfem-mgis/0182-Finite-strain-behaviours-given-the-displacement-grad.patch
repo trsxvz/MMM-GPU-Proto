@@ -1,4 +1,4 @@
-From e86cd17821a8d457494591ae728ad308b12ed0b2 Mon Sep 17 00:00:00 2001
+From 9ed385624cee1d5c231fa50f518d5b268d921a26 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Wed, 14 Oct 2026 20:39:37 +0200
 Subject: [PATCH] Finite strain behaviours given the displacement gradient

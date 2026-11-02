@@ -1,4 +1,4 @@
-From 8e4a22f9dccdc3b3cb70700178a2722856ecea70 Mon Sep 17 00:00:00 2001
+From d8a0207ad218643e7b706750577e4e40e0ee4902 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 21:31:47 +0200
 Subject: [PATCH] Kernels: tangent operator assembled directly in the sparse

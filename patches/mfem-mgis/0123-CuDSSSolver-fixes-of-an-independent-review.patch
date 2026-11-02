@@ -1,4 +1,4 @@
-From b084dabbee6b096be51784e920c326a52cf14bfc Mon Sep 17 00:00:00 2001
+From 3bf61af64c471ed63457ff183c938d0d3f89c97f Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Mon, 12 Oct 2026 06:55:09 +0200
 Subject: [PATCH] CuDSSSolver: fixes of an independent review

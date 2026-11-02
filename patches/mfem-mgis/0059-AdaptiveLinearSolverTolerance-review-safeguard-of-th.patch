@@ -1,4 +1,4 @@
-From b04d98d092e3c287c685b4f7403ef67aeaf95aed Mon Sep 17 00:00:00 2001
+From 9d9f0c8cd6a2562ab37410b09b2774ec876b5f04 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:55:11 +0200
 Subject: [PATCH] AdaptiveLinearSolverTolerance: review (safeguard of the first
@@ -199,10 +199,10 @@ index 05e2bffed3..425ac617f2 100644
      const auto has_linear_solver =
          (!remove_linear_solver) &&
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index 261c414006..cd064a7b52 100644
+index c9b856de41..c2467c3520 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -603,11 +603,17 @@ namespace mfem_mgis {
+@@ -646,11 +646,17 @@ namespace mfem_mgis {
        if (isInvalid(oorder) || isInvalid(oiterations)) {
          return {};
        }

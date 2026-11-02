@@ -1,4 +1,4 @@
-From 6b98bc77a778189c40f8ed291b00c36cf7c5a76d Mon Sep 17 00:00:00 2001
+From ed08b9f1910965ee57d7429c8a50d8b1b5d4a404 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Thu, 15 Oct 2026 13:26:58 +0200
 Subject: [PATCH] HypreMGR: eliminated points, GPU workaround, refused block

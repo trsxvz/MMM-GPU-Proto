@@ -1,4 +1,4 @@
-From cb99684b7806ef622037ef6881d52574c52df470 Mon Sep 17 00:00:00 2001
+From a86e54b9d48cce28fe1c71580ffcff7e53c72560 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:44:36 +0200
 Subject: [PATCH] LinearSolverFactory: Chebyshev smoother of MFEM as
@@ -99,10 +99,10 @@ index 9ec26c0517..bfd441f901 100644
  ===========================
  
 diff --git a/src/LinearSolverFactory.cxx b/src/LinearSolverFactory.cxx
-index fbb8c65ceb..261c414006 100644
+index 65db970969..c9b856de41 100644
 --- a/src/LinearSolverFactory.cxx
 +++ b/src/LinearSolverFactory.cxx
-@@ -359,6 +359,84 @@ namespace mfem_mgis {
+@@ -402,6 +402,84 @@ namespace mfem_mgis {
        std::unique_ptr<mfem::OperatorJacobiSmoother> smoother;
      };
  
@@ -187,7 +187,7 @@ index fbb8c65ceb..261c414006 100644
      /*!
       * \brief preconditioner built on the assembled version of an operator
       * applied without assembly (see `AssembledOperatorProvider`), set up
-@@ -507,6 +585,39 @@ namespace mfem_mgis {
+@@ -550,6 +628,39 @@ namespace mfem_mgis {
          return {};
        }
        return std::make_unique<JacobiSmoother>(*odamping);

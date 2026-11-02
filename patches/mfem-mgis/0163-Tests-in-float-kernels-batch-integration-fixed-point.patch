@@ -1,4 +1,4 @@
-From 7df7428c478710f8c60558ad55a57a0021e9b81d Mon Sep 17 00:00:00 2001
+From 58ed81ec12fdb1dbcda97b33edda91479b96c6f2 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 13 Oct 2026 21:53:01 +0200
 Subject: [PATCH] Tests in float: kernels, batch integration, fixed point,

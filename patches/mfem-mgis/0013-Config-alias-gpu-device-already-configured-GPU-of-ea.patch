@@ -1,4 +1,4 @@
-From 42e72d4d90025536714142944381f29090fb31d2 Mon Sep 17 00:00:00 2001
+From 231c6c3c1d5ae3ca62bda8fc5bf49c7bf069f26e Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Fri, 9 Oct 2026 14:19:38 +0200
 Subject: [PATCH] Config: alias gpu, device already configured, GPU of each

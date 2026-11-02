@@ -1,4 +1,4 @@
-From f00142189ee5059484b9d83861669557c4d577dc Mon Sep 17 00:00:00 2001
+From bf9b4615f83314e5221fb2932ecf0c8c0b67f084 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sun, 11 Oct 2026 15:07:28 +0200
 Subject: [PATCH] PointWiseModel: integration by batches on the device

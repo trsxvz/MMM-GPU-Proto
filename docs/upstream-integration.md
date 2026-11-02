@@ -137,7 +137,7 @@ integration of MGIS stays on CPU.
 ## mfem-mgis
 
 The branch `gpu-proto` of mfem-mgis starts from the official master
-`b63d1958ac` (20/10/2026, fix of `assign` after the merge of PR #500).
+`c951043fb7` (29/10/2026, merge of PR #504, settings of the ILU of hypre).
 The order follows the dependencies:
 
 - contributions 1 and 2 need neither the TFEL nor the MGIS of the
@@ -156,7 +156,10 @@ The overall plan is in [plan-mfem-mgis.md](plan-mfem-mgis.md).
    - ParaSails preconditioner given again to a new operator after the
      destruction of the previous one (defect of `mfem::HypreParaSails`);
    - settings of the ILU of hypre applied again after each new operator
-     (MFEM resets them to the default values);
+     (MFEM resets them to the default values): in the base for the print
+     level and the level of fill (PRs #502 and #504); the prototype keeps
+     one `ConfiguredHypreILU`, which also applies the type of the
+     factorisation;
    - absolute tolerance of the Krylov solvers of hypre (refused, or given
      as relative tolerance to FGMRES);
    - short names of the options declared by `declareDefaultOptions`

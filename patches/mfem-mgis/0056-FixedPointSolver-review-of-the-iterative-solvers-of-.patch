@@ -1,4 +1,4 @@
-From a48c756d4d6bc046a3874c856c319be7a84b6c59 Mon Sep 17 00:00:00 2001
+From 2914ab68e5b08cd4c5f4dba65e288ffd95fd6ac8 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Sat, 10 Oct 2026 04:23:04 +0200
 Subject: [PATCH] FixedPointSolver: review of the iterative solvers of the

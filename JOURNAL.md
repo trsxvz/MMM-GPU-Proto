@@ -210,6 +210,7 @@ described in [docs/](docs/overview.md).
 | [2026-10-23, deferred report](#2026-10-23-deferred-report) |
 | [2026-10-23, TFEL onto master 9b810aa15 (#1060, #1071)](#2026-10-23-tfel-onto-master-9b810aa15-1060-1071) |
 | [2026-10-25, several GPUs per node: allocators of Umpire, GPU-aware MPI](#2026-10-25-several-gpus-per-node-allocators-of-umpire-gpu-aware-mpi) |
+| [2026-11-02, mfem-mgis onto master c951043fb7 (#502, #504)](#2026-11-02-mfem-mgis-onto-master-c951043fb7-502-504) |
 
 ## Entries
 
@@ -6059,3 +6060,21 @@ formula as MTest). All the others give the Newton solution to within
   the 12 new tests), all passed. AmgX reports its communicator
   `MPI_DIRECT` on two processes. With one GPU, the exchanges between GPUs
   and the allocators of Umpire on another GPU than the GPU 0 are not run.
+
+### 2026-11-02, mfem-mgis onto master c951043fb7 (#502, #504)
+
+- Rebase of `gpu-proto` onto master `c951043fb7`. Since the previous base,
+  the official repository only changed `src/LinearSolverFactory.cxx`
+  (PRs #502 and #504): the ILU preconditioner of hypre applies again its
+  print level and its level of fill after each new operator, by a class
+  `ConfiguredHypreILU`.
+- The prototype already had a class of this name since the test suite on
+  the GPU (patch 0070), moved afterwards to `src/HypreLinearSolvers.cxx`.
+  It applies the same two settings, and the type of the factorisation. The
+  only conflict, in patch 0070, is resolved by keeping the code of the
+  prototype. Keeping both classes would have compiled and linked, with
+  two different definitions of the same class (undefined behaviour).
+- The 278 patches are kept, with the same subjects in the same order. The
+  final tree is identical to the one of the previous base, so the
+  validations of 23/10 and 25/10 still apply. The patch series is checked
+  by `scripts/verify-patches.sh` on the new base.
