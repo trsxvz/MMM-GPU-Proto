@@ -211,6 +211,7 @@ described in [docs/](docs/overview.md).
 | [2026-10-23, TFEL onto master 9b810aa15 (#1060, #1071)](#2026-10-23-tfel-onto-master-9b810aa15-1060-1071) |
 | [2026-10-25, several GPUs per node: allocators of Umpire, GPU-aware MPI](#2026-10-25-several-gpus-per-node-allocators-of-umpire-gpu-aware-mpi) |
 | [2026-11-02, mfem-mgis onto master c951043fb7 (#502, #504)](#2026-11-02-mfem-mgis-onto-master-c951043fb7-502-504) |
+| [2026-11-03, layout of the data at the integration points (`QuadratureDataLayout`)](#2026-11-03-layout-of-the-data-at-the-integration-points-quadraturedatalayout) |
 
 ## Entries
 
@@ -6078,3 +6079,94 @@ formula as MTest). All the others give the Newton solution to within
   final tree is identical to the one of the previous base, so the
   validations of 23/10 and 25/10 still apply. The patch series is checked
   by `scripts/verify-patches.sh` on the new base.
+
+### 2026-11-03, layout of the data at the integration points (`QuadratureDataLayout`)
+
+Goal: let each material store the data at its integration points point by
+point (AoS, the components of a point contiguous) or component by
+component (SoA, the values of a component contiguous), the two layouts of
+MGIS, without changing the results.
+
+Before the code:
+
+- Inventory of all the arrays of mfem-mgis by layout (163 entries). The
+  storage of the materials (`MaterialArrays`) and MGIS already accept both
+  layouts, and TFEL `generic-parallel` reads both. mfem-mgis always built
+  its materials point by point, and several paths read a point as
+  contiguous values without any check.
+- Measurements of the access patterns on the RTX 5080 and on the CPU
+  ([results/layout-microbenchmarks-2026-11-02](results/layout-microbenchmarks-2026-11-02/README.md)).
+  On the GPU, the component by component layout only pays with one thread
+  per point: with one thread per element, the mapping of the current
+  kernels of the finite elements, it is equal or 1.3 to 2.9 times slower;
+  with one thread per point, it is twice as fast for a tangent operator
+  with 81 components. On the CPU, the point by point layout is always
+  better or equal. Strides read at run time cost nothing measurable: one
+  version of each kernel is enough, and the results are the same to the
+  last bit in both layouts.
+- Choices: one layout per material, fixed when the material is built, the
+  problem giving the default; point by point by default; no automatic
+  choice (code reading the raw arrays of MGIS would be right on the CPU and
+  wrong on the GPU, without error); every path which reads a point as
+  contiguous values refuses the other layout.
+
+Done (mfem-mgis, patch 0279):
+
+- Parameter `QuadratureDataLayout` (`PointByPoint`, `ComponentByComponent`)
+  of the problems (environment variable `MFEM_MGIS_QUADRATURE_DATA_LAYOUT`
+  for the default), of `addBehaviourIntegrator` (one material) and of
+  `PointWiseModel`, declared in `QuadratureDataLayout.hxx`.
+- `MultiMaterialNonLinearIntegrator` gives the layout of a material to its
+  generator as this parameter when it is not the point by point layout, so
+  that the generators of the users see no new parameter by default. The
+  generators of mfem-mgis give it to the constructors of the behaviour
+  integrators (last argument, point by point by default), down to
+  `Material`.
+- Refusals of the component by component layout: integration point by
+  point and computations element by element at the setup of the problem;
+  element by element methods of the behaviour integrators (exception, for
+  the direct calls); linearized operators and resultant force on a
+  boundary, on all the processes before computing. An external state
+  variable with several components computed by an evaluator is refused
+  (MGIS reads it in the layout of the material).
+- `computeMeanThermodynamicForcesValues` reads the thermodynamic forces
+  through the views of MGIS.
+
+Found along the way, before the refusals: the resultant force on a
+boundary, the linearized operators and the direct calls of the element by
+element methods would have given wrong values without error with a
+material stored component by component. Three tests read the raw arrays
+of the materials as point by point (`BatchIntegrationTest`,
+`ExecutionSettingsTest`, `UniaxialTensileTest`): they now read them through
+the views of MGIS.
+
+Validation (CPU tests one at a time, as the GPU ones):
+
+- `BatchIntegrationTest`, 7 variants: each case computed by batches and by
+  kernels is also computed with the component by component layout (82 to
+  196 comparisons per variant), covering the
+  `generic-parallel` behaviours (openmp, stlpar, cuda), FBar, Faltus, the
+  prediction, the tangent operator without assembly and two materials of
+  different layouts. Same unknowns, thermodynamic forces, forces in the
+  global frame, predictions and integrals of the thermodynamic forces to
+  the last bit in sequential on the CPU and on the `debug` device, and on
+  the GPU with the ordered assembly; to the rounding errors otherwise
+  (atomic assembly on the GPU, MUMPS in parallel: relative differences of
+  at most 1.2e-12).
+- Suite of mfem-mgis on the CPU: 250/250 with the default computations;
+  249/250 with the kernels forced, as before (`TwoLayerCube-1-MatrixFreeExecution`
+  refuses the placement variables). GPU variants (`cuda`, `gpu`, AmgX, Kokkos): 104/104.
+- Suite on the CPU with the kernels forced and
+  `MFEM_MGIS_QUADRATURE_DATA_LAYOUT=ComponentByComponent`: 147/250. The 103
+  failures are all refusals with their message: 87 by the accessors of the
+  materials (post-processings and their creation), 7 integrations point by
+  point and 2 computations element by element chosen by the tests, 4
+  resultant forces, 2 linearized operators (`PredictionTest`), 1 direct
+  call of the element methods (`GradientsKernelsTest`). No silent
+  difference.
+
+Not done yet: post-processings and accessors (`PartialQuadratureFunction`
+is point by point), integration point by point and computations element by
+element in the component by component layout (refused), kernels of the
+finite elements with one thread per point, measurements of the real
+kernels in both layouts.

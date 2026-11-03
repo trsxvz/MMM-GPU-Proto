@@ -40,19 +40,22 @@ namespace mfem_mgis::internals {
   }  // end of haveSameThermodynamicForces
 
   /*!
-   * \brief synchronize on the host, for reading, the thermodynamic forces at
-   * the end of the time step of the materials of the selected behaviour
-   * integrators (see `Material::synchronizeOnHostForReading`)
+   * \brief apply a function to the materials of the selected behaviour
+   * integrators of all the materials, so that all the processes report the
+   * same errors
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[in] p: non linear evolution problem
    * \param[in] selection: selection of the behaviour integrators
+   * \param[in] f: function called with the execution context and a
+   * material, returning true on success
    */
-  template <bool parallel>
-  bool synchronizeSelectedMaterialsOnHostForReading(
+  template <bool parallel, typename Function>
+  bool applyToSelectedMaterials(
       Context& ctx,
       NonLinearEvolutionProblemImplementation<parallel>& p,
-      const BehaviourIntegratorsSelection& selection) noexcept {
+      const BehaviourIntegratorsSelection& selection,
+      const Function& f) noexcept {
     for (const auto& m : p.getAssignedMaterialsIdentifiers()) {
       const auto obis = getSelectedBehaviourIntegrators(ctx, p, m, selection);
       if (isInvalid(obis)) {
@@ -70,16 +73,39 @@ namespace mfem_mgis::internals {
         if (isInvalid(om)) {
           return false;
         }
-        try {
-          om->synchronizeOnHostForReading(
-              MaterialArrays::StateArray::THERMODYNAMIC_FORCES,
-              TimeStepStage::END_OF_TIME_STEP);
-        } catch (...) {
-          return registerExceptionInErrorBacktrace(ctx);
+        if (!f(ctx, *om)) {
+          return false;
         }
       }
     }
     return true;
+  }  // end of applyToSelectedMaterials
+
+  /*!
+   * \brief synchronize on the host, for reading, the thermodynamic forces at
+   * the end of the time step of the materials of the selected behaviour
+   * integrators (see `Material::synchronizeOnHostForReading`)
+   * \return true on success
+   * \param[in, out] ctx: execution context
+   * \param[in] p: non linear evolution problem
+   * \param[in] selection: selection of the behaviour integrators
+   */
+  template <bool parallel>
+  bool synchronizeSelectedMaterialsOnHostForReading(
+      Context& ctx,
+      NonLinearEvolutionProblemImplementation<parallel>& p,
+      const BehaviourIntegratorsSelection& selection) noexcept {
+    return applyToSelectedMaterials(
+        ctx, p, selection, [](Context& c, const Material& m) noexcept -> bool {
+          try {
+            m.synchronizeOnHostForReading(
+                MaterialArrays::StateArray::THERMODYNAMIC_FORCES,
+                TimeStepStage::END_OF_TIME_STEP);
+          } catch (...) {
+            return registerExceptionInErrorBacktrace(c);
+          }
+          return true;
+        });
   }  // end of synchronizeSelectedMaterialsOnHostForReading
 
 }  // end of namespace mfem_mgis::internals
@@ -101,10 +127,24 @@ namespace mfem_mgis {
     F.SetSize(nc);
     F = real{0};
     // the selection is checked for all the materials, so that all the
-    // processes report the same errors, and the thermodynamic forces are
-    // read on the host
-    if (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
-                                                                 selection)) {
+    // processes report the same errors: the inner forces are computed
+    // element by element, which requires the point by point layout of the
+    // arrays of the materials, from the thermodynamic forces read on the host
+    const auto point_by_point = [](Context& c,
+                                   const Material& m) noexcept -> bool {
+      if (m.layout == mgis::FieldLayout::POINT_BY_POINT) {
+        return true;
+      }
+      return c.registerErrorMessage(
+          "computeResultantForceOnBoundary: the inner forces are computed "
+          "element by element, which is not supported by a material whose "
+          "arrays are stored component by component (parameter "
+          "QuadratureDataLayout)");
+    };
+    if ((!internals::applyToSelectedMaterials(ctx, p, selection,
+                                              point_by_point)) ||
+        (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
+                                                                  selection))) {
       return false;
     }
     for (const auto& e : elements) {
@@ -222,7 +262,10 @@ namespace mfem_mgis {
         const auto thsize =
             static_cast<mfem_mgis::size_type>(s1.thermodynamic_forces_stride);
         const auto eoffset = qspace.getOffset(tr.ElementNo);
-        auto thforces = std::span<const real>(s1.thermodynamic_forces);
+        // thermodynamic forces, read in the layout of the arrays of the
+        // material, or point by point in the global frame for an orthotropic
+        // behaviour
+        auto thforces = mgis::behaviour::getThermodynamicForcesView(s1);
         if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
           auto [pv, inserted] = rotated_thermodynamic_forces.try_emplace(&*om);
           if (inserted) {
@@ -235,17 +278,18 @@ namespace mfem_mgis {
             }
           }
           const auto& values = pv->second;
-          thforces = std::span<const real>(
-              values.HostRead(), static_cast<std::size_t>(values.Size()));
+          thforces = mgis::makePointByPointFieldView(
+              std::span<const real>(values.HostRead(),
+                                    static_cast<std::size_t>(values.Size())),
+              qspace.getNumberOfIntegrationPoints(), thsize, thsize);
         }
         for (mfem_mgis::size_type j = 0; j < ir.GetNPoints(); j++) {
           const auto o = eoffset + j;
           const auto& ip = ir.IntPoint(j);
           tr.SetIntPoint(&ip);
-          const auto thf = thforces.subspan(o * thsize, thsize);
           const auto w = obi->getIntegrationPointWeight(tr, ip);
           for (mfem_mgis::size_type k = 0; k != thsize; ++k) {
-            s[k] += w * thf[k];
+            s[k] += w * thforces(o, k);
           }
           // the volume is computed with the first selected behaviour integrator
           if (b == obis->first) {

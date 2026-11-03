@@ -171,6 +171,20 @@ namespace mfem_mgis {
      * defined.
      */
     static const char* const TangentOperatorAssembly;
+    /*!
+     * \brief name of the parameter giving the layout of the data at the
+     * integration points of the materials of the problem: `PointByPoint`
+     * (default) or `ComponentByComponent` (see
+     * `quadrature_data_layout_parameter`). The parameter of the same name of
+     * `addBehaviourIntegrator` replaces it for one material. A material
+     * stored component by component requires the integration of the
+     * behaviours by batches and the computations of the gradients, of the
+     * inner forces and of the stiffness matrices by kernels (or the tangent
+     * operator applied without assembly), which is checked at each setup.
+     * The default value is given by the environment variable
+     * `MFEM_MGIS_QUADRATURE_DATA_LAYOUT`, if defined.
+     */
+    static const char* const QuadratureDataLayout;
     //! \brief computations of the tangent operator
     enum struct TangentOperatorComputationMode {
       //! \brief stiffness matrices computed element by element, assembled

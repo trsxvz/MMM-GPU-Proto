@@ -1,0 +1,10 @@
+== 1 threads
+  n=2000016 K 36 nq=8 threads=1: AoS static 19.6 runtime 20.8 GB/s (-5.7 %) | SoA static 18.7 runtime 18.8 GB/s (-0.5 %) | bitwise yes
+  n=1999998 K 36 nq=27 threads=1: AoS static 17.8 runtime 19.0 GB/s (-6.3 %) | SoA static 17.1 runtime 17.1 GB/s (-0.5 %) | bitwise yes
+  n=2000016 K 81 nq=8 threads=1: AoS static 29.1 runtime 27.9 GB/s (+4.3 %) | SoA static 15.2 runtime 15.2 GB/s (+0.3 %) | bitwise yes
+  n=1999998 K 81 nq=27 threads=1: AoS static 28.3 runtime 27.8 GB/s (+2.0 %) | SoA static 11.4 runtime 10.0 GB/s (+13.6 %) | bitwise yes
+== 8 threads
+  n=2000016 K 36 nq=8 threads=8: AoS static 51.8 runtime 56.2 GB/s (-7.8 %) | SoA static 41.6 runtime 49.7 GB/s (-16.3 %) | bitwise yes
+  n=1999998 K 36 nq=27 threads=8: AoS static 59.2 runtime 56.7 GB/s (+4.4 %) | SoA static 54.9 runtime 54.8 GB/s (+0.1 %) | bitwise yes
+  n=2000016 K 81 nq=8 threads=8: AoS static 52.8 runtime 52.9 GB/s (-0.2 %) | SoA static 48.3 runtime 48.1 GB/s (+0.5 %) | bitwise yes
+  n=1999998 K 81 nq=27 threads=8: AoS static 54.2 runtime 53.9 GB/s (+0.4 %) | SoA static 46.8 runtime 46.6 GB/s (+0.6 %) | bitwise yes

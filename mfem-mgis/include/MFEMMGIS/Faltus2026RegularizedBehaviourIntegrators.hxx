@@ -85,12 +85,14 @@ namespace mfem_mgis {
      * \param[in] m: material attribute.
      * \param[in] b_ptr: behaviour
      * \param[in] params: parameters defining the penalization coefficient
+     * \param[in] l: layout of the data at the integration points
      */
     Faltus2026RegularizedIsotropicBehaviourIntegrator(
         const FiniteElementDiscretization& fed,
         const size_type m,
         std::unique_ptr<const Behaviour> b_ptr,
-        const Parameters& params);
+        const Parameters& params,
+        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \brief compute the contribution of the given element to the residual,
      * including the regularization term
@@ -263,6 +265,7 @@ namespace mfem_mgis {
    * \param[in] m: material attribute
    * \param[in] b: behaviour
    * \param[in] params: parameters defining the penalization coefficient
+   * \param[in] l: layout of the data at the integration points
    * \return the new behaviour integrator, a null pointer on failure
    */
   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
@@ -271,7 +274,9 @@ namespace mfem_mgis {
       const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters& params) noexcept;
+      const Parameters& params,
+      const mgis::FieldLayout l =
+          mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
   /*!
    * \brief generate a behaviour integrator with the regularization proposed
@@ -281,6 +286,7 @@ namespace mfem_mgis {
    * \param[in] m: material attribute
    * \param[in] b: behaviour
    * \param[in] params: parameters defining the penalization coefficient
+   * \param[in] l: layout of the data at the integration points
    * \return the new behaviour integrator, a null pointer on failure
    */
   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
@@ -289,7 +295,9 @@ namespace mfem_mgis {
       const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters& params) noexcept;
+      const Parameters& params,
+      const mgis::FieldLayout l =
+          mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
   /*!
    * \brief generate a behaviour integrator with the regularization proposed
@@ -299,6 +307,7 @@ namespace mfem_mgis {
    * \param[in] m: material attribute
    * \param[in] b: behaviour
    * \param[in] params: parameters defining the penalization coefficient
+   * \param[in] l: layout of the data at the integration points
    * \return the new behaviour integrator, a null pointer on failure
    */
   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
@@ -307,7 +316,9 @@ namespace mfem_mgis {
       const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters& params) noexcept;
+      const Parameters& params,
+      const mgis::FieldLayout l =
+          mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
 }  // end of namespace mfem_mgis
 

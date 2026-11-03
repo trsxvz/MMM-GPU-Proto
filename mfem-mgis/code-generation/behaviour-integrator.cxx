@@ -550,10 +550,12 @@ void generateHeaderFile(std::ostream &os,
      << " * \\param[in] fed: finite element discretization.\n"
      << " * \\param[in] m: material attribute.\n"
      << " * \\param[in] b_ptr: behaviour\n"
+     << " * \\param[in] l: layout of the data at the integration points\n"
      << " */\n"
      << d.name << "(const FiniteElementDiscretization &fed,\n"
      << "const size_type m,\n"
-     << "std::unique_ptr<const Behaviour> b_ptr);\n";
+     << "std::unique_ptr<const Behaviour> b_ptr,\n"
+     << "const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);\n";
   if (d.requires_unknown_value_as_external_state_variable) {
     os << "/*!\n"
        << " * \\brief method called at the beginning of each resolution\n"
@@ -816,10 +818,11 @@ void generateSourceFile(std::ostream &os,
      << d.name << "::" << d.name << "(\n"
      << "        const FiniteElementDiscretization &fed,\n"
      << "        const size_type m,\n"
-     << "        std::unique_ptr<const Behaviour> b_ptr)\n"
+     << "        std::unique_ptr<const Behaviour> b_ptr,\n"
+     << "        const mgis::FieldLayout l)\n"
      << "    : StandardBehaviourIntegratorCRTPBase<" << d.name << ">(\n"
-     << "          buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) "
-        "{\n";
+     << "          buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), "
+        "l) {\n";
   if (isFiniteStrainIntegrator(d)) {
     os << "this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);\n";
   }

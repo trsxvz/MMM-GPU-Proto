@@ -21,7 +21,8 @@ namespace mfem_mgis {
       const FiniteElementDiscretization &fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters &params) noexcept {
+      const Parameters &params,
+      const mgis::FieldLayout l) noexcept {
     if (!params.empty()) {
       return ctx.registerErrorMessage("no parameter expected");
     }
@@ -36,7 +37,7 @@ namespace mfem_mgis {
     }
     if (b->symmetry == Behaviour::ISOTROPIC) {
       auto bi = make_unique<FBarIsotropicPlaneStrainBehaviourIntegrator>(
-          ctx, fed, m, std::move(b));
+          ctx, fed, m, std::move(b), l);
       if (isInvalid(bi)) {
         return {};
       }
@@ -46,7 +47,7 @@ namespace mfem_mgis {
       return bi;
     }
     auto bi = make_unique<FBarOrthotropicPlaneStrainBehaviourIntegrator>(
-        ctx, fed, m, std::move(b));
+        ctx, fed, m, std::move(b), l);
     if (isInvalid(bi)) {
       return {};
     }
@@ -62,7 +63,8 @@ namespace mfem_mgis {
       const FiniteElementDiscretization &fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters &params) noexcept {
+      const Parameters &params,
+      const mgis::FieldLayout l) noexcept {
     if (!params.empty()) {
       return ctx.registerErrorMessage("no parameter expected");
     }
@@ -77,7 +79,7 @@ namespace mfem_mgis {
     }
     if (b->symmetry == Behaviour::ISOTROPIC) {
       auto bi = make_unique<FBarIsotropicTridimensionalBehaviourIntegrator>(
-          ctx, fed, m, std::move(b));
+          ctx, fed, m, std::move(b), l);
       if (isInvalid(bi)) {
         return {};
       }
@@ -87,7 +89,7 @@ namespace mfem_mgis {
       return bi;
     }
     auto bi = make_unique<FBarOrthotropicTridimensionalBehaviourIntegrator>(
-        ctx, fed, m, std::move(b));
+        ctx, fed, m, std::move(b), l);
     if (isInvalid(bi)) {
       return {};
     }

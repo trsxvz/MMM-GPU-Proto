@@ -204,12 +204,15 @@ static void computeUniaxialTension(const char* const mesh,
   }
   // uniaxial stress state: sxx = E e, the other components are null
   m.synchronizeOnHostForReading();
-  const auto& sig = m.s1.thermodynamic_forces;
+  const auto sig = mgis::behaviour::getThermodynamicForcesView(
+      static_cast<const mgis::behaviour::MaterialStateManager&>(m.s1));
   const auto sxx = young * strain;
   auto dmax = real{};
-  for (std::size_t i = 0; i != sig.size(); ++i) {
-    const auto expected = (i % 6 == 0) ? sxx : real{0};
-    dmax = std::max(dmax, std::abs(sig[i] - expected));
+  for (mfem_mgis::size_type i = 0; i != sig.getNumberOfPoints(); ++i) {
+    for (mfem_mgis::size_type c = 0; c != sig.getNumberOfComponents(); ++c) {
+      const auto expected = (c == 0) ? sxx : real{0};
+      dmax = std::max(dmax, std::abs(sig(i, c) - expected));
+    }
   }
   // in float, the largest difference reaches 1.8e-5 times the axial stress
   // (small strain of 1e-5, linear solvers stopping at a relative residual
@@ -429,12 +432,13 @@ static void checkFiniteElementsKernelsFallback(const char* const mesh,
         "elements of different geometries: computations by kernels");
   // plane strain: sxx = E e / (1 - nu * nu)
   m.synchronizeOnHostForReading();
-  const auto& sig = m.s1.thermodynamic_forces;
+  const auto sig = mgis::behaviour::getThermodynamicForcesView(
+      static_cast<const mgis::behaviour::MaterialStateManager&>(m.s1));
   constexpr auto nu = mfem_mgis::real{0.34};
   const auto sxx = young * strain / (1 - nu * nu);
   auto dmax = real{};
-  for (std::size_t i = 0; i < sig.size(); i += 4) {
-    dmax = std::max(dmax, std::abs(sig[i] - sxx));
+  for (mfem_mgis::size_type i = 0; i != sig.getNumberOfPoints(); ++i) {
+    dmax = std::max(dmax, std::abs(sig(i, 0) - sxx));
   }
   // in float, the largest difference reaches 7.9e-8 times the stress
   check(dmax < mfem_mgis::unit_tests::tolerance(1e-8) * sxx,

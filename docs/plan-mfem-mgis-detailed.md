@@ -339,15 +339,16 @@ replace those of the table:
   ([plan-execution.md](plan-execution.md)).
 
 Not parameters anywhere in the code: `AssemblyStrategy`,
-`QuadratureDataLayout`, `TangentOperator`, `Prediction`,
-`PreconditionerUpdate`, `PreconditionerOperator`, `LineSearch`,
-`NodalBlockJacobi`. The preconditioner kept on `K0` goes through the
+`TangentOperator`, `Prediction`, `PreconditionerUpdate`,
+`PreconditionerOperator`, `LineSearch`, `NodalBlockJacobi`.
+`QuadratureDataLayout` exists since 03/11/2026, with the values below:
+see [JOURNAL.md](../JOURNAL.md). The preconditioner kept on `K0` goes through the
 `NewtonK0` method.
 
 | Where | Parameter | Values |
 |---|---|---|
 | problem | `AssemblyStrategy` | `Legacy` (default, current path), `BatchedOperator` (dedicated operator), `PartialAssembly` (partial assembly of MFEM) |
-| problem | `QuadratureDataLayout` | `PointByPoint` (default), `ComponentByComponent` (refused with `Legacy`) |
+| problem | `QuadratureDataLayout` | `PointByPoint` (default), `ComponentByComponent` (refused by the integration point by point and the computations element by element); also a parameter of `addBehaviourIntegrator` (one material) and of `PointWiseModel` |
 | problem | `TangentOperator` | `Assembled` (option c, default), `MatrixFree` (option a), `ElementMatrices` (element assembly), `ElasticOperator` (option b) |
 | problem | `IntegrationRuleOrder` | order of the integration rule; by default the current one (`2 * OrderGrad`) |
 | problem | `Prediction` | dictionary taking up the four current axes (`Strategy`, `Operator`, `IntegrationOperator`, `NullTimeIncrement`), plus the new `Extrapolation` strategy |
@@ -1038,8 +1039,9 @@ Status on 13/10/2026: done, with other names. The examples and the cases
 take the options of mfem-mgis (`--device`, `--execution` and the
 placement), the library of the behaviour, the solvers and the profiling
 (`patches/mfem-mgis-examples/`, `patches/mm-opera-hpc/`);
-`AssemblyStrategy`, `TangentOperator` and `QuadratureDataLayout` do not
-exist (see [Proposed parameters](#proposed-parameters)). The measurement
+`AssemblyStrategy` and `TangentOperator` do not exist (see
+[Proposed parameters](#proposed-parameters)); `QuadratureDataLayout`
+exists since 03/11/2026. The measurement
 scripts are in `cases/`.
 
 ## L10. Documentation and upstream proposals

@@ -26,9 +26,10 @@ namespace mfem_mgis {
           const FiniteElementDiscretization &fed,
           const size_type m,
           std::unique_ptr<const Behaviour> b_ptr,
-          const Parameters &params)
+          const Parameters &params,
+          const mgis::FieldLayout l)
       : Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>(
-            fed, m, std::move(b_ptr)),
+            fed, m, std::move(b_ptr), l),
         alpha(get<real>(may_throw, params, "PenalizationCoefficient")) {
     checkParameters(
         may_throw, params,

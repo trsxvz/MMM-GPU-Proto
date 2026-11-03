@@ -24,6 +24,7 @@
 #include "MFEMMGIS/LinearSolverFactory.hxx"
 #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
 #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
+#include "MFEMMGIS/QuadratureDataLayout.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx"
 #include "ExecutionSettings.hxx"
 #include "SolverOverrides.hxx"
@@ -51,6 +52,9 @@ namespace mfem_mgis {
   const char* const
       NonLinearEvolutionProblemImplementationBase::TangentOperatorAssembly =
           "TangentOperatorAssembly";
+  const char* const
+      NonLinearEvolutionProblemImplementationBase::QuadratureDataLayout =
+          quadrature_data_layout_parameter;
 
   std::vector<std::string>
   NonLinearEvolutionProblemImplementationBase::getParametersList() {
@@ -62,7 +66,8 @@ namespace mfem_mgis {
         NonLinearEvolutionProblemImplementationBase::GradientsComputation,
         NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
         NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation,
-        NonLinearEvolutionProblemImplementationBase::TangentOperatorAssembly};
+        NonLinearEvolutionProblemImplementationBase::TangentOperatorAssembly,
+        NonLinearEvolutionProblemImplementationBase::QuadratureDataLayout};
   }  // end of getParametersList
 
   [[nodiscard]] static MultiMaterialNonLinearIntegrator*
@@ -266,6 +271,8 @@ namespace mfem_mgis {
           this->computesStiffnessMatricesByKernels());
       this->mgis_integrator->setOrderedStiffnessMatricesAssembly(
           this->ordered_tangent_operator_assembly);
+      this->mgis_integrator->setQuadratureDataLayout(
+          getQuadratureDataLayout(may_throw, p));
     }
     this->u0 = real{0};
     this->u1 = real{0};
@@ -644,6 +651,12 @@ namespace mfem_mgis {
                 ctx))) {
           return false;
         }
+        if (((!this->gradients_kernels) || (!this->inner_forces_kernels) ||
+             (!this->computesStiffnessMatricesByKernels())) &&
+            (!this->mgis_integrator->checkElementByElementComputationsSupport(
+                ctx))) {
+          return false;
+        }
         if ((this->gradients_kernels) && (!this->batch_integration)) {
           std::ignore = ctx.registerErrorMessage(
               "the computation of the gradients by kernels requires the "
@@ -741,6 +754,12 @@ namespace mfem_mgis {
     if (this->mgis_integrator == nullptr) {
       return ctx.registerErrorMessage(
           "no multiple material integrator defined");
+    }
+    // the operators compute the stiffness matrices and the inner forces
+    // element by element
+    if (!this->mgis_integrator->checkElementByElementComputationsSupport(
+            ctx)) {
+      return {};
     }
     // the operators read the arrays of the materials on the host when they
     // are assembled

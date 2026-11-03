@@ -269,15 +269,17 @@ static void extractResults(UniaxialTestResults& r,
   const auto shift = mgis::behaviour::usesDisplacementGradient(m.b)
                          ? mfem_mgis::real{1}
                          : mfem_mgis::real{0};
-  r.g0.push_back(s.gradients[0] + shift);
-  r.g1.push_back(s.gradients[1] + shift);
-  r.tf0.push_back(s.thermodynamic_forces[0]);
+  // values at the first integration point, read through views accounting
+  // for the layout of the arrays of the material
+  const auto gradients = mgis::behaviour::getGradientsView(s);
+  r.g0.push_back(gradients(0, 0) + shift);
+  r.g1.push_back(gradients(0, 1) + shift);
+  r.tf0.push_back(mgis::behaviour::getThermodynamicForcesView(s)(0, 0));
   if (std::string_view{p.isv_name}.empty()) {
     r.v.push_back(0);
   } else {
-    const auto o = mgis::behaviour::getVariableOffset(m.b.isvs, p.isv_name,
-                                                      m.b.hypothesis);
-    r.v.push_back(s.internal_state_variables[o]);
+    r.v.push_back(
+        mgis::behaviour::getInternalStateVariableView(s, p.isv_name)(0, 0));
   }
 }
 
@@ -334,9 +336,11 @@ static bool checkCauchyStress([[maybe_unused]] const mfem_mgis::Material& m) {
   // yy, zz, xy, yx, xz, zx, yz, zy, in double
   auto F = std::array<double, 9>{};
   auto P = std::array<double, 9>{};
-  for (std::size_t i = 0; i != 9; ++i) {
-    F[i] = static_cast<double>(m.s1.gradients[i]);
-    P[i] = static_cast<double>(m.s1.thermodynamic_forces[i]);
+  const auto gradients = mgis::behaviour::getGradientsView(m.s1);
+  const auto forces = mgis::behaviour::getThermodynamicForcesView(m.s1);
+  for (mfem_mgis::size_type i = 0; i != 9; ++i) {
+    F[i] = static_cast<double>(gradients(0, i));
+    P[i] = static_cast<double>(forces(0, i));
   }
   if (mgis::behaviour::usesDisplacementGradient(m.b)) {
     F[0] += 1;

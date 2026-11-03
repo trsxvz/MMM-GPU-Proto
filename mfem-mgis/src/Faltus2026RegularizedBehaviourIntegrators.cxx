@@ -21,7 +21,8 @@ namespace mfem_mgis {
       const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters& params) noexcept {
+      const Parameters& params,
+      const mgis::FieldLayout l) noexcept {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }
@@ -35,7 +36,7 @@ namespace mfem_mgis {
           "only isotropic behaviours are supported");
     }
     auto bi = make_unique<Faltus2026RegularizedIsotropicBehaviourIntegrator<
-        Hypothesis::PLANESTRAIN>>(ctx, fed, m, std::move(b), params);
+        Hypothesis::PLANESTRAIN>>(ctx, fed, m, std::move(b), params, l);
     if (isInvalid(bi)) {
       return {};
     }
@@ -52,7 +53,8 @@ namespace mfem_mgis {
       const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters& params) noexcept {
+      const Parameters& params,
+      const mgis::FieldLayout l) noexcept {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }
@@ -66,7 +68,7 @@ namespace mfem_mgis {
           "only isotropic behaviours are supported");
     }
     auto bi = make_unique<Faltus2026RegularizedIsotropicBehaviourIntegrator<
-        Hypothesis::PLANESTRESS>>(ctx, fed, m, std::move(b), params);
+        Hypothesis::PLANESTRESS>>(ctx, fed, m, std::move(b), params, l);
     if (isInvalid(bi)) {
       return {};
     }
@@ -83,7 +85,8 @@ namespace mfem_mgis {
       const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters& params) noexcept {
+      const Parameters& params,
+      const mgis::FieldLayout l) noexcept {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }
@@ -97,7 +100,7 @@ namespace mfem_mgis {
           "only isotropic behaviours are supported");
     }
     auto bi = make_unique<Faltus2026RegularizedIsotropicBehaviourIntegrator<
-        Hypothesis::TRIDIMENSIONAL>>(ctx, fed, m, std::move(b), params);
+        Hypothesis::TRIDIMENSIONAL>>(ctx, fed, m, std::move(b), params, l);
     if (isInvalid(bi)) {
       return {};
     }

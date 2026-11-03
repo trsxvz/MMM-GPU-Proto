@@ -324,6 +324,9 @@ namespace mfem_mgis {
      * \note the arrays of the materials are synchronized on the host for
      * reading when the operators are created: no computation may modify them
      * on the device before the operators are used (see `MaterialArrays`)
+     * \note the operators compute the stiffness matrices and the inner forces
+     * element by element: they are refused if the arrays of a material are
+     * stored component by component (see `quadrature_data_layout_parameter`)
      */
     [[nodiscard]] virtual std::optional<LinearizedOperators>
     getLinearizedOperators(Context &ctx, const mfem::Vector &U) noexcept = 0;

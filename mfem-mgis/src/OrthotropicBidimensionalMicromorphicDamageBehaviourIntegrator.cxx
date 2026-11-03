@@ -41,10 +41,11 @@ namespace mfem_mgis {
       OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator(
           const FiniteElementDiscretization &fed,
           const size_type m,
-          std::unique_ptr<const Behaviour> b_ptr)
+          std::unique_ptr<const Behaviour> b_ptr,
+          const mgis::FieldLayout l)
       : StandardBehaviourIntegratorCRTPBase<
             OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>(
-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
+            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
     this->checkBehaviourVariablesSizes(
         throwing, {.gradients_sizes = {1, 2},

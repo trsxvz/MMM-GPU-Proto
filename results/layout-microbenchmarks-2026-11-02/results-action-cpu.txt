@@ -1,0 +1,18 @@
+== 1 threads
+  n=2000016 K 36 comps nq=8 threads=1: AoS 34.38 ms (19.5 GB/s) SoA 36.06 ms (18.6 GB/s) ratio SoA/AoS 1.05 bitwise yes
+  n=2097152 K 36 comps nq=8 threads=1: AoS 35.89 ms (19.6 GB/s) SoA 79.19 ms (8.9 GB/s) ratio SoA/AoS 2.21 bitwise yes
+  n=1999998 K 36 comps nq=27 threads=1: AoS 34.16 ms (17.7 GB/s) SoA 35.77 ms (16.9 GB/s) ratio SoA/AoS 1.05 bitwise yes
+  n=2097144 K 36 comps nq=27 threads=1: AoS 35.78 ms (17.7 GB/s) SoA 38.38 ms (16.5 GB/s) ratio SoA/AoS 1.07 bitwise yes
+  n=2000016 K 81 comps nq=8 threads=1: AoS 48.45 ms (28.7 GB/s) SoA 94.45 ms (14.7 GB/s) ratio SoA/AoS 1.95 bitwise yes
+  n=2097152 K 81 comps nq=8 threads=1: AoS 51.55 ms (28.3 GB/s) SoA 247.88 ms (5.9 GB/s) ratio SoA/AoS 4.81 bitwise yes
+  n=1999998 K 81 comps nq=27 threads=1: AoS 47.12 ms (28.1 GB/s) SoA 117.26 ms (11.3 GB/s) ratio SoA/AoS 2.49 bitwise yes
+  n=2097144 K 81 comps nq=27 threads=1: AoS 49.68 ms (28.0 GB/s) SoA 97.52 ms (14.2 GB/s) ratio SoA/AoS 1.96 bitwise yes
+== 8 threads
+  n=2000016 K 36 comps nq=8 threads=8: AoS 12.73 ms (52.8 GB/s) SoA 14.54 ms (46.2 GB/s) ratio SoA/AoS 1.14 bitwise yes
+  n=2097152 K 36 comps nq=8 threads=8: AoS 13.41 ms (52.5 GB/s) SoA 18.55 ms (38.0 GB/s) ratio SoA/AoS 1.38 bitwise yes
+  n=1999998 K 36 comps nq=27 threads=8: AoS 10.77 ms (56.1 GB/s) SoA 12.04 ms (50.2 GB/s) ratio SoA/AoS 1.12 bitwise yes
+  n=2097144 K 36 comps nq=27 threads=8: AoS 11.65 ms (54.4 GB/s) SoA 12.26 ms (51.7 GB/s) ratio SoA/AoS 1.05 bitwise yes
+  n=2000016 K 81 comps nq=8 threads=8: AoS 26.76 ms (52.0 GB/s) SoA 30.44 ms (45.7 GB/s) ratio SoA/AoS 1.14 bitwise yes
+  n=2097152 K 81 comps nq=8 threads=8: AoS 29.16 ms (50.1 GB/s) SoA 39.57 ms (36.9 GB/s) ratio SoA/AoS 1.36 bitwise yes
+  n=1999998 K 81 comps nq=27 threads=8: AoS 25.22 ms (52.5 GB/s) SoA 29.20 ms (45.4 GB/s) ratio SoA/AoS 1.16 bitwise yes
+  n=2097144 K 81 comps nq=27 threads=8: AoS 26.59 ms (52.2 GB/s) SoA 31.48 ms (44.1 GB/s) ratio SoA/AoS 1.18 bitwise yes

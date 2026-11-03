@@ -9,6 +9,7 @@
 #include "MGIS/Behaviour/Integrate.hxx"
 #include "MFEMMGIS/TimeStep.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/QuadratureDataLayout.hxx"
 #include "MFEMMGIS/PointWiseModel.hxx"
 #include "ExecutionSettings.hxx"
 
@@ -37,7 +38,9 @@ namespace mfem_mgis {
     descriptions.insert(
         {{"Library", "path to the library containing the model"},
          {"Model", "model to be loaded"},
-         {"Hypothesis", "modelling hypothesis"}});
+         {"Hypothesis", "modelling hypothesis"},
+         {quadrature_data_layout_parameter,
+          "layout of the data at the integration points (optional)"}});
     return descriptions;
   }  // end of getParametersDescription
 
@@ -45,7 +48,9 @@ namespace mfem_mgis {
                                  const PartialQuadratureSpace& qspace,
                                  const Parameters& parameters)
       : ModelBase(ctx, qspace.getFiniteElementDiscretization()),
-        Material(qspace, loadModel(throwing, parameters)) {
+        Material(qspace,
+                 loadModel(throwing, parameters),
+                 getQuadratureDataLayout(may_throw, parameters)) {
     checkParameters(throwing, parameters,
                     PointWiseModel::getParametersDescription());
   }  // end of PointWiseModel

@@ -25,7 +25,10 @@ namespace mfem_mgis {
      * \brief constructor
      * \param[in, out] ctx: execution context
      * \param[in] qspace: partial quadrature space
-     * \param[in] parameters: parameters
+     * \param[in] parameters: parameters. The optional `QuadratureDataLayout`
+     * parameter gives the layout of the data at the integration points (see
+     * `quadrature_data_layout_parameter`), the default being given by the
+     * `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` environment variable
      * \note the model must be integrated where the execution settings place
      * the behaviours (see `ExecutionSettings`): an exception is thrown
      * otherwise

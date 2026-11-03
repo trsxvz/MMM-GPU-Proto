@@ -1,0 +1,18 @@
+G=6 n=2097152 ld=2097152 nq=8 threads=1
+  loop/point   AoS static   21.73 ms (37.1 GB/s) runtime   23.79 ms (33.8 GB/s) | SoA static   83.32 ms ( 9.7 GB/s) runtime   83.47 ms ( 9.6 GB/s)
+  loop/element AoS static   21.12 ms (38.1 GB/s) runtime   24.39 ms (33.0 GB/s) | SoA static   93.07 ms ( 8.7 GB/s) runtime   86.42 ms ( 9.3 GB/s)
+G=6 n=2000003 ld=2000003 nq=8 threads=1
+  loop/point   AoS static   20.83 ms (36.9 GB/s) runtime   21.27 ms (36.1 GB/s) | SoA static   20.87 ms (36.8 GB/s) runtime   22.80 ms (33.7 GB/s)
+  loop/element AoS static   20.52 ms (37.4 GB/s) runtime   24.17 ms (31.8 GB/s) | SoA static   20.68 ms (37.1 GB/s) runtime   20.63 ms (37.2 GB/s)
+G=6 n=2000003 ld=2000016 nq=8 threads=1
+  loop/point   AoS static   21.05 ms (36.5 GB/s) runtime   23.12 ms (33.2 GB/s) | SoA static   22.36 ms (34.3 GB/s) runtime   24.92 ms (30.8 GB/s)
+  loop/element AoS static   21.44 ms (35.8 GB/s) runtime   23.24 ms (33.0 GB/s) | SoA static   22.41 ms (34.3 GB/s) runtime   22.58 ms (34.0 GB/s)
+G=9 n=2097152 ld=2097152 nq=8 threads=1
+  loop/point   AoS static   44.55 ms (37.3 GB/s) runtime   48.22 ms (34.4 GB/s) | SoA static  334.31 ms ( 5.0 GB/s) runtime  327.76 ms ( 5.1 GB/s)
+  loop/element AoS static   43.19 ms (38.5 GB/s) runtime   41.87 ms (39.7 GB/s) | SoA static  334.19 ms ( 5.0 GB/s) runtime  332.00 ms ( 5.0 GB/s)
+G=9 n=2000003 ld=2000003 nq=8 threads=1
+  loop/point   AoS static   40.92 ms (38.7 GB/s) runtime   41.38 ms (38.3 GB/s) | SoA static   67.85 ms (23.3 GB/s) runtime   84.75 ms (18.7 GB/s)
+  loop/element AoS static   40.74 ms (38.9 GB/s) runtime   42.52 ms (37.3 GB/s) | SoA static   68.08 ms (23.3 GB/s) runtime   91.63 ms (17.3 GB/s)
+G=9 n=2000003 ld=2000016 nq=8 threads=1
+  loop/point   AoS static   41.18 ms (38.5 GB/s) runtime   41.14 ms (38.5 GB/s) | SoA static   86.12 ms (18.4 GB/s) runtime   89.98 ms (17.6 GB/s)
+  loop/element AoS static   41.67 ms (38.0 GB/s) runtime   41.82 ms (37.9 GB/s) | SoA static   83.32 ms (19.0 GB/s) runtime   95.61 ms (16.6 GB/s)

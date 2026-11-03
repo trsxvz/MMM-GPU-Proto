@@ -59,8 +59,10 @@ namespace mfem_mgis {
   }  // end of convertSizesOfTangentOperatorBlocksToString
 
   BehaviourIntegratorBase::BehaviourIntegratorBase(
-      const PartialQuadratureSpace& s, std::unique_ptr<const Behaviour> b_ptr)
-      : Material(s, std::move(b_ptr)) {
+      const PartialQuadratureSpace& s,
+      std::unique_ptr<const Behaviour> b_ptr,
+      const mgis::FieldLayout l)
+      : Material(s, std::move(b_ptr), l) {
     // The following arrays are storing material properties and external
     // state variables. They can be allocated a single time
     this->wks.mps.resize(getArraySize(this->b.mps, this->b.hypothesis));
@@ -79,6 +81,18 @@ namespace mfem_mgis {
                        "integrator hypothesis (" + h2 + ")"));
     }
   }  // end of BehaviourIntegratorBase::checkHypothesis
+
+  void BehaviourIntegratorBase::checkElementByElementComputationsSupport(
+      attributes::Throwing) const {
+    if (this->layout != mgis::FieldLayout::POINT_BY_POINT) {
+      raise(
+          "the computations element by element (integration point by point, "
+          "gradients, inner forces and stiffness matrix of an element) read "
+          "the values of a point as contiguous: they are not supported by a "
+          "material whose arrays are stored component by component "
+          "(parameter QuadratureDataLayout)");
+    }
+  }  // end of checkElementByElementComputationsSupport
 
   void BehaviourIntegratorBase::checkIfAFiniteStrainBehaviourIsDeclared(
       attributes::Throwing) const {
@@ -419,6 +433,32 @@ namespace mfem_mgis {
     return OptionalReference<const Material>{this};
   }  // end of getMaterial
 
+  /*!
+   * \return true if the values of an external state variable computed by an
+   * evaluator can be given to MGIS: they are stored point by point, and MGIS
+   * reads the values of a variable with several components in the layout of
+   * the arrays of the material; otherwise, an error message is registered
+   * \param[in, out] ctx: execution context
+   * \param[in] m: material
+   * \param[in] n: name of the external state variable
+   * \param[in] v: values
+   */
+  [[nodiscard]] static bool checkExternalStateVariableLayout(
+      Context& ctx,
+      const Material& m,
+      const std::string& n,
+      const ImmutablePartialQuadratureFunctionView& v) noexcept {
+    if ((m.layout == mgis::FieldLayout::POINT_BY_POINT) ||
+        (v.getNumberOfComponents() == 1)) {
+      return true;
+    }
+    return ctx.registerErrorMessage(
+        "the external state variable '" + n +
+        "' has several components, computed point by point by an "
+        "evaluator: it can't be given to a material whose arrays are stored "
+        "component by component (parameter QuadratureDataLayout)");
+  }  // end of checkExternalStateVariableLayout
+
   bool BehaviourIntegratorBase::setup(Context& ctx,
                                       const real t,
                                       const real dt) noexcept {
@@ -572,6 +612,9 @@ namespace mfem_mgis {
       }
     }
     for (auto& [name, e] : this->wks.pqfcts_esvs_bts) {
+      if (!checkExternalStateVariableLayout(ctx, *this, name, e)) {
+        return false;
+      }
       if (!mgis::behaviour::setExternalStateVariable(
               ctx, this->s0, name, e.getValues(),
               mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
@@ -580,6 +623,9 @@ namespace mfem_mgis {
       }
     }
     for (auto& [name, e] : this->wks.pqfcts_esvs_ets) {
+      if (!checkExternalStateVariableLayout(ctx, *this, name, e)) {
+        return false;
+      }
       if (!mgis::behaviour::setExternalStateVariable(
               ctx, this->s1, name, e.getValues(),
               mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,

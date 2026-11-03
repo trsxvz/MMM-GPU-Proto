@@ -23,8 +23,9 @@ namespace mfem_mgis {
   StandardBehaviourIntegratorCRTPBase<Child>::
       StandardBehaviourIntegratorCRTPBase(
           const PartialQuadratureSpace &s,
-          std::unique_ptr<const Behaviour> b_ptr)
-      : BehaviourIntegratorBase(s, std::move(b_ptr)) {
+          std::unique_ptr<const Behaviour> b_ptr,
+          const mgis::FieldLayout l)
+      : BehaviourIntegratorBase(s, std::move(b_ptr), l) {
     using Traits = BehaviourIntegratorTraits<Child>;
     constexpr auto usize = static_cast<size_type>(Traits::unknownsSize);
     const auto &fed = s.getFiniteElementDiscretization();
@@ -44,6 +45,7 @@ namespace mfem_mgis {
       mfem::ElementTransformation &tr,
       const mfem::Vector &u,
       const IntegrationType it) {
+    this->checkElementByElementComputationsSupport(may_throw);
     //
     using Traits = BehaviourIntegratorTraits<Child>;
     static_assert(
@@ -170,6 +172,7 @@ namespace mfem_mgis {
       const mfem::FiniteElement &e,
       mfem::ElementTransformation &tr,
       const mfem::Vector &u) {
+    this->checkElementByElementComputationsSupport(may_throw);
     using Traits = BehaviourIntegratorTraits<Child>;
     constexpr const auto evaluateShapeFunctions =
         Traits::updateExternalStateVariablesFromUnknownsValues ||
@@ -465,6 +468,7 @@ namespace mfem_mgis {
       mfem::Vector &Fe,
       const mfem::FiniteElement &e,
       mfem::ElementTransformation &tr) {
+    this->checkElementByElementComputationsSupport(may_throw);
     using Traits = BehaviourIntegratorTraits<Child>;
     constexpr const auto evaluateShapeFunctions =
         Traits::updateExternalStateVariablesFromUnknownsValues ||
@@ -551,6 +555,7 @@ namespace mfem_mgis {
       mfem::DenseMatrix &Ke,
       const mfem::FiniteElement &e,
       mfem::ElementTransformation &tr) {
+    this->checkElementByElementComputationsSupport(may_throw);
     using Traits = BehaviourIntegratorTraits<Child>;
     auto &child = static_cast<Child &>(*this);
     constexpr const auto evaluateShapeFunctions =

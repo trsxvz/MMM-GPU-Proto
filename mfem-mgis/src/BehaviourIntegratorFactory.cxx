@@ -9,6 +9,7 @@
 #include "MGIS/Raise.hxx"
 #include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
+#include "MFEMMGIS/QuadratureDataLayout.hxx"
 #include "MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
 #include "MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
 #include "MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
@@ -38,6 +39,29 @@
 
 namespace mfem_mgis {
 
+  //! \brief description of the `QuadratureDataLayout` parameter
+  static constexpr const char* quadrature_data_layout_description =
+      "layout of the data at the integration points (optional)";
+
+  /*!
+   * \return the layout of the data at the integration points given to a
+   * generator which accepts no other parameter
+   * \param[in, out] ctx: execution context
+   * \param[in] params: parameters
+   */
+  [[nodiscard]] static std::optional<mgis::FieldLayout>
+  getQuadratureDataLayoutAsSoleParameter(Context& ctx,
+                                         const Parameters& params) noexcept {
+    if (!checkParameters(ctx, params,
+                         std::map<std::string, std::string>{
+                             {quadrature_data_layout_parameter,
+                              quadrature_data_layout_description}})) {
+      return {};
+    }
+    return getQuadratureDataLayout(ctx, params,
+                                   mgis::FieldLayout::POINT_BY_POINT);
+  }  // end of getQuadratureDataLayoutAsSoleParameter
+
   /*!
    * \brief declare behaviour integrators valid for all modelling hypotheses:
    * the transient term of the heat equation. The weights of its integration
@@ -55,15 +79,16 @@ namespace mfem_mgis {
            const size_type m, std::unique_ptr<const Behaviour> b,
            const Parameters& params)
         -> std::unique_ptr<AbstractBehaviourIntegrator> {
-      if (!params.empty()) {
-        return ctx.registerErrorMessage("no parameter expected");
+      const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+      if (isInvalid(ol)) {
+        return {};
       }
       if (b->btype != Behaviour::GENERALBEHAVIOUR) {
         return ctx.registerErrorMessage("invalid behaviour type");
       }
       try {
         return std::make_unique<TransientHeatTransferBehaviourIntegrator>(
-            fed, m, std::move(b));
+            fed, m, std::move(b), *ol);
       } catch (...) {
         std::ignore = registerExceptionInErrorBacktrace(ctx);
       }
@@ -123,7 +148,14 @@ namespace mfem_mgis {
     if (!checkParameters(
             ctx, params,
             std::map<std::string, std::string>{
-                {"Regularization", "Regularization method (optional)"}})) {
+                {"Regularization", "Regularization method (optional)"},
+                {quadrature_data_layout_parameter,
+                 quadrature_data_layout_description}})) {
+      return {};
+    }
+    const auto ol =
+        getQuadratureDataLayout(ctx, params, mgis::FieldLayout::POINT_BY_POINT);
+    if (isInvalid(ol)) {
       return {};
     }
     if (contains(params, "Regularization")) {
@@ -145,11 +177,11 @@ namespace mfem_mgis {
       }
       if (ofa->first == "Faltus2026") {
         return generateTridimensionalFaltus2026RegularizedMechanicalBehaviourIntegrators(
-            ctx, fed, m, std::move(b), ofa->second);
+            ctx, fed, m, std::move(b), ofa->second, *ol);
       }
 #ifdef MGIS_HAVE_TFEL
       return generateTridimensionalFBarBehaviourIntegrators(
-          ctx, fed, m, std::move(b), ofa->second);
+          ctx, fed, m, std::move(b), ofa->second, *ol);
 #else
       return ctx.registerErrorMessage(
           "the 'FBar' regularisation is not available as TFEL support is not "
@@ -160,11 +192,11 @@ namespace mfem_mgis {
       if (b->symmetry == Behaviour::ISOTROPIC) {
         return make_unique<
             IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator>(
-            ctx, fed, m, std::move(b));
+            ctx, fed, m, std::move(b), *ol);
       }
       return make_unique<
           OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator>(
-          ctx, fed, m, std::move(b));
+          ctx, fed, m, std::move(b), *ol);
     } else if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }
@@ -172,11 +204,11 @@ namespace mfem_mgis {
       if (b->symmetry == Behaviour::ISOTROPIC) {
         return make_unique<
             IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator>(
-            ctx, fed, m, std::move(b));
+            ctx, fed, m, std::move(b), *ol);
       }
       return make_unique<
           OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator>(
-          ctx, fed, m, std::move(b));
+          ctx, fed, m, std::move(b), *ol);
     }();
     if (isInvalid(bi)) {
       return {};
@@ -191,36 +223,44 @@ namespace mfem_mgis {
    */
   template <>
   void buildFactory<Hypothesis::TRIDIMENSIONAL>(BehaviourIntegratorFactory& f) {
-    auto ctx = Context{};
-    auto or_die = ctx.getFatalFailureHandler();
     fillWithDefaultBehaviourIntegrators<Hypothesis::TRIDIMENSIONAL>(f);
-    f.addGenerator(ctx, "Mechanics",
-                   generateTridimensionalMechanicalBehaviourIntegrators) |
-        or_die;
+    f.addGenerator(may_abort, "Mechanics",
+                   generateTridimensionalMechanicalBehaviourIntegrators);
     f.addGenerator(
         may_abort, "StationaryNonLinearHeatTransfer",
-        [](const FiniteElementDiscretization& fed, const size_type m,
-           std::unique_ptr<const Behaviour> b)
+        [](Context& ctx, const FiniteElementDiscretization& fed,
+           const size_type m, std::unique_ptr<const Behaviour> b,
+           const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
+          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          if (isInvalid(ol)) {
+            return {};
+          }
           if (b->btype != Behaviour::GENERALBEHAVIOUR) {
-            raise("invalid behaviour type");
+            return ctx.registerErrorMessage("invalid behaviour type");
           }
           if (b->symmetry == Behaviour::ISOTROPIC) {
-            return std::make_unique<
+            return make_unique<
                 IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>(
-                fed, m, std::move(b));
+                ctx, fed, m, std::move(b), *ol);
           }
-          return std::make_unique<
+          return make_unique<
               OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>(
-              fed, m, std::move(b));
+              ctx, fed, m, std::move(b), *ol);
         });
-    f.addGenerator(may_abort, "MicromorphicDamage",  //
-                   [](const FiniteElementDiscretization& fed, const size_type m,
-                      std::unique_ptr<const Behaviour> b) {
-                     return std::make_unique<
-                         TridimensionalMicromorphicDamageBehaviourIntegrator>(
-                         fed, m, std::move(b));
-                   });
+    f.addGenerator(
+        may_abort, "MicromorphicDamage",
+        [](Context& ctx, const FiniteElementDiscretization& fed,
+           const size_type m, std::unique_ptr<const Behaviour> b,
+           const Parameters& params) noexcept
+            -> std::unique_ptr<AbstractBehaviourIntegrator> {
+          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          if (isInvalid(ol)) {
+            return {};
+          }
+          return make_unique<TridimensionalMicromorphicDamageBehaviourIntegrator>(
+              ctx, fed, m, std::move(b), *ol);
+        });
   }  // end of buildFactory
 
   [[nodiscard]] static std::unique_ptr<AbstractBehaviourIntegrator>
@@ -233,7 +273,14 @@ namespace mfem_mgis {
     if (!checkParameters(
             ctx, params,
             std::map<std::string, std::string>{
-                {"Regularization", "Regularization method (optional)"}})) {
+                {"Regularization", "Regularization method (optional)"},
+                {quadrature_data_layout_parameter,
+                 quadrature_data_layout_description}})) {
+      return {};
+    }
+    const auto ol =
+        getQuadratureDataLayout(ctx, params, mgis::FieldLayout::POINT_BY_POINT);
+    if (isInvalid(ol)) {
       return {};
     }
     if (contains(params, "Regularization")) {
@@ -255,11 +302,11 @@ namespace mfem_mgis {
       }
       if (ofa->first == "Faltus2026") {
         return generatePlaneStrainFaltus2026RegularizedMechanicalBehaviourIntegrators(
-            ctx, fed, m, std::move(b), ofa->second);
+            ctx, fed, m, std::move(b), ofa->second, *ol);
       }
 #ifdef MGIS_HAVE_TFEL
       return generatePlaneStrainFBarBehaviourIntegrators(
-          ctx, fed, m, std::move(b), ofa->second);
+          ctx, fed, m, std::move(b), ofa->second, *ol);
 #else
       return ctx.registerErrorMessage(
           "the 'FBar' regularisation is not available as TFEL support is not "
@@ -270,11 +317,11 @@ namespace mfem_mgis {
       if (b->symmetry == Behaviour::ISOTROPIC) {
         return make_unique<
             IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator>(
-            ctx, fed, m, std::move(b));
+            ctx, fed, m, std::move(b), *ol);
       }
       return make_unique<
           OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator>(
-          ctx, fed, m, std::move(b));
+          ctx, fed, m, std::move(b), *ol);
     } else if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }
@@ -282,11 +329,11 @@ namespace mfem_mgis {
       if (b->symmetry == Behaviour::ISOTROPIC) {
         return make_unique<
             IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator>(
-            ctx, fed, m, std::move(b));
+            ctx, fed, m, std::move(b), *ol);
       }
       return make_unique<
           OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator>(
-          ctx, fed, m, std::move(b));
+          ctx, fed, m, std::move(b), *ol);
     }();
     if (isInvalid(bi)) {
       return {};
@@ -301,43 +348,50 @@ namespace mfem_mgis {
    */
   template <>
   void buildFactory<Hypothesis::PLANESTRAIN>(BehaviourIntegratorFactory& f) {
-    auto ctx = Context{};
-    auto or_die = ctx.getFatalFailureHandler();
     fillWithDefaultBehaviourIntegrators<Hypothesis::PLANESTRAIN>(f);
-    f.addGenerator(ctx, "Mechanics",
-                   generatePlaneStrainMechanicalBehaviourIntegrators) |
-        or_die;
+    f.addGenerator(may_abort, "Mechanics",
+                   generatePlaneStrainMechanicalBehaviourIntegrators);
     f.addGenerator(
         may_abort, "StationaryNonLinearHeatTransfer",
-        [](const FiniteElementDiscretization& fed, const size_type m,
-           std::unique_ptr<const Behaviour> b)
+        [](Context& ctx, const FiniteElementDiscretization& fed,
+           const size_type m, std::unique_ptr<const Behaviour> b,
+           const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
+          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          if (isInvalid(ol)) {
+            return {};
+          }
           if (b->btype != Behaviour::GENERALBEHAVIOUR) {
-            raise("invalid behaviour type");
+            return ctx.registerErrorMessage("invalid behaviour type");
           }
           if (b->symmetry == Behaviour::ISOTROPIC) {
-            return std::make_unique<
+            return make_unique<
                 IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>(
-                fed, m, std::move(b));
+                ctx, fed, m, std::move(b), *ol);
           }
-          return std::make_unique<
+          return make_unique<
               OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>(
-              fed, m, std::move(b));
+              ctx, fed, m, std::move(b), *ol);
         });
     f.addGenerator(
         may_abort,
         "MicromorphicDamage",  //
-        [](const FiniteElementDiscretization& fed, const size_type m,
-           std::unique_ptr<const Behaviour> b)
+        [](Context& ctx, const FiniteElementDiscretization& fed,
+           const size_type m, std::unique_ptr<const Behaviour> b,
+           const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
-          if (b->symmetry == Behaviour::ISOTROPIC) {
-            return std::make_unique<
-                BidimensionalMicromorphicDamageBehaviourIntegrator>(
-                fed, m, std::move(b));
+          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          if (isInvalid(ol)) {
+            return {};
           }
-          return std::make_unique<
+          if (b->symmetry == Behaviour::ISOTROPIC) {
+            return make_unique<
+                BidimensionalMicromorphicDamageBehaviourIntegrator>(
+                ctx, fed, m, std::move(b), *ol);
+          }
+          return make_unique<
               OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>(
-              fed, m, std::move(b));
+              ctx, fed, m, std::move(b), *ol);
         });
   }  // end of buildFactory
 
@@ -351,7 +405,14 @@ namespace mfem_mgis {
     if (!checkParameters(
             ctx, params,
             std::map<std::string, std::string>{
-                {"Regularization", "Regularization method (optional)"}})) {
+                {"Regularization", "Regularization method (optional)"},
+                {quadrature_data_layout_parameter,
+                 quadrature_data_layout_description}})) {
+      return {};
+    }
+    const auto ol =
+        getQuadratureDataLayout(ctx, params, mgis::FieldLayout::POINT_BY_POINT);
+    if (isInvalid(ol)) {
       return {};
     }
     if (contains(params, "Regularization")) {
@@ -372,17 +433,17 @@ namespace mfem_mgis {
             "'. The only valid regularisation is 'Faltus2026'");
       }
       return generatePlaneStressFaltus2026RegularizedMechanicalBehaviourIntegrators(
-          ctx, fed, m, std::move(b), ofa->second);
+          ctx, fed, m, std::move(b), ofa->second, *ol);
     }
     if (b->btype == Behaviour::STANDARDSTRAINBASEDBEHAVIOUR) {
       if (b->symmetry == Behaviour::ISOTROPIC) {
         return make_unique<
             IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator>(
-            ctx, fed, m, std::move(b));
+            ctx, fed, m, std::move(b), *ol);
       }
       return make_unique<
           OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator>(
-          ctx, fed, m, std::move(b));
+          ctx, fed, m, std::move(b), *ol);
     } else if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }
@@ -390,11 +451,11 @@ namespace mfem_mgis {
       if (b->symmetry == Behaviour::ISOTROPIC) {
         return make_unique<
             IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator>(
-            ctx, fed, m, std::move(b));
+            ctx, fed, m, std::move(b), *ol);
       }
       return make_unique<
           OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator>(
-          ctx, fed, m, std::move(b));
+          ctx, fed, m, std::move(b), *ol);
     }();
     if (isInvalid(bi)) {
       return {};
@@ -409,43 +470,50 @@ namespace mfem_mgis {
    */
   template <>
   void buildFactory<Hypothesis::PLANESTRESS>(BehaviourIntegratorFactory& f) {
-    auto ctx = Context{};
-    auto or_die = ctx.getFatalFailureHandler();
     fillWithDefaultBehaviourIntegrators<Hypothesis::PLANESTRESS>(f);
-    f.addGenerator(ctx, "Mechanics",
-                   generatePlaneStressMechanicalBehaviourIntegrators) |
-        or_die;
+    f.addGenerator(may_abort, "Mechanics",
+                   generatePlaneStressMechanicalBehaviourIntegrators);
     f.addGenerator(
         may_abort, "StationaryNonLinearHeatTransfer",
-        [](const FiniteElementDiscretization& fed, const size_type m,
-           std::unique_ptr<const Behaviour> b)
+        [](Context& ctx, const FiniteElementDiscretization& fed,
+           const size_type m, std::unique_ptr<const Behaviour> b,
+           const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
+          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          if (isInvalid(ol)) {
+            return {};
+          }
           if (b->btype != Behaviour::GENERALBEHAVIOUR) {
-            raise("invalid behaviour type");
+            return ctx.registerErrorMessage("invalid behaviour type");
           }
           if (b->symmetry == Behaviour::ISOTROPIC) {
-            return std::make_unique<
+            return make_unique<
                 IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator>(
-                fed, m, std::move(b));
+                ctx, fed, m, std::move(b), *ol);
           }
-          return std::make_unique<
+          return make_unique<
               OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator>(
-              fed, m, std::move(b));
+              ctx, fed, m, std::move(b), *ol);
         });
     f.addGenerator(
         may_abort,
         "MicromorphicDamage",  //
-        [](const FiniteElementDiscretization& fed, const size_type m,
-           std::unique_ptr<const Behaviour> b)
+        [](Context& ctx, const FiniteElementDiscretization& fed,
+           const size_type m, std::unique_ptr<const Behaviour> b,
+           const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
-          if (b->symmetry == Behaviour::ISOTROPIC) {
-            return std::make_unique<
-                BidimensionalMicromorphicDamageBehaviourIntegrator>(
-                fed, m, std::move(b));
+          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          if (isInvalid(ol)) {
+            return {};
           }
-          return std::make_unique<
+          if (b->symmetry == Behaviour::ISOTROPIC) {
+            return make_unique<
+                BidimensionalMicromorphicDamageBehaviourIntegrator>(
+                ctx, fed, m, std::move(b), *ol);
+          }
+          return make_unique<
               OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>(
-              fed, m, std::move(b));
+              ctx, fed, m, std::move(b), *ol);
         });
   }  // end of buildFactory
 

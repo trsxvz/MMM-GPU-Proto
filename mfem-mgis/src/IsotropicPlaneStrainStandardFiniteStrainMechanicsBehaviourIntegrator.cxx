@@ -37,10 +37,11 @@ namespace mfem_mgis {
       IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator(
           const FiniteElementDiscretization &fed,
           const size_type m,
-          std::unique_ptr<const Behaviour> b_ptr)
+          std::unique_ptr<const Behaviour> b_ptr,
+          const mgis::FieldLayout l)
       : StandardBehaviourIntegratorCRTPBase<
             IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator>(
-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
+            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);

@@ -163,9 +163,12 @@ namespace mfem_mgis {
      * \brief constructor
      * \param[in] s: quadrature space
      * \param[in] b_ptr: behaviour
+     * \param[in] l: layout of the data at the integration points
      */
-    StandardBehaviourIntegratorCRTPBase(const PartialQuadratureSpace& s,
-                                        std::unique_ptr<const Behaviour> b_ptr);
+    StandardBehaviourIntegratorCRTPBase(
+        const PartialQuadratureSpace& s,
+        std::unique_ptr<const Behaviour> b_ptr,
+        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \brief integrate the behaviour over the time step
      *

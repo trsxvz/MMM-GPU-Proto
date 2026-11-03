@@ -26,6 +26,7 @@
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
+#include "MFEMMGIS/QuadratureDataLayout.hxx"
 #include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
 #include "ExecutionSettings.hxx"
 
@@ -286,6 +287,36 @@ namespace mfem_mgis {
     return true;
   }  // end of integrate
 
+  //! \brief behaviour integrators of each material
+  using BehaviourIntegratorsOfMaterials =
+      std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>;
+
+  /*!
+   * \return the identifier of the first material whose arrays are stored
+   * component by component, if any
+   * \param[in] bis: behaviour integrators of each material
+   */
+  [[nodiscard]] static std::optional<size_type>
+  findMaterialStoredComponentByComponent(
+      const BehaviourIntegratorsOfMaterials& bis) noexcept {
+    auto ctx = Context{};
+    for (size_type m = 0; m != static_cast<size_type>(bis.size()); ++m) {
+      for (const auto& bi : bis[m]) {
+        if (!bi->hasMaterial()) {
+          continue;
+        }
+        const auto om =
+            static_cast<const AbstractBehaviourIntegrator&>(*bi).getMaterial(
+                ctx);
+        if ((!isInvalid(om)) &&
+            (om->layout != mgis::FieldLayout::POINT_BY_POINT)) {
+          return m;
+        }
+      }
+    }
+    return {};
+  }  // end of findMaterialStoredComponentByComponent
+
   bool MultiMaterialNonLinearIntegrator::checkBatchIntegrationSupport(
       Context& ctx) const noexcept {
     for (size_type m = 0;
@@ -369,8 +400,34 @@ namespace mfem_mgis {
         }
       }
     }
+    if (const auto om = findMaterialStoredComponentByComponent(
+            this->behaviour_integrators);
+        om.has_value()) {
+      return ctx.registerErrorMessage(
+          "the arrays of material '" + std::to_string(*om) +
+          "' are stored component by component (parameter "
+          "QuadratureDataLayout): its behaviour can only be integrated by "
+          "batches (parameter BehaviourIntegration set to Batch)");
+    }
     return true;
   }  // end of checkPointByPointIntegrationSupport
+
+  bool
+  MultiMaterialNonLinearIntegrator::checkElementByElementComputationsSupport(
+      Context& ctx) const noexcept {
+    if (const auto om = findMaterialStoredComponentByComponent(
+            this->behaviour_integrators);
+        om.has_value()) {
+      return ctx.registerErrorMessage(
+          "the arrays of material '" + std::to_string(*om) +
+          "' are stored component by component (parameter "
+          "QuadratureDataLayout): the gradients, the inner forces and the "
+          "stiffness matrices can only be computed by kernels (parameters "
+          "GradientsComputation and InnerForcesComputation set to Kernels, "
+          "TangentOperatorComputation set to Kernels or MatrixFree)");
+    }
+    return true;
+  }  // end of checkElementByElementComputationsSupport
 
   bool MultiMaterialNonLinearIntegrator::computeGradients(
       const mfem::FiniteElement& e,
@@ -657,6 +714,11 @@ namespace mfem_mgis {
       const bool b) noexcept {
     this->ordered_stiffness_matrices_assembly = b;
   }  // end of setOrderedStiffnessMatricesAssembly
+
+  void MultiMaterialNonLinearIntegrator::setQuadratureDataLayout(
+      const mgis::FieldLayout l) noexcept {
+    this->quadrature_data_layout = l;
+  }  // end of setQuadratureDataLayout
 
   size_type MultiMaterialNonLinearIntegrator::
       getNumberOfOrderedStiffnessMatricesAssemblies() const noexcept {
@@ -1074,8 +1136,22 @@ namespace mfem_mgis {
                                                     olocation->first)) {
       return {};
     }
+    // layout of the data at the integration points of this material, given
+    // to the behaviour integrator if it is not its default layout
+    auto bparams = olocation->second;
+    const auto olayout = getQuadratureDataLayout(ctx, bparams,
+                                                 this->quadrature_data_layout);
+    if (isInvalid(olayout)) {
+      return {};
+    }
+    bparams = remove(bparams, std::vector<std::string>{
+                                  quadrature_data_layout_parameter});
+    if (*olayout != mgis::FieldLayout::POINT_BY_POINT) {
+      bparams.replaceOrInsert(quadrature_data_layout_parameter,
+                              toString(*olayout));
+    }
     auto bi = of->generate(ctx, n, this->fe_discretization, m, std::move(bptr),
-                           olocation->second);
+                           bparams);
     if (isInvalid(bi)) {
       return {};
     }

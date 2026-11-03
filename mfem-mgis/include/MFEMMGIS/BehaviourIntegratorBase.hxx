@@ -135,9 +135,13 @@ namespace mfem_mgis {
      * \brief constructor
      * \param[in] s: quadrature space
      * \param[in] b_ptr: behaviour
+     * \param[in] l: layout of the data at the integration points (see
+     * `quadrature_data_layout_parameter`)
      */
-    BehaviourIntegratorBase(const PartialQuadratureSpace& s,
-                            std::unique_ptr<const Behaviour> b_ptr);
+    BehaviourIntegratorBase(
+        const PartialQuadratureSpace& s,
+        std::unique_ptr<const Behaviour> b_ptr,
+        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
     //! \brief data of the computations by kernels on the material
     struct KernelsData {
       //! \brief kind of the gradients
@@ -248,6 +252,16 @@ namespace mfem_mgis {
      */
     void checkHypothesis(attributes::Throwing throwing,
                          const Hypothesis h) const;
+    /*!
+     * \brief check that the arrays of the material are stored point by
+     * point, as required by the computations element by element
+     * (integration point by point, gradients, inner forces and stiffness
+     * matrix of an element), which read the values of a point as contiguous
+     * \param[in] throwing: dummy attribute to indicate that this function may
+     * throw an exception
+     */
+    void checkElementByElementComputationsSupport(
+        attributes::Throwing throwing) const;
     /*!
      * \brief throw an exception stating that the behaviour type is not the
      * expected one.

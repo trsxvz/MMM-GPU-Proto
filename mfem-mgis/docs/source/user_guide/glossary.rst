@@ -1025,8 +1025,10 @@ ones:
 +-------------------------------------+-------------------------------------------------------------+
 | TangentOperatorAssembly             | Atomic (default) or Ordered [string]                        |
 +-------------------------------------+-------------------------------------------------------------+
+| QuadratureDataLayout                | PointByPoint (default) or ComponentByComponent [string]     |
++-------------------------------------+-------------------------------------------------------------+
 
-The last five parameters and their default values are described in
+The last six parameters and their default values are described in
 :ref:`mfem_mgis_batch_computations`.
 
 PeriodicNonLinearEvolutionProblem

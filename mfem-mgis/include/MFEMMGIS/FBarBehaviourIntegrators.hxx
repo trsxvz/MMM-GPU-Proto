@@ -9,6 +9,7 @@
 #ifndef LIB_MFEM_MGIS_FBARBEHAVIOURINTEGRATORS_HXX
 #define LIB_MFEM_MGIS_FBARBEHAVIOURINTEGRATORS_HXX
 
+#include "MGIS/FieldView.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/Parameters.hxx"
@@ -27,6 +28,7 @@ namespace mfem_mgis {
    * \param[in] m: material attribute
    * \param[in] b: behaviour
    * \param[in] params: additional parameters, none expected
+   * \param[in] l: layout of the data at the integration points
    * \return the new behaviour integrator, a null pointer on failure
    */
   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
@@ -35,7 +37,9 @@ namespace mfem_mgis {
       const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters& params) noexcept;
+      const Parameters& params,
+      const mgis::FieldLayout l =
+          mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
   /*!
    * \brief generate an FBar behaviour integrator under the tridimensional
@@ -45,6 +49,7 @@ namespace mfem_mgis {
    * \param[in] m: material attribute
    * \param[in] b: behaviour
    * \param[in] params: additional parameters, none expected
+   * \param[in] l: layout of the data at the integration points
    * \return the new behaviour integrator, a null pointer on failure
    */
   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
@@ -53,7 +58,9 @@ namespace mfem_mgis {
       const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters& params) noexcept;
+      const Parameters& params,
+      const mgis::FieldLayout l =
+          mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
 }  // end of namespace mfem_mgis
 

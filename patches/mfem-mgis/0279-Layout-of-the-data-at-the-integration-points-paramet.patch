@@ -1,0 +1,3344 @@
+From b283483f4b8ecabdf48eaf5a8fb9dadfd0038c2e Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 3 Nov 2026 01:48:41 +0100
+Subject: [PATCH] Layout of the data at the integration points: parameter
+ QuadratureDataLayout
+
+The arrays of the data at the integration points of a material (states and
+tangent operator blocks) can be stored point by point (default) or
+component by component, the two layouts of MGIS. The second one gives
+coalesced accesses on a GPU to the kernels using one thread per point. The
+layout does not change the results.
+
+- Parameter `QuadratureDataLayout` (`PointByPoint` or
+  `ComponentByComponent`) of the non linear evolution problems (layout of
+  their materials, default given by the environment variable
+  `MFEM_MGIS_QUADRATURE_DATA_LAYOUT`), of `addBehaviourIntegrator` (layout
+  of one material) and of `PointWiseModel`. Declared in
+  `QuadratureDataLayout.hxx`, as `displacement_gradient_parameter`.
+- `MultiMaterialNonLinearIntegrator` gives the layout of a material to its
+  generator as the parameter `QuadratureDataLayout` when it is not the
+  point by point layout: the generators of the users see no new
+  parameter with the default layout.
+- The generators of mfem-mgis read this parameter and give the layout to
+  the constructors of the behaviour integrators (last argument, point by
+  point by default), down to `Material`. The generators of the stationary
+  heat transfer and of the micromorphic damage take the current signature
+  of the generators. The code generator of the integrators is updated in
+  the same way (its output differs from the tracked files, which were
+  edited afterwards: they are edited, not regenerated).
+- A material stored component by component requires the integration by
+  batches and the computations of the finite elements by kernels (or the
+  tangent operator applied without assembly): the integration point by
+  point and the computations element by element read the values of a
+  point as contiguous. They are refused at the setup of the problem
+  (`checkPointByPointIntegrationSupport`,
+  `checkElementByElementComputationsSupport` of
+  `MultiMaterialNonLinearIntegrator`), and the element by element methods
+  of the two CRTP bases of the behaviour integrators (integration,
+  gradients, inner forces, stiffness matrix of an element) throw an
+  exception for such a material
+  (`BehaviourIntegratorBase::checkElementByElementComputationsSupport`):
+  a direct call can't give wrong values. The functions which compute
+  element by element refuse such a material on all the processes before
+  computing: `getLinearizedOperators` (also used by the prediction when the
+  boundary conditions contribute to its operator) and
+  `computeResultantForceOnBoundary` (only its selected materials). The
+  loop of the latter over the selected materials is shared with the
+  synchronization of their thermodynamic forces
+  (`internals::applyToSelectedMaterials`).
+- `computeMeanThermodynamicForcesValues` reads the thermodynamic forces
+  through the views of MGIS: they were read point by point whatever the
+  layout.
+- An external state variable with several components computed by an
+  evaluator, whose values are stored point by point, is refused for a
+  material stored component by component: MGIS reads such values in the
+  layout of the material.
+- Documentation: user guide (computations by batches, glossary, behaviour
+  integrators).
+- `BatchIntegrationTest`: each case computed by batches and by kernels is
+  also computed with the component by component layout, the elastic
+  material of the mesh with two materials keeping the point by point
+  layout (parameter of the material). Same unknowns, thermodynamic
+  forces, forces in the global frame, predictions and integrals of the
+  thermodynamic forces to the last bit when the computations are
+  reproducible, to the rounding errors otherwise (atomic assembly on a
+  GPU, MUMPS). The direct write in the states after an update goes
+  through a view of MGIS. Refusals and invalid values are tested.
+- `ExecutionSettingsTest` and `UniaxialTensileTest` read the states of the
+  materials through the views of MGIS instead of their raw arrays, so
+  that they also check the component by component layout when it is
+  selected by the environment.
+---
+ code-generation/behaviour-integrator.cxx      |  11 +-
+ docs/source/user_guide/batch_computations.rst |  61 ++++-
+ .../user_guide/behaviour_integrators.rst      |   5 +
+ docs/source/user_guide/glossary.rst           |   4 +-
+ include/CMakeLists.txt                        |   1 +
+ .../AbstractNonLinearEvolutionProblem.hxx     |   3 +
+ include/MFEMMGIS/BehaviourIntegratorBase.hxx  |  18 +-
+ ...lMicromorphicDamageBehaviourIntegrator.hxx |   4 +-
+ .../FBarBehaviourIntegratorCRTPBase.hxx       |   7 +-
+ .../FBarBehaviourIntegratorCRTPBase.ixx       |  10 +-
+ include/MFEMMGIS/FBarBehaviourIntegrators.hxx |  11 +-
+ ...sotropicPlaneStrainBehaviourIntegrator.hxx |   4 +-
+ ...ropicTridimensionalBehaviourIntegrator.hxx |   4 +-
+ ...hotropicPlaneStrainBehaviourIntegrator.hxx |   4 +-
+ ...ropicTridimensionalBehaviourIntegrator.hxx |   4 +-
+ ...tus2026RegularizedBehaviourIntegrators.hxx |  19 +-
+ ...tus2026RegularizedBehaviourIntegrators.ixx |   5 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ include/MFEMMGIS/Material.hxx                 |  12 +-
+ .../MultiMaterialNonLinearIntegrator.hxx      |  36 ++-
+ ...onLinearEvolutionProblemImplementation.ixx |  86 +++++--
+ ...nearEvolutionProblemImplementationBase.hxx |  14 ++
+ ...lMicromorphicDamageBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...niteStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...mallStrainMechanicsBehaviourIntegrator.hxx |   4 +-
+ ...nLinearHeatTransferBehaviourIntegrator.hxx |   4 +-
+ include/MFEMMGIS/PointWiseModel.hxx           |   5 +-
+ include/MFEMMGIS/QuadratureDataLayout.hxx     |  78 ++++++
+ .../StandardBehaviourIntegratorCRTPBase.hxx   |   7 +-
+ .../StandardBehaviourIntegratorCRTPBase.ixx   |   9 +-
+ ...ansientHeatTransferBehaviourIntegrator.hxx |   4 +-
+ ...lMicromorphicDamageBehaviourIntegrator.hxx |   4 +-
+ src/BehaviourIntegratorBase.cxx               |  50 +++-
+ src/BehaviourIntegratorFactory.cxx            | 224 ++++++++++++------
+ ...lMicromorphicDamageBehaviourIntegrator.cxx |   5 +-
+ src/CMakeLists.txt                            |   1 +
+ src/FBarBehaviourIntegrators.cxx              |  14 +-
+ ...sotropicPlaneStrainBehaviourIntegrator.cxx |   5 +-
+ ...ropicTridimensionalBehaviourIntegrator.cxx |   5 +-
+ ...hotropicPlaneStrainBehaviourIntegrator.cxx |   5 +-
+ ...ropicTridimensionalBehaviourIntegrator.cxx |   5 +-
+ ...tus2026RegularizedBehaviourIntegrators.cxx |  15 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |   5 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |   5 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |   5 +-
+ src/MultiMaterialNonLinearIntegrator.cxx      |  78 +++++-
+ ...nearEvolutionProblemImplementationBase.cxx |  21 +-
+ ...lMicromorphicDamageBehaviourIntegrator.cxx |   5 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |   5 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |   5 +-
+ ...niteStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...mallStrainMechanicsBehaviourIntegrator.cxx |   5 +-
+ ...nLinearHeatTransferBehaviourIntegrator.cxx |   5 +-
+ src/PointWiseModel.cxx                        |   9 +-
+ src/QuadratureDataLayout.cxx                  |  85 +++++++
+ ...ansientHeatTransferBehaviourIntegrator.cxx |   5 +-
+ ...lMicromorphicDamageBehaviourIntegrator.cxx |   5 +-
+ tests/BatchIntegrationTest.cxx                | 200 +++++++++++++++-
+ tests/ExecutionSettingsTest.cxx               |  18 +-
+ tests/UniaxialTensileTest.cxx                 |  22 +-
+ 84 files changed, 1118 insertions(+), 255 deletions(-)
+ create mode 100644 include/MFEMMGIS/QuadratureDataLayout.hxx
+ create mode 100644 src/QuadratureDataLayout.cxx
+
+diff --git a/code-generation/behaviour-integrator.cxx b/code-generation/behaviour-integrator.cxx
+index becc75d929..4d483de5ad 100644
+--- a/code-generation/behaviour-integrator.cxx
++++ b/code-generation/behaviour-integrator.cxx
+@@ -550,10 +550,12 @@ void generateHeaderFile(std::ostream &os,
+      << " * \\param[in] fed: finite element discretization.\n"
+      << " * \\param[in] m: material attribute.\n"
+      << " * \\param[in] b_ptr: behaviour\n"
++     << " * \\param[in] l: layout of the data at the integration points\n"
+      << " */\n"
+      << d.name << "(const FiniteElementDiscretization &fed,\n"
+      << "const size_type m,\n"
+-     << "std::unique_ptr<const Behaviour> b_ptr);\n";
++     << "std::unique_ptr<const Behaviour> b_ptr,\n"
++     << "const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);\n";
+   if (d.requires_unknown_value_as_external_state_variable) {
+     os << "/*!\n"
+        << " * \\brief method called at the beginning of each resolution\n"
+@@ -816,10 +818,11 @@ void generateSourceFile(std::ostream &os,
+      << d.name << "::" << d.name << "(\n"
+      << "        const FiniteElementDiscretization &fed,\n"
+      << "        const size_type m,\n"
+-     << "        std::unique_ptr<const Behaviour> b_ptr)\n"
++     << "        std::unique_ptr<const Behaviour> b_ptr,\n"
++     << "        const mgis::FieldLayout l)\n"
+      << "    : StandardBehaviourIntegratorCRTPBase<" << d.name << ">(\n"
+-     << "          buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) "
+-        "{\n";
++     << "          buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), "
++        "l) {\n";
+   if (isFiniteStrainIntegrator(d)) {
+     os << "this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);\n";
+   }
+diff --git a/docs/source/user_guide/batch_computations.rst b/docs/source/user_guide/batch_computations.rst
+index cacd28a9bd..c2f7b079db 100644
+--- a/docs/source/user_guide/batch_computations.rst
++++ b/docs/source/user_guide/batch_computations.rst
+@@ -36,7 +36,8 @@ Parameters and environment variables
+ ------------------------------------
+ 
+ The computations are selected by five parameters of the nonlinear
+-evolution problem, given to its constructor with the parameters of the
++evolution problem, and the layout of the data at the integration points by
++a sixth one, given to its constructor with the parameters of the
+ finite element discretization (see :ref:`mfem_mgis_batch_computations_example`).
+ The default value of each parameter can be changed by an environment
+ variable, for instance to run an existing executable, or a whole test
+@@ -70,12 +71,17 @@ suite, with the batch path:
+      - :code:`Atomic`, :code:`Ordered`
+      - :code:`Atomic`
+      - :code:`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`
++   * - :code:`QuadratureDataLayout`
++     - :code:`PointByPoint`, :code:`ComponentByComponent`
++     - :code:`PointByPoint`
++     - :code:`MFEM_MGIS_QUADRATURE_DATA_LAYOUT`
+ 
+ A parameter given to the problem takes precedence over the environment
+ variable, which only replaces the default value. The default values given
+ in this table are the ones without the option :code:`--execution`, which
+ gives other default values and makes the environment variables (except
+-:code:`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`, and the value
++:code:`MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY`,
++:code:`MFEM_MGIS_QUADRATURE_DATA_LAYOUT`, and the value
+ :code:`MatrixFree` of :code:`MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION`)
+ ignored (see :ref:`mfem_mgis_batch_computations_execution`). The environment variables
+ are read when the problem is built. An invalid value is reported with the
+@@ -104,6 +110,53 @@ interface), the thermodynamic forces in the global frame are also computed
+ at all the points after the integration. The behaviour integrators of
+ :code:`mfem-mgis` support the integration by batches.
+ 
++Layout of the data at the integration points
++--------------------------------------------
++
++The arrays of the data at the integration points of a material (gradients,
++thermodynamic forces, internal state variables and energies at the
++beginning and at the end of the time step, tangent operator blocks) are
++stored in one of the two layouts of :code:`MGIS` (:code:`mgis::FieldLayout`):
++
++- :code:`PointByPoint` (default): the components of a point are
++  contiguous;
++- :code:`ComponentByComponent`: the values of a component are contiguous,
++  which gives coalesced accesses on a GPU to the kernels using one thread
++  per point, such as the integration of the behaviours generated by the
++  :code:`generic-parallel` interface.
++
++The parameter :code:`QuadratureDataLayout` of the problem gives the layout
++of all its materials. The parameter of the same name of
++:code:`addBehaviourIntegrator` replaces it for one material, so that the
++materials of a problem may use different layouts, for instance when some
++are integrated on the host and others on a GPU. The point-wise models
++(:code:`PointWiseModel`) accept the same parameter. The layout is fixed
++when the material is built, and does not change the results: the
++computations are the same, only the addresses of the values change.
++
++A material stored component by component requires the integration by
++batches and the computations of the gradients, of the inner forces and of
++the stiffness matrices by kernels (or the tangent operator applied without
++assembly), which read the arrays through their strides. The integration
++point by point and the computations element by element read the values of
++a point as contiguous: they are refused at the setup of the problem (see
++below), and the methods of the behaviour integrators computing an element
++(:code:`integrate`, :code:`computeGradients`, :code:`computeInnerForces`,
++:code:`updateResidual`, :code:`updateJacobian`) throw an exception for
++such a material, so that a direct call can't give wrong values. For the
++same reason, the linearized operators (:code:`getLinearizedOperators`) and
++the resultant force on a boundary (:code:`computeResultantForceOnBoundary`),
++computed element by element, refuse such a material. The accessors of the
++material based on a stride between points (:code:`getGradient`,
++:code:`getThermodynamicForce`, :code:`getInternalStateVariable`...) refuse
++this layout, and an external state variable with several components
++computed by an evaluator can't be given to such a material. The arrays of
++the material (members :code:`s0`, :code:`s1` and :code:`K` of the material
++data manager of :code:`MGIS`) are stored in its layout: a code reading them
++directly must use the views of :code:`MGIS`, which account for the layout
++(:code:`getGradientsView`, :code:`getThermodynamicForcesView`,
++:code:`getInternalStateVariableView`, :code:`getTangentOperatorBlocksView`...).
++
+ Consistency checks
+ ------------------
+ 
+@@ -116,6 +169,10 @@ beginning of each resolution (method :code:`solve` of the problem):
+ - a behaviour generated by the :code:`generic-parallel` interface
+   integrated point by point: such a behaviour can only be integrated by
+   batches;
++- a material whose arrays are stored component by component (parameter
++  :code:`QuadratureDataLayout`) integrated point by point, or whose
++  gradients, inner forces or stiffness matrices are computed element by
++  element;
+ - a behaviour integrator, a mesh or a finite element space which does not
+   support the computations by kernels (see
+   :ref:`mfem_mgis_batch_computations_supported`) with any of
+diff --git a/docs/source/user_guide/behaviour_integrators.rst b/docs/source/user_guide/behaviour_integrators.rst
+index 4ecc410beb..0b99711b53 100644
+--- a/docs/source/user_guide/behaviour_integrators.rst
++++ b/docs/source/user_guide/behaviour_integrators.rst
+@@ -42,6 +42,11 @@ material. Behaviour integrators are associated with:
+      location where the behaviour of this material is expected to be
+      integrated, checked against its library (see
+      :ref:`mfem_mgis_batch_computations_execution`);
++   - :code:`QuadratureDataLayout` (:code:`PointByPoint` or
++     :code:`ComponentByComponent`): the layout of the data at the
++     integration points of this material, replacing the one given by the
++     parameter of the same name of the problem (see
++     :ref:`mfem_mgis_batch_computations`);
+    - :code:`DisplacementGradient` (boolean, :code:`false` by default):
+      give the displacement gradient :math:`H = F - I` instead of the
+      deformation gradient :math:`F` to a finite strain behaviour. The
+diff --git a/docs/source/user_guide/glossary.rst b/docs/source/user_guide/glossary.rst
+index 55c50f8bb8..662645a888 100644
+--- a/docs/source/user_guide/glossary.rst
++++ b/docs/source/user_guide/glossary.rst
+@@ -1025,8 +1025,10 @@ ones:
+ +-------------------------------------+-------------------------------------------------------------+
+ | TangentOperatorAssembly             | Atomic (default) or Ordered [string]                        |
+ +-------------------------------------+-------------------------------------------------------------+
++| QuadratureDataLayout                | PointByPoint (default) or ComponentByComponent [string]     |
+++-------------------------------------+-------------------------------------------------------------+
+ 
+-The last five parameters and their default values are described in
++The last six parameters and their default values are described in
+ :ref:`mfem_mgis_batch_computations`.
+ 
+ PeriodicNonLinearEvolutionProblem
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index b004a53114..e9bb5e4d8e 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -32,6 +32,7 @@ mfem_mgis_header(MFEMMGIS PartialQuadratureFunctionUtilities.hxx)
+ mfem_mgis_header(MFEMMGIS RotationMatrix.hxx)
+ mfem_mgis_header(MFEMMGIS Behaviour.hxx)
+ mfem_mgis_header(MFEMMGIS Material.hxx)
++mfem_mgis_header(MFEMMGIS QuadratureDataLayout.hxx)
+ mfem_mgis_header(MFEMMGIS Material.ixx)
+ mfem_mgis_header(MFEMMGIS MaterialArrays.hxx)
+ mfem_mgis_header(MFEMMGIS/Batch MFEMFieldOperations.hxx)
+diff --git a/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx b/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx
+index 60b0f0e89f..1891605aae 100644
+--- a/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx
++++ b/include/MFEMMGIS/AbstractNonLinearEvolutionProblem.hxx
+@@ -324,6 +324,9 @@ namespace mfem_mgis {
+      * \note the arrays of the materials are synchronized on the host for
+      * reading when the operators are created: no computation may modify them
+      * on the device before the operators are used (see `MaterialArrays`)
++     * \note the operators compute the stiffness matrices and the inner forces
++     * element by element: they are refused if the arrays of a material are
++     * stored component by component (see `quadrature_data_layout_parameter`)
+      */
+     [[nodiscard]] virtual std::optional<LinearizedOperators>
+     getLinearizedOperators(Context &ctx, const mfem::Vector &U) noexcept = 0;
+diff --git a/include/MFEMMGIS/BehaviourIntegratorBase.hxx b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+index 268ae1f36e..62fdba929b 100644
+--- a/include/MFEMMGIS/BehaviourIntegratorBase.hxx
++++ b/include/MFEMMGIS/BehaviourIntegratorBase.hxx
+@@ -135,9 +135,13 @@ namespace mfem_mgis {
+      * \brief constructor
+      * \param[in] s: quadrature space
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points (see
++     * `quadrature_data_layout_parameter`)
+      */
+-    BehaviourIntegratorBase(const PartialQuadratureSpace& s,
+-                            std::unique_ptr<const Behaviour> b_ptr);
++    BehaviourIntegratorBase(
++        const PartialQuadratureSpace& s,
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     //! \brief data of the computations by kernels on the material
+     struct KernelsData {
+       //! \brief kind of the gradients
+@@ -248,6 +252,16 @@ namespace mfem_mgis {
+      */
+     void checkHypothesis(attributes::Throwing throwing,
+                          const Hypothesis h) const;
++    /*!
++     * \brief check that the arrays of the material are stored point by
++     * point, as required by the computations element by element
++     * (integration point by point, gradients, inner forces and stiffness
++     * matrix of an element), which read the values of a point as contiguous
++     * \param[in] throwing: dummy attribute to indicate that this function may
++     * throw an exception
++     */
++    void checkElementByElementComputationsSupport(
++        attributes::Throwing throwing) const;
+     /*!
+      * \brief throw an exception stating that the behaviour type is not the
+      * expected one.
+diff --git a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+index 4c27874077..e3968b81ee 100644
+--- a/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/BidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+@@ -65,11 +65,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization
+      * \param[in] m: material attribute
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     BidimensionalMicromorphicDamageBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \return the rotation matrix associated with the given integration
+      * point
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+index 3f6d1a062e..70190cb5c6 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.hxx
+@@ -196,9 +196,12 @@ namespace mfem_mgis {
+      * \brief constructor
+      * \param[in] s: quadrature space
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+-    FBarBehaviourIntegratorCRTPBase(const PartialQuadratureSpace& s,
+-                                    std::unique_ptr<const Behaviour> b_ptr);
++    FBarBehaviourIntegratorCRTPBase(
++        const PartialQuadratureSpace& s,
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief integrate the mechanical behaviour over the time step
+      *
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+index ac4ced8e4d..5d669e38b0 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/FBarBehaviourIntegratorCRTPBase.ixx
+@@ -27,8 +27,10 @@ namespace mfem_mgis {
+ 
+   template <typename Child, Hypothesis H>
+   FBarBehaviourIntegratorCRTPBase<Child, H>::FBarBehaviourIntegratorCRTPBase(
+-      const PartialQuadratureSpace &s, std::unique_ptr<const Behaviour> b_ptr)
+-      : BehaviourIntegratorBase(s, std::move(b_ptr)) {
++      const PartialQuadratureSpace &s,
++      std::unique_ptr<const Behaviour> b_ptr,
++      const mgis::FieldLayout l)
++      : BehaviourIntegratorBase(s, std::move(b_ptr), l) {
+     using Traits = BehaviourIntegratorTraits<Child>;
+     constexpr auto usize = static_cast<size_type>(Traits::unknownsSize);
+     const auto &fed = s.getFiniteElementDiscretization();
+@@ -48,6 +50,7 @@ namespace mfem_mgis {
+       mfem::ElementTransformation &tr,
+       const mfem::Vector &u,
+       const IntegrationType it) {
++    this->checkElementByElementComputationsSupport(may_throw);
+     //
+     using Traits = BehaviourIntegratorTraits<Child>;
+     static_assert(
+@@ -234,6 +237,7 @@ namespace mfem_mgis {
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+       const mfem::Vector &u) {
++    this->checkElementByElementComputationsSupport(may_throw);
+     using Traits = BehaviourIntegratorTraits<Child>;
+     constexpr const auto evaluateShapeFunctions =
+         Traits::updateExternalStateVariablesFromUnknownsValues ||
+@@ -301,6 +305,7 @@ namespace mfem_mgis {
+       mfem::Vector &Fe,
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr) {
++    this->checkElementByElementComputationsSupport(may_throw);
+     using Traits = BehaviourIntegratorTraits<Child>;
+     constexpr const auto evaluateShapeFunctions =
+         Traits::updateExternalStateVariablesFromUnknownsValues ||
+@@ -377,6 +382,7 @@ namespace mfem_mgis {
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+       const mfem::Vector &u) {
++    this->checkElementByElementComputationsSupport(may_throw);
+     using Traits = BehaviourIntegratorTraits<Child>;
+     auto &child = static_cast<Child &>(*this);
+     constexpr const auto evaluateShapeFunctions =
+diff --git a/include/MFEMMGIS/FBarBehaviourIntegrators.hxx b/include/MFEMMGIS/FBarBehaviourIntegrators.hxx
+index 50f031d342..d4676b6239 100644
+--- a/include/MFEMMGIS/FBarBehaviourIntegrators.hxx
++++ b/include/MFEMMGIS/FBarBehaviourIntegrators.hxx
+@@ -9,6 +9,7 @@
+ #ifndef LIB_MFEM_MGIS_FBARBEHAVIOURINTEGRATORS_HXX
+ #define LIB_MFEM_MGIS_FBARBEHAVIOURINTEGRATORS_HXX
+ 
++#include "MGIS/FieldView.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/Parameters.hxx"
+@@ -27,6 +28,7 @@ namespace mfem_mgis {
+    * \param[in] m: material attribute
+    * \param[in] b: behaviour
+    * \param[in] params: additional parameters, none expected
++   * \param[in] l: layout of the data at the integration points
+    * \return the new behaviour integrator, a null pointer on failure
+    */
+   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
+@@ -35,7 +37,9 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization& fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters& params) noexcept;
++      const Parameters& params,
++      const mgis::FieldLayout l =
++          mgis::FieldLayout::POINT_BY_POINT) noexcept;
+ 
+   /*!
+    * \brief generate an FBar behaviour integrator under the tridimensional
+@@ -45,6 +49,7 @@ namespace mfem_mgis {
+    * \param[in] m: material attribute
+    * \param[in] b: behaviour
+    * \param[in] params: additional parameters, none expected
++   * \param[in] l: layout of the data at the integration points
+    * \return the new behaviour integrator, a null pointer on failure
+    */
+   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
+@@ -53,7 +58,9 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization& fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters& params) noexcept;
++      const Parameters& params,
++      const mgis::FieldLayout l =
++          mgis::FieldLayout::POINT_BY_POINT) noexcept;
+ 
+ }  // end of namespace mfem_mgis
+ 
+diff --git a/include/MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx b/include/MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx
+index bbbb7c9ce8..ccc6e56e3a 100644
+--- a/include/MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/FBarIsotropicPlaneStrainBehaviourIntegrator.hxx
+@@ -60,11 +60,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     FBarIsotropicPlaneStrainBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx b/include/MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx
+index 23ee4880fb..e094e14911 100644
+--- a/include/MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/FBarIsotropicTridimensionalBehaviourIntegrator.hxx
+@@ -60,11 +60,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     FBarIsotropicTridimensionalBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/FBarOrthotropicPlaneStrainBehaviourIntegrator.hxx b/include/MFEMMGIS/FBarOrthotropicPlaneStrainBehaviourIntegrator.hxx
+index a5a0152e9a..1794406387 100644
+--- a/include/MFEMMGIS/FBarOrthotropicPlaneStrainBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/FBarOrthotropicPlaneStrainBehaviourIntegrator.hxx
+@@ -60,11 +60,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     FBarOrthotropicPlaneStrainBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/FBarOrthotropicTridimensionalBehaviourIntegrator.hxx b/include/MFEMMGIS/FBarOrthotropicTridimensionalBehaviourIntegrator.hxx
+index 60b06ba1a9..724685a064 100644
+--- a/include/MFEMMGIS/FBarOrthotropicTridimensionalBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/FBarOrthotropicTridimensionalBehaviourIntegrator.hxx
+@@ -60,11 +60,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     FBarOrthotropicTridimensionalBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+index 468592fb7b..f253013106 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.hxx
+@@ -85,12 +85,14 @@ namespace mfem_mgis {
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
+      * \param[in] params: parameters defining the penalization coefficient
++     * \param[in] l: layout of the data at the integration points
+      */
+     Faltus2026RegularizedIsotropicBehaviourIntegrator(
+         const FiniteElementDiscretization& fed,
+         const size_type m,
+         std::unique_ptr<const Behaviour> b_ptr,
+-        const Parameters& params);
++        const Parameters& params,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief compute the contribution of the given element to the residual,
+      * including the regularization term
+@@ -263,6 +265,7 @@ namespace mfem_mgis {
+    * \param[in] m: material attribute
+    * \param[in] b: behaviour
+    * \param[in] params: parameters defining the penalization coefficient
++   * \param[in] l: layout of the data at the integration points
+    * \return the new behaviour integrator, a null pointer on failure
+    */
+   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
+@@ -271,7 +274,9 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization& fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters& params) noexcept;
++      const Parameters& params,
++      const mgis::FieldLayout l =
++          mgis::FieldLayout::POINT_BY_POINT) noexcept;
+ 
+   /*!
+    * \brief generate a behaviour integrator with the regularization proposed
+@@ -281,6 +286,7 @@ namespace mfem_mgis {
+    * \param[in] m: material attribute
+    * \param[in] b: behaviour
+    * \param[in] params: parameters defining the penalization coefficient
++   * \param[in] l: layout of the data at the integration points
+    * \return the new behaviour integrator, a null pointer on failure
+    */
+   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
+@@ -289,7 +295,9 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization& fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters& params) noexcept;
++      const Parameters& params,
++      const mgis::FieldLayout l =
++          mgis::FieldLayout::POINT_BY_POINT) noexcept;
+ 
+   /*!
+    * \brief generate a behaviour integrator with the regularization proposed
+@@ -299,6 +307,7 @@ namespace mfem_mgis {
+    * \param[in] m: material attribute
+    * \param[in] b: behaviour
+    * \param[in] params: parameters defining the penalization coefficient
++   * \param[in] l: layout of the data at the integration points
+    * \return the new behaviour integrator, a null pointer on failure
+    */
+   [[nodiscard]] std::unique_ptr<AbstractBehaviourIntegrator>
+@@ -307,7 +316,9 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization& fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters& params) noexcept;
++      const Parameters& params,
++      const mgis::FieldLayout l =
++          mgis::FieldLayout::POINT_BY_POINT) noexcept;
+ 
+ }  // end of namespace mfem_mgis
+ 
+diff --git a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+index e01d91c3b8..4b800b7b79 100644
+--- a/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
++++ b/include/MFEMMGIS/Faltus2026RegularizedBehaviourIntegrators.ixx
+@@ -26,9 +26,10 @@ namespace mfem_mgis {
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+           std::unique_ptr<const Behaviour> b_ptr,
+-          const Parameters &params)
++          const Parameters &params,
++          const mgis::FieldLayout l)
+       : Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>(
+-            fed, m, std::move(b_ptr)),
++            fed, m, std::move(b_ptr), l),
+         alpha(get<real>(may_throw, params, "PenalizationCoefficient")) {
+     checkParameters(
+         may_throw, params,
+diff --git a/include/MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index 294b60b5ef..805afff43e 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -61,11 +61,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 9b7f8b0f26..cd87201053 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -64,11 +64,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index 5280927cc6..b42231aa93 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -61,11 +61,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief method called at the beginning of each resolution
+      *
+diff --git a/include/MFEMMGIS/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index f03d6c1055..af3d0361e5 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -61,11 +61,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 7863117bec..7e769a57b7 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -64,11 +64,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index eb4117fd83..e576df5120 100644
+--- a/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -61,11 +61,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief method called at the beginning of each resolution
+      *
+diff --git a/include/MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index 0db8b90b49..fa0a629357 100644
+--- a/include/MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -63,11 +63,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 9556da943c..46a2f05c68 100644
+--- a/include/MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -66,11 +66,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index f4c0588a73..b7f17291b4 100644
+--- a/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -62,11 +62,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief method called at the beginning of each resolution
+      *
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index c4937914f5..60c52b8108 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -64,10 +64,14 @@ namespace mfem_mgis {
+      * \param[in] s: quadrature space
+      * \param[in] b_ptr: behaviour
+      * \param[in] l: layout of the arrays of the data at the integration
+-     * points. The component by component layout is not supported by the
+-     * accessors based on a stride between points (`getGradient`,
+-     * `getInternalStateVariable`...), nor by the behaviour integrators of
+-     * mfem-mgis, which use the point by point layout.
++     * points (see `quadrature_data_layout_parameter`). The component by
++     * component layout is supported by the integration of the behaviours
++     * by batches and by the computations of the finite elements by kernels.
++     * It is refused by the accessors based on a stride between points
++     * (`getGradient`, `getInternalStateVariable`...), and, at the setup of
++     * a non linear evolution problem, by the integration point by point and
++     * by the computations element by element, which use the point by point
++     * layout.
+      */
+     Material(const PartialQuadratureSpace &s,
+              std::unique_ptr<const Behaviour> b_ptr,
+diff --git a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+index eb02279a3a..c2ead4e3f8 100644
+--- a/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
++++ b/include/MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx
+@@ -96,8 +96,9 @@ namespace mfem_mgis {
+     /*!
+      * \return true if all the behaviours can be integrated point by point;
+      * otherwise (behaviour generated by the `generic-parallel` interface,
+-     * which only provides functions processing batches), an error message
+-     * is registered
++     * which only provides functions processing batches, or material whose
++     * arrays are stored component by component, see
++     * `quadrature_data_layout_parameter`), an error message is registered
+      * \param[in, out] ctx: execution context
+      */
+     [[nodiscard]] bool checkPointByPointIntegrationSupport(Context& ctx) const
+@@ -177,6 +178,17 @@ namespace mfem_mgis {
+      */
+     [[nodiscard]] bool checkInnerForcesKernelsSupport(
+         Context& ctx, const bool gradients_kernels) const noexcept;
++    /*!
++     * \return true if the gradients, the inner forces and the stiffness
++     * matrices of all the behaviour integrators can be computed element by
++     * element: these computations read and write the arrays of the
++     * materials point by point; otherwise (material whose arrays are stored
++     * component by component, see `quadrature_data_layout_parameter`), an
++     * error message naming the material is registered
++     * \param[in, out] ctx: execution context
++     */
++    [[nodiscard]] bool checkElementByElementComputationsSupport(
++        Context& ctx) const noexcept;
+     /*!
+      * \brief compute the gradients of all the behaviour integrators by
+      * kernels (first step of the integration by batches, replacing the calls
+@@ -260,6 +272,14 @@ namespace mfem_mgis {
+      * \param[in] b: boolean
+      */
+     void setOrderedStiffnessMatricesAssembly(const bool b) noexcept;
++    /*!
++     * \brief set the layout of the data at the integration points of the
++     * materials added afterwards by `addBehaviourIntegrator`, unless given
++     * by their `QuadratureDataLayout` parameter (point by point by default,
++     * see `quadrature_data_layout_parameter`)
++     * \param[in] l: layout
++     */
++    void setQuadratureDataLayout(const mgis::FieldLayout l) noexcept;
+     /*!
+      * \return the number of assemblies made by
+      * `assembleStiffnessMatrixByKernels` in a fixed order (see
+@@ -421,7 +441,14 @@ namespace mfem_mgis {
+      * integrated at this location (a library computing on the host for
+      * `cpu`, a library generated by the `generic-parallel` interface for a
+      * GPU for `gpu`), an error being reported otherwise. This parameter is
+-     * removed before the others are given to the behaviour integrator.
++     * removed before the others are given to the behaviour integrator. The
++     * parameter `QuadratureDataLayout` (`PointByPoint` or
++     * `ComponentByComponent`, see `quadrature_data_layout_parameter`), if
++     * given, replaces, for this material, the layout given by
++     * `setQuadratureDataLayout`. The resulting layout is given to the
++     * behaviour integrator as its `QuadratureDataLayout` parameter if it is
++     * not the point by point layout, which is the default of the behaviour
++     * integrators.
+      */
+     [[nodiscard]] std::optional<size_type> addBehaviourIntegrator(
+         Context& ctx,
+@@ -577,6 +604,9 @@ namespace mfem_mgis {
+     bool stiffness_matrices_computed_by_kernels = false;
+     //! \brief see `setOrderedStiffnessMatricesAssembly`
+     bool ordered_stiffness_matrices_assembly = false;
++    //! \brief see `setQuadratureDataLayout`
++    mgis::FieldLayout quadrature_data_layout =
++        mgis::FieldLayout::POINT_BY_POINT;
+     //! \brief see `getNumberOfOrderedStiffnessMatricesAssemblies`
+     size_type ordered_stiffness_matrices_assemblies = 0;
+     /*!
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
+index bde25f8bfb..30d39f30f9 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementation.ixx
+@@ -40,19 +40,22 @@ namespace mfem_mgis::internals {
+   }  // end of haveSameThermodynamicForces
+ 
+   /*!
+-   * \brief synchronize on the host, for reading, the thermodynamic forces at
+-   * the end of the time step of the materials of the selected behaviour
+-   * integrators (see `Material::synchronizeOnHostForReading`)
++   * \brief apply a function to the materials of the selected behaviour
++   * integrators of all the materials, so that all the processes report the
++   * same errors
+    * \return true on success
+    * \param[in, out] ctx: execution context
+    * \param[in] p: non linear evolution problem
+    * \param[in] selection: selection of the behaviour integrators
++   * \param[in] f: function called with the execution context and a
++   * material, returning true on success
+    */
+-  template <bool parallel>
+-  bool synchronizeSelectedMaterialsOnHostForReading(
++  template <bool parallel, typename Function>
++  bool applyToSelectedMaterials(
+       Context& ctx,
+       NonLinearEvolutionProblemImplementation<parallel>& p,
+-      const BehaviourIntegratorsSelection& selection) noexcept {
++      const BehaviourIntegratorsSelection& selection,
++      const Function& f) noexcept {
+     for (const auto& m : p.getAssignedMaterialsIdentifiers()) {
+       const auto obis = getSelectedBehaviourIntegrators(ctx, p, m, selection);
+       if (isInvalid(obis)) {
+@@ -70,16 +73,39 @@ namespace mfem_mgis::internals {
+         if (isInvalid(om)) {
+           return false;
+         }
+-        try {
+-          om->synchronizeOnHostForReading(
+-              MaterialArrays::StateArray::THERMODYNAMIC_FORCES,
+-              TimeStepStage::END_OF_TIME_STEP);
+-        } catch (...) {
+-          return registerExceptionInErrorBacktrace(ctx);
++        if (!f(ctx, *om)) {
++          return false;
+         }
+       }
+     }
+     return true;
++  }  // end of applyToSelectedMaterials
++
++  /*!
++   * \brief synchronize on the host, for reading, the thermodynamic forces at
++   * the end of the time step of the materials of the selected behaviour
++   * integrators (see `Material::synchronizeOnHostForReading`)
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in] p: non linear evolution problem
++   * \param[in] selection: selection of the behaviour integrators
++   */
++  template <bool parallel>
++  bool synchronizeSelectedMaterialsOnHostForReading(
++      Context& ctx,
++      NonLinearEvolutionProblemImplementation<parallel>& p,
++      const BehaviourIntegratorsSelection& selection) noexcept {
++    return applyToSelectedMaterials(
++        ctx, p, selection, [](Context& c, const Material& m) noexcept -> bool {
++          try {
++            m.synchronizeOnHostForReading(
++                MaterialArrays::StateArray::THERMODYNAMIC_FORCES,
++                TimeStepStage::END_OF_TIME_STEP);
++          } catch (...) {
++            return registerExceptionInErrorBacktrace(c);
++          }
++          return true;
++        });
+   }  // end of synchronizeSelectedMaterialsOnHostForReading
+ 
+ }  // end of namespace mfem_mgis::internals
+@@ -101,10 +127,24 @@ namespace mfem_mgis {
+     F.SetSize(nc);
+     F = real{0};
+     // the selection is checked for all the materials, so that all the
+-    // processes report the same errors, and the thermodynamic forces are
+-    // read on the host
+-    if (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
+-                                                                 selection)) {
++    // processes report the same errors: the inner forces are computed
++    // element by element, which requires the point by point layout of the
++    // arrays of the materials, from the thermodynamic forces read on the host
++    const auto point_by_point = [](Context& c,
++                                   const Material& m) noexcept -> bool {
++      if (m.layout == mgis::FieldLayout::POINT_BY_POINT) {
++        return true;
++      }
++      return c.registerErrorMessage(
++          "computeResultantForceOnBoundary: the inner forces are computed "
++          "element by element, which is not supported by a material whose "
++          "arrays are stored component by component (parameter "
++          "QuadratureDataLayout)");
++    };
++    if ((!internals::applyToSelectedMaterials(ctx, p, selection,
++                                              point_by_point)) ||
++        (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
++                                                                  selection))) {
+       return false;
+     }
+     for (const auto& e : elements) {
+@@ -222,7 +262,10 @@ namespace mfem_mgis {
+         const auto thsize =
+             static_cast<mfem_mgis::size_type>(s1.thermodynamic_forces_stride);
+         const auto eoffset = qspace.getOffset(tr.ElementNo);
+-        auto thforces = std::span<const real>(s1.thermodynamic_forces);
++        // thermodynamic forces, read in the layout of the arrays of the
++        // material, or point by point in the global frame for an orthotropic
++        // behaviour
++        auto thforces = mgis::behaviour::getThermodynamicForcesView(s1);
+         if (om->b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+           auto [pv, inserted] = rotated_thermodynamic_forces.try_emplace(&*om);
+           if (inserted) {
+@@ -235,17 +278,18 @@ namespace mfem_mgis {
+             }
+           }
+           const auto& values = pv->second;
+-          thforces = std::span<const real>(
+-              values.HostRead(), static_cast<std::size_t>(values.Size()));
++          thforces = mgis::makePointByPointFieldView(
++              std::span<const real>(values.HostRead(),
++                                    static_cast<std::size_t>(values.Size())),
++              qspace.getNumberOfIntegrationPoints(), thsize, thsize);
+         }
+         for (mfem_mgis::size_type j = 0; j < ir.GetNPoints(); j++) {
+           const auto o = eoffset + j;
+           const auto& ip = ir.IntPoint(j);
+           tr.SetIntPoint(&ip);
+-          const auto thf = thforces.subspan(o * thsize, thsize);
+           const auto w = obi->getIntegrationPointWeight(tr, ip);
+           for (mfem_mgis::size_type k = 0; k != thsize; ++k) {
+-            s[k] += w * thf[k];
++            s[k] += w * thforces(o, k);
+           }
+           // the volume is computed with the first selected behaviour integrator
+           if (b == obis->first) {
+diff --git a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+index 61b9c8e158..f482dfe35f 100644
+--- a/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
++++ b/include/MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx
+@@ -171,6 +171,20 @@ namespace mfem_mgis {
+      * defined.
+      */
+     static const char* const TangentOperatorAssembly;
++    /*!
++     * \brief name of the parameter giving the layout of the data at the
++     * integration points of the materials of the problem: `PointByPoint`
++     * (default) or `ComponentByComponent` (see
++     * `quadrature_data_layout_parameter`). The parameter of the same name of
++     * `addBehaviourIntegrator` replaces it for one material. A material
++     * stored component by component requires the integration of the
++     * behaviours by batches and the computations of the gradients, of the
++     * inner forces and of the stiffness matrices by kernels (or the tangent
++     * operator applied without assembly), which is checked at each setup.
++     * The default value is given by the environment variable
++     * `MFEM_MGIS_QUADRATURE_DATA_LAYOUT`, if defined.
++     */
++    static const char* const QuadratureDataLayout;
+     //! \brief computations of the tangent operator
+     enum struct TangentOperatorComputationMode {
+       //! \brief stiffness matrices computed element by element, assembled
+diff --git a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+index 30611b1da1..535846256a 100644
+--- a/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.hxx
+@@ -67,11 +67,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization
+      * \param[in] m: material attribute
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \return the rotation matrix associated with the given integration
+      * point
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index d9ebafae86..275f5491e6 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -63,11 +63,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index cd71d54069..9b761f0502 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -65,11 +65,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index 14c1702ffc..d2ba3d29db 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -62,11 +62,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief method called at the beginning of each resolution
+      *
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index 1eded04cea..7a62b20fdb 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -63,11 +63,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 0024e56de8..8663ab227e 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -65,11 +65,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index bec4ac0cd7..c53b431bb4 100644
+--- a/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -62,11 +62,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief method called at the beginning of each resolution
+      *
+diff --git a/include/MFEMMGIS/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+index 8cfe99c851..91dc162320 100644
+--- a/include/MFEMMGIS/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx
+@@ -66,11 +66,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+ 
+     /*!
+      * \brief get the rotation matrix at the given integration point
+diff --git a/include/MFEMMGIS/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+index 1caaab8a2a..13dd9086b1 100644
+--- a/include/MFEMMGIS/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx
+@@ -67,11 +67,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+index d47a2ee92f..9541828c1e 100644
+--- a/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.hxx
+@@ -62,11 +62,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief method called at the beginning of each resolution
+      *
+diff --git a/include/MFEMMGIS/PointWiseModel.hxx b/include/MFEMMGIS/PointWiseModel.hxx
+index a282c32122..9e3226e642 100644
+--- a/include/MFEMMGIS/PointWiseModel.hxx
++++ b/include/MFEMMGIS/PointWiseModel.hxx
+@@ -25,7 +25,10 @@ namespace mfem_mgis {
+      * \brief constructor
+      * \param[in, out] ctx: execution context
+      * \param[in] qspace: partial quadrature space
+-     * \param[in] parameters: parameters
++     * \param[in] parameters: parameters. The optional `QuadratureDataLayout`
++     * parameter gives the layout of the data at the integration points (see
++     * `quadrature_data_layout_parameter`), the default being given by the
++     * `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` environment variable
+      * \note the model must be integrated where the execution settings place
+      * the behaviours (see `ExecutionSettings`): an exception is thrown
+      * otherwise
+diff --git a/include/MFEMMGIS/QuadratureDataLayout.hxx b/include/MFEMMGIS/QuadratureDataLayout.hxx
+new file mode 100644
+index 0000000000..c94c2a88c5
+--- /dev/null
++++ b/include/MFEMMGIS/QuadratureDataLayout.hxx
+@@ -0,0 +1,78 @@
++/*!
++ * \file   include/MFEMMGIS/QuadratureDataLayout.hxx
++ * \brief  This file declares the parameter selecting the layout of the data
++ * at the integration points of the materials
++ * \date   03/11/2026
++ */
++
++#ifndef LIB_MFEM_MGIS_QUADRATUREDATALAYOUT_HXX
++#define LIB_MFEM_MGIS_QUADRATUREDATALAYOUT_HXX
++
++#include <optional>
++#include "MGIS/FieldView.hxx"
++#include "MFEMMGIS/Config.hxx"
++#include "MFEMMGIS/Parameters.hxx"
++
++namespace mfem_mgis {
++
++  /*!
++   * \brief name of the parameter giving the layout of the arrays of the
++   * data at the integration points of a material (states and tangent
++   * operator blocks, see `Material`):
++   *
++   * - `PointByPoint` (default): the components of a point are contiguous
++   *   (`mgis::FieldLayout::POINT_BY_POINT`);
++   * - `ComponentByComponent`: the values of a component are contiguous
++   *   (`mgis::FieldLayout::COMPONENT_BY_COMPONENT`), which gives coalesced
++   *   accesses on a GPU to the kernels using one thread per point.
++   *
++   * It is a parameter of the non linear evolution problems (default layout
++   * of their materials), of their `addBehaviourIntegrator` method (layout
++   * of one material) and of the point-wise models (`PointWiseModel`). The
++   * layout does not change the results.
++   */
++  inline constexpr const char* quadrature_data_layout_parameter =
++      "QuadratureDataLayout";
++
++  /*!
++   * \return the layout given by the environment variable
++   * `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` (`PointByPoint` or
++   * `ComponentByComponent`), for instance to run a whole test suite or an
++   * application with the component by component layout, or the point by
++   * point layout if this variable is not defined
++   * \param[in, out] ctx: execution context
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] std::optional<mgis::FieldLayout>
++  getDefaultQuadratureDataLayout(Context&) noexcept;
++  /*!
++   * \return the layout given by the `QuadratureDataLayout` parameter, or
++   * the given default layout if this parameter is not given
++   * \param[in, out] ctx: execution context
++   * \param[in] params: parameters
++   * \param[in] d: default layout
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] std::optional<mgis::FieldLayout>
++  getQuadratureDataLayout(Context&,
++                          const Parameters&,
++                          const mgis::FieldLayout) noexcept;
++  /*!
++   * \return the layout given by the `QuadratureDataLayout` parameter, or
++   * else by the `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` environment variable
++   * (see `getDefaultQuadratureDataLayout`)
++   * \param[in] params: parameters
++   * \throws std::runtime_error if the value of the parameter or of the
++   * environment variable is invalid
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] mgis::FieldLayout getQuadratureDataLayout(
++      attributes::MayThrow, const Parameters&);
++  /*!
++   * \return the value of the `QuadratureDataLayout` parameter selecting a
++   * layout
++   * \param[in] l: layout
++   */
++  MFEM_MGIS_EXPORT [[nodiscard]] const char* toString(
++      const mgis::FieldLayout) noexcept;
++
++}  // end of namespace mfem_mgis
++
++#endif /* LIB_MFEM_MGIS_QUADRATUREDATALAYOUT_HXX */
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+index f8805ed80b..37ed8d98b2 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.hxx
+@@ -163,9 +163,12 @@ namespace mfem_mgis {
+      * \brief constructor
+      * \param[in] s: quadrature space
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+-    StandardBehaviourIntegratorCRTPBase(const PartialQuadratureSpace& s,
+-                                        std::unique_ptr<const Behaviour> b_ptr);
++    StandardBehaviourIntegratorCRTPBase(
++        const PartialQuadratureSpace& s,
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief integrate the behaviour over the time step
+      *
+diff --git a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+index ecd6afb067..81f49182fa 100644
+--- a/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
++++ b/include/MFEMMGIS/StandardBehaviourIntegratorCRTPBase.ixx
+@@ -23,8 +23,9 @@ namespace mfem_mgis {
+   StandardBehaviourIntegratorCRTPBase<Child>::
+       StandardBehaviourIntegratorCRTPBase(
+           const PartialQuadratureSpace &s,
+-          std::unique_ptr<const Behaviour> b_ptr)
+-      : BehaviourIntegratorBase(s, std::move(b_ptr)) {
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
++      : BehaviourIntegratorBase(s, std::move(b_ptr), l) {
+     using Traits = BehaviourIntegratorTraits<Child>;
+     constexpr auto usize = static_cast<size_type>(Traits::unknownsSize);
+     const auto &fed = s.getFiniteElementDiscretization();
+@@ -44,6 +45,7 @@ namespace mfem_mgis {
+       mfem::ElementTransformation &tr,
+       const mfem::Vector &u,
+       const IntegrationType it) {
++    this->checkElementByElementComputationsSupport(may_throw);
+     //
+     using Traits = BehaviourIntegratorTraits<Child>;
+     static_assert(
+@@ -170,6 +172,7 @@ namespace mfem_mgis {
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr,
+       const mfem::Vector &u) {
++    this->checkElementByElementComputationsSupport(may_throw);
+     using Traits = BehaviourIntegratorTraits<Child>;
+     constexpr const auto evaluateShapeFunctions =
+         Traits::updateExternalStateVariablesFromUnknownsValues ||
+@@ -465,6 +468,7 @@ namespace mfem_mgis {
+       mfem::Vector &Fe,
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr) {
++    this->checkElementByElementComputationsSupport(may_throw);
+     using Traits = BehaviourIntegratorTraits<Child>;
+     constexpr const auto evaluateShapeFunctions =
+         Traits::updateExternalStateVariablesFromUnknownsValues ||
+@@ -551,6 +555,7 @@ namespace mfem_mgis {
+       mfem::DenseMatrix &Ke,
+       const mfem::FiniteElement &e,
+       mfem::ElementTransformation &tr) {
++    this->checkElementByElementComputationsSupport(may_throw);
+     using Traits = BehaviourIntegratorTraits<Child>;
+     auto &child = static_cast<Child &>(*this);
+     constexpr const auto evaluateShapeFunctions =
+diff --git a/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx b/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx
+index 240daa7989..1d6db4060f 100644
+--- a/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/TransientHeatTransferBehaviourIntegrator.hxx
+@@ -85,11 +85,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization.
+      * \param[in] m: material attribute.
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     TransientHeatTransferBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \brief get the rotation matrix at the given integration point
+      * \return the rotation matrix associated with the given integration
+diff --git a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
+index daa66c9e80..ef37475523 100644
+--- a/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
++++ b/include/MFEMMGIS/TridimensionalMicromorphicDamageBehaviourIntegrator.hxx
+@@ -65,11 +65,13 @@ namespace mfem_mgis {
+      * \param[in] fed: finite element discretization
+      * \param[in] m: material attribute
+      * \param[in] b_ptr: behaviour
++     * \param[in] l: layout of the data at the integration points
+      */
+     TridimensionalMicromorphicDamageBehaviourIntegrator(
+         const FiniteElementDiscretization &fed,
+         const size_type m,
+-        std::unique_ptr<const Behaviour> b_ptr);
++        std::unique_ptr<const Behaviour> b_ptr,
++        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+     /*!
+      * \return the rotation matrix associated with the given integration
+      * point
+diff --git a/src/BehaviourIntegratorBase.cxx b/src/BehaviourIntegratorBase.cxx
+index 636bc49222..40564513d3 100644
+--- a/src/BehaviourIntegratorBase.cxx
++++ b/src/BehaviourIntegratorBase.cxx
+@@ -59,8 +59,10 @@ namespace mfem_mgis {
+   }  // end of convertSizesOfTangentOperatorBlocksToString
+ 
+   BehaviourIntegratorBase::BehaviourIntegratorBase(
+-      const PartialQuadratureSpace& s, std::unique_ptr<const Behaviour> b_ptr)
+-      : Material(s, std::move(b_ptr)) {
++      const PartialQuadratureSpace& s,
++      std::unique_ptr<const Behaviour> b_ptr,
++      const mgis::FieldLayout l)
++      : Material(s, std::move(b_ptr), l) {
+     // The following arrays are storing material properties and external
+     // state variables. They can be allocated a single time
+     this->wks.mps.resize(getArraySize(this->b.mps, this->b.hypothesis));
+@@ -80,6 +82,18 @@ namespace mfem_mgis {
+     }
+   }  // end of BehaviourIntegratorBase::checkHypothesis
+ 
++  void BehaviourIntegratorBase::checkElementByElementComputationsSupport(
++      attributes::Throwing) const {
++    if (this->layout != mgis::FieldLayout::POINT_BY_POINT) {
++      raise(
++          "the computations element by element (integration point by point, "
++          "gradients, inner forces and stiffness matrix of an element) read "
++          "the values of a point as contiguous: they are not supported by a "
++          "material whose arrays are stored component by component "
++          "(parameter QuadratureDataLayout)");
++    }
++  }  // end of checkElementByElementComputationsSupport
++
+   void BehaviourIntegratorBase::checkIfAFiniteStrainBehaviourIsDeclared(
+       attributes::Throwing) const {
+     // the gradient is the displacement gradient for a finite strain
+@@ -419,6 +433,32 @@ namespace mfem_mgis {
+     return OptionalReference<const Material>{this};
+   }  // end of getMaterial
+ 
++  /*!
++   * \return true if the values of an external state variable computed by an
++   * evaluator can be given to MGIS: they are stored point by point, and MGIS
++   * reads the values of a variable with several components in the layout of
++   * the arrays of the material; otherwise, an error message is registered
++   * \param[in, out] ctx: execution context
++   * \param[in] m: material
++   * \param[in] n: name of the external state variable
++   * \param[in] v: values
++   */
++  [[nodiscard]] static bool checkExternalStateVariableLayout(
++      Context& ctx,
++      const Material& m,
++      const std::string& n,
++      const ImmutablePartialQuadratureFunctionView& v) noexcept {
++    if ((m.layout == mgis::FieldLayout::POINT_BY_POINT) ||
++        (v.getNumberOfComponents() == 1)) {
++      return true;
++    }
++    return ctx.registerErrorMessage(
++        "the external state variable '" + n +
++        "' has several components, computed point by point by an "
++        "evaluator: it can't be given to a material whose arrays are stored "
++        "component by component (parameter QuadratureDataLayout)");
++  }  // end of checkExternalStateVariableLayout
++
+   bool BehaviourIntegratorBase::setup(Context& ctx,
+                                       const real t,
+                                       const real dt) noexcept {
+@@ -572,6 +612,9 @@ namespace mfem_mgis {
+       }
+     }
+     for (auto& [name, e] : this->wks.pqfcts_esvs_bts) {
++      if (!checkExternalStateVariableLayout(ctx, *this, name, e)) {
++        return false;
++      }
+       if (!mgis::behaviour::setExternalStateVariable(
+               ctx, this->s0, name, e.getValues(),
+               mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
+@@ -580,6 +623,9 @@ namespace mfem_mgis {
+       }
+     }
+     for (auto& [name, e] : this->wks.pqfcts_esvs_ets) {
++      if (!checkExternalStateVariableLayout(ctx, *this, name, e)) {
++        return false;
++      }
+       if (!mgis::behaviour::setExternalStateVariable(
+               ctx, this->s1, name, e.getValues(),
+               mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
+diff --git a/src/BehaviourIntegratorFactory.cxx b/src/BehaviourIntegratorFactory.cxx
+index 028e53ca0b..5b1b78dfd6 100644
+--- a/src/BehaviourIntegratorFactory.cxx
++++ b/src/BehaviourIntegratorFactory.cxx
+@@ -9,6 +9,7 @@
+ #include "MGIS/Raise.hxx"
+ #include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
++#include "MFEMMGIS/QuadratureDataLayout.hxx"
+ #include "MFEMMGIS/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.hxx"
+@@ -38,6 +39,29 @@
+ 
+ namespace mfem_mgis {
+ 
++  //! \brief description of the `QuadratureDataLayout` parameter
++  static constexpr const char* quadrature_data_layout_description =
++      "layout of the data at the integration points (optional)";
++
++  /*!
++   * \return the layout of the data at the integration points given to a
++   * generator which accepts no other parameter
++   * \param[in, out] ctx: execution context
++   * \param[in] params: parameters
++   */
++  [[nodiscard]] static std::optional<mgis::FieldLayout>
++  getQuadratureDataLayoutAsSoleParameter(Context& ctx,
++                                         const Parameters& params) noexcept {
++    if (!checkParameters(ctx, params,
++                         std::map<std::string, std::string>{
++                             {quadrature_data_layout_parameter,
++                              quadrature_data_layout_description}})) {
++      return {};
++    }
++    return getQuadratureDataLayout(ctx, params,
++                                   mgis::FieldLayout::POINT_BY_POINT);
++  }  // end of getQuadratureDataLayoutAsSoleParameter
++
+   /*!
+    * \brief declare behaviour integrators valid for all modelling hypotheses:
+    * the transient term of the heat equation. The weights of its integration
+@@ -55,15 +79,16 @@ namespace mfem_mgis {
+            const size_type m, std::unique_ptr<const Behaviour> b,
+            const Parameters& params)
+         -> std::unique_ptr<AbstractBehaviourIntegrator> {
+-      if (!params.empty()) {
+-        return ctx.registerErrorMessage("no parameter expected");
++      const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
++      if (isInvalid(ol)) {
++        return {};
+       }
+       if (b->btype != Behaviour::GENERALBEHAVIOUR) {
+         return ctx.registerErrorMessage("invalid behaviour type");
+       }
+       try {
+         return std::make_unique<TransientHeatTransferBehaviourIntegrator>(
+-            fed, m, std::move(b));
++            fed, m, std::move(b), *ol);
+       } catch (...) {
+         std::ignore = registerExceptionInErrorBacktrace(ctx);
+       }
+@@ -123,7 +148,14 @@ namespace mfem_mgis {
+     if (!checkParameters(
+             ctx, params,
+             std::map<std::string, std::string>{
+-                {"Regularization", "Regularization method (optional)"}})) {
++                {"Regularization", "Regularization method (optional)"},
++                {quadrature_data_layout_parameter,
++                 quadrature_data_layout_description}})) {
++      return {};
++    }
++    const auto ol =
++        getQuadratureDataLayout(ctx, params, mgis::FieldLayout::POINT_BY_POINT);
++    if (isInvalid(ol)) {
+       return {};
+     }
+     if (contains(params, "Regularization")) {
+@@ -145,11 +177,11 @@ namespace mfem_mgis {
+       }
+       if (ofa->first == "Faltus2026") {
+         return generateTridimensionalFaltus2026RegularizedMechanicalBehaviourIntegrators(
+-            ctx, fed, m, std::move(b), ofa->second);
++            ctx, fed, m, std::move(b), ofa->second, *ol);
+       }
+ #ifdef MGIS_HAVE_TFEL
+       return generateTridimensionalFBarBehaviourIntegrators(
+-          ctx, fed, m, std::move(b), ofa->second);
++          ctx, fed, m, std::move(b), ofa->second, *ol);
+ #else
+       return ctx.registerErrorMessage(
+           "the 'FBar' regularisation is not available as TFEL support is not "
+@@ -160,11 +192,11 @@ namespace mfem_mgis {
+       if (b->symmetry == Behaviour::ISOTROPIC) {
+         return make_unique<
+             IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator>(
+-            ctx, fed, m, std::move(b));
++            ctx, fed, m, std::move(b), *ol);
+       }
+       return make_unique<
+           OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator>(
+-          ctx, fed, m, std::move(b));
++          ctx, fed, m, std::move(b), *ol);
+     } else if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+       return ctx.registerErrorMessage("invalid behaviour type");
+     }
+@@ -172,11 +204,11 @@ namespace mfem_mgis {
+       if (b->symmetry == Behaviour::ISOTROPIC) {
+         return make_unique<
+             IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-            ctx, fed, m, std::move(b));
++            ctx, fed, m, std::move(b), *ol);
+       }
+       return make_unique<
+           OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-          ctx, fed, m, std::move(b));
++          ctx, fed, m, std::move(b), *ol);
+     }();
+     if (isInvalid(bi)) {
+       return {};
+@@ -191,36 +223,44 @@ namespace mfem_mgis {
+    */
+   template <>
+   void buildFactory<Hypothesis::TRIDIMENSIONAL>(BehaviourIntegratorFactory& f) {
+-    auto ctx = Context{};
+-    auto or_die = ctx.getFatalFailureHandler();
+     fillWithDefaultBehaviourIntegrators<Hypothesis::TRIDIMENSIONAL>(f);
+-    f.addGenerator(ctx, "Mechanics",
+-                   generateTridimensionalMechanicalBehaviourIntegrators) |
+-        or_die;
++    f.addGenerator(may_abort, "Mechanics",
++                   generateTridimensionalMechanicalBehaviourIntegrators);
+     f.addGenerator(
+         may_abort, "StationaryNonLinearHeatTransfer",
+-        [](const FiniteElementDiscretization& fed, const size_type m,
+-           std::unique_ptr<const Behaviour> b)
++        [](Context& ctx, const FiniteElementDiscretization& fed,
++           const size_type m, std::unique_ptr<const Behaviour> b,
++           const Parameters& params) noexcept
+             -> std::unique_ptr<AbstractBehaviourIntegrator> {
++          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
++          if (isInvalid(ol)) {
++            return {};
++          }
+           if (b->btype != Behaviour::GENERALBEHAVIOUR) {
+-            raise("invalid behaviour type");
++            return ctx.registerErrorMessage("invalid behaviour type");
+           }
+           if (b->symmetry == Behaviour::ISOTROPIC) {
+-            return std::make_unique<
++            return make_unique<
+                 IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-                fed, m, std::move(b));
++                ctx, fed, m, std::move(b), *ol);
+           }
+-          return std::make_unique<
++          return make_unique<
+               OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-              fed, m, std::move(b));
++              ctx, fed, m, std::move(b), *ol);
++        });
++    f.addGenerator(
++        may_abort, "MicromorphicDamage",
++        [](Context& ctx, const FiniteElementDiscretization& fed,
++           const size_type m, std::unique_ptr<const Behaviour> b,
++           const Parameters& params) noexcept
++            -> std::unique_ptr<AbstractBehaviourIntegrator> {
++          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
++          if (isInvalid(ol)) {
++            return {};
++          }
++          return make_unique<TridimensionalMicromorphicDamageBehaviourIntegrator>(
++              ctx, fed, m, std::move(b), *ol);
+         });
+-    f.addGenerator(may_abort, "MicromorphicDamage",  //
+-                   [](const FiniteElementDiscretization& fed, const size_type m,
+-                      std::unique_ptr<const Behaviour> b) {
+-                     return std::make_unique<
+-                         TridimensionalMicromorphicDamageBehaviourIntegrator>(
+-                         fed, m, std::move(b));
+-                   });
+   }  // end of buildFactory
+ 
+   [[nodiscard]] static std::unique_ptr<AbstractBehaviourIntegrator>
+@@ -233,7 +273,14 @@ namespace mfem_mgis {
+     if (!checkParameters(
+             ctx, params,
+             std::map<std::string, std::string>{
+-                {"Regularization", "Regularization method (optional)"}})) {
++                {"Regularization", "Regularization method (optional)"},
++                {quadrature_data_layout_parameter,
++                 quadrature_data_layout_description}})) {
++      return {};
++    }
++    const auto ol =
++        getQuadratureDataLayout(ctx, params, mgis::FieldLayout::POINT_BY_POINT);
++    if (isInvalid(ol)) {
+       return {};
+     }
+     if (contains(params, "Regularization")) {
+@@ -255,11 +302,11 @@ namespace mfem_mgis {
+       }
+       if (ofa->first == "Faltus2026") {
+         return generatePlaneStrainFaltus2026RegularizedMechanicalBehaviourIntegrators(
+-            ctx, fed, m, std::move(b), ofa->second);
++            ctx, fed, m, std::move(b), ofa->second, *ol);
+       }
+ #ifdef MGIS_HAVE_TFEL
+       return generatePlaneStrainFBarBehaviourIntegrators(
+-          ctx, fed, m, std::move(b), ofa->second);
++          ctx, fed, m, std::move(b), ofa->second, *ol);
+ #else
+       return ctx.registerErrorMessage(
+           "the 'FBar' regularisation is not available as TFEL support is not "
+@@ -270,11 +317,11 @@ namespace mfem_mgis {
+       if (b->symmetry == Behaviour::ISOTROPIC) {
+         return make_unique<
+             IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator>(
+-            ctx, fed, m, std::move(b));
++            ctx, fed, m, std::move(b), *ol);
+       }
+       return make_unique<
+           OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator>(
+-          ctx, fed, m, std::move(b));
++          ctx, fed, m, std::move(b), *ol);
+     } else if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+       return ctx.registerErrorMessage("invalid behaviour type");
+     }
+@@ -282,11 +329,11 @@ namespace mfem_mgis {
+       if (b->symmetry == Behaviour::ISOTROPIC) {
+         return make_unique<
+             IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-            ctx, fed, m, std::move(b));
++            ctx, fed, m, std::move(b), *ol);
+       }
+       return make_unique<
+           OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-          ctx, fed, m, std::move(b));
++          ctx, fed, m, std::move(b), *ol);
+     }();
+     if (isInvalid(bi)) {
+       return {};
+@@ -301,43 +348,50 @@ namespace mfem_mgis {
+    */
+   template <>
+   void buildFactory<Hypothesis::PLANESTRAIN>(BehaviourIntegratorFactory& f) {
+-    auto ctx = Context{};
+-    auto or_die = ctx.getFatalFailureHandler();
+     fillWithDefaultBehaviourIntegrators<Hypothesis::PLANESTRAIN>(f);
+-    f.addGenerator(ctx, "Mechanics",
+-                   generatePlaneStrainMechanicalBehaviourIntegrators) |
+-        or_die;
++    f.addGenerator(may_abort, "Mechanics",
++                   generatePlaneStrainMechanicalBehaviourIntegrators);
+     f.addGenerator(
+         may_abort, "StationaryNonLinearHeatTransfer",
+-        [](const FiniteElementDiscretization& fed, const size_type m,
+-           std::unique_ptr<const Behaviour> b)
++        [](Context& ctx, const FiniteElementDiscretization& fed,
++           const size_type m, std::unique_ptr<const Behaviour> b,
++           const Parameters& params) noexcept
+             -> std::unique_ptr<AbstractBehaviourIntegrator> {
++          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
++          if (isInvalid(ol)) {
++            return {};
++          }
+           if (b->btype != Behaviour::GENERALBEHAVIOUR) {
+-            raise("invalid behaviour type");
++            return ctx.registerErrorMessage("invalid behaviour type");
+           }
+           if (b->symmetry == Behaviour::ISOTROPIC) {
+-            return std::make_unique<
++            return make_unique<
+                 IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-                fed, m, std::move(b));
++                ctx, fed, m, std::move(b), *ol);
+           }
+-          return std::make_unique<
++          return make_unique<
+               OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-              fed, m, std::move(b));
++              ctx, fed, m, std::move(b), *ol);
+         });
+     f.addGenerator(
+         may_abort,
+         "MicromorphicDamage",  //
+-        [](const FiniteElementDiscretization& fed, const size_type m,
+-           std::unique_ptr<const Behaviour> b)
++        [](Context& ctx, const FiniteElementDiscretization& fed,
++           const size_type m, std::unique_ptr<const Behaviour> b,
++           const Parameters& params) noexcept
+             -> std::unique_ptr<AbstractBehaviourIntegrator> {
++          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
++          if (isInvalid(ol)) {
++            return {};
++          }
+           if (b->symmetry == Behaviour::ISOTROPIC) {
+-            return std::make_unique<
++            return make_unique<
+                 BidimensionalMicromorphicDamageBehaviourIntegrator>(
+-                fed, m, std::move(b));
++                ctx, fed, m, std::move(b), *ol);
+           }
+-          return std::make_unique<
++          return make_unique<
+               OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>(
+-              fed, m, std::move(b));
++              ctx, fed, m, std::move(b), *ol);
+         });
+   }  // end of buildFactory
+ 
+@@ -351,7 +405,14 @@ namespace mfem_mgis {
+     if (!checkParameters(
+             ctx, params,
+             std::map<std::string, std::string>{
+-                {"Regularization", "Regularization method (optional)"}})) {
++                {"Regularization", "Regularization method (optional)"},
++                {quadrature_data_layout_parameter,
++                 quadrature_data_layout_description}})) {
++      return {};
++    }
++    const auto ol =
++        getQuadratureDataLayout(ctx, params, mgis::FieldLayout::POINT_BY_POINT);
++    if (isInvalid(ol)) {
+       return {};
+     }
+     if (contains(params, "Regularization")) {
+@@ -372,17 +433,17 @@ namespace mfem_mgis {
+             "'. The only valid regularisation is 'Faltus2026'");
+       }
+       return generatePlaneStressFaltus2026RegularizedMechanicalBehaviourIntegrators(
+-          ctx, fed, m, std::move(b), ofa->second);
++          ctx, fed, m, std::move(b), ofa->second, *ol);
+     }
+     if (b->btype == Behaviour::STANDARDSTRAINBASEDBEHAVIOUR) {
+       if (b->symmetry == Behaviour::ISOTROPIC) {
+         return make_unique<
+             IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator>(
+-            ctx, fed, m, std::move(b));
++            ctx, fed, m, std::move(b), *ol);
+       }
+       return make_unique<
+           OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator>(
+-          ctx, fed, m, std::move(b));
++          ctx, fed, m, std::move(b), *ol);
+     } else if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+       return ctx.registerErrorMessage("invalid behaviour type");
+     }
+@@ -390,11 +451,11 @@ namespace mfem_mgis {
+       if (b->symmetry == Behaviour::ISOTROPIC) {
+         return make_unique<
+             IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-            ctx, fed, m, std::move(b));
++            ctx, fed, m, std::move(b), *ol);
+       }
+       return make_unique<
+           OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-          ctx, fed, m, std::move(b));
++          ctx, fed, m, std::move(b), *ol);
+     }();
+     if (isInvalid(bi)) {
+       return {};
+@@ -409,43 +470,50 @@ namespace mfem_mgis {
+    */
+   template <>
+   void buildFactory<Hypothesis::PLANESTRESS>(BehaviourIntegratorFactory& f) {
+-    auto ctx = Context{};
+-    auto or_die = ctx.getFatalFailureHandler();
+     fillWithDefaultBehaviourIntegrators<Hypothesis::PLANESTRESS>(f);
+-    f.addGenerator(ctx, "Mechanics",
+-                   generatePlaneStressMechanicalBehaviourIntegrators) |
+-        or_die;
++    f.addGenerator(may_abort, "Mechanics",
++                   generatePlaneStressMechanicalBehaviourIntegrators);
+     f.addGenerator(
+         may_abort, "StationaryNonLinearHeatTransfer",
+-        [](const FiniteElementDiscretization& fed, const size_type m,
+-           std::unique_ptr<const Behaviour> b)
++        [](Context& ctx, const FiniteElementDiscretization& fed,
++           const size_type m, std::unique_ptr<const Behaviour> b,
++           const Parameters& params) noexcept
+             -> std::unique_ptr<AbstractBehaviourIntegrator> {
++          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
++          if (isInvalid(ol)) {
++            return {};
++          }
+           if (b->btype != Behaviour::GENERALBEHAVIOUR) {
+-            raise("invalid behaviour type");
++            return ctx.registerErrorMessage("invalid behaviour type");
+           }
+           if (b->symmetry == Behaviour::ISOTROPIC) {
+-            return std::make_unique<
++            return make_unique<
+                 IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-                fed, m, std::move(b));
++                ctx, fed, m, std::move(b), *ol);
+           }
+-          return std::make_unique<
++          return make_unique<
+               OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-              fed, m, std::move(b));
++              ctx, fed, m, std::move(b), *ol);
+         });
+     f.addGenerator(
+         may_abort,
+         "MicromorphicDamage",  //
+-        [](const FiniteElementDiscretization& fed, const size_type m,
+-           std::unique_ptr<const Behaviour> b)
++        [](Context& ctx, const FiniteElementDiscretization& fed,
++           const size_type m, std::unique_ptr<const Behaviour> b,
++           const Parameters& params) noexcept
+             -> std::unique_ptr<AbstractBehaviourIntegrator> {
++          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
++          if (isInvalid(ol)) {
++            return {};
++          }
+           if (b->symmetry == Behaviour::ISOTROPIC) {
+-            return std::make_unique<
++            return make_unique<
+                 BidimensionalMicromorphicDamageBehaviourIntegrator>(
+-                fed, m, std::move(b));
++                ctx, fed, m, std::move(b), *ol);
+           }
+-          return std::make_unique<
++          return make_unique<
+               OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>(
+-              fed, m, std::move(b));
++              ctx, fed, m, std::move(b), *ol);
+         });
+   }  // end of buildFactory
+ 
+diff --git a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+index 82b7f85c4c..7bb00cd993 100644
+--- a/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
++++ b/src/BidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+@@ -40,10 +40,11 @@ namespace mfem_mgis {
+       BidimensionalMicromorphicDamageBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             BidimensionalMicromorphicDamageBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkBehaviourVariablesSizes(
+         throwing, {.gradients_sizes = {1, 2},
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 569101911f..db4ea3f30a 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -22,6 +22,7 @@ list(APPEND MFEMMGIS_SOURCES
+   QPEvaluatorsFactory.cxx
+   Behaviour.cxx
+   Material.cxx
++  QuadratureDataLayout.cxx
+   MaterialArrays.cxx
+   MaterialQuantityProviderSearch.cxx
+   AbstractBehaviourIntegrator.cxx
+diff --git a/src/FBarBehaviourIntegrators.cxx b/src/FBarBehaviourIntegrators.cxx
+index 18169f30bb..c64b8cac60 100644
+--- a/src/FBarBehaviourIntegrators.cxx
++++ b/src/FBarBehaviourIntegrators.cxx
+@@ -21,7 +21,8 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization &fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters &params) noexcept {
++      const Parameters &params,
++      const mgis::FieldLayout l) noexcept {
+     if (!params.empty()) {
+       return ctx.registerErrorMessage("no parameter expected");
+     }
+@@ -36,7 +37,7 @@ namespace mfem_mgis {
+     }
+     if (b->symmetry == Behaviour::ISOTROPIC) {
+       auto bi = make_unique<FBarIsotropicPlaneStrainBehaviourIntegrator>(
+-          ctx, fed, m, std::move(b));
++          ctx, fed, m, std::move(b), l);
+       if (isInvalid(bi)) {
+         return {};
+       }
+@@ -46,7 +47,7 @@ namespace mfem_mgis {
+       return bi;
+     }
+     auto bi = make_unique<FBarOrthotropicPlaneStrainBehaviourIntegrator>(
+-        ctx, fed, m, std::move(b));
++        ctx, fed, m, std::move(b), l);
+     if (isInvalid(bi)) {
+       return {};
+     }
+@@ -62,7 +63,8 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization &fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters &params) noexcept {
++      const Parameters &params,
++      const mgis::FieldLayout l) noexcept {
+     if (!params.empty()) {
+       return ctx.registerErrorMessage("no parameter expected");
+     }
+@@ -77,7 +79,7 @@ namespace mfem_mgis {
+     }
+     if (b->symmetry == Behaviour::ISOTROPIC) {
+       auto bi = make_unique<FBarIsotropicTridimensionalBehaviourIntegrator>(
+-          ctx, fed, m, std::move(b));
++          ctx, fed, m, std::move(b), l);
+       if (isInvalid(bi)) {
+         return {};
+       }
+@@ -87,7 +89,7 @@ namespace mfem_mgis {
+       return bi;
+     }
+     auto bi = make_unique<FBarOrthotropicTridimensionalBehaviourIntegrator>(
+-        ctx, fed, m, std::move(b));
++        ctx, fed, m, std::move(b), l);
+     if (isInvalid(bi)) {
+       return {};
+     }
+diff --git a/src/FBarIsotropicPlaneStrainBehaviourIntegrator.cxx b/src/FBarIsotropicPlaneStrainBehaviourIntegrator.cxx
+index fdbdc417df..3191fd6a00 100644
+--- a/src/FBarIsotropicPlaneStrainBehaviourIntegrator.cxx
++++ b/src/FBarIsotropicPlaneStrainBehaviourIntegrator.cxx
+@@ -36,11 +36,12 @@ namespace mfem_mgis {
+       FBarIsotropicPlaneStrainBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : FBarBehaviourIntegratorCRTPBase<
+             FBarIsotropicPlaneStrainBehaviourIntegrator,
+             Hypothesis::PLANESTRAIN>(buildQuadratureSpace(throwing, fed, m),
+-                                     std::move(b_ptr)) {
++                                     std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);
+diff --git a/src/FBarIsotropicTridimensionalBehaviourIntegrator.cxx b/src/FBarIsotropicTridimensionalBehaviourIntegrator.cxx
+index 7e7a9cdf77..f1a36f03aa 100644
+--- a/src/FBarIsotropicTridimensionalBehaviourIntegrator.cxx
++++ b/src/FBarIsotropicTridimensionalBehaviourIntegrator.cxx
+@@ -36,11 +36,12 @@ namespace mfem_mgis {
+       FBarIsotropicTridimensionalBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : FBarBehaviourIntegratorCRTPBase<
+             FBarIsotropicTridimensionalBehaviourIntegrator,
+             Hypothesis::TRIDIMENSIONAL>(buildQuadratureSpace(throwing, fed, m),
+-                                        std::move(b_ptr)) {
++                                        std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+diff --git a/src/FBarOrthotropicPlaneStrainBehaviourIntegrator.cxx b/src/FBarOrthotropicPlaneStrainBehaviourIntegrator.cxx
+index e9ae89968a..9041d3a215 100644
+--- a/src/FBarOrthotropicPlaneStrainBehaviourIntegrator.cxx
++++ b/src/FBarOrthotropicPlaneStrainBehaviourIntegrator.cxx
+@@ -36,11 +36,12 @@ namespace mfem_mgis {
+       FBarOrthotropicPlaneStrainBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : FBarBehaviourIntegratorCRTPBase<
+             FBarOrthotropicPlaneStrainBehaviourIntegrator,
+             Hypothesis::PLANESTRAIN>(buildQuadratureSpace(throwing, fed, m),
+-                                     std::move(b_ptr)) {
++                                     std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);
+diff --git a/src/FBarOrthotropicTridimensionalBehaviourIntegrator.cxx b/src/FBarOrthotropicTridimensionalBehaviourIntegrator.cxx
+index 50ea98d5ec..6478f39496 100644
+--- a/src/FBarOrthotropicTridimensionalBehaviourIntegrator.cxx
++++ b/src/FBarOrthotropicTridimensionalBehaviourIntegrator.cxx
+@@ -36,11 +36,12 @@ namespace mfem_mgis {
+       FBarOrthotropicTridimensionalBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : FBarBehaviourIntegratorCRTPBase<
+             FBarOrthotropicTridimensionalBehaviourIntegrator,
+             Hypothesis::TRIDIMENSIONAL>(buildQuadratureSpace(throwing, fed, m),
+-                                        std::move(b_ptr)) {
++                                        std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+diff --git a/src/Faltus2026RegularizedBehaviourIntegrators.cxx b/src/Faltus2026RegularizedBehaviourIntegrators.cxx
+index b1cb8669bf..12aa9bf36c 100644
+--- a/src/Faltus2026RegularizedBehaviourIntegrators.cxx
++++ b/src/Faltus2026RegularizedBehaviourIntegrators.cxx
+@@ -21,7 +21,8 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization& fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters& params) noexcept {
++      const Parameters& params,
++      const mgis::FieldLayout l) noexcept {
+     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+       return ctx.registerErrorMessage("invalid behaviour type");
+     }
+@@ -35,7 +36,7 @@ namespace mfem_mgis {
+           "only isotropic behaviours are supported");
+     }
+     auto bi = make_unique<Faltus2026RegularizedIsotropicBehaviourIntegrator<
+-        Hypothesis::PLANESTRAIN>>(ctx, fed, m, std::move(b), params);
++        Hypothesis::PLANESTRAIN>>(ctx, fed, m, std::move(b), params, l);
+     if (isInvalid(bi)) {
+       return {};
+     }
+@@ -52,7 +53,8 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization& fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters& params) noexcept {
++      const Parameters& params,
++      const mgis::FieldLayout l) noexcept {
+     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+       return ctx.registerErrorMessage("invalid behaviour type");
+     }
+@@ -66,7 +68,7 @@ namespace mfem_mgis {
+           "only isotropic behaviours are supported");
+     }
+     auto bi = make_unique<Faltus2026RegularizedIsotropicBehaviourIntegrator<
+-        Hypothesis::PLANESTRESS>>(ctx, fed, m, std::move(b), params);
++        Hypothesis::PLANESTRESS>>(ctx, fed, m, std::move(b), params, l);
+     if (isInvalid(bi)) {
+       return {};
+     }
+@@ -83,7 +85,8 @@ namespace mfem_mgis {
+       const FiniteElementDiscretization& fed,
+       const size_type m,
+       std::unique_ptr<const Behaviour> b,
+-      const Parameters& params) noexcept {
++      const Parameters& params,
++      const mgis::FieldLayout l) noexcept {
+     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
+       return ctx.registerErrorMessage("invalid behaviour type");
+     }
+@@ -97,7 +100,7 @@ namespace mfem_mgis {
+           "only isotropic behaviours are supported");
+     }
+     auto bi = make_unique<Faltus2026RegularizedIsotropicBehaviourIntegrator<
+-        Hypothesis::TRIDIMENSIONAL>>(ctx, fed, m, std::move(b), params);
++        Hypothesis::TRIDIMENSIONAL>>(ctx, fed, m, std::move(b), params, l);
+     if (isInvalid(bi)) {
+       return {};
+     }
+diff --git a/src/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index db39200da8..ccd82ca767 100644
+--- a/src/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -37,10 +37,11 @@ namespace mfem_mgis {
+       IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             IsotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);
+diff --git a/src/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 21eb67dd97..f34313192e 100644
+--- a/src/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -37,10 +37,11 @@ namespace mfem_mgis {
+       IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             IsotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index ae0df1e5d8..f4ae721e48 100644
+--- a/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -39,10 +39,11 @@ namespace mfem_mgis {
+       IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index 5cb6bb0b6f..e55384facf 100644
+--- a/src/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -37,10 +37,11 @@ namespace mfem_mgis {
+       IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             IsotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRESS);
+diff --git a/src/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 609f71ceb1..93c8547a59 100644
+--- a/src/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -37,10 +37,11 @@ namespace mfem_mgis {
+       IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             IsotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRESS);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index fe66b28a9d..3f5eb35699 100644
+--- a/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -39,10 +39,11 @@ namespace mfem_mgis {
+       IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             IsotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRESS);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index 3662c942f2..89279c1724 100644
+--- a/src/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -38,10 +38,11 @@ namespace mfem_mgis {
+       IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             IsotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+diff --git a/src/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 8f5597ec8e..e176c01ae1 100644
+--- a/src/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -38,10 +38,11 @@ namespace mfem_mgis {
+       IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             IsotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index 35425f630c..dc1b136637 100644
+--- a/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -39,10 +39,11 @@ namespace mfem_mgis {
+       IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             IsotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/MultiMaterialNonLinearIntegrator.cxx b/src/MultiMaterialNonLinearIntegrator.cxx
+index a69102d4cc..cd553e27d8 100644
+--- a/src/MultiMaterialNonLinearIntegrator.cxx
++++ b/src/MultiMaterialNonLinearIntegrator.cxx
+@@ -26,6 +26,7 @@
+ #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/BehaviourIntegratorFactory.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/QuadratureDataLayout.hxx"
+ #include "MFEMMGIS/MultiMaterialNonLinearIntegrator.hxx"
+ #include "ExecutionSettings.hxx"
+ 
+@@ -286,6 +287,36 @@ namespace mfem_mgis {
+     return true;
+   }  // end of integrate
+ 
++  //! \brief behaviour integrators of each material
++  using BehaviourIntegratorsOfMaterials =
++      std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>;
++
++  /*!
++   * \return the identifier of the first material whose arrays are stored
++   * component by component, if any
++   * \param[in] bis: behaviour integrators of each material
++   */
++  [[nodiscard]] static std::optional<size_type>
++  findMaterialStoredComponentByComponent(
++      const BehaviourIntegratorsOfMaterials& bis) noexcept {
++    auto ctx = Context{};
++    for (size_type m = 0; m != static_cast<size_type>(bis.size()); ++m) {
++      for (const auto& bi : bis[m]) {
++        if (!bi->hasMaterial()) {
++          continue;
++        }
++        const auto om =
++            static_cast<const AbstractBehaviourIntegrator&>(*bi).getMaterial(
++                ctx);
++        if ((!isInvalid(om)) &&
++            (om->layout != mgis::FieldLayout::POINT_BY_POINT)) {
++          return m;
++        }
++      }
++    }
++    return {};
++  }  // end of findMaterialStoredComponentByComponent
++
+   bool MultiMaterialNonLinearIntegrator::checkBatchIntegrationSupport(
+       Context& ctx) const noexcept {
+     for (size_type m = 0;
+@@ -369,9 +400,35 @@ namespace mfem_mgis {
+         }
+       }
+     }
++    if (const auto om = findMaterialStoredComponentByComponent(
++            this->behaviour_integrators);
++        om.has_value()) {
++      return ctx.registerErrorMessage(
++          "the arrays of material '" + std::to_string(*om) +
++          "' are stored component by component (parameter "
++          "QuadratureDataLayout): its behaviour can only be integrated by "
++          "batches (parameter BehaviourIntegration set to Batch)");
++    }
+     return true;
+   }  // end of checkPointByPointIntegrationSupport
+ 
++  bool
++  MultiMaterialNonLinearIntegrator::checkElementByElementComputationsSupport(
++      Context& ctx) const noexcept {
++    if (const auto om = findMaterialStoredComponentByComponent(
++            this->behaviour_integrators);
++        om.has_value()) {
++      return ctx.registerErrorMessage(
++          "the arrays of material '" + std::to_string(*om) +
++          "' are stored component by component (parameter "
++          "QuadratureDataLayout): the gradients, the inner forces and the "
++          "stiffness matrices can only be computed by kernels (parameters "
++          "GradientsComputation and InnerForcesComputation set to Kernels, "
++          "TangentOperatorComputation set to Kernels or MatrixFree)");
++    }
++    return true;
++  }  // end of checkElementByElementComputationsSupport
++
+   bool MultiMaterialNonLinearIntegrator::computeGradients(
+       const mfem::FiniteElement& e,
+       mfem::ElementTransformation& tr,
+@@ -658,6 +715,11 @@ namespace mfem_mgis {
+     this->ordered_stiffness_matrices_assembly = b;
+   }  // end of setOrderedStiffnessMatricesAssembly
+ 
++  void MultiMaterialNonLinearIntegrator::setQuadratureDataLayout(
++      const mgis::FieldLayout l) noexcept {
++    this->quadrature_data_layout = l;
++  }  // end of setQuadratureDataLayout
++
+   size_type MultiMaterialNonLinearIntegrator::
+       getNumberOfOrderedStiffnessMatricesAssemblies() const noexcept {
+     return this->ordered_stiffness_matrices_assemblies;
+@@ -1074,8 +1136,22 @@ namespace mfem_mgis {
+                                                     olocation->first)) {
+       return {};
+     }
++    // layout of the data at the integration points of this material, given
++    // to the behaviour integrator if it is not its default layout
++    auto bparams = olocation->second;
++    const auto olayout = getQuadratureDataLayout(ctx, bparams,
++                                                 this->quadrature_data_layout);
++    if (isInvalid(olayout)) {
++      return {};
++    }
++    bparams = remove(bparams, std::vector<std::string>{
++                                  quadrature_data_layout_parameter});
++    if (*olayout != mgis::FieldLayout::POINT_BY_POINT) {
++      bparams.replaceOrInsert(quadrature_data_layout_parameter,
++                              toString(*olayout));
++    }
+     auto bi = of->generate(ctx, n, this->fe_discretization, m, std::move(bptr),
+-                           olocation->second);
++                           bparams);
+     if (isInvalid(bi)) {
+       return {};
+     }
+diff --git a/src/NonLinearEvolutionProblemImplementationBase.cxx b/src/NonLinearEvolutionProblemImplementationBase.cxx
+index 1589d78ec2..7e2e2c8a76 100644
+--- a/src/NonLinearEvolutionProblemImplementationBase.cxx
++++ b/src/NonLinearEvolutionProblemImplementationBase.cxx
+@@ -24,6 +24,7 @@
+ #include "MFEMMGIS/LinearSolverFactory.hxx"
+ #include "MFEMMGIS/Utilities/SolverUtilities.hxx"
+ #include "MFEMMGIS/NonLinearSolvers/AbstractNonLinearSolver.hxx"
++#include "MFEMMGIS/QuadratureDataLayout.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblemImplementationBase.hxx"
+ #include "ExecutionSettings.hxx"
+ #include "SolverOverrides.hxx"
+@@ -51,6 +52,9 @@ namespace mfem_mgis {
+   const char* const
+       NonLinearEvolutionProblemImplementationBase::TangentOperatorAssembly =
+           "TangentOperatorAssembly";
++  const char* const
++      NonLinearEvolutionProblemImplementationBase::QuadratureDataLayout =
++          quadrature_data_layout_parameter;
+ 
+   std::vector<std::string>
+   NonLinearEvolutionProblemImplementationBase::getParametersList() {
+@@ -62,7 +66,8 @@ namespace mfem_mgis {
+         NonLinearEvolutionProblemImplementationBase::GradientsComputation,
+         NonLinearEvolutionProblemImplementationBase::InnerForcesComputation,
+         NonLinearEvolutionProblemImplementationBase::TangentOperatorComputation,
+-        NonLinearEvolutionProblemImplementationBase::TangentOperatorAssembly};
++        NonLinearEvolutionProblemImplementationBase::TangentOperatorAssembly,
++        NonLinearEvolutionProblemImplementationBase::QuadratureDataLayout};
+   }  // end of getParametersList
+ 
+   [[nodiscard]] static MultiMaterialNonLinearIntegrator*
+@@ -266,6 +271,8 @@ namespace mfem_mgis {
+           this->computesStiffnessMatricesByKernels());
+       this->mgis_integrator->setOrderedStiffnessMatricesAssembly(
+           this->ordered_tangent_operator_assembly);
++      this->mgis_integrator->setQuadratureDataLayout(
++          getQuadratureDataLayout(may_throw, p));
+     }
+     this->u0 = real{0};
+     this->u1 = real{0};
+@@ -644,6 +651,12 @@ namespace mfem_mgis {
+                 ctx))) {
+           return false;
+         }
++        if (((!this->gradients_kernels) || (!this->inner_forces_kernels) ||
++             (!this->computesStiffnessMatricesByKernels())) &&
++            (!this->mgis_integrator->checkElementByElementComputationsSupport(
++                ctx))) {
++          return false;
++        }
+         if ((this->gradients_kernels) && (!this->batch_integration)) {
+           std::ignore = ctx.registerErrorMessage(
+               "the computation of the gradients by kernels requires the "
+@@ -742,6 +755,12 @@ namespace mfem_mgis {
+       return ctx.registerErrorMessage(
+           "no multiple material integrator defined");
+     }
++    // the operators compute the stiffness matrices and the inner forces
++    // element by element
++    if (!this->mgis_integrator->checkElementByElementComputationsSupport(
++            ctx)) {
++      return {};
++    }
+     // the operators read the arrays of the materials on the host when they
+     // are assembled
+     try {
+diff --git a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+index 20eb5b9c13..67f3cc65c4 100644
+--- a/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
++++ b/src/OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator.cxx
+@@ -41,10 +41,11 @@ namespace mfem_mgis {
+       OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicBidimensionalMicromorphicDamageBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkBehaviourVariablesSizes(
+         throwing, {.gradients_sizes = {1, 2},
+diff --git a/src/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index f62cfba235..cee3d8e442 100644
+--- a/src/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -38,10 +38,11 @@ namespace mfem_mgis {
+       OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicPlaneStrainStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);
+diff --git a/src/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 07d0aa536c..55fd8607ad 100644
+--- a/src/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -37,10 +37,11 @@ namespace mfem_mgis {
+       OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicPlaneStrainStandardSmallStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index a86d835c3c..2b27e1cfeb 100644
+--- a/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -39,10 +39,11 @@ namespace mfem_mgis {
+       OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index 64ad9ced7a..19244135d0 100644
+--- a/src/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -38,10 +38,11 @@ namespace mfem_mgis {
+       OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicPlaneStressStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRESS);
+diff --git a/src/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index 665340ce44..5445f8e03d 100644
+--- a/src/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -37,10 +37,11 @@ namespace mfem_mgis {
+       OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicPlaneStressStandardSmallStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRESS);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index 5f8f6006ed..660f44b8fd 100644
+--- a/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -39,10 +39,11 @@ namespace mfem_mgis {
+       OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicPlaneStressStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::PLANESTRESS);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+index 855edc581a..1a1be570d8 100644
+--- a/src/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator.cxx
+@@ -38,10 +38,11 @@ namespace mfem_mgis {
+       OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicTridimensionalStandardFiniteStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+diff --git a/src/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx b/src/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+index a14e230d3e..8574113ec3 100644
+--- a/src/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
++++ b/src/OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator.cxx
+@@ -38,10 +38,11 @@ namespace mfem_mgis {
+       OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicTridimensionalStandardSmallStrainMechanicsBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx b/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+index 3d9be06573..3573231a6b 100644
+--- a/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
++++ b/src/OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator.cxx
+@@ -39,10 +39,11 @@ namespace mfem_mgis {
+       OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             OrthotropicTridimensionalStationaryNonLinearHeatTransferBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+     this->checkBehaviourVariablesSizes(
+diff --git a/src/PointWiseModel.cxx b/src/PointWiseModel.cxx
+index 4b115c9a1d..ebf047b424 100644
+--- a/src/PointWiseModel.cxx
++++ b/src/PointWiseModel.cxx
+@@ -9,6 +9,7 @@
+ #include "MGIS/Behaviour/Integrate.hxx"
+ #include "MFEMMGIS/TimeStep.hxx"
+ #include "MFEMMGIS/FiniteElementDiscretization.hxx"
++#include "MFEMMGIS/QuadratureDataLayout.hxx"
+ #include "MFEMMGIS/PointWiseModel.hxx"
+ #include "ExecutionSettings.hxx"
+ 
+@@ -37,7 +38,9 @@ namespace mfem_mgis {
+     descriptions.insert(
+         {{"Library", "path to the library containing the model"},
+          {"Model", "model to be loaded"},
+-         {"Hypothesis", "modelling hypothesis"}});
++         {"Hypothesis", "modelling hypothesis"},
++         {quadrature_data_layout_parameter,
++          "layout of the data at the integration points (optional)"}});
+     return descriptions;
+   }  // end of getParametersDescription
+ 
+@@ -45,7 +48,9 @@ namespace mfem_mgis {
+                                  const PartialQuadratureSpace& qspace,
+                                  const Parameters& parameters)
+       : ModelBase(ctx, qspace.getFiniteElementDiscretization()),
+-        Material(qspace, loadModel(throwing, parameters)) {
++        Material(qspace,
++                 loadModel(throwing, parameters),
++                 getQuadratureDataLayout(may_throw, parameters)) {
+     checkParameters(throwing, parameters,
+                     PointWiseModel::getParametersDescription());
+   }  // end of PointWiseModel
+diff --git a/src/QuadratureDataLayout.cxx b/src/QuadratureDataLayout.cxx
+new file mode 100644
+index 0000000000..a259ab3086
+--- /dev/null
++++ b/src/QuadratureDataLayout.cxx
+@@ -0,0 +1,85 @@
++/*!
++ * \file   src/QuadratureDataLayout.cxx
++ * \brief  This file implements the functions related to the parameter
++ * selecting the layout of the data at the integration points of the
++ * materials
++ * \date   03/11/2026
++ */
++
++#include <cstdlib>
++#include <string>
++#include "MGIS/Raise.hxx"
++#include "MFEMMGIS/QuadratureDataLayout.hxx"
++
++namespace mfem_mgis {
++
++  /*!
++   * \return the layout selected by a value of the `QuadratureDataLayout`
++   * parameter or of the `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` environment
++   * variable
++   * \param[in, out] ctx: execution context
++   * \param[in] v: value
++   * \param[in] origin: origin of the value, for the error message
++   */
++  [[nodiscard]] static std::optional<mgis::FieldLayout>
++  convertToQuadratureDataLayout(Context& ctx,
++                                const std::string& v,
++                                const std::string& origin) noexcept {
++    if (v == "PointByPoint") {
++      return mgis::FieldLayout::POINT_BY_POINT;
++    }
++    if (v == "ComponentByComponent") {
++      return mgis::FieldLayout::COMPONENT_BY_COMPONENT;
++    }
++    return ctx.registerErrorMessage(
++        "invalid value '" + v + "' for " + origin +
++        " (expected 'PointByPoint' or 'ComponentByComponent')");
++  }  // end of convertToQuadratureDataLayout
++
++  std::optional<mgis::FieldLayout> getDefaultQuadratureDataLayout(
++      Context& ctx) noexcept {
++    const auto* const v = "MFEM_MGIS_QUADRATURE_DATA_LAYOUT";
++    const auto* const e = std::getenv(v);
++    if (e == nullptr) {
++      return mgis::FieldLayout::POINT_BY_POINT;
++    }
++    return convertToQuadratureDataLayout(
++        ctx, e, "environment variable '" + std::string{v} + "'");
++  }  // end of getDefaultQuadratureDataLayout
++
++  std::optional<mgis::FieldLayout> getQuadratureDataLayout(
++      Context& ctx,
++      const Parameters& params,
++      const mgis::FieldLayout d) noexcept {
++    const auto* const n = quadrature_data_layout_parameter;
++    if (!contains(params, n)) {
++      return d;
++    }
++    const auto ov = get<std::string>(ctx, params, n);
++    if (isInvalid(ov)) {
++      return {};
++    }
++    return convertToQuadratureDataLayout(ctx, *ov,
++                                         "parameter '" + std::string{n} + "'");
++  }  // end of getQuadratureDataLayout
++
++  mgis::FieldLayout getQuadratureDataLayout(attributes::MayThrow,
++                                            const Parameters& params) {
++    auto ctx = Context{};
++    const auto od = getDefaultQuadratureDataLayout(ctx);
++    if (isInvalid(od)) {
++      raise(ctx.getErrorMessage());
++    }
++    const auto ol = getQuadratureDataLayout(ctx, params, *od);
++    if (isInvalid(ol)) {
++      raise(ctx.getErrorMessage());
++    }
++    return *ol;
++  }  // end of getQuadratureDataLayout
++
++  const char* toString(const mgis::FieldLayout l) noexcept {
++    return l == mgis::FieldLayout::POINT_BY_POINT ? "PointByPoint"
++                                                  : "ComponentByComponent";
++  }  // end of toString
++
++}  // end of namespace mfem_mgis
+diff --git a/src/TransientHeatTransferBehaviourIntegrator.cxx b/src/TransientHeatTransferBehaviourIntegrator.cxx
+index 167204c957..78fe703cf0 100644
+--- a/src/TransientHeatTransferBehaviourIntegrator.cxx
++++ b/src/TransientHeatTransferBehaviourIntegrator.cxx
+@@ -36,10 +36,11 @@ namespace mfem_mgis {
+       TransientHeatTransferBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             TransientHeatTransferBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkBehaviourVariablesSizes(
+         throwing, {.gradients_sizes = {1},
+diff --git a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
+index ba11eadc36..d23273bbd5 100644
+--- a/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
++++ b/src/TridimensionalMicromorphicDamageBehaviourIntegrator.cxx
+@@ -40,10 +40,11 @@ namespace mfem_mgis {
+       TridimensionalMicromorphicDamageBehaviourIntegrator(
+           const FiniteElementDiscretization &fed,
+           const size_type m,
+-          std::unique_ptr<const Behaviour> b_ptr)
++          std::unique_ptr<const Behaviour> b_ptr,
++          const mgis::FieldLayout l)
+       : StandardBehaviourIntegratorCRTPBase<
+             TridimensionalMicromorphicDamageBehaviourIntegrator>(
+-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
++            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
+     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
+     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);
+     this->checkBehaviourVariablesSizes(
+diff --git a/tests/BatchIntegrationTest.cxx b/tests/BatchIntegrationTest.cxx
+index f9389ff8b4..9d4fe7e6c0 100644
+--- a/tests/BatchIntegrationTest.cxx
++++ b/tests/BatchIntegrationTest.cxx
+@@ -98,6 +98,12 @@ struct Results {
+    * prediction is made
+    */
+   std::vector<mfem_mgis::real> predictions;
++  /*!
++   * \brief integrals of the thermodynamic forces of each material at the end
++   * of the computation (`computeMeanThermodynamicForcesValues`, contribution
++   * of this process)
++   */
++  std::vector<mfem_mgis::real> integrals;
+ };
+ 
+ /*!
+@@ -272,6 +278,14 @@ struct ComputationOptions {
+   bool distorted_mesh = false;
+   //! \brief relative tolerance of the Newton algorithm
+   mfem_mgis::real relative_tolerance = newton_relative_tolerance;
++  /*!
++   * \brief if true, the arrays of the tested material are stored component
++   * by component (parameter `QuadratureDataLayout` of the problem), the
++   * elastic material of the mesh with two materials keeping the point by
++   * point layout (parameter `QuadratureDataLayout` of
++   * `addBehaviourIntegrator`)
++   */
++  bool component_by_component = false;
+ };
+ 
+ /*!
+@@ -942,6 +956,10 @@ static Results compute(mfem_mgis::Context& ctx,
+   if (opts.ordered_assembly) {
+     parameters.insert(throwing, {{"TangentOperatorAssembly", "Ordered"}});
+   }
++  if (opts.component_by_component) {
++    parameters.insert(throwing,
++                      {{"QuadratureDataLayout", "ComponentByComponent"}});
++  }
+   auto problem = construct<NonLinearEvolutionProblem>(ctx, parameters) | or_die;
+   if (opts.distorted_mesh) {
+ #ifdef MFEM_USE_MPI
+@@ -972,6 +990,10 @@ static Results compute(mfem_mgis::Context& ctx,
+         or_die;
+   }
+   auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
++  check(m.layout == (opts.component_by_component
++                         ? mgis::FieldLayout::COMPONENT_BY_COMPONENT
++                         : mgis::FieldLayout::POINT_BY_POINT),
++        behaviour + ": layout of the arrays of the material");
+   for (auto* s : {&m.s0, &m.s1}) {
+     mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
+         or_die;
+@@ -1012,11 +1034,17 @@ static Results compute(mfem_mgis::Context& ctx,
+     }
+   }
+   if (opts.second_material_library != nullptr) {
++    const auto params2 =
++        opts.component_by_component
++            ? Parameters{{"QuadratureDataLayout", "PointByPoint"}}
++            : Parameters{};
+     problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube2",
+                                    opts.second_material_library,
+-                                   "IsotropicLinearElasticity") |
++                                   "IsotropicLinearElasticity", params2) |
+         or_die;
+     auto& m2 = problem.getMaterial(ctx, "Cube2", 0) | or_die;
++    check(m2.layout == mgis::FieldLayout::POINT_BY_POINT,
++          behaviour + ": layout of the arrays of the second material");
+     for (auto* s : {&m2.s0, &m2.s1}) {
+       mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
+                                                 293.15) |
+@@ -1231,12 +1259,12 @@ static Results compute(mfem_mgis::Context& ctx,
+     problem.update(ctx) | or_die;
+     checkStatesAfterUpdateOrRevert(m, name, false);
+     if (opts.write_after_update && (i == 0)) {
+-      // direct write in the state, valid on the host after an update
+-      const auto offset = mgis::behaviour::getVariableOffset(
+-          m.b.isvs, "EquivalentPlasticStrain", m.b.hypothesis);
+-      const auto stride = m.s0.internal_state_variables_stride;
+-      for (size_type p = 0; p != static_cast<size_type>(m.n); ++p) {
+-        m.s0.internal_state_variables[p * stride + offset] += 1e-2;
++      // direct write in the state, valid on the host after an update,
++      // through a view accounting for the layout of the arrays
++      auto peeq = mgis::behaviour::getInternalStateVariableView(
++          m.s0, "EquivalentPlasticStrain");
++      for (size_type ip = 0; ip != peeq.getNumberOfPoints(); ++ip) {
++        peeq(ip, 0) += 1e-2;
+       }
+     }
+     t += dt;
+@@ -1284,8 +1312,32 @@ static Results compute(mfem_mgis::Context& ctx,
+   const auto& u = problem.getUnknowns(ets);
+   r.u.assign(u.HostRead(), u.HostRead() + u.Size());
+   m.synchronizeOnHostForReading();
+-  r.sig.assign(m.s1.thermodynamic_forces.begin(),
+-               m.s1.thermodynamic_forces.end());
++  // thermodynamic forces stored point by point, whatever the layout of the
++  // arrays of the material
++  const auto sig = mgis::behaviour::getThermodynamicForcesView(
++      static_cast<const mgis::behaviour::MaterialStateManager&>(m.s1));
++  for (size_type i = 0; i != sig.getNumberOfPoints(); ++i) {
++    for (size_type c = 0; c != sig.getNumberOfComponents(); ++c) {
++      r.sig.push_back(sig(i, c));
++    }
++  }
++  const auto ointegrals = [&problem, &ctx] {
++#ifdef MFEM_USE_MPI
++    if (parallel) {
++      return computeMeanThermodynamicForcesValues<true>(
++          ctx, problem.getImplementation<true>());
++    }
++#endif /* MFEM_USE_MPI */
++    return computeMeanThermodynamicForcesValues<false>(
++        ctx, problem.getImplementation<false>());
++  }();
++  check(!isInvalid(ointegrals),
++        name + ": integrals of the thermodynamic forces");
++  if (!isInvalid(ointegrals)) {
++    for (const auto& v : ointegrals->first) {
++      r.integrals.insert(r.integrals.end(), v.begin(), v.end());
++    }
++  }
+   if (m.b.symmetry == mgis::behaviour::Behaviour::ORTHOTROPIC) {
+     auto gsig = mfem::Vector{};
+     m.computeThermodynamicForcesInGlobalFrame(gsig);
+@@ -1340,6 +1392,8 @@ static void compare(const Results& r1,
+   check(du <= eps, name + ": unknowns");
+   check(ds <= eps, name + ": thermodynamic forces");
+   check(dgs <= eps, name + ": thermodynamic forces in the global frame");
++  const auto di = getRelativeDifference(r1.integrals, r2.integrals);
++  check(di <= eps, name + ": integrals of the thermodynamic forces");
+   const auto dp = getRelativeDifference(r1.predictions, r2.predictions);
+   if (!r1.predictions.empty()) {
+     std::cout << name << ": relative difference of the predictions " << dp
+@@ -1378,6 +1432,120 @@ static void compare(const Results& r1,
+   }
+ }  // end of compare
+ 
++/*!
++ * \return true if the computations of the finite elements are made by
++ * kernels, as required by a material whose arrays are stored component by
++ * component (parameter `QuadratureDataLayout`)
++ * \param[in] opts: options of the computation
++ */
++static bool computesFiniteElementsByKernels(const ComputationOptions& opts) {
++  return opts.gradients_kernels && opts.inner_forces_kernels &&
++         (opts.tangent_operator_kernels || opts.matrix_free);
++}  // end of computesFiniteElementsByKernels
++
++/*!
++ * \brief compare a computation by batches to the same computation with the
++ * arrays of the tested material stored component by component (see
++ * `ComputationOptions::component_by_component`): the layout only changes
++ * the addresses of the values, so the results are the same to the last bit
++ * when the computations are reproducible (sequential computation,
++ * stiffness matrices assembled on the host or in a fixed order, direct
++ * linear solver or linear solver running on the host), and to the rounding
++ * errors otherwise
++ * \param[in] results: results of the computation, point by point layout
++ * \param[in] mesh: mesh
++ * \param[in] library: behaviour library
++ * \param[in] b: behaviour
++ * \param[in] opts: options of the computation
++ * \param[in] name: name of the comparison
++ */
++static void compareComponentByComponentLayout(mfem_mgis::Context& ctx,
++                                              const Results& results,
++                                              const char* const mesh,
++                                              const char* const library,
++                                              const std::string& b,
++                                              const ComputationOptions& opts,
++                                              const std::string& name) {
++  auto soa = opts;
++  soa.component_by_component = true;
++  const auto gpu = mfem::Device::Allows(mfem::Backend::DEVICE_MASK);
++  const auto reproducible = (!parallel) &&
++                            ((!gpu) || ((opts.ordered_assembly) &&
++                                        (!opts.matrix_free) &&
++                                        (mfem_mgis::unit_tests::
++                                             has_sequential_direct_solver)));
++  compare(results, compute(ctx, mesh, library, b, "Batch", soa),
++          name + ", component by component",
++          reproducible ? 0 : getComparisonTolerance(opts));
++}  // end of compareComponentByComponentLayout
++
++/*!
++ * \brief refusals of the component by component layout: integration point
++ * by point, computations of the finite elements element by element, and
++ * invalid values of the `QuadratureDataLayout` parameter of the problem and
++ * of a material
++ */
++static void testQuadratureDataLayoutRefusals(mfem_mgis::Context& ctx,
++                                             const char* const mesh,
++                                             const char* const library) {
++  using namespace mfem_mgis;
++  auto or_die = ctx.getFatalFailureHandler();
++  const auto parameters = [mesh](const char* const integration,
++                                 const char* const computation) {
++    return Parameters{{"MeshFileName", mesh},
++                      {"FiniteElementFamily", "H1"},
++                      {"FiniteElementOrder", 1},
++                      {"UnknownsSize", 3},
++                      {"NumberOfUniformRefinements", 0},
++                      {"Hypothesis", "Tridimensional"},
++                      {"BehaviourIntegration", integration},
++                      {"GradientsComputation", computation},
++                      {"InnerForcesComputation", computation},
++                      {"TangentOperatorComputation", computation},
++                      {"QuadratureDataLayout", "ComponentByComponent"},
++                      {"Parallel", false}};
++  };
++  const auto* const b = "IsotropicLinearHardeningPlasticity";
++  for (const auto& [integration, computation, expected] :
++       {std::tuple{"PointByPoint", "ElementByElement", "integrated by batches"},
++        std::tuple{"Batch", "ElementByElement", "computed by kernels"}}) {
++    auto problem = construct<NonLinearEvolutionProblem>(
++                       ctx, parameters(integration, computation)) |
++                   or_die;
++    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, b) | or_die;
++    auto c = Context{};
++    const auto r = problem.solve(c, 0, 1);
++    const auto msg = std::string{c.getErrorMessage()};
++    check((!r.status) &&
++              (msg.find("component by component") != std::string::npos) &&
++              (msg.find(expected) != std::string::npos),
++          std::string{"the component by component layout is not refused ("} +
++              integration + ", " + computation + "): " + msg);
++  }
++  {
++    auto c = Context{};
++    auto p = parameters("Batch", "Kernels");
++    p.replaceOrInsert("QuadratureDataLayout", "SoA");
++    const auto o = construct<NonLinearEvolutionProblem>(c, p);
++    const auto msg = std::string{c.getErrorMessage()};
++    check(isInvalid(o) &&
++              (msg.find("QuadratureDataLayout") != std::string::npos),
++          "invalid value of QuadratureDataLayout accepted (problem): " + msg);
++  }
++  {
++    auto problem = construct<NonLinearEvolutionProblem>(
++                       ctx, parameters("Batch", "Kernels")) |
++                   or_die;
++    auto c = Context{};
++    const auto o = problem.addBehaviourIntegrator(
++        c, "Mechanics", 1, library, b, {{"QuadratureDataLayout", "SoA"}});
++    const auto msg = std::string{c.getErrorMessage()};
++    check(isInvalid(o) &&
++              (msg.find("QuadratureDataLayout") != std::string::npos),
++          "invalid value of QuadratureDataLayout accepted (material): " + msg);
++  }
++}  // end of testQuadratureDataLayoutRefusals
++
+ /*!
+  * \brief a behaviour integrator which does not support the integration by
+  * batches, the default of `AbstractBehaviourIntegrator` (all the behaviour
+@@ -2496,6 +2664,10 @@ int main(int argc, char** argv) {
+       const auto results = compute(ctx, m, library, b, "Batch", opts);
+       compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
+               b + " (kernels" + name + ")", getComparisonTolerance(opts));
++      if (computesFiniteElementsByKernels(opts)) {
++        compareComponentByComponentLayout(ctx, results, m, library, b, opts,
++                                          b + " (kernels" + name);
++      }
+       // the linear solver of the sequential computations is reproducible
+       // to the last bit if it is a direct solver, or if it runs on the host
+       // (with float, MFEM has no sequential direct solver, and the
+@@ -2639,10 +2811,15 @@ int main(int argc, char** argv) {
+       reference.inner_forces_kernels = false;
+       reference.tangent_operator_kernels = false;
+       reference.matrix_free = false;
+-      compare(compute(ctx, m, library, b, "PointByPoint", reference),
+-              compute(ctx, m, l, b, "Batch", opts),
++      const auto results = compute(ctx, m, l, b, "Batch", opts);
++      compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
+               b + " (generic-parallel, " + backend + name + ")",
+               getComparisonTolerance(opts));
++      if (computesFiniteElementsByKernels(opts)) {
++        compareComponentByComponentLayout(
++            ctx, results, m, l, b, opts,
++            b + " (generic-parallel, " + backend + name);
++      }
+     }
+     if (!parallel) {
+       testPointByPointRefusal(ctx, mesh, l);
+@@ -2677,6 +2854,7 @@ int main(int argc, char** argv) {
+     check(isInvalid(o2), "invalid value of TangentOperatorAssembly accepted");
+   }
+   testRefusal(ctx, mesh_2d, library);
++  testQuadratureDataLayoutRefusals(ctx, mesh, library);
+   for (const auto* const mode : {"PointByPoint", "Batch"}) {
+     testFailure(ctx, mesh, library, mode, false);
+   }
+diff --git a/tests/ExecutionSettingsTest.cxx b/tests/ExecutionSettingsTest.cxx
+index b567b76589..c06deb4c4b 100644
+--- a/tests/ExecutionSettingsTest.cxx
++++ b/tests/ExecutionSettingsTest.cxx
+@@ -204,12 +204,15 @@ static void computeUniaxialTension(const char* const mesh,
+   }
+   // uniaxial stress state: sxx = E e, the other components are null
+   m.synchronizeOnHostForReading();
+-  const auto& sig = m.s1.thermodynamic_forces;
++  const auto sig = mgis::behaviour::getThermodynamicForcesView(
++      static_cast<const mgis::behaviour::MaterialStateManager&>(m.s1));
+   const auto sxx = young * strain;
+   auto dmax = real{};
+-  for (std::size_t i = 0; i != sig.size(); ++i) {
+-    const auto expected = (i % 6 == 0) ? sxx : real{0};
+-    dmax = std::max(dmax, std::abs(sig[i] - expected));
++  for (mfem_mgis::size_type i = 0; i != sig.getNumberOfPoints(); ++i) {
++    for (mfem_mgis::size_type c = 0; c != sig.getNumberOfComponents(); ++c) {
++      const auto expected = (c == 0) ? sxx : real{0};
++      dmax = std::max(dmax, std::abs(sig(i, c) - expected));
++    }
+   }
+   // in float, the largest difference reaches 1.8e-5 times the axial stress
+   // (small strain of 1e-5, linear solvers stopping at a relative residual
+@@ -429,12 +432,13 @@ static void checkFiniteElementsKernelsFallback(const char* const mesh,
+         "elements of different geometries: computations by kernels");
+   // plane strain: sxx = E e / (1 - nu * nu)
+   m.synchronizeOnHostForReading();
+-  const auto& sig = m.s1.thermodynamic_forces;
++  const auto sig = mgis::behaviour::getThermodynamicForcesView(
++      static_cast<const mgis::behaviour::MaterialStateManager&>(m.s1));
+   constexpr auto nu = mfem_mgis::real{0.34};
+   const auto sxx = young * strain / (1 - nu * nu);
+   auto dmax = real{};
+-  for (std::size_t i = 0; i < sig.size(); i += 4) {
+-    dmax = std::max(dmax, std::abs(sig[i] - sxx));
++  for (mfem_mgis::size_type i = 0; i != sig.getNumberOfPoints(); ++i) {
++    dmax = std::max(dmax, std::abs(sig(i, 0) - sxx));
+   }
+   // in float, the largest difference reaches 7.9e-8 times the stress
+   check(dmax < mfem_mgis::unit_tests::tolerance(1e-8) * sxx,
+diff --git a/tests/UniaxialTensileTest.cxx b/tests/UniaxialTensileTest.cxx
+index 3d97ed158b..f2cdc19e64 100644
+--- a/tests/UniaxialTensileTest.cxx
++++ b/tests/UniaxialTensileTest.cxx
+@@ -269,15 +269,17 @@ static void extractResults(UniaxialTestResults& r,
+   const auto shift = mgis::behaviour::usesDisplacementGradient(m.b)
+                          ? mfem_mgis::real{1}
+                          : mfem_mgis::real{0};
+-  r.g0.push_back(s.gradients[0] + shift);
+-  r.g1.push_back(s.gradients[1] + shift);
+-  r.tf0.push_back(s.thermodynamic_forces[0]);
++  // values at the first integration point, read through views accounting
++  // for the layout of the arrays of the material
++  const auto gradients = mgis::behaviour::getGradientsView(s);
++  r.g0.push_back(gradients(0, 0) + shift);
++  r.g1.push_back(gradients(0, 1) + shift);
++  r.tf0.push_back(mgis::behaviour::getThermodynamicForcesView(s)(0, 0));
+   if (std::string_view{p.isv_name}.empty()) {
+     r.v.push_back(0);
+   } else {
+-    const auto o = mgis::behaviour::getVariableOffset(m.b.isvs, p.isv_name,
+-                                                      m.b.hypothesis);
+-    r.v.push_back(s.internal_state_variables[o]);
++    r.v.push_back(
++        mgis::behaviour::getInternalStateVariableView(s, p.isv_name)(0, 0));
+   }
+ }
+ 
+@@ -334,9 +336,11 @@ static bool checkCauchyStress([[maybe_unused]] const mfem_mgis::Material& m) {
+   // yy, zz, xy, yx, xz, zx, yz, zy, in double
+   auto F = std::array<double, 9>{};
+   auto P = std::array<double, 9>{};
+-  for (std::size_t i = 0; i != 9; ++i) {
+-    F[i] = static_cast<double>(m.s1.gradients[i]);
+-    P[i] = static_cast<double>(m.s1.thermodynamic_forces[i]);
++  const auto gradients = mgis::behaviour::getGradientsView(m.s1);
++  const auto forces = mgis::behaviour::getThermodynamicForcesView(m.s1);
++  for (mfem_mgis::size_type i = 0; i != 9; ++i) {
++    F[i] = static_cast<double>(gradients(0, i));
++    P[i] = static_cast<double>(forces(0, i));
+   }
+   if (mgis::behaviour::usesDisplacementGradient(m.b)) {
+     F[0] += 1;
+-- 
+2.43.0
+

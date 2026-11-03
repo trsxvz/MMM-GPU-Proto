@@ -64,10 +64,14 @@ namespace mfem_mgis {
      * \param[in] s: quadrature space
      * \param[in] b_ptr: behaviour
      * \param[in] l: layout of the arrays of the data at the integration
-     * points. The component by component layout is not supported by the
-     * accessors based on a stride between points (`getGradient`,
-     * `getInternalStateVariable`...), nor by the behaviour integrators of
-     * mfem-mgis, which use the point by point layout.
+     * points (see `quadrature_data_layout_parameter`). The component by
+     * component layout is supported by the integration of the behaviours
+     * by batches and by the computations of the finite elements by kernels.
+     * It is refused by the accessors based on a stride between points
+     * (`getGradient`, `getInternalStateVariable`...), and, at the setup of
+     * a non linear evolution problem, by the integration point by point and
+     * by the computations element by element, which use the point by point
+     * layout.
      */
     Material(const PartialQuadratureSpace &s,
              std::unique_ptr<const Behaviour> b_ptr,

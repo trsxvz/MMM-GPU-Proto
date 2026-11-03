@@ -36,10 +36,11 @@ namespace mfem_mgis {
       TransientHeatTransferBehaviourIntegrator(
           const FiniteElementDiscretization &fed,
           const size_type m,
-          std::unique_ptr<const Behaviour> b_ptr)
+          std::unique_ptr<const Behaviour> b_ptr,
+          const mgis::FieldLayout l)
       : StandardBehaviourIntegratorCRTPBase<
             TransientHeatTransferBehaviourIntegrator>(
-            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr)) {
+            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
     this->checkBehaviourVariablesSizes(
         throwing, {.gradients_sizes = {1},
