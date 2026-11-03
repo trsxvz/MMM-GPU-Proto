@@ -44,6 +44,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <optional>
 #include <type_traits>
 #include <stdexcept>
 #include <utility>
@@ -65,6 +66,7 @@
 #include "MFEMMGIS/MatrixFreeTangentOperator.hxx"
 #include "MFEMMGIS/AbstractBoundaryCondition.hxx"
 #include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
+#include "MFEMMGIS/PointWiseModel.hxx"
 #include "SequentialLinearSolver.hxx"
 #include "Tolerance.hxx"
 
@@ -1452,6 +1454,7 @@ static bool computesFiniteElementsByKernels(const ComputationOptions& opts) {
  * stiffness matrices assembled on the host or in a fixed order, direct
  * linear solver or linear solver running on the host), and to the rounding
  * errors otherwise
+ * \param[in, out] ctx: execution context
  * \param[in] results: results of the computation, point by point layout
  * \param[in] mesh: mesh
  * \param[in] library: behaviour library
@@ -1475,74 +1478,187 @@ static void compareComponentByComponentLayout(mfem_mgis::Context& ctx,
                                         (mfem_mgis::unit_tests::
                                              has_sequential_direct_solver)));
   compare(results, compute(ctx, mesh, library, b, "Batch", soa),
-          name + ", component by component",
+          name + ", component by component)",
           reproducible ? 0 : getComparisonTolerance(opts));
 }  // end of compareComponentByComponentLayout
 
 /*!
  * \brief refusals of the component by component layout: integration point
- * by point, computations of the finite elements element by element, and
- * invalid values of the `QuadratureDataLayout` parameter of the problem and
- * of a material
+ * by point, computations of the finite elements element by element, direct
+ * call of an element method of a behaviour integrator, linearized operators,
+ * resultant force on a boundary, invalid values of the `QuadratureDataLayout`
+ * parameter of the problem and of a material and of the
+ * `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` environment variable, which the
+ * parameter takes precedence over; layout of a point-wise model
+ * \param[in, out] ctx: execution context
+ * \param[in] mesh: mesh of a cube
+ * \param[in] mesh_2d: two-dimensional mesh (material 5)
+ * \param[in] library: behaviour library, which also contains the model
+ * `UO2Shrinkage_RAPHAEL2008`
  */
 static void testQuadratureDataLayoutRefusals(mfem_mgis::Context& ctx,
                                              const char* const mesh,
+                                             const char* const mesh_2d,
                                              const char* const library) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
+  // parameters of a problem, with the given layout if not null
   const auto parameters = [mesh](const char* const integration,
-                                 const char* const computation) {
-    return Parameters{{"MeshFileName", mesh},
-                      {"FiniteElementFamily", "H1"},
-                      {"FiniteElementOrder", 1},
-                      {"UnknownsSize", 3},
-                      {"NumberOfUniformRefinements", 0},
-                      {"Hypothesis", "Tridimensional"},
-                      {"BehaviourIntegration", integration},
-                      {"GradientsComputation", computation},
-                      {"InnerForcesComputation", computation},
-                      {"TangentOperatorComputation", computation},
-                      {"QuadratureDataLayout", "ComponentByComponent"},
-                      {"Parallel", false}};
+                                 const char* const computation,
+                                 const char* const layout) {
+    auto p = Parameters{{"MeshFileName", mesh},
+                        {"FiniteElementFamily", "H1"},
+                        {"FiniteElementOrder", 1},
+                        {"UnknownsSize", 3},
+                        {"NumberOfUniformRefinements", 0},
+                        {"Hypothesis", "Tridimensional"},
+                        {"BehaviourIntegration", integration},
+                        {"GradientsComputation", computation},
+                        {"InnerForcesComputation", computation},
+                        {"TangentOperatorComputation", computation},
+                        {"Parallel", false}};
+    if (layout != nullptr) {
+      p.replaceOrInsert("QuadratureDataLayout", layout);
+    }
+    return p;
   };
+  const auto* const soa = "ComponentByComponent";
   const auto* const b = "IsotropicLinearHardeningPlasticity";
+  const auto contains = [](const std::string& msg, std::string_view s) {
+    return msg.find(s) != std::string::npos;
+  };
   for (const auto& [integration, computation, expected] :
        {std::tuple{"PointByPoint", "ElementByElement", "integrated by batches"},
         std::tuple{"Batch", "ElementByElement", "computed by kernels"}}) {
     auto problem = construct<NonLinearEvolutionProblem>(
-                       ctx, parameters(integration, computation)) |
+                       ctx, parameters(integration, computation, soa)) |
                    or_die;
     problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, b) | or_die;
     auto c = Context{};
     const auto r = problem.solve(c, 0, 1);
     const auto msg = std::string{c.getErrorMessage()};
-    check((!r.status) &&
-              (msg.find("component by component") != std::string::npos) &&
-              (msg.find(expected) != std::string::npos),
+    check((!r.status) && contains(msg, "component by component") &&
+              contains(msg, expected),
           std::string{"the component by component layout is not refused ("} +
               integration + ", " + computation + "): " + msg);
   }
+  // methods computing element by element
+  {
+    auto problem = construct<NonLinearEvolutionProblem>(
+                       ctx, parameters("Batch", "Kernels", soa)) |
+                   or_die;
+    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, b) | or_die;
+    auto c = Context{};
+    const auto& u = problem.getUnknowns(bts);
+    check(isInvalid(problem.getLinearizedOperators(c, u)) &&
+              contains(c.getErrorMessage(), "component by component"),
+          "linearized operators of a material stored component by component "
+          "not refused: " +
+              std::string{c.getErrorMessage()});
+    auto c2 = Context{};
+    auto F = mfem::Vector{};
+    check((!computeResultantForceOnBoundary(c2, F, problem, {})) &&
+              contains(c2.getErrorMessage(), "component by component"),
+          "resultant force of a material stored component by component not "
+          "refused: " +
+              std::string{c2.getErrorMessage()});
+    auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
+    const auto& fes = problem.getFiniteElementDiscretization()
+                          .getFiniteElementSpace<false>();
+    auto Fe = mfem::Vector{};
+    auto msg = std::string{};
+    try {
+      bi.computeInnerForces(Fe, *(fes.GetFE(0)),
+                            *(fes.GetElementTransformation(0)));
+    } catch (std::exception& e) {
+      msg = e.what();
+    }
+    check(contains(msg, "component by component"),
+          "direct call of an element method of a behaviour integrator of a "
+          "material stored component by component not refused");
+  }
+  // invalid values, for the problem and for a material
   {
     auto c = Context{};
-    auto p = parameters("Batch", "Kernels");
-    p.replaceOrInsert("QuadratureDataLayout", "SoA");
-    const auto o = construct<NonLinearEvolutionProblem>(c, p);
+    const auto o = construct<NonLinearEvolutionProblem>(
+        c, parameters("Batch", "Kernels", "SoA"));
     const auto msg = std::string{c.getErrorMessage()};
-    check(isInvalid(o) &&
-              (msg.find("QuadratureDataLayout") != std::string::npos),
+    check(isInvalid(o) && contains(msg, "QuadratureDataLayout"),
           "invalid value of QuadratureDataLayout accepted (problem): " + msg);
   }
   {
     auto problem = construct<NonLinearEvolutionProblem>(
-                       ctx, parameters("Batch", "Kernels")) |
+                       ctx, parameters("Batch", "Kernels", nullptr)) |
                    or_die;
     auto c = Context{};
     const auto o = problem.addBehaviourIntegrator(
         c, "Mechanics", 1, library, b, {{"QuadratureDataLayout", "SoA"}});
     const auto msg = std::string{c.getErrorMessage()};
-    check(isInvalid(o) &&
-              (msg.find("QuadratureDataLayout") != std::string::npos),
+    check(isInvalid(o) && contains(msg, "QuadratureDataLayout"),
           "invalid value of QuadratureDataLayout accepted (material): " + msg);
+  }
+  // environment variable: its invalid value is refused, and only read if
+  // the parameter is not given; a valid value gives the default layout
+  {
+    const auto* const v = "MFEM_MGIS_QUADRATURE_DATA_LAYOUT";
+    const auto* const e = std::getenv(v);
+    const auto previous =
+        e != nullptr ? std::optional<std::string>{e} : std::nullopt;
+    ::setenv(v, "SoA", 1);
+    auto c = Context{};
+    check(isInvalid(construct<NonLinearEvolutionProblem>(
+              c, parameters("Batch", "Kernels", nullptr))) &&
+              contains(c.getErrorMessage(), v),
+          "invalid value of MFEM_MGIS_QUADRATURE_DATA_LAYOUT accepted");
+    auto c2 = Context{};
+    check(!isInvalid(construct<NonLinearEvolutionProblem>(
+              c2, parameters("Batch", "Kernels", "PointByPoint"))),
+          "the parameter QuadratureDataLayout does not take precedence over "
+          "the environment variable");
+    ::setenv(v, soa, 1);
+    auto problem = construct<NonLinearEvolutionProblem>(
+                       ctx, parameters("Batch", "Kernels", nullptr)) |
+                   or_die;
+    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, b) | or_die;
+    const auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
+    check(m.layout == mgis::FieldLayout::COMPONENT_BY_COMPONENT,
+          "layout not given by the environment variable");
+    if (previous.has_value()) {
+      ::setenv(v, previous->c_str(), 1);
+    } else {
+      ::unsetenv(v);
+    }
+  }
+  // point-wise model
+  {
+    auto fed = make_shared<FiniteElementDiscretization>(
+                   ctx, Parameters{{"MeshFileName", mesh_2d},
+                                   {"FiniteElementFamily", "H1"},
+                                   {"FiniteElementOrder", 1},
+                                   {"UnknownsSize", 1},
+                                   {"Parallel", false}}) |
+               or_die;
+    auto qspace = construct<PartialQuadratureSpace>(
+                      ctx, *fed, MaterialIdentifier{.id = 5},
+                      [](const mfem::FiniteElement& fe,
+                         const mfem::ElementTransformation&) noexcept
+                      -> const mfem::IntegrationRule& {
+                        return mfem::IntRules.Get(fe.GetGeomType(), 0);
+                      }) |
+                  or_die;
+    for (const auto* const l : {"PointByPoint", soa}) {
+      auto model = make_shared<PointWiseModel>(
+                       ctx, qspace,
+                       Parameters{{"Library", library},
+                                  {"Model", "UO2Shrinkage_RAPHAEL2008"},
+                                  {"Hypothesis", "PlaneStrain"},
+                                  {"QuadratureDataLayout", l}}) |
+                   or_die;
+      check(model->getMaterial().layout ==
+                (l == soa ? mgis::FieldLayout::COMPONENT_BY_COMPONENT
+                          : mgis::FieldLayout::POINT_BY_POINT),
+            std::string{"layout of a point-wise model ("} + l + ")");
+    }
   }
 }  // end of testQuadratureDataLayoutRefusals
 
@@ -2854,7 +2970,7 @@ int main(int argc, char** argv) {
     check(isInvalid(o2), "invalid value of TangentOperatorAssembly accepted");
   }
   testRefusal(ctx, mesh_2d, library);
-  testQuadratureDataLayoutRefusals(ctx, mesh, library);
+  testQuadratureDataLayoutRefusals(ctx, mesh, mesh_2d, library);
   for (const auto* const mode : {"PointByPoint", "Batch"}) {
     testFailure(ctx, mesh, library, mode, false);
   }

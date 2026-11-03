@@ -24,6 +24,7 @@
 #include <iostream>
 #include <algorithm>
 #include <string_view>
+#include "mfem/general/device.hpp"
 #include "mfem/general/optparser.hpp"
 #include "mfem/linalg/sparsemat.hpp"
 #include "MGIS/Behaviour/Variable.hxx"
@@ -75,6 +76,11 @@ struct ComputationOptions {
   bool matrix_free = false;
   //! \brief if true, an elastic prediction is made at each time step
   bool prediction = false;
+  /*!
+   * \brief if true, the arrays of the material are stored component by
+   * component (parameter `QuadratureDataLayout` of the problem)
+   */
+  bool component_by_component = false;
 };
 
 //! \brief results of a computation
@@ -89,6 +95,8 @@ struct Results {
   std::vector<mfem_mgis::real> damage;
   //! \brief number of Newton iterations of each time step
   std::vector<int> iterations;
+  //! \brief comparison to the last bit
+  bool operator==(const Results&) const = default;
 };
 
 /*!
@@ -171,24 +179,25 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
   // from the increments of the imposed values), up to 2.5: the damage is
   // bounded by one near this boundary (a micromorphic damage greater than 2
   // is required with the material properties of this test)
-  auto problem =
-      construct<NonLinearEvolutionProblem>(
-          ctx,
-          Parameters{
-              {"MeshFileName", c.mesh},
-              {"FiniteElementFamily", "H1"},
-              {"FiniteElementOrder", 1},
-              {"UnknownsSize", 1},
-              {"NumberOfUniformRefinements", tridimensional ? 1 : 0},
-              {"Materials", Parameters{{"Body", 1}}},
-              {"Boundaries", Parameters{{"Xmin", tridimensional ? 5 : 2}}},
-              {"Hypothesis", c.hypothesis},
-              {"BehaviourIntegration", opts.integration},
-              {"GradientsComputation", kernels},
-              {"InnerForcesComputation", kernels},
-              {"TangentOperatorComputation", tangent},
-              {"Parallel", parallel}}) |
-      or_die;
+  auto parameters = Parameters{
+      {"MeshFileName", c.mesh},
+      {"FiniteElementFamily", "H1"},
+      {"FiniteElementOrder", 1},
+      {"UnknownsSize", 1},
+      {"NumberOfUniformRefinements", tridimensional ? 1 : 0},
+      {"Materials", Parameters{{"Body", 1}}},
+      {"Boundaries", Parameters{{"Xmin", tridimensional ? 5 : 2}}},
+      {"Hypothesis", c.hypothesis},
+      {"BehaviourIntegration", opts.integration},
+      {"GradientsComputation", kernels},
+      {"InnerForcesComputation", kernels},
+      {"TangentOperatorComputation", tangent},
+      {"Parallel", parallel}};
+  if (opts.component_by_component) {
+    parameters.insert(ctx, "QuadratureDataLayout", "ComponentByComponent") |
+        or_die;
+  }
+  auto problem = construct<NonLinearEvolutionProblem>(ctx, parameters) | or_die;
   problem.addBehaviourIntegrator(ctx, "MicromorphicDamage", "Body", c.library,
                                  c.behaviour) |
       or_die;
@@ -310,14 +319,18 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
   const auto& u = problem.getUnknowns(ets);
   r.u.assign(u.HostRead(), u.HostRead() + u.Size());
   m.synchronizeOnHostForReading();
-  r.forces.assign(m.s1.thermodynamic_forces.begin(),
-                  m.s1.thermodynamic_forces.end());
-  const auto od =
-      mgis::behaviour::getVariableOffset(m.b.isvs, "Damage", m.b.hypothesis);
-  const auto ns =
-      static_cast<std::size_t>(m.s1.internal_state_variables_stride);
-  for (std::size_t k = 0; k != Yv.size(); ++k) {
-    r.damage.push_back(m.s1.internal_state_variables[k * ns + od]);
+  // values read point by point whatever the layout of the arrays
+  const auto& s1 = m.s1;
+  const auto forces = mgis::behaviour::getThermodynamicForcesView(s1);
+  for (size_type i = 0; i != forces.getNumberOfPoints(); ++i) {
+    for (size_type j = 0; j != forces.getNumberOfComponents(); ++j) {
+      r.forces.push_back(forces(i, j));
+    }
+  }
+  const auto damage =
+      mgis::behaviour::getInternalStateVariableView(s1, "Damage");
+  for (size_type i = 0; i != damage.getNumberOfPoints(); ++i) {
+    r.damage.push_back(damage(i, 0));
   }
   r.status = true;
   return r;
@@ -381,6 +394,31 @@ static void compare(const Results& a,
   }
   check(same_iterations, name + ": numbers of iterations");
 }  // end of compare
+
+/*!
+ * \brief compares a computation with the arrays of the material stored
+ * point by point to the same computation with the arrays stored component
+ * by component: the layout only changes the addresses of the values, so the
+ * results are the same to the last bit, except in parallel and on a GPU,
+ * where the assembly and the linear solvers are not reproducible to the
+ * last bit (the comparison is then made as `compare`)
+ * \param[in] a: computation, point by point layout
+ * \param[in] b: computation, component by component layout
+ * \param[in] name: name of the comparison
+ */
+static void compareLayouts(const Results& a,
+                           const Results& b,
+                           const std::string& name) {
+  const auto n = name + ", component by component";
+  if (parallel || mfem::Device::Allows(mfem::Backend::DEVICE_MASK)) {
+    compare(a, b, n);
+    return;
+  }
+  check(a.status && b.status, n + ": computation failed");
+  check(a == b, n + ": different results");
+  std::cout << n << ": " << (a == b ? "same results" : "different results")
+            << '\n';
+}  // end of compareLayouts
 
 /*!
  * \return the problems
@@ -508,17 +546,20 @@ int main(int argc, char** argv) {
               compute(c, {.integration = "Batch", .prediction = prediction}),
               "batch, " + lname + ", " + suffix);
         }
-        compare(reference,
-                compute(c, {.integration = "Batch",
-                            .kernels = true,
-                            .prediction = prediction}),
-                "kernels, " + lname + ", " + suffix);
-        compare(reference,
-                compute(c, {.integration = "Batch",
-                            .kernels = true,
-                            .matrix_free = true,
-                            .prediction = prediction}),
-                "kernels, matrix free, " + lname + ", " + suffix);
+        for (const auto matrix_free : {false, true}) {
+          const auto opts = ComputationOptions{.integration = "Batch",
+                                               .kernels = true,
+                                               .matrix_free = matrix_free,
+                                               .prediction = prediction};
+          const auto name = std::string{"kernels, "} +
+                            (matrix_free ? "matrix free, " : "") + lname +
+                            ", " + suffix;
+          const auto results = compute(c, opts);
+          compare(reference, results, name);
+          auto soa = opts;
+          soa.component_by_component = true;
+          compareLayouts(results, compute(c, soa), name);
+        }
       }
     }
   }

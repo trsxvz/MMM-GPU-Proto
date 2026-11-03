@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <algorithm>
+#include "mfem/general/device.hpp"
 #include "mfem/general/optparser.hpp"
 #include "mfem/linalg/sparsemat.hpp"
 #include "MFEMMGIS/Config.hxx"
@@ -98,6 +99,11 @@ struct ComputationOptions {
   bool matrix_free = false;
   //! \brief if true, an elastic prediction is made at each time step
   bool prediction = false;
+  /*!
+   * \brief if true, the arrays of the materials are stored component by
+   * component (parameter `QuadratureDataLayout` of the problem)
+   */
+  bool component_by_component = false;
 };
 
 //! \brief results of a computation
@@ -112,6 +118,8 @@ struct Results {
   std::vector<mfem_mgis::real> temperature;
   //! \brief number of Newton iterations of each time step
   std::vector<int> iterations;
+  //! \brief comparison to the last bit
+  bool operator==(const Results&) const = default;
 };
 
 /*!
@@ -191,6 +199,22 @@ static void checkMatrixFreeDiagonal(
  * \param[in] c: problem
  * \param[in] opts: options
  */
+/*!
+ * \brief appends the thermodynamic forces of a material at the end of the
+ * time step, point by point whatever the layout of its arrays
+ * \param[out] v: values
+ * \param[in] m: material
+ */
+static void appendThermodynamicForces(std::vector<mfem_mgis::real>& v,
+                                      const mfem_mgis::Material& m) {
+  const auto f = mgis::behaviour::getThermodynamicForcesView(m.s1);
+  for (mfem_mgis::size_type i = 0; i != f.getNumberOfPoints(); ++i) {
+    for (mfem_mgis::size_type j = 0; j != f.getNumberOfComponents(); ++j) {
+      v.push_back(f(i, j));
+    }
+  }
+}  // end of appendThermodynamicForces
+
 static Results compute(const Case& c, const ComputationOptions& opts) {
   using namespace mfem_mgis;
   auto ctx = Context{};
@@ -214,24 +238,26 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
                      static_cast<int>(i + 1)) |
         or_die;
   }
-  auto problem =
-      construct<NonLinearEvolutionProblem>(
-          ctx,
-          Parameters{{"MeshFileName", c.mesh},
-                     {"FiniteElementFamily", "H1"},
-                     {"FiniteElementOrder", 1},
-                     {"UnknownsSize", 1},
-                     // the unit square has 900 elements
-                     {"NumberOfUniformRefinements", tridimensional ? 1 : 0},
-                     {"Materials", materials},
-                     {"Boundaries", boundaries},
-                     {"Hypothesis", c.hypothesis},
-                     {"BehaviourIntegration", opts.integration},
-                     {"GradientsComputation", kernels},
-                     {"InnerForcesComputation", kernels},
-                     {"TangentOperatorComputation", tangent},
-                     {"Parallel", parallel}}) |
-      or_die;
+  auto parameters =
+      Parameters{{"MeshFileName", c.mesh},
+                 {"FiniteElementFamily", "H1"},
+                 {"FiniteElementOrder", 1},
+                 {"UnknownsSize", 1},
+                 // the unit square has 900 elements
+                 {"NumberOfUniformRefinements", tridimensional ? 1 : 0},
+                 {"Materials", materials},
+                 {"Boundaries", boundaries},
+                 {"Hypothesis", c.hypothesis},
+                 {"BehaviourIntegration", opts.integration},
+                 {"GradientsComputation", kernels},
+                 {"InnerForcesComputation", kernels},
+                 {"TangentOperatorComputation", tangent},
+                 {"Parallel", parallel}};
+  if (opts.component_by_component) {
+    parameters.insert(ctx, "QuadratureDataLayout", "ComponentByComponent") |
+        or_die;
+  }
+  auto problem = construct<NonLinearEvolutionProblem>(ctx, parameters) | or_die;
   problem.getUnknowns(bts) = 293.15;
   problem.getUnknowns(ets) = 293.15;
   // temperatures at the integration points of each material, external
@@ -370,8 +396,7 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
     const auto name = "M" + std::to_string(i + 1);
     auto& m = problem.getMaterial(ctx, name, 0) | or_die;
     m.synchronizeOnHostForReading();
-    r.flux.insert(r.flux.end(), m.s1.thermodynamic_forces.begin(),
-                  m.s1.thermodynamic_forces.end());
+    appendThermodynamicForces(r.flux, m);
     // temperature at the integration points at the end of the last time
     // step
     const auto& T1 = temperatures[2 * i + 1];
@@ -380,8 +405,7 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
       // rate of the enthalpy
       auto& mt = problem.getMaterial(ctx, name, 1) | or_die;
       mt.synchronizeOnHostForReading();
-      r.flux.insert(r.flux.end(), mt.s1.thermodynamic_forces.begin(),
-                    mt.s1.thermodynamic_forces.end());
+      appendThermodynamicForces(r.flux, mt);
     }
   }
   r.status = true;
@@ -438,6 +462,31 @@ static void compare(const Results& a,
         name + ": uniform temperature at the integration points");
   check(a.iterations == b.iterations, name + ": numbers of iterations");
 }  // end of compare
+
+/*!
+ * \brief compares a computation with the arrays of the materials stored
+ * point by point to the same computation with the arrays stored component
+ * by component: the layout only changes the addresses of the values, so the
+ * results are the same to the last bit, except in parallel and on a GPU,
+ * where the assembly and the linear solvers are not reproducible to the
+ * last bit (the comparison is then made as `compare`)
+ * \param[in] a: computation, point by point layout
+ * \param[in] b: computation, component by component layout
+ * \param[in] name: name of the comparison
+ */
+static void compareLayouts(const Results& a,
+                           const Results& b,
+                           const std::string& name) {
+  const auto n = name + ", component by component";
+  if (parallel || mfem::Device::Allows(mfem::Backend::DEVICE_MASK)) {
+    compare(a, b, n);
+    return;
+  }
+  check(a.status && b.status, n + ": computation failed");
+  check(a == b, n + ": different results");
+  std::cout << n << ": " << (a == b ? "same results" : "different results")
+            << '\n';
+}  // end of compareLayouts
 
 /*!
  * \return the problems
@@ -590,17 +639,20 @@ int main(int argc, char** argv) {
               compute(c, {.integration = "Batch", .prediction = prediction}),
               "batch, " + lname + ", " + suffix);
         }
-        compare(reference,
-                compute(c, {.integration = "Batch",
-                            .kernels = true,
-                            .prediction = prediction}),
-                "kernels, " + lname + ", " + suffix);
-        compare(reference,
-                compute(c, {.integration = "Batch",
-                            .kernels = true,
-                            .matrix_free = true,
-                            .prediction = prediction}),
-                "kernels, matrix free, " + lname + ", " + suffix);
+        for (const auto matrix_free : {false, true}) {
+          const auto opts = ComputationOptions{.integration = "Batch",
+                                               .kernels = true,
+                                               .matrix_free = matrix_free,
+                                               .prediction = prediction};
+          const auto name = std::string{"kernels, "} +
+                            (matrix_free ? "matrix free, " : "") + lname +
+                            ", " + suffix;
+          const auto results = compute(c, opts);
+          compare(reference, results, name);
+          auto soa = opts;
+          soa.component_by_component = true;
+          compareLayouts(results, compute(c, soa), name);
+        }
       }
     }
   }

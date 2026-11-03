@@ -33,6 +33,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   against them; parameter `BehaviourExecutionLocation` of
   `addBehaviourIntegrator` giving the location expected for the behaviour
   of a material.
+- `QuadratureDataLayout` parameter of the non linear evolution problems, of
+  `addBehaviourIntegrator` and of `PointWiseModel` (default given by the
+  environment variable `MFEM_MGIS_QUADRATURE_DATA_LAYOUT`): the arrays of the
+  data at the integration points of a material are stored point by point
+  (`PointByPoint`, the default) or component by component
+  (`ComponentByComponent`), with the same results. The component by
+  component layout requires the integration by batches and the computations
+  of the finite elements by kernels: the paths reading a point as contiguous
+  values refuse it.
 - CMake function `mfem_mgis_add_behaviours_library` (module
   `MFEMMGISBehaviours.cmake`): behaviour libraries for the CPU (generic
   interface) and for the GPU of MFEM (generic-parallel interface), chosen at

@@ -77,7 +77,7 @@ namespace mfem_mgis {
     auto generator =
         [](Context& ctx, const FiniteElementDiscretization& fed,
            const size_type m, std::unique_ptr<const Behaviour> b,
-           const Parameters& params)
+           const Parameters& params) noexcept
         -> std::unique_ptr<AbstractBehaviourIntegrator> {
       const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
       if (isInvalid(ol)) {
@@ -86,13 +86,8 @@ namespace mfem_mgis {
       if (b->btype != Behaviour::GENERALBEHAVIOUR) {
         return ctx.registerErrorMessage("invalid behaviour type");
       }
-      try {
-        return std::make_unique<TransientHeatTransferBehaviourIntegrator>(
-            fed, m, std::move(b), *ol);
-      } catch (...) {
-        std::ignore = registerExceptionInErrorBacktrace(ctx);
-      }
-      return {};
+      return make_unique<TransientHeatTransferBehaviourIntegrator>(
+          ctx, fed, m, std::move(b), *ol);
     };
     auto ctx = Context{};
     auto or_die = ctx.getFatalFailureHandler();
@@ -596,6 +591,11 @@ namespace mfem_mgis {
                   const size_type nm, std::unique_ptr<const Behaviour> nb,
                   const Parameters& nparams)
         -> std::unique_ptr<AbstractBehaviourIntegrator> {
+      if (contains(nparams, quadrature_data_layout_parameter)) {
+        return nctx.registerErrorMessage(
+            "this behaviour integrator does not support the component by "
+            "component layout (parameter QuadratureDataLayout)");
+      }
       if (!nparams.empty()) {
         return nctx.registerErrorMessage("no parameter expected");
       }

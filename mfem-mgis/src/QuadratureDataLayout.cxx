@@ -65,12 +65,12 @@ namespace mfem_mgis {
 
   mgis::FieldLayout getQuadratureDataLayout(attributes::MayThrow,
                                             const Parameters& params) {
+    // the environment variable is only read if the parameter is not given
     auto ctx = Context{};
-    const auto od = getDefaultQuadratureDataLayout(ctx);
-    if (isInvalid(od)) {
-      raise(ctx.getErrorMessage());
-    }
-    const auto ol = getQuadratureDataLayout(ctx, params, *od);
+    const auto ol = contains(params, quadrature_data_layout_parameter)
+                        ? getQuadratureDataLayout(
+                              ctx, params, mgis::FieldLayout::POINT_BY_POINT)
+                        : getDefaultQuadratureDataLayout(ctx);
     if (isInvalid(ol)) {
       raise(ctx.getErrorMessage());
     }

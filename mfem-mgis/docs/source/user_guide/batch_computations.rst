@@ -144,13 +144,20 @@ below), and the methods of the behaviour integrators computing an element
 (:code:`integrate`, :code:`computeGradients`, :code:`computeInnerForces`,
 :code:`updateResidual`, :code:`updateJacobian`) throw an exception for
 such a material, so that a direct call can't give wrong values. For the
-same reason, the linearized operators (:code:`getLinearizedOperators`) and
-the resultant force on a boundary (:code:`computeResultantForceOnBoundary`),
-computed element by element, refuse such a material. The accessors of the
+same reason, the linearized operators (:code:`getLinearizedOperators`, also
+used by the prediction when boundary conditions contribute to its operator,
+or in sequential on a non conforming mesh) and the resultant force on a
+boundary (:code:`computeResultantForceOnBoundary`), computed element by
+element, refuse such a material. The accessors of the
 material based on a stride between points (:code:`getGradient`,
 :code:`getThermodynamicForce`, :code:`getInternalStateVariable`...) refuse
 this layout, and an external state variable with several components
-computed by an evaluator can't be given to such a material. The arrays of
+computed by an evaluator can't be given to such a material. Values given
+directly to the material data manager of :code:`MGIS` for a variable with
+several components, for instance by
+:code:`mgis::behaviour::setExternalStateVariable` with the values of all the
+points, must be stored in the layout of the material, as for :code:`MGIS`.
+The arrays of
 the material (members :code:`s0`, :code:`s1` and :code:`K` of the material
 data manager of :code:`MGIS`) are stored in its layout: a code reading them
 directly must use the views of :code:`MGIS`, which account for the layout

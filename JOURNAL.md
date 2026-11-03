@@ -213,6 +213,7 @@ described in [docs/](docs/overview.md).
 | [2026-11-02, mfem-mgis onto master c951043fb7 (#502, #504)](#2026-11-02-mfem-mgis-onto-master-c951043fb7-502-504) |
 | [2026-11-03, layout of the data at the integration points (`QuadratureDataLayout`)](#2026-11-03-layout-of-the-data-at-the-integration-points-quadraturedatalayout) |
 | [2026-11-03, layout of the data at the integration points: real kernels](#2026-11-03-layout-of-the-data-at-the-integration-points-real-kernels) |
+| [2026-11-03, review of the layout of the data at the integration points](#2026-11-03-review-of-the-layout-of-the-data-at-the-integration-points) |
 
 ## Entries
 
@@ -6198,3 +6199,41 @@ the component by component layout brings little on the GPU with the
 current mapping of the kernels of the finite elements (one thread per
 element), and costs on the CPU: point by point stays the right default. The
 gain on the GPU requires kernels with one thread per point (next step).
+
+### 2026-11-03, review of the layout of the data at the integration points
+
+An independent review of mfem-mgis b283483f4b, made by reading the code,
+found no path of `src/` or `include/` giving a wrong result without error
+for a material stored component by component: the element by element
+methods of the two CRTP bases are guarded, the batch path reads the arrays
+through the views of MGIS or through their strides, the functions of the
+problem which compute element by element refuse the layout on all the
+processes, the accessors refuse it and their users (state manager,
+evaluators, post-processings) go through them.
+
+Fixed (mfem-mgis 7b571006ba, patch 0280):
+
+- the environment variable is only read when the parameter is not given,
+  as for the other parameters (an invalid variable stopped a problem giving
+  a valid parameter);
+- the parameter of a problem is checked even without the multi-material
+  integrator;
+- the generators of the deprecated signature report that they do not
+  support the component by component layout;
+- user guide (values given directly to MGIS, prediction using the
+  linearized operators) and CHANGELOG;
+- tests: the heat transfer and micromorphic kernels are also compared in
+  both layouts (to the last bit in sequential on the host), and the
+  refusals announced by b283483f4b are tested (linearized operators,
+  resultant force, direct call of an element method, environment
+  variable, point-wise model).
+
+Kept for later: the refusal of an external state variable with several
+components computed by an evaluator stays in `setup`; the accessors could
+serve the variables with one component in the component by component
+layout, whose values are contiguous (step of the post-processings).
+
+Validation: the 19 tests touched (all their variants, CPU, `debug`, GPU,
+parallel) pass, with 204 comparisons of the two layouts to the last bit;
+suite on the CPU 250/250; with the kernels forced and the component by
+component layout, the same 103 refusals with their message as before.

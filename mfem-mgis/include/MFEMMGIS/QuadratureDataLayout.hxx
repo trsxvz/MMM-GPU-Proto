@@ -56,9 +56,9 @@ namespace mfem_mgis {
                           const Parameters&,
                           const mgis::FieldLayout) noexcept;
   /*!
-   * \return the layout given by the `QuadratureDataLayout` parameter, or
-   * else by the `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` environment variable
-   * (see `getDefaultQuadratureDataLayout`)
+   * \return the layout given by the `QuadratureDataLayout` parameter, or,
+   * if this parameter is not given, by the `MFEM_MGIS_QUADRATURE_DATA_LAYOUT`
+   * environment variable (see `getDefaultQuadratureDataLayout`)
    * \param[in] params: parameters
    * \throws std::runtime_error if the value of the parameter or of the
    * environment variable is invalid

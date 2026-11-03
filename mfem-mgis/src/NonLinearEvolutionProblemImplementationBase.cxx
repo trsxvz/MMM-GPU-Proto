@@ -264,6 +264,8 @@ namespace mfem_mgis {
                            TangentOperatorComputation))),
         ordered_tangent_operator_assembly(
             useOrderedTangentOperatorAssembly(throwing, p)) {
+    // the layout is checked even without the multi-material integrator
+    const auto layout = getQuadratureDataLayout(may_throw, p);
     if (this->mgis_integrator != nullptr) {
       this->mgis_integrator->setInnerForcesComputedByKernels(
           this->inner_forces_kernels);
@@ -271,8 +273,7 @@ namespace mfem_mgis {
           this->computesStiffnessMatricesByKernels());
       this->mgis_integrator->setOrderedStiffnessMatricesAssembly(
           this->ordered_tangent_operator_assembly);
-      this->mgis_integrator->setQuadratureDataLayout(
-          getQuadratureDataLayout(may_throw, p));
+      this->mgis_integrator->setQuadratureDataLayout(layout);
     }
     this->u0 = real{0};
     this->u1 = real{0};
