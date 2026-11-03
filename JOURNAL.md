@@ -212,6 +212,7 @@ described in [docs/](docs/overview.md).
 | [2026-10-25, several GPUs per node: allocators of Umpire, GPU-aware MPI](#2026-10-25-several-gpus-per-node-allocators-of-umpire-gpu-aware-mpi) |
 | [2026-11-02, mfem-mgis onto master c951043fb7 (#502, #504)](#2026-11-02-mfem-mgis-onto-master-c951043fb7-502-504) |
 | [2026-11-03, layout of the data at the integration points (`QuadratureDataLayout`)](#2026-11-03-layout-of-the-data-at-the-integration-points-quadraturedatalayout) |
+| [2026-11-03, layout of the data at the integration points: real kernels](#2026-11-03-layout-of-the-data-at-the-integration-points-real-kernels) |
 
 ## Entries
 
@@ -6170,3 +6171,30 @@ is point by point), integration point by point and computations element by
 element in the component by component layout (refused), kernels of the
 finite elements with one thread per point, measurements of the real
 kernels in both layouts.
+
+### 2026-11-03, layout of the data at the integration points: real kernels
+
+First measurement of the two layouts with the kernels of mfem-mgis
+(`cases/measure-layout.sh`, executables built against a separate
+installation of b283483f4b, `install/mfem-mgis-layout`; the main
+installation is unchanged):
+
+- beam r4 (small strain, tangent operator blocks of 36 components),
+  [results/layout-beam-2026-11-03-0207](results/layout-beam-2026-11-03-0207/README.md):
+  on the GPU, same time with the assembled tangent operator (5.51 s), 5 %
+  less without assembly (17.06 s against 16.17 s, the action of the
+  tangent operator reading the blocks at each iteration); on 8 CPU
+  processes, 20 % more (11.72 s against 14.04 s: integration of the
+  behaviour 3 times slower, stiffness matrices 4 times slower);
+- polycrystal of mm-opera-hpc (finite strain, 81 components),
+  [results/layout-polycrystal-2026-11-03-0209](results/layout-polycrystal-2026-11-03-0209/README.md):
+  no difference on the GPU (11.33 s against 11.30 s) nor on the CPU, the
+  integration of the single crystal behaviour being bound by its
+  computations.
+
+Same results in both layouts (norm of the beam, macroscopic stresses of
+the polycrystal to the last bit). As predicted by the micro benchmarks,
+the component by component layout brings little on the GPU with the
+current mapping of the kernels of the finite elements (one thread per
+element), and costs on the CPU: point by point stays the right default. The
+gain on the GPU requires kernels with one thread per point (next step).

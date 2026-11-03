@@ -1,0 +1,15 @@
+date: 2026-11-03 02:09:58
+case: polycrystal
+machine: 16 cores, 30 GB
+load: 1.11 2.41 3.20
+mfem-mgis: b283483f4b
+== layout-gpu-assembled-PointByPoint: 1 processes, 1 threads, cpu, MFEM_MGIS_QUADRATURE_DATA_LAYOUT=PointByPoint MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+== layout-cpu-8p-PointByPoint: 8 processes, 1 threads, cpu, MFEM_MGIS_QUADRATURE_DATA_LAYOUT=PointByPoint MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+== layout-gpu-assembled-ComponentByComponent: 1 processes, 1 threads, cpu, MFEM_MGIS_QUADRATURE_DATA_LAYOUT=ComponentByComponent MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+   70 values, largest difference relative to the maximum of its group: 0.000e+00
+== layout-cpu-8p-ComponentByComponent: 8 processes, 1 threads, cpu, MFEM_MGIS_QUADRATURE_DATA_LAYOUT=ComponentByComponent MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+   70 values, largest difference relative to the maximum of its group: 0.000e+00
