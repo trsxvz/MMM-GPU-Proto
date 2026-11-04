@@ -1044,8 +1044,9 @@ so that an unqualified call to `max` or `min` in the code of a behaviour is
 resolved to the function of the standard library. The libraries are linked with the shared libraries
 of Arccore and with the shared `CUDA` runtime, as Arccore
 (`TFEL_ARCANE_LINKER_FLAGS` substitution). The `arcane` configuration
-requires an Arccore built with `CUDA` (`ARCCORE_ACCELERATOR_MODE=CUDA`) as
-shared libraries, found in `Arccore_ROOT`; the `HIP` queues are handled by
+requires Arccore 2.8.0 or later (Arcane 4.1.16), built with `CUDA`
+(`ARCCORE_ACCELERATOR_MODE=CUDA`) as shared libraries, found in
+`Arccore_ROOT`; the `HIP` queues are handled by
 the headers, but are not supported by the `arcane` configuration.
 
 This backend has no option.

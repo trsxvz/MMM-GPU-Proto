@@ -214,6 +214,7 @@ described in [docs/](docs/overview.md).
 | [2026-11-03, layout of the data at the integration points (`QuadratureDataLayout`)](#2026-11-03-layout-of-the-data-at-the-integration-points-quadraturedatalayout) |
 | [2026-11-03, layout of the data at the integration points: real kernels](#2026-11-03-layout-of-the-data-at-the-integration-points-real-kernels) |
 | [2026-11-03, review of the layout of the data at the integration points](#2026-11-03-review-of-the-layout-of-the-data-at-the-integration-points) |
+| [2026-11-04, arcane backend: version of Arccore](#2026-11-04-arcane-backend-version-of-arccore) |
 
 ## Entries
 
@@ -6237,3 +6238,23 @@ Validation: the 19 tests touched (all their variants, CPU, `debug`, GPU,
 parallel) pass, with 204 comparisons of the two layouts to the last bit;
 suite on the CPU 250/250; with the kernels forced and the component by
 component layout, the same 103 refusals with their message as before.
+
+### 2026-11-04, arcane backend: version of Arccore
+
+Remaining points of the review of the `arcane` backend (TFEL patch 0133):
+
+- the `arcane` configuration reads the version of Arccore in
+  `arccore_version.h` and requires Arccore 2.8.0 or later (Arcane 4.1.16),
+  the version with which the backend is tested;
+- the page of the material properties says, as the one of the behaviours,
+  that the stack size is increased on the current device of the calling
+  thread, which must be the device of the queue. The device of a queue is
+  not given by the public API of Arccore (`RunQueue`).
+- A queue shared by several threads: already documented on both pages, as
+  required by Arccore (the methods of `RunQueue` are not thread-safe for
+  the same instance).
+
+Validation: the version check run alone (`cmake -P`) on the installed
+Arccore (2.8.0 accepted), on an older version (2.7.0 refused) and without
+version header (refused); the series of patches gives the tree of the
+branch. No compiled code changed.

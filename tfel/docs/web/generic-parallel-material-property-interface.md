@@ -901,7 +901,8 @@ are launched asynchronously, whatever the asynchronous state of the queue:
 a synchronous evaluation waits for the completion of the commands of the
 queue (`barrier`). The queue has a reference semantics: it must not be used
 by another thread during the call. With a `CUDA` or `HIP` queue, the stack
-size of the threads is increased if the kernel requires it. The source files (`.cu`
+size of the threads of the current device of the calling thread, which must
+be the device of the queue, is increased if the kernel requires it. The source files (`.cu`
 files) are compiled by `clang++` as a `CUDA` compiler and linked with the
 shared libraries of Arccore (see the `config-arcane.json` configuration
 file and the section of the behaviours).

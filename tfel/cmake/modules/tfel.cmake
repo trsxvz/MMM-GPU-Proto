@@ -673,6 +673,31 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
     message(FATAL_ERROR "the 'arcane' configuration requires Arccore built "
             "as shared libraries")
   endif()
+  # version of Arccore, read in its version header: the backend is tested
+  # with Arccore 2.8.0 (Arcane 4.1.16)
+  set(_arccore_version_header "${TFEL_ARCCORE_INCLUDE_DIR}/arccore_version.h")
+  if(NOT EXISTS "${_arccore_version_header}")
+    message(FATAL_ERROR "the version header of Arccore "
+            "'${_arccore_version_header}' is missing")
+  endif()
+  file(STRINGS "${_arccore_version_header}" _arccore_version_lines
+       REGEX "^#define ARCCORE_VERSION_(MAJOR|MINOR|RELEASE) +[0-9]+")
+  set(TFEL_ARCCORE_VERSION "")
+  foreach(_arccore_component MAJOR MINOR RELEASE)
+    string(REGEX MATCH "ARCCORE_VERSION_${_arccore_component} +([0-9]+)"
+           _arccore_match "${_arccore_version_lines}")
+    if(NOT _arccore_match)
+      message(FATAL_ERROR "unable to read the version of Arccore in "
+              "'${_arccore_version_header}'")
+    endif()
+    list(APPEND TFEL_ARCCORE_VERSION "${CMAKE_MATCH_1}")
+  endforeach()
+  list(JOIN TFEL_ARCCORE_VERSION "." TFEL_ARCCORE_VERSION)
+  if(TFEL_ARCCORE_VERSION VERSION_LESS "2.8.0")
+    message(FATAL_ERROR "the 'arcane' configuration requires Arccore 2.8.0 "
+            "or later (Arcane 4.1.16), found ${TFEL_ARCCORE_VERSION}")
+  endif()
+  message(STATUS "Arccore version: ${TFEL_ARCCORE_VERSION}")
   set(TFEL_REQUIRES_CUDA ON)
   define_tfel_cxx_compiler("clang++")
 endif()
