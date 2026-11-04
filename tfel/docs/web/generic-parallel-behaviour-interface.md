@@ -1033,21 +1033,29 @@ creates the queue (`makeQueue`). On GPUs, the stack size of the threads of
 the current device of the calling thread, which must be the device of the
 queue, is increased if needed, as for the `CUDA` and `HIP` backends.
 
-The generated source (`.cu` file) is compiled by `clang++` as a `CUDA`
-compiler (`TFEL_ARCANE_CXX_FLAGS` substitution, see the [`TFEL/Config`
-page](tfel-config.html)), and the sources shared with the `generic`
-interface by `clang++` as a `C++` compiler. The code of the behaviours is
-also executed on the host by the `Thread` and `Sequential` queues: the
-device functions of `CUDA` are excluded from the overloads in the
-compilation for the host (`-Xarch_host -fgpu-exclude-wrong-side-overloads`),
-so that an unqualified call to `max` or `min` in the code of a behaviour is
-resolved to the function of the standard library. The libraries are linked with the shared libraries
-of Arccore and with the shared `CUDA` runtime, as Arccore
-(`TFEL_ARCANE_LINKER_FLAGS` substitution). The `arcane` configuration
-requires Arccore 2.8.0 or later (Arcane 4.1.16), built with `CUDA`
-(`ARCCORE_ACCELERATOR_MODE=CUDA`) as shared libraries, found in
-`Arccore_ROOT`; the `HIP` queues are handled by
-the headers, but are not supported by the `arcane` configuration.
+The compiler of the generated sources depends on the accelerator mode of
+Arccore (`TFEL_ARCANE_CXX_COMPILER` and `TFEL_ARCANE_CXX_FLAGS`
+substitutions, see the [`TFEL/Config` page](tfel-config.html)):
+
+- with `CUDA`, the generated source (`.cu` file) is compiled by `clang++`
+  as a `CUDA` compiler, the sources shared with the `generic` interface by
+  `clang++` as a `C++` compiler, and the libraries are linked with the
+  shared `CUDA` runtime, as Arccore;
+- with `HIP`, the sources are compiled by `hipcc` (`-x hip`) on the AMD
+  platform, `hipcc` linking the `HIP` runtime. `HIP` on the NVIDIA platform
+  is not supported: the kernels of Arccore are only compiled for `HIP` by
+  the `HIP` language of clang (`__HIP__`), which only targets AMD GPUs.
+
+The code of the behaviours is also executed on the host by the `Thread` and
+`Sequential` queues: the device functions of `CUDA` or `HIP` are excluded
+from the overloads in the compilation for the host (`-Xarch_host
+-fgpu-exclude-wrong-side-overloads`), so that an unqualified call to `max`
+or `min` in the code of a behaviour is resolved to the function of the
+standard library. The libraries are linked with the shared libraries of
+Arccore (`TFEL_ARCANE_LINKER_FLAGS` substitution). The `arcane`
+configuration requires Arccore 2.8.0 or later (Arcane 4.1.16), built with
+`CUDA` or `HIP` (`ARCCORE_ACCELERATOR_MODE`) as shared libraries, found in
+`Arccore_ROOT`.
 
 This backend has no option.
 

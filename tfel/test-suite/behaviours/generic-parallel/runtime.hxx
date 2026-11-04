@@ -22,7 +22,7 @@
  * of Arccore is initialized, the computations are launched on a queue whose
  * execution policy is given by the `MFRONT_GPB_COMPARE_ARCANE_QUEUE`
  * environment variable (see `getArcaneExecutionPolicy`) and the data are
- * allocated in managed memory if Arccore is built with CUDA.
+ * allocated in managed memory if Arccore is built with CUDA or HIP.
  *
  * \date   20/10/2026
  */
@@ -52,6 +52,9 @@
 #if defined(ARCCORE_HAS_CUDA)
 #include <cuda_runtime.h>
 #define GPU_API(f) cuda##f
+#elif defined(ARCCORE_HAS_HIP)
+#include <hip/hip_runtime.h>
+#define GPU_API(f) hip##f
 #endif
 #elif defined(__HIP__) || defined(MFRONT_GPB_COMPARE_USE_HIP)
 #include <hip/hip_runtime.h>
@@ -198,20 +201,25 @@ otherDeviceExecutionPolicy() {
 
 /*!
  * \return the execution policy of the queue of the tests, given by the
- * `MFRONT_GPB_COMPARE_ARCANE_QUEUE` environment variable: `cuda`, `thread`
- * or `sequential` (`cuda` by default if Arccore is built with CUDA, `thread`
- * otherwise)
+ * `MFRONT_GPB_COMPARE_ARCANE_QUEUE` environment variable: `cuda` or `hip`
+ * (queue of the GPU, the default, if Arccore is built with CUDA or HIP),
+ * `thread` (the default otherwise) or `sequential`
  */
 static Arcane::Accelerator::eExecutionPolicy getArcaneExecutionPolicy() {
   using Arcane::Accelerator::eExecutionPolicy;
   const auto* const e = std::getenv("MFRONT_GPB_COMPARE_ARCANE_QUEUE");
 #if defined(ARCCORE_HAS_CUDA)
   const auto q = std::string_view{e == nullptr ? "cuda" : e};
+#elif defined(ARCCORE_HAS_HIP)
+  const auto q = std::string_view{e == nullptr ? "hip" : e};
 #else
   const auto q = std::string_view{e == nullptr ? "thread" : e};
 #endif
   if (q == "cuda") {
     return eExecutionPolicy::CUDA;
+  }
+  if (q == "hip") {
+    return eExecutionPolicy::HIP;
   }
   if (q == "thread") {
     return eExecutionPolicy::Thread;
@@ -386,8 +394,8 @@ static const mfront_gp_AbstractBackendExecutionPolicy* executionPolicy() {
 #if defined(MFRONT_GPB_COMPARE_USE_ARCANE)
 /*!
  * \return true if no computation is pending on the queue of the tests
- * (checked on the native stream of a CUDA queue, the commands of the
- * other queues are completed when launched)
+ * (checked on the native stream of a CUDA or HIP queue, the commands of
+ * the other queues are completed when launched)
  */
 static bool isQueueIdle() {
 #if defined(ARCCORE_HAS_CUDA)
@@ -397,17 +405,23 @@ static bool isQueueIdle() {
         Arcane::Accelerator::AcceleratorUtils::toCudaNativeStream(getQueue());
     return cudaStreamQuery(stream) == cudaSuccess;
   }
+#elif defined(ARCCORE_HAS_HIP)
+  if (getQueue().executionPolicy() ==
+      Arcane::Accelerator::eExecutionPolicy::HIP) {
+    const auto stream =
+        Arcane::Accelerator::AcceleratorUtils::toHipNativeStream(getQueue());
+    return hipStreamQuery(stream) == hipSuccess;
+  }
 #endif
   return true;
 }
 
 /*!
- * \return true if the computations are performed on a GPU by the CUDA
- * runtime (CUDA queue)
+ * \return true if the computations are performed on a GPU (CUDA or HIP
+ * queue)
  */
 [[maybe_unused]] static bool computesOnGPU() {
-  return getQueue().executionPolicy() ==
-         Arcane::Accelerator::eExecutionPolicy::CUDA;
+  return getQueue().isAcceleratorPolicy();
 }
 #elif defined(GPU_API)
 /*!

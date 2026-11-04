@@ -36,9 +36,14 @@
 #include <arccore/common/accelerator/Runner.h>
 #include <arccore/accelerator/AcceleratorInitializer.h>
 #include "MFront/GenericParallel/ArcaneBackendExecutionPolicy.hxx"
+// runtime of the GPU of Arccore
 #if defined(ARCCORE_HAS_CUDA)
 #include <cuda_runtime.h>
-#endif /* defined(ARCCORE_HAS_CUDA) */
+#define MFRONT_GPMP_TEST_ARCANE_GPU_API(f) cuda##f
+#elif defined(ARCCORE_HAS_HIP)
+#include <hip/hip_runtime.h>
+#define MFRONT_GPMP_TEST_ARCANE_GPU_API(f) hip##f
+#endif
 #endif /* MFRONT_GPMP_TEST_USE_ARCANE */
 #include "MFront/GenericParallel/ParallelSTLBackendExecutionPolicy.hxx"
 #include "MFront/GenericParallel/OpenMPBackendExecutionPolicy.hxx"
@@ -166,8 +171,9 @@ struct TestAllocator {
  * \brief accelerator runtime of Arccore (4 threads for the `Thread` queues),
  * runner and queue of the tests, and execution policy on this queue. The
  * execution policy of the queue is given by the
- * `MFRONT_GPMP_TEST_ARCANE_QUEUE` environment variable: `cuda`, `thread` or
- * `sequential` (`cuda` by default if Arccore is built with CUDA, `thread`
+ * `MFRONT_GPMP_TEST_ARCANE_QUEUE` environment variable: `cuda`, `hip`,
+ * `thread` or `sequential` (`cuda` or `hip` by default if Arccore is built
+ * with CUDA or HIP, `thread`
  * otherwise). The members are destroyed before the runtime is finalized.
  */
 struct ArcaneTestRuntime {
@@ -177,11 +183,16 @@ struct ArcaneTestRuntime {
     const auto* const e = std::getenv("MFRONT_GPMP_TEST_ARCANE_QUEUE");
 #if defined(ARCCORE_HAS_CUDA)
     const auto q = std::string_view{e == nullptr ? "cuda" : e};
+#elif defined(ARCCORE_HAS_HIP)
+    const auto q = std::string_view{e == nullptr ? "hip" : e};
 #else
     const auto q = std::string_view{e == nullptr ? "thread" : e};
 #endif
     if (q == "cuda") {
       return eExecutionPolicy::CUDA;
+    }
+    if (q == "hip") {
+      return eExecutionPolicy::HIP;
     }
     if (q == "sequential") {
       return eExecutionPolicy::Sequential;
@@ -209,7 +220,7 @@ struct ArcaneTestRuntime {
   //! \brief runtime of the tests, created by `main`
   static inline ArcaneTestRuntime* current = nullptr;
 };
-#if defined(ARCCORE_HAS_CUDA)
+#if defined(MFRONT_GPMP_TEST_ARCANE_GPU_API)
 //! \brief allocator in managed memory, accessible by all the queues
 template <typename T>
 struct TestAllocator {
@@ -219,21 +230,24 @@ struct TestAllocator {
   TestAllocator(const TestAllocator<T2>&) noexcept {}
   T* allocate(const std::size_t n) {
     T* p = nullptr;
-    if (cudaMallocManaged(&p, n * sizeof(T)) != cudaSuccess) {
+    if (MFRONT_GPMP_TEST_ARCANE_GPU_API(MallocManaged)(&p, n * sizeof(T)) !=
+        MFRONT_GPMP_TEST_ARCANE_GPU_API(Success)) {
       throw std::bad_alloc();
     }
     return p;
   }
-  void deallocate(T* const p, const std::size_t) noexcept { cudaFree(p); }
+  void deallocate(T* const p, const std::size_t) noexcept {
+    static_cast<void>(MFRONT_GPMP_TEST_ARCANE_GPU_API(Free)(p));
+  }
   template <typename T2>
   bool operator==(const TestAllocator<T2>&) const noexcept {
     return true;
   }
 };
-#else  /* defined(ARCCORE_HAS_CUDA) */
+#else  /* defined(MFRONT_GPMP_TEST_ARCANE_GPU_API) */
 template <typename T>
 using TestAllocator = std::allocator<T>;
-#endif /* defined(ARCCORE_HAS_CUDA) */
+#endif /* defined(MFRONT_GPMP_TEST_ARCANE_GPU_API) */
 #else  /* MFRONT_GPMP_TEST_USE_KOKKOS */
 template <typename T>
 using TestAllocator = std::allocator<T>;
@@ -536,26 +550,27 @@ struct BackendTest : public tfel::tests::TestCase {
                                            initial_stack_size) == cudaSuccess);
     }
 #endif /* defined(MFRONT_GPMP_TEST_USE_RAJA) && defined(RAJA_CUDA_ACTIVE) */
-#if defined(MFRONT_GPMP_TEST_USE_ARCANE) && defined(ARCCORE_HAS_CUDA)
-    if (ArcaneTestRuntime::current->queue.executionPolicy() ==
-        Arcane::Accelerator::eExecutionPolicy::CUDA) {
+#if defined(MFRONT_GPMP_TEST_USE_ARCANE) && \
+    defined(MFRONT_GPMP_TEST_ARCANE_GPU_API)
+    if (ArcaneTestRuntime::current->queue.isAcceleratorPolicy()) {
       auto initial_stack_size = std::size_t{};
-      TFEL_TESTS_ASSERT(cudaDeviceGetLimit(&initial_stack_size,
-                                           cudaLimitStackSize) == cudaSuccess);
+      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceGetLimit)(&initial_stack_size,
+                                           MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize)) == MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
       // the kernels require at least 1024 bytes (see
       // mfront::generic_parallel::gpu::ensureStackSize)
-      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize, 256) ==
-                        cudaSuccess);
+      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceSetLimit)(MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize), 256) ==
+                        MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
       TFEL_TESTS_CHECK_EQUAL(evaluate(f, output, E.data(), 1, args,
                                       contiguous<1>(), 2, policy, preserve),
                              -7);
       TFEL_TESTS_ASSERT(std::string(output.msg)
                             .starts_with("the stack size of the threads of the "
                                          "device must be at least"));
-      TFEL_TESTS_ASSERT(cudaDeviceSetLimit(cudaLimitStackSize,
-                                           initial_stack_size) == cudaSuccess);
+      TFEL_TESTS_ASSERT(MFRONT_GPMP_TEST_ARCANE_GPU_API(DeviceSetLimit)(MFRONT_GPMP_TEST_ARCANE_GPU_API(LimitStackSize),
+                                           initial_stack_size) == MFRONT_GPMP_TEST_ARCANE_GPU_API(Success));
     }
-#endif /* defined(MFRONT_GPMP_TEST_USE_ARCANE) && defined(ARCCORE_HAS_CUDA) */
+#endif /* defined(MFRONT_GPMP_TEST_USE_ARCANE) && \
+          defined(MFRONT_GPMP_TEST_ARCANE_GPU_API) */
 #ifdef __NVCOMPILER_OPENACC_GPU
     // stack size of the threads of the GPU of OpenACC, set through the CUDA
     // driver on the context of OpenACC (see `OpenACCStackSize.hxx`)

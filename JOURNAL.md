@@ -215,6 +215,7 @@ described in [docs/](docs/overview.md).
 | [2026-11-03, layout of the data at the integration points: real kernels](#2026-11-03-layout-of-the-data-at-the-integration-points-real-kernels) |
 | [2026-11-03, review of the layout of the data at the integration points](#2026-11-03-review-of-the-layout-of-the-data-at-the-integration-points) |
 | [2026-11-04, arcane backend: version of Arccore](#2026-11-04-arcane-backend-version-of-arccore) |
+| [2026-11-04, arcane backend with HIP on AMD GPUs](#2026-11-04-arcane-backend-with-hip-on-amd-gpus) |
 
 ## Entries
 
@@ -6258,3 +6259,43 @@ Validation: the version check run alone (`cmake -P`) on the installed
 Arccore (2.8.0 accepted), on an older version (2.7.0 refused) and without
 version header (refused); the series of patches gives the tree of the
 branch. No compiled code changed.
+
+### 2026-11-04, arcane backend with HIP on AMD GPUs
+
+- Arccore built in HIP mode for the gfx1036 (`ARCCORE_MODE=hip-amd
+  scripts/build-arccore.sh`), with the clang and the headers of ROCm 10.1
+  (TheRock). The installed libraries of Arccore now find each other
+  (`$ORIGIN`): with hipcc, a test is linked with a run path of the new type
+  (RUNPATH), which does not serve the dependencies of Arccore.
+- TFEL (patch 0134): the `arcane` configuration reads the accelerator mode
+  of Arccore. With CUDA, the sources are compiled by clang as a CUDA
+  compiler, with the same flags as before. With HIP, they are compiled by
+  hipcc (`-x hip --offload-arch=native`). The compiler is given by the
+  `TFEL_ARCANE_CXX_COMPILER` substitution. The tests use the `hip` queue by
+  default when Arccore is built with HIP.
+- HIP on the NVIDIA platform is not supported. Arccore builds (nvcc as the
+  HIP compiler of CMake, HIP 7.2.3 of the mmm-gpu environment), but its
+  kernels are only compiled for HIP when `__HIP__` is defined. Only the HIP
+  language of clang defines it, and it only targets AMD GPUs (clang refuses
+  `-x hip` for `sm_120`). The configuration refuses this case with a
+  message.
+
+Results on the gfx1036, with a separate build of TFEL holding only the
+`arcane` configuration, the tests being compiled at -O1 as the other HIP
+code of the prototype on this GPU:
+
+- material properties: 19/19 (HIP, `Thread` and `Sequential` queues);
+- behaviours: the `Thread` and `Sequential` queues, the libraries also
+  holding the functions of the `generic` interface and TDLS (HIP and
+  `Thread` queues) pass;
+- behaviours on the HIP queue: 847 comparisons pass. The failures are
+  limited to finite strain behaviours in 3D: memory fault of the GPU for
+  `HenckyImplicitNorton` and `GreenLagrangeImplicitNorton` (7 runs, 15 KB of
+  private memory per thread), tangent operator of
+  `FiniteStrainSingleCrystal` different by 2.6e-3. At -O0, the comparisons
+  of `HenckyImplicitNorton` do not end within 300 s. These kernels are the
+  ones of the defect of the code generation of ROCm 10.1 for this GPU
+  (`reproducers/hip-finite-strain-3d-hang`). Not investigated further.
+
+CUDA: the configuration gives the same flags as before, and the modified
+test sources compile with CUDA, for the host and the device.

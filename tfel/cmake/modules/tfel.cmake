@@ -651,9 +651,11 @@ endif()
 # configuration. Arccore is not found by `find_package`, since its
 # configuration file enables the CUDA language in the calling project: its
 # headers and its libraries are searched in `Arccore_ROOT`, and its
-# accelerator mode is read in its configuration header. Only an Arccore
-# built with CUDA is supported. The generated libraries are compiled by
-# clang as a CUDA compiler.
+# accelerator mode is read in its configuration header: with CUDA, the
+# generated libraries are compiled by clang as a CUDA compiler; with HIP, by
+# hipcc on the AMD platform. The kernels of Arccore are only compiled for
+# HIP by the HIP language of clang (`__HIP__`), which only targets AMD GPUs:
+# an Arccore built with HIP on the NVIDIA platform is not supported.
 if(_tfel-enable-generic-parallel-arcane-configuration)
   find_path(TFEL_ARCCORE_INCLUDE_DIR NAMES arccore/arccore_config.h
             HINTS "${Arccore_ROOT}" "$ENV{Arccore_ROOT}"
@@ -662,10 +664,12 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
                HINTS "${Arccore_ROOT}" "$ENV{Arccore_ROOT}"
                PATH_SUFFIXES lib lib64 REQUIRED)
   file(STRINGS "${TFEL_ARCCORE_INCLUDE_DIR}/arccore/arccore_config.h"
-       _arccore_cuda REGEX "^#define ARCCORE_HAS_CUDA *$")
-  if(NOT _arccore_cuda)
+       _arccore_accelerator REGEX "^#define ARCCORE_HAS_(CUDA|HIP|SYCL) *$")
+  string(REGEX REPLACE "#define ARCCORE_HAS_([A-Z]+) *" "\\1"
+         TFEL_ARCCORE_ACCELERATOR "${_arccore_accelerator}")
+  if(NOT TFEL_ARCCORE_ACCELERATOR MATCHES "^(CUDA|HIP)$")
     message(FATAL_ERROR "the 'arcane' configuration requires Arccore built "
-            "with CUDA")
+            "with CUDA or HIP")
   endif()
   # the generated libraries and the calling code share the same instance of
   # Arccore (runtimes and allocators registered in global variables)
@@ -697,9 +701,23 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
     message(FATAL_ERROR "the 'arcane' configuration requires Arccore 2.8.0 "
             "or later (Arcane 4.1.16), found ${TFEL_ARCCORE_VERSION}")
   endif()
-  message(STATUS "Arccore version: ${TFEL_ARCCORE_VERSION}")
-  set(TFEL_REQUIRES_CUDA ON)
-  define_tfel_cxx_compiler("clang++")
+  message(STATUS "Arccore version: ${TFEL_ARCCORE_VERSION} "
+          "(${TFEL_ARCCORE_ACCELERATOR})")
+  if(TFEL_ARCCORE_ACCELERATOR STREQUAL "CUDA")
+    set(TFEL_REQUIRES_CUDA ON)
+    define_tfel_cxx_compiler("clang++")
+  else()
+    if(NOT HIP_PLATFORM)
+      set(HIP_PLATFORM "$ENV{HIP_PLATFORM}")
+    endif()
+    if(HIP_PLATFORM STREQUAL "nvidia")
+      message(FATAL_ERROR "the 'arcane' configuration does not support HIP "
+              "on the NVIDIA platform (HIP_PLATFORM=nvidia)")
+    endif()
+    if(NOT TFEL_HIPCC_COMPILER)
+      find_program(TFEL_HIPCC_COMPILER NAMES "hipcc" REQUIRED)
+    endif()
+  endif()
 endif()
 
 if(TFEL_REQUIRES_CUDA)
@@ -736,9 +754,10 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
   # the generated sources are compiled by clang as a CUDA compiler, with
   # the CUDA of the `cuda-clang` configuration, and the libraries linked
   # with the shared libraries of Arccore and with the shared CUDA runtime,
-  # as Arccore. The code of the behaviours is also executed on the host by
-  # the `Thread` and `Sequential` queues: the device functions of CUDA are
-  # excluded from the overloads in the compilation for the host, so that an
+  # as Arccore; or by hipcc as HIP sources (`-x hip`), hipcc linking the HIP
+  # runtime. The code of the behaviours is also executed on the host by
+  # the `Thread` and `Sequential` queues: the device functions of CUDA or HIP
+  # are excluded from the overloads in the compilation for the host, so that an
   # unqualified call to `max` or `min` in the code of a behaviour (`using
   # namespace std`) is resolved to the function of the standard library. The
   # compilation for the device keeps the default resolution: otherwise, the
@@ -747,9 +766,20 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
   # ignored.
   get_filename_component(_arccore_library_directory
                          "${TFEL_ARCCORE_ACCELERATOR_LIBRARY}" DIRECTORY)
-  set(_arcane_flags "-x" "cuda" "--cuda-compile-host-device"
-      "--cuda-gpu-arch=native" "--cuda-path=${TFEL_CLANG_CUDA_PATH}"
-      "-Xarch_host" "-fgpu-exclude-wrong-side-overloads" "-fPIC")
+  if(TFEL_ARCCORE_ACCELERATOR STREQUAL "CUDA")
+    set(TFEL_ARCANE_CXX_COMPILER "${TFEL_CLANGXX_COMPILER}")
+    set(_arcane_flags "-x" "cuda" "--cuda-compile-host-device"
+        "--cuda-gpu-arch=native" "--cuda-path=${TFEL_CLANG_CUDA_PATH}")
+    set(_arcane_runtime_flags
+        "-L${_tfel_clang_cuda_library_dir}"
+        "-Wl,-rpath,${_tfel_clang_cuda_library_dir}" "-lcudart")
+  else()
+    set(TFEL_ARCANE_CXX_COMPILER "${TFEL_HIPCC_COMPILER}")
+    set(_arcane_flags "-x" "hip" "--offload-arch=native")
+    set(_arcane_runtime_flags)
+  endif()
+  list(APPEND _arcane_flags
+       "-Xarch_host" "-fgpu-exclude-wrong-side-overloads" "-fPIC")
   # a standard system directory is not given (`-isystem /usr/include` would
   # break the `#include_next` directives of the standard library, see HIP)
   if(NOT "${TFEL_ARCCORE_INCLUDE_DIR}" IN_LIST
@@ -760,11 +790,10 @@ if(_tfel-enable-generic-parallel-arcane-configuration)
       "-L${_arccore_library_directory}"
       "-Wl,-rpath,${_arccore_library_directory}"
       "-larccore_accelerator" "-larccore_concurrency" "-larccore_common"
-      "-larccore_trace" "-larccore_base"
-      "-L${_tfel_clang_cuda_library_dir}"
-      "-Wl,-rpath,${_tfel_clang_cuda_library_dir}" "-lcudart")
+      "-larccore_trace" "-larccore_base" ${_arcane_runtime_flags})
   list(JOIN _arcane_flags " " TFEL_ARCANE_CXX_FLAGS)
   list(JOIN _arcane_linker_flags " " TFEL_ARCANE_LINKER_FLAGS)
+  add_tfel_substitution(TFEL_ARCANE_CXX_COMPILER "${TFEL_ARCANE_CXX_COMPILER}")
   add_tfel_substitution(TFEL_ARCANE_CXX_FLAGS "${TFEL_ARCANE_CXX_FLAGS}")
   add_tfel_substitution(TFEL_ARCANE_LINKER_FLAGS "${TFEL_ARCANE_LINKER_FLAGS}")
   message(STATUS "Arcane flags: ${TFEL_ARCANE_CXX_FLAGS}")

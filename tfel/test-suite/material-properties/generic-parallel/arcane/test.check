@@ -9,7 +9,7 @@
 @Command "@mfront@ --interface=generic-parallel --configuration-file=config-arcane.json ../LinearDataInterpolationTest.mfront";
 @Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-arcane.json ../MaterialLawCallTest.mfront";
 @Command "@mfront@ --obuild --configuration-file=config-arcane.json";
-@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=arcane -DMFRONT_GPMP_TEST_USE_ARCANE -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-arcane -L@TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -Lsrc -lGenericParallelUO2-arcane -lGenericParallelInconel600-arcane -lGenericParallelMaterialLaw-arcane @TFEL_ARCANE_LINKER_FLAGS@";
+@Command "@TFEL_ARCANE_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=arcane -DMFRONT_GPMP_TEST_USE_ARCANE -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-arcane -L@TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -Lsrc -lGenericParallelUO2-arcane -lGenericParallelInconel600-arcane -lGenericParallelMaterialLaw-arcane @TFEL_ARCANE_LINKER_FLAGS@";
 // CUDA queue (default), `Thread` and `Sequential` queues (see the
 // `ArcaneTestRuntime` structure of test-cxx.cxx)
 @Command "./test-arcane test-arcane-arcane";
@@ -18,7 +18,7 @@
 
 // comparison with the `generic` interface (see compare.cxx)
 @Command "sh ../build-libraries.sh @mfront@ config-arcane.json";
-@Command "@TFEL_CLANGXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
+@Command "@TFEL_ARCANE_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
 @Command "sh ../compare-all.sh ./compare arcane --tolerance=1e-13";
 @Command "env MFRONT_GPB_COMPARE_ARCANE_QUEUE=thread sh ../compare-all.sh ./compare arcane --tolerance=1e-13";
 @Command "env MFRONT_GPB_COMPARE_ARCANE_QUEUE=sequential sh ../compare-all.sh ./compare arcane --tolerance=1e-13";
