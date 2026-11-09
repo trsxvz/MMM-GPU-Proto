@@ -20,10 +20,10 @@
 
 namespace mfront {
 
-  namespace generic_parallel::behaviour {
+  namespace generic_parallel {
     // forward declaration
     struct AbstractBackend;
-  }  // end of namespace generic_parallel::behaviour
+  }  // end of namespace generic_parallel
 
   /*!
    * \brief an interface integrating a behaviour over a batch of integration
@@ -217,7 +217,7 @@ namespace mfront {
     [[nodiscard]] virtual std::string getPointwiseHeaderFileName(
         const std::string&) const;
     //! \brief backend
-    std::unique_ptr<generic_parallel::behaviour::AbstractBackend> backend;
+    std::unique_ptr<generic_parallel::AbstractBackend> backend;
     /*!
      * \brief if true, the library also contains the functions of the
      * `generic` interface (`generic_functions` option, false by default):

@@ -15,7 +15,7 @@
 
 #include <memory>
 #include "MFront/GenericModelInterface.hxx"
-#include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
+#include "MFront/GenericParallel/AbstractBackend.hxx"
 
 namespace mfront {
 
@@ -66,7 +66,7 @@ namespace mfront {
     void writeSourceFile(const FileDescription&,
                          const ModelDescription&) override;
     //! \brief backend
-    std::unique_ptr<generic_parallel::behaviour::AbstractBackend> backend;
+    std::unique_ptr<generic_parallel::AbstractBackend> backend;
     /*!
      * \brief if true, the library also contains the functions of the
      * `generic` interface executing the model at a point

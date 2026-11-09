@@ -1,7 +1,9 @@
 /*!
  * \file   mfront/include/MFront/GenericParallelBehaviour/Kokkos.hxx
- * \brief  This file implements the integration of a batch of integration
- * points with Kokkos.
+ * \brief  This file declares the functions of the `kokkos` backend of the
+ * `generic-parallel` behaviour interface which are specific to the
+ * behaviours. The primitive of the backend is declared in
+ * `MFront/GenericParallel/Kokkos.hxx`.
  * \date   05/10/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
@@ -16,159 +18,10 @@
 
 #include <stdexcept>
 #include <type_traits>
-#include <Kokkos_Core.hpp>
-#include "MFront/GenericParallel/KokkosStackSize.hxx"
-#include "MFront/GenericParallel/StatusBlockPool.hxx"
-#include "MFront/GenericParallel/KokkosBackendExecutionPolicy.hxx"
+#include "MFront/GenericParallel/Kokkos.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
-static_assert(Kokkos::has_shared_space,
-              "the Kokkos backend of the generic-parallel interface requires "
-              "a shared memory space (Kokkos::SharedSpace)");
-
 namespace mfront::gpb::kokkos {
-
-  namespace internals {
-
-    /*!
-     * \brief functor applying a function at one point and accumulating the
-     * statistics of the batch by atomic operations, which are only performed
-     * if the point failed, gave an unreliable result or decreased the time
-     * step scaling factor.
-     * \tparam PointFunction: function object applied at one point
-     */
-    template <typename PointFunction>
-    struct AtomicUpdate {
-      //! \brief apply the function at the `i`-th point
-      KOKKOS_FUNCTION void operator()(const size_type i) const {
-        const auto r = this->f(i);
-        if (r.number_of_failures != 0) {
-          Kokkos::atomic_add(&(this->statistics->number_of_failures), 1ull);
-          Kokkos::atomic_min(&(this->statistics->first_failure),
-                             r.first_failure);
-        }
-        if (r.number_of_unreliable_results != 0) {
-          Kokkos::atomic_add(&(this->statistics->number_of_unreliable_results),
-                             1ull);
-          Kokkos::atomic_min(&(this->statistics->first_unreliable_result),
-                             r.first_unreliable_result);
-        }
-        const auto rdt = toOrderedKey(r.rdt);
-        if (rdt < this->initial_rdt) {
-          Kokkos::atomic_min(&(this->statistics->rdt), rdt);
-        }
-      }
-      //! \brief function object applied at one point
-      PointFunction f;
-      //! \brief statistics
-      AtomicBatchStatistics* statistics;
-      //! \brief ordered key of the initial time step scaling factor
-      unsigned long long initial_rdt;
-    };
-
-    /*!
-     * \return the pool of blocks of shared memory holding the statistics of
-     * the synchronous computations, shared by all the functions of the
-     * library. Kokkos uses one device per process. The blocks are freed when
-     * Kokkos is finalized.
-     */
-    inline auto& getStatisticsBlocks() noexcept {
-      using Pool =
-          mfront::generic_parallel::StatusBlockPool<AtomicBatchStatistics, int>;
-      static auto pool = Pool{};
-      return pool;
-    }  // end of getStatisticsBlocks
-
-  }  // end of namespace internals
-
-  /*!
-   * \brief apply a function at the points of a batch and report the
-   * statistics of the batch.
-   *
-   * Kokkos must have been initialized by the calling code. The statistics
-   * are accumulated by atomic operations, only performed if an event occurs
-   * at a point. If the calling code gives statistics, they are accumulated
-   * in them, and this function returns once the computations are submitted
-   * if the computations are asynchronous. Otherwise, the statistics are held
-   * by a block of shared memory, initialized and read by the host. In both
-   * cases, a synchronous computation waits for the completion of the
-   * computations.
-   *
-   * \tparam ExecutionSpace: execution space
-   * \tparam PointFunction: function object taking the index of a point and
-   * returning the statistics associated with this point
-   * \param[in,out] s: output status, which must have been initialized
-   * \param[in] n: number of points
-   * \param[in] e: execution of the batch. The policy is a
-   * `KokkosBackendExecutionPolicy<ExecutionSpace>`, or null for the default
-   * instance of the execution space.
-   * \param[in] rdt0: initial value of the time step scaling factor
-   * \param[in] f: function
-   * \return the status
-   */
-  template <typename ExecutionSpace, typename PointFunction>
-  int apply(OutputStatus& s,
-            const size_type n,
-            const BatchExecution& e,
-            const real rdt0,
-            const PointFunction& f) {
-    using ExecutionPolicy =
-        ::mfront::generic_parallel::KokkosBackendExecutionPolicy<
-            ExecutionSpace>;
-    if (n == 0) {
-      return s.status;
-    }
-    if (!Kokkos::is_initialized()) {
-      return report(s, -7, "Kokkos is not initialized");
-    }
-    const auto p = ::mfront::generic_parallel::checkBackendExecutionPolicy<
-        ExecutionPolicy>(e.policy, e.statistics != nullptr);
-    if (p.error != nullptr) {
-      return report(s, -5, p.error);
-    }
-    const auto error =
-        mfront::generic_parallel::kokkos::ensureStackSize<ExecutionSpace>(
-            f, p.common_options.preserve_stack_size);
-    if (!error.empty()) {
-      return report(s, -7, error);
-    }
-    const auto space =
-        p.policy == nullptr ? ExecutionSpace{} : p.policy->execution_space;
-    const auto range =
-        Kokkos::RangePolicy<ExecutionSpace, Kokkos::IndexType<size_type>>(space,
-                                                                          0, n);
-    const auto rdt_key = toOrderedKey(rdt0);
-    if (e.statistics != nullptr) {
-      Kokkos::parallel_for(
-          "mfront::gpb::kokkos::apply", range,
-          internals::AtomicUpdate<PointFunction>{f, e.statistics, rdt_key});
-      if (!p.common_options.asynchronous) {
-        space.fence();
-      }
-      return s.status;
-    }
-    // synchronous computations: the device only accesses the block if an
-    // event occurs, as for the GPU backends
-    const auto block = internals::getStatisticsBlocks().acquire(0, [] {
-      auto* const p = static_cast<AtomicBatchStatistics*>(
-          Kokkos::kokkos_malloc<Kokkos::SharedSpace>(
-              "mfront::gpb::kokkos::statistics",
-              sizeof(AtomicBatchStatistics)));
-      Kokkos::push_finalize_hook(
-          [p] { Kokkos::kokkos_free<Kokkos::SharedSpace>(p); });
-      return p;
-    });
-    auto* const statistics = block.get();
-    if (statistics == nullptr) {
-      return report(s, -7, "unable to allocate the statistics of the batch");
-    }
-    mfront_gpb_initializeStatistics(statistics, rdt0);
-    Kokkos::parallel_for(
-        "mfront::gpb::kokkos::apply", range,
-        internals::AtomicUpdate<PointFunction>{f, statistics, rdt_key});
-    space.fence();
-    return report(s, getBatchStatistics(*statistics));
-  }  // end of apply
 
   /*!
    * \return a copy of a data in the memory space of an execution space,
@@ -209,22 +62,6 @@ namespace mfront::gpb::kokkos {
         copyToDevice<ExecutionSpace>(get_shared_data());
     return p;
   }  // end of getSharedDataCopy
-
-  /*!
-   * \return the primitive of the backend, as expected by
-   * `mfront::gpb::integrateBatch` and the similar functions of
-   * `MFront/GenericParallelBehaviour/Integrate.hxx`, called by the generated
-   * functions
-   * \tparam ExecutionSpace: execution space
-   * \param[in,out] s: output status
-   */
-  template <typename ExecutionSpace>
-  auto makeApply(OutputStatus& s) {
-    return [&s](const size_type n, const BatchExecution& e, const real rdt0,
-                const auto& f) {
-      return kokkos::apply<ExecutionSpace>(s, n, e, rdt0, f);
-    };
-  }  // end of makeApply
 
 }  // end of namespace mfront::gpb::kokkos
 

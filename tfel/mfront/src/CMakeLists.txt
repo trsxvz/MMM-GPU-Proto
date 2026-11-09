@@ -227,32 +227,18 @@ set(TFELMFront_SOURCES
     GenericMaterialPropertyInterface.cxx
     GenericParallelMaterialPropertyInterface.cxx
     GenericParallel/BackendOptions.cxx
-    GenericParallel/MaterialProperty/AbstractBackend.cxx
-    GenericParallel/MaterialProperty/ArcaneBackend.cxx
-    GenericParallel/MaterialProperty/BackendFactory.cxx
-    GenericParallel/MaterialProperty/BackendBase.cxx
-    GenericParallel/MaterialProperty/CUDABackendBase.cxx
-    GenericParallel/MaterialProperty/CUDABackend.cxx
-    GenericParallel/MaterialProperty/HIPBackend.cxx
-    GenericParallel/MaterialProperty/CxxProgrammingModelBackendBase.cxx
-    GenericParallel/MaterialProperty/KokkosBackend.cxx
-    GenericParallel/MaterialProperty/RAJABackend.cxx
-    GenericParallel/MaterialProperty/OpenMPBackend.cxx
-    GenericParallel/MaterialProperty/OpenACCBackend.cxx
-    GenericParallel/MaterialProperty/ParallelSTLBackend.cxx
-    GenericParallel/MaterialProperty/SYCLBackend.cxx
+    GenericParallel/AbstractBackend.cxx
+    GenericParallel/ArcaneBackend.cxx
+    GenericParallel/BackendFactory.cxx
+    GenericParallel/GPUBackend.cxx
+    GenericParallel/KokkosBackend.cxx
+    GenericParallel/OpenACCBackend.cxx
+    GenericParallel/OpenMPBackend.cxx
+    GenericParallel/ParallelSTLBackend.cxx
+    GenericParallel/RAJABackend.cxx
+    GenericParallel/SYCLBackend.cxx
     GenericBehaviourInterface.cxx
     GenericParallelBehaviourInterface.cxx
-    GenericParallel/Behaviour/AbstractBackend.cxx
-    GenericParallel/Behaviour/ArcaneBackend.cxx
-    GenericParallel/Behaviour/BackendFactory.cxx
-    GenericParallel/Behaviour/GPUBackend.cxx
-    GenericParallel/Behaviour/KokkosBackend.cxx
-    GenericParallel/Behaviour/RAJABackend.cxx
-    GenericParallel/Behaviour/OpenMPBackend.cxx
-    GenericParallel/Behaviour/OpenACCBackend.cxx
-    GenericParallel/Behaviour/ParallelSTLBackend.cxx
-    GenericParallel/Behaviour/SYCLBackend.cxx
     GenericBehaviourSymbolsGenerator.cxx
     BehaviourRotationFunctions.cxx
     GenericModelInterface.cxx

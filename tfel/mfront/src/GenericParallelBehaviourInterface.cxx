@@ -31,9 +31,9 @@
 #include "MFront/BehaviourVariableDescription.hxx"
 #include "MFront/BehaviourRotationFunctions.hxx"
 #include "MFront/GenericBehaviourSymbolsGenerator.hxx"
-#include "MFront/GenericParallel/Behaviour/AbstractBackend.hxx"
-#include "MFront/GenericParallel/Behaviour/BackendFactory.hxx"
-#include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
+#include "MFront/GenericParallel/AbstractBackend.hxx"
+#include "MFront/GenericParallel/BackendFactory.hxx"
+#include "MFront/GenericParallel/ParallelSTLBackend.hxx"
 #include "MFront/GenericParallelBehaviourInterface.hxx"
 
 namespace mfront {
@@ -386,8 +386,7 @@ namespace mfront {
   }  // end of getName
 
   GenericParallelBehaviourInterface::GenericParallelBehaviourInterface()
-      : backend(std::make_unique<
-                generic_parallel::behaviour::ParallelSTLBackend>()) {
+      : backend(std::make_unique<generic_parallel::ParallelSTLBackend>()) {
   }  // end of GenericParallelBehaviourInterface
 
   std::string GenericParallelBehaviourInterface::getInterfaceName() const {
@@ -395,7 +394,7 @@ namespace mfront {
   }  // end of getInterfaceName
 
   void GenericParallelBehaviourInterface::setOptions(const DataMap& opts) {
-    using generic_parallel::behaviour::BackendFactory;
+    using generic_parallel::BackendFactory;
     // options of the interface, the other ones being the ones of the backend
     auto backend_options = opts;
     if (contains(opts, "generic_functions")) {
@@ -845,7 +844,8 @@ namespace mfront {
       os << "#include\"MFront/GenericParallelBehaviour/"
          << "FiniteStrainIntegrators.hxx\"\n";
     }
-    this->backend->writeSpecificIncludes(os);
+    this->backend->writeSpecificIncludes(
+        os, generic_parallel::AbstractBackend::Runtime::BEHAVIOURS);
     os << "#include\"MFront/GenericParallelBehaviour/"
        << this->getHeaderFileName(name) << "\"\n\n";
     if (this->generic_functions) {
@@ -901,7 +901,9 @@ namespace mfront {
     const auto sgp = makeSymbolsGenerator(this->generic_functions);
     auto& sg = *sgp;
     sg.generateGeneralSymbols(os, *this, bd, fd, mhs, name);
-    this->backend->writeSymbols(os, this->getFunctionNameBasis(name));
+    this->backend->writeSymbols(
+        os, this->getFunctionNameBasis(name),
+        generic_parallel::AbstractBackend::Runtime::BEHAVIOURS);
     if (!bd.areAllMechanicalDataSpecialised(mhs)) {
       const auto uh = ModellingHypothesis::UNDEFINEDHYPOTHESIS;
       sg.generateSymbols(os, *this, bd, fd, name, uh);
@@ -956,14 +958,16 @@ namespace mfront {
     };
     for (const auto h : mhs) {
       const auto f = this->getFunctionNameForHypothesis(name, h);
-      write_function(h, getBatchFunctionName(f),
-                     "const mfront_gpb_BatchData* const mfront_batch_data",
-                     ", mfront_batch_data", [this, &os] {
-                       this->backend->writeCall(
-                           os, "integrateBatch",
-                           "Behaviour, mfront_point_traits", "mfront_status",
-                           "mfront_data, mfront_parameters, mfront_policy");
-                     });
+      write_function(
+          h, getBatchFunctionName(f),
+          "const mfront_gpb_BatchData* const mfront_batch_data",
+          ", mfront_batch_data", [this, &os] {
+            this->backend->writeCall(
+                os, generic_parallel::AbstractBackend::Runtime::BEHAVIOURS,
+                "integrateBatch", "Behaviour, mfront_point_traits",
+                "mfront_status",
+                "mfront_data, mfront_parameters, mfront_policy");
+          });
       const auto& d = bd.getBehaviourData(h);
       for (const auto& [ifct, c] : d.getInitializeFunctions()) {
         const auto n = getNumberOfValues(
@@ -976,7 +980,10 @@ namespace mfront {
                        [this, &os, &bd, &ifct, n] {
                          // the inputs may be null if the function has no input
                          this->backend->writeCall(
-                             os, "executeInitializeFunctionOnBatch",
+                             os,
+                             generic_parallel::AbstractBackend::Runtime::
+                                 BEHAVIOURS,
+                             "executeInitializeFunctionOnBatch",
                              "Behaviour, mfront_point_traits, " +
                                  getInitializeFunctionCallerName(bd, ifct) +
                                  ", " + std::to_string(n),
@@ -995,7 +1002,8 @@ namespace mfront {
             "const mfront_gpb_BatchData* const mfront_batch_data",
             ", mfront_outputs, mfront_batch_data", [this, &os, &bd, &pp, n] {
               this->backend->writeCall(
-                  os, "executePostProcessingOnBatch",
+                  os, generic_parallel::AbstractBackend::Runtime::BEHAVIOURS,
+                  "executePostProcessingOnBatch",
                   "Behaviour, mfront_point_traits, " +
                       getPostProcessingCallerName(bd, pp) + ", true, " +
                       std::to_string(n),
@@ -1039,9 +1047,10 @@ namespace mfront {
          << "return mfront_status.status;\n"
          << "}\n";
       os << "const auto& mfront_data = *mfront_rotation_data;\n";
-      this->backend->writeCall(os, "rotateBatch",
-                               getPointRotationName(bd, h, f), "mfront_status",
-                               "mfront_data");
+      this->backend->writeCall(
+          os, generic_parallel::AbstractBackend::Runtime::BEHAVIOURS,
+          "rotateBatch", getPointRotationName(bd, h, f), "mfront_status",
+          "mfront_data");
       os << "});\n"
          << "} // end of " << bf << "\n\n";
     }

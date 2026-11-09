@@ -165,11 +165,19 @@ pointers without any message in GPU code.
 
 ### Backends
 
-Each backend provides a single primitive: apply a function object to the
-points of the batch and reduce the statistics (number of failures, of
-unreliable results, smallest time step factor, first failed point and
-first unreliable point). Each
-one uses the idiomatic primitive of its programming model.
+Each backend provides a single primitive
+(`MFront/GenericParallel/<backend>.hxx`), shared by the behaviours, the
+models and the material properties: apply a function object to the points
+of the batch and reduce the statistics (number of failures, of unreliable
+results, first failed point and first unreliable point, and, for the
+behaviours and the models, smallest time step factor). Each one uses the
+idiomatic primitive of its programming model. The runtime of each
+interface (`Integrate.hxx` for the behaviours and the models,
+`Evaluate.hxx` for the material properties) gives the primitive the
+function object of a point and a handler of its statistics. The generator
+of a backend is also shared: a small class (`MFront/GenericParallel/<name>Backend.hxx`)
+gives its headers, the expression of its primitive, its memory space and its
+execution policy to the three interfaces.
 
 | Backend | Primitive | Execution queue | Asynchronous | Options |
 |---|---|---|---|---|
@@ -581,6 +589,8 @@ side of the caller for the material laws is proposed for TFEL 6.0.
 | Execution options | queue, statistics, stack | same members |
 | Synchronous or asynchronous | `asynchronous` option of the execution policy | identical |
 | Execution policy | `execution_policy` member, one class per backend | identical |
+| Runtime called by the generated code | `Integrate.hxx` | `Evaluate.hxx` |
+| Primitive and generator of a backend | `MFront/GenericParallel/<backend>.hxx`, `<name>Backend.hxx` | same files |
 | Asynchronous report | `<name>_generic_parallel_report` (symbol, it decodes the keys) | `<name>_generic_parallel_report` (symbol, it decodes the keys and names the variable) |
 | Empty batch | accepted without check | accepted without check |
 | Errors of the batch | `-5` (arguments), `-6` (parameters), `-7` (backend) | identical |

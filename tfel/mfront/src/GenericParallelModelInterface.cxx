@@ -27,8 +27,8 @@
 #include "MFront/GenericBehaviourSymbolsGenerator.hxx"
 #include "MFront/GenericParallelBehaviourInterface.hxx"
 #include "MFront/GenericModelInterface.hxx"
-#include "MFront/GenericParallel/Behaviour/BackendFactory.hxx"
-#include "MFront/GenericParallel/Behaviour/ParallelSTLBackend.hxx"
+#include "MFront/GenericParallel/BackendFactory.hxx"
+#include "MFront/GenericParallel/ParallelSTLBackend.hxx"
 #include "MFront/GenericParallelModelInterface.hxx"
 
 namespace mfront {
@@ -49,12 +49,11 @@ namespace mfront {
   }  // end of getName
 
   GenericParallelModelInterface::GenericParallelModelInterface()
-      : backend(std::make_unique<
-                generic_parallel::behaviour::ParallelSTLBackend>()) {
+      : backend(std::make_unique<generic_parallel::ParallelSTLBackend>()) {
   }  // end of GenericParallelModelInterface
 
   void GenericParallelModelInterface::setOptions(const DataMap& opts) {
-    using generic_parallel::behaviour::BackendFactory;
+    using generic_parallel::BackendFactory;
     // options of the interface, the other ones being the ones of the backend
     auto backend_options = opts;
     if (contains(opts, "generic_functions")) {
@@ -210,7 +209,8 @@ namespace mfront {
        << " * \\author " << fd.authorName << '\n'
        << " * \\date   " << fd.date << '\n'
        << " */\n\n";
-    this->backend->writeSpecificIncludes(os);
+    this->backend->writeSpecificIncludes(
+        os, generic_parallel::AbstractBackend::Runtime::BEHAVIOURS);
     os << "#include <cmath>\n"
        << "#include \"MFront/GenericParallel/MemorySpace.hxx\"\n"
        << "#include <cstring>\n"
@@ -241,7 +241,9 @@ namespace mfront {
     // points integrate a batch
     GenericParallelBehaviourInterface bi;
     sg.generateGeneralSymbols(os, bi, bd, fd, hypotheses, name);
-    this->backend->writeSymbols(os, bi.getFunctionNameBasis(name));
+    this->backend->writeSymbols(
+        os, bi.getFunctionNameBasis(name),
+        generic_parallel::AbstractBackend::Runtime::BEHAVIOURS);
     sg.generateSymbols(os, bi, bd, fd, name, uh);
     if (!md.sources.empty()) {
       os << md.sources << "\n\n";
@@ -360,7 +362,8 @@ namespace mfront {
       os << "const auto mfront_policy = tfel::material::"
          << getDefaultOutOfBoundsPolicyAsString(md) << ";\n";
       this->backend->writeCall(
-          os, "integrateBatch",
+          os, generic_parallel::AbstractBackend::Runtime::BEHAVIOURS,
+          "integrateBatch",
           "mfront::gm::" + md.className + ", mfront_point_traits",
           "mfront_status", "mfront_data, mfront_parameters, mfront_policy");
       GenericParallelBehaviourInterface::writeBatchFunctionEnd(os, f);

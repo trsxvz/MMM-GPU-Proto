@@ -24,7 +24,7 @@ namespace mfront {
 
   // forward declaration
   struct LibraryDescription;
-  namespace generic_parallel::material_property {
+  namespace generic_parallel {
     struct AbstractBackend;
   }
 
@@ -85,8 +85,7 @@ namespace mfront {
 
    protected:
     //
-    using AbstractBackend =
-        ::mfront::generic_parallel::material_property::AbstractBackend;
+    using AbstractBackend = ::mfront::generic_parallel::AbstractBackend;
 
     [[nodiscard]] std::string getInterfaceName() const override;
 

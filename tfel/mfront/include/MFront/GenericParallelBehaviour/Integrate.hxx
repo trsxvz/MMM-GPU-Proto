@@ -37,6 +37,7 @@
 #include "MFront/GenericBehaviour/BehaviourData.hxx"
 #include "MFront/GenericBehaviour/Integrate.hxx"
 #include "MFront/GenericParallel/StatisticsKeys.hxx"
+#include "MFront/GenericParallel/Batch.hxx"
 #include "MFront/GenericParallelBehaviour/BatchData.h"
 #include "MFront/GenericParallel/BackendExecutionPolicyBase.hxx"
 
@@ -745,63 +746,26 @@ namespace mfront::gpb {
     return static_cast<size_type>(::mfront::generic_parallel::getPointIndex(k));
   }  // end of getPointIndex
 
-  /*!
-   * \brief statistics on the integration of a batch, combined by
-   * parallel reductions
-   */
-  struct BatchStatistics {
-    /*!
-     * \return the statistics associated with the result at one point
-     * \param[in] i: index of the point
-     * \param[in] r: result at this point
-     */
-    TFEL_HOST_DEVICE static constexpr BatchStatistics from(
-        const size_type i, const PointResult& r) noexcept {
-      constexpr auto none = ::mfront::generic_parallel::no_event;
-      return {.number_of_failures = r.status == -1 ? 1u : 0u,
-              .first_failure = r.status == -1 ? makeKey(i) : none,
-              .number_of_unreliable_results = r.status == 0 ? 1u : 0u,
-              .first_unreliable_result = r.status == 0 ? makeKey(i) : none,
-              .rdt = r.rdt};
-    }
-    //! \brief combine two statistics
-    TFEL_HOST_DEVICE friend constexpr BatchStatistics combine(
-        const BatchStatistics& a, const BatchStatistics& b) noexcept {
-      return {.number_of_failures = a.number_of_failures + b.number_of_failures,
-              .first_failure = a.first_failure < b.first_failure
-                                   ? a.first_failure
-                                   : b.first_failure,
-              .number_of_unreliable_results = a.number_of_unreliable_results +
-                                              b.number_of_unreliable_results,
-              .first_unreliable_result =
-                  a.first_unreliable_result < b.first_unreliable_result
-                      ? a.first_unreliable_result
-                      : b.first_unreliable_result,
-              .rdt = a.rdt < b.rdt ? a.rdt : b.rdt};
-    }
-    size_type number_of_failures = 0;
-    //! \brief key of the first failure (see `makeKey`)
-    unsigned long long first_failure = ::mfront::generic_parallel::no_event;
-    size_type number_of_unreliable_results = 0;
-    //! \brief key of the first unreliable result (see `makeKey`)
-    unsigned long long first_unreliable_result =
-        ::mfront::generic_parallel::no_event;
-    real rdt = 1;
-  };
+  //! \brief statistics on the integration of a batch (see
+  //! `MFront/GenericParallel/Batch.hxx`)
+  using BatchStatistics = ::mfront::generic_parallel::BatchStatistics<real>;
 
   /*!
-   * \return an unsigned integer whose ordering is the same as the ordering
-   * of the given floating point values. This allows to compute the minimum
-   * of floating point values with an integer atomic operation. This is the
-   * encoding of the time step scaling factor in `mfront_gpb_Statistics`
-   * (see `mfront_gpb_initializeStatistics`), available in device code.
+   * \return the statistics associated with the result at one point
+   * \param[in] i: index of the point
+   * \param[in] r: result at this point
    */
-  TFEL_HOST_DEVICE constexpr unsigned long long toOrderedKey(
-      const double v) noexcept {
-    const auto b = std::bit_cast<unsigned long long>(v);
-    constexpr auto sign = 0x8000000000000000ull;
-    return (b & sign) ? ~b : (b | sign);
-  }  // end of toOrderedKey
+  TFEL_HOST_DEVICE constexpr BatchStatistics getPointStatistics(
+      const size_type i, const PointResult& r) noexcept {
+    constexpr auto none = ::mfront::generic_parallel::no_event;
+    return {.number_of_failures = r.status == -1 ? 1u : 0u,
+            .first_failure = r.status == -1 ? makeKey(i) : none,
+            .number_of_unreliable_results = r.status == 0 ? 1u : 0u,
+            .first_unreliable_result = r.status == 0 ? makeKey(i) : none,
+            .rdt = r.rdt};
+  }  // end of getPointStatistics
+
+  using ::mfront::generic_parallel::toOrderedKey;
 
   //! \return the statistics updated by atomic operations
   inline BatchStatistics getBatchStatistics(
@@ -838,31 +802,9 @@ namespace mfront::gpb {
     }
   }  // end of accumulate
 
-  //! \brief function object combining two statistics
-  struct CombineStatistics {
-    TFEL_HOST_DEVICE constexpr BatchStatistics operator()(
-        const BatchStatistics& a, const BatchStatistics& b) const noexcept {
-      return combine(a, b);
-    }
-  };
+  using ::mfront::generic_parallel::CombineStatistics;
 
-  /*!
-   * \brief set the status and the error message of an output status
-   * \param[out] s: output status
-   * \param[in] status: status
-   * \param[in] msg: error message
-   * \return the status
-   */
-  inline int report(OutputStatus& s,
-                    const int status,
-                    const std::string_view msg) noexcept {
-    constexpr auto msize = sizeof(s.msg) - 1;
-    const auto n = msg.size() < msize ? msg.size() : msize;
-    s.status = status;
-    std::memcpy(s.msg, msg.data(), n);
-    s.msg[n] = '\0';
-    return status;
-  }  // end of report
+  using ::mfront::generic_parallel::report;
 
   /*!
    * \brief fill an output status from the statistics of a batch: status,
@@ -907,18 +849,9 @@ namespace mfront::gpb {
     return s.status;
   }  // end of report
 
-  /*!
-   * \brief execution of the computations on a batch, as given by the
-   * calling code: the policy, checked by the backend against its own policy
-   * (see `mfront::generic_parallel::checkBackendExecutionPolicy`), and the
-   * statistics
-   */
-  struct BatchExecution {
-    //! \brief execution policy, or null for the default policy
-    const mfront_gp_AbstractBackendExecutionPolicy* policy;
-    //! \brief statistics, or null
-    AtomicBatchStatistics* statistics;
-  };  // end of struct BatchExecution
+  //! \brief execution of the computations on a batch
+  using BatchExecution =
+      ::mfront::generic_parallel::BatchExecution<AtomicBatchStatistics>;
 
   /*!
    * \return the execution of the computations on a batch
@@ -930,30 +863,57 @@ namespace mfront::gpb {
   }  // end of getBatchExecution
 
   /*!
-   * \brief report the statistics of a batch computed by a backend which
-   * waits for the completion of the computations: the statistics are
-   * reported in the output status or, if the calling code gave statistics,
-   * accumulated in those statistics (see `mfront_gpb_BatchData`).
-   * \return the status
-   * \param[in,out] s: output status
-   * \param[in] e: execution of the batch
-   * \param[in] rdt0: initial value of the time step scaling factor of the
-   * batch
-   * \param[in] r: statistics of the batch
+   * \brief handler of the statistics of the behaviours and of the models,
+   * given to the primitives of the backends (see
+   * `MFront/GenericParallel/Batch.hxx`)
    */
-  inline int report(OutputStatus& s,
-                    const BatchExecution& e,
-                    const real rdt0,
-                    const BatchStatistics& r) noexcept {
-    if (e.statistics == nullptr) {
-      return report(s, r);
+  struct StatisticsHandler {
+    //! \brief a simple alias
+    using OutputStatus = ::mfront::gpb::OutputStatus;
+    //! \brief a simple alias
+    using Statistics = AtomicBatchStatistics;
+    //! \return the statistics of a batch without event
+    constexpr BatchStatistics initial() const noexcept {
+      return {.rdt = this->rdt0};
     }
-    // as with the backends updating the statistics by atomic operations,
-    // the time step scaling factor of the statistics is only lowered by the
-    // points which decreased the initial value of the batch
-    accumulate(*(e.statistics), r, r.rdt < rdt0);
-    return s.status;
-  }  // end of report
+    //! \brief initialize the statistics updated by the devices
+    void initialize(Statistics& s) const noexcept {
+      mfront_gpb_initializeStatistics(&s, this->rdt0);
+    }
+    /*!
+     * \brief report the statistics updated by the devices, once the
+     * computations are completed
+     * \return the status
+     * \param[out] s: output status
+     * \param[in] r: statistics, read on the host
+     */
+    int report(OutputStatus& s, const Statistics& r) const noexcept {
+      return gpb::report(s, getBatchStatistics(r));
+    }
+    /*!
+     * \brief report the statistics of a batch combined by a reduction or,
+     * if the calling code gave statistics, accumulate them in those
+     * statistics (see `mfront_gpb_BatchData`)
+     * \return the status
+     * \param[in,out] s: output status
+     * \param[in] given: statistics given by the calling code, or null
+     * \param[in] r: statistics of the batch
+     */
+    int report(OutputStatus& s,
+               Statistics* const given,
+               const BatchStatistics& r) const noexcept {
+      if (given == nullptr) {
+        return gpb::report(s, r);
+      }
+      // as with the backends updating the statistics by atomic operations,
+      // the time step scaling factor of the statistics is only lowered by
+      // the points which decreased the initial value of the batch
+      accumulate(*given, r, r.rdt < this->rdt0);
+      return s.status;
+    }
+    //! \brief initial value of the time step scaling factor of the batch
+    real rdt0;
+  };  // end of struct StatisticsHandler
 
   /*!
    * \brief analyse the statistics of a batch once the computations are
@@ -1205,9 +1165,9 @@ namespace mfront::gpb {
   struct PointIntegrator : PointFunctionData<PointTraits, ParametersType> {
     //! \return the statistics of the integration at the `i`-th point
     TFEL_HOST_DEVICE BatchStatistics operator()(const size_type i) const {
-      return BatchStatistics::from(i, integrate<Behaviour, PointTraits>(
-                                          this->data, this->input_fields, i,
-                                          this->parameters, this->policy));
+      return getPointStatistics(i, integrate<Behaviour, PointTraits>(
+                                       this->data, this->input_fields, i,
+                                       this->parameters, this->policy));
     }
   };
 
@@ -1279,7 +1239,7 @@ namespace mfront::gpb {
         }
       }
       recordStatus(d, i, r);
-      return BatchStatistics::from(i, r);
+      return getPointStatistics(i, r);
     }
     //! \brief values of the inputs of the initialize function
     ConstField inputs;
@@ -1332,7 +1292,7 @@ namespace mfront::gpb {
         }
       }
       recordStatus(d, i, r);
-      return BatchStatistics::from(i, r);
+      return getPointStatistics(i, r);
     }
     //! \brief values of the outputs of the post-processing
     Field outputs;
@@ -1359,7 +1319,7 @@ namespace mfront::gpb {
       internals::gather(rv, this->data.rotation_matrices, i, 9);
       PointRotation{}(dest.data(), src.data(), rv.data());
       internals::scatter(this->data.destination, i, dest, n);
-      return BatchStatistics::from(i, PointResult{.status = 1, .rdt = 1});
+      return getPointStatistics(i, PointResult{.status = 1, .rdt = 1});
     }
     //! \brief rotation data
     RotationData data;
@@ -1400,11 +1360,11 @@ namespace mfront::gpb {
    * \tparam Behaviour: class implementing the behaviour
    * \tparam PointTraits: description of the data of an integration point
    * \tparam ParametersType: type of the structure holding the parameters
-   * \tparam Apply: callable object such that `apply(n, e, rdt0, f)` applies
+   * \tparam Apply: callable object such that `apply(s, n, e, h, f)` applies
    * the function object `f` at the `n` points of a batch with the execution
-   * `e` (see `BatchExecution`), the initial value of the time step scaling
-   * factor being `rdt0`, and returns the status, reported in the output
-   * status
+   * `e` (see `BatchExecution`) and reports the statistics in the output
+   * status `s` through the handler `h` (see `StatisticsHandler`), and
+   * returns the status
    * \param[out] s: output status
    * \param[in] d: batch data
    * \param[in] parameters: values of the parameters
@@ -1427,8 +1387,8 @@ namespace mfront::gpb {
     }
     using Integrator = PointIntegrator<Behaviour, PointTraits, ParametersType>;
     const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
-    return apply(d.number_of_points, getBatchExecution(d), d.rdt,
-                 Integrator{data});
+    return apply(s, d.number_of_points, getBatchExecution(d),
+                 StatisticsHandler{.rdt0 = d.rdt}, Integrator{data});
   }  // end of integrateBatch
 
   /*!
@@ -1470,8 +1430,8 @@ namespace mfront::gpb {
         InitializeFunctionExecutor<Behaviour, PointTraits, InitializeFunction,
                                    number_of_inputs, ParametersType>;
     const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
-    return apply(d.number_of_points, getBatchExecution(d), d.rdt,
-                 Executor{data, inputs});
+    return apply(s, d.number_of_points, getBatchExecution(d),
+                 StatisticsHandler{.rdt0 = d.rdt}, Executor{data, inputs});
   }  // end of executeInitializeFunctionOnBatch
 
   /*!
@@ -1515,8 +1475,8 @@ namespace mfront::gpb {
                                             PostProcessing, use_initial_state,
                                             number_of_outputs, ParametersType>;
     const auto data = makePointFunctionData<PointTraits>(d, parameters, p);
-    return apply(d.number_of_points, getBatchExecution(d), d.rdt,
-                 Executor{data, outputs});
+    return apply(s, d.number_of_points, getBatchExecution(d),
+                 StatisticsHandler{.rdt0 = d.rdt}, Executor{data, outputs});
   }  // end of executePostProcessingOnBatch
 
   /*!
@@ -1535,7 +1495,8 @@ namespace mfront::gpb {
     if (!checkRotationData(s, d)) {
       return s.status;
     }
-    return apply(d.number_of_points, getBatchExecution(d), real{1},
+    return apply(s, d.number_of_points, getBatchExecution(d),
+                 StatisticsHandler{.rdt0 = 1},
                  RotationExecutor<PointRotation>{d});
   }  // end of rotateBatch
 
@@ -1588,27 +1549,19 @@ namespace mfront::gpb {
   }  // end of getSharedDataCopy
 
   /*!
-   * \brief call the given function and convert exceptions to an error
-   * status. This is meant for the host part of the generated functions.
+   * \brief call the body of a generated function (see
+   * `mfront::generic_parallel::handleExceptions`). The output status is
+   * complete even if an exception is thrown before the batch data are
+   * checked.
    * \return the status, `-5` (invalid argument) if no output status is given
    * \param[out] s: output status
    * \param[in] f: function
    */
   template <typename Function>
   int handleExceptions(OutputStatus* const s, Function&& f) noexcept {
-    if (s == nullptr) {
-      return -5;
-    }
-    // the output status is complete even if an exception is thrown before
-    // the batch data are checked
-    initialize(*s, 1);
-    try {
-      return f();
-    } catch (std::exception& e) {
-      return report(*s, -7, e.what());
-    } catch (...) {
-      return report(*s, -7, "unknown exception");
-    }
+    return ::mfront::generic_parallel::handleExceptions(
+        s, [](OutputStatus& o) { initialize(o, 1); },
+        std::forward<Function>(f));
   }  // end of handleExceptions
 
 }  // end of namespace mfront::gpb

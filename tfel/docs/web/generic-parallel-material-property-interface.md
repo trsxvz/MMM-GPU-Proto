@@ -138,8 +138,21 @@ An empty batch is accepted without any check, as an empty batch by the
 behaviours: nothing is read, written or submitted, and the status is
 `0`. The arrays and the execution policy may then be null.
 
-All the backends treat a batch of one point, and the case where all the
-strides are equal to one, with a kernel without strides.
+The strides are read at runtime by a single kernel, as for the
+behaviours. A kernel specialized for unit strides brought no measurable
+gain (\(2^{24}\) points, on the cores of the host and on a GPU): the
+evaluation of a material property is limited by the memory bandwidth.
+
+The generated code only provides the evaluation of the material property
+at one point. The runtime of the material properties
+(`MFront/GenericParallelMaterialProperty/Evaluate.hxx`) checks the data of
+the batch, reads the arguments and writes the output and the statuses of
+the points, and calls the primitive of the backend, shared with the
+behaviours (see the [page of the
+behaviours](generic-parallel-behaviour-interface.html)). The invalid
+parameters (status `-6`) are reported before the other checks of the
+batch, and the execution policy is checked by the primitive, after the
+fields, as for the behaviours.
 
 ## Execution policies and statistics
 

@@ -218,6 +218,7 @@ described in [docs/](docs/overview.md).
 | [2026-11-04, arcane backend with HIP on AMD GPUs](#2026-11-04-arcane-backend-with-hip-on-amd-gpus) |
 | [2026-11-09, arcane backend with SYCL](#2026-11-09-arcane-backend-with-sycl) |
 | [2026-11-09, ArcaneFEM with the arcane backend in SYCL](#2026-11-09-arcanefem-with-the-arcane-backend-in-sycl) |
+| [2026-11-09, material properties on the primitives of the backends](#2026-11-09-material-properties-on-the-primitives-of-the-backends) |
 
 ## Entries
 
@@ -6376,3 +6377,72 @@ Results, with the linear solver of the test of the module (Aleph, `cg`):
 On the host, the residuals of both libraries are identical. On the SYCL
 queue, they agree to about eleven digits, as with CUDA. The tests of the
 material properties of the SYCL TFEL pass with the fix (19/19).
+
+### 2026-11-09, material properties on the primitives of the backends
+
+Before, the behaviours and the models called a runtime
+(`Integrate.hxx`) and one primitive per backend, while the generated code
+of a material property wrote, for each backend, the whole evaluation of a
+batch: checks, statistics, kernels with and without strides, merge of the
+statuses, stack size, launch, synchronization. The material properties had
+their own hierarchy of generators of backends (`BackendBase`,
+`CUDABackendBase`, `CxxProgrammingModelBackendBase`). The middle layer of
+each backend thus existed twice. This followed the `generic` interfaces of
+the master (runtime header for the behaviours, generated text for the
+material properties).
+
+Measurement first: the kernel specialized for unit strides of the material
+properties (master since April 2026), against the kernel reading the
+strides at run time, forced by an edit of the generated source.
+Inconel600_YoungModulus, 2^24 points, unit strides, minimum of 20 runs:
+
+| Backend | Unit strides | Strides read at run time |
+|---|---|---|
+| `stlpar` (g++, 8 cores) | 5.40 ms | 5.42 ms |
+| `openmp` (g++, 8 cores) | 5.35 ms | 5.38 ms |
+| `cuda` (clang, RTX 5080) | 0.325 ms | 0.325 ms |
+
+The evaluation is limited by the memory bandwidth (about 790 GB/s on the
+GPU). The specialized kernel is removed, as for the behaviours.
+
+TFEL (patch 0137), three layers, the same for the three interfaces:
+
+- `MFront/GenericParallel/<backend>.hxx`: one primitive per backend,
+  shared by the material properties, the behaviours and the models. It
+  takes a handler of the statistics given by the interface: the four
+  members of the statistics of events are shared, the time step factor
+  is only stored by the behaviours. `MFront/GenericParallel/Batch.hxx`:
+  statistics, execution, report, handling of the exceptions (`errno` is
+  now restored for the behaviours too).
+- `MFront/GenericParallelMaterialProperty/Evaluate.hxx`: runtime of the
+  material properties (checks of the batch, evaluation at the points,
+  report by the generated report function), counterpart of
+  `Integrate.hxx`; `GenericParallelMaterialProperty/SYCL.hxx`: transfers.
+- Generated code of a material property: its evaluation at one point, its
+  report function, and a function of batches of the same form as the ones
+  of the behaviours. Inconel600: about 210 lines whatever the backend, 486
+  before with the `arcane` backend.
+- Generators: one hierarchy of backends (`MFront/GenericParallel/<name>Backend.hxx`)
+  for the three interfaces, told the runtime of the interface. The
+  hierarchy of the material properties is removed. The patch removes
+  about 2,850 lines.
+
+Visible changes, aligned on the behaviours: invalid parameters (`-6`) are
+reported before the other checks of a batch; the execution policy is
+checked by the primitive, after the fields; the error on the grid of a
+GPU gives the number of points for the behaviours too. The data structures
+and the functions of the generated libraries are unchanged.
+
+Two defects found by the tests and fixed before the commit: with clang as
+a CUDA compiler, `std::array<T, 0>::operator[]` is not available in device
+code (material property without argument); with automatic SYCL transfers,
+the batch must be checked before the copies (a batch of
+`maximal_number_of_points + 1` points tried to allocate them).
+
+Validation on the workstation, with the TFEL of `install/tfel-mmm-gpu`:
+
+- material properties: the 21 configurations of the tests pass;
+- behaviours and models: a behaviour and a model compile with the 20
+  configuration files; complete tests of `cuda-clang`, `stlpar-parunseq-gcc`
+  and `sycl-default-acpp` pass (comparisons with the `generic` interface
+  and TDLS).

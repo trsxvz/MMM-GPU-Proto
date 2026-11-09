@@ -1,7 +1,10 @@
 /*!
  * \file   mfront/include/MFront/GenericParallelBehaviour/SYCL.hxx
- * \brief  This file implements the integration of a batch of integration
- * points with SYCL.
+ * \brief  This file declares the functions of the `sycl` backend of the
+ * `generic-parallel` behaviour interface which are specific to the
+ * behaviours: transfer of the fields of the batches and copies of the shared
+ * data. The primitive of the backend is declared in
+ * `MFront/GenericParallel/SYCL.hxx`.
  * \date   05/10/2026
  * \copyright Copyright (C) 2006-2025 CEA/DEN, EDF R&D. All rights
  * reserved.
@@ -22,10 +25,8 @@
 #include <utility>
 #include <vector>
 #include <sycl/sycl.hpp>
-#include "MFront/GenericParallel/DeviceStackSize.hxx"
+#include "MFront/GenericParallel/SYCL.hxx"
 #include "MFront/GenericParallel/SYCLDeviceCopies.hxx"
-#include "MFront/GenericParallel/StatusBlockPool.hxx"
-#include "MFront/GenericParallel/SyclBackendExecutionPolicy.hxx"
 #include "MFront/GenericParallelBehaviour/Integrate.hxx"
 
 namespace mfront::gpb::sycl {
@@ -156,186 +157,7 @@ namespace mfront::gpb::sycl {
           external_state_variables1;
     };
 
-    //! \brief a simple alias
-    using AtomicCounter =
-        ::sycl::atomic_ref<unsigned long long,
-                           ::sycl::memory_order::relaxed,
-                           ::sycl::memory_scope::device,
-                           ::sycl::access::address_space::global_space>;
-
-    /*!
-     * \brief kernel applying a function at one point and updating the
-     * statistics of the batch.
-     *
-     * The statistics are updated by atomic operations, which are only
-     * performed if the point failed, gave an unreliable result or decreased
-     * the time step scaling factor. Parallel reductions are not used since
-     * their synchronisation barriers make the compilation of the large
-     * kernels of some behaviours fail with AdaptiveCpp on CPUs.
-     *
-     * \tparam PointFunction: function object applied at one point
-     */
-    template <typename PointFunction>
-    struct Kernel {
-      void operator()(const ::sycl::id<1> i) const {
-        const auto r = this->f(i[0]);
-        if (r.number_of_failures != 0) {
-          AtomicCounter{this->statistics->number_of_failures}.fetch_add(1);
-          AtomicCounter{this->statistics->first_failure}.fetch_min(
-              r.first_failure);
-        }
-        if (r.number_of_unreliable_results != 0) {
-          AtomicCounter{this->statistics->number_of_unreliable_results}
-              .fetch_add(1);
-          AtomicCounter{this->statistics->first_unreliable_result}.fetch_min(
-              r.first_unreliable_result);
-        }
-        const auto rdt = toOrderedKey(r.rdt);
-        if (rdt < this->initial_rdt) {
-          AtomicCounter{this->statistics->rdt}.fetch_min(rdt);
-        }
-      }
-      //! \brief function object applied at one point
-      PointFunction f;
-      //! \brief statistics, accessible by the device
-      AtomicBatchStatistics* statistics;
-      //! \brief ordered key of the initial time step scaling factor
-      unsigned long long initial_rdt;
-    };
-
-    /*!
-     * \return the pool of blocks of shared memory holding the statistics
-     * of the synchronous computations, shared by all the functions of the
-     * library. The blocks are identified by the device and the context of
-     * the queue.
-     */
-    inline auto& getStatisticsBlocks() noexcept {
-      using Pool = mfront::generic_parallel::StatusBlockPool<
-          AtomicBatchStatistics, std::pair<::sycl::device, ::sycl::context>>;
-      static auto pool = Pool{};
-      return pool;
-    }  // end of getStatisticsBlocks
-
-    /*!
-     * \return the policy given by the calling code, checked against the
-     * policy of the backend (see
-     * `mfront::generic_parallel::checkBackendExecutionPolicy`). The `sycl`
-     * backend has no default policy: a null policy is refused.
-     * \param[in] p: policy given by the calling code
-     * \param[in] has_statistics: true if the calling code gave statistics
-     */
-    inline ::mfront::generic_parallel::CheckedBackendExecutionPolicy<
-        ::mfront::generic_parallel::SyclBackendExecutionPolicy>
-    checkExecutionPolicy(
-        const mfront_gp_AbstractBackendExecutionPolicy* const p,
-        const bool has_statistics) noexcept {
-      auto r = ::mfront::generic_parallel::checkBackendExecutionPolicy<
-          ::mfront::generic_parallel::SyclBackendExecutionPolicy>(
-          p, has_statistics);
-      if ((r.error == nullptr) && (r.policy == nullptr)) {
-        r.error =
-            "no execution policy given: the sycl backend requires a queue";
-      }
-      return r;
-    }  // end of checkExecutionPolicy
-
   }  // end of namespace internals
-
-  /*!
-   * \brief apply a function at the points of a batch and report the
-   * statistics of the batch.
-   *
-   * If the computations are asynchronous, this function returns once they
-   * are submitted to the queue. Otherwise, it waits for their completion.
-   *
-   * \tparam PointFunction: function object taking the index of a point and
-   * returning the statistics associated with this point
-   * \param[in,out] s: output status, which must have been initialized
-   * \param[in] n: number of points
-   * \param[in] e: execution of the batch. The policy must be a
-   * `SyclBackendExecutionPolicy`.
-   * \param[in] rdt0: initial value of the time step scaling factor
-   * \param[in] f: function
-   * \param[in] device_stack_size: minimal stack size, in bytes, of the
-   * threads of the device when the computations are performed on an NVIDIA
-   * GPU through the CUDA runtime (see
-   * `mfront::generic_parallel::setMinimalCUDAStackSize`). The stack size is
-   * not modified if this value is null.
-   * \return the status
-   */
-  template <typename PointFunction>
-  int apply(OutputStatus& s,
-            const size_type n,
-            const BatchExecution& e,
-            const real rdt0,
-            const PointFunction& f,
-            const std::size_t device_stack_size = 0) {
-    if (n == 0) {
-      return s.status;
-    }
-    const auto p =
-        internals::checkExecutionPolicy(e.policy, e.statistics != nullptr);
-    if (p.error != nullptr) {
-      return report(s, -5, p.error);
-    }
-    if (!mfront::generic_parallel::setMinimalCUDAStackSize(
-            device_stack_size, p.common_options.preserve_stack_size)) {
-      return report(s, -7, mfront::generic_parallel::stack_size_error_message);
-    }
-    auto q = p.policy->queue;
-    // the kernel must be executed after the computations already submitted
-    // to the queue, which may compute the inputs. This is guaranteed by an
-    // in-order queue. With an out-of-order queue, the computations are
-    // synchronous and the queue is synchronized before the kernel.
-    if (!q.is_in_order()) {
-      if (p.common_options.asynchronous) {
-        return report(s, -5,
-                      "asynchronous computations require an in-order SYCL "
-                      "queue");
-      }
-      q.wait_and_throw();
-    }
-    const auto range = ::sycl::range<1>{n};
-    const auto rdt_key = toOrderedKey(rdt0);
-    using Kernel = internals::Kernel<PointFunction>;
-    if (e.statistics != nullptr) {
-      auto event = q.parallel_for(range, Kernel{f, e.statistics, rdt_key});
-      if (!p.common_options.asynchronous) {
-        event.wait_and_throw();
-      }
-      return s.status;
-    }
-    // synchronous computations: the statistics are held by a block of
-    // shared memory, initialized and read by the host. The device only
-    // accesses this block if an event occurs (see internals::Kernel): no
-    // data is transferred otherwise.
-    const auto block = internals::getStatisticsBlocks().acquire(
-        {q.get_device(), q.get_context()},
-        [&q] { return ::sycl::malloc_shared<AtomicBatchStatistics>(1, q); });
-    auto* const statistics = block.get();
-    if (statistics == nullptr) {
-      return report(s, -7, "unable to allocate the statistics of the batch");
-    }
-    mfront_gpb_initializeStatistics(statistics, rdt0);
-    q.parallel_for(range, Kernel{f, statistics, rdt_key}).wait_and_throw();
-    return report(s, getBatchStatistics(*statistics));
-  }  // end of apply
-
-  /*!
-   * \return the primitive of the backend, as expected by
-   * `mfront::gpb::integrateBatch` and the similar functions of
-   * `MFront/GenericParallelBehaviour/Integrate.hxx`
-   * \param[in,out] s: output status
-   * \param[in] device_stack_size: minimal stack size of the threads of the
-   * device (see `apply`)
-   */
-  inline auto makeApply(OutputStatus& s,
-                        const std::size_t device_stack_size = 0) {
-    return [&s, device_stack_size](const size_type n, const BatchExecution& e,
-                                   const real rdt0, const auto& f) {
-      return sycl::apply(s, n, e, rdt0, f, device_stack_size);
-    };
-  }  // end of makeApply
 
   /*!
    * \return a copy of a data in the memory of the device associated with a
@@ -371,7 +193,8 @@ namespace mfront::gpb::sycl {
     using T = std::remove_cvref_t<decltype(get_shared_data())>;
     using Device = std::pair<::sycl::device, ::sycl::context>;
     static auto copies = SharedDataCopies<T, Device>{};
-    const auto p = internals::checkExecutionPolicy(policy, true);
+    const auto p =
+        mfront::generic_parallel::sycl::checkExecutionPolicy(policy, true);
     if (p.error != nullptr) {
       return static_cast<const T*>(nullptr);
     }
@@ -399,8 +222,8 @@ namespace mfront::gpb::sycl {
                            const BatchData& d,
                            const DataTransferPolicy transfers,
                            Function&& call) {
-      const auto p =
-          checkExecutionPolicy(d.execution_policy, d.statistics != nullptr);
+      const auto p = mfront::generic_parallel::sycl::checkExecutionPolicy(
+          d.execution_policy, d.statistics != nullptr);
       if (p.error != nullptr) {
         initialize(s, d.rdt);
         // the policy is only needed to transfer the fields: an empty batch
@@ -431,7 +254,8 @@ namespace mfront::gpb::sycl {
    * asynchronous if the policy requests it and if no field is copied.
    *
    * \param[in] transfers: policy for the transfer of the fields
-   * \param[in] apply: primitive of the backend (see `makeApply`)
+   * \param[in] apply: primitive of the backend (see
+   * `mfront::generic_parallel::sycl::makeApply`)
    */
   template <typename Behaviour,
             typename PointTraits,
@@ -517,8 +341,8 @@ namespace mfront::gpb::sycl {
                   const RotationData& d,
                   const DataTransferPolicy transfers,
                   const Apply& apply) {
-    const auto p = internals::checkExecutionPolicy(d.execution_policy,
-                                                   d.statistics != nullptr);
+    const auto p = mfront::generic_parallel::sycl::checkExecutionPolicy(
+        d.execution_policy, d.statistics != nullptr);
     if (p.error != nullptr) {
       initialize(s, 1);
       // empty batch accepted without any check of the policy (see
