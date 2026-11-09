@@ -32,6 +32,7 @@
 #endif
 #if defined(ARCCORE_COMPILING_SYCL)
 #include <sycl/sycl.hpp>
+#include <arccore/base/PlatformUtils.h>
 #endif
 
 namespace mfront::generic_parallel::arcane {
@@ -72,6 +73,40 @@ namespace mfront::generic_parallel::arcane {
            "in the same accelerator mode)";
   }  // end of checkQueue
 
+#if defined(ARCCORE_COMPILING_SYCL)
+  /*!
+   * \brief masks the floating point exceptions during the launch of
+   * commands on a SYCL queue, and restores them. The SYCL runtime may
+   * compile a kernel at its launch, with the compiler of the driver (the
+   * PTX compiler of NVIDIA with AdaptiveCpp), which expects them masked.
+   * Arcane unmasks them at its initialization.
+   */
+  struct SYCLLaunchFloatingPointExceptions {
+    explicit SYCLLaunchFloatingPointExceptions(
+        const ::Arcane::Accelerator::RunQueue& q)
+        : masked(q.executionPolicy() ==
+                     ::Arcane::Accelerator::eExecutionPolicy::SYCL &&
+                 ::Arcane::Platform::isFloatingExceptionEnabled()) {
+      if (this->masked) {
+        ::Arcane::Platform::enableFloatingException(false);
+      }
+    }
+    SYCLLaunchFloatingPointExceptions(
+        const SYCLLaunchFloatingPointExceptions&) = delete;
+    SYCLLaunchFloatingPointExceptions& operator=(
+        const SYCLLaunchFloatingPointExceptions&) = delete;
+    ~SYCLLaunchFloatingPointExceptions() {
+      if (this->masked) {
+        ::Arcane::Platform::enableFloatingException(true);
+      }
+    }
+
+   private:
+    //! \brief if true, the exceptions were unmasked and are masked
+    const bool masked;
+  };
+#endif
+
   /*!
    * \brief launch the commands applying a function at the points `[0, n[`
    * on a queue.
@@ -85,7 +120,9 @@ namespace mfront::generic_parallel::arcane {
    * (`barrier`) if needed. With the `Thread` and `Sequential` queues, the
    * commands are completed on return. If the launch of a command fails, the
    * commands already launched are completed before the exception is
-   * propagated, so that the memory they access may be released.
+   * propagated, so that the memory they access may be released. With a
+   * SYCL queue, the floating point exceptions are masked during the launch
+   * (see `SYCLLaunchFloatingPointExceptions`).
    *
    * \tparam Index: type of the indices taken by the function
    * \param[in] q: queue
@@ -101,6 +138,9 @@ namespace mfront::generic_parallel::arcane {
     constexpr auto chunk = Int64{1} << 30;
     const auto size = static_cast<Int64>(n);
     ::Arcane::Accelerator::RunQueue::ScopedAsync asynchronous_launch(&q);
+#if defined(ARCCORE_COMPILING_SYCL)
+    const auto floating_point_exceptions = SYCLLaunchFloatingPointExceptions(q);
+#endif
     try {
       for (auto offset = Int64{}; offset < size; offset += chunk) {
         const auto m = static_cast<Int32>(std::min(chunk, size - offset));

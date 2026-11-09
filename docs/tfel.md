@@ -239,7 +239,10 @@ A few choices deserve an explanation:
   `barrier()` for a synchronous computation. The statistics and the shared
   data are in the unified memory of Arccore. The loops and the kernels of
   Arccore use 32-bit indices: a batch is split in commands of at most 2^30
-  points, so that the index of a thread never overflows.
+  points, so that the index of a thread never overflows. With SYCL, the
+  floating point exceptions are masked during the launch: the PTX
+  compiler of the NVIDIA driver, used by AdaptiveCpp at the first launch
+  of a kernel, expects them masked, and Arcane unmasks them.
   The generated source is a `.cu` file, compiled as CUDA by clang, as HIP
   by hipcc or as C++ by the SYCL compiler (`-x c++`). With CUDA and HIP,
   the code of the behaviours is also emitted for the host, where an

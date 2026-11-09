@@ -217,6 +217,7 @@ described in [docs/](docs/overview.md).
 | [2026-11-04, arcane backend: version of Arccore](#2026-11-04-arcane-backend-version-of-arccore) |
 | [2026-11-04, arcane backend with HIP on AMD GPUs](#2026-11-04-arcane-backend-with-hip-on-amd-gpus) |
 | [2026-11-09, arcane backend with SYCL](#2026-11-09-arcane-backend-with-sycl) |
+| [2026-11-09, ArcaneFEM with the arcane backend in SYCL](#2026-11-09-arcanefem-with-the-arcane-backend-in-sycl) |
 
 ## Entries
 
@@ -6341,3 +6342,37 @@ SYCL ran with the runtime of the tests before the fix of `deallocate`; the
 fixed runtime ran in SYCL through the tests of the material properties.
 With HIP on the gfx1036, the material properties pass (19/19) with the
 same code.
+
+### 2026-11-09, ArcaneFEM with the arcane backend in SYCL
+
+The test `2D_Quater_cylinder_von_mises_mgis` of the `elastoplasticity2`
+module of ArcaneFEM, run as on 04/11 with CUDA, now with SYCL:
+
+- Arcane main built in SYCL mode with AdaptiveCpp 25.10 (C++ compiler
+  `acpp`), and ArcaneFEM built against it with `acpp`. The change of the
+  module (about sixty lines, not versioned here) is the one of the CUDA
+  run.
+- The `VonMises` behaviour is compiled by the `mfront` of the TFEL built
+  against the Arccore in SYCL mode, and linked with the Arccore of Arcane.
+
+First run on the SYCL queue: SIGFPE at the first integration. The trace
+ends in the PTX compiler of the NVIDIA driver (`cuModuleLoadDataEx`,
+`libnvidia-ptxjitcompiler`), called by AdaptiveCpp to compile the kernel of
+the behaviour. Arcane unmasks the floating point exceptions at its
+initialization (`Arcane::Platform::platformInitialize`), and this compiler
+expects them masked. The small kernels of ArcaneFEM pass; the larger one
+of the behaviour does not. TFEL (patch 0136): the exceptions are masked
+while the commands are launched on a SYCL queue, then restored.
+
+Results, with the linear solver of the test of the module (Aleph, `cg`):
+
+| Library | Rest of the code | Newton iterations | Reference solution |
+|---|---|---|---|
+| `generic` | host | 59 | passed |
+| `arcane` (SYCL) | host | 59 | passed |
+| `generic` | SYCL queue (RTX 5080) | 59 | passed |
+| `arcane` (SYCL) | SYCL queue (RTX 5080) | 59 | passed |
+
+On the host, the residuals of both libraries are identical. On the SYCL
+queue, they agree to about eleven digits, as with CUDA. The tests of the
+material properties of the SYCL TFEL pass with the fix (19/19).

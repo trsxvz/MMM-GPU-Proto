@@ -1051,7 +1051,11 @@ substitutions, see the [`TFEL/Config` page](tfel-config.html)):
   AdaptiveCpp or the compiler of oneAPI, with `-fsycl`), the compiler
   linking the `SYCL` runtime. Arccore runs the `SYCL` queues on a GPU. The
   atomic operations are those of `SYCL`, and the stack size of the threads
-  is not modified, as with the `sycl` backend.
+  is not modified, as with the `sycl` backend. The floating point
+  exceptions are masked while the commands are launched on a `SYCL` queue.
+  The `SYCL` runtime may then compile the kernel with the compiler of the
+  driver (the PTX compiler of NVIDIA with AdaptiveCpp), which expects them
+  masked, while Arcane unmasks them at its initialization.
 
 With `CUDA` and `HIP`, the code is compiled for the GPU architectures given
 by the `TFEL_ARCANE_GPU_ARCHITECTURES` variable of `CMake` (`native` by
