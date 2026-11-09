@@ -35,8 +35,12 @@
 #include <cstdlib>
 #include <arccore/common/accelerator/Runner.h>
 #include <arccore/accelerator/AcceleratorInitializer.h>
+#include <arccore/common/MemoryUtils.h>
+#include <arccore/common/IMemoryAllocator.h>
+#include <arccore/common/AllocatedMemoryInfo.h>
+#include <arccore/common/MemoryAllocationArgs.h>
 #include "MFront/GenericParallel/ArcaneBackendExecutionPolicy.hxx"
-// runtime of the GPU of Arccore
+// runtime of the GPU of Arccore (stack size of the threads)
 #if defined(ARCCORE_HAS_CUDA)
 #include <cuda_runtime.h>
 #define MFRONT_GPMP_TEST_ARCANE_GPU_API(f) cuda##f
@@ -172,8 +176,8 @@ struct TestAllocator {
  * runner and queue of the tests, and execution policy on this queue. The
  * execution policy of the queue is given by the
  * `MFRONT_GPMP_TEST_ARCANE_QUEUE` environment variable: `cuda`, `hip`,
- * `thread` or `sequential` (`cuda` or `hip` by default if Arccore is built
- * with CUDA or HIP, `thread`
+ * `sycl`, `thread` or `sequential` (`cuda`, `hip` or `sycl` by default if
+ * Arccore is built with CUDA, HIP or SYCL, `thread`
  * otherwise). The members are destroyed before the runtime is finalized.
  */
 struct ArcaneTestRuntime {
@@ -185,6 +189,8 @@ struct ArcaneTestRuntime {
     const auto q = std::string_view{e == nullptr ? "cuda" : e};
 #elif defined(ARCCORE_HAS_HIP)
     const auto q = std::string_view{e == nullptr ? "hip" : e};
+#elif defined(ARCCORE_HAS_SYCL)
+    const auto q = std::string_view{e == nullptr ? "sycl" : e};
 #else
     const auto q = std::string_view{e == nullptr ? "thread" : e};
 #endif
@@ -193,6 +199,9 @@ struct ArcaneTestRuntime {
     }
     if (q == "hip") {
       return eExecutionPolicy::HIP;
+    }
+    if (q == "sycl") {
+      return eExecutionPolicy::SYCL;
     }
     if (q == "sequential") {
       return eExecutionPolicy::Sequential;
@@ -220,8 +229,8 @@ struct ArcaneTestRuntime {
   //! \brief runtime of the tests, created by `main`
   static inline ArcaneTestRuntime* current = nullptr;
 };
-#if defined(MFRONT_GPMP_TEST_ARCANE_GPU_API)
-//! \brief allocator in managed memory, accessible by all the queues
+//! \brief allocator in the unified memory of Arccore, accessible by all
+//! the queues
 template <typename T>
 struct TestAllocator {
   using value_type = T;
@@ -229,25 +238,33 @@ struct TestAllocator {
   template <typename T2>
   TestAllocator(const TestAllocator<T2>&) noexcept {}
   T* allocate(const std::size_t n) {
-    T* p = nullptr;
-    if (MFRONT_GPMP_TEST_ARCANE_GPU_API(MallocManaged)(&p, n * sizeof(T)) !=
-        MFRONT_GPMP_TEST_ARCANE_GPU_API(Success)) {
+    auto* const p = static_cast<T*>(
+        getAllocator()
+            ->allocate(Arcane::MemoryAllocationArgs{},
+                       static_cast<Arcane::Int64>(n * sizeof(T)))
+            .baseAddress());
+    if (p == nullptr) {
       throw std::bad_alloc();
     }
     return p;
   }
-  void deallocate(T* const p, const std::size_t) noexcept {
-    static_cast<void>(MFRONT_GPMP_TEST_ARCANE_GPU_API(Free)(p));
+  void deallocate(T* const p, const std::size_t n) noexcept {
+    // the allocators of Arccore take the size of the block to free it
+    getAllocator()->deallocate(
+        Arcane::MemoryAllocationArgs{},
+        Arcane::AllocatedMemoryInfo(p, static_cast<Arcane::Int64>(n * sizeof(T))));
   }
   template <typename T2>
   bool operator==(const TestAllocator<T2>&) const noexcept {
     return true;
   }
+
+ private:
+  static Arcane::IMemoryAllocator* getAllocator() {
+    return Arcane::MemoryUtils::getAllocator(
+        Arcane::eMemoryResource::UnifiedMemory);
+  }
 };
-#else  /* defined(MFRONT_GPMP_TEST_ARCANE_GPU_API) */
-template <typename T>
-using TestAllocator = std::allocator<T>;
-#endif /* defined(MFRONT_GPMP_TEST_ARCANE_GPU_API) */
 #else  /* MFRONT_GPMP_TEST_USE_KOKKOS */
 template <typename T>
 using TestAllocator = std::allocator<T>;

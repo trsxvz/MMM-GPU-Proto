@@ -7,7 +7,7 @@
 @Command "@TFEL_ARCANE_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";
 // comparisons with the `generic` interface (see compare-all.sh). The
 // library computes on the GPU or on the cores of the host, as selected by
-// the queue of the execution policy: queue of the GPU (CUDA or HIP, default),
+// the queue of the execution policy: queue of the GPU (CUDA, HIP or SYCL, default),
 // `Thread` queue
 // and, for an integration, a rotation, an initialize function, a
 // post-processing and shared data, `Sequential` queue (see runtime.hxx and

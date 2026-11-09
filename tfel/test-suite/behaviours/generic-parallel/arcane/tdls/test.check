@@ -2,7 +2,7 @@
             "mfront::linear_system_solver::tdls"};
 
 @Environment {"LD_LIBRARY_PATH": "src:reference/src"};
-// behaviours using the TDLS linear system solver, on the CUDA queue
+// behaviours using the TDLS linear system solver, on the queue of the GPU
 // (default) and on a `Thread` queue
 @Command "sh ../../build-libraries.sh @mfront@ config-arcane.json ImplicitNortonTDLS";
 @Command "@TFEL_ARCANE_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPB_COMPARE_USE_ARCANE -I@TFEL_INCLUDE_DIR@ ../../compare.cxx -o compare -L@TFEL_LIBRARY_DIR@ -lMFrontGenericParallelRuntime -ldl @TFEL_ARCANE_LINKER_FLAGS@";

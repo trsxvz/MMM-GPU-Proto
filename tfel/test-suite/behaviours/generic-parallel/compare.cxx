@@ -548,7 +548,7 @@ struct BatchField {
              const std::size_t n_,
              const std::size_t c_,
              const bool by_component_)
-      : values(allocate<double>(v.size())),
+      : values(allocate<double>(n_ * c_)),
         n(n_),
         c(c_),
         by_component(by_component_) {
@@ -561,7 +561,7 @@ struct BatchField {
   }
   BatchField(const BatchField&) = delete;
   BatchField& operator=(const BatchField&) = delete;
-  ~BatchField() { deallocate(this->values); }
+  ~BatchField() { deallocate(this->values, this->n * this->c); }
   //! \brief copy the values in a vector storing them point by point
   void copy(std::vector<double>& v) const {
     for (std::size_t i = 0; i != this->n; ++i) {
@@ -682,7 +682,7 @@ struct BatchFields {
   }
   BatchFields(const BatchFields&) = delete;
   BatchFields& operator=(const BatchFields&) = delete;
-  ~BatchFields() { deallocate(this->status); }
+  ~BatchFields() { deallocate(this->status, this->number_of_points); }
   //! \brief copy the outputs in the states
   void copyResults(States& st) const {
     this->th1.copy(st.th1);
@@ -764,7 +764,7 @@ static mfront_gpb_OutputStatus integrateBatch(
     if (o.status == 1) {
       report(&o, statistics);
     }
-    deallocate(statistics);
+    deallocate(statistics, 1);
   }
   b.copyResults(st);
   return o;
@@ -1344,7 +1344,7 @@ static bool testArcaneQueues(const Test& t,
   if (o4.status == 1) {
     loadReportFunction(t)(&o4, statistics);
   }
-  deallocate(statistics);
+  deallocate(statistics, 1);
   b.copyResults(batch2);
   // synchronous integration on an asynchronous queue: the results are read
   // without synchronization
@@ -1422,7 +1422,7 @@ static bool checkExecutionPolicies(const Test& t,
   const auto r3 = call(synchronous.get(), statistics);
   auto o3 = mfront_gpb_OutputStatus{};
   loadReportFunction(t)(&o3, statistics);
-  deallocate(statistics);
+  deallocate(statistics, 1);
   auto has = [](const mfront_gpb_OutputStatus& o, const char* const m) {
     return std::string_view{o.msg}.find(m) != std::string_view::npos;
   };
@@ -1935,7 +1935,7 @@ static bool testRotation(const Test& t) {
                       (statistics->number_of_failures == 0) &&
                       (statistics->number_of_unreliable_results == 0) &&
                       (rdt == 2) && (o2.status == 1) && (o2.rdt == 2);
-    deallocate(statistics);
+    deallocate(statistics, 1);
     ok = pass && ok;
     std::printf("rotation with statistics: status=%2d | rdt %g | %s\n",
                 o.status, rdt, pass ? "OK" : "FAILED");

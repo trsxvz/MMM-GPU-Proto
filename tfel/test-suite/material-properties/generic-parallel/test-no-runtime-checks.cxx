@@ -46,7 +46,9 @@ struct RuntimeAllocator {
   template <typename T2>
   RuntimeAllocator(const RuntimeAllocator<T2>&) noexcept {}
   T* allocate(const std::size_t n) { return ::allocate<T>(n); }
-  void deallocate(T* const p, const std::size_t) noexcept { ::deallocate(p); }
+  void deallocate(T* const p, const std::size_t n) noexcept {
+    ::deallocate(p, n);
+  }
   template <typename T2>
   bool operator==(const RuntimeAllocator<T2>&) const noexcept {
     return true;

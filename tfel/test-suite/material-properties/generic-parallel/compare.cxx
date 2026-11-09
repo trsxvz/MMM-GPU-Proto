@@ -126,7 +126,7 @@ struct Array {
   Array(const Array&) = delete;
   Array& operator=(Array&&) = delete;
   Array& operator=(const Array&) = delete;
-  ~Array() { deallocate(this->values); }
+  ~Array() { deallocate(this->values, this->size); }
   T* values;
   std::size_t size;
 };

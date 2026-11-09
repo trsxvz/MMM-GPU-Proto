@@ -24,13 +24,14 @@ namespace mfront::generic_parallel {
   /*!
    * \brief execution policy of the `arcane` backend. The `arcane` backend
    * has no default policy: the queue gives the execution policy of Arccore
-   * (`CUDA`, `HIP`, `Thread` or `Sequential`), which is only known at
-   * runtime, so the queue is required.
+   * (`CUDA`, `HIP`, `SYCL`, `Thread` or `Sequential`), which is only known
+   * at runtime, so the queue is required.
    *
    * The identifier only depends on the accelerator mode of Arccore, so that
    * a calling code compiled by a C++ compiler and a library compiled by a
-   * CUDA compiler agree on it. A library compiled by a CUDA (HIP) compiler
-   * accepts the CUDA (HIP), `Thread` and `Sequential` queues.
+   * CUDA, HIP or SYCL compiler agree on it. A library compiled in the CUDA
+   * (HIP, SYCL) mode accepts the CUDA (HIP, SYCL), `Thread` and `Sequential`
+   * queues.
    */
   struct ArcaneBackendExecutionPolicy final : BackendExecutionPolicyBase {
     //! \return the identifier of the policy
@@ -40,7 +41,7 @@ namespace mfront::generic_parallel {
 #elif defined(ARCCORE_HAS_HIP)
       return "arcane:hip";
 #elif defined(ARCCORE_HAS_SYCL)
-#error "the SYCL accelerator mode of Arccore is not supported"
+      return "arcane:sycl";
 #else
       return "arcane:host";
 #endif

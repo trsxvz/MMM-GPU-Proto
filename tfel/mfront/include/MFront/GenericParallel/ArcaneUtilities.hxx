@@ -30,14 +30,17 @@
 #if defined(ARCCORE_COMPILING_CUDA_OR_HIP)
 #include "MFront/GenericParallel/GPUStackSize.hxx"
 #endif
+#if defined(ARCCORE_COMPILING_SYCL)
+#include <sycl/sycl.hpp>
+#endif
 
 namespace mfront::generic_parallel::arcane {
 
   /*!
    * \return a message explaining why the commands can't be launched on a
    * queue by the code of the generated library, or a null pointer. The
-   * `Thread` and `Sequential` queues are always supported, the CUDA (HIP)
-   * queues only if the library is compiled by a CUDA (HIP) compiler.
+   * `Thread` and `Sequential` queues are always supported, the CUDA, HIP
+   * and SYCL queues only if the library is compiled in the same mode.
    * \param[in] q: queue
    */
   inline const char* checkQueue(const ::Arcane::Accelerator::RunQueue& q) {
@@ -57,12 +60,16 @@ namespace mfront::generic_parallel::arcane {
       case eExecutionPolicy::HIP:
         return nullptr;
 #endif
+#if defined(ARCCORE_COMPILING_SYCL)
+      case eExecutionPolicy::SYCL:
+        return nullptr;
+#endif
       default:
         break;
     }
     return "the execution policy of the queue is not supported by the "
-           "library (the CUDA and HIP queues require a library compiled by "
-           "a CUDA or HIP compiler)";
+           "library (the CUDA, HIP and SYCL queues require a library compiled "
+           "in the same accelerator mode)";
   }  // end of checkQueue
 
   /*!
@@ -112,6 +119,15 @@ namespace mfront::generic_parallel::arcane {
     }
   }  // end of launch
 
+#if defined(ARCCORE_COMPILING_SYCL)
+  //! \brief atomic counter of the statistics, as in the `sycl` backend
+  using SYCLAtomicCounter =
+      ::sycl::atomic_ref<unsigned long long,
+                         ::sycl::memory_order::relaxed,
+                         ::sycl::memory_scope::device,
+                         ::sycl::access::address_space::global_space>;
+#endif
+
   /*!
    * \brief atomically add a value to a counter of the statistics. The
    * atomic operations of Arccore do not support the unsigned 64 bits
@@ -123,6 +139,8 @@ namespace mfront::generic_parallel::arcane {
                                             const unsigned long long v) {
 #if defined(ARCCORE_DEVICE_TARGET_CUDA) || defined(ARCCORE_DEVICE_TARGET_HIP)
     ::atomicAdd(p, v);
+#elif defined(ARCCORE_COMPILING_SYCL)
+    SYCLAtomicCounter{*p}.fetch_add(v);
 #else
     std::atomic_ref<unsigned long long>(*p).fetch_add(
         v, std::memory_order_relaxed);
@@ -139,6 +157,8 @@ namespace mfront::generic_parallel::arcane {
                                             const unsigned long long v) {
 #if defined(ARCCORE_DEVICE_TARGET_CUDA) || defined(ARCCORE_DEVICE_TARGET_HIP)
     ::atomicMin(p, v);
+#elif defined(ARCCORE_COMPILING_SYCL)
+    SYCLAtomicCounter{*p}.fetch_min(v);
 #else
     auto c = std::atomic_ref<unsigned long long>(*p);
     auto current = c.load(std::memory_order_relaxed);
@@ -200,7 +220,7 @@ namespace mfront::generic_parallel::arcane {
    * \brief increase the stack size of the threads of the current device of
    * the calling thread (which must be the device of the queue) if the given
    * function, applied at one point on a CUDA or HIP queue, requires it.
-   * Nothing is done for the other queues.
+   * Nothing is done for the other queues (SYCL gives no way to set it).
    * \return an error message, empty on success
    * \param[in] q: queue
    * \param[in] f: function applied at one point

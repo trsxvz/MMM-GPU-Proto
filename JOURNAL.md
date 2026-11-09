@@ -216,6 +216,7 @@ described in [docs/](docs/overview.md).
 | [2026-11-03, review of the layout of the data at the integration points](#2026-11-03-review-of-the-layout-of-the-data-at-the-integration-points) |
 | [2026-11-04, arcane backend: version of Arccore](#2026-11-04-arcane-backend-version-of-arccore) |
 | [2026-11-04, arcane backend with HIP on AMD GPUs](#2026-11-04-arcane-backend-with-hip-on-amd-gpus) |
+| [2026-11-09, arcane backend with SYCL](#2026-11-09-arcane-backend-with-sycl) |
 
 ## Entries
 
@@ -6299,3 +6300,44 @@ code of the prototype on this GPU:
 
 CUDA: the configuration gives the same flags as before, and the modified
 test sources compile with CUDA, for the host and the device.
+
+### 2026-11-09, arcane backend with SYCL
+
+- Arccore built in SYCL mode with AdaptiveCpp 25.10 of the mmm-gpu
+  environment (`ARCCORE_MODE=sycl scripts/build-arccore.sh`). The SYCL
+  runtime of Arccore selects a GPU: the RTX 5080, through the CUDA backend
+  of AdaptiveCpp.
+- TFEL (patch 0135): the `arcane` configuration accepts this mode. The
+  sources are compiled as C++ (`-x c++`) by the SYCL compiler that built
+  Arccore (`TFEL_ARCANE_SYCL_COMPILER`: `acpp` or `icpx`). The identifier
+  of the policy is `arcane:sycl`. The atomic operations of the statistics
+  use `sycl::atomic_ref`, as the `sycl` backend. The stack size of the
+  threads is not changed: SYCL gives no way to set it.
+- `TFEL_ARCANE_GPU_ARCHITECTURES` gives the GPU architectures with CUDA and
+  HIP. The default is `native`. On a node without GPU, give the target
+  (`gfx90a` for the MI250X, `gfx942` for the MI300A).
+- `config-arcane.json` no longer gives `-std`: `tfel-config` gives it, and
+  `acpp` refuses a second one. The configurations using `acpp` already do
+  so.
+- Tests: the data are in the unified memory of Arccore in all modes. With
+  CUDA, its allocator keeps the small blocks in a memory pool, which needs
+  the size of a block to free it. Freed without its size, a block stays in
+  the pool, and the next allocation at the same address is a fatal error
+  of Arccore. `deallocate` of the runtime of the tests therefore takes the
+  number of values, as `std::allocator`. Only the tests were concerned:
+  MGIS already gives the size.
+
+Results on the RTX 5080, with separate builds of TFEL holding only the
+`arcane` configuration:
+
+| Mode of Arccore | Material properties | Behaviours | TDLS |
+|---|---|---|---|
+| SYCL (AdaptiveCpp) | 19/19 | 13/13 | 5/5 |
+| CUDA (clang 20, CUDA 12.9) | 19/19 | 13/13 | 5/5 |
+
+Each line covers the queue of the GPU, the `Thread` queue and, where the
+tests use it, the `Sequential` queue. The comparisons of the behaviours in
+SYCL ran with the runtime of the tests before the fix of `deallocate`; the
+fixed runtime ran in SYCL through the tests of the material properties.
+With HIP on the gfx1036, the material properties pass (19/19) with the
+same code.

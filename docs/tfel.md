@@ -223,28 +223,33 @@ A few choices deserve an explanation:
   have it. With CUDA, nvcc compiles all the sources of the library,
   including those shared with the `generic` interface, as `nvcc_wrapper`
   does for Kokkos.
-- Arcane is used through its core component, Arccore, built alone with
-  CUDA by `scripts/build-arccore.sh` (accelerator mode CUDA, clang 20 and
-  CUDA 12.9, as `cuda-clang`). The queue chooses the device at run time:
-  a library compiled for CUDA computes on the GPU with a CUDA queue, on the
-  threads of the host with a `Thread` queue, sequentially with a
-  `Sequential` queue. A CUDA queue with a library compiled without CUDA,
-  and a null queue, are refused (`-5`). The memory space is therefore
-  `device`, as for OpenACC with a compiler other than `nvc++`. The atomic
-  operations are those of CUDA on the GPU and `std::atomic_ref` on the
-  host: those of Arccore have no unsigned 64-bit integers, and its
+- Arcane is used through its core component, Arccore, built alone by
+  `scripts/build-arccore.sh` in one of its accelerator modes: CUDA (clang
+  20 and CUDA 12.9, as `cuda-clang`), HIP for an AMD GPU (hipcc) or SYCL
+  (AdaptiveCpp). The queue chooses the device at run time: a library
+  computes on the GPU with a queue of its mode, on the threads of the host
+  with a `Thread` queue, sequentially with a `Sequential` queue. A GPU
+  queue of another mode, and a null queue, are refused (`-5`). The memory
+  space is therefore `device`, as for OpenACC with a compiler other than
+  `nvc++`. The atomic operations are those of CUDA or HIP on the GPU,
+  `sycl::atomic_ref` with SYCL and `std::atomic_ref` on the host: those of
+  Arccore have no unsigned 64-bit integers, and its
   reducers synchronise the queue. The commands are launched asynchronously
   (`RunQueue::ScopedAsync`, the state of the queue is restored), then
   `barrier()` for a synchronous computation. The statistics and the shared
   data are in the unified memory of Arccore. The loops and the kernels of
   Arccore use 32-bit indices: a batch is split in commands of at most 2^30
   points, so that the index of a thread never overflows.
-  The generated source is a `.cu` file compiled by clang as a CUDA
-  compiler. The code of the behaviours is also emitted for the host, where
-  an unqualified `max` (the generated code has `using namespace std`)
-  would select the device function of CUDA: the device functions are
-  excluded from the overloads of the host compilation
-  (`-Xarch_host -fgpu-exclude-wrong-side-overloads`). The configuration
+  The generated source is a `.cu` file, compiled as CUDA by clang, as HIP
+  by hipcc or as C++ by the SYCL compiler (`-x c++`). With CUDA and HIP,
+  the code of the behaviours is also emitted for the host, where an
+  unqualified `max` (the generated code has `using namespace std`) would
+  select the device function: the device functions are excluded from the
+  overloads of the host compilation
+  (`-Xarch_host -fgpu-exclude-wrong-side-overloads`). The GPU
+  architectures are those of the machine, or the ones given by
+  `TFEL_ARCANE_GPU_ARCHITECTURES` (for instance `gfx90a` on a node
+  without GPU). The configuration
   file of Arccore is not used (`find_package` would enable the CUDA
   language in TFEL): the headers and libraries are searched in
   `Arccore_ROOT`, the accelerator mode read in `arccore_config.h`.
@@ -297,7 +302,7 @@ initialized when the library is loaded.
 | `sycl` | `SyclBackendExecutionPolicy` | `sycl:oneapi`, `sycl:acpp` | `queue` (required) |
 | `kokkos` | `KokkosBackendExecutionPolicy<ExecutionSpace>` | `kokkos:` and the name of the execution space | `execution_space` |
 | `raja` | `RAJABackendExecutionPolicy<Resource>` | `raja:host`, `raja:cuda`, `raja:hip` | `resource` (camp) |
-| `arcane` | `ArcaneBackendExecutionPolicy` | `arcane:cuda`, `arcane:hip`, `arcane:host` (accelerator mode of Arccore) | `queue` (required) |
+| `arcane` | `ArcaneBackendExecutionPolicy` | `arcane:cuda`, `arcane:hip`, `arcane:sycl`, `arcane:host` (accelerator mode of Arccore) | `queue` (required) |
 | `stlpar`, `openmp`, `openacc` | `ParallelSTLBackendExecutionPolicy`, ... | `stlpar`, `openmp`, `openacc` | none |
 
 All the policies have the common options `preserve_stack_size` (the stack
@@ -839,7 +844,7 @@ TFEL is built and tested with 18 configurations of the behaviour interface
 | `openmp-host-gcc` | g++ 14 | CPU |
 | `openmp-offload-nvhpc-gpu` | nvc++ 25.11 | NVIDIA GPU |
 | `openacc-nvhpc-gpu`, `openacc-nvhpc-multicore` | nvc++ 25.11 | NVIDIA GPU (unified memory), CPU |
-| `arcane` | Arccore 2.8 (Arcane 4.1.16), clang 20 with CUDA 12.9 | NVIDIA GPU, CPU (`Thread` and `Sequential` queues) |
+| `arcane` | Arccore 2.8 (Arcane 4.1.16): clang 20 with CUDA 12.9, hipcc of ROCm 10.1, AdaptiveCpp 25.10 | NVIDIA GPU, AMD GPU (gfx1036), CPU (`Thread` and `Sequential` queues) |
 
 The `hip` backend also compiles behaviours for an AMD GPU: when MFEM is
 compiled with HIP, mfem-mgis generates them with the compiler and the

@@ -10,7 +10,7 @@
 @Command "@mfront@ --search-path=.. --interface=generic-parallel --configuration-file=config-arcane.json ../MaterialLawCallTest.mfront";
 @Command "@mfront@ --obuild --configuration-file=config-arcane.json";
 @Command "@TFEL_ARCANE_CXX_COMPILER@ -O2 -std=c++@TFEL_CXX_STANDARD@ @TFEL_ARCANE_CXX_FLAGS@ -DMFRONT_GPMP_TEST_BACKEND=arcane -DMFRONT_GPMP_TEST_USE_ARCANE -I@TFEL_INCLUDE_DIR@ -Iinclude ../test-cxx.cxx -o test-arcane -L@TFEL_LIBRARY_DIR@ -lTFELTests -lMFrontGenericParallelRuntime -Lsrc -lGenericParallelUO2-arcane -lGenericParallelInconel600-arcane -lGenericParallelMaterialLaw-arcane @TFEL_ARCANE_LINKER_FLAGS@";
-// CUDA queue (default), `Thread` and `Sequential` queues (see the
+// queue of the GPU (default), `Thread` and `Sequential` queues (see the
 // `ArcaneTestRuntime` structure of test-cxx.cxx)
 @Command "./test-arcane test-arcane-arcane";
 @Command "env MFRONT_GPMP_TEST_ARCANE_QUEUE=thread ./test-arcane test-arcane-arcane-thread";

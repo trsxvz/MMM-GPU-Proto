@@ -891,7 +891,7 @@ The `Arcane` backend evaluates the material property with a command of the
 accelerator API of Arccore (`RUNCOMMAND_LOOP1`) on the queue of the
 execution policy (`ArcaneBackendExecutionPolicy`), which is required: the
 backend has no default policy. The execution policy of the queue (`CUDA`,
-`HIP`, `Thread` or `Sequential`) is selected at runtime, as for the
+`HIP`, `SYCL`, `Thread` or `Sequential`) is selected at runtime, as for the
 behaviours: the arguments and the output must be accessible by the device
 of the queue, and the memory space of the library is `device`. The
 statuses of the points are merged with native atomic operations. Without
@@ -903,8 +903,8 @@ queue (`barrier`). The queue has a reference semantics: it must not be used
 by another thread during the call. With a `CUDA` or `HIP` queue, the stack
 size of the threads of the current device of the calling thread, which must
 be the device of the queue, is increased if the kernel requires it. The source files (`.cu`
-files) are compiled by `clang++` as a `CUDA` compiler or by `hipcc`,
-depending on the accelerator mode of Arccore, and linked with the
+files) are compiled by `clang++` as a `CUDA` compiler, by `hipcc` or by the
+`SYCL` compiler of Arccore, depending on its accelerator mode, and linked with the
 shared libraries of Arccore (see the `config-arcane.json` configuration
 file and the section of the behaviours).
 

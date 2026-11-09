@@ -440,7 +440,7 @@ policy, which selects the default policy of the backend.
 | `stlpar`  | `ParallelSTLBackendExecutionPolicy`            | `stlpar`                                            | none                                |
 | `openmp`  | `OpenMPBackendExecutionPolicy`                 | `openmp`                                            | none                                |
 | `openacc` | `OpenACCBackendExecutionPolicy`                | `openacc`                                           | none                                |
-| `arcane`  | `ArcaneBackendExecutionPolicy`                 | `arcane:cuda`, `arcane:hip` or `arcane:host`        | `queue` (an `Arcane::Accelerator::RunQueue`) |
+| `arcane`  | `ArcaneBackendExecutionPolicy`                 | `arcane:cuda`, `arcane:hip`, `arcane:sycl` or `arcane:host` | `queue` (an `Arcane::Accelerator::RunQueue`) |
 
 `ExecutionSpace` is the execution space selected by the `execution_space`
 option of the `kokkos` backend. `Resource` is the resource of camp
@@ -450,9 +450,9 @@ associated with the execution policy of RAJA selected by the
 of the `sycl` backend depends on the implementation of `SYCL`
 (`SYCL_IMPLEMENTATION_ONEAPI` or `SYCL_IMPLEMENTATION_ACPP` macro). The
 identifier of the policy of the `arcane` backend depends on the accelerator
-mode of Arccore (`ARCCORE_HAS_CUDA` or `ARCCORE_HAS_HIP` macro), not on the
-compiler: a calling code compiled by a `C++` compiler and a library compiled
-by a `CUDA` compiler agree on it. Each
+mode of Arccore (`ARCCORE_HAS_CUDA`, `ARCCORE_HAS_HIP` or `ARCCORE_HAS_SYCL`
+macro), not on the compiler: a calling code compiled by a `C++` compiler
+and a library compiled by a `CUDA`, `HIP` or `SYCL` compiler agree on it. Each
 library exports the identifier of the policy expected by its functions
 (`<name>_generic_parallel_execution_policy` symbol).
 
@@ -802,7 +802,7 @@ by the `MFRONT_INCLUDE_PATH` environment variable, then in this directory.
 | `config-openmp-offload-nvhpc-gpu.json`  | `openmp` | `nvc++ -mp=gpu`, NVIDIA GPU                           |
 | `config-openacc-nvhpc-gpu.json`         | `openacc` | `nvc++ -acc=gpu`, NVIDIA GPU, unified memory         |
 | `config-openacc-nvhpc-multicore.json`   | `openacc` | `nvc++ -acc=multicore`, cores of the host            |
-| `config-arcane.json`                    | `arcane` | `clang++` as a `CUDA` compiler, queue given at runtime |
+| `config-arcane.json`                    | `arcane` | compiler of the mode of Arccore, queue given at runtime |
 
 The `sycl-gpu-acpp` configuration installs the files of the
 `sycl-default-acpp` configuration: it only adds tests of the material
@@ -1002,11 +1002,12 @@ The behaviour is integrated by a command of the accelerator API of
 Arccore, the core component of the Arcane framework (`RUNCOMMAND_LOOP1`),
 on the queue of the execution policy (`ArcaneBackendExecutionPolicy`),
 which is required: the backend has no default policy. The execution policy
-of the queue (`CUDA`, `HIP`, `Thread` or `Sequential`) is selected at
-runtime: a library compiled for `CUDA` integrates the behaviour on the GPU
+of the queue (`CUDA`, `HIP`, `SYCL`, `Thread` or `Sequential`) is selected
+at runtime: a library compiled for `CUDA` integrates the behaviour on the GPU
 with a `CUDA` queue, on the threads of the host with a `Thread` queue, and
-sequentially with a `Sequential` queue. The `CUDA` (`HIP`) queues require a
-library compiled by a `CUDA` (`HIP`) compiler; the other queues are refused
+sequentially with a `Sequential` queue. The `CUDA` (`HIP`, `SYCL`) queues
+require a library compiled in the same accelerator mode; the other queues
+are refused
 (status `-5`), as a null queue. The fields must be accessible by the device
 of the queue: the memory space of the library is `device`, the device being
 only known at runtime (unified memory of Arccore, or managed memory, for a
@@ -1044,17 +1045,28 @@ substitutions, see the [`TFEL/Config` page](tfel-config.html)):
 - with `HIP`, the sources are compiled by `hipcc` (`-x hip`) on the AMD
   platform, `hipcc` linking the `HIP` runtime. `HIP` on the NVIDIA platform
   is not supported: the kernels of Arccore are only compiled for `HIP` by
-  the `HIP` language of clang (`__HIP__`), which only targets AMD GPUs.
+  the `HIP` language of clang (`__HIP__`), which only targets AMD GPUs;
+- with `SYCL`, the sources are compiled as `C++` sources (`-x c++`) by the
+  `SYCL` compiler that built Arccore (`TFEL_ARCANE_SYCL_COMPILER`,
+  AdaptiveCpp or the compiler of oneAPI, with `-fsycl`), the compiler
+  linking the `SYCL` runtime. Arccore runs the `SYCL` queues on a GPU. The
+  atomic operations are those of `SYCL`, and the stack size of the threads
+  is not modified, as with the `sycl` backend.
+
+With `CUDA` and `HIP`, the code is compiled for the GPU architectures given
+by the `TFEL_ARCANE_GPU_ARCHITECTURES` variable of `CMake` (`native` by
+default, the GPU of the machine). It must be given on a machine without GPU,
+for instance `sm_90` or `gfx90a`.
 
 The code of the behaviours is also executed on the host by the `Thread` and
-`Sequential` queues: the device functions of `CUDA` or `HIP` are excluded
-from the overloads in the compilation for the host (`-Xarch_host
+`Sequential` queues: with `CUDA` and `HIP`, the device functions are
+excluded from the overloads in the compilation for the host (`-Xarch_host
 -fgpu-exclude-wrong-side-overloads`), so that an unqualified call to `max`
 or `min` in the code of a behaviour is resolved to the function of the
 standard library. The libraries are linked with the shared libraries of
 Arccore (`TFEL_ARCANE_LINKER_FLAGS` substitution). The `arcane`
 configuration requires Arccore 2.8.0 or later (Arcane 4.1.16), built with
-`CUDA` or `HIP` (`ARCCORE_ACCELERATOR_MODE`) as shared libraries, found in
+`CUDA`, `HIP` or `SYCL` (`ARCCORE_ACCELERATOR_MODE`) as shared libraries, found in
 `Arccore_ROOT`.
 
 This backend has no option.

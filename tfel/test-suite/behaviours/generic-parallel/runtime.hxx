@@ -22,7 +22,7 @@
  * of Arccore is initialized, the computations are launched on a queue whose
  * execution policy is given by the `MFRONT_GPB_COMPARE_ARCANE_QUEUE`
  * environment variable (see `getArcaneExecutionPolicy`) and the data are
- * allocated in managed memory if Arccore is built with CUDA or HIP.
+ * allocated in the unified memory of Arccore.
  *
  * \date   20/10/2026
  */
@@ -48,13 +48,15 @@
 #include <arccore/common/accelerator/Runner.h>
 #include <arccore/accelerator/AcceleratorInitializer.h>
 #include <arccore/accelerator/AcceleratorUtils.h>
+#include <arccore/common/MemoryUtils.h>
+#include <arccore/common/IMemoryAllocator.h>
+#include <arccore/common/AllocatedMemoryInfo.h>
+#include <arccore/common/MemoryAllocationArgs.h>
 #include "MFront/GenericParallel/ArcaneBackendExecutionPolicy.hxx"
 #if defined(ARCCORE_HAS_CUDA)
 #include <cuda_runtime.h>
-#define GPU_API(f) cuda##f
 #elif defined(ARCCORE_HAS_HIP)
 #include <hip/hip_runtime.h>
-#define GPU_API(f) hip##f
 #endif
 #elif defined(__HIP__) || defined(MFRONT_GPB_COMPARE_USE_HIP)
 #include <hip/hip_runtime.h>
@@ -96,7 +98,10 @@ static T* allocate(const std::size_t n) {
       std::max<std::size_t>(n, 1) * sizeof(T)));
 }
 
-static void deallocate(void* const p) { Kokkos::kokkos_free<MemorySpace>(p); }
+template <typename T>
+static void deallocate(T* const p, const std::size_t) {
+  Kokkos::kokkos_free<MemorySpace>(p);
+}
 
 template <typename T>
 static void prefetch(T* const, const std::size_t) {}
@@ -137,7 +142,10 @@ static T* allocate(const std::size_t n) {
   return p;
 }
 
-static void deallocate(void* const p) { std::free(p); }
+template <typename T>
+static void deallocate(T* const p, const std::size_t) {
+  std::free(p);
+}
 
 template <typename T>
 static void prefetch(T* const, const std::size_t) {}
@@ -154,7 +162,10 @@ static T* allocate(const std::size_t n) {
   return p;
 }
 
-static void deallocate(void* const p) { ::sycl::free(p, getQueue()); }
+template <typename T>
+static void deallocate(T* const p, const std::size_t) {
+  ::sycl::free(p, getQueue());
+}
 
 template <typename T>
 static void prefetch(T* const p, const std::size_t n) {
@@ -201,9 +212,9 @@ otherDeviceExecutionPolicy() {
 
 /*!
  * \return the execution policy of the queue of the tests, given by the
- * `MFRONT_GPB_COMPARE_ARCANE_QUEUE` environment variable: `cuda` or `hip`
- * (queue of the GPU, the default, if Arccore is built with CUDA or HIP),
- * `thread` (the default otherwise) or `sequential`
+ * `MFRONT_GPB_COMPARE_ARCANE_QUEUE` environment variable: `cuda`, `hip` or
+ * `sycl` (queue of the GPU, the default, if Arccore is built with CUDA, HIP
+ * or SYCL), `thread` (the default otherwise) or `sequential`
  */
 static Arcane::Accelerator::eExecutionPolicy getArcaneExecutionPolicy() {
   using Arcane::Accelerator::eExecutionPolicy;
@@ -212,6 +223,8 @@ static Arcane::Accelerator::eExecutionPolicy getArcaneExecutionPolicy() {
   const auto q = std::string_view{e == nullptr ? "cuda" : e};
 #elif defined(ARCCORE_HAS_HIP)
   const auto q = std::string_view{e == nullptr ? "hip" : e};
+#elif defined(ARCCORE_HAS_SYCL)
+  const auto q = std::string_view{e == nullptr ? "sycl" : e};
 #else
   const auto q = std::string_view{e == nullptr ? "thread" : e};
 #endif
@@ -220,6 +233,9 @@ static Arcane::Accelerator::eExecutionPolicy getArcaneExecutionPolicy() {
   }
   if (q == "hip") {
     return eExecutionPolicy::HIP;
+  }
+  if (q == "sycl") {
+    return eExecutionPolicy::SYCL;
   }
   if (q == "thread") {
     return eExecutionPolicy::Thread;
@@ -264,39 +280,38 @@ static Arcane::Accelerator::RunQueue& getQueue() {
   return Runtime::current->queue;
 }
 
-#if defined(GPU_API)
-
-static void check(const GPU_API(Error_t) e) {
-  if (e != GPU_API(Success)) {
-    fail(std::string{"GPU error: "} + GPU_API(GetErrorString)(e));
-  }
+//! \return the allocator of the unified memory of Arccore
+static Arcane::IMemoryAllocator* getUnifiedMemoryAllocator() {
+  return Arcane::MemoryUtils::getAllocator(
+      Arcane::eMemoryResource::UnifiedMemory);
 }
 
-//! \brief data in managed memory, accessible by all the queues
+//! \return the size in bytes of a block of `n` values (at least one)
 template <typename T>
-static T* allocate(const std::size_t n) {
-  T* p = nullptr;
-  check(GPU_API(MallocManaged)(&p, std::max<std::size_t>(n, 1) * sizeof(T)));
-  return p;
+static Arcane::Int64 getAllocationSize(const std::size_t n) {
+  return static_cast<Arcane::Int64>(std::max<std::size_t>(n, 1) * sizeof(T));
 }
 
-static void deallocate(void* const p) { check(GPU_API(Free)(p)); }
-
-#else /* defined(GPU_API) */
-
+//! \brief data in the unified memory of Arccore, accessible by all the queues
 template <typename T>
 static T* allocate(const std::size_t n) {
-  auto* const p =
-      static_cast<T*>(std::malloc(std::max<std::size_t>(n, 1) * sizeof(T)));
+  auto* const p = static_cast<T*>(
+      getUnifiedMemoryAllocator()
+          ->allocate(Arcane::MemoryAllocationArgs{}, getAllocationSize<T>(n))
+          .baseAddress());
   if (p == nullptr) {
     fail("allocation failed");
   }
   return p;
 }
 
-static void deallocate(void* const p) { std::free(p); }
-
-#endif /* defined(GPU_API) */
+//! \brief the allocators of Arccore take the size of the block to free it
+template <typename T>
+static void deallocate(T* const p, const std::size_t n) {
+  getUnifiedMemoryAllocator()->deallocate(
+      Arcane::MemoryAllocationArgs{},
+      Arcane::AllocatedMemoryInfo(p, getAllocationSize<T>(n)));
+}
 
 template <typename T>
 static void prefetch(T* const, const std::size_t) {}
@@ -329,7 +344,10 @@ static T* allocate(const std::size_t n) {
   return p;
 }
 
-static void deallocate(void* const p) { check(GPU_API(Free)(p)); }
+template <typename T>
+static void deallocate(T* const p, const std::size_t) {
+  check(GPU_API(Free)(p));
+}
 
 //! \brief move the data to the device before the computation
 template <typename T>
@@ -374,7 +392,10 @@ static T* allocate(const std::size_t n) {
   return p;
 }
 
-static void deallocate(void* const p) { std::free(p); }
+template <typename T>
+static void deallocate(T* const p, const std::size_t) {
+  std::free(p);
+}
 
 template <typename T>
 static void prefetch(T* const, const std::size_t) {}
@@ -395,7 +416,8 @@ static const mfront_gp_AbstractBackendExecutionPolicy* executionPolicy() {
 /*!
  * \return true if no computation is pending on the queue of the tests
  * (checked on the native stream of a CUDA or HIP queue, the commands of
- * the other queues are completed when launched)
+ * the `Thread` and `Sequential` queues are completed when launched; standard
+ * SYCL gives no way to check it for a SYCL queue)
  */
 static bool isQueueIdle() {
 #if defined(ARCCORE_HAS_CUDA)
@@ -417,8 +439,8 @@ static bool isQueueIdle() {
 }
 
 /*!
- * \return true if the computations are performed on a GPU (CUDA or HIP
- * queue)
+ * \return true if the computations are performed on a GPU (CUDA, HIP or
+ * SYCL queue)
  */
 [[maybe_unused]] static bool computesOnGPU() {
   return getQueue().isAcceleratorPolicy();

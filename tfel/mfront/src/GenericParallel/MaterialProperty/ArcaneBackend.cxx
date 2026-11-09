@@ -29,8 +29,8 @@ namespace mfront::generic_parallel::material_property {
   std::string ArcaneBackend::getName() const { return "arcane"; }
 
   std::string ArcaneBackend::getSourceFileExtension() const {
-    // the source is compiled by the CUDA compiler, as with the `cuda`
-    // backend
+    // same extension as with the `cuda` backend. The compilation flags
+    // of the configuration set the language (CUDA, HIP or SYCL)
     return "cu";
   }  // end of getSourceFileExtension
 

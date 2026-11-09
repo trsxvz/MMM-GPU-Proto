@@ -15,6 +15,11 @@
 #   (-isystem), since the old HIP headers of the system (/usr/include/hip)
 #   would be read first. Build in build/arccore-hip-amd-<arch>,
 #   installation in install/arccore-hip-amd-<arch>.
+# - sycl: SYCL, C++ compiled by AdaptiveCpp (acpp of the mmm-gpu
+#   environment), C by the clang of the same environment. AdaptiveCpp
+#   compiles for its generic target: the kernels are compiled at run time
+#   for the GPU found by the SYCL runtime (the NVIDIA GPU of the machine).
+#   Build in build/arccore-sycl, installation in install/arccore-sycl.
 # HIP on the NVIDIA platform is not supported: Arccore builds, but the
 # kernels of Arccore are only compiled for HIP by the HIP language of clang
 # (`__HIP__`, see ARCCORE_COMPILING_HIP in arccore/base/ArccoreGlobal.h),
@@ -25,7 +30,7 @@
 # system. The sources are a shallow clone of the arcane-v4.1.16.0 tag of the
 # Arcane framework, made in deps/arcane-framework if no source directory is
 # given.
-# usage: [ARCCORE_MODE=cuda|hip-amd] [HIP_ARCH=gfx1036] \
+# usage: [ARCCORE_MODE=cuda|hip-amd|sycl] [HIP_ARCH=gfx1036] \
 #   scripts/build-arccore.sh [source directory]
 set -e
 P=$(cd "$(dirname "$0")/.." && pwd)
@@ -77,8 +82,14 @@ case "$MODE" in
       -DCMAKE_CXX_FLAGS="-isystem $ROCM/include"
       -DCMAKE_HIP_FLAGS="-isystem $ROCM/include")
     ;;
+  sycl)
+    suffix=-sycl
+    settings=()
+    mode=(-DARCCORE_ACCELERATOR_MODE=SYCL
+      -DCMAKE_C_COMPILER="$V/bin/clang" -DCMAKE_CXX_COMPILER="$V/bin/acpp")
+    ;;
   *)
-    echo "unknown mode '$MODE' (cuda or hip-amd)" >&2
+    echo "unknown mode '$MODE' (cuda, hip-amd or sycl)" >&2
     exit 1
     ;;
 esac

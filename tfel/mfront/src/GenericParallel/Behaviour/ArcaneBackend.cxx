@@ -25,9 +25,9 @@ namespace mfront::generic_parallel::behaviour {
   std::string ArcaneBackend::getName() const { return "arcane"; }
 
   std::string ArcaneBackend::getSourceFileExtension() const {
-    // the source is compiled by the CUDA compiler, as with the `cuda`
-    // backend, and the sources of the `generic` interface by the C++
-    // compiler
+    // same extension as with the `cuda` backend. The compilation flags
+    // of the configuration set the language (CUDA, HIP or SYCL). The
+    // sources of the `generic` interface are compiled by the C++ compiler
     return "cu";
   }  // end of getSourceFileExtension
 
