@@ -1,0 +1,43 @@
+From 9d05e2b71e8a3292a52f1c51228577de8254eef5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 10 Nov 2026 11:06:03 +0100
+Subject: [PATCH] Documentation: names of the documented parameters
+
+Doxygen reported the parameters documented in `toString` (layout of the
+data at the integration points) and `Material::updateMaterialStates` as
+missing from their declarations, which did not name them. The branch now
+gives no warning with Doxygen 1.9.8, as master.
+---
+ include/MFEMMGIS/Material.hxx             | 2 +-
+ include/MFEMMGIS/QuadratureDataLayout.hxx | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/include/MFEMMGIS/Material.hxx b/include/MFEMMGIS/Material.hxx
+index be54bd01c3..8114417d1b 100644
+--- a/include/MFEMMGIS/Material.hxx
++++ b/include/MFEMMGIS/Material.hxx
+@@ -157,7 +157,7 @@ namespace mfem_mgis {
+      * (by default, the tangent operator blocks are set to zero)
+      */
+     void updateMaterialStates(
+-        const mgis::behaviour::UpdateArguments & = {});
++        const mgis::behaviour::UpdateArguments& args = {});
+     /*!
+      * \brief copies the state at the beginning of the time step on the state
+      * at the end of the time step (see `mgis::behaviour::revert` and
+diff --git a/include/MFEMMGIS/QuadratureDataLayout.hxx b/include/MFEMMGIS/QuadratureDataLayout.hxx
+index a56de3d934..e620cd72cb 100644
+--- a/include/MFEMMGIS/QuadratureDataLayout.hxx
++++ b/include/MFEMMGIS/QuadratureDataLayout.hxx
+@@ -158,7 +158,7 @@ namespace mfem_mgis {
+    * \param[in] l: layout
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] const char* toString(
+-      const mgis::FieldLayout) noexcept;
++      const mgis::FieldLayout l) noexcept;
+ 
+ }  // end of namespace mfem_mgis
+ 
+-- 
+2.43.0
+

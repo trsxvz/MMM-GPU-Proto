@@ -13,7 +13,9 @@ add_generic_parallel_mfront_libraries(ssna303-behaviours CUDA
 # short tests: the first time step of the loading on two processes, the
 # resultant force on the upper boundary being compared to the reference
 # values of the example, point by point (generic library of the example), by
-# batches with each backend, all the computations by kernels
+# batches with each backend, all the computations by kernels. All the tests
+# run in the build directory of ex4, where they write the same output files
+# (resultant force): they share the lock ssna303-outputs.
 proto_check_executable(_usable "${MFEM_MGIS_EXAMPLES_EX4_DIR}/ssna303_3d_hypre")
 if(_usable)
   set(_run mpirun -n 2 ./ssna303_3d_hypre --no-paraview --nbsteps 1
@@ -48,13 +50,17 @@ if(_usable)
       set_tests_properties(ssna303-batch-${_backend}
         ssna303-fbar-batch-${_backend} PROPERTIES
         ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;${_kernels}"
-        RESOURCE_LOCK gpu)
+        RESOURCE_LOCK "gpu;ssna303-outputs")
     else()
       add_test(NAME ssna303-batch-${_backend}
         COMMAND ${_run} -l "${_library}"
         WORKING_DIRECTORY "${MFEM_MGIS_EXAMPLES_EX4_DIR}")
       set_tests_properties(ssna303-batch-${_backend} PROPERTIES
-        ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;OMP_NUM_THREADS=2")
+        ENVIRONMENT "MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch;OMP_NUM_THREADS=2"
+        RESOURCE_LOCK ssna303-outputs)
     endif()
   endforeach()
+  set_tests_properties(ssna303-point-by-point ssna303-kernels
+    ssna303-fbar-point-by-point ssna303-fbar-kernels PROPERTIES
+    RESOURCE_LOCK ssna303-outputs)
 endif()

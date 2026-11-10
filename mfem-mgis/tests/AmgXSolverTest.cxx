@@ -691,7 +691,6 @@ static void checkAmgX(mfem_mgis::FiniteElementSpace<is_parallel>& fespace,
       {"AmgX", Parameters{{"Configuration", aggregation},
                           {"Multigrid", "Aggregation"}}},
       {"AmgXPCG", Parameters{{"Multigrid", "Classic"}}},
-      {"AmgX", Parameters{{"Multigrid", "Aggregation"}, {"NodalBlocks", true}}},
       {"AmgXPCG",
        Parameters{{"RelativeTolerance", 1e-8}, {"Precision", "Single"}}},
       {"AmgXPCG", Parameters{{"RelativeTolerance", 0.},
@@ -752,13 +751,17 @@ static void checkNodalBlocks(mfem::FiniteElementCollection& fec) {
            (ctx.getErrorMessage().find(message) != std::string::npos);
   };
   {
+    // with the unknowns ordered by nodes, the nodal blocks are not used and
+    // a warning is reported, as for the other solvers exploiting the nodal
+    // blocks
     auto by_nodes =
         ElasticitySystem<is_parallel>(beam, fec, mfem::Ordering::byNODES);
-    check(
-        refused(by_nodes.fespace, "AmgX",
-                Parameters{{"Multigrid", "Aggregation"}, {"NodalBlocks", true}},
-                "ordered by vector dimension"),
-        "AmgX: nodal blocks accepted with the unknowns ordered by nodes");
+    auto ctx = Context{};
+    const auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
+        ctx, "AmgX", by_nodes.fespace,
+        Parameters{{"Multigrid", "Aggregation"}, {"NodalBlocks", true}});
+    check(isValid(ls),
+          "AmgX: nodal blocks refused with the unknowns ordered by nodes");
   }
   auto e = ElasticitySystem<is_parallel>(beam, fec, mfem::Ordering::byVDIM);
   check(refused(e.fespace, "AmgXPCG", Parameters{{"NodalBlocks", true}},

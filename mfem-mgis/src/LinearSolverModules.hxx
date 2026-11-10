@@ -37,6 +37,22 @@ namespace mfem_mgis::internals {
    */
 
   /*!
+   * \brief report a warning, on the first process, when an option of a
+   * linear solver or of a preconditioner exploiting the nodal blocks of the
+   * unknowns can't be honoured, because the unknowns are ordered by nodes or
+   * because the blocks are not nodal: the solver is built without this
+   * option, as the strategy `Elasticity` of the preconditioner BoomerAMG of
+   * hypre
+   * \param[in, out] ctx: execution context
+   * \param[in] fespace: finite element space
+   * \param[in] msg: message
+   */
+  template <bool parallel>
+  void warnAboutNodalBlocks(Context& ctx,
+                            const FiniteElementSpace<parallel>& fespace,
+                            const std::string_view msg) noexcept;
+
+  /*!
    * \brief register the linear solvers of all the available libraries
    * \param[in, out] f: factory
    */

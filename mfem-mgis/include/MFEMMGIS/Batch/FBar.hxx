@@ -11,6 +11,7 @@
 #include "mfem/linalg/vector.hpp"
 #include "MGIS/Context.hxx"
 #include "MGIS/FieldView.hxx"
+#include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
 #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
@@ -69,8 +70,16 @@ namespace mfem_mgis::batch {
    */
   struct MFEM_MGIS_EXPORT FBarData {
     /*!
+     * \brief layouts of the arrays of the material, followed by the arrays at
+     * the integration points of this structure, stored densely: the
+     * deformation gradients `F` as the gradients, the vectors `v` and `c` as
+     * the tangent operator blocks they modify, the pseudo-stresses as the
+     * thermodynamic forces (see `computeFBarData`)
+     */
+    mgis::behaviour::MaterialDataManagerLayout layout;
+    /*!
      * \brief deformation gradients `F` at the integration points of the
-     * material, in the global frame, point by point
+     * material, in the global frame
      */
     mfem::Vector deformation_gradients;
     //! \brief coefficients `α` at the integration points of the material
@@ -86,7 +95,7 @@ namespace mfem_mgis::batch {
     mfem::Vector a;
     /*!
      * \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`
-     * at the integration points of the material, point by point (see
+     * at the integration points of the material (see
      * `computeFBarTangentOperator`)
      */
     mfem::Vector tangent_v;

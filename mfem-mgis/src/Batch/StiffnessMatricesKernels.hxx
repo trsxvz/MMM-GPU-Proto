@@ -78,10 +78,14 @@ namespace mfem_mgis::batch::internals {
      * `TangentOperatorModification`), null if the blocks are not modified
      */
     const real* modification_coefficients = nullptr;
-    //! \brief vectors `v` of the modification, point by point
+    //! \brief vectors `v` of the modification
     const real* modification_v = nullptr;
-    //! \brief vectors `c` of the modification, point by point
+    //! \brief vectors `c` of the modification
     const real* modification_c = nullptr;
+    //! \brief stride between two points of `v` and of `c`
+    long long modification_point_stride = 0;
+    //! \brief stride between two components of `v` and of `c`
+    long long modification_component_stride = 0;
     //! \brief matrices element by element
     real* matrices = nullptr;
     //! \brief number of elements of the material

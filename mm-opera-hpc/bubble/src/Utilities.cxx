@@ -60,9 +60,11 @@ namespace opera_hpc {
     }
     const auto mid = l.material_identifier->id;
 
-    // Pointer to stress values at end of time step, read on the host
+    // Stress values at end of time step, read on the host
     m.synchronizeOnHostForReading();
-    const auto *stress_values = m.s1.thermodynamic_forces.data();
+    // view on the stresses, which accounts for the layout of the arrays of
+    // the material (point by point or component by component)
+    const auto stresses = mgis::behaviour::getThermodynamicForcesView(m.s1);
 
     // Initialize with very small value to find maximum
     auto max_stress = -std::numeric_limits<mfem_mgis::real>::max();
@@ -82,17 +84,17 @@ namespace opera_hpc {
         auto &tr = *(fespace.GetElementTransformation(i));
         const auto &ir = s.getIntegrationRule(fe, tr);
 
-        // Offset in the global stress array for this element
+        // Offset of the first integration point of this element
         const auto eo = s.getOffset(i);
 
         // Loop over integration (quadrature) points within the element
         for (mfem_mgis::size_type g = 0; g != ir.GetNPoints(); ++g) {
-          // Get stress tensor at this integration point
-          const auto *const stress = stress_values + (eo + g) * stress_size;
-
-          // Create stress tensor object in the tensorial algebra library
-          // tfel::math
-          auto sig = tfel::math::stensor<3u, mfem_mgis::real>{stress};
+          // Stress tensor at this integration point, in the tensorial
+          // algebra library tfel::math
+          auto sig = tfel::math::stensor<3u, mfem_mgis::real>{};
+          for (mfem_mgis::size_type c = 0; c != stress_size; ++c) {
+            sig[c] = stresses(eo + g, c);
+          }
 
           // Compute eigenvalues
           const auto sig_vp = sig.computeEigenValues<
@@ -181,7 +183,9 @@ namespace opera_hpc {
     const auto mid = l.material_identifier->id;
     // stress values at the end of the time step, read on the host
     m.synchronizeOnHostForReading();
-    const auto *stress_values = m.s1.thermodynamic_forces.data();
+    // view on the stresses, which accounts for the layout of the arrays of
+    // the material (point by point or component by component)
+    const auto stresses = mgis::behaviour::getThermodynamicForcesView(m.s1);
 
     // Local collection of locations exceeding threshold
     std::vector<std::array<mfem_mgis::real, 3u>> local_locations;
@@ -201,8 +205,10 @@ namespace opera_hpc {
         const auto eo = s.getOffset(i);
 
         for (mfem_mgis::size_type g = 0; g != ir.GetNPoints(); ++g) {
-          const auto *const stress = stress_values + (eo + g) * stress_size;
-          auto sig = tfel::math::stensor<3u, mfem_mgis::real>{stress};
+          auto sig = tfel::math::stensor<3u, mfem_mgis::real>{};
+          for (mfem_mgis::size_type c = 0; c != stress_size; ++c) {
+            sig[c] = stresses(eo + g, c);
+          }
 
           // Compute principal stresses
           const auto sig_vp = sig.computeEigenValues<
@@ -330,7 +336,9 @@ namespace opera_hpc {
     const auto mid = l.material_identifier->id;
     // stress values at the end of the time step, read on the host
     m.synchronizeOnHostForReading();
-    const auto *stress_values = m.s1.thermodynamic_forces.data();
+    // view on the stresses, which accounts for the layout of the arrays of
+    // the material (point by point or component by component)
+    const auto stresses = mgis::behaviour::getThermodynamicForcesView(m.s1);
 
     // Collect both stress values and locations
     std::vector<StressValueAndLocation> collected_points_with_svp;
@@ -348,8 +356,10 @@ namespace opera_hpc {
       const auto eo = s.getOffset(i);
 
       for (mfem_mgis::size_type g = 0; g != ir.GetNPoints(); ++g) {
-        const auto *const stress = stress_values + (eo + g) * stress_size;
-        auto sig = tfel::math::stensor<3u, mfem_mgis::real>{stress};
+        auto sig = tfel::math::stensor<3u, mfem_mgis::real>{};
+        for (mfem_mgis::size_type c = 0; c != stress_size; ++c) {
+          sig[c] = stresses(eo + g, c);
+        }
 
         // Compute principal stresses
         const auto sig_vp = sig.computeEigenValues<

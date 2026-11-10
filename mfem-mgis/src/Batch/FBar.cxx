@@ -5,6 +5,7 @@
  * \date   11/10/2026
  */
 
+#include <tuple>
 #include <limits>
 #include <string>
 #include <cstdint>
@@ -111,8 +112,8 @@ namespace mfem_mgis::batch {
    * \param[in, out] gradients: gradients of the material at the end of the
    * time step (deformation gradients, replaced by `F̄`), or a null pointer
    * for null unknowns (`F` is then given by the macroscopic gradients)
-   * \param[in] point_by_point: layout of `gradients` (true if stored point
-   * by point)
+   * \param[in] gv: view of the gradients of the material at the end of the
+   * time step, giving the strides of `gradients`
    * \param[in] d0: derivatives at the center, null for null unknowns
    * \param[in] g0: geometric data of the center of the elements
    * \param[in] k: kind of the gradients
@@ -122,7 +123,7 @@ namespace mfem_mgis::batch {
                               FBarData& data,
                               const Material& m,
                               real* const gradients,
-                              const bool point_by_point,
+                              const mgis::FieldView<const real>& gv,
                               const UnknownsDerivatives* const d0,
                               const ElementsGeometry& g0,
                               const GradientsKind k,
@@ -141,6 +142,7 @@ namespace mfem_mgis::batch {
     const auto vdim = getUnknownsSize(k);
     data.has_tangent_operator = false;
     data.valid = true;
+    data.layout = m.layout;
     if ((!resizeFBarArray(ctx, data.deformation_gradients, np * gsize)) ||
         (!resizeFBarArray(ctx, data.coefficients, np)) ||
         (!resizeFBarArray(ctx, data.centers, elements.Size())) ||
@@ -183,6 +185,10 @@ namespace mfem_mgis::batch {
     auto ca = internals::FBarCentersKernelArguments{};
     ca.elements = elements.Read(use_device);
     ca.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
+    if (d0 != nullptr) {
+      std::tie(ca.derivatives_point_stride, ca.derivatives_component_stride) =
+          getDerivativesStrides(*d0);
+    }
     ca.inverse_jacobians = g0.jacobians->invJ.Read(use_device);
     ca.shape_functions_gradients = g0.maps->G.Read(use_device);
     ca.centers = data.centers.Write(use_device);
@@ -204,7 +210,11 @@ namespace mfem_mgis::batch {
     ga.number_of_elements = elements.Size();
     ga.nq = nq;
     ga.number_of_points = static_cast<int>(np);
-    ga.point_by_point = point_by_point;
+    ga.point_stride = static_cast<long long>(gv.getPointStride());
+    ga.component_stride = static_cast<long long>(gv.getComponentStride());
+    std::tie(ga.deformation_gradients_point_stride,
+             ga.deformation_gradients_component_stride) =
+        getDenseStrides(data.layout.gradients, np, gsize);
     for (std::int64_t c = 0; c != gsize; ++c) {
       ga.macroscopic_gradients[c] = macroscopic_gradients[c];
     }
@@ -283,9 +293,15 @@ namespace mfem_mgis::batch {
    */
   static TangentOperatorModification getFBarTangentOperatorModification(
       const FBarData& data, const bool use_device) {
+    const auto np = static_cast<std::int64_t>(data.coefficients.Size());
+    const auto [ps, cs] = getDenseStrides(
+        data.layout.tangent_operator, np,
+        np == 0 ? 0 : static_cast<std::int64_t>(data.tangent_v.Size()) / np);
     return {.coefficients = data.coefficients.Read(use_device),
             .v = data.tangent_v.Read(use_device),
-            .c = data.tangent_c.Read(use_device)};
+            .c = data.tangent_c.Read(use_device),
+            .point_stride = ps,
+            .component_stride = cs};
   }  // end of getFBarTangentOperatorModification
 
   bool applyFBar(Context& ctx,
@@ -302,10 +318,9 @@ namespace mfem_mgis::batch {
       const auto use_device = mfem::Device::IsEnabled();
       auto* const gradients = m.getArrays().readWrite(
           MaterialArrays::StateArray::GRADIENTS, ets, use_device);
-      return computeFBarData(
-          ctx, data, m, gradients,
-          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT, &d0,
-          g0, k, "applyFBar");
+      return computeFBarData(ctx, data, m, gradients,
+                             mgis::behaviour::getGradientsView(m.s1), &d0, g0,
+                             k, "applyFBar");
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(std::string{"applyFBar: "} + e.what());
     } catch (...) {
@@ -319,8 +334,9 @@ namespace mfem_mgis::batch {
                       const ElementsGeometry& g0,
                       const GradientsKind k) noexcept {
     try {
-      return computeFBarData(ctx, data, m, nullptr, true, nullptr, g0, k,
-                             "initializeFBar");
+      return computeFBarData(ctx, data, m, nullptr,
+                             mgis::behaviour::getGradientsView(m.s1), nullptr,
+                             g0, k, "initializeFBar");
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(std::string{"initializeFBar: "} +
                                       e.what());
@@ -377,6 +393,15 @@ namespace mfem_mgis::batch {
         a.centers = data.centers.Read(use_device);
         a.deformation_gradients = data.deformation_gradients.Read(use_device);
         a.coefficients = data.coefficients.Read(use_device);
+        const auto gs = std::int64_t{gsize};
+        std::tie(a.deformation_gradients_point_stride,
+                 a.deformation_gradients_component_stride) =
+            getDenseStrides(data.layout.gradients, np, gs);
+        std::tie(a.tangent_point_stride, a.tangent_component_stride) =
+            getDenseStrides(data.layout.tangent_operator, np, gs);
+        std::tie(a.pseudo_stresses_point_stride,
+                 a.pseudo_stresses_component_stride) =
+            getDenseStrides(data.layout.thermodynamic_forces, np, gs);
         a.tangent_operator = K.data();
         a.point_stride = static_cast<long long>(K.getPointStride());
         a.component_stride = static_cast<long long>(K.getComponentStride());
@@ -390,12 +415,12 @@ namespace mfem_mgis::batch {
         const auto s = std::span<const real>(
             data.pseudo_stresses.Read(use_device),
             static_cast<std::size_t>(data.pseudo_stresses.Size()));
-        if (!addMaterialInnerForces(ctx, data.a, qs,
-                                    mgis::makePointByPointFieldView(
-                                        s, qs.getNumberOfIntegrationPoints(),
-                                        static_cast<size_type>(gsize),
-                                        static_cast<size_type>(gsize)),
-                                    g, k)) {
+        if (!addMaterialInnerForces(
+                ctx, data.a, qs,
+                mgis::makeFieldView(s, data.layout.thermodynamic_forces,
+                                    qs.getNumberOfIntegrationPoints(),
+                                    static_cast<size_type>(gsize)),
+                g, k)) {
           return false;
         }
       }

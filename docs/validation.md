@@ -29,7 +29,15 @@ the caller, etc.): the test must detect it.
 - Spack environment `mmm-raja`: RAJA 2026.07.0 and camp 2026.07.1, built
   with CUDA 13.0.2 (`sm_120`) and OpenMP, for the `raja` configuration of
   TFEL. It is separate from `mmm-gpu`, whose camp has no OpenMP.
-- `scripts/env.sh` gives the complete environment of all the scripts.
+- `scripts/env.sh` gives the complete environment of all the scripts. It
+  exports `OMP_PROC_BIND=spread` and `OMP_PLACES=threads` (Kokkos,
+  AdaptiveCpp): the OpenMP runtime of each process of a parallel test then
+  binds its main thread to the first processor, and the processes of the
+  test, with those of the other parallel tests running at the same time,
+  share one core. Before running the parallel tests, unset these variables
+  (`unset OMP_PROC_BIND OMP_PLACES`), as `scripts/mfem-mgis-gpu-suite.sh`
+  and the measurement scripts of `cases/` do: otherwise the tests are tens
+  of times slower or exceed their time limit, on an idle machine.
 - The heterogeneous memory management (HMM) of the NVIDIA drivers lets the
   GPU read the ordinary memory of the host. It therefore hides the location
   errors. The final validations are done without HMM
@@ -254,8 +262,12 @@ tests of TFEL, 64 tests of MGIS in double and 60 in float, 372 of mfem-mgis, 25 
 the examples, 9 of mm-opera-hpc and 143 cases, all green; GPU suite of
 mfem-mgis with the kernels forced: 262 of 264, the two tests requiring the
 absence of a device failing as expected; `-O3` matrix
-(`results/generic-parallel-tests-2026-11-09-rebase-O3.txt`): see
-[JOURNAL.md](../JOURNAL.md), 09/11/2026.
+(`results/generic-parallel-tests-2026-11-09-rebase-O3.txt`): all the
+configurations green except `openacc-nvhpc-gpu` and
+`stlpar-parunseq-nvhpc-gpu`, which failed while test suites of mfem-mgis
+were using the GPU and pass alone
+(`results/generic-parallel-tests-2026-11-10-rebase-nvhpc-gpu-rerun-O3.txt`);
+see [JOURNAL.md](../JOURNAL.md), 09/11/2026.
 
 The tracked sweeps in `results/compile-sweep-*-2026-10-06.tsv` give
 the state of the morning of 06/10: 504 OK, 36 blocking user codes, 1 call
@@ -418,6 +430,59 @@ dated figures below are those of the runs noted in the log):
   run. The matrices of the ordered assembly use the kernel of MFEM instead
   (one thread per row, `UseGPUSparse(false)`): 15 runs out of 15
   identical (patch 0278 of mfem-mgis).
+
+The layouts of the data at the integration points (parameter
+`QuadratureDataLayout`, see [mgis.md](mgis.md#views-and-layouts)) add
+passes to this suite. Two environment variables, read when the parameter is
+absent, select them:
+
+- `MFEM_MGIS_QUADRATURE_DATA_LAYOUT=ComponentByComponent`, with the kernels
+  forced (variables above), or with `MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch`
+  only (the finite elements are then computed as each test selects, element
+  by element by default);
+- `MFEM_MGIS_QUADRATURE_DATA_PADDING=3`: three NaN values follow the values
+  of each point in each array. A code that computes the position of a value
+  instead of using the strides reads NaNs, and its test fails.
+
+On the GPU, `scripts/mfem-mgis-gpu-suite.sh` runs with the same variables.
+Its `default` mode also checks the automatic layout: the materials
+integrated by batches on the GPU are then stored component by component.
+On 10/11/2026, counting the reruns of the tests fixed during the runs (283
+tests without device in their name, 122 of them on several processes):
+283/283 by default on the CPU, 282/283 component by component with the
+kernels forced, 282/283 component by component by batches, 283/283 with the
+padding. The failure of both component by component passes is expected:
+`TwoLayerCube-1-MatrixFreeExecution` checks that `--execution` gives no
+warning, and the forced variables give one. On the GPU (264 tests):
+262/264 component by component with the kernels forced,
+262/264 with the padding in the `default` mode, the two tests
+that require the absence of a device failing as expected; the 104 tests
+whose name selects a device: 104/104 by default, 104/104 component by
+component with the kernels forced, 104/104 with the padding. The
+runs found defects, all fixed: kernels launched with more than 64 elements
+per block (limit of the third dimension of a CUDA block), views of zero or
+one point refused in the component by component layout, forces in the
+global frame of orthotropic materials stored point by point, and tests
+reading arrays without their strides. A review of the changes then found
+that the kernels using one thread per point refused the elements of more
+than 128 points, which the former kernels accepted: they now process them
+by chunks of 128 points (`IntegrationRuleOrderTest` uses a rule of 216
+points). The 52 tests touched by the last fixes (mfem-mgis 9d05e2b71e)
+pass again by default, component by component with the kernels forced and
+with the padding. On the prototype rebuilt with these commits, the tests of
+the examples pass on the CPU (25/25), as those of mm-opera-hpc (9/9)
+and of the cases (109/109 on the CPU, 37/37 on the GPU, where the
+examples and mm-opera-hpc are run).
+
+`BatchIntegrationTest` compares the layouts: 152 comparisons of the
+component by component layout and 152 of a layout per array with a padding
+of 2, against the point by point layout (gradients, forces and stiffness
+matrices, by kernels and element by element, F-bar, regularization of
+Faltus et al.). All are identical to the bit. Mutations that ignore one
+stride each are all detected by this test: inner forces (475 failed
+checks), action of the tangent operator without assembly (10), gradients
+(988), F-bar (34), Faltus et al. (36), computations element by element
+(288).
 
 The execution settings (`--execution cpu|gpu|mixed`, see
 [plan-execution.md](plan-execution.md)) are checked by the 33 variants

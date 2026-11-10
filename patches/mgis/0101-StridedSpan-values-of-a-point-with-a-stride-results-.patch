@@ -1,0 +1,1505 @@
+From f21a3ec6b0196e60073ac233c5c25fcf9b313d79 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 23:02:44 +0100
+Subject: [PATCH] StridedSpan: values of a point with a stride, results of the
+ functions of mgis::function
+
+A StridedSpan views values separated by a constant stride, such as the
+components of a point of a field stored component by component, or
+point by point with a padding. It has no data method, so that it is
+never mapped as contiguous values, and it is not assignable, so that the
+algorithms assigning the values of a point can't silently rebind a view.
+
+The functions and evaluators of mgis::function may return a strided
+span. The tensor and quantity views and modifiers map it without copy
+with tfel::math::StridedCoalescedView (MGIS/Function/TFEL/MapValues.hxx),
+and assign_value copies values to and from strided spans. A function
+type can then serve both layouts with a single implementation: the
+results are identical to the bit (StridedSpanTest).
+---
+ docs/web/functions.md                         |  15 ++
+ include/CMakeLists.txt                        |   2 +
+ include/MGIS/Function/Algorithms.hxx          |  21 ++
+ include/MGIS/Function/Algorithms.ixx          |  19 ++
+ include/MGIS/Function/DataViewConcept.hxx     |  10 +
+ include/MGIS/Function/EvaluatorConcept.hxx    |  27 +++
+ include/MGIS/Function/FunctionConcept.hxx     |  41 +++-
+ include/MGIS/Function/TFEL/MapValues.hxx      |  63 +++++
+ .../MGIS/Function/TFEL/QuantityModifier.hxx   |   9 +-
+ .../MGIS/Function/TFEL/QuantityModifier.ixx   |  29 +--
+ include/MGIS/Function/TFEL/QuantityView.hxx   |  17 +-
+ include/MGIS/Function/TFEL/QuantityView.ixx   |  38 +--
+ include/MGIS/Function/TFEL/TensorModifier.hxx |   3 +-
+ include/MGIS/Function/TFEL/TensorModifier.ixx |   7 +-
+ include/MGIS/Function/TFEL/TensorView.hxx     |  17 +-
+ include/MGIS/Function/TFEL/TensorView.ixx     |  43 ++--
+ include/MGIS/StridedSpan.hxx                  | 198 +++++++++++++++
+ tests/CMakeLists.txt                          |   3 +
+ tests/StridedSpanTest.cxx                     | 226 ++++++++++++++++++
+ 19 files changed, 705 insertions(+), 83 deletions(-)
+ create mode 100644 include/MGIS/Function/TFEL/MapValues.hxx
+ create mode 100644 include/MGIS/StridedSpan.hxx
+ create mode 100644 tests/StridedSpanTest.cxx
+
+diff --git a/docs/web/functions.md b/docs/web/functions.md
+index 70f83c7..d8815de 100644
+--- a/docs/web/functions.md
++++ b/docs/web/functions.md
+@@ -354,6 +354,21 @@ objects of `TFEL/Math`) and for scalar values (`real`, `real&` or
+ stress, can be viewed as a quantity or as a scalar. `getDataPointer`
+ can be overloaded to support other result types.
+ 
++A function or an evaluator may also return the values of a point as a
++strided span (`mgis::StridedSpan`): `size()` values separated by a
++constant stride, `getPointer()[i * getStride()]` being the `i`-th one.
++This is the natural result of a function whose values are stored
++component by component, or point by point with a padding: the same
++function type then serves both layouts. A strided span has no `data`
++method, so that it is never mapped as contiguous values: the tensor and
++quantity views and modifiers map it with a view having a stride
++(`tfel::math::StridedCoalescedView`), without copy, and the results are
++identical to the bit to the ones obtained from contiguous values. The
++fixed-size views described below require contiguous values. A strided
++span is not assignable: the algorithms assigning the values of a point
++copy them explicitly, so that an assignment can't silently rebind a
++view.
++
+ ### Fixed-size Array functions
+ 
+ The `view` function has a template overload taking the a size as
+diff --git a/include/CMakeLists.txt b/include/CMakeLists.txt
+index 74dffaf..a30267f 100644
+--- a/include/CMakeLists.txt
++++ b/include/CMakeLists.txt
+@@ -9,6 +9,7 @@ mgis_header(MGIS MemoryLocation.hxx)
+ mgis_header(MGIS BatchExecutionPolicy.hxx)
+ mgis_header(MGIS BackendExecutionPolicy.h)
+ mgis_header(MGIS FieldView.hxx)
++mgis_header(MGIS StridedSpan.hxx)
+ mgis_header(MGIS FieldView.ixx)
+ mgis_header(MGIS FieldOperations.hxx)
+ mgis_header(MGIS LogStream.hxx)
+@@ -151,6 +152,7 @@ if(enable-mgis-function)
+   if(MGIS_HAVE_TFEL)
+     mgis_header(MGIS/Function/TFEL General.hxx)
+     mgis_header(MGIS/Function/TFEL DataView.hxx)
++    mgis_header(MGIS/Function/TFEL MapValues.hxx)
+     mgis_header(MGIS/Function/TFEL Quantity.hxx)
+     mgis_header(MGIS/Function/TFEL QuantityView.hxx)
+     mgis_header(MGIS/Function/TFEL QuantityView.ixx)
+diff --git a/include/MGIS/Function/Algorithms.hxx b/include/MGIS/Function/Algorithms.hxx
+index b327bc4..69b3271 100644
+--- a/include/MGIS/Function/Algorithms.hxx
++++ b/include/MGIS/Function/Algorithms.hxx
+@@ -179,6 +179,27 @@ namespace mgis::function::internals {
+    */
+   constexpr void assign_value(std::span<real, 1u>, const std::array<real, 1u>&);
+ 
++  /*!
++   * \brief assign the values of the right hand side, which can be iterated,
++   * to the values viewed by a strided span (see `mgis::StridedSpan`)
++   */
++  constexpr void assign_value(StridedSpan<real>, const auto&);
++
++  /*!
++   * \brief assign a scalar value to the first value viewed by a strided span
++   */
++  constexpr void assign_value(StridedSpan<real>, const real);
++
++  /*!
++   * \brief assign the first value viewed by a strided span to a scalar value
++   */
++  constexpr void assign_value(real&, const StridedSpan<real>&);
++
++  /*!
++   * \brief assign the first value viewed by a strided span to a scalar value
++   */
++  constexpr void assign_value(real&, const StridedSpan<const real>&);
++
+   /*!
+    * \brief concept stating that an evaluator can be assigned to a function
+    *
+diff --git a/include/MGIS/Function/Algorithms.ixx b/include/MGIS/Function/Algorithms.ixx
+index a2e0b48..e0c4513 100644
+--- a/include/MGIS/Function/Algorithms.ixx
++++ b/include/MGIS/Function/Algorithms.ixx
+@@ -195,6 +195,25 @@ namespace mgis::function::internals {
+     lhs[0] = rhs[0];
+   }
+ 
++  constexpr void assign_value(StridedSpan<real> lhs, const auto& rhs) {
++    size_type i = 0;
++    for (const auto& v : rhs) {
++      lhs[i++] = v;
++    }
++  }
++
++  constexpr void assign_value(StridedSpan<real> lhs, const real rhs) {
++    lhs[0] = rhs;
++  }
++
++  constexpr void assign_value(real& lhs, const StridedSpan<real>& rhs) {
++    lhs = rhs[0];
++  }
++
++  constexpr void assign_value(real& lhs, const StridedSpan<const real>& rhs) {
++    lhs = rhs[0];
++  }
++
+   /*!
+    * \brief assigns to a function the scalar values computed by an evaluator,
+    * the evaluation being sequential
+diff --git a/include/MGIS/Function/DataViewConcept.hxx b/include/MGIS/Function/DataViewConcept.hxx
+index 69d155a..ce0299a 100644
+--- a/include/MGIS/Function/DataViewConcept.hxx
++++ b/include/MGIS/Function/DataViewConcept.hxx
+@@ -12,6 +12,7 @@
+ 
+ #include <span>
+ #include <type_traits>
++#include "MGIS/StridedSpan.hxx"
+ 
+ namespace mgis::function::internals {
+ 
+@@ -46,6 +47,15 @@ namespace mgis::function::internals {
+   template <class T, std::size_t Extent>
+   struct IsDataView<::std::span<T, Extent>> : std::true_type {};
+ 
++  /*!
++   * \brief partial specialisation for `mgis::StridedSpan`, which views values
++   * owned by another object
++   *
++   * \tparam T: type of the values
++   */
++  template <typename T>
++  struct IsDataView<::mgis::StridedSpan<T>> : std::true_type {};
++
+ }  // end of namespace mgis::function::internals
+ 
+ namespace mgis::function {
+diff --git a/include/MGIS/Function/EvaluatorConcept.hxx b/include/MGIS/Function/EvaluatorConcept.hxx
+index 1b5be11..ca0c222 100644
+--- a/include/MGIS/Function/EvaluatorConcept.hxx
++++ b/include/MGIS/Function/EvaluatorConcept.hxx
+@@ -20,6 +20,7 @@
+ #include <concepts>
+ #include <type_traits>
+ #include "MGIS/Config.hxx"
++#include "MGIS/StridedSpan.hxx"
+ #include "MGIS/AbstractErrorHandler.hxx"
+ #include "MGIS/Function/CompileTimeSize.hxx"
+ #include "MGIS/Function/SpaceConcept.hxx"
+@@ -450,6 +451,32 @@ namespace mgis::function {
+     { getDataPointer(rf) } -> internals::is_pointer_to_real;
+   };
+ 
++  namespace internals {
++
++    //! \brief true if the given type is a `mgis::StridedSpan`
++    template <typename T>
++    inline constexpr bool isStridedSpan = false;
++    //! \brief partial specialisation for `mgis::StridedSpan`
++    template <typename ValueType>
++    inline constexpr bool isStridedSpan<::mgis::StridedSpan<ValueType>> = true;
++
++  }  // end of namespace internals
++
++  /*!
++   * \brief true if the result of an evaluator is a mappable type (see
++   * `isEvaluatorResultTypeMappable`) or a strided span (`mgis::StridedSpan`),
++   * whose values are not contiguous in general. The views and modifiers
++   * mapping such results to the mathematical objects of `TFEL/Math` use a
++   * view with a stride for strided spans (see
++   * `MGIS/Function/TFEL/MapValues.hxx`).
++   *
++   * \tparam EvaluatorType: evaluator type
++   */
++  template <EvaluatorConcept EvaluatorType>
++  inline constexpr auto isEvaluatorResultTypeStridedMappable =
++      (isEvaluatorResultTypeMappable<EvaluatorType>) ||
++      (internals::isStridedSpan<std::decay_t<evaluator_result<EvaluatorType>>>);
++
+   namespace internals {
+ 
+     /*!
+diff --git a/include/MGIS/Function/FunctionConcept.hxx b/include/MGIS/Function/FunctionConcept.hxx
+index f4b3a68..3a5ec4a 100644
+--- a/include/MGIS/Function/FunctionConcept.hxx
++++ b/include/MGIS/Function/FunctionConcept.hxx
+@@ -23,6 +23,7 @@
+ #include <concepts>
+ #include <type_traits>
+ #include "MGIS/Config.hxx"
++#include "MGIS/StridedSpan.hxx"
+ #include "MGIS/Function/CompileTimeSize.hxx"
+ #include "MGIS/Function/SpaceConcept.hxx"
+ #include "MGIS/Function/EvaluatorConcept.hxx"
+@@ -73,11 +74,22 @@ namespace mgis::function {
+       static constexpr auto is_specialized = true;
+     };
+ 
++    /*!
++     * \brief partial specialization for a strided span of mutable values
++     * (see `mgis::StridedSpan`)
++     */
++    template <>
++    struct FunctionResultTypeTraits<StridedSpan<real>> {
++      //! \brief the traits are specialized for this type
++      static constexpr auto is_specialized = true;
++    };
++
+     /*!
+      * \brief concept defining the types a function may return
+      *
+-     * A function may return a mutable scalar value, a mutable `std::span` or a
+-     * mutable `std::array`, i.e. the types for which the
++     * A function may return a mutable scalar value, a mutable `std::span`, a
++     * strided span of mutable values (`mgis::StridedSpan`) or a mutable
++     * `std::array`, i.e. the types for which the
+      * `FunctionResultTypeTraits` traits is specialized.
+      *
+      * \tparam T: type to be tested
+@@ -690,6 +702,31 @@ namespace mgis::function {
+     { getDataPointer(rf) } -> std::same_as<const real*>;
+   };
+ 
++  /*!
++   * \brief true if the result of a function is a mappable type (see
++   * `isFunctionResultTypeMappable`) or a strided span of mutable values (see
++   * `isEvaluatorResultTypeStridedMappable`)
++   * \tparam FunctionType: function type
++   */
++  template <FunctionConcept FunctionType>
++  inline constexpr auto isFunctionResultTypeStridedMappable =
++      (isFunctionResultTypeMappable<FunctionType>) ||
++      (std::same_as<std::decay_t<function_result<FunctionType>>,
++                    StridedSpan<real>>);
++
++  /*!
++   * \brief true if the result of a constant function is a mappable type (see
++   * `isFunctionConstResultTypeMappable`) or a strided span (see
++   * `isEvaluatorResultTypeStridedMappable`), whose values may be mutable if
++   * the function is a view whose constness is shallow
++   * \tparam FunctionType: function type
++   */
++  template <FunctionConcept FunctionType>
++  inline constexpr auto isFunctionConstResultTypeStridedMappable =
++      (isFunctionConstResultTypeMappable<FunctionType>) ||
++      (internals::isStridedSpan<
++          std::decay_t<function_const_result<FunctionType>>>);
++
+   namespace internals {
+ 
+     /*!
+diff --git a/include/MGIS/Function/TFEL/MapValues.hxx b/include/MGIS/Function/TFEL/MapValues.hxx
+new file mode 100644
+index 0000000..736100e
+--- /dev/null
++++ b/include/MGIS/Function/TFEL/MapValues.hxx
+@@ -0,0 +1,63 @@
++/*!
++ * \file   MGIS/Function/TFEL/MapValues.hxx
++ * \brief  This file declares the functions mapping the values returned by a
++ * function or an evaluator to the mathematical objects of `TFEL/Math`.
++ * \date   10/11/2026
++ * \copyright Use, modification and distribution are subject
++ * to one of the following licences:
++ * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
++ *   file LGPL-3.0.txt)
++ * - CECILL-C,  Version 1.0 (See accompanying files
++ *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
++ */
++
++#ifndef LIB_MGIS_FUNCTION_TFEL_MAPVALUES_HXX
++#define LIB_MGIS_FUNCTION_TFEL_MAPVALUES_HXX
++
++#include <type_traits>
++#include "TFEL/Math/Array/View.hxx"
++#include "TFEL/Math/Array/StridedCoalescedView.hxx"
++#include "MGIS/StridedSpan.hxx"
++#include "MGIS/Function/EvaluatorConcept.hxx"
++
++namespace mgis::function::internals {
++
++  /*!
++   * \return a view of a mathematical object of `TFEL/Math` on the values
++   * returned by a function or an evaluator, without copy: a view with a
++   * stride (`tfel::math::StridedCoalescedView`) for a strided span, a view on
++   * contiguous values (`tfel::math::map`) otherwise
++   *
++   * \tparam MathObjectType: type of the mathematical object, possibly
++   * constant
++   * \param[in] r: values, either a strided span or a mappable type (see
++   * `getDataPointer`)
++   */
++  template <typename MathObjectType, typename ResultType>
++  [[nodiscard]] constexpr auto mapValues(ResultType&& r) {
++    if constexpr (isStridedSpan<std::decay_t<ResultType>>) {
++      return ::tfel::math::StridedCoalescedView<MathObjectType>(
++          r.getPointer(), r.getStride());
++    } else {
++      return ::tfel::math::map<MathObjectType>(getDataPointer(r));
++    }
++  }  // end of mapValues
++
++  /*!
++   * \return a reference to the first value returned by a function or an
++   * evaluator
++   * \param[in] r: values, either a strided span or a mappable type (see
++   * `getDataPointer`)
++   */
++  template <typename ResultType>
++  [[nodiscard]] constexpr auto& getFirstValue(ResultType&& r) {
++    if constexpr (isStridedSpan<std::decay_t<ResultType>>) {
++      return r[0];
++    } else {
++      return *(getDataPointer(r));
++    }
++  }  // end of getFirstValue
++
++}  // end of namespace mgis::function::internals
++
++#endif /* LIB_MGIS_FUNCTION_TFEL_MAPVALUES_HXX */
+diff --git a/include/MGIS/Function/TFEL/QuantityModifier.hxx b/include/MGIS/Function/TFEL/QuantityModifier.hxx
+index 567dbb7..5d791fd 100644
+--- a/include/MGIS/Function/TFEL/QuantityModifier.hxx
++++ b/include/MGIS/Function/TFEL/QuantityModifier.hxx
+@@ -25,6 +25,7 @@
+ #include "MGIS/Function/SpaceConcept.hxx"
+ #include "MGIS/Function/EvaluatorConcept.hxx"
+ #include "MGIS/Function/TFEL/General.hxx"
++#include "MGIS/Function/TFEL/MapValues.hxx"
+ 
+ namespace mgis::function {
+ 
+@@ -104,7 +105,7 @@ namespace mgis::function {
+      */
+     [[nodiscard]] constexpr auto operator()(const element_index<Space>&) const
+         requires((internals::EvaluatorResultQuery<EvaluatorType>::b1) &&
+-                 (isEvaluatorResultTypeMappable<EvaluatorType>));
++                 (isEvaluatorResultTypeStridedMappable<EvaluatorType>));
+     /*!
+      * \brief call operator
+      * \param[in] wk: element workspace
+@@ -118,7 +119,7 @@ namespace mgis::function {
+     [[nodiscard]] constexpr auto operator()(const element_workspace<Space>&,
+                                             const element_index<Space>&) const
+         requires((internals::EvaluatorResultQuery<EvaluatorType>::b2) &&
+-                 (isEvaluatorResultTypeMappable<EvaluatorType>));
++                 (isEvaluatorResultTypeStridedMappable<EvaluatorType>));
+     /*!
+      * \brief call operator
+      * \param[in] e: cell index
+@@ -132,7 +133,7 @@ namespace mgis::function {
+     [[nodiscard]] constexpr auto operator()(
+         const cell_index<Space>&, const quadrature_point_index<Space>&) const
+         requires((internals::EvaluatorResultQuery<EvaluatorType>::b3) &&
+-                 (isEvaluatorResultTypeMappable<EvaluatorType>));
++                 (isEvaluatorResultTypeStridedMappable<EvaluatorType>));
+     /*!
+      * \brief call operator
+      * \param[in] wk: cell workspace
+@@ -149,7 +150,7 @@ namespace mgis::function {
+         const cell_index<Space>&,
+         const quadrature_point_index<Space>&) const
+         requires((internals::EvaluatorResultQuery<EvaluatorType>::b4) &&
+-                 (isEvaluatorResultTypeMappable<EvaluatorType>));
++                 (isEvaluatorResultTypeStridedMappable<EvaluatorType>));
+ 
+    private:
+     //! \brief underlying evaluator
+diff --git a/include/MGIS/Function/TFEL/QuantityModifier.ixx b/include/MGIS/Function/TFEL/QuantityModifier.ixx
+index 9fa4d6a..456b03b 100644
+--- a/include/MGIS/Function/TFEL/QuantityModifier.ixx
++++ b/include/MGIS/Function/TFEL/QuantityModifier.ixx
+@@ -75,8 +75,9 @@ namespace mgis::function {
+   }
+ 
+   // the call operators use the `data` method of the underlying evaluator when
+-  // it is available and apply the `getDataPointer` function to the result of
+-  // the call otherwise. If the result is a data view, a read-only quantity
++  // it is available and use the first value of the result of the call
++  // otherwise (see `getFirstValue`, which handles strided spans). If the
++  // result is a data view, a read-only quantity
+   // referencing the value computed by the evaluator is returned, otherwise the
+   // value is copied into a quantity owning it
+   template <EvaluatorConcept EvaluatorType,
+@@ -84,7 +85,7 @@ namespace mgis::function {
+   constexpr auto QuantityModifier<EvaluatorType, UnitType>::operator()(
+       const element_index<Space>& i) const
+       requires((internals::EvaluatorResultQuery<EvaluatorType>::b1) &&
+-               (isEvaluatorResultTypeMappable<EvaluatorType>)) {
++               (isEvaluatorResultTypeStridedMappable<EvaluatorType>)) {
+     constexpr auto has_data_method =
+         requires(const EvaluatorType& rf, const element_index<Space>& ri) {
+       { rf.data(unsafe, ri) } -> std::same_as<const real*>;
+@@ -95,10 +96,10 @@ namespace mgis::function {
+     } else {
+       if constexpr (DataViewConcept<evaluator_result<EvaluatorType>>) {
+         return tfel::math::const_qt_ref<UnitType, real>(
+-            *(getDataPointer(this->evaluator(i))));
++            internals::getFirstValue(this->evaluator(i)));
+       } else {
+         return tfel::math::qt<UnitType, real>(
+-            *(getDataPointer(this->evaluator(i))));
++            internals::getFirstValue(this->evaluator(i)));
+       }
+     }
+   }
+@@ -108,7 +109,7 @@ namespace mgis::function {
+   constexpr auto QuantityModifier<EvaluatorType, UnitType>::operator()(
+       const element_workspace<Space>& wk, const element_index<Space>& i) const
+       requires((internals::EvaluatorResultQuery<EvaluatorType>::b2) &&
+-               (isEvaluatorResultTypeMappable<EvaluatorType>)) {
++               (isEvaluatorResultTypeStridedMappable<EvaluatorType>)) {
+     constexpr auto has_data_method =
+         requires(const EvaluatorType& rf, const element_workspace<Space>& rwk,
+                  const element_index<Space>& ri) {
+@@ -120,10 +121,10 @@ namespace mgis::function {
+     } else {
+       if constexpr (DataViewConcept<evaluator_result<EvaluatorType>>) {
+         return tfel::math::const_qt_ref<UnitType, real>(
+-            *(getDataPointer(this->evaluator(wk, i))));
++            internals::getFirstValue(this->evaluator(wk, i)));
+       } else {
+         return tfel::math::qt<UnitType, real>(
+-            *(getDataPointer(this->evaluator(wk, i))));
++            internals::getFirstValue(this->evaluator(wk, i)));
+       }
+     }
+   }
+@@ -133,7 +134,7 @@ namespace mgis::function {
+   constexpr auto QuantityModifier<EvaluatorType, UnitType>::operator()(
+       const cell_index<Space>& e, const quadrature_point_index<Space>& i) const
+       requires((internals::EvaluatorResultQuery<EvaluatorType>::b3) &&
+-               (isEvaluatorResultTypeMappable<EvaluatorType>)) {
++               (isEvaluatorResultTypeStridedMappable<EvaluatorType>)) {
+     constexpr auto has_data_method =
+         requires(const EvaluatorType& rf, const cell_index<Space>& re,
+                  const quadrature_point_index<Space>& ri) {
+@@ -145,10 +146,10 @@ namespace mgis::function {
+     } else {
+       if constexpr (DataViewConcept<evaluator_result<EvaluatorType>>) {
+         return tfel::math::const_qt_ref<UnitType, real>(
+-            *(getDataPointer(this->evaluator(e, i))));
++            internals::getFirstValue(this->evaluator(e, i)));
+       } else {
+         return tfel::math::qt<UnitType, real>(
+-            *(getDataPointer(this->evaluator(e, i))));
++            internals::getFirstValue(this->evaluator(e, i)));
+       }
+     }
+   }
+@@ -160,7 +161,7 @@ namespace mgis::function {
+       const cell_index<Space>& e,
+       const quadrature_point_index<Space>& i) const
+       requires((internals::EvaluatorResultQuery<EvaluatorType>::b4) &&
+-               (isEvaluatorResultTypeMappable<EvaluatorType>)) {
++               (isEvaluatorResultTypeStridedMappable<EvaluatorType>)) {
+     constexpr auto has_data_method = requires(
+         const EvaluatorType& rf, const cell_workspace<Space>& rwk,
+         const cell_index<Space>& re, const quadrature_point_index<Space>& ri) {
+@@ -172,10 +173,10 @@ namespace mgis::function {
+     } else {
+       if constexpr (DataViewConcept<evaluator_result<EvaluatorType>>) {
+         return tfel::math::const_qt_ref<UnitType, real>(
+-            *(getDataPointer(this->evaluator(wk, e, i))));
++            internals::getFirstValue(this->evaluator(wk, e, i)));
+       } else {
+         return tfel::math::qt<UnitType, real>(
+-            *(getDataPointer(this->evaluator(wk, e, i))));
++            internals::getFirstValue(this->evaluator(wk, e, i)));
+       }
+     }
+   }
+diff --git a/include/MGIS/Function/TFEL/QuantityView.hxx b/include/MGIS/Function/TFEL/QuantityView.hxx
+index 77f10ac..d8c3d9d 100644
+--- a/include/MGIS/Function/TFEL/QuantityView.hxx
++++ b/include/MGIS/Function/TFEL/QuantityView.hxx
+@@ -24,6 +24,7 @@
+ #include "TFEL/Math/qt.hxx"
+ #include "MGIS/Function/FunctionConcept.hxx"
+ #include "MGIS/Function/TFEL/General.hxx"
++#include "MGIS/Function/TFEL/MapValues.hxx"
+ 
+ namespace mgis::function {
+ 
+@@ -127,7 +128,7 @@ namespace mgis::function {
+      */
+     [[nodiscard]] constexpr auto operator()(const element_index<Space>&) const
+         requires((internals::FunctionResultQuery<FunctionType>::b1) &&
+-                 (isFunctionConstResultTypeMappable<FunctionType>));
++                 (isFunctionConstResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator
+      * \param[in] wk: element workspace
+@@ -141,7 +142,7 @@ namespace mgis::function {
+     [[nodiscard]] constexpr auto operator()(const element_workspace<Space>&,
+                                             const element_index<Space>&) const
+         requires((internals::FunctionResultQuery<FunctionType>::b2) &&
+-                 (isFunctionConstResultTypeMappable<FunctionType>));
++                 (isFunctionConstResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator
+      * \param[in] e: cell index
+@@ -155,7 +156,7 @@ namespace mgis::function {
+     [[nodiscard]] constexpr auto operator()(
+         const cell_index<Space>&, const quadrature_point_index<Space>&) const
+         requires((internals::FunctionResultQuery<FunctionType>::b3) &&
+-                 (isFunctionConstResultTypeMappable<FunctionType>));
++                 (isFunctionConstResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator
+      * \param[in] wk: cell workspace
+@@ -172,7 +173,7 @@ namespace mgis::function {
+         const cell_index<Space>&,
+         const quadrature_point_index<Space>&) const
+         requires((internals::FunctionResultQuery<FunctionType>::b4) &&
+-                 (isFunctionConstResultTypeMappable<FunctionType>));
++                 (isFunctionConstResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator returning mutable values
+      * \param[in] i: integration point index
+@@ -184,7 +185,7 @@ namespace mgis::function {
+      */
+     [[nodiscard]] constexpr auto operator()(const element_index<Space>&)  //
+         requires((internals::FunctionResultQuery<FunctionType>::b1) &&
+-                 (isFunctionResultTypeMappable<FunctionType>));
++                 (isFunctionResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator returning mutable values
+      * \param[in] wk: element workspace
+@@ -198,7 +199,7 @@ namespace mgis::function {
+     [[nodiscard]] constexpr auto operator()(const element_workspace<Space>&,
+                                             const element_index<Space>&)  //
+         requires((internals::FunctionResultQuery<FunctionType>::b2) &&
+-                 (isFunctionResultTypeMappable<FunctionType>));
++                 (isFunctionResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator returning mutable values
+      * \param[in] e: cell index
+@@ -213,7 +214,7 @@ namespace mgis::function {
+         const cell_index<Space>&,
+         const quadrature_point_index<Space>&)  //
+         requires((internals::FunctionResultQuery<FunctionType>::b3) &&
+-                 (isFunctionResultTypeMappable<FunctionType>));
++                 (isFunctionResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator returning mutable values
+      * \param[in] wk: cell workspace
+@@ -230,7 +231,7 @@ namespace mgis::function {
+         const cell_index<Space>&,
+         const quadrature_point_index<Space>&)  //
+         requires((internals::FunctionResultQuery<FunctionType>::b4) &&
+-                 (isFunctionResultTypeMappable<FunctionType>));
++                 (isFunctionResultTypeStridedMappable<FunctionType>));
+ 
+    private:
+     //! \brief underlying view of the function
+diff --git a/include/MGIS/Function/TFEL/QuantityView.ixx b/include/MGIS/Function/TFEL/QuantityView.ixx
+index a8b17d6..2042c91 100644
+--- a/include/MGIS/Function/TFEL/QuantityView.ixx
++++ b/include/MGIS/Function/TFEL/QuantityView.ixx
+@@ -71,15 +71,15 @@ namespace mgis::function {
+   }  // end of getNumberOfComponents
+ 
+   // the call operators use the `data` method of the underlying view when it is
+-  // available and apply the `getDataPointer` function to the result of the
+-  // call otherwise; a read-only quantity referencing the value of the function
+-  // is returned
++  // available and use the first value of the result of the call otherwise
++  // (see `getFirstValue`, which handles strided spans); a read-only quantity
++  // referencing the value of the function is returned
+   template <FunctionConcept FunctionType,
+             ::tfel::math::unit::UnitConcept UnitType>
+   constexpr auto QuantityView<FunctionType, UnitType>::operator()(
+       const element_index<Space>& i) const
+       requires((internals::FunctionResultQuery<FunctionType>::b1) &&
+-               (isFunctionConstResultTypeMappable<FunctionType>)) {
++               (isFunctionConstResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         const function_view<FunctionType>& rf, const element_index<Space>& ri) {
+       { rf.data(unsafe, ri) } -> std::same_as<const real*>;
+@@ -89,7 +89,7 @@ namespace mgis::function {
+           *(this->function.data(unsafe, i)));
+     } else {
+       return ::tfel::math::const_qt_ref<UnitType, real>(
+-          *(getDataPointer(this->function(i))));
++          internals::getFirstValue(this->function(i)));
+     }
+   }
+ 
+@@ -98,7 +98,7 @@ namespace mgis::function {
+   constexpr auto QuantityView<FunctionType, UnitType>::operator()(
+       const element_workspace<Space>& wk, const element_index<Space>& i) const
+       requires((internals::FunctionResultQuery<FunctionType>::b2) &&
+-               (isFunctionConstResultTypeMappable<FunctionType>)) {
++               (isFunctionConstResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         const function_view<FunctionType>& rf,
+         const element_workspace<Space>& rwk, const element_index<Space>& ri) {
+@@ -109,7 +109,7 @@ namespace mgis::function {
+           *(this->function.data(unsafe, wk, i)));
+     } else {
+       return ::tfel::math::const_qt_ref<UnitType, real>(
+-          *(getDataPointer(this->function(wk, i))));
++          internals::getFirstValue(this->function(wk, i)));
+     }
+   }
+ 
+@@ -118,7 +118,7 @@ namespace mgis::function {
+   constexpr auto QuantityView<FunctionType, UnitType>::operator()(
+       const cell_index<Space>& e, const quadrature_point_index<Space>& i) const
+       requires((internals::FunctionResultQuery<FunctionType>::b3) &&
+-               (isFunctionConstResultTypeMappable<FunctionType>)) {
++               (isFunctionConstResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         const function_view<FunctionType>& rf, const cell_index<Space>& re,
+         const quadrature_point_index<Space>& ri) {
+@@ -129,7 +129,7 @@ namespace mgis::function {
+           *(this->function.data(unsafe, e, i)));
+     } else {
+       return ::tfel::math::const_qt_ref<UnitType, real>(
+-          *(getDataPointer(this->function(e, i))));
++          internals::getFirstValue(this->function(e, i)));
+     }
+   }
+ 
+@@ -140,7 +140,7 @@ namespace mgis::function {
+       const cell_index<Space>& e,
+       const quadrature_point_index<Space>& i) const
+       requires((internals::FunctionResultQuery<FunctionType>::b4) &&
+-               (isFunctionConstResultTypeMappable<FunctionType>)) {
++               (isFunctionConstResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         const function_view<FunctionType>& rf, const cell_workspace<Space>& rwk,
+         const cell_index<Space>& re, const quadrature_point_index<Space>& ri) {
+@@ -151,7 +151,7 @@ namespace mgis::function {
+           *(this->function.data(unsafe, wk, e, i)));
+     } else {
+       return ::tfel::math::const_qt_ref<UnitType, real>(
+-          *(getDataPointer(this->function(wk, e, i))));
++          internals::getFirstValue(this->function(wk, e, i)));
+     }
+   }
+ 
+@@ -163,7 +163,7 @@ namespace mgis::function {
+   constexpr auto QuantityView<FunctionType, UnitType>::operator()(
+       const element_index<Space>& i)  //
+       requires((internals::FunctionResultQuery<FunctionType>::b1) &&
+-               (isFunctionResultTypeMappable<FunctionType>)) {
++               (isFunctionResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         function_view<FunctionType>& rf, const element_index<Space>& ri) {
+       { rf.data(unsafe, ri) } -> std::same_as<real*>;
+@@ -173,7 +173,7 @@ namespace mgis::function {
+           *(this->function.data(unsafe, i)));
+     } else {
+       return ::tfel::math::qt_ref<UnitType, real>(
+-          *(getDataPointer(this->function(i))));
++          internals::getFirstValue(this->function(i)));
+     }
+   }
+ 
+@@ -183,7 +183,7 @@ namespace mgis::function {
+       const element_workspace<Space>& wk,
+       const element_index<Space>& i)  //
+       requires((internals::FunctionResultQuery<FunctionType>::b2) &&
+-               (isFunctionResultTypeMappable<FunctionType>)) {
++               (isFunctionResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         function_view<FunctionType>& rf, const element_workspace<Space>& rwk,
+         const element_index<Space>& ri) {
+@@ -194,7 +194,7 @@ namespace mgis::function {
+           *(this->function.data(unsafe, wk, i)));
+     } else {
+       return ::tfel::math::qt_ref<UnitType, real>(
+-          *(getDataPointer(this->function(wk, i))));
++          internals::getFirstValue(this->function(wk, i)));
+     }
+   }
+ 
+@@ -204,7 +204,7 @@ namespace mgis::function {
+       const cell_index<Space>& e,
+       const quadrature_point_index<Space>& i)  //
+       requires((internals::FunctionResultQuery<FunctionType>::b3) &&
+-               (isFunctionResultTypeMappable<FunctionType>)) {
++               (isFunctionResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         function_view<FunctionType>& rf, const cell_index<Space>& re,
+         const quadrature_point_index<Space>& ri) {
+@@ -215,7 +215,7 @@ namespace mgis::function {
+           *(this->function.data(unsafe, e, i)));
+     } else {
+       return ::tfel::math::qt_ref<UnitType, real>(
+-          *(getDataPointer(this->function(e, i))));
++          internals::getFirstValue(this->function(e, i)));
+     }
+   }
+ 
+@@ -226,7 +226,7 @@ namespace mgis::function {
+       const cell_index<Space>& e,
+       const quadrature_point_index<Space>& i)  //
+       requires((internals::FunctionResultQuery<FunctionType>::b4) &&
+-               (isFunctionResultTypeMappable<FunctionType>)) {
++               (isFunctionResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         function_view<FunctionType>& rf, const cell_workspace<Space>& rwk,
+         const cell_index<Space>& re, const quadrature_point_index<Space>& ri) {
+@@ -237,7 +237,7 @@ namespace mgis::function {
+           *(this->function.data(unsafe, wk, e, i)));
+     } else {
+       return ::tfel::math::qt_ref<UnitType, real>(
+-          *(getDataPointer(this->function(wk, e, i))));
++          internals::getFirstValue(this->function(wk, e, i)));
+     }
+   }
+ 
+diff --git a/include/MGIS/Function/TFEL/TensorModifier.hxx b/include/MGIS/Function/TFEL/TensorModifier.hxx
+index 534a701..72727ff 100644
+--- a/include/MGIS/Function/TFEL/TensorModifier.hxx
++++ b/include/MGIS/Function/TFEL/TensorModifier.hxx
+@@ -23,6 +23,7 @@
+ #include "MGIS/Function/Evaluator.hxx"
+ #include "MGIS/Function/EvaluatorModifierBase.hxx"
+ #include "MGIS/Function/TFEL/General.hxx"
++#include "MGIS/Function/TFEL/MapValues.hxx"
+ #include "MGIS/Function/TFEL/TensorConcept.hxx"
+ 
+ namespace mgis::function {
+@@ -40,7 +41,7 @@ namespace mgis::function {
+    */
+   template <TensorConcept TensorType, EvaluatorConcept EvaluatorType>
+   inline constexpr bool areTensorModifierRequirementsSatisfied =
+-      ((isEvaluatorResultTypeMappable<EvaluatorType>)&&  //
++      ((isEvaluatorResultTypeStridedMappable<EvaluatorType>)&&  //
+        (internals::checkEvaluatorNumberOfComponentsCompatibility<
+            EvaluatorType,
+            compile_time_size<TensorType>>()));
+diff --git a/include/MGIS/Function/TFEL/TensorModifier.ixx b/include/MGIS/Function/TFEL/TensorModifier.ixx
+index 22c212f..d2ac9c0 100644
+--- a/include/MGIS/Function/TFEL/TensorModifier.ixx
++++ b/include/MGIS/Function/TFEL/TensorModifier.ixx
+@@ -50,7 +50,8 @@ namespace mgis::function {
+   }
+ 
+   // the values returned by the underlying evaluator are mapped to a read-only
+-  // tensor if they are stored in memory owned by another object (that is if
++  // tensor (see `mapValues`, which handles strided spans) if they are stored
++  // in memory owned by another object (that is if
+   // they match the `DataViewConcept` concept), a tensor owning a copy of these
+   // values is returned otherwise
+   template <TensorConcept TensorType, EvaluatorConcept EvaluatorType>
+@@ -59,10 +60,10 @@ namespace mgis::function {
+       constexpr auto TensorModifier<TensorType, EvaluatorType>::apply(
+           const evaluator_result<EvaluatorType>& values) const {
+     if constexpr (DataViewConcept<evaluator_result<EvaluatorType>>) {
+-      return tfel::math::map<const TensorType>(getDataPointer(values));
++      return internals::mapValues<const TensorType>(values);
+     } else {
+       return TensorType(
+-          tfel::math::map<const TensorType>(getDataPointer(values)));
++          internals::mapValues<const TensorType>(values));
+     }
+   }  // end of apply
+ 
+diff --git a/include/MGIS/Function/TFEL/TensorView.hxx b/include/MGIS/Function/TFEL/TensorView.hxx
+index 31e3d1e..953cf83 100644
+--- a/include/MGIS/Function/TFEL/TensorView.hxx
++++ b/include/MGIS/Function/TFEL/TensorView.hxx
+@@ -24,6 +24,7 @@
+ #include "MGIS/Contract.hxx"
+ #include "MGIS/Function/Function.hxx"
+ #include "MGIS/Function/TFEL/General.hxx"
++#include "MGIS/Function/TFEL/MapValues.hxx"
+ #include "MGIS/Function/TFEL/TensorConcept.hxx"
+ 
+ namespace mgis::function {
+@@ -119,7 +120,7 @@ namespace mgis::function {
+      */
+     [[nodiscard]] constexpr auto operator()(const element_index<Space>&) const
+         requires((internals::FunctionResultQuery<FunctionType>::b1) &&
+-                 (isFunctionConstResultTypeMappable<FunctionType>));
++                 (isFunctionConstResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator
+      * \param[in] wk: element workspace
+@@ -133,7 +134,7 @@ namespace mgis::function {
+     [[nodiscard]] constexpr auto operator()(const element_workspace<Space>&,
+                                             const element_index<Space>&) const
+         requires((internals::FunctionResultQuery<FunctionType>::b2) &&
+-                 (isFunctionConstResultTypeMappable<FunctionType>));
++                 (isFunctionConstResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator
+      * \param[in] e: cell index
+@@ -147,7 +148,7 @@ namespace mgis::function {
+     [[nodiscard]] constexpr auto operator()(
+         const cell_index<Space>&, const quadrature_point_index<Space>&) const
+         requires((internals::FunctionResultQuery<FunctionType>::b3) &&
+-                 (isFunctionConstResultTypeMappable<FunctionType>));
++                 (isFunctionConstResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator
+      * \param[in] wk: cell workspace
+@@ -164,7 +165,7 @@ namespace mgis::function {
+         const cell_index<Space>&,
+         const quadrature_point_index<Space>&) const
+         requires((internals::FunctionResultQuery<FunctionType>::b4) &&
+-                 (isFunctionConstResultTypeMappable<FunctionType>));
++                 (isFunctionConstResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator returning mutable values
+      * \param[in] i: integration point index
+@@ -176,7 +177,7 @@ namespace mgis::function {
+      */
+     constexpr auto operator()(const element_index<Space>&)  //
+         requires((internals::FunctionResultQuery<FunctionType>::b1) &&
+-                 (isFunctionResultTypeMappable<FunctionType>));
++                 (isFunctionResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator returning mutable values
+      * \param[in] wk: element workspace
+@@ -190,7 +191,7 @@ namespace mgis::function {
+     [[nodiscard]] constexpr auto operator()(const element_workspace<Space>&,
+                                             const element_index<Space>&)  //
+         requires((internals::FunctionResultQuery<FunctionType>::b2) &&
+-                 (isFunctionResultTypeMappable<FunctionType>));
++                 (isFunctionResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator returning mutable values
+      * \param[in] e: cell index
+@@ -205,7 +206,7 @@ namespace mgis::function {
+         const cell_index<Space>&,
+         const quadrature_point_index<Space>&)  //
+         requires((internals::FunctionResultQuery<FunctionType>::b3) &&
+-                 (isFunctionResultTypeMappable<FunctionType>));
++                 (isFunctionResultTypeStridedMappable<FunctionType>));
+     /*!
+      * \brief call operator returning mutable values
+      * \param[in] wk: cell workspace
+@@ -222,7 +223,7 @@ namespace mgis::function {
+         const cell_index<Space>&,
+         const quadrature_point_index<Space>&)  //
+         requires((internals::FunctionResultQuery<FunctionType>::b4) &&
+-                 (isFunctionResultTypeMappable<FunctionType>));
++                 (isFunctionResultTypeStridedMappable<FunctionType>));
+ 
+    private:
+     //! \brief underlying view of the function
+diff --git a/include/MGIS/Function/TFEL/TensorView.ixx b/include/MGIS/Function/TFEL/TensorView.ixx
+index c947bc9..f9b57fa 100644
+--- a/include/MGIS/Function/TFEL/TensorView.ixx
++++ b/include/MGIS/Function/TFEL/TensorView.ixx
+@@ -71,14 +71,14 @@ namespace mgis::function {
+   }
+ 
+   // the call operators use the `data` method of the underlying view when it is
+-  // available and apply the `getDataPointer` function to the result of the
+-  // call otherwise; a read-only tensor sharing the values of the function is
+-  // returned
++  // available and map the result of the call otherwise (see `mapValues`,
++  // which handles strided spans); a read-only tensor sharing the values of
++  // the function is returned
+   template <FunctionConcept FunctionType, TensorConcept TensorType>
+   constexpr auto TensorView<FunctionType, TensorType>::operator()(
+       const element_index<Space>& i) const
+       requires((internals::FunctionResultQuery<FunctionType>::b1) &&
+-               (isFunctionConstResultTypeMappable<FunctionType>)) {
++               (isFunctionConstResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         const function_view<FunctionType>& rf, const element_index<Space>& ri) {
+       { rf.data(unsafe, ri) } -> std::same_as<const real*>;
+@@ -86,8 +86,7 @@ namespace mgis::function {
+     if constexpr (has_data_method) {
+       return tfel::math::map<const TensorType>(this->function.data(unsafe, i));
+     } else {
+-      return tfel::math::map<const TensorType>(
+-          getDataPointer(this->function(i)));
++      return internals::mapValues<const TensorType>(this->function(i));
+     }
+   }
+ 
+@@ -95,7 +94,7 @@ namespace mgis::function {
+   constexpr auto TensorView<FunctionType, TensorType>::operator()(
+       const element_workspace<Space>& wk, const element_index<Space>& i) const
+       requires((internals::FunctionResultQuery<FunctionType>::b2) &&
+-               (isFunctionConstResultTypeMappable<FunctionType>)) {
++               (isFunctionConstResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         const function_view<FunctionType>& rf,
+         const element_workspace<Space>& rwk, const element_index<Space>& ri) {
+@@ -105,8 +104,7 @@ namespace mgis::function {
+       return tfel::math::map<const TensorType>(
+           this->function.data(unsafe, wk, i));
+     } else {
+-      return tfel::math::map<const TensorType>(
+-          getDataPointer(this->function(wk, i)));
++      return internals::mapValues<const TensorType>(this->function(wk, i));
+     }
+   }
+ 
+@@ -114,7 +112,7 @@ namespace mgis::function {
+   constexpr auto TensorView<FunctionType, TensorType>::operator()(
+       const cell_index<Space>& e, const quadrature_point_index<Space>& i) const
+       requires((internals::FunctionResultQuery<FunctionType>::b3) &&
+-               (isFunctionConstResultTypeMappable<FunctionType>)) {
++               (isFunctionConstResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         const function_view<FunctionType>& rf, const cell_index<Space> re,
+         const quadrature_point_index<Space> ri) {
+@@ -124,8 +122,7 @@ namespace mgis::function {
+       return tfel::math::map<const TensorType>(
+           this->function.data(unsafe, e, i));
+     } else {
+-      return tfel::math::map<const TensorType>(
+-          getDataPointer(this->function(e, i)));
++      return internals::mapValues<const TensorType>(this->function(e, i));
+     }
+   }
+ 
+@@ -135,7 +132,7 @@ namespace mgis::function {
+       const cell_index<Space>& e,
+       const quadrature_point_index<Space>& i) const
+       requires((internals::FunctionResultQuery<FunctionType>::b4) &&
+-               (isFunctionConstResultTypeMappable<FunctionType>)) {
++               (isFunctionConstResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         const function_view<FunctionType>& rf, const cell_workspace<Space>& rwk,
+         const cell_index<Space> re, const quadrature_point_index<Space> ri) {
+@@ -145,8 +142,7 @@ namespace mgis::function {
+       return tfel::math::map<const TensorType>(
+           this->function.data(unsafe, wk, e, i));
+     } else {
+-      return tfel::math::map<const TensorType>(
+-          getDataPointer(this->function(wk, e, i)));
++      return internals::mapValues<const TensorType>(this->function(wk, e, i));
+     }
+   }
+ 
+@@ -156,7 +152,7 @@ namespace mgis::function {
+   constexpr auto TensorView<FunctionType, TensorType>::operator()(
+       const element_index<Space>& i)  //
+       requires((internals::FunctionResultQuery<FunctionType>::b1) &&
+-               (isFunctionResultTypeMappable<FunctionType>)) {
++               (isFunctionResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         function_view<FunctionType>& rf, const element_index<Space>& ri) {
+       { rf.data(unsafe, ri) } -> std::same_as<real*>;
+@@ -164,7 +160,7 @@ namespace mgis::function {
+     if constexpr (has_data_method) {
+       return tfel::math::map<TensorType>(this->function.data(unsafe, i));
+     } else {
+-      return tfel::math::map<TensorType>(getDataPointer(this->function(i)));
++      return internals::mapValues<TensorType>(this->function(i));
+     }
+   }
+ 
+@@ -173,7 +169,7 @@ namespace mgis::function {
+       const element_workspace<Space>& wk,
+       const element_index<Space>& i)  //
+       requires((internals::FunctionResultQuery<FunctionType>::b2) &&
+-               (isFunctionResultTypeMappable<FunctionType>)) {
++               (isFunctionResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         function_view<FunctionType>& rf, const element_workspace<Space>& rwk,
+         const element_index<Space>& ri) {
+@@ -182,7 +178,7 @@ namespace mgis::function {
+     if constexpr (has_data_method) {
+       return tfel::math::map<TensorType>(this->function.data(unsafe, wk, i));
+     } else {
+-      return tfel::math::map<TensorType>(getDataPointer(this->function(wk, i)));
++      return internals::mapValues<TensorType>(this->function(wk, i));
+     }
+   }
+ 
+@@ -191,7 +187,7 @@ namespace mgis::function {
+       const cell_index<Space>& e,
+       const quadrature_point_index<Space>& i)  //
+       requires((internals::FunctionResultQuery<FunctionType>::b3) &&
+-               (isFunctionResultTypeMappable<FunctionType>)) {
++               (isFunctionResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         function_view<FunctionType>& rf, const cell_index<Space>& re,
+         const quadrature_point_index<Space>& ri) {
+@@ -200,7 +196,7 @@ namespace mgis::function {
+     if constexpr (has_data_method) {
+       return tfel::math::map<TensorType>(this->function.data(unsafe, e, i));
+     } else {
+-      return tfel::math::map<TensorType>(getDataPointer(this->function(e, i)));
++      return internals::mapValues<TensorType>(this->function(e, i));
+     }
+   }
+ 
+@@ -210,7 +206,7 @@ namespace mgis::function {
+       const cell_index<Space>& e,
+       const quadrature_point_index<Space>& i)  //
+       requires((internals::FunctionResultQuery<FunctionType>::b4) &&
+-               (isFunctionResultTypeMappable<FunctionType>)) {
++               (isFunctionResultTypeStridedMappable<FunctionType>)) {
+     constexpr auto has_data_method = requires(
+         function_view<FunctionType>& rf, const cell_workspace<Space>& rwk,
+         const cell_index<Space>& re, const quadrature_point_index<Space>& ri) {
+@@ -219,8 +215,7 @@ namespace mgis::function {
+     if constexpr (has_data_method) {
+       return tfel::math::map<TensorType>(this->function.data(unsafe, wk, e, i));
+     } else {
+-      return tfel::math::map<TensorType>(
+-          getDataPointer(this->function(wk, e, i)));
++      return internals::mapValues<TensorType>(this->function(wk, e, i));
+     }
+   }
+ 
+diff --git a/include/MGIS/StridedSpan.hxx b/include/MGIS/StridedSpan.hxx
+new file mode 100644
+index 0000000..23bbf5a
+--- /dev/null
++++ b/include/MGIS/StridedSpan.hxx
+@@ -0,0 +1,198 @@
++/*!
++ * \file   include/MGIS/StridedSpan.hxx
++ * \brief  This file declares the `StridedSpan` class, a view on values
++ * separated by a constant stride, such as the components of a point of a
++ * field stored component by component.
++ * \date   10/11/2026
++ * \copyright Use, modification and distribution are subject
++ * to one of the following licences:
++ * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
++ *   file LGPL-3.0.txt)
++ * - CECILL-C,  Version 1.0 (See accompanying files
++ *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
++ */
++
++#ifndef LIB_MGIS_STRIDEDSPAN_HXX
++#define LIB_MGIS_STRIDEDSPAN_HXX
++
++#include <span>
++#include <cstddef>
++#include <iterator>
++#include <type_traits>
++#include "MGIS/Config.hxx"
++
++namespace mgis {
++
++  /*!
++   * \brief a view on `size()` values separated by a constant stride: the
++   * `i`-th value is `getPointer()[i * getStride()]`.
++   *
++   * This is the strided counterpart of `std::span`, with the meaning of a
++   * one-dimensional `std::mdspan` using the `layout_stride` mapping. It
++   * typically describes the components of one point of a field, whatever
++   * the layout of the field (a stride of one for a field stored point by
++   * point, the leading dimension for a field stored component by
++   * component, see `FieldView`).
++   *
++   * Contrary to `std::span`, this class has no `data` method: it can't be
++   * mistaken for contiguous values by a code mapping the values from a
++   * pointer. The values are contiguous only if `hasContiguousValues()` is
++   * true.
++   *
++   * A strided span is trivially copyable and its methods are `constexpr`:
++   * it can be used in device code. It is not assignable: an assignment
++   * would either rebind the view (as for `std::span`) or copy the values (as
++   * for the views of `TFEL/Math`), and the algorithms of `mgis::function`
++   * assigning the values of a point to another must not confuse the two (see
++   * `mgis::function::internals::assign_value`).
++   *
++   * \tparam ValueType: type of the values, `real` or `const real`
++   */
++  template <typename ValueType>
++  struct StridedSpan {
++    static_assert(std::is_same_v<std::remove_const_t<ValueType>, real>,
++                  "invalid value type");
++    //! \brief type of the values
++    using value_type = std::remove_const_t<ValueType>;
++    //! \brief type of the elements
++    using element_type = ValueType;
++    //! \brief type of the indices
++    using size_type = mgis::size_type;
++    //! \brief random access iterator on the values
++    struct iterator {
++      using iterator_category = std::random_access_iterator_tag;
++      using value_type = std::remove_const_t<ValueType>;
++      using difference_type = std::ptrdiff_t;
++      using pointer = ValueType*;
++      using reference = ValueType&;
++      constexpr reference operator*() const noexcept { return *(this->p); }
++      constexpr reference operator[](const difference_type i) const noexcept {
++        return this->p[i * this->s];
++      }
++      constexpr iterator& operator++() noexcept {
++        this->p += this->s;
++        return *this;
++      }
++      constexpr iterator operator++(int) noexcept {
++        auto r = *this;
++        this->p += this->s;
++        return r;
++      }
++      constexpr iterator& operator--() noexcept {
++        this->p -= this->s;
++        return *this;
++      }
++      constexpr iterator operator--(int) noexcept {
++        auto r = *this;
++        this->p -= this->s;
++        return r;
++      }
++      constexpr iterator& operator+=(const difference_type i) noexcept {
++        this->p += i * this->s;
++        return *this;
++      }
++      constexpr iterator& operator-=(const difference_type i) noexcept {
++        this->p -= i * this->s;
++        return *this;
++      }
++      constexpr iterator operator+(const difference_type i) const noexcept {
++        return iterator{this->p + i * this->s, this->s};
++      }
++      friend constexpr iterator operator+(const difference_type i,
++                                          const iterator& it) noexcept {
++        return it + i;
++      }
++      constexpr iterator operator-(const difference_type i) const noexcept {
++        return iterator{this->p - i * this->s, this->s};
++      }
++      constexpr difference_type operator-(const iterator& o) const noexcept {
++        return (this->p - o.p) / this->s;
++      }
++      constexpr bool operator==(const iterator& o) const noexcept {
++        return this->p == o.p;
++      }
++      constexpr auto operator<=>(const iterator& o) const noexcept {
++        return this->p <=> o.p;
++      }
++      //! \brief current value
++      ValueType* p = nullptr;
++      //! \brief stride
++      difference_type s = 1;
++    };
++    //! \brief default constructor, building an empty view
++    constexpr StridedSpan() noexcept = default;
++    /*!
++     * \param[in] p: pointer to the first value
++     * \param[in] n: number of values
++     * \param[in] s: stride between two successive values, which must be
++     * strictly positive
++     */
++    constexpr StridedSpan(ValueType* const p,
++                          const size_type n,
++                          const size_type s) noexcept
++        : ptr(p), number_of_values(n), stride(s) {}
++    //! \brief view on contiguous values (stride of one)
++    constexpr StridedSpan(const std::span<ValueType> v) noexcept
++        : ptr(v.data()),
++          number_of_values(static_cast<size_type>(v.size())),
++          stride(1) {}
++    //! \brief conversion of a view on mutable values to a read-only view
++    template <typename OtherValueType>
++    constexpr StridedSpan(const StridedSpan<OtherValueType>& v) noexcept
++        requires(std::is_same_v<const OtherValueType, ValueType> &&
++                 !std::is_same_v<OtherValueType, ValueType>)
++        : ptr(v.getPointer()),
++          number_of_values(v.size()),
++          stride(v.getStride()) {}
++    constexpr StridedSpan(const StridedSpan&) noexcept = default;
++    constexpr StridedSpan(StridedSpan&&) noexcept = default;
++    StridedSpan& operator=(const StridedSpan&) = delete;
++    StridedSpan& operator=(StridedSpan&&) = delete;
++    //! \return the `i`-th value
++    [[nodiscard]] constexpr ValueType& operator[](
++        const size_type i) const noexcept {
++      return this->ptr[i * this->stride];
++    }
++    //! \return the number of values
++    [[nodiscard]] constexpr size_type size() const noexcept {
++      return this->number_of_values;
++    }
++    //! \return true if the view is empty
++    [[nodiscard]] constexpr bool empty() const noexcept {
++      return this->number_of_values == 0;
++    }
++    //! \return a pointer to the first value
++    [[nodiscard]] constexpr ValueType* getPointer() const noexcept {
++      return this->ptr;
++    }
++    //! \return the stride between two successive values
++    [[nodiscard]] constexpr size_type getStride() const noexcept {
++      return this->stride;
++    }
++    //! \return true if the values are contiguous
++    [[nodiscard]] constexpr bool hasContiguousValues() const noexcept {
++      return (this->stride == 1) || (this->number_of_values <= 1);
++    }
++    //! \return an iterator to the first value
++    [[nodiscard]] constexpr iterator begin() const noexcept {
++      return iterator{this->ptr,
++                      static_cast<std::ptrdiff_t>(this->stride)};
++    }
++    //! \return an iterator past the last value
++    [[nodiscard]] constexpr iterator end() const noexcept {
++      return iterator{this->ptr + this->number_of_values * this->stride,
++                      static_cast<std::ptrdiff_t>(this->stride)};
++    }
++
++   private:
++    //! \brief pointer to the first value
++    ValueType* ptr = nullptr;
++    //! \brief number of values
++    size_type number_of_values = 0;
++    //! \brief stride between two successive values
++    size_type stride = 1;
++  };  // end of StridedSpan
++
++}  // end of namespace mgis
++
++#endif /* LIB_MGIS_STRIDEDSPAN_HXX */
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 67f2195..90d1496 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -634,6 +634,9 @@ if(MGIS_HAVE_TFEL)
+     add_tfel_test(MechanicalEvaluatorsTest MechanicalEvaluatorsTest.cxx)
+     add_function_test_flags(MechanicalEvaluatorsTest)
+ 
++    add_tfel_test(StridedSpanTest StridedSpanTest.cxx)
++    add_function_test_flags(StridedSpanTest)
++
+     add_tfel_test(QuantityFunctionTest QuantityFunctionTest.cxx)
+     add_function_test_flags(QuantityFunctionTest)
+ 
+diff --git a/tests/StridedSpanTest.cxx b/tests/StridedSpanTest.cxx
+new file mode 100644
+index 0000000..6c6deb9
+--- /dev/null
++++ b/tests/StridedSpanTest.cxx
+@@ -0,0 +1,226 @@
++/*!
++ * \file   tests/StridedSpanTest.cxx
++ * \brief  This file tests the `StridedSpan` class and its use as the result
++ * of the functions and evaluators of `mgis::function`.
++ * \date   10/11/2026
++ * \copyright Use, modification and distribution are subject
++ * to one of the following licences:
++ * - GNU Lesser General Public License (LGPL), Version 3.0. (See accompanying
++ *   file LGPL-3.0.txt)
++ * - CECILL-C,  Version 1.0 (See accompanying files
++ *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
++ */
++
++#ifdef NDEBUG
++#undef NDEBUG
++#endif
++
++#include <cmath>
++#include <vector>
++#include <cstdlib>
++#include <iostream>
++#include "TFEL/Tests/TestCase.hxx"
++#include "TFEL/Tests/TestProxy.hxx"
++#include "TFEL/Tests/TestManager.hxx"
++#include "TFEL/Math/tmatrix.hxx"
++#include "MGIS/StridedSpan.hxx"
++#include "MGIS/Function/BasicLinearSpace.hxx"
++#include "MGIS/Function/Function.hxx"
++#include "MGIS/Function/Algorithms.hxx"
++#include "MGIS/Function/TFEL/Mechanics.hxx"
++#include "Tolerance.hxx"
++
++/*!
++ * \brief a minimal function whose values are stored with arbitrary strides,
++ * returning the values of a point as a strided span, as the functions of the
++ * calling codes storing their values point by point or component by
++ * component (for instance the partial quadrature functions of mfem-mgis)
++ */
++struct StridedFunction {
++  //! \brief values of the `j`-th component of the `i`-th point
++  mgis::StridedSpan<mgis::real> operator()(const mgis::size_type i) const {
++    return {this->values + i * this->point_stride, this->number_of_components,
++            this->component_stride};
++  }
++  //! \brief space
++  mgis::function::BasicLinearSpace space;
++  //! \brief values
++  mgis::real* values;
++  //! \brief number of components
++  mgis::size_type number_of_components;
++  //! \brief stride between two points
++  mgis::size_type point_stride;
++  //! \brief stride between two components
++  mgis::size_type component_stride;
++};
++
++//! \brief read-only counterpart of `StridedFunction`
++struct ImmutableStridedFunction {
++  mgis::StridedSpan<const mgis::real> operator()(
++      const mgis::size_type i) const {
++    return {this->values + i * this->point_stride, this->number_of_components,
++            this->component_stride};
++  }
++  mgis::function::BasicLinearSpace space;
++  const mgis::real* values;
++  mgis::size_type number_of_components;
++  mgis::size_type point_stride;
++  mgis::size_type component_stride;
++};
++
++const mgis::function::BasicLinearSpace& getSpace(const StridedFunction& f) {
++  return f.space;
++}
++const mgis::function::BasicLinearSpace& getSpace(
++    const ImmutableStridedFunction& f) {
++  return f.space;
++}
++constexpr bool check(mgis::AbstractErrorHandler&,
++                     const StridedFunction&) noexcept {
++  return true;
++}
++constexpr bool check(mgis::AbstractErrorHandler&,
++                     const ImmutableStridedFunction&) noexcept {
++  return true;
++}
++mgis::size_type getNumberOfComponents(const StridedFunction& f) noexcept {
++  return f.number_of_components;
++}
++mgis::size_type getNumberOfComponents(
++    const ImmutableStridedFunction& f) noexcept {
++  return f.number_of_components;
++}
++
++namespace mgis::function {
++  template <>
++  struct LightweightViewTraits<StridedFunction> : std::true_type {};
++  static_assert(FunctionConcept<StridedFunction>);
++  static_assert(EvaluatorConcept<ImmutableStridedFunction>);
++  static_assert(isFunctionResultTypeStridedMappable<StridedFunction>);
++  static_assert(!isFunctionResultTypeMappable<StridedFunction>);
++  static_assert(
++      isEvaluatorResultTypeStridedMappable<ImmutableStridedFunction>);
++  static_assert(!isEvaluatorResultTypeMappable<ImmutableStridedFunction>);
++}  // end of namespace mgis::function
++
++struct StridedSpanTest final : public tfel::tests::TestCase {
++  StridedSpanTest() : tfel::tests::TestCase("MGIS", "StridedSpanTest") {}
++  tfel::tests::TestResult execute() override {
++    this->test1();
++    this->test2();
++    this->test3();
++    return this->result;
++  }
++
++ private:
++  //! \brief basic accessors
++  void test1() {
++    using namespace mgis;
++    auto values = std::vector<real>{1, 2, 3, 4, 5, 6};
++    const auto s = StridedSpan<real>(values.data() + 1, 3, 2);
++    TFEL_TESTS_CHECK_EQUAL(s.size(), 3);
++    TFEL_TESTS_ASSERT(!s.empty());
++    TFEL_TESTS_ASSERT(!s.hasContiguousValues());
++    TFEL_TESTS_CHECK_EQUAL(s.getStride(), 2);
++    TFEL_TESTS_ASSERT(s[0] == 2);
++    TFEL_TESTS_ASSERT(s[1] == 4);
++    TFEL_TESTS_ASSERT(s[2] == 6);
++    s[1] = 40;
++    TFEL_TESTS_ASSERT(values[3] == 40);
++    auto sum = real{};
++    for (const auto v : s) {
++      sum += v;
++    }
++    TFEL_TESTS_ASSERT(sum == 48);
++    TFEL_TESTS_CHECK_EQUAL(s.end() - s.begin(), 3);
++    const StridedSpan<const real> cs = s;
++    TFEL_TESTS_ASSERT(cs[2] == 6);
++    const auto c = StridedSpan<real>(std::span<real>(values));
++    TFEL_TESTS_ASSERT(c.hasContiguousValues());
++    TFEL_TESTS_CHECK_EQUAL(c.size(), 6);
++    TFEL_TESTS_ASSERT(StridedSpan<real>().empty());
++  }
++  /*!
++   * \brief the same stresses stored point by point (with a padding) and
++   * component by component: the evaluators give the same results to the bit
++   */
++  void test2() {
++    using namespace mgis;
++    using namespace mgis::function;
++    constexpr size_type n = 3;
++    constexpr size_type nc = 6;
++    const auto space = BasicLinearSpace(n);
++    auto aos = std::vector<real>(n * (nc + 1), std::nan(""));
++    auto soa = std::vector<real>((n + 2) * nc, std::nan(""));
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type j = 0; j != nc; ++j) {
++        const auto v = real(1 + i) * real(j + 2) / 3 - real(j % 2);
++        aos[i * (nc + 1) + j] = v;
++        soa[j * (n + 2) + i] = v;
++      }
++    }
++    const auto faos = ImmutableStridedFunction{space, aos.data(), nc, nc + 1, 1};
++    const auto fsoa = ImmutableStridedFunction{space, soa.data(), nc, 1, n + 2};
++    // scalar results, written in a function stored point by point
++    auto r1 = std::vector<real>(n);
++    auto r2 = std::vector<real>(n);
++    auto seq1 = FunctionView<BasicLinearSpace>(space, r1, 1);
++    auto seq2 = FunctionView<BasicLinearSpace>(space, r2, 1);
++    TFEL_TESTS_ASSERT(faos | as_stensor<3> | vmis | seq1);
++    TFEL_TESTS_ASSERT(fsoa | as_stensor<3> | vmis | seq2);
++    for (size_type i = 0; i != n; ++i) {
++      TFEL_TESTS_ASSERT(!std::isnan(r1[i]));
++      TFEL_TESTS_ASSERT(r1[i] == r2[i]);
++    }
++    // tensorial results, written in functions stored with strides
++    auto d1 = std::vector<real>(n * nc, std::nan(""));
++    auto d2 = std::vector<real>(n * nc, std::nan(""));
++    auto g1 = StridedFunction{space, d1.data(), nc, nc, 1};
++    auto g2 = StridedFunction{space, d2.data(), nc, 1, n};
++    auto v1 = g1 | as_stensor<3>;
++    auto v2 = g2 | as_stensor<3>;
++    const auto R = tfel::math::tmatrix<3, 3, real>{{0, 1, 0},  //
++                                                   {0, 0, 1},
++                                                   {1, 0, 0}};
++    TFEL_TESTS_ASSERT(faos | as_stensor<3> | rotate_backwards(R) | v1);
++    TFEL_TESTS_ASSERT(fsoa | as_stensor<3> | rotate_backwards(R) | v2);
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type j = 0; j != nc; ++j) {
++        TFEL_TESTS_ASSERT(!std::isnan(d1[i * nc + j]));
++        TFEL_TESTS_ASSERT(d1[i * nc + j] == d2[j * n + i]);
++      }
++    }
++  }
++  //! \brief raw assignments between functions stored with strides
++  void test3() {
++    using namespace mgis;
++    using namespace mgis::function;
++    constexpr size_type n = 4;
++    constexpr size_type nc = 3;
++    const auto space = BasicLinearSpace(n);
++    auto src = std::vector<real>(n * nc);
++    for (size_type i = 0; i != n * nc; ++i) {
++      src[i] = real(i);
++    }
++    auto dst = std::vector<real>(n * nc, std::nan(""));
++    const auto fsrc = ImmutableStridedFunction{space, src.data(), nc, nc, 1};
++    auto fdst = StridedFunction{space, dst.data(), nc, 1, n};
++    Context ctx;
++    TFEL_TESTS_ASSERT(assign(ctx, fdst, fsrc));
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type j = 0; j != nc; ++j) {
++        TFEL_TESTS_ASSERT(dst[j * n + i] == src[i * nc + j]);
++      }
++    }
++  }
++};
++
++TFEL_TESTS_GENERATE_PROXY(StridedSpanTest, "StridedSpanTest");
++
++/* coverity [UNCAUGHT_EXCEPT]*/
++int main() {
++  auto& m = tfel::tests::TestManager::getTestManager();
++  m.addTestOutput(std::cout);
++  m.addXMLTestOutput("StridedSpanTest.xml");
++  return m.execute().success() ? EXIT_SUCCESS : EXIT_FAILURE;
++}
+-- 
+2.43.0
+

@@ -51,6 +51,9 @@ int main(int argc, char** argv) {
   const char* amgx_configuration_file = "";
   const char* amgx_options = "";
   auto amgx_single_precision = false;
+  auto amgx_aggregation = false;
+  auto amgx_nodal_blocks = false;
+  const char* ordering = "byNODES";
   auto anderson_depth = 4;
   auto elastic_operator_once = false;
   auto prediction_by_elastic_operator = false;
@@ -169,6 +172,19 @@ int main(int argc, char** argv) {
                  "-no-amgxs", "--no-amgx-single-precision",
                  "Computations of AmgX in single precision (tolerance of "
                  "amgx-pcg of at least 1e-6).");
+  args.AddOption(&amgx_aggregation, "-amgxa", "--amgx-aggregation",
+                 "-no-amgxa", "--no-amgx-aggregation",
+                 "Aggregation multigrid of AmgX in its default configuration, "
+                 "instead of the classical one.");
+  args.AddOption(&amgx_nodal_blocks, "-amgxnb", "--amgx-nodal-blocks",
+                 "-no-amgxnb", "--no-amgx-nodal-blocks",
+                 "Matrices given to AmgX by nodal blocks of 3 x 3 values "
+                 "(requires -ord byVDIM and -amgxa or -amgxc).");
+  args.AddOption(&ordering, "-ord", "--ordering",
+                 "Ordering of the unknowns: byNODES (the values of a "
+                 "component are contiguous) or byVDIM (the components of a "
+                 "node are contiguous, as required by the nodal blocks of "
+                 "AmgX).");
   args.AddOption(&adaptive_linear_solver_tolerance, "-alst",
                  "--adaptive-linear-solver-tolerance",
                  "Relative tolerance of the iterative linear solver of the "
@@ -248,7 +264,8 @@ int main(int argc, char** argv) {
   const auto amg = parseBoomerAMGOptions(amg_options);
   const auto amgx =
       parseAmgXOptions(amgx_configuration_file, std::string{amgx_options},
-                       amgx_single_precision);
+                       amgx_single_precision, amgx_aggregation,
+                       amgx_nodal_blocks);
   ctx.enableProfiling(profiling);
   auto success = true;
   {
@@ -260,6 +277,8 @@ int main(int argc, char** argv) {
                                  {"UnknownsSize", 3},
                                  {"NumberOfUniformRefinements", refinements},
                                  {"Hypothesis", "Tridimensional"},
+                                 {"FiniteElementSpaceOrdering",
+                                  std::string{ordering}},
                                  {"Parallel", parallel}};
     if (!std::string_view{behaviour_integration}.empty()) {
       parameters.insert(ctx, "BehaviourIntegration",

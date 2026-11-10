@@ -240,12 +240,14 @@ void run_solve(mfem_mgis::attributes::MayAbort,
     // components Fxx, Fyy, Fzz, Fxy, Fyx, Fxz, Fzx, Fyz, Fzy
     const auto Fe = std::array<real, 9>{l[m - 1], 1, 1, 0, 0, 0, 0, 0, 0};
     const auto n = F.getPartialQuadratureSpace().getNumberOfIntegrationPoints();
+    // the call operator gives the values at an integration point whatever
+    // the layout of the arrays of the material
     for (mfem_mgis::size_type i = 0; i != n; ++i) {
-      const auto Fi = F.getIntegrationPointValues(i);
+      const auto Fi = F(i);
       for (std::size_t c = 0; c != Fe.size(); ++c) {
         error = std::max(error, std::abs(Fi[c] - Fe[c]));
       }
-      const auto Pi = P.getIntegrationPointValues(i);
+      const auto Pi = P(i);
       error = std::max(error, std::abs(Pi[0] - Pxx) / Pxx);
     }
   }

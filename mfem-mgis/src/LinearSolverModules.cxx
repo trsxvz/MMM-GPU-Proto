@@ -21,6 +21,27 @@
 
 namespace mfem_mgis::internals {
 
+  template <bool parallel>
+  void warnAboutNodalBlocks(Context& ctx,
+                            const FiniteElementSpace<parallel>& fespace,
+                            const std::string_view msg) noexcept {
+    if constexpr (parallel) {
+      if (fespace.GetMyRank() != 0) {
+        return;
+      }
+    }
+    warning(ctx.log(), msg);
+  }  // end of warnAboutNodalBlocks
+
+  template void warnAboutNodalBlocks<false>(Context&,
+                                            const FiniteElementSpace<false>&,
+                                            const std::string_view) noexcept;
+#ifdef MFEM_USE_MPI
+  template void warnAboutNodalBlocks<true>(Context&,
+                                           const FiniteElementSpace<true>&,
+                                           const std::string_view) noexcept;
+#endif /* MFEM_USE_MPI */
+
   /*!
    * \return true if the parameters of a preconditioner select no
    * preconditioner (name `None`, without options), false otherwise, or an

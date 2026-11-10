@@ -111,9 +111,14 @@ inline std::map<std::string, FieldStatistics> computePhysicsStatistics(
   const auto& swelling_material = setup.swelling_model->getMaterial();
   // read on the host
   swelling_material.synchronizeOnHostForReading();
-  const auto& swelling = swelling_material.s1.internal_state_variables;
-  stats["Swelling"] = computeFieldStatistics(
-      std::vector<double>(swelling.begin(), swelling.end()), comm);
+  // values read through the view of the variable, in all the layouts
+  const auto swelling = mgis::behaviour::getInternalStateVariableView(
+      swelling_material.s1, "SolidSwelling");
+  auto swelling_values = std::vector<double>{};
+  for (mfem_mgis::size_type i = 0; i != swelling.getNumberOfPoints(); ++i) {
+    swelling_values.push_back(swelling(i));
+  }
+  stats["Swelling"] = computeFieldStatistics(swelling_values, comm);
   stats["PowerDensity"] =
       computeFieldStatistics(*(setup.fields[0].Pow_s1_sw), comm);
   return stats;

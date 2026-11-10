@@ -265,7 +265,7 @@ namespace mfem_mgis {
         ordered_tangent_operator_assembly(
             useOrderedTangentOperatorAssembly(throwing, p)) {
     // the layout is checked even without the multi-material integrator
-    const auto layout = getQuadratureDataLayout(may_throw, p);
+    const auto layout = getQuadratureDataLayoutSpecification(may_throw, p);
     if (this->mgis_integrator != nullptr) {
       this->mgis_integrator->setInnerForcesComputedByKernels(
           this->inner_forces_kernels);
@@ -652,12 +652,6 @@ namespace mfem_mgis {
                 ctx))) {
           return false;
         }
-        if (((!this->gradients_kernels) || (!this->inner_forces_kernels) ||
-             (!this->computesStiffnessMatricesByKernels())) &&
-            (!this->mgis_integrator->checkElementByElementComputationsSupport(
-                ctx))) {
-          return false;
-        }
         if ((this->gradients_kernels) && (!this->batch_integration)) {
           std::ignore = ctx.registerErrorMessage(
               "the computation of the gradients by kernels requires the "
@@ -757,13 +751,8 @@ namespace mfem_mgis {
           "no multiple material integrator defined");
     }
     // the operators compute the stiffness matrices and the inner forces
-    // element by element
-    if (!this->mgis_integrator->checkElementByElementComputationsSupport(
-            ctx)) {
-      return {};
-    }
-    // the operators read the arrays of the materials on the host when they
-    // are assembled
+    // element by element, and read the arrays of the materials on the host
+    // when they are assembled
     try {
       this->mgis_integrator->synchronizeOnHostForReading();
     } catch (...) {

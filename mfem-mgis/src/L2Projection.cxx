@@ -417,8 +417,7 @@ namespace mfem_mgis {
       for (int i = 0; i < ir.GetNPoints(); i++) {
         const auto& ip = ir.IntPoint(i);
         tr.SetIntPoint(&ip);
-        const auto fv =
-            f.getIntegrationPointValues(tr.ElementNo, i)[this->component];
+        const auto fv = f(tr.ElementNo, i)[this->component];
         const auto v = tr.Weight() * fv;
         e.CalcPhysShape(tr, shape);
         add(elvect, ip.weight * v, shape, elvect);
@@ -466,7 +465,7 @@ namespace mfem_mgis {
       for (int i = 0; i < ir.GetNPoints(); i++) {
         const auto& ip = ir.IntPoint(i);
         tr.SetIntPoint(&ip);
-        const auto fv = f.getIntegrationPointValues(n, i)[this->component];
+        const auto fv = f(n, i)[this->component];
         const auto v = tr.Weight() * fv;
         e.CalcPhysShape(tr, shape);
         add(elvect, ip.weight * v, shape, elvect);

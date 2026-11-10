@@ -1,0 +1,189 @@
+From b5e5770a6dd1a1c39bd0ccf1ac84a59ae6e213e0 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 23:25:46 +0100
+Subject: [PATCH] Documentation: layouts per array and padding of the material
+ managers
+
+---
+ docs/web/release-notes-3.2.md |  14 +++--
+ docs/web/views.md             | 115 +++++++++++++++++++++++++---------
+ 2 files changed, 97 insertions(+), 32 deletions(-)
+
+diff --git a/docs/web/release-notes-3.2.md b/docs/web/release-notes-3.2.md
+index 8239ac2..910be78 100644
+--- a/docs/web/release-notes-3.2.md
++++ b/docs/web/release-notes-3.2.md
+@@ -411,10 +411,16 @@ This is described in a dedicated [page](views.html). In short:
+   of points, with a stride between two points and a stride between two
+   components. A null point stride describes uniform values;
+ - the `layout` member of `MaterialDataManagerInitializer` selects the
+-  layout of the arrays of a material data manager (`POINT_BY_POINT` by
+-  default, or `COMPONENT_BY_COMPONENT`). Everything given point by point to
+-  the manager follows this layout. `save` and `restore` always use the
+-  point by point layout;
++  layouts of the arrays of a material data manager (`POINT_BY_POINT` by
++  default, or `COMPONENT_BY_COMPONENT`), one per array if needed
++  (`MaterialDataManagerLayout`: gradients, thermodynamic forces, internal
++  state variables, external state variables, tangent operator blocks). A
++  `FieldLayout` sets the layout of all the arrays. `save` and `restore`
++  always use the point by point layout;
++- a padding of the arrays (`padding` member of the layouts) adds unused
++  values, set to NaN, to the leading dimension of the arrays: a code
++  computing the position of a value by hand instead of using the views
++  fails loudly;
+ - `MaterialDataView` describes the data of a material stored in arrays of
+   the calling code. The functions of the material data managers
+   (integration, initialize functions, post-processings, end of time step,
+diff --git a/docs/web/views.md b/docs/web/views.md
+index fb5fa3c..18dc24f 100644
+--- a/docs/web/views.md
++++ b/docs/web/views.md
+@@ -47,7 +47,7 @@ Views are built by:
+ 
+ | Function | Layout |
+ |---|---|
+-| `makeFieldView(values, layout, n, nc)` | dense, in the given `FieldLayout` |
++| `makeFieldView(values, layout, n, nc, padding = 0)` | in the given `FieldLayout`, dense or with a padding (see below) |
+ | `makePointByPointFieldView(values, n, nc, ps)` | components of a point contiguous, stride `ps` between two points |
+ | `makeComponentByComponentFieldView(values, n, nc, ld)` | values of a component contiguous, stride `ld` between two components |
+ | `makeUniformFieldView(values, n)` | the same values at each point (null point stride) |
+@@ -90,10 +90,12 @@ the `mgis::function::makeFieldView` functions
+ (`MGIS/Function/FieldViewSupport.hxx`). The conversions follow the
+ constness of the views of `mgis::function`.
+ 
+-# Layout of a material data manager
++# Layouts of a material data manager
+ 
+ The arrays of a material data manager can be stored component by
+-component:
++component. The `layout` member of the initializer, of type
++`MaterialDataManagerLayout`, gives one layout per array. A `FieldLayout`
++converts to it, and then sets the layout of all the arrays:
+ 
+ ~~~~{.cxx}
+ auto i = MaterialDataManagerInitializer{};
+@@ -101,39 +103,96 @@ i.layout = FieldLayout::COMPONENT_BY_COMPONENT;  // POINT_BY_POINT by default
+ auto m = MaterialDataManager(b, n, i);
+ ~~~~
+ 
+-The layout is stored in the `layout` member of the material data manager
+-and of its material state managers. Everything given point by point to the
+-manager follows this layout:
++The layout of each array can also be chosen, for instance to store the
++tangent operator blocks component by component and the states point by
++point:
+ 
+-- the arrays of the states, the tangent operator blocks and the speed of
+-  sound;
+-- the external state variables with several components given by a
+-  `std::span` (the material properties are scalars);
++~~~~{.cxx}
++auto l = MaterialDataManagerLayout{FieldLayout::POINT_BY_POINT};
++l.tangent_operator = FieldLayout::COMPONENT_BY_COMPONENT;
++i.layout = l;
++~~~~
++
++The members of `MaterialDataManagerLayout` are the layouts of:
++
++- the gradients, the thermodynamic forces and the internal state
++  variables of both states (`gradients`, `thermodynamic_forces`,
++  `internal_state_variables`);
++- the values of the external state variables with several components
++  given by a `std::span` (`external_state_variables`);
++- the tangent operator blocks (`tangent_operator`).
++
++The layouts are stored in the `layout` member of the material data
++manager. Its material state managers have a `MaterialStateManagerLayout`,
++with the same members except the tangent operator (see `getStateLayout`).
++The scalar arrays (energies, speed of sound, mass density, material
++properties) have no layout. `getUniformLayout` returns the layout shared
++by all the arrays, if any.
++
++The values given at each point by a `std::span` are in the layout of the
++array they relate to:
++
++- the outputs of `extractInternalStateVariable`: the internal state
++  variables;
++- the outputs of the conversions of the finite strain stresses and
++  tangent operators: the thermodynamic forces and the tangent operator
++  blocks;
+ - the inputs of the initialize functions and the outputs of the
+-  post-processings given by a `std::span`;
+-- the outputs of `extractInternalStateVariable` and of the conversions of
+-  the finite strain stresses and tangent operators given by a `std::span`.
++  post-processings relate to no array: they are in the layout of the
++  manager, which must then be uniform. Otherwise, they must be given by a
++  `FieldView`, whose strides are explicit.
+ 
+-The arrays are accessed through views in the layout of the manager:
++The arrays are accessed through views in their layouts:
+ `getGradientsView(s)`, `getGradientView(s, name)`, and likewise for the
+ thermodynamic forces and the internal state variables, and
+ `getTangentOperatorBlocksView(m)` and `getTangentOperatorBlockView(m, v1,
+ v2)`. `updateValues` refuses states of different layouts. `save` and
+ `restore` always write and read the values point by point: a file does
+-not depend on the layout.
+-
+-`MaterialFunctionManager` takes an initializer. With the
+-`COMPONENT_BY_COMPONENT` layout, its usual accessors refuse the variables
+-with several components, and `getStridedCoalescedGradient<N>`,
+-`getStridedCoalescedThermodynamicForce<N>` and
+-`getStridedCoalescedInternalStateVariable<N>` return strided coalesced
+-views of `mgis::function`.
+-
+-The layout is exposed by the `C`, `Fortran` and `Python` bindings. The
+-`Python` bindings return `numpy` arrays with the strides of the layout.
+-The accessors of the `Fortran` bindings returning multidimensional arrays
+-(gradients, thermodynamic forces, internal state variables, tangent
+-operator) refuse the `COMPONENT_BY_COMPONENT` layout.
++not depend on the layouts.
++
++## Padding
++
++The `padding` member of the layouts adds unused values to the leading
++dimension of the arrays of the gradients, of the thermodynamic forces, of
++the internal state variables and of the tangent operator blocks: the
++stride between two points becomes `nc + padding` in the `POINT_BY_POINT`
++layout, and the stride between two components becomes `n + padding` in
++the `COMPONENT_BY_COMPONENT` layout. The unused values of the arrays
++allocated by the manager are quiet NaN, and the arrays given by an
++initializer must have the padded size (`getFieldArraySize`).
++
++The padding is a testing facility: a code computing the position of a
++value by hand (`i * nc + c` or `c * n + i`) instead of using the views
++reads a NaN and fails loudly. The `*_stride` members of the material state
++managers and the `K_stride` member of the material data managers remain
++the number of values of a point, not the stride between two points.
++
++## Functions and bindings
++
++`MaterialFunctionManager` takes an initializer and is built on the views
++of the arrays. The variables whose components are contiguous at each
++point (scalar variables, variables of arrays stored point by point, with
++or without padding) are returned by its usual accessors. With the `COMPONENT_BY_COMPONENT` layout,
++`getStridedCoalescedGradient<N>`, `getStridedCoalescedThermodynamicForce<N>`
++and `getStridedCoalescedInternalStateVariable<N>` return strided coalesced
++views of `mgis::function`, which require arrays without padding.
++
++The layouts are exposed by the `C`, `Fortran` and `Python` bindings:
++
++- `C`: `mgis_bv_material_data_manager_initializer_set_layout` sets the
++  layout of all the arrays,
++  `mgis_bv_material_data_manager_initializer_set_array_layout` the layout
++  of one array (`mgis_bv_MaterialArray`), and
++  `mgis_bv_material_data_manager_initializer_set_padding` the padding. The
++  `get_layout` functions report an error if the layouts of the arrays
++  differ: `get_array_layout` gives the layout of one array;
++- `Fortran`: the same functions. The accessors returning multidimensional
++  arrays (gradients, thermodynamic forces, internal state variables,
++  tangent operator) refuse the arrays stored component by component or
++  padded;
++- `Python`: the `MaterialDataManagerLayout` and `MaterialStateManagerLayout`
++  classes. The arrays are `numpy` arrays with the strides of their layouts,
++  padding included.
+ 
+ # Material data views
+ 
+-- 
+2.43.0
+

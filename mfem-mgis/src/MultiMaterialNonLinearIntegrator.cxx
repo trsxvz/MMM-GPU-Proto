@@ -292,8 +292,8 @@ namespace mfem_mgis {
       std::vector<std::vector<std::unique_ptr<AbstractBehaviourIntegrator>>>;
 
   /*!
-   * \return the identifier of the first material whose arrays are stored
-   * component by component, if any
+   * \return the identifier of the first material one of whose arrays is
+   * stored component by component, if any (see `isStoredPointByPoint`)
    * \param[in] bis: behaviour integrators of each material
    */
   [[nodiscard]] static std::optional<size_type>
@@ -308,8 +308,7 @@ namespace mfem_mgis {
         const auto om =
             static_cast<const AbstractBehaviourIntegrator&>(*bi).getMaterial(
                 ctx);
-        if ((!isInvalid(om)) &&
-            (om->layout != mgis::FieldLayout::POINT_BY_POINT)) {
+        if ((!isInvalid(om)) && (!isStoredPointByPoint(om->layout))) {
           return m;
         }
       }
@@ -411,23 +410,6 @@ namespace mfem_mgis {
     }
     return true;
   }  // end of checkPointByPointIntegrationSupport
-
-  bool
-  MultiMaterialNonLinearIntegrator::checkElementByElementComputationsSupport(
-      Context& ctx) const noexcept {
-    if (const auto om = findMaterialStoredComponentByComponent(
-            this->behaviour_integrators);
-        om.has_value()) {
-      return ctx.registerErrorMessage(
-          "the arrays of material '" + std::to_string(*om) +
-          "' are stored component by component (parameter "
-          "QuadratureDataLayout): the gradients, the inner forces and the "
-          "stiffness matrices can only be computed by kernels (parameters "
-          "GradientsComputation and InnerForcesComputation set to Kernels, "
-          "TangentOperatorComputation set to Kernels or MatrixFree)");
-    }
-    return true;
-  }  // end of checkElementByElementComputationsSupport
 
   bool MultiMaterialNonLinearIntegrator::computeGradients(
       const mfem::FiniteElement& e,
@@ -573,7 +555,15 @@ namespace mfem_mgis {
       Context& ctx,
       const mfem::FiniteElementSpace& fes,
       const mfem::Vector& u) noexcept {
-    // derivatives of the unknowns, computed once for each integration rule
+    // derivatives of the unknowns, computed once for each integration rule,
+    // over all the elements of the mesh: their layout is the layout of the
+    // gradients given to the problem, the automatic layout being the
+    // component by component one if the kernels compute on a GPU
+    const auto on_gpu = mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                                             mfem::Backend::HIP_MASK);
+    const auto layout = this->quadrature_data_layout.gradients.value_or(
+        on_gpu ? mgis::FieldLayout::COMPONENT_BY_COMPONENT
+               : mgis::FieldLayout::POINT_BY_POINT);
     const auto rules = this->getIntegrationRules();
     // the derivatives of the rules which are no longer used are released
     std::erase_if(this->unknowns_derivatives, [&rules](const auto& d) {
@@ -593,7 +583,7 @@ namespace mfem_mgis {
         }
       }
       if (!batch::computeUnknownsDerivatives(ctx, this->unknowns_derivatives[r],
-                                             fes, u, *r, values)) {
+                                             fes, u, *r, values, layout)) {
         return false;
       }
     }
@@ -716,8 +706,8 @@ namespace mfem_mgis {
   }  // end of setOrderedStiffnessMatricesAssembly
 
   void MultiMaterialNonLinearIntegrator::setQuadratureDataLayout(
-      const mgis::FieldLayout l) noexcept {
-    this->quadrature_data_layout = l;
+      const QuadratureDataLayoutSpecification& s) noexcept {
+    this->quadrature_data_layout = s;
   }  // end of setQuadratureDataLayout
 
   size_type MultiMaterialNonLinearIntegrator::
@@ -1136,19 +1126,34 @@ namespace mfem_mgis {
                                                     olocation->first)) {
       return {};
     }
-    // layout of the data at the integration points of this material, given
-    // to the behaviour integrator if it is not its default layout
+    // layouts of the data at the integration points of this material, the
+    // automatic layouts being chosen from the placement of its behaviour,
+    // given to the behaviour integrator if they are not its default layouts
     auto bparams = olocation->second;
-    const auto olayout = getQuadratureDataLayout(ctx, bparams,
-                                                 this->quadrature_data_layout);
-    if (isInvalid(olayout)) {
+    auto ospecification = getQuadratureDataLayoutSpecification(
+        ctx, bparams, this->quadrature_data_layout);
+    if (isInvalid(ospecification)) {
       return {};
     }
+    if (!of->supportsQuadratureDataLayouts(n)) {
+      // automatic layouts of a generator which does not support the
+      // layouts (see `BehaviourIntegratorFactory::addGenerator`)
+      for (auto* const ol : {&(ospecification->gradients),
+                             &(ospecification->thermodynamic_forces),
+                             &(ospecification->internal_state_variables),
+                             &(ospecification->external_state_variables),
+                             &(ospecification->tangent_operator)}) {
+        if (!ol->has_value()) {
+          *ol = mgis::FieldLayout::POINT_BY_POINT;
+        }
+      }
+    }
+    const auto layout = resolveQuadratureDataLayout(*ospecification, *bptr);
     bparams = remove(bparams, std::vector<std::string>{
                                   quadrature_data_layout_parameter});
-    if (*olayout != mgis::FieldLayout::POINT_BY_POINT) {
+    if (layout != mgis::FieldLayout::POINT_BY_POINT) {
       bparams.replaceOrInsert(quadrature_data_layout_parameter,
-                              toString(*olayout));
+                              toParameter(layout));
     }
     auto bi = of->generate(ctx, n, this->fe_discretization, m, std::move(bptr),
                            bparams);

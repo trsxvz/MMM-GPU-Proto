@@ -29,6 +29,7 @@
 #include <array>
 #include <string>
 #include <vector>
+#include <utility>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -61,6 +62,24 @@ static int failures = 0;
  */
 static constexpr auto kernels_tolerance =
     mfem_mgis::unit_tests::tolerance(1e-13, 1e-4);
+
+/*!
+ * \brief sets the values of an array of a material, through its view, to
+ * `f(i * nc + c)` for the component `c` of the point `i`: the same values in
+ * all the layouts, padding included
+ * \param[in] v: view of the array
+ * \param[in] f: function
+ */
+template <typename Function>
+static void setArbitraryValues(const mgis::FieldView<mfem_mgis::real>& v,
+                               const Function& f) {
+  const auto nc = v.getNumberOfComponents();
+  for (mfem_mgis::size_type i = 0; i != v.getNumberOfPoints(); ++i) {
+    for (mfem_mgis::size_type c = 0; c != nc; ++c) {
+      v(i, c) = f(static_cast<mfem_mgis::real>(i * nc + c));
+    }
+  }
+}  // end of setArbitraryValues
 
 static void check(const bool b, const std::string& msg) {
   if (!b) {
@@ -283,8 +302,19 @@ static void testCase(mfem_mgis::Context& ctx,
                                 *(fes.GetElementTransformation(i)), ue),
             name + ": computation of the gradients element by element");
     }
-    const auto reference =
-        std::vector<real>(mat.s1.gradients.begin(), mat.s1.gradients.end());
+    // values of the points, read through the view of the gradients (layout
+    // and padding)
+    const auto gradients = [&mat] {
+      const auto gv = mgis::behaviour::getGradientsView(std::as_const(mat.s1));
+      auto values = std::vector<real>{};
+      for (mfem_mgis::size_type i = 0; i != gv.getNumberOfPoints(); ++i) {
+        for (mfem_mgis::size_type c = 0; c != gv.getNumberOfComponents(); ++c) {
+          values.push_back(gv(i, c));
+        }
+      }
+      return values;
+    };
+    const auto reference = gradients();
     // gradients computed by kernels
     const auto* const r =
         mat.getPartialQuadratureSpace().getUniformIntegrationRule();
@@ -312,10 +342,11 @@ static void testCase(mfem_mgis::Context& ctx,
     check(bi.computeGradientsByKernels(ctx, derivatives, geometry),
           name + ": computation of the gradients by kernels");
     mat.synchronizeOnHostForReading();
+    const auto values = gradients();
     auto d = real{};
     auto vmax = real{};
     for (std::size_t i = 0; i != reference.size(); ++i) {
-      d = std::max(d, std::abs(mat.s1.gradients[i] - reference[i]));
+      d = std::max(d, std::abs(values[i] - reference[i]));
       vmax = std::max(vmax, std::abs(reference[i]));
     }
     std::cout << name << ": " << reference.size()
@@ -326,9 +357,8 @@ static void testCase(mfem_mgis::Context& ctx,
         name + ": gradients");
     // inner forces computed from arbitrary thermodynamic forces
     mat.synchronizeOnHost();
-    for (std::size_t i = 0; i != mat.s1.thermodynamic_forces.size(); ++i) {
-      mat.s1.thermodynamic_forces[i] = std::sin(real(i));
-    }
+    setArbitraryValues(mgis::behaviour::getThermodynamicForcesView(mat.s1),
+                       [](const real x) { return std::sin(x); });
     const auto& g = geometry[r];
     auto forces = mfem::Vector{};
     forces.UseDevice(true);
@@ -367,9 +397,8 @@ static void testCase(mfem_mgis::Context& ctx,
           name + ": inner forces");
     // stiffness matrices computed from arbitrary tangent operator blocks
     mat.synchronizeOnHost();
-    for (std::size_t i = 0; i != mat.K.size(); ++i) {
-      mat.K[i] = std::cos(real(i));
-    }
+    setArbitraryValues(mgis::behaviour::getTangentOperatorBlocksView(mat),
+                       [](const real x) { return std::cos(x); });
     const auto ndofs = g.nd * dim;
     auto ke = mfem::Vector{};
     ke.UseDevice(true);
@@ -866,9 +895,8 @@ static void testIntegratorPositions(mfem_mgis::Context& ctx,
       or_die;
   auto& mat = mi.getMaterial(ctx, 1, 0) | or_die;
   mat.synchronizeOnHost();
-  for (std::size_t i = 0; i != mat.K.size(); ++i) {
-    mat.K[i] = std::cos(real(i));
-  }
+  setArbitraryValues(mgis::behaviour::getTangentOperatorBlocksView(mat),
+                     [](const real x) { return std::cos(x); });
   const auto& fes =
       problem.getFiniteElementDiscretization().getFiniteElementSpace<false>();
   const auto m1 = mi.makeAssembledStiffnessMatrix(ctx, fes);

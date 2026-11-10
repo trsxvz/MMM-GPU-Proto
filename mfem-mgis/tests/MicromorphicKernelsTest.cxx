@@ -196,6 +196,10 @@ static Results compute(const Case& c, const ComputationOptions& opts) {
   if (opts.component_by_component) {
     parameters.insert(ctx, "QuadratureDataLayout", "ComponentByComponent") |
         or_die;
+  } else if (std::string_view{opts.integration} == "PointByPoint") {
+    // the integration point by point requires the point by point layout,
+    // whatever the layout given by the environment
+    parameters.insert(ctx, "QuadratureDataLayout", "PointByPoint") | or_die;
   }
   auto problem = construct<NonLinearEvolutionProblem>(ctx, parameters) | or_die;
   problem.addBehaviourIntegrator(ctx, "MicromorphicDamage", "Body", c.library,

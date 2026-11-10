@@ -94,9 +94,15 @@ namespace mfem_mgis::batch::internals {
       constexpr auto V = getUnknownsSize<K>();
       const auto nq = static_cast<std::size_t>(a.nq);
       const auto sq = static_cast<std::size_t>(q);
+      // point of the mesh
+      const auto p = static_cast<long long>(sq + nq * e);
       // derivatives with respect to the reference coordinates
-      const auto* const dr =
-          a.derivatives + static_cast<std::size_t>(V * N) * (sq + nq * e);
+      real dr[V * N];
+      for (int j = 0; j != V * N; ++j) {
+        dr[j] = a.derivatives[p * a.derivatives_point_stride +
+                              static_cast<long long>(j) *
+                                  a.derivatives_component_stride];
+      }
       // physical derivatives: du_i/dx_j = sum_r du_i/dxi_r (J^-1)_{rj}
       real iJ[N * N];
       loadInverseJacobian<N>(
@@ -113,21 +119,22 @@ namespace mfem_mgis::batch::internals {
         }
       }
       // values of the unknowns at the point
-      const auto* const u =
-          usesShapeFunctionsValues<K>()
-              ? a.unknowns_values + static_cast<std::size_t>(V) * (sq + nq * e)
-              : nullptr;
+      real u[V] = {};
+      if constexpr (usesShapeFunctionsValues<K>()) {
+        for (int c = 0; c != V; ++c) {
+          u[c] = a.unknowns_values[p * a.unknowns_values_point_stride +
+                                   static_cast<long long>(c) *
+                                       a.unknowns_values_component_stride];
+        }
+      }
       real g[9];
-      computeGradientsAtPoint<K>(g, du, u);
-      const auto np = static_cast<std::size_t>(a.number_of_points);
+      computeGradientsAtPoint<K>(g, du,
+                                 usesShapeFunctionsValues<K>() ? u : nullptr);
       const auto gs = static_cast<std::size_t>(a.gradients_size);
       for (std::size_t c = 0; c != gs; ++c) {
         const auto v = a.macroscopic_gradients[c] + g[c];
-        if (a.point_by_point) {
-          a.gradients[o * gs + c] = v;
-        } else {
-          a.gradients[c * np + o] = v;
-        }
+        a.gradients[static_cast<long long>(o) * a.point_stride +
+                    static_cast<long long>(c) * a.component_stride] = v;
       }
     });
   }  // end of launchGradientsKernel
@@ -143,7 +150,8 @@ namespace mfem_mgis::batch::internals {
       const auto e = static_cast<std::size_t>(i) / nq;
       const auto q = static_cast<std::size_t>(i) - e * nq;
       const auto* const ue = a.element_values + nd * vdim * e;
-      auto* const d = a.derivatives + vdim * dim * (q + nq * e);
+      // point of the mesh
+      const auto p = static_cast<long long>(q + nq * e);
       for (std::size_t r = 0; r != dim; ++r) {
         const auto* const G = a.shape_functions_gradients + q + nq * r;
         for (std::size_t c = 0; c != vdim; ++c) {
@@ -151,17 +159,20 @@ namespace mfem_mgis::batch::internals {
           for (std::size_t node = 0; node != nd; ++node) {
             v += G[nq * dim * node] * ue[node + nd * c];
           }
-          d[c + vdim * r] = v;
+          const auto j = static_cast<long long>(c + vdim * r);
+          a.derivatives[p * a.derivatives_point_stride +
+                        j * a.derivatives_component_stride] = v;
         }
       }
       if (a.point_values != nullptr) {
-        auto* const pv = a.point_values + vdim * (q + nq * e);
         for (std::size_t c = 0; c != vdim; ++c) {
           auto v = real{0};
           for (std::size_t node = 0; node != nd; ++node) {
             v += a.shape_functions[q + nq * node] * ue[node + nd * c];
           }
-          pv[c] = v;
+          a.point_values[p * a.point_values_point_stride +
+                         static_cast<long long>(c) *
+                             a.point_values_component_stride] = v;
         }
       }
     });
@@ -177,8 +188,13 @@ namespace mfem_mgis::batch::internals {
       const auto q = static_cast<std::size_t>(i) - k * nq;
       const auto e = static_cast<std::size_t>(a.elements[k]);
       const auto o = static_cast<std::size_t>(a.offsets[k]) + q;
+      const auto p = static_cast<long long>(q + nq * e);
       for (std::size_t c = 0; c != vdim; ++c) {
-        a.values[c + vdim * o] = a.point_values[c + vdim * (q + nq * e)];
+        const auto sc = static_cast<long long>(c);
+        a.values[static_cast<long long>(o) * a.values_point_stride +
+                 sc * a.values_component_stride] =
+            a.point_values[p * a.point_values_point_stride +
+                           sc * a.point_values_component_stride];
       }
     });
   }  // end of launchUnknownsValuesKernel

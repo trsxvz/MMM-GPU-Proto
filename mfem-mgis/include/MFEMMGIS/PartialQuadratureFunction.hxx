@@ -17,6 +17,8 @@
 #include <functional>
 
 #include "MGIS/StorageMode.hxx"
+#include "MGIS/FieldView.hxx"
+#include "MGIS/StridedSpan.hxx"
 #ifdef MGIS_FUNCTION_SUPPORT
 #include "MGIS/Function/EvaluatorConcept.hxx"
 #include "MGIS/Function/FunctionConcept.hxx"
@@ -33,11 +35,20 @@ namespace mfem_mgis {
   /*!
    * \brief data structure used to specify a view from external data
    *
+   * The `c`-th component of the value at the `o`-th integration point is
+   * stored at `data_begin + o * data_stride + c * data_component_stride`.
+   *
    * To be valid, the following conditions must hold:
    *
    * - data_begin must be non-negative
-   * - data_size and data_stride must be strictly positive
-   * - data_begin + data_size <= data_stride
+   * - data_size, data_stride and data_component_stride must be strictly
+   *   positive
+   * - if data_component_stride is equal to one (values stored point by
+   *   point, the components of a point being contiguous):
+   *   data_begin + data_size <= data_stride
+   * - otherwise (values stored component by component, possibly with a
+   *   padding): the values of a component at all the integration points
+   *   must fit in data_component_stride values.
    */
   struct ViewSpecifications {
     /*!
@@ -47,8 +58,15 @@ namespace mfem_mgis {
     size_type data_begin;
     //! \brief data size
     size_type data_size;
-    //! \brief data stride
+    //! \brief data stride, i.e. the stride between two integration points
     size_type data_stride;
+    /*!
+     * \brief stride between two components of the value at an integration
+     * point. The default value describes values stored point by point. For
+     * values stored component by component, `data_stride` is one and this
+     * stride is the leading dimension of the array (see `mgis::FieldView`).
+     */
+    size_type data_component_stride = 1;
   };
 
   /*!
@@ -80,6 +98,17 @@ namespace mfem_mgis {
      * successive integration points.
      */
     size_type getDataStride() const noexcept;
+    /*!
+     * \return the stride between two successive components of the value at
+     * an integration point (one if the values are stored point by point)
+     */
+    size_type getComponentStride() const noexcept;
+    /*!
+     * \return true if the components of the value at an integration point
+     * are contiguous, which is required by the accessors returning a
+     * `std::span` or a pointer
+     */
+    bool hasContiguousComponents() const noexcept;
     //! \return the offset of the first element
     size_type getDataOffset() const noexcept;
     //! \brief destructor
@@ -92,6 +121,17 @@ namespace mfem_mgis {
      * \param[in] o: offset associated with the integration point
      */
     size_type getDataOffset(const size_type o) const noexcept;
+    /*!
+     * \brief check that the components of the value at an integration point
+     * are contiguous. An exception is thrown otherwise.
+     * \param[in] m: name of the calling method
+     */
+    void checkContiguousComponents(const char* const m) const;
+    /*!
+     * \brief throw the exception of `checkContiguousComponents`
+     * \param[in] m: name of the calling method
+     */
+    [[noreturn]] static void raiseNonContiguousComponents(const char* const m);
   };  // end of struct PartialQuadratureFunctionDataLayout
 
   /*!
@@ -156,6 +196,9 @@ namespace mfem_mgis {
      * \brief return the data associated with an integration point
      * \param[in] o: offset associated with the integration point
      * \return a pointer to the data
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     const real* data(const size_type o) const;
     /*!
@@ -163,6 +206,9 @@ namespace mfem_mgis {
      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
      * \param[in] i: integration point number in the element
      * \return a pointer to the data
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     const real* data(const size_type e, const size_type i) const;
     /*!
@@ -188,6 +234,9 @@ namespace mfem_mgis {
      * \brief return the data associated with an integration point
      * \param[in] o: offset associated with the integration point
      * \return the values
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     template <size_type N>
     std::span<const real, N> getIntegrationPointValues(const size_type o) const;
@@ -195,6 +244,9 @@ namespace mfem_mgis {
      * \brief return the data associated with an integration point
      * \param[in] o: offset associated with the integration point
      * \return the values
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     std::span<const real> getIntegrationPointValues(const size_type o) const;
     /*!
@@ -202,23 +254,28 @@ namespace mfem_mgis {
      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
      * \param[in] i: integration point number in the element
      * \return the values
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     std::span<const real> getIntegrationPointValues(const size_type e,
                                                     const size_type i) const;
     /*!
      * \brief return the data associated with an integration point
      * \param[in] o: offset associated with the integration point
-     * \return the values
+     * \return the values, as a strided span: this accessor is valid whatever
+     * the layout of the values (see `getComponentStride`)
      */
-    std::span<const real> operator()(const size_type o) const;
+    mgis::StridedSpan<const real> operator()(const size_type o) const;
     /*!
      * \brief return the data associated with an integration point
      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
      * \param[in] i: integration point number in the element
-     * \return the values
+     * \return the values, as a strided span: this accessor is valid whatever
+     * the layout of the values (see `getComponentStride`)
      */
-    std::span<const real> operator()(const size_type e,
-                                     const size_type i) const;
+    mgis::StridedSpan<const real> operator()(const size_type e,
+                                             const size_type i) const;
     //! \return a view to the function values
     std::span<const real> getValues() const;
     /*!
@@ -229,6 +286,13 @@ namespace mfem_mgis {
      */
     bool checkCompatibility(
         const ImmutablePartialQuadratureFunctionView& v) const;
+    /*!
+     * \return true if the values are stored densely in the given layout,
+     * without any other data (as the values of a function built by the
+     * constructor of `PartialQuadratureFunction` taking a layout)
+     * \param[in] l: layout
+     */
+    bool isDense(const mgis::FieldLayout l) const noexcept;
     //! \brief destructor
     ~ImmutablePartialQuadratureFunctionView();
 
@@ -279,6 +343,9 @@ namespace mfem_mgis {
      * \brief return the data associated with an integration point
      * \param[in] o: offset associated with the integration point
      * \return a pointer to the data
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     real* data(const size_type o);
     /*!
@@ -286,6 +353,9 @@ namespace mfem_mgis {
      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
      * \param[in] i: integration point number in the element
      * \return a pointer to the data
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     real* data(const size_type e, const size_type i);
     /*!
@@ -309,6 +379,9 @@ namespace mfem_mgis {
      * \brief return the data associated with an integration point
      * \param[in] o: offset associated with the integration point
      * \return the values
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     template <size_type N>
     std::span<real, N> getIntegrationPointValues(const size_type o);
@@ -316,6 +389,9 @@ namespace mfem_mgis {
      * \brief return the data associated with an integration point
      * \param[in] o: offset associated with the integration point
      * \return the values
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     std::span<real> getIntegrationPointValues(const size_type o);
     /*!
@@ -323,22 +399,27 @@ namespace mfem_mgis {
      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
      * \param[in] i: integration point number in the element
      * \return the values
+     * \note the components of the value must be contiguous (see
+     * `hasContiguousComponents`), otherwise an exception is thrown: the call
+     * operator gives the values in all cases
      */
     std::span<real> getIntegrationPointValues(const size_type e,
                                               const size_type i);
     /*!
      * \brief return the data associated with an integration point
      * \param[in] o: offset associated with the integration point
-     * \return the values
+     * \return the values, as a strided span: this accessor is valid whatever
+     * the layout of the values (see `getComponentStride`)
      */
-    std::span<real> operator()(const size_type o);
+    mgis::StridedSpan<real> operator()(const size_type o);
     /*!
      * \brief return the data associated with an integration point
      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
      * \param[in] i: integration point number in the element
-     * \return the values
+     * \return the values, as a strided span: this accessor is valid whatever
+     * the layout of the values (see `getComponentStride`)
      */
-    std::span<real> operator()(const size_type e, const size_type i);
+    mgis::StridedSpan<real> operator()(const size_type e, const size_type i);
     //! \return a view to the function values
     std::span<real> getValues();
 
@@ -473,6 +554,16 @@ namespace mfem_mgis {
      */
     PartialQuadratureFunction(const PartialQuadratureSpace& s,
                               const size_type nv = 1);
+    /*!
+     * \brief constructor of a function whose values are stored densely in
+     * the given layout
+     * \param[in] s: quadrature space.
+     * \param[in] nv: size of the data stored per integration point.
+     * \param[in] l: layout
+     */
+    PartialQuadratureFunction(const PartialQuadratureSpace& s,
+                              const size_type nv,
+                              const mgis::FieldLayout l);
     /*!
      * \brief move constructor
      * \param[in, out] f: moved function

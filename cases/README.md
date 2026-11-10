@@ -134,9 +134,9 @@ to end), `measure-post-processings.sh` (post-processings, work package
 L8), `measure-execution-beam.sh` (placements given by `--execution`, task
 9a), `measure-layout.sh` (layout of the data at the integration points,
 point by point or component by component, beam and polycrystal on the GPU
-and on the CPU; its executables are built against a separate installation,
-`install/mfem-mgis-layout`, in `build/cases-layout` and
-`build/mm-opera-hpc-layout`), `measure-precision-beam.sh` (float against double on the CPU, twin
+and on the CPU; with `counters=1`, hardware counters of the kernels on the
+GPU measured by Nsight Compute, summarized by `summary-counters.py`),
+`measure-precision-beam.sh` (float against double on the CPU, twin
 spack environments, task 9b), `measure-solvers.sh` (campaign of the linear
 solvers of the factories, phase 5 of
 [docs/plan-solver-libraries.md](../docs/plan-solver-libraries.md): each

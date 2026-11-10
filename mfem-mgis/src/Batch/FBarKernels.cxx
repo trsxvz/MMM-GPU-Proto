@@ -104,14 +104,21 @@ namespace mfem_mgis::batch::internals {
           real iJ[N * N];
           loadInverseJacobian<N>(
               iJ, a.inverse_jacobians + static_cast<std::size_t>(N * N) * e, 1);
+          // derivatives at the center (one point per element)
+          real d0[V * N];
+          if (a.derivatives != nullptr) {
+            for (int j = 0; j != V * N; ++j) {
+              d0[j] = a.derivatives[static_cast<long long>(e) *
+                                        a.derivatives_point_stride +
+                                    static_cast<long long>(j) *
+                                        a.derivatives_component_stride];
+            }
+          }
           // deformation gradient at the center
           real F0[9];
           computeDeformationGradientAtCenter<K>(
               F0, a.macroscopic_gradients,
-              (a.derivatives != nullptr)
-                  ? a.derivatives + static_cast<std::size_t>(V * N) * e
-                  : nullptr,
-              iJ);
+              (a.derivatives != nullptr) ? d0 : nullptr, iJ);
           real dJ0[9];
           computeDeterminantDerivative<K>(dJ0, F0);
           a.centers[k] = computeDeterminant<K>(F0);
@@ -144,7 +151,6 @@ namespace mfem_mgis::batch::internals {
       const auto k = i / a.nq;
       const auto q = i - k * a.nq;
       const auto o = static_cast<std::size_t>(a.offsets[k] + q);
-      const auto np = static_cast<std::size_t>(a.number_of_points);
       const auto sgs = static_cast<std::size_t>(gs);
       // deformation gradient at the point
       real F[9];
@@ -152,8 +158,8 @@ namespace mfem_mgis::batch::internals {
         if (a.gradients == nullptr) {
           F[c] = a.macroscopic_gradients[c];
         } else {
-          F[c] = a.point_by_point ? a.gradients[o * sgs + c]
-                                  : a.gradients[c * np + o];
+          F[c] = a.gradients[static_cast<long long>(o) * a.point_stride +
+                             static_cast<long long>(c) * a.component_stride];
         }
       }
       const auto J0 = a.centers[k];
@@ -161,7 +167,11 @@ namespace mfem_mgis::batch::internals {
           computeFBarCoefficient<K>(J0, computeDeterminant<K>(F));
       a.coefficients[o] = alpha;
       for (std::size_t c = 0; c != sgs; ++c) {
-        a.deformation_gradients[o * sgs + c] = F[c];
+        a.deformation_gradients[static_cast<long long>(o) *
+                                    a.deformation_gradients_point_stride +
+                                static_cast<long long>(c) *
+                                    a.deformation_gradients_component_stride] =
+            F[c];
       }
       if (a.gradients != nullptr) {
         for (std::size_t c = 0; c != sgs; ++c) {
@@ -170,11 +180,8 @@ namespace mfem_mgis::batch::internals {
               ((K == GradientsKind::DEFORMATION_GRADIENT_2D) && (c == 2))
                   ? real{1}
                   : alpha * F[c];
-          if (a.point_by_point) {
-            a.gradients[o * sgs + c] = v;
-          } else {
-            a.gradients[c * np + o] = v;
-          }
+          a.gradients[static_cast<long long>(o) * a.point_stride +
+                      static_cast<long long>(c) * a.component_stride] = v;
         }
       }
     });
@@ -190,8 +197,15 @@ namespace mfem_mgis::batch::internals {
       const auto k = i / a.nq;
       const auto q = i - k * a.nq;
       const auto o = static_cast<std::size_t>(a.offsets[k] + q);
-      const auto sgs = static_cast<std::size_t>(gs);
-      const auto* const F = a.deformation_gradients + o * sgs;
+      // deformation gradient at the point
+      real F[9];
+      for (int r = 0; r != gs; ++r) {
+        F[r] = a.deformation_gradients
+                   [static_cast<long long>(o) *
+                        a.deformation_gradients_point_stride +
+                    static_cast<long long>(r) *
+                        a.deformation_gradients_component_stride];
+      }
       const auto alpha = a.coefficients[o];
       const auto J = computeDeterminant<K>(F);
       const auto J0 = a.centers[k];
@@ -222,15 +236,16 @@ namespace mfem_mgis::batch::internals {
       }
       // vectors of the modification of the tangent operator, `K' = α K + v
       // ⊗ c`, applied by the kernels of the stiffness matrices
-      auto* const vo = a.v + o * sgs;
-      auto* const co = a.c + o * sgs;
+      const auto lo = static_cast<long long>(o);
       for (int r = 0; r != gs; ++r) {
-        vo[r] = v[r];
-        co[r] = c[r];
-      }
-      auto* const s = a.pseudo_stresses + o * sgs;
-      for (int r = 0; r != gs; ++r) {
-        s[r] = alpha / (ie * J0) * v[r];
+        const auto t = lo * a.tangent_point_stride +
+                       static_cast<long long>(r) * a.tangent_component_stride;
+        a.v[t] = v[r];
+        a.c[t] = c[r];
+        a.pseudo_stresses[lo * a.pseudo_stresses_point_stride +
+                          static_cast<long long>(r) *
+                              a.pseudo_stresses_component_stride] =
+            alpha / (ie * J0) * v[r];
       }
     });
   }  // end of launchFBarTangentOperatorKernel

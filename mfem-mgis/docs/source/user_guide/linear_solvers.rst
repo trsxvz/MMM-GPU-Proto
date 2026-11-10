@@ -356,7 +356,9 @@ Preconditioners
      - MFEM
      - host
      - :cxx:`BlockSize` (by default, the number of components of the
-       unknowns if they are ordered by vector dimension, one otherwise),
+       unknowns if they are ordered by vector dimension, one otherwise;
+       a size giving blocks which are not nodal is replaced by the default
+       one, with a warning, see :ref:`mfem_mgis_linear_solvers_nodal_blocks`),
        :cxx:`Reordering` (:cxx:`MinimumDiscardedFill`, by default,
        :cxx:`None`); without fill, the only level supported by MFEM
    * - :cxx:`UMFPack`, :cxx:`KLU`
@@ -719,7 +721,38 @@ space. The block size is also seen by the other preconditioners of PETSc
 (the point block Jacobi method uses blocks of this size, the field split
 splits by default by components). The nonlinear solver :cxx:`SNES` gives
 them likewise to the tangent operator converted for the linear solvers of
-PETSc (option :cxx:`RigidBodyModes` of :cxx:`SNES`).
+PETSc (option :cxx:`RigidBodyModes` of :cxx:`SNES`). When GAMG is
+selected (option :cxx:`pc_type` set to :cxx:`gamg`) with the unknowns
+ordered by nodes, a warning reports that the rigid body modes are not
+given to it (see :ref:`mfem_mgis_linear_solvers_nodal_blocks`).
+
+.. _mfem_mgis_linear_solvers_nodal_blocks:
+
+Options exploiting the nodal blocks
+-----------------------------------
+
+Some options of the linear solvers and of the preconditioners exploit the
+nodal blocks of the unknowns, i.e. the blocks coupling the components of
+the unknowns at a node, which are blocks of consecutive rows only if the
+unknowns are ordered by vector dimension (parameter
+:cxx:`FiniteElementSpaceOrdering` set to :cxx:`byVDIM`):
+
+- the strategy :cxx:`Elasticity` of the preconditioner BoomerAMG of hypre;
+- the rigid body modes given to the algebraic multigrid of PETSc (GAMG);
+- the option :cxx:`NodalBlocks` of the solvers of AmgX;
+- the block size of :cxx:`BlockILU`, which gives nodal blocks if it is a
+  multiple of the number of components of the unknowns (any size for a
+  scalar unknown, whose ordering does not matter).
+
+All follow the same rule: with the unknowns ordered by nodes, or with
+blocks which are not nodal, the solver is built without the option (the
+strategy :cxx:`System` for BoomerAMG, no rigid body modes for GAMG,
+scalar unknowns for AmgX, the default block size for :cxx:`BlockILU`) and
+a warning is reported on the first process. The resolution remains
+correct, possibly with more iterations. The unknowns are never permuted
+at the boundary of a solver: this would copy the matrix at each assembly.
+Combinations which are impossible whatever the ordering, such as the nodal
+blocks with the classical multigrid of AmgX, are refused.
 
 The option :cxx:`Fields` of :cxx:`PETScLinearSolver` and
 :cxx:`PETScPreconditioner` (:cxx:`None` by default) set to

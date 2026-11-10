@@ -46,8 +46,8 @@ namespace mfem_mgis {
                                        oH->getNumberOfComponents());
     const auto n = m.getPartialQuadratureSpace().getNumberOfIntegrationPoints();
     for (size_type i = 0; i != n; ++i) {
-      const auto H = oH->getIntegrationPointValues(i);
-      auto Fi = F.getIntegrationPointValues(i);
+      const auto H = (*oH)(i);
+      auto Fi = F(i);
       std::copy(H.begin(), H.end(), Fi.begin());
       Fi[0] += real{1};
       Fi[1] += real{1};

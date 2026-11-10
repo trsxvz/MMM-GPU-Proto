@@ -180,31 +180,95 @@ namespace mfem_mgis {
         });
   }  // end of evaluate
 
+  /*!
+   * \brief check the specifications of a view
+   * \param[in] specs: specifications
+   * \param[in] n: number of integration points
+   */
   static void checkViewSpecifications(attributes::Throwing,
-                                      const ViewSpecifications& specs) {
+                                      const ViewSpecifications& specs,
+                                      const size_type n) {
     if (specs.data_begin < 0) {
       raise("invalid start of the data");
     }
     if (specs.data_size <= 0) {
       raise("invalid data size");
     }
-    if (specs.data_begin + specs.data_size > specs.data_stride) {
-      raise("data range is outside the stride: data offset is (" +
-            std::to_string(specs.data_begin) + "), data size is (" +
-            std::to_string(specs.data_size) + "), and data stride is (" +
-            std::to_string(specs.data_stride) + ")");
+    if ((specs.data_stride <= 0) || (specs.data_component_stride <= 0)) {
+      raise("invalid data stride or component stride");
+    }
+    if (n <= 1) {
+      // no stride between points: the values of a single point, or no value
+      return;
+    }
+    if (specs.data_component_stride == 1) {
+      // values stored point by point
+      if (specs.data_begin + specs.data_size > specs.data_stride) {
+        raise("data range is outside the stride: data offset is (" +
+              std::to_string(specs.data_begin) + "), data size is (" +
+              std::to_string(specs.data_size) + "), and data stride is (" +
+              std::to_string(specs.data_stride) + ")");
+      }
+    } else if ((n - 1) * specs.data_stride >= specs.data_component_stride) {
+      // values stored component by component: the values of a component at
+      // all the integration points must fit in the component stride
+      raise(
+          "the values of a component at all the integration points do not "
+          "fit in the component stride: number of integration points is (" +
+          std::to_string(n) + "), data stride is (" +
+          std::to_string(specs.data_stride) + "), and component stride is (" +
+          std::to_string(specs.data_component_stride) + ")");
     }
   }  // end of checkViewSpecifications
+
+  /*!
+   * \brief check the number of values given to a view
+   * \param[in] nv: number of values
+   * \param[in] specs: specifications
+   * \param[in] n: number of integration points
+   */
+  static void checkNumberOfValues(attributes::Throwing,
+                                  const size_type nv,
+                                  const ViewSpecifications& specs,
+                                  const size_type n) {
+    if ((specs.data_component_stride == 1) && (n > 1)) {
+      // values stored point by point
+      if (nv != n * specs.data_stride) {
+        raise("invalid value size");
+      }
+      return;
+    }
+    if (n == 0) {
+      return;
+    }
+    // values stored component by component, or values of a single point:
+    // the values must cover the last component of the last integration point
+    const auto last = specs.data_begin + (n - 1) * specs.data_stride +
+                      (specs.data_size - 1) * specs.data_component_stride;
+    if (nv <= last) {
+      raise("invalid value size");
+    }
+  }  // end of checkNumberOfValues
+
+  void PartialQuadratureFunctionDataLayout::raiseNonContiguousComponents(
+      const char* const m) {
+    raise("PartialQuadratureFunction::" + std::string{m} +
+          ": the components of the value at an integration point are not "
+          "contiguous (values stored component by component). Use the "
+          "call operator, which returns a strided span");
+  }  // end of raiseNonContiguousComponents
 
   ImmutablePartialQuadratureFunctionView::
       ImmutablePartialQuadratureFunctionView(const PartialQuadratureSpace& s,
                                              const ViewSpecifications& specs)
       : qspace(s) {
-    checkViewSpecifications(throwing, specs);
+    checkViewSpecifications(throwing, specs,
+                            this->qspace.getNumberOfIntegrationPoints());
     //
     this->data_begin = specs.data_begin;
     this->data_size = specs.data_size;
     this->data_stride = specs.data_stride;
+    this->data_component_stride = specs.data_component_stride;
   }  // end of ImmutablePartialQuadratureFunctionView
 
   ImmutablePartialQuadratureFunctionView::
@@ -212,10 +276,8 @@ namespace mfem_mgis {
                                              std::span<const real> v,
                                              const ViewSpecifications& specs)
       : ImmutablePartialQuadratureFunctionView(s, specs) {
-    if (v.size() !=
-        this->qspace.getNumberOfIntegrationPoints() * specs.data_stride) {
-      raise("invalid value size");
-    }
+    checkNumberOfValues(throwing, static_cast<size_type>(v.size()), specs,
+                        this->qspace.getNumberOfIntegrationPoints());
     this->immutable_values = v;
   }  // end of ImmutablePartialQuadratureFunctionView
 
@@ -242,6 +304,26 @@ namespace mfem_mgis {
       const size_type e, const size_type i) const {
     return this->getIntegrationPointValues(this->qspace.getOffset(e) + i);
   }  // end of getIntegrationPointValues
+
+  bool ImmutablePartialQuadratureFunctionView::isDense(
+      const mgis::FieldLayout l) const noexcept {
+    const auto n = this->qspace.getNumberOfIntegrationPoints();
+    const auto nc = this->data_size;
+    if ((this->data_begin != 0) ||
+        (this->immutable_values.size() != static_cast<std::size_t>(n * nc))) {
+      return false;
+    }
+    if ((nc == 1) || (n <= 1)) {
+      // the values of a scalar function, or of a single point, are stored
+      // in the same way in both layouts
+      return (nc == 1) ? (this->data_stride == 1)
+                       : (this->data_component_stride == 1);
+    }
+    if (l == mgis::FieldLayout::POINT_BY_POINT) {
+      return (this->data_component_stride == 1) && (this->data_stride == nc);
+    }
+    return (this->data_stride == 1) && (this->data_component_stride == n);
+  }  // end of isDense
 
   bool ImmutablePartialQuadratureFunctionView::checkCompatibility(
       const ImmutablePartialQuadratureFunctionView& v) const {
@@ -282,7 +364,8 @@ namespace mfem_mgis {
                 : std::span<real>{this->local_values_storage},
             {.data_begin = f.getDataOffset(),
              .data_size = f.getNumberOfComponents(),
-             .data_stride = f.getDataStride()}) {
+             .data_stride = f.getDataStride(),
+             .data_component_stride = f.getComponentStride()}) {
   }  // end of PartialQuadratureFunction
 
   [[nodiscard]] std::optional<PartialQuadratureFunction>
@@ -295,6 +378,26 @@ namespace mfem_mgis {
     }
     return {};
   }  // end of ImmutablePartialQuadratureFunctionView
+
+  PartialQuadratureFunction::PartialQuadratureFunction(
+      const PartialQuadratureSpace& s,
+      const size_type nv,
+      const mgis::FieldLayout l)
+      : PartialQuadratureFunctionStorage(nv * s.getNumberOfIntegrationPoints()),
+        PartialQuadratureFunctionView(
+            s,
+            std::span<real>{this->local_values_storage},
+            l == mgis::FieldLayout::POINT_BY_POINT
+                ? ViewSpecifications{.data_begin = 0,
+                                     .data_size = nv,
+                                     .data_stride = nv}
+                : ViewSpecifications{.data_begin = 0,
+                                     .data_size = nv,
+                                     .data_stride = 1,
+                                     .data_component_stride = std::max(
+                                         s.getNumberOfIntegrationPoints(),
+                                         size_type{1})}) {
+  }  // end of PartialQuadratureFunction::PartialQuadratureFunction
 
   PartialQuadratureFunction::PartialQuadratureFunction(
       const PartialQuadratureSpace& s, const size_type nv)
@@ -332,10 +435,9 @@ namespace mfem_mgis {
                 ? v
                 : std::span<real>{this->local_values_storage},
             specs) {
-    if (v.size() != specs.data_stride * getSpaceSize(s)) {
-      raise("invalid values size");
-    }
-    checkViewSpecifications(throwing, specs);
+    // the specifications have been checked by the view
+    checkNumberOfValues(throwing, static_cast<size_type>(v.size()), specs,
+                        getSpaceSize(s));
   }  // end of PartialQuadratureFunction
 
   PartialQuadratureFunction::PartialQuadratureFunction(
@@ -354,44 +456,20 @@ namespace mfem_mgis {
     const auto& qspace = f.getPartialQuadratureSpace();
     const auto n = getSpaceSize(qspace);
     const auto nc = f.getNumberOfComponents();
-    auto* f_values = f.getValues().data() + f.getDataOffset();
-    const auto* const v_values = v.getValues().data() + v.getDataOffset();
-    const auto fs = f.getDataStride();
-    const auto vs = v.getDataStride();
-    const auto f_data_continuous = fs == nc;
-    if (f_data_continuous) {
+    if (f.isDense(mgis::FieldLayout::POINT_BY_POINT) &&
+        v.isDense(mgis::FieldLayout::POINT_BY_POINT)) {
+      // the values are contiguous in both functions
       ctx.assertOrTerminate(f.getDataOffset() == 0,
                             "inconsistent function view, offset shall be null");
-      if (vs == v.getNumberOfComponents()) {
-        // data are also continous in v
-        std::copy(v_values, v_values + n * nc, f_values);
-      } else {
-        if (nc == 1) {
-          // special case for scalars
-          for (size_type i = 0; i != n; ++i) {
-            f_values[i] = v_values[i * vs];
-          }
-        } else {
-          auto pvalues = f_values;
-          for (size_type i = 0; i != n; ++i) {
-            const auto b = v_values + i * vs;
-            const auto e = b + nc;
-            std::copy(b, e, pvalues);
-            pvalues += nc;
-          }
-        }
-      }
-    } else {
-      if (nc == 1) {
-        for (size_type i = 0; i != n; ++i) {
-          f_values[i * fs] = v_values[i * vs];
-        }
-      } else {
-        for (size_type i = 0; i != n; ++i) {
-          const auto b = v_values + i * vs;
-          const auto e = b + nc;
-          std::copy(b, e, f_values + i * fs);
-        }
+      const auto* const v_values = v.getValues().data() + v.getDataOffset();
+      std::copy(v_values, v_values + n * nc, f.getValues().data());
+      return true;
+    }
+    for (size_type i = 0; i != n; ++i) {
+      const auto src = v(i);
+      const auto dest = f(i);
+      for (size_type c = 0; c != nc; ++c) {
+        dest[c] = src[c];
       }
     }
     return true;
@@ -418,7 +496,8 @@ namespace mfem_mgis {
       return false;
     }
     const auto& mapping = *omapping;
-    if ((nc == f.getDataStride()) && (nc == v.getDataStride())) {
+    if (f.isDense(mgis::FieldLayout::POINT_BY_POINT) &&
+        v.isDense(mgis::FieldLayout::POINT_BY_POINT)) {
       // data for one element are continuous, no loops over integration points
       for (size_type k = 0; k != mapping.from_indexes.Size(); ++k) {
         const auto e = mapping.from_indexes[k];
@@ -441,8 +520,11 @@ namespace mfem_mgis {
               "unmatched number of integration points");
         }
         for (size_type g = 0; g != ng; ++g) {
-          const auto* const src = v.data(ve, g);
-          std::copy(src, src + nc, f.data(e, g));
+          const auto src = v(ve, g);
+          const auto dest = f(e, g);
+          for (size_type c = 0; c != nc; ++c) {
+            dest[c] = src[c];
+          }
         }
       }
     }
@@ -685,7 +767,7 @@ namespace mfem_mgis {
         tr.SetIntPoint(&ip);
         fe.CalcShape(ip, this->shape);
         const auto w = ip.weight * tr.Weight();
-        const auto fvalues = f.getIntegrationPointValues(n, i);
+        const auto fvalues = f(n, i);
         for (int k = 0; k != nnodes; ++k) {
           for (size_type c = 0; c != nc; ++c) {
             this->rhs(k, c) += w * this->shape[k] * fvalues[c];
@@ -884,6 +966,39 @@ namespace mfem_mgis {
     std::unordered_map<size_type, mfem::Array<size_type>> inverse_mappings;
   };
 
+  /*!
+   * \brief evaluate the values of a grid function at an integration point
+   *
+   * `mfem::GridFunction::GetVectorValue` writes the values in a
+   * `mfem::Vector`, whose values are contiguous: the vector wraps the values
+   * of the destination if its components are contiguous, and a work vector
+   * is copied in the destination otherwise.
+   *
+   * \param[out] v: values at the integration point
+   * \param[in] src: grid function
+   * \param[in] tr: element transformation
+   * \param[in] ip: integration point
+   * \param[in] w: work vector
+   */
+  template <typename GridFunctionType>
+  static void getVectorValue(mgis::StridedSpan<real> v,
+                             const GridFunctionType& src,
+                             mfem::ElementTransformation& tr,
+                             const mfem::IntegrationPoint& ip,
+                             mfem::Vector& w) {
+    const auto nc = static_cast<int>(v.size());
+    if (v.hasContiguousValues()) {
+      auto tmp = mfem::Vector(v.getPointer(), nc);
+      src.GetVectorValue(tr, ip, tmp);
+      return;
+    }
+    w.SetSize(nc);
+    src.GetVectorValue(tr, ip, w);
+    for (int c = 0; c != nc; ++c) {
+      v[c] = w[c];
+    }
+  }  // end of getVectorValue
+
   template <bool parallel>
   static void update_impl_with_boundary_api(
       PartialQuadratureFunctionView& dest,
@@ -908,7 +1023,8 @@ namespace mfem_mgis {
       }
     } else {
       // vectorial case
-      const auto nc = dest.getNumberOfComponents();
+      // work vector, only used if the components are not contiguous
+      auto tmp = mfem::Vector{};
       for (size_type k = 0; k != mapping.from_indexes.Size(); ++k) {
         const auto i = mapping.from_indexes[k];
         const auto idx = mapping.to_indexes[k];
@@ -919,9 +1035,7 @@ namespace mfem_mgis {
           // get the gradients of the shape functions
           const auto& ip = ir.IntPoint(g);
           tr.SetIntPoint(&ip);
-          auto v = dest.getIntegrationPointValues(i, g);
-          auto tmp = mfem::Vector(v.data(), nc);
-          src.GetVectorValue(tr, ip, tmp);
+          getVectorValue(dest(i, g), src, tr, ip, tmp);
         }
       }
     }
@@ -951,7 +1065,8 @@ namespace mfem_mgis {
       }
     } else {
       // vectorial case
-      const auto nc = dest.getNumberOfComponents();
+      // work vector, only used if the components are not contiguous
+      auto tmp = mfem::Vector{};
       for (size_type k = 0; k != mapping.from_indexes.Size(); ++k) {
         const auto i = mapping.from_indexes[k];
         const auto idx = mapping.to_indexes[k];
@@ -962,9 +1077,7 @@ namespace mfem_mgis {
           // get the gradients of the shape functions
           const auto& ip = ir.IntPoint(g);
           tr.SetIntPoint(&ip);
-          auto v = dest.getIntegrationPointValues(i, g);
-          auto tmp = mfem::Vector(v.data(), nc);
-          src.GetVectorValue(tr, ip, tmp);
+          getVectorValue(dest(i, g), src, tr, ip, tmp);
         }
       }
     }
@@ -992,7 +1105,8 @@ namespace mfem_mgis {
       }
     } else {
       // vectorial case
-      const auto nc = dest.getNumberOfComponents();
+      // work vector, only used if the components are not contiguous
+      auto tmp = mfem::Vector{};
       for (const auto& [i, offset] : qspace.getOffsets()) {
         static_cast<void>(offset);
         const auto& fe = *(grid_fespace.GetBE(i));
@@ -1002,9 +1116,7 @@ namespace mfem_mgis {
           // get the gradients of the shape functions
           const auto& ip = ir.IntPoint(g);
           tr.SetIntPoint(&ip);
-          auto v = dest.getIntegrationPointValues(i, g);
-          auto tmp = mfem::Vector(v.data(), nc);
-          src.GetVectorValue(tr, ip, tmp);
+          getVectorValue(dest(i, g), src, tr, ip, tmp);
         }
       }
     }
@@ -1032,7 +1144,8 @@ namespace mfem_mgis {
       }
     } else {
       // vectorial case
-      const auto nc = dest.getNumberOfComponents();
+      // work vector, only used if the components are not contiguous
+      auto tmp = mfem::Vector{};
       for (const auto& [i, offset] : qspace.getOffsets()) {
         static_cast<void>(offset);
         const auto& fe = *(grid_fespace.GetFE(i));
@@ -1042,9 +1155,7 @@ namespace mfem_mgis {
           // get the gradients of the shape functions
           const auto& ip = ir.IntPoint(g);
           tr.SetIntPoint(&ip);
-          auto v = dest.getIntegrationPointValues(i, g);
-          auto tmp = mfem::Vector(v.data(), nc);
-          src.GetVectorValue(tr, ip, tmp);
+          getVectorValue(dest(i, g), src, tr, ip, tmp);
         }
       }
     }

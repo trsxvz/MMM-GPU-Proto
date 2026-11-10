@@ -224,3 +224,16 @@ GPU.
   option of BoomerAMG (mfem-mgis #495).
 - All the test suites pass on the CPU (TFEL, MGIS, mfem-mgis, examples,
   mm-opera-hpc, cases of the prototype).
+
+## 09 and 10/11/2026: rebase onto the masters, layouts of the data at the integration points
+
+- TFEL and MGIS are rebased onto their masters (`60a42dd12`, `b1afeb3`),
+  after the merges of the corrections of their reviews; all the test
+  suites pass, on the CPU and on the GPU.
+- MGIS: one layout per array of the material managers and a padding of
+  NaNs for the tests; strided values of a point (`StridedSpan`).
+- mfem-mgis: the layouts of the data at the integration points are chosen
+  array by array, automatically by default (component by component for a
+  material integrated by batches on a GPU); all the paths read the arrays
+  through their strides, and the kernels of the finite elements use one
+  thread per point on the GPU, with the same results in all the layouts.

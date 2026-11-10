@@ -30,12 +30,12 @@ namespace mfem_mgis {
    *
    * The material data manager of MGIS uses these arrays without copy (see
    * `getInitializer`). It is given the pointers of their copies on the
-   * host, at the `HOST` location, in the layout chosen at construction
-   * (point by point by default, or component by component, which gives
-   * coalesced accesses on a GPU). The arrays are never reallocated: they
-   * are private, and only pointers to their values are given. As the
-   * arrays allocated by MGIS, they start from zero, except the deformation
-   * gradients, set to the identity, and, in plane stress, the
+   * host, at the `HOST` location, in the layouts chosen at construction
+   * (point by point or component by component, which gives coalesced
+   * accesses on a GPU, see `quadrature_data_layout_parameter`). The arrays are
+   * never reallocated: they are private, and only pointers to their values are
+   * given. As the arrays allocated by MGIS, they start from zero, except the
+   * deformation gradients, set to the identity, and, in plane stress, the
    * `AxialDeformationGradient` internal state variable, set to one.
    *
    * Validity of the copies: MFEM keeps track of the valid copies of each
@@ -87,12 +87,14 @@ namespace mfem_mgis {
      * \brief constructor
      * \param[in] b: behaviour
      * \param[in] n: number of integration points
-     * \param[in] l: layout of the arrays
+     * \param[in] l: layouts of the arrays and their padding (see
+     * `mgis::behaviour::MaterialDataManagerLayout`): the unused values of a
+     * padded array are NaN
      */
-    MaterialArrays(
-        const Behaviour& b,
-        const size_type n,
-        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+    MaterialArrays(const Behaviour& b,
+                   const size_type n,
+                   const mgis::behaviour::MaterialDataManagerLayout& l =
+                       mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \return the initializer of the material data manager of MGIS using
      * these arrays
@@ -201,8 +203,8 @@ namespace mfem_mgis {
     real* writeTangentOperatorBlocks(const bool d = true);
     //! \brief destructor
     ~MaterialArrays();
-    //! \brief layout of the arrays
-    const mgis::FieldLayout array_layout;
+    //! \brief layouts of the arrays and their padding
+    const mgis::behaviour::MaterialDataManagerLayout array_layout;
 
    private:
     //! \return an array of a state

@@ -1,0 +1,33 @@
+date: 2026-11-10 11:39:16
+case: beam
+machine: 16 cores, 30 GB
+load: 8.74 8.39 8.87
+mfem-mgis: 9d05e2b71e
+== ordering-pcg-amg-byNODES: 1 processes, 1 threads, cpu, MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+time 6.613 s
+== ordering-cg-amgx-byNODES: 1 processes, 1 threads, cpu, MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+dofs 111843 | nls newton | ls cg-amgx | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 67.565 s
+== ordering-cg-amgx-aggregation-byNODES: 1 processes, 1 threads, cpu, MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+dofs 111843 | nls newton | ls cg-amgx | ||u|| 48.83704592 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 17.845 s
+== ordering-pcg-amg-byVDIM: 1 processes, 1 threads, cpu, MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+time 6.698 s
+== ordering-cg-amgx-byVDIM: 1 processes, 1 threads, cpu, MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+dofs 111843 | nls newton | ls cg-amgx | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 68.775 s
+== ordering-cg-amgx-aggregation-byVDIM: 1 processes, 1 threads, cpu, MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+dofs 111843 | nls newton | ls cg-amgx | ||u|| 48.83704524 | iterations per step: 2 2 2 3 4 4 4 4 4 4 | total 33
+time 17.373 s
+== ordering-cg-amgx-aggregation-nodal-blocks-byVDIM: 1 processes, 1 threads, cpu, MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered
+   status 0
+dofs 111843 | nls newton | ls cg-amgx | ||u|| 48.8370456 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+time 16.928 s

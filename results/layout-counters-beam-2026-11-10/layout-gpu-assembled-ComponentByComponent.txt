@@ -1,0 +1,167 @@
+Warning: program compiled against libxml 213 using older 209
+==PROF== Connected to process 2229384 (/home/t/Documents/GitHub/mfem-mgis-gpu-proto/build/cases/beam/beam)
+Warning: program compiled against libxml 213 using older 209
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchJacobiansKernel(const mfem_mgis::batch::internals::JacobiansKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::zeroValues(double *, int, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchStiffnessMatricesKernel<(mfem_mgis::batch::GradientsKind)0, mfem_mgis::batch::internals::ElementMatricesStorage, (mfem_mgis::batch::internals::StiffnessBlocks)0>(const mfem_mgis::batch::internals::StiffnessMatricesKernelArguments &, T2, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchStiffnessMatricesKernel<(mfem_mgis::batch::GradientsKind)0, mfem_mgis::batch::internals::ElementMatricesStorage, (mfem_mgis::batch::internals::StiffnessBlocks)0>(const mfem_mgis::batch::internals::StiffnessMatricesKernelArguments &, T2, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchStiffnessMatricesPositionsKernel(const mfem_mgis::batch::internals::SparseMatrixOutput &, int, int, unsigned short *, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchStiffnessMatricesByEntriesKernel(const mfem_mgis::batch::internals::SparseMatrixOutput &, int, const int *, const int *, const double *, int, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchUnknownsDerivativesKernel(const mfem_mgis::batch::internals::UnknownsDerivativesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchGradientsKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::GradientsKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchGradientsKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::GradientsKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+Newton iteration  0 : ||r|| = 242164, ||r||/||r_0|| = 0.000185489
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::zeroValues(double *, int, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchStiffnessMatricesKernel<(mfem_mgis::batch::GradientsKind)0, mfem_mgis::batch::internals::ElementMatricesStorage, (mfem_mgis::batch::internals::StiffnessBlocks)0>(const mfem_mgis::batch::internals::StiffnessMatricesKernelArguments &, T2, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchStiffnessMatricesKernel<(mfem_mgis::batch::GradientsKind)0, mfem_mgis::batch::internals::ElementMatricesStorage, (mfem_mgis::batch::internals::StiffnessBlocks)0>(const mfem_mgis::batch::internals::StiffnessMatricesKernelArguments &, T2, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchStiffnessMatricesPositionsKernel(const mfem_mgis::batch::internals::SparseMatrixOutput &, int, int, unsigned short *, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchStiffnessMatricesByEntriesKernel(const mfem_mgis::batch::internals::SparseMatrixOutput &, int, const int *, const int *, const double *, int, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchUnknownsDerivativesKernel(const mfem_mgis::batch::internals::UnknownsDerivativesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchGradientsKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::GradientsKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchGradientsKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::GradientsKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+Newton iteration  1 : ||r|| = 20.2137, ||r||/||r_0|| = 1.5483e-08
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::zeroValues(double *, int, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchStiffnessMatricesKernel<(mfem_mgis::batch::GradientsKind)0, mfem_mgis::batch::internals::ElementMatricesStorage, (mfem_mgis::batch::internals::StiffnessBlocks)0>(const mfem_mgis::batch::internals::StiffnessMatricesKernelArguments &, T2, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchStiffnessMatricesKernel<(mfem_mgis::batch::GradientsKind)0, mfem_mgis::batch::internals::ElementMatricesStorage, (mfem_mgis::batch::internals::StiffnessBlocks)0>(const mfem_mgis::batch::internals::StiffnessMatricesKernelArguments &, T2, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchStiffnessMatricesByEntriesKernel(const mfem_mgis::batch::internals::SparseMatrixOutput &, int, const int *, const int *, const double *, int, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchUnknownsDerivativesKernel(const mfem_mgis::batch::internals::UnknownsDerivativesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchGradientsKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::GradientsKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchGradientsKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::GradientsKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+Newton iteration  2 : ||r|| = 0.00194377, ||r||/||r_0|| = 1.48886e-12
+Convergence order 0.98493
+
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::copyFieldView(bool, const mgis::FieldView<double> &, const mgis::FieldView<const double> &)::[lambda(int) (instance 2)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::copyFieldView(bool, const mgis::FieldView<double> &, const mgis::FieldView<const double> &)::[lambda(int) (instance 2)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::copyFieldView(bool, const mgis::FieldView<double> &, const mgis::FieldView<const double> &)::[lambda(int) (instance 2)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::copyFieldView(bool, const mgis::FieldView<double> &, const mgis::FieldView<const double> &)::[lambda(int) (instance 2)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::copyFieldView(bool, const mgis::FieldView<double> &, const mgis::FieldView<const double> &)::[lambda(int) (instance 2)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::copyFieldView(bool, const mgis::FieldView<double> &, const mgis::FieldView<const double> &)::[lambda(int) (instance 2)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::zeroValues(double *, int, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchStiffnessMatricesKernel<(mfem_mgis::batch::GradientsKind)0, mfem_mgis::batch::internals::ElementMatricesStorage, (mfem_mgis::batch::internals::StiffnessBlocks)0>(const mfem_mgis::batch::internals::StiffnessMatricesKernelArguments &, T2, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchStiffnessMatricesKernel<(mfem_mgis::batch::GradientsKind)0, mfem_mgis::batch::internals::ElementMatricesStorage, (mfem_mgis::batch::internals::StiffnessBlocks)0>(const mfem_mgis::batch::internals::StiffnessMatricesKernelArguments &, T2, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchStiffnessMatricesPositionsKernel(const mfem_mgis::batch::internals::SparseMatrixOutput &, int, int, unsigned short *, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchStiffnessMatricesByEntriesKernel(const mfem_mgis::batch::internals::SparseMatrixOutput &, int, const int *, const int *, const double *, int, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel2D<void mfem_mgis::batch::internals::launchInnerForcesKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::InnerForcesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<mfem_mgis::batch::internals::launchUnknownsDerivativesKernel(const mfem_mgis::batch::internals::UnknownsDerivativesKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchGradientsKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::GradientsKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfem::CuKernel1D<void mfem_mgis::batch::internals::launchGradientsKernel<(mfem_mgis::batch::GradientsKind)0>(const mfem_mgis::batch::internals::GradientsKernelArguments &, bool)::[lambda(int) (instance 1)]>(int, T1)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+==PROF== Profiling "void mfront::generic_parallel::gpu::internals::apply<mfront_gpb_Statistics, mfront::gpb::PointIntegrator<tfel::material::IsotropicLinearHardeningPlasticity<(tfel::material::ModellingHypothesis::Hypothesis)6, double, (bool)0>, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalPointTraits, <unnamed>::IsotropicLinearHardeningPlasticityTridimensionalParameters>>(T2, unsigned long, T1 *, unsigned long long)": 0%....50%....100% - 10 passes
+Newton iteration  0 : ||r|| = 291216, ||r||/||r_0|| = 0.000223061
+Newton iteration  1 : ||r|| = 25.5368, ||r||/||r_0|| = 1.95603e-08
+Newton iteration  2 : ||r|| = 0.00239364, ||r||/||r_0|| = 1.83344e-12
+Convergence order 0.992866
+
+Newton iteration  0 : ||r|| = 243901, ||r||/||r_0|| = 0.00018682
+Newton iteration  1 : ||r|| = 23.7471, ||r||/||r_0|| = 1.81894e-08
+Newton iteration  2 : ||r|| = 0.00230034, ||r||/||r_0|| = 1.76198e-12
+Convergence order 1.00055
+
+Newton iteration  0 : ||r|| = 352607, ||r||/||r_0|| = 0.000270084
+Newton iteration  1 : ||r|| = 13869.7, ||r||/||r_0|| = 1.06237e-05
+Newton iteration  2 : ||r|| = 397.847, ||r||/||r_0|| = 3.04736e-07
+Newton iteration  3 : ||r|| = 0.0338379, ||r||/||r_0|| = 2.59186e-11
+Convergence order 2.63903
+
+Newton iteration  0 : ||r|| = 1.99557e+06, ||r||/||r_0|| = 0.00152853
+Newton iteration  1 : ||r|| = 168699, ||r||/||r_0|| = 0.000129217
+Newton iteration  2 : ||r|| = 7067.8, ||r||/||r_0|| = 5.41368e-06
+Newton iteration  3 : ||r|| = 15.0174, ||r||/||r_0|| = 1.15027e-08
+Newton iteration  4 : ||r|| = 0.000880612, ||r||/||r_0|| = 6.74517e-13
+Convergence order 1.58335
+
+Newton iteration  0 : ||r|| = 3.30386e+06, ||r||/||r_0|| = 0.00253064
+Newton iteration  1 : ||r|| = 405861, ||r||/||r_0|| = 0.000310875
+Newton iteration  2 : ||r|| = 8236.42, ||r||/||r_0|| = 6.3088e-06
+Newton iteration  3 : ||r|| = 9.93581, ||r||/||r_0|| = 7.61047e-09
+Convergence order 1.72425
+
+Newton iteration  0 : ||r|| = 3.63515e+06, ||r||/||r_0|| = 0.00278439
+Newton iteration  1 : ||r|| = 500190, ||r||/||r_0|| = 0.000383128
+Newton iteration  2 : ||r|| = 7335.47, ||r||/||r_0|| = 5.6187e-06
+Newton iteration  3 : ||r|| = 39.724, ||r||/||r_0|| = 3.04271e-08
+Newton iteration  4 : ||r|| = 0.00386969, ||r||/||r_0|| = 2.96404e-12
+Convergence order 1.76995
+
+Newton iteration  0 : ||r|| = 3.78307e+06, ||r||/||r_0|| = 0.0028977
+Newton iteration  1 : ||r|| = 566150, ||r||/||r_0|| = 0.00043365
+Newton iteration  2 : ||r|| = 17181.6, ||r||/||r_0|| = 1.31605e-05
+Newton iteration  3 : ||r|| = 211.113, ||r||/||r_0|| = 1.61705e-07
+Newton iteration  4 : ||r|| = 0.0224465, ||r||/||r_0|| = 1.71932e-11
+Convergence order 2.0797
+
+Newton iteration  0 : ||r|| = 3.85985e+06, ||r||/||r_0|| = 0.00295651
+Newton iteration  1 : ||r|| = 596288, ||r||/||r_0|| = 0.000456735
+Newton iteration  2 : ||r|| = 26127.2, ||r||/||r_0|| = 2.00125e-05
+Newton iteration  3 : ||r|| = 617.108, ||r||/||r_0|| = 4.72682e-07
+Newton iteration  4 : ||r|| = 0.0644296, ||r||/||r_0|| = 4.93507e-11
+Convergence order 2.44741
+
+Newton iteration  0 : ||r|| = 3.89582e+06, ||r||/||r_0|| = 0.00298405
+Newton iteration  1 : ||r|| = 602118, ||r||/||r_0|| = 0.000461201
+Newton iteration  2 : ||r|| = 26827.8, ||r||/||r_0|| = 2.05491e-05
+Newton iteration  3 : ||r|| = 1021.2, ||r||/||r_0|| = 7.82203e-07
+Newton iteration  4 : ||r|| = 0.121837, ||r||/||r_0|| = 9.33229e-11
+Convergence order 2.76393
+
+dofs 111843 | nls newton | ls pcg-amg | ||u|| 48.83704586 | iterations per step: 2 2 2 3 4 3 4 4 4 4 | total 32
+time 38.600 s
+
+Glossary: 
+NS: Newton Solver Class
+NLEPIB: Non Linear Evolution Problem Implementation Base Class
+FED: Finite Element Discretization Class
+
+ |-- start timetable ----------------------------------------------------------------------------------------------|
+ |    name                                          |    number Of Calls |            time(s) |            part(%) |
+ |-----------------------------------------------------------------------------------------------------------------|
+ | > root                                          |                  1 |          38.793904 |        100.000000% |
+ | |--> Mesh::Constructor                          |                  1 |           0.162145 |          0.417966% |
+ |    |--> Mesh::LoadMesh                          |                  1 |           0.000291 |          0.000750% |
+ |    |--> Mesh::Run_ParUniformRefinement          |                  4 |           0.161725 |          0.416881% |
+ | |--> FED::Constructor                           |                  1 |           0.031715 |          0.081752% |
+ | |--> NLEPIB::updateLinearSolver                 |                  1 |           0.000004 |          0.000010% |
+ | |--> NLEP::solve                                |                 10 |          37.483962 |         96.623332% |
+ |    |--> NLEPIB::setup                           |                 10 |           0.000922 |          0.002377% |
+ |    |--> NLEPIB::solve                           |                 10 |          37.482969 |         96.620773% |
+ |       |--> NLEPIB::computePrediction            |                 10 |           8.850001 |         22.812866% |
+ |          |--> PRED::integrate                   |                 10 |           1.153865 |          2.974347% |
+ |          |--> PRED::forms                       |                 10 |           0.007352 |          0.018952% |
+ |          |--> PRED::assemble                    |                 10 |           4.545940 |         11.718182% |
+ |          |--> PRED::solve                       |                 10 |           3.135395 |          8.082184% |
+ |       |--> NS::Mult                             |                 10 |          28.632871 |         73.807657% |
+ |          |--> NS::processNewUnknownsEstimate    |                 10 |           1.833033 |          4.725055% |
+ |          |--> NS::computeResidual               |                 10 |           0.372396 |          0.959935% |
+ |          |--> NS::Mult::WhileLoop               |                 42 |          26.425944 |         68.118807% |
+ |             |--> NS::computeNewtonCorrection    |                 32 |          23.795361 |         61.337888% |
+ |                |--> NS::getJacobian             |                 32 |           3.704354 |          9.548804% |
+ |                |--> NS::setLinearSolverOperator |                 32 |           0.006334 |          0.016326% |
+ |                |--> MFEM::Mult(r,c)             |                 32 |          20.084265 |         51.771705% |
+ |             |--> NS::processNewUnknownsEstimate |                 32 |           1.872586 |          4.827012% |
+ |             |--> NS::computeResidual            |                 32 |           0.746806 |          1.925061% |
+ | |--> NLEPIB::update                             |                 10 |           1.116078 |          2.876941% |
+ |-- end timetable ------------------------------------------------------------------------------------------------|
+ copies of the arrays of the materials
+ host to device: 120 copies, 597.688 MB, 0.0510754 s
+ device to host: 120 copies, 597.688 MB, 0.0365024 s
+==PROF== Disconnected from process 2229384
+==PROF== Report: /home/t/Documents/GitHub/mfem-mgis-gpu-proto/results/layout-counters-beam-2026-11-10/layout-gpu-assembled-ComponentByComponent.ncu-rep

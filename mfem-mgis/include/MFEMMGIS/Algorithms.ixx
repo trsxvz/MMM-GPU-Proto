@@ -36,7 +36,7 @@ namespace mfem_mgis {
         auto& v = f.getIntegrationPointValue(i);
         v = e(i);
       } else {
-        auto lhs_values = f.template getIntegrationPointValues<N>(i);
+        auto lhs_values = f(i);
         const auto& rhs_values = e(i);
         algorithm::copy<N>(rhs_values.begin(), rhs_values.end(),
                            lhs_values.begin());
@@ -74,7 +74,7 @@ namespace mfem_mgis {
       }
     } else {
       for (size_type i = 0; i != ne; ++i) {
-        auto lhs_values = f.getIntegrationPointValues(i);
+        auto lhs_values = f(i);
         const auto& rhs_values = e(i);
         std::copy(rhs_values.begin(), rhs_values.end(), lhs_values.begin());
       }

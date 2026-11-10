@@ -92,7 +92,8 @@ namespace mfem_mgis {
         const size_type m,
         std::unique_ptr<const Behaviour> b_ptr,
         const Parameters& params,
-        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+        const mgis::behaviour::MaterialDataManagerLayout& l =
+            mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \brief compute the contribution of the given element to the residual,
      * including the regularization term
@@ -275,7 +276,7 @@ namespace mfem_mgis {
       const size_type m,
       std::unique_ptr<const Behaviour> b,
       const Parameters& params,
-      const mgis::FieldLayout l =
+      const mgis::behaviour::MaterialDataManagerLayout& l =
           mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
   /*!
@@ -296,7 +297,7 @@ namespace mfem_mgis {
       const size_type m,
       std::unique_ptr<const Behaviour> b,
       const Parameters& params,
-      const mgis::FieldLayout l =
+      const mgis::behaviour::MaterialDataManagerLayout& l =
           mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
   /*!
@@ -317,7 +318,7 @@ namespace mfem_mgis {
       const size_type m,
       std::unique_ptr<const Behaviour> b,
       const Parameters& params,
-      const mgis::FieldLayout l =
+      const mgis::behaviour::MaterialDataManagerLayout& l =
           mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
 }  // end of namespace mfem_mgis

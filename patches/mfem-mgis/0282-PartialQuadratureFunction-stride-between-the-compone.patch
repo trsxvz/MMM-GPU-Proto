@@ -1,0 +1,1140 @@
+From 85221434cc5c08b5b949eca9688f95595c0c6033 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 10 Nov 2026 02:12:37 +0100
+Subject: [PATCH] PartialQuadratureFunction: stride between the components
+
+The values of a partial quadrature function may now be stored component
+by component: ViewSpecifications::data_component_stride gives the stride
+between two components of a point (one by default, values stored point by
+point).
+
+- The call operator returns the values of a point as a strided span
+  (mgis::StridedSpan), valid in all the layouts: the functions of
+  mgis::function read it without copy.
+- getIntegrationPointValues and data return contiguous values: they throw
+  an exception if the components of a point are not contiguous (check
+  inlined, exception thrown out of line).
+- getComponentStride, hasContiguousComponents, isDense, and a constructor
+  allocating the values in a given layout.
+- Copies, assignments, updates from grid functions, L2 projections and
+  post-processings read and write the values through their strides.
+- The evaluations of an evaluator may request a layout
+  (QPEvaluationOptions::layout): a result already stored densely in this
+  layout is used as is, otherwise it is copied in this layout.
+---
+ include/MFEMMGIS/Algorithms.ixx               |   4 +-
+ .../MFEMMGIS/PartialQuadratureFunction.hxx    | 115 +++++++-
+ .../MFEMMGIS/PartialQuadratureFunction.ixx    |  43 ++-
+ .../QPEvaluator/AbstractQPEvaluator.hxx       |   8 +-
+ src/AbstractQPEvaluator.cxx                   |  23 +-
+ src/Batch/IntegrationPointsFunctions.cxx      |   3 +-
+ src/L2Projection.cxx                          |   5 +-
+ src/MechanicalPostProcessings.cxx             |   4 +-
+ src/PartialQuadratureFunction.cxx             | 255 +++++++++++++-----
+ tests/PartialQuadratureFunctionTest.cxx       | 139 +++++++++-
+ 10 files changed, 485 insertions(+), 114 deletions(-)
+
+diff --git a/include/MFEMMGIS/Algorithms.ixx b/include/MFEMMGIS/Algorithms.ixx
+index ab6139b676..6004a1fdf8 100644
+--- a/include/MFEMMGIS/Algorithms.ixx
++++ b/include/MFEMMGIS/Algorithms.ixx
+@@ -36,7 +36,7 @@ namespace mfem_mgis {
+         auto& v = f.getIntegrationPointValue(i);
+         v = e(i);
+       } else {
+-        auto lhs_values = f.template getIntegrationPointValues<N>(i);
++        auto lhs_values = f(i);
+         const auto& rhs_values = e(i);
+         algorithm::copy<N>(rhs_values.begin(), rhs_values.end(),
+                            lhs_values.begin());
+@@ -74,7 +74,7 @@ namespace mfem_mgis {
+       }
+     } else {
+       for (size_type i = 0; i != ne; ++i) {
+-        auto lhs_values = f.getIntegrationPointValues(i);
++        auto lhs_values = f(i);
+         const auto& rhs_values = e(i);
+         std::copy(rhs_values.begin(), rhs_values.end(), lhs_values.begin());
+       }
+diff --git a/include/MFEMMGIS/PartialQuadratureFunction.hxx b/include/MFEMMGIS/PartialQuadratureFunction.hxx
+index 8b7032d44b..d09cf19027 100644
+--- a/include/MFEMMGIS/PartialQuadratureFunction.hxx
++++ b/include/MFEMMGIS/PartialQuadratureFunction.hxx
+@@ -17,6 +17,8 @@
+ #include <functional>
+ 
+ #include "MGIS/StorageMode.hxx"
++#include "MGIS/FieldView.hxx"
++#include "MGIS/StridedSpan.hxx"
+ #ifdef MGIS_FUNCTION_SUPPORT
+ #include "MGIS/Function/EvaluatorConcept.hxx"
+ #include "MGIS/Function/FunctionConcept.hxx"
+@@ -33,11 +35,20 @@ namespace mfem_mgis {
+   /*!
+    * \brief data structure used to specify a view from external data
+    *
++   * The `c`-th component of the value at the `o`-th integration point is
++   * stored at `data_begin + o * data_stride + c * data_component_stride`.
++   *
+    * To be valid, the following conditions must hold:
+    *
+    * - data_begin must be non-negative
+-   * - data_size and data_stride must be strictly positive
+-   * - data_begin + data_size <= data_stride
++   * - data_size, data_stride and data_component_stride must be strictly
++   *   positive
++   * - if data_component_stride is equal to one (values stored point by
++   *   point, the components of a point being contiguous):
++   *   data_begin + data_size <= data_stride
++   * - otherwise (values stored component by component, possibly with a
++   *   padding): the values of a component at all the integration points
++   *   must fit in data_component_stride values.
+    */
+   struct ViewSpecifications {
+     /*!
+@@ -47,8 +58,15 @@ namespace mfem_mgis {
+     size_type data_begin;
+     //! \brief data size
+     size_type data_size;
+-    //! \brief data stride
++    //! \brief data stride, i.e. the stride between two integration points
+     size_type data_stride;
++    /*!
++     * \brief stride between two components of the value at an integration
++     * point. The default value describes values stored point by point. For
++     * values stored component by component, `data_stride` is one and this
++     * stride is the leading dimension of the array (see `mgis::FieldView`).
++     */
++    size_type data_component_stride = 1;
+   };
+ 
+   /*!
+@@ -80,6 +98,17 @@ namespace mfem_mgis {
+      * successive integration points.
+      */
+     size_type getDataStride() const noexcept;
++    /*!
++     * \return the stride between two successive components of the value at
++     * an integration point (one if the values are stored point by point)
++     */
++    size_type getComponentStride() const noexcept;
++    /*!
++     * \return true if the components of the value at an integration point
++     * are contiguous, which is required by the accessors returning a
++     * `std::span` or a pointer
++     */
++    bool hasContiguousComponents() const noexcept;
+     //! \return the offset of the first element
+     size_type getDataOffset() const noexcept;
+     //! \brief destructor
+@@ -92,6 +121,17 @@ namespace mfem_mgis {
+      * \param[in] o: offset associated with the integration point
+      */
+     size_type getDataOffset(const size_type o) const noexcept;
++    /*!
++     * \brief check that the components of the value at an integration point
++     * are contiguous. An exception is thrown otherwise.
++     * \param[in] m: name of the calling method
++     */
++    void checkContiguousComponents(const char* const m) const;
++    /*!
++     * \brief throw the exception of `checkContiguousComponents`
++     * \param[in] m: name of the calling method
++     */
++    [[noreturn]] static void raiseNonContiguousComponents(const char* const m);
+   };  // end of struct PartialQuadratureFunctionDataLayout
+ 
+   /*!
+@@ -156,6 +196,9 @@ namespace mfem_mgis {
+      * \brief return the data associated with an integration point
+      * \param[in] o: offset associated with the integration point
+      * \return a pointer to the data
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     const real* data(const size_type o) const;
+     /*!
+@@ -163,6 +206,9 @@ namespace mfem_mgis {
+      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
+      * \param[in] i: integration point number in the element
+      * \return a pointer to the data
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     const real* data(const size_type e, const size_type i) const;
+     /*!
+@@ -188,6 +234,9 @@ namespace mfem_mgis {
+      * \brief return the data associated with an integration point
+      * \param[in] o: offset associated with the integration point
+      * \return the values
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     template <size_type N>
+     std::span<const real, N> getIntegrationPointValues(const size_type o) const;
+@@ -195,6 +244,9 @@ namespace mfem_mgis {
+      * \brief return the data associated with an integration point
+      * \param[in] o: offset associated with the integration point
+      * \return the values
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     std::span<const real> getIntegrationPointValues(const size_type o) const;
+     /*!
+@@ -202,23 +254,28 @@ namespace mfem_mgis {
+      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
+      * \param[in] i: integration point number in the element
+      * \return the values
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     std::span<const real> getIntegrationPointValues(const size_type e,
+                                                     const size_type i) const;
+     /*!
+      * \brief return the data associated with an integration point
+      * \param[in] o: offset associated with the integration point
+-     * \return the values
++     * \return the values, as a strided span: this accessor is valid whatever
++     * the layout of the values (see `getComponentStride`)
+      */
+-    std::span<const real> operator()(const size_type o) const;
++    mgis::StridedSpan<const real> operator()(const size_type o) const;
+     /*!
+      * \brief return the data associated with an integration point
+      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
+      * \param[in] i: integration point number in the element
+-     * \return the values
++     * \return the values, as a strided span: this accessor is valid whatever
++     * the layout of the values (see `getComponentStride`)
+      */
+-    std::span<const real> operator()(const size_type e,
+-                                     const size_type i) const;
++    mgis::StridedSpan<const real> operator()(const size_type e,
++                                             const size_type i) const;
+     //! \return a view to the function values
+     std::span<const real> getValues() const;
+     /*!
+@@ -229,6 +286,13 @@ namespace mfem_mgis {
+      */
+     bool checkCompatibility(
+         const ImmutablePartialQuadratureFunctionView& v) const;
++    /*!
++     * \return true if the values are stored densely in the given layout,
++     * without any other data (as the values of a function built by the
++     * constructor of `PartialQuadratureFunction` taking a layout)
++     * \param[in] l: layout
++     */
++    bool isDense(const mgis::FieldLayout l) const noexcept;
+     //! \brief destructor
+     ~ImmutablePartialQuadratureFunctionView();
+ 
+@@ -279,6 +343,9 @@ namespace mfem_mgis {
+      * \brief return the data associated with an integration point
+      * \param[in] o: offset associated with the integration point
+      * \return a pointer to the data
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     real* data(const size_type o);
+     /*!
+@@ -286,6 +353,9 @@ namespace mfem_mgis {
+      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
+      * \param[in] i: integration point number in the element
+      * \return a pointer to the data
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     real* data(const size_type e, const size_type i);
+     /*!
+@@ -309,6 +379,9 @@ namespace mfem_mgis {
+      * \brief return the data associated with an integration point
+      * \param[in] o: offset associated with the integration point
+      * \return the values
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     template <size_type N>
+     std::span<real, N> getIntegrationPointValues(const size_type o);
+@@ -316,6 +389,9 @@ namespace mfem_mgis {
+      * \brief return the data associated with an integration point
+      * \param[in] o: offset associated with the integration point
+      * \return the values
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     std::span<real> getIntegrationPointValues(const size_type o);
+     /*!
+@@ -323,22 +399,27 @@ namespace mfem_mgis {
+      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
+      * \param[in] i: integration point number in the element
+      * \return the values
++     * \note the components of the value must be contiguous (see
++     * `hasContiguousComponents`), otherwise an exception is thrown: the call
++     * operator gives the values in all cases
+      */
+     std::span<real> getIntegrationPointValues(const size_type e,
+                                               const size_type i);
+     /*!
+      * \brief return the data associated with an integration point
+      * \param[in] o: offset associated with the integration point
+-     * \return the values
++     * \return the values, as a strided span: this accessor is valid whatever
++     * the layout of the values (see `getComponentStride`)
+      */
+-    std::span<real> operator()(const size_type o);
++    mgis::StridedSpan<real> operator()(const size_type o);
+     /*!
+      * \brief return the data associated with an integration point
+      * \param[in] e: element number, see `PartialQuadratureSpace::getOffsets`
+      * \param[in] i: integration point number in the element
+-     * \return the values
++     * \return the values, as a strided span: this accessor is valid whatever
++     * the layout of the values (see `getComponentStride`)
+      */
+-    std::span<real> operator()(const size_type e, const size_type i);
++    mgis::StridedSpan<real> operator()(const size_type e, const size_type i);
+     //! \return a view to the function values
+     std::span<real> getValues();
+ 
+@@ -473,6 +554,16 @@ namespace mfem_mgis {
+      */
+     PartialQuadratureFunction(const PartialQuadratureSpace& s,
+                               const size_type nv = 1);
++    /*!
++     * \brief constructor of a function whose values are stored densely in
++     * the given layout
++     * \param[in] s: quadrature space.
++     * \param[in] nv: size of the data stored per integration point.
++     * \param[in] l: layout
++     */
++    PartialQuadratureFunction(const PartialQuadratureSpace& s,
++                              const size_type nv,
++                              const mgis::FieldLayout l);
+     /*!
+      * \brief move constructor
+      * \param[in, out] f: moved function
+diff --git a/include/MFEMMGIS/PartialQuadratureFunction.ixx b/include/MFEMMGIS/PartialQuadratureFunction.ixx
+index 528a0e4f2f..be10db2041 100644
+--- a/include/MFEMMGIS/PartialQuadratureFunction.ixx
++++ b/include/MFEMMGIS/PartialQuadratureFunction.ixx
+@@ -20,6 +20,23 @@ namespace mfem_mgis {
+     return this->data_stride;
+   }  // end of getDataStride
+ 
++  inline size_type PartialQuadratureFunctionDataLayout::getComponentStride()
++      const noexcept {
++    return this->data_component_stride;
++  }  // end of getComponentStride
++
++  inline bool PartialQuadratureFunctionDataLayout::hasContiguousComponents()
++      const noexcept {
++    return (this->data_component_stride == 1) || (this->data_size == 1);
++  }  // end of hasContiguousComponents
++
++  inline void PartialQuadratureFunctionDataLayout::checkContiguousComponents(
++      const char* const m) const {
++    if (!this->hasContiguousComponents()) {
++      raiseNonContiguousComponents(m);
++    }
++  }  // end of checkContiguousComponents
++
+   inline size_type PartialQuadratureFunctionDataLayout::getDataOffset()
+       const noexcept {
+     return this->data_begin;
+@@ -53,12 +70,14 @@ namespace mfem_mgis {
+ 
+   inline const real* ImmutablePartialQuadratureFunctionView::data(
+       const size_type o) const {
++    this->checkContiguousComponents("data");
+     return this->immutable_values.data() + this->getDataOffset(o);
+   }  // end of data
+ 
+   inline std::span<const real>
+   ImmutablePartialQuadratureFunctionView::getIntegrationPointValues(
+       const size_type o) const {
++    this->checkContiguousComponents("getIntegrationPointValues");
+     return std::span<const real>(
+         this->immutable_values.data() + this->getDataOffset(o),
+         this->data_size);
+@@ -75,20 +94,23 @@ namespace mfem_mgis {
+           "inconstent data size");
+     }
+ #endif /* MFEM_MGIS_DEBUG */
++    this->checkContiguousComponents("getIntegrationPointValues");
+     return std::span<const real, N>(
+         this->immutable_values.data() + this->getDataOffset(o),
+         this->data_size);
+   }  // end of getIntegrationPointValues
+ 
+-  inline std::span<const real>
++  inline mgis::StridedSpan<const real>
+   ImmutablePartialQuadratureFunctionView::operator()(const size_type o) const {
+-    return this->getIntegrationPointValues(o);
++    return {this->immutable_values.data() + this->getDataOffset(o),
++            static_cast<mgis::size_type>(this->data_size),
++            static_cast<mgis::size_type>(this->data_component_stride)};
+   }
+ 
+-  inline std::span<const real>
++  inline mgis::StridedSpan<const real>
+   ImmutablePartialQuadratureFunctionView::operator()(const size_type e,
+                                                      const size_type i) const {
+-    return this->getIntegrationPointValues(e, i);
++    return this->operator()(this->qspace.getOffset(e) + i);
+   }
+ 
+   inline PartialQuadratureFunctionView::PartialQuadratureFunctionView(
+@@ -110,6 +132,7 @@ namespace mfem_mgis {
+         mutable_values(v) {}  // end of PartialQuadratureFunctionView
+ 
+   inline real* PartialQuadratureFunctionView::data(const size_type o) {
++    this->checkContiguousComponents("data");
+     return this->mutable_values.data() + this->getDataOffset(o);
+   }  // end of getIntegrationPointValues
+ 
+@@ -120,6 +143,7 @@ namespace mfem_mgis {
+ 
+   inline std::span<real>
+   PartialQuadratureFunctionView::getIntegrationPointValues(const size_type o) {
++    this->checkContiguousComponents("getIntegrationPointValues");
+     return std::span<real>(this->mutable_values.data() + this->getDataOffset(o),
+                            this->data_size);
+   }  // end of getIntegrationPointValues
+@@ -134,18 +158,21 @@ namespace mfem_mgis {
+           "inconstent data size");
+     }
+ #endif /* MFEM_MGIS_DEBUG */
++    this->checkContiguousComponents("getIntegrationPointValues");
+     return std::span<real, N>(
+         this->mutable_values.data() + this->getDataOffset(o), this->data_size);
+   }  // end of getIntegrationPointValues
+ 
+-  inline std::span<real> PartialQuadratureFunctionView::operator()(
++  inline mgis::StridedSpan<real> PartialQuadratureFunctionView::operator()(
+       const size_type o) {
+-    return this->getIntegrationPointValues(o);
++    return {this->mutable_values.data() + this->getDataOffset(o),
++            static_cast<mgis::size_type>(this->data_size),
++            static_cast<mgis::size_type>(this->data_component_stride)};
+   }
+ 
+-  inline std::span<real> PartialQuadratureFunctionView::operator()(
++  inline mgis::StridedSpan<real> PartialQuadratureFunctionView::operator()(
+       const size_type e, const size_type i) {
+-    return this->getIntegrationPointValues(e, i);
++    return this->operator()(this->qspace.getOffset(e) + i);
+   }
+ 
+   inline std::span<real> PartialQuadratureFunctionView::getValues() {
+diff --git a/include/MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx b/include/MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx
+index ae82b8bf35..fe5e2f126a 100644
+--- a/include/MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx
++++ b/include/MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx
+@@ -130,8 +130,14 @@ namespace mfem_mgis {
+ 
+   //! \brief options passed to the evaluate function
+   struct QPEvaluationOptions {
+-    //! \brief if the evaluated values must be stored contiguously
++    /*!
++     * \brief if the evaluated values must be stored densely in the layout
++     * given below: they are copied in this layout if the evaluator returns
++     * them otherwise
++     */
+     const bool ensure_contiguous_storage = false;
++    //! \brief layout of the values, if they must be stored densely
++    const mgis::FieldLayout layout = mgis::FieldLayout::POINT_BY_POINT;
+   };  // end of struct QPEvaluationOptions
+ 
+   /*!
+diff --git a/src/AbstractQPEvaluator.cxx b/src/AbstractQPEvaluator.cxx
+index 35262faf95..68feaa75dc 100644
+--- a/src/AbstractQPEvaluator.cxx
++++ b/src/AbstractQPEvaluator.cxx
+@@ -58,19 +58,24 @@ namespace mfem_mgis {
+     if (!opts.ensure_contiguous_storage) {
+       return oresult;
+     }
+-    if (oresult->getNumberOfComponents() == oresult->getDataStride()) {
+-      // data are stored contigously in memory, nothing to be done
+-      if (oresult->getDataOffset() != 0) {
+-        return ctx.registerErrorMessage("invalid result");
+-      }
++    if (oresult->isDense(opts.layout)) {
++      // the values are stored densely in the requested layout
+       return oresult;
+     }
+     // copy the result of the evaluation to a new partial quadrature function
+-    auto of = PartialQuadratureFunction::copy(ctx, *oresult);
+-    if (isInvalid(of)) {
+-      return {};
++    // storing its values densely in the requested layout
++    try {
++      auto f = PartialQuadratureFunction(oresult->getPartialQuadratureSpace(),
++                                         oresult->getNumberOfComponents(),
++                                         opts.layout);
++      if (!assign_values(ctx, f.view(), *oresult)) {
++        return {};
++      }
++      return QPEvaluatorResult::fromFunction(std::move(f));
++    } catch (...) {
++      std::ignore = registerExceptionInErrorBacktrace(ctx);
+     }
+-    return QPEvaluatorResult::fromFunction(std::move(*of));
++    return {};
+   }  // end of evaluate
+ 
+ }  // end of namespace mfem_mgis
+diff --git a/src/Batch/IntegrationPointsFunctions.cxx b/src/Batch/IntegrationPointsFunctions.cxx
+index 579f21560f..e8b3db02c2 100644
+--- a/src/Batch/IntegrationPointsFunctions.cxx
++++ b/src/Batch/IntegrationPointsFunctions.cxx
+@@ -45,8 +45,7 @@ namespace mfem_mgis::batch {
+       const auto* const po = offsets.HostRead();
+       for (std::int64_t k = 0; k != n; ++k) {
+         for (std::int64_t q = 0; q != nq; ++q) {
+-          const auto values =
+-              f.getIntegrationPointValues(static_cast<size_type>(po[k] + q));
++          const auto values = f(static_cast<size_type>(po[k] + q));
+           for (std::int64_t c = 0; c != nc; ++c) {
+             pv[c + nc * (q + nq * k)] = values[c];
+           }
+diff --git a/src/L2Projection.cxx b/src/L2Projection.cxx
+index d6f9478e89..5e0cf10db3 100644
+--- a/src/L2Projection.cxx
++++ b/src/L2Projection.cxx
+@@ -417,8 +417,7 @@ namespace mfem_mgis {
+       for (int i = 0; i < ir.GetNPoints(); i++) {
+         const auto& ip = ir.IntPoint(i);
+         tr.SetIntPoint(&ip);
+-        const auto fv =
+-            f.getIntegrationPointValues(tr.ElementNo, i)[this->component];
++        const auto fv = f(tr.ElementNo, i)[this->component];
+         const auto v = tr.Weight() * fv;
+         e.CalcPhysShape(tr, shape);
+         add(elvect, ip.weight * v, shape, elvect);
+@@ -466,7 +465,7 @@ namespace mfem_mgis {
+       for (int i = 0; i < ir.GetNPoints(); i++) {
+         const auto& ip = ir.IntPoint(i);
+         tr.SetIntPoint(&ip);
+-        const auto fv = f.getIntegrationPointValues(n, i)[this->component];
++        const auto fv = f(n, i)[this->component];
+         const auto v = tr.Weight() * fv;
+         e.CalcPhysShape(tr, shape);
+         add(elvect, ip.weight * v, shape, elvect);
+diff --git a/src/MechanicalPostProcessings.cxx b/src/MechanicalPostProcessings.cxx
+index 197f343c75..6f2a770ef9 100644
+--- a/src/MechanicalPostProcessings.cxx
++++ b/src/MechanicalPostProcessings.cxx
+@@ -46,8 +46,8 @@ namespace mfem_mgis {
+                                        oH->getNumberOfComponents());
+     const auto n = m.getPartialQuadratureSpace().getNumberOfIntegrationPoints();
+     for (size_type i = 0; i != n; ++i) {
+-      const auto H = oH->getIntegrationPointValues(i);
+-      auto Fi = F.getIntegrationPointValues(i);
++      const auto H = (*oH)(i);
++      auto Fi = F(i);
+       std::copy(H.begin(), H.end(), Fi.begin());
+       Fi[0] += real{1};
+       Fi[1] += real{1};
+diff --git a/src/PartialQuadratureFunction.cxx b/src/PartialQuadratureFunction.cxx
+index f98ed430d8..49aa5d25e0 100644
+--- a/src/PartialQuadratureFunction.cxx
++++ b/src/PartialQuadratureFunction.cxx
+@@ -180,31 +180,95 @@ namespace mfem_mgis {
+         });
+   }  // end of evaluate
+ 
++  /*!
++   * \brief check the specifications of a view
++   * \param[in] specs: specifications
++   * \param[in] n: number of integration points
++   */
+   static void checkViewSpecifications(attributes::Throwing,
+-                                      const ViewSpecifications& specs) {
++                                      const ViewSpecifications& specs,
++                                      const size_type n) {
+     if (specs.data_begin < 0) {
+       raise("invalid start of the data");
+     }
+     if (specs.data_size <= 0) {
+       raise("invalid data size");
+     }
+-    if (specs.data_begin + specs.data_size > specs.data_stride) {
+-      raise("data range is outside the stride: data offset is (" +
+-            std::to_string(specs.data_begin) + "), data size is (" +
+-            std::to_string(specs.data_size) + "), and data stride is (" +
+-            std::to_string(specs.data_stride) + ")");
++    if ((specs.data_stride <= 0) || (specs.data_component_stride <= 0)) {
++      raise("invalid data stride or component stride");
++    }
++    if (n <= 1) {
++      // no stride between points: the values of a single point, or no value
++      return;
++    }
++    if (specs.data_component_stride == 1) {
++      // values stored point by point
++      if (specs.data_begin + specs.data_size > specs.data_stride) {
++        raise("data range is outside the stride: data offset is (" +
++              std::to_string(specs.data_begin) + "), data size is (" +
++              std::to_string(specs.data_size) + "), and data stride is (" +
++              std::to_string(specs.data_stride) + ")");
++      }
++    } else if ((n - 1) * specs.data_stride >= specs.data_component_stride) {
++      // values stored component by component: the values of a component at
++      // all the integration points must fit in the component stride
++      raise(
++          "the values of a component at all the integration points do not "
++          "fit in the component stride: number of integration points is (" +
++          std::to_string(n) + "), data stride is (" +
++          std::to_string(specs.data_stride) + "), and component stride is (" +
++          std::to_string(specs.data_component_stride) + ")");
+     }
+   }  // end of checkViewSpecifications
+ 
++  /*!
++   * \brief check the number of values given to a view
++   * \param[in] nv: number of values
++   * \param[in] specs: specifications
++   * \param[in] n: number of integration points
++   */
++  static void checkNumberOfValues(attributes::Throwing,
++                                  const size_type nv,
++                                  const ViewSpecifications& specs,
++                                  const size_type n) {
++    if ((specs.data_component_stride == 1) && (n > 1)) {
++      // values stored point by point
++      if (nv != n * specs.data_stride) {
++        raise("invalid value size");
++      }
++      return;
++    }
++    if (n == 0) {
++      return;
++    }
++    // values stored component by component, or values of a single point:
++    // the values must cover the last component of the last integration point
++    const auto last = specs.data_begin + (n - 1) * specs.data_stride +
++                      (specs.data_size - 1) * specs.data_component_stride;
++    if (nv <= last) {
++      raise("invalid value size");
++    }
++  }  // end of checkNumberOfValues
++
++  void PartialQuadratureFunctionDataLayout::raiseNonContiguousComponents(
++      const char* const m) {
++    raise("PartialQuadratureFunction::" + std::string{m} +
++          ": the components of the value at an integration point are not "
++          "contiguous (values stored component by component). Use the "
++          "call operator, which returns a strided span");
++  }  // end of raiseNonContiguousComponents
++
+   ImmutablePartialQuadratureFunctionView::
+       ImmutablePartialQuadratureFunctionView(const PartialQuadratureSpace& s,
+                                              const ViewSpecifications& specs)
+       : qspace(s) {
+-    checkViewSpecifications(throwing, specs);
++    checkViewSpecifications(throwing, specs,
++                            this->qspace.getNumberOfIntegrationPoints());
+     //
+     this->data_begin = specs.data_begin;
+     this->data_size = specs.data_size;
+     this->data_stride = specs.data_stride;
++    this->data_component_stride = specs.data_component_stride;
+   }  // end of ImmutablePartialQuadratureFunctionView
+ 
+   ImmutablePartialQuadratureFunctionView::
+@@ -212,10 +276,8 @@ namespace mfem_mgis {
+                                              std::span<const real> v,
+                                              const ViewSpecifications& specs)
+       : ImmutablePartialQuadratureFunctionView(s, specs) {
+-    if (v.size() !=
+-        this->qspace.getNumberOfIntegrationPoints() * specs.data_stride) {
+-      raise("invalid value size");
+-    }
++    checkNumberOfValues(throwing, static_cast<size_type>(v.size()), specs,
++                        this->qspace.getNumberOfIntegrationPoints());
+     this->immutable_values = v;
+   }  // end of ImmutablePartialQuadratureFunctionView
+ 
+@@ -243,6 +305,26 @@ namespace mfem_mgis {
+     return this->getIntegrationPointValues(this->qspace.getOffset(e) + i);
+   }  // end of getIntegrationPointValues
+ 
++  bool ImmutablePartialQuadratureFunctionView::isDense(
++      const mgis::FieldLayout l) const noexcept {
++    const auto n = this->qspace.getNumberOfIntegrationPoints();
++    const auto nc = this->data_size;
++    if ((this->data_begin != 0) ||
++        (this->immutable_values.size() != static_cast<std::size_t>(n * nc))) {
++      return false;
++    }
++    if ((nc == 1) || (n <= 1)) {
++      // the values of a scalar function, or of a single point, are stored
++      // in the same way in both layouts
++      return (nc == 1) ? (this->data_stride == 1)
++                       : (this->data_component_stride == 1);
++    }
++    if (l == mgis::FieldLayout::POINT_BY_POINT) {
++      return (this->data_component_stride == 1) && (this->data_stride == nc);
++    }
++    return (this->data_stride == 1) && (this->data_component_stride == n);
++  }  // end of isDense
++
+   bool ImmutablePartialQuadratureFunctionView::checkCompatibility(
+       const ImmutablePartialQuadratureFunctionView& v) const {
+     if (this->getPartialQuadratureSpace() != v.getPartialQuadratureSpace()) {
+@@ -282,7 +364,8 @@ namespace mfem_mgis {
+                 : std::span<real>{this->local_values_storage},
+             {.data_begin = f.getDataOffset(),
+              .data_size = f.getNumberOfComponents(),
+-             .data_stride = f.getDataStride()}) {
++             .data_stride = f.getDataStride(),
++             .data_component_stride = f.getComponentStride()}) {
+   }  // end of PartialQuadratureFunction
+ 
+   [[nodiscard]] std::optional<PartialQuadratureFunction>
+@@ -296,6 +379,26 @@ namespace mfem_mgis {
+     return {};
+   }  // end of ImmutablePartialQuadratureFunctionView
+ 
++  PartialQuadratureFunction::PartialQuadratureFunction(
++      const PartialQuadratureSpace& s,
++      const size_type nv,
++      const mgis::FieldLayout l)
++      : PartialQuadratureFunctionStorage(nv * s.getNumberOfIntegrationPoints()),
++        PartialQuadratureFunctionView(
++            s,
++            std::span<real>{this->local_values_storage},
++            l == mgis::FieldLayout::POINT_BY_POINT
++                ? ViewSpecifications{.data_begin = 0,
++                                     .data_size = nv,
++                                     .data_stride = nv}
++                : ViewSpecifications{.data_begin = 0,
++                                     .data_size = nv,
++                                     .data_stride = 1,
++                                     .data_component_stride = std::max(
++                                         s.getNumberOfIntegrationPoints(),
++                                         size_type{1})}) {
++  }  // end of PartialQuadratureFunction::PartialQuadratureFunction
++
+   PartialQuadratureFunction::PartialQuadratureFunction(
+       const PartialQuadratureSpace& s, const size_type nv)
+       : PartialQuadratureFunctionStorage(nv * s.getNumberOfIntegrationPoints()),
+@@ -332,10 +435,9 @@ namespace mfem_mgis {
+                 ? v
+                 : std::span<real>{this->local_values_storage},
+             specs) {
+-    if (v.size() != specs.data_stride * getSpaceSize(s)) {
+-      raise("invalid values size");
+-    }
+-    checkViewSpecifications(throwing, specs);
++    // the specifications have been checked by the view
++    checkNumberOfValues(throwing, static_cast<size_type>(v.size()), specs,
++                        getSpaceSize(s));
+   }  // end of PartialQuadratureFunction
+ 
+   PartialQuadratureFunction::PartialQuadratureFunction(
+@@ -354,44 +456,20 @@ namespace mfem_mgis {
+     const auto& qspace = f.getPartialQuadratureSpace();
+     const auto n = getSpaceSize(qspace);
+     const auto nc = f.getNumberOfComponents();
+-    auto* f_values = f.getValues().data() + f.getDataOffset();
+-    const auto* const v_values = v.getValues().data() + v.getDataOffset();
+-    const auto fs = f.getDataStride();
+-    const auto vs = v.getDataStride();
+-    const auto f_data_continuous = fs == nc;
+-    if (f_data_continuous) {
++    if (f.isDense(mgis::FieldLayout::POINT_BY_POINT) &&
++        v.isDense(mgis::FieldLayout::POINT_BY_POINT)) {
++      // the values are contiguous in both functions
+       ctx.assertOrTerminate(f.getDataOffset() == 0,
+                             "inconsistent function view, offset shall be null");
+-      if (vs == v.getNumberOfComponents()) {
+-        // data are also continous in v
+-        std::copy(v_values, v_values + n * nc, f_values);
+-      } else {
+-        if (nc == 1) {
+-          // special case for scalars
+-          for (size_type i = 0; i != n; ++i) {
+-            f_values[i] = v_values[i * vs];
+-          }
+-        } else {
+-          auto pvalues = f_values;
+-          for (size_type i = 0; i != n; ++i) {
+-            const auto b = v_values + i * vs;
+-            const auto e = b + nc;
+-            std::copy(b, e, pvalues);
+-            pvalues += nc;
+-          }
+-        }
+-      }
+-    } else {
+-      if (nc == 1) {
+-        for (size_type i = 0; i != n; ++i) {
+-          f_values[i * fs] = v_values[i * vs];
+-        }
+-      } else {
+-        for (size_type i = 0; i != n; ++i) {
+-          const auto b = v_values + i * vs;
+-          const auto e = b + nc;
+-          std::copy(b, e, f_values + i * fs);
+-        }
++      const auto* const v_values = v.getValues().data() + v.getDataOffset();
++      std::copy(v_values, v_values + n * nc, f.getValues().data());
++      return true;
++    }
++    for (size_type i = 0; i != n; ++i) {
++      const auto src = v(i);
++      const auto dest = f(i);
++      for (size_type c = 0; c != nc; ++c) {
++        dest[c] = src[c];
+       }
+     }
+     return true;
+@@ -418,7 +496,8 @@ namespace mfem_mgis {
+       return false;
+     }
+     const auto& mapping = *omapping;
+-    if ((nc == f.getDataStride()) && (nc == v.getDataStride())) {
++    if (f.isDense(mgis::FieldLayout::POINT_BY_POINT) &&
++        v.isDense(mgis::FieldLayout::POINT_BY_POINT)) {
+       // data for one element are continuous, no loops over integration points
+       for (size_type k = 0; k != mapping.from_indexes.Size(); ++k) {
+         const auto e = mapping.from_indexes[k];
+@@ -441,8 +520,11 @@ namespace mfem_mgis {
+               "unmatched number of integration points");
+         }
+         for (size_type g = 0; g != ng; ++g) {
+-          const auto* const src = v.data(ve, g);
+-          std::copy(src, src + nc, f.data(e, g));
++          const auto src = v(ve, g);
++          const auto dest = f(e, g);
++          for (size_type c = 0; c != nc; ++c) {
++            dest[c] = src[c];
++          }
+         }
+       }
+     }
+@@ -685,7 +767,7 @@ namespace mfem_mgis {
+         tr.SetIntPoint(&ip);
+         fe.CalcShape(ip, this->shape);
+         const auto w = ip.weight * tr.Weight();
+-        const auto fvalues = f.getIntegrationPointValues(n, i);
++        const auto fvalues = f(n, i);
+         for (int k = 0; k != nnodes; ++k) {
+           for (size_type c = 0; c != nc; ++c) {
+             this->rhs(k, c) += w * this->shape[k] * fvalues[c];
+@@ -884,6 +966,39 @@ namespace mfem_mgis {
+     std::unordered_map<size_type, mfem::Array<size_type>> inverse_mappings;
+   };
+ 
++  /*!
++   * \brief evaluate the values of a grid function at an integration point
++   *
++   * `mfem::GridFunction::GetVectorValue` writes the values in a
++   * `mfem::Vector`, whose values are contiguous: the vector wraps the values
++   * of the destination if its components are contiguous, and a work vector
++   * is copied in the destination otherwise.
++   *
++   * \param[out] v: values at the integration point
++   * \param[in] src: grid function
++   * \param[in] tr: element transformation
++   * \param[in] ip: integration point
++   * \param[in] w: work vector
++   */
++  template <typename GridFunctionType>
++  static void getVectorValue(mgis::StridedSpan<real> v,
++                             const GridFunctionType& src,
++                             mfem::ElementTransformation& tr,
++                             const mfem::IntegrationPoint& ip,
++                             mfem::Vector& w) {
++    const auto nc = static_cast<int>(v.size());
++    if (v.hasContiguousValues()) {
++      auto tmp = mfem::Vector(v.getPointer(), nc);
++      src.GetVectorValue(tr, ip, tmp);
++      return;
++    }
++    w.SetSize(nc);
++    src.GetVectorValue(tr, ip, w);
++    for (int c = 0; c != nc; ++c) {
++      v[c] = w[c];
++    }
++  }  // end of getVectorValue
++
+   template <bool parallel>
+   static void update_impl_with_boundary_api(
+       PartialQuadratureFunctionView& dest,
+@@ -908,7 +1023,8 @@ namespace mfem_mgis {
+       }
+     } else {
+       // vectorial case
+-      const auto nc = dest.getNumberOfComponents();
++      // work vector, only used if the components are not contiguous
++      auto tmp = mfem::Vector{};
+       for (size_type k = 0; k != mapping.from_indexes.Size(); ++k) {
+         const auto i = mapping.from_indexes[k];
+         const auto idx = mapping.to_indexes[k];
+@@ -919,9 +1035,7 @@ namespace mfem_mgis {
+           // get the gradients of the shape functions
+           const auto& ip = ir.IntPoint(g);
+           tr.SetIntPoint(&ip);
+-          auto v = dest.getIntegrationPointValues(i, g);
+-          auto tmp = mfem::Vector(v.data(), nc);
+-          src.GetVectorValue(tr, ip, tmp);
++          getVectorValue(dest(i, g), src, tr, ip, tmp);
+         }
+       }
+     }
+@@ -951,7 +1065,8 @@ namespace mfem_mgis {
+       }
+     } else {
+       // vectorial case
+-      const auto nc = dest.getNumberOfComponents();
++      // work vector, only used if the components are not contiguous
++      auto tmp = mfem::Vector{};
+       for (size_type k = 0; k != mapping.from_indexes.Size(); ++k) {
+         const auto i = mapping.from_indexes[k];
+         const auto idx = mapping.to_indexes[k];
+@@ -962,9 +1077,7 @@ namespace mfem_mgis {
+           // get the gradients of the shape functions
+           const auto& ip = ir.IntPoint(g);
+           tr.SetIntPoint(&ip);
+-          auto v = dest.getIntegrationPointValues(i, g);
+-          auto tmp = mfem::Vector(v.data(), nc);
+-          src.GetVectorValue(tr, ip, tmp);
++          getVectorValue(dest(i, g), src, tr, ip, tmp);
+         }
+       }
+     }
+@@ -992,7 +1105,8 @@ namespace mfem_mgis {
+       }
+     } else {
+       // vectorial case
+-      const auto nc = dest.getNumberOfComponents();
++      // work vector, only used if the components are not contiguous
++      auto tmp = mfem::Vector{};
+       for (const auto& [i, offset] : qspace.getOffsets()) {
+         static_cast<void>(offset);
+         const auto& fe = *(grid_fespace.GetBE(i));
+@@ -1002,9 +1116,7 @@ namespace mfem_mgis {
+           // get the gradients of the shape functions
+           const auto& ip = ir.IntPoint(g);
+           tr.SetIntPoint(&ip);
+-          auto v = dest.getIntegrationPointValues(i, g);
+-          auto tmp = mfem::Vector(v.data(), nc);
+-          src.GetVectorValue(tr, ip, tmp);
++          getVectorValue(dest(i, g), src, tr, ip, tmp);
+         }
+       }
+     }
+@@ -1032,7 +1144,8 @@ namespace mfem_mgis {
+       }
+     } else {
+       // vectorial case
+-      const auto nc = dest.getNumberOfComponents();
++      // work vector, only used if the components are not contiguous
++      auto tmp = mfem::Vector{};
+       for (const auto& [i, offset] : qspace.getOffsets()) {
+         static_cast<void>(offset);
+         const auto& fe = *(grid_fespace.GetFE(i));
+@@ -1042,9 +1155,7 @@ namespace mfem_mgis {
+           // get the gradients of the shape functions
+           const auto& ip = ir.IntPoint(g);
+           tr.SetIntPoint(&ip);
+-          auto v = dest.getIntegrationPointValues(i, g);
+-          auto tmp = mfem::Vector(v.data(), nc);
+-          src.GetVectorValue(tr, ip, tmp);
++          getVectorValue(dest(i, g), src, tr, ip, tmp);
+         }
+       }
+     }
+diff --git a/tests/PartialQuadratureFunctionTest.cxx b/tests/PartialQuadratureFunctionTest.cxx
+index 7e165ebed4..02c19c3a67 100644
+--- a/tests/PartialQuadratureFunctionTest.cxx
++++ b/tests/PartialQuadratureFunctionTest.cxx
+@@ -7,6 +7,7 @@
+ 
+ #include <cmath>
+ #include <memory>
++#include <algorithm>
+ #include <vector>
+ #include <utility>
+ #include <cstdlib>
+@@ -23,6 +24,9 @@
+ #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
+ #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
++#if defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL)
++#include "MGIS/Function/TFEL/Mechanics.hxx"
++#endif /* defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL) */
+ #include "UnitTestingUtilities.hxx"
+ 
+ auto parameters = mfem_mgis::unit_tests::TestParameters{};
+@@ -37,6 +41,7 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
+     this->test1<true>();
+     this->test1<false>();
+     this->test2();
++    this->test3();
+     // the problem is destroyed before the finalization of MFEM (this test
+     // case is a static object, destroyed at the exit of the program, after
+     // the release of the device)
+@@ -95,9 +100,22 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
+     TFEL_TESTS_ASSERT(strain.getNumberOfComponents() == 6);
+     TFEL_TESTS_ASSERT(stress.getNumberOfComponents() == 6);
+     TFEL_TESTS_ASSERT(p.getNumberOfComponents() == 1);
+-    TFEL_TESTS_ASSERT(strain.getDataStride() == 6);
+-    TFEL_TESTS_ASSERT(stress.getDataStride() == 6);
+-    TFEL_TESTS_ASSERT(p.getDataStride() == 1);
++    // strides of the arrays of the material, which depend on their layouts
++    // (6, 6 and 1 point by point without padding)
++    {
++      using namespace mgis::behaviour;
++      // the strides of an empty view may be null
++      const auto same_strides = [](const auto& f, const auto& v) {
++        constexpr auto one = mgis::size_type{1};
++        return (f.getDataStride() == std::max(v.getPointStride(), one)) &&
++               (f.getComponentStride() ==
++                std::max(v.getComponentStride(), one));
++      };
++      TFEL_TESTS_ASSERT(same_strides(strain, getGradientsView(m1.s1)));
++      TFEL_TESTS_ASSERT(
++          same_strides(stress, getThermodynamicForcesView(m1.s1)));
++      TFEL_TESTS_ASSERT(same_strides(p, getInternalStateVariablesView(m1.s1)));
++    }
+     if (getSpaceSize(qspace) != 0) {
+       if constexpr (!mutable_version) {
+         TFEL_TESTS_ASSERT(strain.getValues().data() == m1.s1.gradients.data());
+@@ -151,6 +169,121 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
+           {.data_begin = 0, .data_size = 1, .data_stride = 2})));
+     }
+   }  // end of test2
++  /*!
++   * \brief views on values stored component by component, with a padding
++   * filled with NaN: the accessors, the copies and the evaluators give the
++   * values of the function stored point by point
++   */
++  void test3() {
++    using namespace mfem_mgis;
++    if (isInvalid(problem)) {
++      return;
++    }
++    auto or_raise = ctx.getThrowingFailureHandler();
++    auto& b = this->problem->getBehaviourIntegrator(ctx, 1, 0) | or_raise;
++    const auto om = std::as_const(b).getMaterial(ctx);
++    TFEL_TESTS_ASSERT(isValid(om));
++    const auto qspace = om->getPartialQuadratureSpace();
++    const auto n = getSpaceSize(qspace);
++    constexpr size_type nc = 6;
++    const auto ld = n + 2;
++    const auto value = [](const size_type i, const size_type c) {
++      return real(1 + i) * real(c + 2) / 3 - real(c % 2);
++    };
++    auto soa = std::vector<real>(ld * nc, std::nan(""));
++    auto aos = PartialQuadratureFunction(qspace, nc);
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type c = 0; c != nc; ++c) {
++        soa[c * ld + i] = value(i, c);
++        aos.getIntegrationPointValues(i)[c] = value(i, c);
++      }
++    }
++    auto of = PartialQuadratureFunction::borrow(ctx, qspace, soa,
++                                                {.data_begin = 0,
++                                                 .data_size = nc,
++                                                 .data_stride = 1,
++                                                 .data_component_stride = ld});
++    TFEL_TESTS_ASSERT(isValid(of));
++    TFEL_TESTS_CHECK(of->getComponentStride() == ld);
++    TFEL_TESTS_CHECK(!of->hasContiguousComponents());
++    for (size_type i = 0; i != n; ++i) {
++      const auto v = (*of)(i);
++      TFEL_TESTS_CHECK(v.size() == nc);
++      for (size_type c = 0; c != nc; ++c) {
++        TFEL_TESTS_CHECK(v[c] == value(i, c));
++      }
++    }
++    // the accessors returning contiguous values refuse the view
++    if (n != 0) {
++      auto refused = false;
++      try {
++        std::ignore = of->getIntegrationPointValues(0);
++      } catch (std::exception&) {
++        refused = true;
++      }
++      TFEL_TESTS_CHECK(refused);
++    }
++    // a scalar view on the third component is contiguous
++    auto os = PartialQuadratureFunction::borrow(ctx, qspace, soa,
++                                                {.data_begin = 2 * ld,
++                                                 .data_size = 1,
++                                                 .data_stride = 1,
++                                                 .data_component_stride = ld});
++    TFEL_TESTS_ASSERT(isValid(os));
++    TFEL_TESTS_CHECK(os->hasContiguousComponents());
++    for (size_type i = 0; i != n; ++i) {
++      TFEL_TESTS_CHECK(os->getIntegrationPointValue(i) == value(i, 2));
++    }
++    // copy in a function stored point by point
++    auto ocopy =
++        PartialQuadratureFunction::copy(ctx, std::as_const(*of).view());
++    TFEL_TESTS_ASSERT(isValid(ocopy));
++    TFEL_TESTS_CHECK(ocopy->getComponentStride() == 1);
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type c = 0; c != nc; ++c) {
++        TFEL_TESTS_CHECK(ocopy->getIntegrationPointValues(i)[c] == value(i, c));
++      }
++    }
++    // assignment of values stored point by point to the view: the padding is
++    // left untouched
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type c = 0; c != nc; ++c) {
++        aos.getIntegrationPointValues(i)[c] = 2 * value(i, c);
++      }
++    }
++    TFEL_TESTS_CHECK(assign_values(ctx, of->view(), std::as_const(aos).view()));
++    for (size_type c = 0; c != nc; ++c) {
++      for (size_type i = 0; i != n; ++i) {
++        TFEL_TESTS_CHECK(soa[c * ld + i] == 2 * value(i, c));
++      }
++      TFEL_TESTS_CHECK(std::isnan(soa[c * ld + n]));
++      TFEL_TESTS_CHECK(std::isnan(soa[c * ld + n + 1]));
++    }
++#if defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL)
++    // the evaluators give the same results to the bit in both layouts
++    {
++      using namespace mgis::function;
++      auto r1 = PartialQuadratureFunction(qspace, 1);
++      auto r2 = PartialQuadratureFunction(qspace, 1);
++      TFEL_TESTS_CHECK(std::as_const(aos).view() | as_stensor<3> | vmis | r1);
++      TFEL_TESTS_CHECK(std::as_const(*of).view() | as_stensor<3> | vmis | r2);
++      for (size_type i = 0; i != n; ++i) {
++        TFEL_TESTS_CHECK(r1.getIntegrationPointValue(i) ==
++                         r2.getIntegrationPointValue(i));
++      }
++    }
++#endif /* defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL) */
++    // the values of a component must fit in the component stride
++    if (n > 1) {
++      auto ctx2 = Context{};
++      TFEL_TESTS_CHECK(isInvalid(
++          PartialQuadratureFunction::borrow(ctx2, qspace, soa,
++                                            {.data_begin = 0,
++                                             .data_size = nc,
++                                             .data_stride = 1,
++                                             .data_component_stride = n - 1})));
++    }
++  }  // end of test3
+   //
+   std::unique_ptr<mfem_mgis::NonLinearEvolutionProblem> problem;
+ };
+-- 
+2.43.0
+

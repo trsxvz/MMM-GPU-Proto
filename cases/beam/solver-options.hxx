@@ -74,15 +74,22 @@ inline mfem_mgis::Parameters parseBoomerAMGOptions(const std::string& o) {
 /*!
  * \return the options of the solvers of AmgX: a configuration file, or
  * parameters of AmgX completing the default configuration of mfem-mgis
- * (`AmgXParameters`), given as `name=value` separated by commas, and the
- * precision
+ * (`AmgXParameters`), given as `name=value` separated by commas, the
+ * precision, the multigrid of the default configuration and the nodal
+ * blocks
  * \param[in] file: configuration file, if not empty
  * \param[in] o: parameters of AmgX, if not empty
  * \param[in] single: computations of AmgX in single precision
+ * \param[in] aggregation: aggregation multigrid of the default
+ * configuration, instead of the classical one
+ * \param[in] nodal_blocks: matrices given to AmgX by nodal blocks (unknowns
+ * ordered by vector dimension, aggregation multigrid or configuration file)
  */
 inline mfem_mgis::Parameters parseAmgXOptions(std::string_view file,
                                               const std::string& o,
-                                              const bool single) {
+                                              const bool single,
+                                              const bool aggregation = false,
+                                              const bool nodal_blocks = false) {
   if ((!file.empty()) && (!o.empty())) {
     std::cerr << "a configuration file of AmgX and parameters of AmgX can't "
                  "be given together\n";
@@ -97,6 +104,12 @@ inline mfem_mgis::Parameters parseAmgXOptions(std::string_view file,
   }
   if (single) {
     params.replaceOrInsert("Precision", std::string{"Single"});
+  }
+  if (aggregation) {
+    params.replaceOrInsert("Multigrid", std::string{"Aggregation"});
+  }
+  if (nodal_blocks) {
+    params.replaceOrInsert("NodalBlocks", true);
   }
   return params;
 }  // end of parseAmgXOptions

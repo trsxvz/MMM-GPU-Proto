@@ -1,0 +1,816 @@
+From 5767a920cc772a47b28acfc56895c9faeef5fd78 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 23:14:33 +0100
+Subject: [PATCH] Material managers: padding of the arrays
+
+The layouts of the material managers get a padding: a number of unused
+values added to the leading dimension of the arrays of the gradients,
+of the thermodynamic forces, of the internal state variables and of
+the tangent operator blocks. The stride between two points becomes
+nc + padding point by point, the stride between two components becomes
+n + padding component by component. The energies, the speed of sound
+and the values of the material properties and of the external state
+variables are not padded.
+
+This is a testing facility: the unused values of the arrays allocated
+by the managers are quiet NaNs, so that a code computing the position
+of a value by hand (i * nc + c, c * n + i) instead of using the views
+reads NaNs and fails loudly. The arrays given by an initializer, or by
+useExternalArrayOfTangentOperatorBlocks, must have the padded size: the
+error message gives the expected size.
+
+The internal code paths go through the views: allocation
+(internals::allocateArray), views of the arrays and of the tangent
+operator blocks, size checks, HDF5 save and restore (written and read
+point by point through the views). The strided coalesced views of the
+material function managers can't describe a padded array and are
+refused with a clear message. The *_stride members and K_stride remain
+the numbers of values of a point. The C function setting the layout of
+all the arrays keeps the padding; the Python bindings expose it.
+---
+ bindings/c/src/MaterialDataManager.cxx        |   3 +
+ bindings/python/src/MaterialDataManager.cxx   |   1 +
+ bindings/python/src/MaterialStateManager.cxx  |   1 +
+ .../MGIS/Behaviour/MaterialDataManager.hxx    |  36 ++-
+ .../Behaviour/MaterialFunctionManager.ixx     |   9 +
+ .../MGIS/Behaviour/MaterialStateManager.hxx   |  61 +++++-
+ src/FiniteStrainSupport.cxx                   |   3 +-
+ src/MaterialDataManager.cxx                   |  58 +++--
+ src/MaterialStateManager.cxx                  | 205 +++++++++++-------
+ 9 files changed, 257 insertions(+), 120 deletions(-)
+
+diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
+index a2ebd57..97a028d 100644
+--- a/bindings/c/src/MaterialDataManager.cxx
++++ b/bindings/c/src/MaterialDataManager.cxx
+@@ -67,9 +67,12 @@ mgis_status mgis_bv_material_data_manager_initializer_set_layout(
+         "mgis_bv_material_data_manager_initializer_set_layout: "
+         "invalid layout");
+   }
++  // the padding is kept
++  const auto p = d->layout.padding;
+   d->layout = l == MGIS_BV_POINT_BY_POINT
+                   ? mgis::FieldLayout::POINT_BY_POINT
+                   : mgis::FieldLayout::COMPONENT_BY_COMPONENT;
++  d->layout.padding = p;
+   return mgis_report_success();
+ }  // end of mgis_bv_material_data_manager_initializer_set_layout
+ 
+diff --git a/bindings/python/src/MaterialDataManager.cxx b/bindings/python/src/MaterialDataManager.cxx
+index b3c4232..132a425 100644
+--- a/bindings/python/src/MaterialDataManager.cxx
++++ b/bindings/python/src/MaterialDataManager.cxx
+@@ -96,6 +96,7 @@ void declareMaterialDataManager(pybind11::module_& m) {
+                      &MaterialDataManagerLayout::external_state_variables)
+       .def_readwrite("tangent_operator",
+                      &MaterialDataManagerLayout::tangent_operator)
++      .def_readwrite("padding", &MaterialDataManagerLayout::padding)
+       .def(pybind11::self == pybind11::self);
+   pybind11::implicitly_convertible<mgis::FieldLayout,
+                                    MaterialDataManagerLayout>();
+diff --git a/bindings/python/src/MaterialStateManager.cxx b/bindings/python/src/MaterialStateManager.cxx
+index 8fd0031..3c4ace5 100644
+--- a/bindings/python/src/MaterialStateManager.cxx
++++ b/bindings/python/src/MaterialStateManager.cxx
+@@ -323,6 +323,7 @@ void declareMaterialStateManager(pybind11::module_& m) {
+                      &MaterialStateManagerLayout::internal_state_variables)
+       .def_readwrite("external_state_variables",
+                      &MaterialStateManagerLayout::external_state_variables)
++      .def_readwrite("padding", &MaterialStateManagerLayout::padding)
+       .def(pybind11::self == pybind11::self);
+   pybind11::implicitly_convertible<mgis::FieldLayout,
+                                    MaterialStateManagerLayout>();
+diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
+index 90d6d05..ce93486 100644
+--- a/include/MGIS/Behaviour/MaterialDataManager.hxx
++++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
+@@ -37,11 +37,11 @@ namespace mgis::behaviour {
+ 
+   /*!
+    * \brief layout of the arrays of a material data manager: layouts of the
+-   * arrays of its states (see `MaterialStateManagerLayout`) and layout of
+-   * the tangent operator blocks.
++   * arrays of its states (see `MaterialStateManagerLayout`), layout of the
++   * tangent operator blocks, and padding.
+    *
+    * A layout is implicitly built from a `FieldLayout`, which is then the
+-   * layout of all the arrays.
++   * layout of all the arrays, without padding.
+    */
+   struct MaterialDataManagerLayout {
+     /*!
+@@ -71,6 +71,13 @@ namespace mgis::behaviour {
+     FieldLayout external_state_variables;
+     //! \brief layout of the tangent operator blocks
+     FieldLayout tangent_operator;
++    /*!
++     * \brief number of unused values added to the leading dimension of the
++     * arrays of the states (see `MaterialStateManagerLayout::padding`) and
++     * of the array of the tangent operator blocks. The speed of sound is not
++     * padded.
++     */
++    size_type padding = 0;
+   };  // end of MaterialDataManagerLayout
+ 
+   /*!
+@@ -85,12 +92,13 @@ namespace mgis::behaviour {
+     r.thermodynamic_forces = l.thermodynamic_forces;
+     r.internal_state_variables = l.internal_state_variables;
+     r.external_state_variables = l.external_state_variables;
++    r.padding = l.padding;
+     return r;
+   }  // end of getStateLayout
+ 
+   /*!
+    * \return the layout of all the arrays of a material data manager, if
+-   * they have the same layout
++   * they have the same layout (the padding is not considered)
+    * \param[in] l: layout of the arrays
+    */
+   constexpr std::optional<FieldLayout> getUniformLayout(
+@@ -152,7 +160,9 @@ namespace mgis::behaviour {
+      * \brief layouts of the arrays of the material data manager, given by
+      * this initializer or allocated by the material data manager: states
+      * (see `MaterialStateManager::layout`) and tangent operator blocks.
+-     * Assigning a `FieldLayout` gives the same layout to all the arrays.
++     * Assigning a `FieldLayout` gives the same layout to all the arrays,
++     * without padding. The arrays given by this initializer must account for
++     * the padding (see `getFieldArraySize`).
+      *
+      * The values given at each point by a `std::span` to the functions of
+      * the manager are stored in the layout of the related array: values of
+@@ -244,9 +254,10 @@ namespace mgis::behaviour {
+      * \param[in] m: memory view
+      *
+      * \note the array must be located in the memory location of the manager
+-     * and stored in the layout of the tangent operator blocks (only its size
+-     * is checked). This method calls `releaseArrayOfTangentOperatorBlocks`
+-     * before using the external memory.
++     * and stored in the layout of the tangent operator blocks, with the
++     * padding of the manager (only its size is checked). This method calls
++     * `releaseArrayOfTangentOperatorBlocks` before using the external memory.
++     * The unused values of the padding are not modified.
+      */
+     void useExternalArrayOfTangentOperatorBlocks(std::span<real>);
+     /*!
+@@ -353,10 +364,11 @@ namespace mgis::behaviour {
+     //! \brief layouts of the arrays (see `MaterialDataManagerInitializer`)
+     const MaterialDataManagerLayout layout = {};
+     /*!
+-     * \brief number of values of the tangent operator blocks at a point (the
+-     * size of K is K_stride times the number of integration points). With the
+-     * `COMPONENT_BY_COMPONENT` layout, `K_stride` is not the stride between
+-     * two points: see `getTangentOperatorBlocksView`.
++     * \brief number of values of the tangent operator blocks at a point.
++     * Without padding, the size of K is K_stride times the number of
++     * integration points. With the `COMPONENT_BY_COMPONENT` layout or with a
++     * padding, `K_stride` is not the stride between two points: see
++     * `getTangentOperatorBlocksView`.
+      */
+     const size_type K_stride;
+     //! \brief underlying behaviour
+diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
+index bf32c9d..8142d8a 100644
+--- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
++++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
+@@ -526,6 +526,15 @@ namespace mgis::behaviour {
+             "the values are stored point by point (see the getGradient, "
+             "getThermodynamicForce and getInternalStateVariable functions)");
+       }
++      if ((N > 1) && (values.getComponentStride() != ne)) {
++        return registerErrorMessage(
++            eh, n,
++            "the values are padded, which the strided coalesced views do not "
++            "support (see the padding of the layout of the manager), for "
++            "variable",
++            "the values are padded, which the strided coalesced views do not "
++            "support (see the padding of the layout of the manager)");
++      }
+       const auto vo = getVariableOffset(variables, n, h);
+       const auto vv = getComponents(values, vo, N);
+       return StridedCoalescedFunctionView<N, SpaceType, is_mutable>(
+diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
+index 7f57d68..915e9fd 100644
+--- a/include/MGIS/Behaviour/MaterialStateManager.hxx
++++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
+@@ -50,10 +50,12 @@ namespace mgis::behaviour {
+ 
+   /*!
+    * \brief layout of the arrays of a material state manager: each array has
+-   * its own layout (see `FieldLayout`).
++   * its own layout (see `FieldLayout`), and the arrays of the gradients, of
++   * the thermodynamic forces and of the internal state variables may have a
++   * padding.
+    *
+    * A layout is implicitly built from a `FieldLayout`, which is then the
+-   * layout of all the arrays.
++   * layout of all the arrays, without padding.
+    */
+   struct MaterialStateManagerLayout {
+     /*!
+@@ -81,11 +83,27 @@ namespace mgis::behaviour {
+      * with several components
+      */
+     FieldLayout external_state_variables;
++    /*!
++     * \brief number of unused values added to the leading dimension of the
++     * arrays of the gradients, of the thermodynamic forces and of the
++     * internal state variables (see `getFieldArraySize`): the stride between
++     * two points is `nc + padding` with the `POINT_BY_POINT` layout, the
++     * stride between two components is `n + padding` with the
++     * `COMPONENT_BY_COMPONENT` layout. The other arrays (energies, values of
++     * the material properties and of the external state variables) are not
++     * padded.
++     *
++     * The unused values of the arrays allocated by a material state manager
++     * are quiet NaNs. A padding is a testing facility: a code computing the
++     * position of a value in an array instead of using the views (see
++     * `getGradientsView`) reads NaNs.
++     */
++    size_type padding = 0;
+   };  // end of MaterialStateManagerLayout
+ 
+   /*!
+    * \return the layout of all the arrays of a material state manager, if
+-   * they have the same layout
++   * they have the same layout (the padding is not considered)
+    * \param[in] l: layout of the arrays
+    */
+   constexpr std::optional<FieldLayout> getUniformLayout(
+@@ -275,7 +293,8 @@ namespace mgis::behaviour {
+      * the material state manager. If the location is a device, or a shared
+      * memory without memory resource, all the arrays must be given:
+      * otherwise, an exception is thrown.
+-     * \param[in] lt: layout of the arrays (see the `layout` member)
++     * \param[in] lt: layout of the arrays (see the `layout` member). The
++     * arrays given by the initializer must account for the padding.
+      */
+     MaterialStateManager(const Behaviour&,
+                          const size_type,
+@@ -294,8 +313,8 @@ namespace mgis::behaviour {
+     std::span<mgis::real> gradients;
+     /*!
+      * \brief number of values of the gradients at a point. It is the stride
+-     * between two points only for an array stored point by point (see the
+-     * `layout` member and `getGradientsView`).
++     * between two points only for an array stored point by point without
++     * padding (see the `layout` member and `getGradientsView`).
+      */
+     const size_type gradients_stride;
+     //! \brief view to the values of the thermodynamic_forces
+@@ -375,10 +394,11 @@ namespace mgis::behaviour {
+      * mode) for an external state variable with several components (see
+      * `MaterialStateManagerLayout`). With the `COMPONENT_BY_COMPONENT`
+      * layout, the `j`-th component of the `i`-th point of the gradients is
+-     * stored at `gradients[j * n + i]`: the `*_stride` members still give
+-     * the number of values of a point, but are not the stride between two
+-     * points. The functions `getGradientsView`, `getGradientView`, etc. give
+-     * views on the arrays which account for the layouts.
++     * stored at `gradients[j * (n + padding) + i]`: the `*_stride` members
++     * still give the number of values of a point, but are not the stride
++     * between two points. The functions `getGradientsView`,
++     * `getGradientView`, etc. give views on the arrays which account for the
++     * layouts and for the padding.
+      */
+     const MaterialStateManagerLayout layout = {};
+ 
+@@ -1041,4 +1061,25 @@ namespace mgis::behaviour {
+ 
+ }  // end of namespace mgis::behaviour
+ 
++namespace mgis::behaviour::internals {
++
++  /*!
++   * \brief resize an array of a material manager holding the values of `nc`
++   * components at `n` points, stored with the given layout and padding (see
++   * `getFieldArraySize`). The values of the points are null, and the unused
++   * values added by the padding are quiet NaNs.
++   * \param[out] values: values
++   * \param[in] l: layout
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   * \param[in] p: padding
++   */
++  MGIS_EXPORT void allocateArray(std::pmr::vector<real>&,
++                                 const FieldLayout,
++                                 const size_type,
++                                 const size_type,
++                                 const size_type);
++
++}  // end of namespace mgis::behaviour::internals
++
+ #endif /* LIB_MGIS_BEHAVIOUR_MATERIALSTATEMANAGER_HXX */
+diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
+index 79da881..4e4fe0d 100644
+--- a/src/FiniteStrainSupport.cxx
++++ b/src/FiniteStrainSupport.cxx
+@@ -1036,7 +1036,8 @@ namespace mgis::behaviour {
+     checkConversionOutput("convertFiniteStrainTangentOperator",
+                           "converted tangent operator", K, m.n, ts * ts);
+     // check that the tangent operator blocks are allocated
+-    if (m.K.size() != m.n * m.K_stride) {
++    if (m.K.size() != getFieldArraySize(m.layout.tangent_operator, m.n,
++                                        m.K_stride, m.layout.padding)) {
+       mgis::raise(
+           "convertFiniteStrainTangentOperator: "
+           "the array of tangent operator blocks has not been allocated");
+diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
+index e9a911a..3069881 100644
+--- a/src/MaterialDataManager.cxx
++++ b/src/MaterialDataManager.cxx
+@@ -122,24 +122,40 @@ namespace mgis::behaviour {
+     }
+   }  // end of MaterialDataManager
+ 
++  /*!
++   * \brief allocate an array holding the values of `nc` components at `n`
++   * points, if not already allocated (see `internals::allocateArray`)
++   * \param[in, out] v: view on the array
++   * \param[out] values: values
++   * \param[in] l: layout
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   * \param[in] p: padding
++   */
+   static void allocateArrayWithoutSynchronization(
+       std::span<real>& v,
+       std::pmr::vector<mgis::real>& values,
+-      const mgis::size_type s) {
++      const FieldLayout l,
++      const size_type n,
++      const size_type nc,
++      const size_type p) {
+     if (v.empty()) {
+-      constexpr const auto zero = real{0};
+-      values.resize(s, zero);
++      internals::allocateArray(values, l, n, nc, p);
+       v = std::span<real>(values);
+     }
+   }  // end of allocateArrayWithoutSynchronization
+ 
++  //! \brief see `allocateArrayWithoutSynchronization`
+   static void allocateArrayWithSynchronization(
+       std::span<real>& v,
+       std::pmr::vector<mgis::real>& values,
+-      const mgis::size_type s) {
++      const FieldLayout l,
++      const size_type n,
++      const size_type nc,
++      const size_type p) {
+     static std::mutex mt;
+     std::lock_guard<std::mutex> lock(mt);
+-    allocateArrayWithoutSynchronization(v, values, s);
++    allocateArrayWithoutSynchronization(v, values, l, n, nc, p);
+   }  // end of allocateArrayWithSynchronization
+ 
+   void MaterialDataManager::setThreadSafe(const bool bv) {
+@@ -167,14 +183,16 @@ namespace mgis::behaviour {
+   }  // end of checkAllocation
+ 
+   void MaterialDataManager::allocateArrayOfTangentOperatorBlocks() {
+-    checkAllocation(this->K, this->n * this->K_stride,
++    const auto l = this->layout.tangent_operator;
++    const auto p = this->layout.padding;
++    checkAllocation(this->K, getFieldArraySize(l, this->n, this->K_stride, p),
+                     this->allocates_in_memory_location, "tangent operators");
+     if (this->thread_safe) {
+-      allocateArrayWithSynchronization(this->K, this->K_values,
+-                                       this->n * this->K_stride);
++      allocateArrayWithSynchronization(this->K, this->K_values, l, this->n,
++                                       this->K_stride, p);
+     } else {
+-      allocateArrayWithoutSynchronization(this->K, this->K_values,
+-                                          this->n * this->K_stride);
++      allocateArrayWithoutSynchronization(this->K, this->K_values, l, this->n,
++                                          this->K_stride, p);
+     }
+   }  // end of allocateArrayOfTangentOperatorBlocks
+ 
+@@ -185,10 +203,14 @@ namespace mgis::behaviour {
+ 
+   void MaterialDataManager::useExternalArrayOfTangentOperatorBlocks(
+       std::span<real> m) {
+-    if (m.size() != this->n * this->K_stride) {
++    const auto s = getFieldArraySize(this->layout.tangent_operator, this->n,
++                                     this->K_stride, this->layout.padding);
++    if (m.size() != s) {
+       mgis::raise(
+           "MaterialDataManager::useExternalArrayOfTangentOperatorBlocks: "
+-          "the external memory has not been allocated properly");
++          "the external memory has not been allocated properly (" +
++          std::to_string(m.size()) + " values given, " + std::to_string(s) +
++          " expected, padding included)");
+     }
+     this->releaseArrayOfTangentOperatorBlocks();
+     this->K = m;
+@@ -197,12 +219,14 @@ namespace mgis::behaviour {
+   void MaterialDataManager::allocateArrayOfSpeedOfSounds() {
+     checkAllocation(this->speed_of_sound, this->n,
+                     this->allocates_in_memory_location, "speed of sound");
++    // the speed of sound is not padded
++    constexpr auto l = FieldLayout::POINT_BY_POINT;
+     if (this->thread_safe) {
+-      allocateArrayWithSynchronization(this->speed_of_sound,
+-                                       this->speed_of_sound_values, this->n);
++      allocateArrayWithSynchronization(
++          this->speed_of_sound, this->speed_of_sound_values, l, this->n, 1, 0);
+     } else {
+-      allocateArrayWithoutSynchronization(this->speed_of_sound,
+-                                          this->speed_of_sound_values, this->n);
++      allocateArrayWithoutSynchronization(
++          this->speed_of_sound, this->speed_of_sound_values, l, this->n, 1, 0);
+     }
+   }  // end of allocateArrayOfSpeedOfSounds
+ 
+@@ -402,7 +426,7 @@ namespace mgis::behaviour {
+       return FieldView<ValueType>{};
+     }
+     return makeFieldView(std::span<ValueType>(m.K), m.layout.tangent_operator,
+-                         m.n, m.K_stride);
++                         m.n, m.K_stride, m.layout.padding);
+   }  // end of getTangentOperatorBlocksView
+ 
+   FieldView<real> getTangentOperatorBlocksView(MaterialDataManager& m) {
+diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
+index 682eb54..8f8c687 100644
+--- a/src/MaterialStateManager.cxx
++++ b/src/MaterialStateManager.cxx
+@@ -12,6 +12,7 @@
+  *   CeCILL-C_V1-en.txt and CeCILL-C_V1-fr.txt).
+  */
+ 
++#include <limits>
+ #include <utility>
+ #include <algorithm>
+ #include "MGIS/Raise.hxx"
+@@ -135,13 +136,17 @@ namespace mgis::behaviour {
+         internal_state_variables_values(gradients_values.get_allocator()),
+         stored_energies_values(gradients_values.get_allocator()),
+         dissipated_energies_values(gradients_values.get_allocator()) {
++    // the arrays of the gradients, of the thermodynamic forces and of the
++    // internal state variables are padded, not the energies
+     auto init = [this, allocates = canAllocateIn(l, r)](
+                     std::span<mgis::real>& view,
+                     std::pmr::vector<mgis::real>& values,
+-                    std::span<mgis::real> evalues, const size_type vs,
++                    std::span<mgis::real> evalues, const FieldLayout al,
++                    const size_type vs, const size_type p,
+                     const char* const vn) {
++      const auto as = getFieldArraySize(al, this->n, vs, p);
+       if (evalues.empty()) {
+-        if ((!allocates) && (this->n * vs != 0)) {
++        if ((!allocates) && (as != 0)) {
+           mgis::raise(
+               "MaterialStateManager::MaterialStateManager: the array of the " +
+               std::string(vn) +
+@@ -149,36 +154,41 @@ namespace mgis::behaviour {
+               "allocated in its memory location (location on a device, or "
+               "shared memory without memory resource)");
+         }
+-        constexpr const auto zero = real{0};
+-        values.resize(this->n * vs, zero);
++        internals::allocateArray(values, al, this->n, vs, p);
+         view = std::span<mgis::real>(values);
+       } else {
+-        if (static_cast<size_type>(evalues.size()) != this->n * vs) {
++        if (static_cast<size_type>(evalues.size()) != as) {
+           mgis::raise(
+               "MaterialStateManager::MaterialStateManager: "
+               "the memory associated with the " +
+-              std::string(vn) + " has not been allocated properly");
++              std::string(vn) + " has not been allocated properly (" +
++              std::to_string(evalues.size()) + " values given, " +
++              std::to_string(as) + " expected, padding included)");
+         }
+         view = evalues;
+       }
+     };
+     init(this->gradients, this->gradients_values, i.gradients,
+-         this->gradients_stride, "gradients");
++         this->layout.gradients, this->gradients_stride, this->layout.padding,
++         "gradients");
+     if (i.gradients.empty()) {
+       setIdentityDeformationGradients(*this);
+     }
+     init(this->thermodynamic_forces, this->thermodynamic_forces_values,
+-         i.thermodynamic_forces, this->thermodynamic_forces_stride,
++         i.thermodynamic_forces, this->layout.thermodynamic_forces,
++         this->thermodynamic_forces_stride, this->layout.padding,
+          "thermodynamic forces");
+     init(this->internal_state_variables, this->internal_state_variables_values,
+-         i.internal_state_variables, this->internal_state_variables_stride,
++         i.internal_state_variables, this->layout.internal_state_variables,
++         this->internal_state_variables_stride, this->layout.padding,
+          "internal state variables");
+     if (i.internal_state_variables.empty()) {
+       setUnitAxialDeformationGradients(*this);
+     }
+     if (b.computesStoredEnergy) {
+       init(this->stored_energies, this->stored_energies_values,
+-           i.stored_energies, 1u, "stored energies");
++           i.stored_energies, FieldLayout::POINT_BY_POINT, 1u, 0u,
++           "stored energies");
+     } else {
+       if (!i.stored_energies.empty()) {
+         mgis::raise(
+@@ -189,7 +199,8 @@ namespace mgis::behaviour {
+     }
+     if (b.computesDissipatedEnergy) {
+       init(this->dissipated_energies, this->dissipated_energies_values,
+-           i.dissipated_energies, 1u, "dissipated energies");
++           i.dissipated_energies, FieldLayout::POINT_BY_POINT, 1u, 0u,
++           "dissipated energies");
+     } else {
+       if (!i.dissipated_energies.empty()) {
+         mgis::raise(
+@@ -1244,7 +1255,7 @@ namespace mgis::behaviour {
+                                            const std::span<ValueType> values,
+                                            const size_type nc,
+                                            const FieldLayout l) {
+-    return makeFieldView(values, l, s.n, nc);
++    return makeFieldView(values, l, s.n, nc, s.layout.padding);
+   }  // end of getStateView
+ 
+   /*!
+@@ -1343,19 +1354,28 @@ namespace mgis::behaviour {
+    */
+ 
+   /*!
+-   * \return the values given at each point, stored point by point
+-   * \param[in] values: values, in the given layout
+-   * \param[in] n: number of points
+-   * \param[in] nc: number of components
+-   * \param[in] l: layout
++   * \return true if the values of a view are stored point by point, densely,
++   * i.e. if its first `n * nc` values are the values stored point by point
++   * \param[in] v: view
++   */
++  template <typename ValueType>
++  static bool isDensePointByPoint(const FieldView<ValueType>& v) noexcept {
++    const auto n = v.getNumberOfPoints();
++    const auto nc = v.getNumberOfComponents();
++    return (n * nc == 0) ||
++           ((v.hasContiguousComponents()) &&
++            ((n == 1) || (v.getPointStride() == nc)));
++  }  // end of isDensePointByPoint
++
++  /*!
++   * \return the values of a view, stored point by point
++   * \param[in] v: view
+    */
+   static std::vector<real> getValuesPointByPoint(
+-      const std::span<const real> values,
+-      const size_type n,
+-      const size_type nc,
+-      const FieldLayout l) {
+-    auto r = std::vector<real>(values.size());
+-    const auto v = makeFieldView(values, l, n, nc);
++      const FieldView<const real>& v) {
++    const auto n = v.getNumberOfPoints();
++    const auto nc = v.getNumberOfComponents();
++    auto r = std::vector<real>(n * nc);
+     for (size_type i = 0; i != n; ++i) {
+       for (size_type j = 0; j != nc; ++j) {
+         r[i * nc + j] = v(i, j);
+@@ -1365,21 +1385,14 @@ namespace mgis::behaviour {
+   }  // end of getValuesPointByPoint
+ 
+   /*!
+-   * \brief copy values stored point by point in an array with the given
+-   * layout
+-   * \param[out] values: values, in the given layout
++   * \brief copy values stored point by point in a view
++   * \param[out] v: view
+    * \param[in] pvalues: values stored point by point
+-   * \param[in] n: number of points
+-   * \param[in] nc: number of components
+-   * \param[in] l: layout
+    */
+-  static void setValuesFromPointByPoint(const std::span<real> values,
+-                                        const std::span<const real> pvalues,
+-                                        const size_type n,
+-                                        const size_type nc,
+-                                        const FieldLayout l) {
+-    const auto v = makeFieldView(values, l, n, nc);
+-    for (size_type i = 0; i != n; ++i) {
++  static void setValuesFromPointByPoint(const FieldView<real>& v,
++                                        const std::span<const real> pvalues) {
++    const auto nc = v.getNumberOfComponents();
++    for (size_type i = 0; i != v.getNumberOfPoints(); ++i) {
+       for (size_type j = 0; j != nc; ++j) {
+         v(i, j) = pvalues[i * nc + j];
+       }
+@@ -1387,15 +1400,43 @@ namespace mgis::behaviour {
+   }  // end of setValuesFromPointByPoint
+ 
+   /*!
+-   * \brief write values given at each point, point by point
++   * \brief write the values of a view, point by point
+    * \return true on success
+    * \param[in, out] ctx: execution context
+    * \param[in] g: group
+    * \param[in] name: name of the data set
+-   * \param[in] values: values
++   * \param[in] v: view
++   * \param[in] allow_overwrite: if true, an existing data set is overwritten
++   */
++  [[nodiscard]] static bool writePointByPoint(
++      Context& ctx,
++      H5::Group& g,
++      const std::string& name,
++      const FieldView<const real>& v,
++      const bool allow_overwrite) MGIS_NOEXCEPT {
++    using namespace mgis::utilities::hdf5;
++    if (isDensePointByPoint(v)) {
++      const auto nv = v.getNumberOfPoints() * v.getNumberOfComponents();
++      return write(ctx, g, name, v.getValues().first(nv), allow_overwrite);
++    }
++    try {
++      return write(ctx, g, name, getValuesPointByPoint(v), allow_overwrite);
++    } catch (...) {
++      return ctx.registerErrorMessage("saving '" + name + "' failed");
++    }
++  }  // end of writePointByPoint
++
++  /*!
++   * \brief write values given at each point, point by point, or uniform
++   * values
++   * \return true on success
++   * \param[in, out] ctx: execution context
++   * \param[in] g: group
++   * \param[in] name: name of the data set
++   * \param[in] values: values given at each point, or uniform values
+    * \param[in] n: number of points
+    * \param[in] nc: number of components
+-   * \param[in] l: layout of the values
++   * \param[in] l: layout of the values given at each point
+    * \param[in] allow_overwrite: if true, an existing data set is overwritten
+    */
+   [[nodiscard]] static bool writePointByPoint(
+@@ -1408,48 +1449,38 @@ namespace mgis::behaviour {
+       const FieldLayout l,
+       const bool allow_overwrite) MGIS_NOEXCEPT {
+     using namespace mgis::utilities::hdf5;
+-    if ((l == FieldLayout::POINT_BY_POINT) || (nc <= 1) ||
+-        (values.size() != n * nc)) {
++    if (values.size() != n * nc) {
+       return write(ctx, g, name, values, allow_overwrite);
+     }
+-    try {
+-      return write(ctx, g, name, getValuesPointByPoint(values, n, nc, l),
+-                   allow_overwrite);
+-    } catch (...) {
+-      return ctx.registerErrorMessage("saving '" + name + "' failed");
+-    }
++    return writePointByPoint(ctx, g, name, makeFieldView(values, l, n, nc),
++                             allow_overwrite);
+   }  // end of writePointByPoint
+ 
+   /*!
+    * \brief read values given at each point, stored point by point in the
+-   * file, in an array with the given layout
++   * file, in a view
+    * \return true on success
+    * \param[in, out] ctx: execution context
+-   * \param[out] values: values
++   * \param[out] v: view
+    * \param[in] g: group
+    * \param[in] name: name of the data set
+-   * \param[in] n: number of points
+-   * \param[in] nc: number of components
+-   * \param[in] l: layout of the values
+    */
+   [[nodiscard]] static bool readPointByPoint(Context& ctx,
+-                                             std::span<real> values,
++                                             const FieldView<real>& v,
+                                              const H5::Group& g,
+-                                             const std::string& name,
+-                                             const size_type n,
+-                                             const size_type nc,
+-                                             const FieldLayout l)
++                                             const std::string& name)
+       MGIS_NOEXCEPT {
+     using namespace mgis::utilities::hdf5;
+-    if ((l == FieldLayout::POINT_BY_POINT) || (nc <= 1)) {
+-      return read(ctx, values, g, name);
++    const auto nv = v.getNumberOfPoints() * v.getNumberOfComponents();
++    if (isDensePointByPoint(v)) {
++      return read(ctx, v.getValues().first(nv), g, name);
+     }
+     try {
+-      auto pvalues = std::vector<real>(values.size());
++      auto pvalues = std::vector<real>(nv);
+       if (!read(ctx, std::span<real>(pvalues), g, name)) {
+         return false;
+       }
+-      setValuesFromPointByPoint(values, pvalues, n, nc, l);
++      setValuesFromPointByPoint(v, pvalues);
+       return true;
+     } catch (...) {
+       return ctx.registerErrorMessage("restoring '" + name + "' failed");
+@@ -1545,8 +1576,7 @@ namespace mgis::behaviour {
+       return ctx.registerErrorMessage(getHostAccessErrorMessage("save"));
+     }
+     if ((opts.save_gradients) && (!s.b.gradients.empty())) {
+-      if (!writePointByPoint(ctx, g, "gradients", s.gradients, s.n,
+-                             s.gradients_stride, s.layout.gradients,
++      if (!writePointByPoint(ctx, g, "gradients", getGradientsView(s),
+                              opts.allow_overwrite)) {
+         return false;
+       }
+@@ -1554,9 +1584,7 @@ namespace mgis::behaviour {
+     if ((opts.save_thermodynamic_forces) &&
+         (!s.b.thermodynamic_forces.empty())) {
+       if (!writePointByPoint(ctx, g, "thermodynamic_forces",
+-                             s.thermodynamic_forces, s.n,
+-                             s.thermodynamic_forces_stride,
+-                             s.layout.thermodynamic_forces,
++                             getThermodynamicForcesView(s),
+                              opts.allow_overwrite)) {
+         return false;
+       }
+@@ -1581,9 +1609,7 @@ namespace mgis::behaviour {
+     //
+     if (!s.b.isvs.empty()) {
+       if (!writePointByPoint(ctx, g, "internal_state_variables",
+-                             s.internal_state_variables, s.n,
+-                             s.internal_state_variables_stride,
+-                             s.layout.internal_state_variables,
++                             getInternalStateVariablesView(s),
+                              opts.allow_overwrite)) {
+         return false;
+       }
+@@ -1814,7 +1840,7 @@ namespace mgis::behaviour {
+       }
+       auto tmp = std::vector<real>(ng * vsize);
+       odataset->read(tmp.data(), getNativeType<real>());
+-      setValuesFromPointByPoint(values, tmp, ng, vsize, l);
++      setValuesFromPointByPoint(makeFieldView(values, l, ng, vsize), tmp);
+       return true;
+     } catch (...) {
+       std::ignore = registerH5ExceptionInErrorBacktrace(ctx);
+@@ -1832,17 +1858,14 @@ namespace mgis::behaviour {
+       return ctx.registerErrorMessage(getHostAccessErrorMessage("restore"));
+     }
+     if ((opts.restore_gradients) && (!s.b.gradients.empty())) {
+-      if (!readPointByPoint(ctx, s.gradients, g, "gradients", s.n,
+-                            s.gradients_stride, s.layout.gradients)) {
++      if (!readPointByPoint(ctx, getGradientsView(s), g, "gradients")) {
+         return ctx.registerErrorMessage("restoring gradients failed");
+       }
+     }
+     if ((opts.restore_thermodynamic_forces) &&
+         (!s.b.thermodynamic_forces.empty())) {
+-      if (!readPointByPoint(ctx, s.thermodynamic_forces, g,
+-                            "thermodynamic_forces", s.n,
+-                            s.thermodynamic_forces_stride,
+-                            s.layout.thermodynamic_forces)) {
++      if (!readPointByPoint(ctx, getThermodynamicForcesView(s), g,
++                            "thermodynamic_forces")) {
+         return ctx.registerErrorMessage(
+             "restoring thermodynamic forces failed");
+       }
+@@ -1858,10 +1881,8 @@ namespace mgis::behaviour {
+       s.mass_density = std::move(mass_density);
+     }
+     if ((opts.restore_internal_state_variables) && (!s.b.isvs.empty())) {
+-      if (!readPointByPoint(ctx, s.internal_state_variables, g,
+-                            "internal_state_variables", s.n,
+-                            s.internal_state_variables_stride,
+-                            s.layout.internal_state_variables)) {
++      if (!readPointByPoint(ctx, getInternalStateVariablesView(s), g,
++                            "internal_state_variables")) {
+         return ctx.registerErrorMessage(
+             "restoring internal state variables failed");
+       }
+@@ -1962,3 +1983,27 @@ namespace mgis::behaviour {
+ #endif /* MGIS_HAVE_HDF5 */
+ 
+ }  // end of namespace mgis::behaviour
++
++namespace mgis::behaviour::internals {
++
++  void allocateArray(std::pmr::vector<real>& values,
++                     const FieldLayout l,
++                     const size_type n,
++                     const size_type nc,
++                     const size_type p) {
++    constexpr auto zero = real{0};
++    if (p == 0) {
++      values.assign(n * nc, zero);
++      return;
++    }
++    values.assign(getFieldArraySize(l, n, nc, p),
++                  std::numeric_limits<real>::quiet_NaN());
++    const auto v = makeFieldView(std::span<real>(values), l, n, nc, p);
++    for (size_type i = 0; i != n; ++i) {
++      for (size_type j = 0; j != nc; ++j) {
++        v(i, j) = zero;
++      }
++    }
++  }  // end of allocateArray
++
++}  // end of namespace mgis::behaviour::internals
+-- 
+2.43.0
+

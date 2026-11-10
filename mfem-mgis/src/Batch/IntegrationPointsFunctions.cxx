@@ -45,8 +45,7 @@ namespace mfem_mgis::batch {
       const auto* const po = offsets.HostRead();
       for (std::int64_t k = 0; k != n; ++k) {
         for (std::int64_t q = 0; q != nq; ++q) {
-          const auto values =
-              f.getIntegrationPointValues(static_cast<size_type>(po[k] + q));
+          const auto values = f(static_cast<size_type>(po[k] + q));
           for (std::int64_t c = 0; c != nc; ++c) {
             pv[c + nc * (q + nq * k)] = values[c];
           }

@@ -1,0 +1,239 @@
+From 73336d52d2eebbc320437d53be4d5939f97195f5 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 10 Nov 2026 02:12:54 +0100
+Subject: [PATCH] ex6, ex8: values at the integration points read through the
+ views
+
+The arrays of the materials may be stored component by component (the
+automatic layout of mfem-mgis for a material integrated by batches on a
+GPU) or padded: they are read through the views of MGIS and the call
+operator of the partial quadrature functions.
+
+- ex6: values of a point of the partial quadrature functions read by the
+  call operator (strided span).
+- ex8: the deformation gradients of the mechanical materials and the
+  swelling computed by the model (state variable SolidSwelling) are shared
+  without copy through their views, the external state variables of the
+  thermal materials being stored in the layout of the gradients of the
+  mechanical ones (which covers a mechanics integrated on a GPU and a
+  thermal problem integrated on the CPU); padded values are refused with a
+  message. The statistics of the swelling are read through its view.
+---
+ ex6/RveNonLinearElastic.cxx |   6 +-
+ ex8/headers/Debug.hxx       |  11 +++-
+ ex8/headers/Setup.hxx       | 121 ++++++++++++++++++++++++++----------
+ 3 files changed, 101 insertions(+), 37 deletions(-)
+
+diff --git a/ex6/RveNonLinearElastic.cxx b/ex6/RveNonLinearElastic.cxx
+index 6f423b3..3e7a20d 100644
+--- a/ex6/RveNonLinearElastic.cxx
++++ b/ex6/RveNonLinearElastic.cxx
+@@ -240,12 +240,14 @@ void run_solve(mfem_mgis::attributes::MayAbort,
+     // components Fxx, Fyy, Fzz, Fxy, Fyx, Fxz, Fzx, Fyz, Fzy
+     const auto Fe = std::array<real, 9>{l[m - 1], 1, 1, 0, 0, 0, 0, 0, 0};
+     const auto n = F.getPartialQuadratureSpace().getNumberOfIntegrationPoints();
++    // the call operator gives the values at an integration point whatever
++    // the layout of the arrays of the material
+     for (mfem_mgis::size_type i = 0; i != n; ++i) {
+-      const auto Fi = F.getIntegrationPointValues(i);
++      const auto Fi = F(i);
+       for (std::size_t c = 0; c != Fe.size(); ++c) {
+         error = std::max(error, std::abs(Fi[c] - Fe[c]));
+       }
+-      const auto Pi = P.getIntegrationPointValues(i);
++      const auto Pi = P(i);
+       error = std::max(error, std::abs(Pi[0] - Pxx) / Pxx);
+     }
+   }
+diff --git a/ex8/headers/Debug.hxx b/ex8/headers/Debug.hxx
+index f14da09..213cf89 100644
+--- a/ex8/headers/Debug.hxx
++++ b/ex8/headers/Debug.hxx
+@@ -111,9 +111,14 @@ inline std::map<std::string, FieldStatistics> computePhysicsStatistics(
+   const auto& swelling_material = setup.swelling_model->getMaterial();
+   // read on the host
+   swelling_material.synchronizeOnHostForReading();
+-  const auto& swelling = swelling_material.s1.internal_state_variables;
+-  stats["Swelling"] = computeFieldStatistics(
+-      std::vector<double>(swelling.begin(), swelling.end()), comm);
++  // values read through the view of the variable, in all the layouts
++  const auto swelling = mgis::behaviour::getInternalStateVariableView(
++      swelling_material.s1, "SolidSwelling");
++  auto swelling_values = std::vector<double>{};
++  for (mfem_mgis::size_type i = 0; i != swelling.getNumberOfPoints(); ++i) {
++    swelling_values.push_back(swelling(i));
++  }
++  stats["Swelling"] = computeFieldStatistics(swelling_values, comm);
+   stats["PowerDensity"] =
+       computeFieldStatistics(*(setup.fields[0].Pow_s1_sw), comm);
+   return stats;
+diff --git a/ex8/headers/Setup.hxx b/ex8/headers/Setup.hxx
+index c7b05cd..edaeca6 100644
+--- a/ex8/headers/Setup.hxx
++++ b/ex8/headers/Setup.hxx
+@@ -1,13 +1,18 @@
+ #pragma once
+ 
++#include <span>
++#include <tuple>
+ #include <string>
+ #include <vector>
++#include <utility>
++#include <optional>
+ #include <memory>
+ #include <functional>
+ 
+ #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+ #include "MFEMMGIS/PointWiseModel.hxx"
+ #include "MFEMMGIS/Profiler.hxx"
++#include "MFEMMGIS/QuadratureDataLayout.hxx"
+ #include "MGIS/Behaviour/MaterialStateManager.hxx"
+ 
+ struct TestParameters {
+@@ -103,6 +108,44 @@ struct SetupPropertiesResult {
+       swelling_model;  // swelling model attached to material 1
+ };
+ 
++/*!
++ * \return the values of a variable of a material, given by a view of one
++ * of its arrays (see `mgis::behaviour::getGradientsView`, etc.), as a span
++ * on these values, shared without copy with another material: the values
++ * must be stored densely, as the external state variables of the other
++ * material, which reads them in the layout of its external state variables
++ * (see `mgis::behaviour::MaterialStateManagerLayout`), or an empty value
++ * on error, the error being registered in the context
++ * \param[in, out] ctx: execution context
++ * \param[in] v: view of the variable
++ * \param[in] l: layout of the external state variables of the other
++ * material
++ * \param[in] name: name of the variable, for the error message
++ */
++inline std::optional<std::span<mfem_mgis::real>> getSharedValues(
++    mfem_mgis::Context& ctx,
++    const mgis::FieldView<mfem_mgis::real>& v,
++    const mgis::FieldLayout l,
++    const std::string& name) {
++  const auto n = v.getNumberOfPoints();
++  const auto nc = v.getNumberOfComponents();
++  const auto dense =
++      (nc == 1)
++          ? (v.getPointStride() == 1)
++          : ((l == mgis::FieldLayout::POINT_BY_POINT)
++                 ? ((v.getPointStride() == nc) && (v.getComponentStride() == 1))
++                 : ((v.getPointStride() == 1) &&
++                    (v.getComponentStride() == n)));
++  if (!dense) {
++    return ctx.registerErrorMessage(
++        "the values of '" + name +
++        "' can't be shared without copy: they must be stored densely in "
++        "the layout of the external state variables of the material reading "
++        "them (parameter QuadratureDataLayout, without padding)");
++  }
++  return std::span<mfem_mgis::real>{v.data(), static_cast<std::size_t>(n * nc)};
++}  // end of getSharedValues
++
+ /*!
+  * \brief Configures materials, models, and field storages
+  * \param[in,out] ctx: execution context, used for timing sections and error
+@@ -145,18 +188,22 @@ inline SetupPropertiesResult setup_properties(
+       "ALFENI_IsotropicLinearHardeningPlasticity") |
+       or_die;
+ 
+-  heat_transfer.addBehaviourIntegrator(ctx, "StationaryNonLinearHeatTransfer",
+-                                       1, p.library_u3si2,
+-                                       "U3SI2_CoupledHeatTransfer") |
+-      or_die;
+-  heat_transfer.addBehaviourIntegrator(ctx, "StationaryNonLinearHeatTransfer",
+-                                       2, p.library_alfeni,
+-                                       "ALFENI_CoupledHeatTransfer") |
+-      or_die;
+-  heat_transfer.addBehaviourIntegrator(ctx, "StationaryNonLinearHeatTransfer",
+-                                       3, p.library_alfeni,
+-                                       "ALFENI_CoupledHeatTransfer") |
+-      or_die;
++  // the thermal materials read the deformation gradients of the mechanical
++  // materials without copy, as external state variables stored in the
++  // layout of these gradients
++  for (const auto& [mat_id, library, behaviour] :
++       {std::tuple{1, p.library_u3si2, "U3SI2_CoupledHeatTransfer"},
++        std::tuple{2, p.library_alfeni, "ALFENI_CoupledHeatTransfer"},
++        std::tuple{3, p.library_alfeni, "ALFENI_CoupledHeatTransfer"}}) {
++    const auto& m_mc = mechanics.getMaterial(ctx, mat_id, 0) | or_die;
++    const auto layout = mfem_mgis::Parameters{
++        {"ExternalStateVariables",
++         std::string{mfem_mgis::toString(m_mc.layout.gradients)}}};
++    heat_transfer.addBehaviourIntegrator(ctx, "StationaryNonLinearHeatTransfer",
++                                         mat_id, library, behaviour,
++                                         {{"QuadratureDataLayout", layout}}) |
++        or_die;
++  }
+ 
+   for (const int mat_id : {1, 2, 3}) {
+     auto& m_th = heat_transfer.getMaterial(ctx, mat_id, 0) | or_die;
+@@ -187,16 +234,19 @@ inline SetupPropertiesResult setup_properties(
+         mgis::behaviour::MaterialStateManager::NOUPDATE) |
+         or_die;
+ 
+-    mgis::behaviour::setExternalStateVariable(
+-        ctx, m_th.s0, "DeformationGradient", m_mc.s0.gradients,
+-        mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
+-        mgis::behaviour::MaterialStateManager::NOUPDATE) |
+-        or_die;
+-    mgis::behaviour::setExternalStateVariable(
+-        ctx, m_th.s1, "DeformationGradient", m_mc.s1.gradients,
+-        mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
+-        mgis::behaviour::MaterialStateManager::NOUPDATE) |
+-        or_die;
++    for (const auto& [s_th, s_mc] :
++         {std::pair{&m_th.s0, &m_mc.s0}, std::pair{&m_th.s1, &m_mc.s1}}) {
++      const auto F =
++          getSharedValues(ctx, mgis::behaviour::getGradientsView(*s_mc),
++                          m_th.layout.external_state_variables,
++                          "DeformationGradient") |
++          or_die;
++      mgis::behaviour::setExternalStateVariable(
++          ctx, *s_th, "DeformationGradient", F,
++          mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
++          mgis::behaviour::MaterialStateManager::NOUPDATE) |
++          or_die;
++    }
+ 
+     if (mat_id == 1) {
+       auto sw_model =
+@@ -244,16 +294,23 @@ inline SetupPropertiesResult setup_properties(
+           mgis::behaviour::MaterialStateManager::NOUPDATE) |
+           or_die;
+ 
+-      mgis::behaviour::setExternalStateVariable(
+-          ctx, m_mc.s0, "Swelling", m_sw.s0.internal_state_variables,
+-          mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
+-          mgis::behaviour::MaterialStateManager::NOUPDATE) |
+-          or_die;
+-      mgis::behaviour::setExternalStateVariable(
+-          ctx, m_mc.s1, "Swelling", m_sw.s1.internal_state_variables,
+-          mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
+-          mgis::behaviour::MaterialStateManager::NOUPDATE) |
+-          or_die;
++      // swelling computed by the model (state variable SolidSwelling), read
++      // without copy by the mechanics
++      for (const auto& [s_mc, s_sw] :
++           {std::pair{&m_mc.s0, &m_sw.s0}, std::pair{&m_mc.s1, &m_sw.s1}}) {
++        const auto swelling =
++            getSharedValues(ctx,
++                            mgis::behaviour::getInternalStateVariableView(
++                                *s_sw, "SolidSwelling"),
++                            m_mc.layout.external_state_variables,
++                            "SolidSwelling") |
++            or_die;
++        mgis::behaviour::setExternalStateVariable(
++            ctx, *s_mc, "Swelling", swelling,
++            mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
++            mgis::behaviour::MaterialStateManager::NOUPDATE) |
++            or_die;
++      }
+ 
+       mgis::behaviour::setExternalStateVariable(
+           ctx, m_mc.s0, "PowerDensity",
+-- 
+2.43.0
+

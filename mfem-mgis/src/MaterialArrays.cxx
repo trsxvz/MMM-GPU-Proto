@@ -111,9 +111,47 @@ namespace mfem_mgis {
     return static_cast<std::size_t>(a);
   }  // end of getArrayIndex
 
-  MaterialArrays::MaterialArrays(const Behaviour& b,
-                                 const size_type n,
-                                 const mgis::FieldLayout l)
+  /*!
+   * \brief allocate an array of a material, in the given layout and with
+   * the given padding: the values are zero, the unused values NaN
+   * \return a view on the values of the array (on the host)
+   * \param[out] v: array
+   * \param[in] l: layout
+   * \param[in] n: number of points
+   * \param[in] nc: number of components
+   * \param[in] p: padding
+   */
+  static mgis::FieldView<real> allocateMaterialArray(mfem::Vector& v,
+                                                     const mgis::FieldLayout l,
+                                                     const std::size_t n,
+                                                     const std::size_t nc,
+                                                     const std::size_t p) {
+    const auto size = static_cast<std::size_t>(mgis::getFieldArraySize(
+        l, static_cast<size_type>(n), static_cast<size_type>(nc),
+        static_cast<size_type>(p)));
+    // values set to zero
+    allocateMaterialArray(v, size);
+    auto values = std::span<real>(v.HostWrite(), size);
+    const auto f = mgis::makeFieldView(values, l, static_cast<size_type>(n),
+                                       static_cast<size_type>(nc),
+                                       static_cast<size_type>(p));
+    if (p != 0) {
+      // unused values
+      std::fill(values.begin(), values.end(),
+                std::numeric_limits<real>::quiet_NaN());
+      for (std::size_t i = 0; i != n; ++i) {
+        for (std::size_t c = 0; c != nc; ++c) {
+          f(static_cast<size_type>(i), static_cast<size_type>(c)) = real{0};
+        }
+      }
+    }
+    return f;
+  }  // end of allocateMaterialArray
+
+  MaterialArrays::MaterialArrays(
+      const Behaviour& b,
+      const size_type n,
+      const mgis::behaviour::MaterialDataManagerLayout& l)
       : array_layout(l) {
     using mgis::behaviour::getArraySize;
     // sizes computed with the type of the sizes of MGIS, checked against the
@@ -125,15 +163,19 @@ namespace mfem_mgis {
         getArraySize(b.thermodynamic_forces, b.hypothesis));
     const auto is =
         static_cast<std::size_t>(getArraySize(b.isvs, b.hypothesis));
+    const auto p = static_cast<std::size_t>(l.padding);
+    auto& arrays = this->state_arrays;
     for (std::size_t i = 0; i != 2; ++i) {
-      auto& arrays = this->state_arrays;
-      allocateMaterialArray(arrays[getArrayIndex(StateArray::GRADIENTS)][i],
-                            np * gs);
+      const auto F =
+          allocateMaterialArray(arrays[getArrayIndex(StateArray::GRADIENTS)][i],
+                                l.gradients, np, gs, p);
       allocateMaterialArray(
-          arrays[getArrayIndex(StateArray::THERMODYNAMIC_FORCES)][i], np * ts);
-      allocateMaterialArray(
+          arrays[getArrayIndex(StateArray::THERMODYNAMIC_FORCES)][i],
+          l.thermodynamic_forces, np, ts, p);
+      const auto isvs = allocateMaterialArray(
           arrays[getArrayIndex(StateArray::INTERNAL_STATE_VARIABLES)][i],
-          np * is);
+          l.internal_state_variables, np, is, p);
+      // the energies are scalars, neither laid out nor padded
       if (b.computesStoredEnergy) {
         allocateMaterialArray(
             arrays[getArrayIndex(StateArray::STORED_ENERGIES)][i], np);
@@ -142,47 +184,32 @@ namespace mfem_mgis {
         allocateMaterialArray(
             arrays[getArrayIndex(StateArray::DISSIPATED_ENERGIES)][i], np);
       }
-    }
-    allocateMaterialArray(
-        this->tangent_operator_blocks,
-        np * static_cast<std::size_t>(
-                 mgis::behaviour::getTangentOperatorArraySize(b)));
-    // index of the `c`-th of the `nc` components of the `i`-th point in a
-    // state array
-    const auto index = [pbp = l == mgis::FieldLayout::POINT_BY_POINT, np](
-                           const std::size_t i, const std::size_t c,
-                           const std::size_t nc) {
-      return pbp ? i * nc + c : c * np + i;
-    };
-    // the deformation gradients are initialized to the identity, as MGIS
-    // does for the arrays it allocates (the first three components are the
-    // diagonal ones); the displacement gradients stay zero
-    if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
-        (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
-        (!mgis::behaviour::usesDisplacementGradient(b)) && (np != 0)) {
-      for (auto& g : this->state_arrays[getArrayIndex(StateArray::GRADIENTS)]) {
-        auto* const F = g.HostReadWrite();
-        for (std::size_t i = 0; i != np; ++i) {
-          for (std::size_t c = 0; c != 3; ++c) {
-            F[index(i, c, gs)] = real{1};
+      // the deformation gradients are initialized to the identity, as MGIS
+      // does for the arrays it allocates (the first three components are the
+      // diagonal ones); the displacement gradients stay zero
+      if ((b.btype == Behaviour::STANDARDFINITESTRAINBEHAVIOUR) &&
+          (b.kinematic == Behaviour::FINITESTRAINKINEMATIC_F_CAUCHY) &&
+          (!mgis::behaviour::usesDisplacementGradient(b))) {
+        for (size_type k = 0; k != n; ++k) {
+          for (size_type c = 0; c != 3; ++c) {
+            F(k, c) = real{1};
           }
         }
       }
-    }
-    // the axial component of the deformation gradient computed by a finite
-    // strain behaviour in plane stress starts from one, as MGIS does for the
-    // arrays it allocates
-    if (const auto o = mgis::behaviour::getAxialDeformationGradientOffset(b);
-        (o.has_value()) && (np != 0)) {
-      for (auto& v :
-           this->state_arrays[getArrayIndex(
-               StateArray::INTERNAL_STATE_VARIABLES)]) {
-        auto* const isvs = v.HostReadWrite();
-        for (std::size_t i = 0; i != np; ++i) {
-          isvs[index(i, static_cast<std::size_t>(*o), is)] = real{1};
+      // the axial component of the deformation gradient computed by a
+      // finite strain behaviour in plane stress starts from one, as MGIS
+      // does for the arrays it allocates
+      if (const auto o = mgis::behaviour::getAxialDeformationGradientOffset(b);
+          o.has_value()) {
+        for (size_type k = 0; k != n; ++k) {
+          isvs(k, static_cast<size_type>(*o)) = real{1};
         }
       }
     }
+    allocateMaterialArray(this->tangent_operator_blocks, l.tangent_operator, np,
+                          static_cast<std::size_t>(
+                              mgis::behaviour::getTangentOperatorArraySize(b)),
+                          p);
   }  // end of MaterialArrays
 
   mgis::behaviour::MaterialDataManagerInitializer

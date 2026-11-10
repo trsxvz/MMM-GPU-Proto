@@ -5,6 +5,7 @@
  * \date   11/10/2026
  */
 
+#include <tuple>
 #include <limits>
 #include <string>
 #include <cstdint>
@@ -188,6 +189,10 @@ namespace mfem_mgis::batch {
       auto a = internals::FaltusCentersKernelArguments{};
       a.elements = elements.Read(use_device);
       a.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
+      if (d0 != nullptr) {
+        std::tie(a.derivatives_point_stride, a.derivatives_component_stride) =
+            getDerivativesStrides(*d0);
+      }
       a.inverse_jacobians = g0.jacobians->invJ.Read(use_device);
       a.centers = data.centers.Write(use_device);
       a.number_of_elements = elements.Size();
@@ -245,8 +250,10 @@ namespace mfem_mgis::batch {
       a.offsets = qs.getElementOffsets().Read(use_device);
       a.gradients = m.getArrays().read(MaterialArrays::StateArray::GRADIENTS,
                                        ets, use_device);
-      a.point_by_point =
-          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
+      // strides of the gradients of the material (layout and padding)
+      const auto gv = mgis::behaviour::getGradientsView(m.s1);
+      a.point_stride = static_cast<long long>(gv.getPointStride());
+      a.component_stride = static_cast<long long>(gv.getComponentStride());
       a.number_of_points = qs.getNumberOfIntegrationPoints();
       a.centers = data.centers.Read(use_device);
       a.values = f.ReadWrite(use_device);

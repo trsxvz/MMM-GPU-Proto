@@ -201,6 +201,9 @@ command_of() {
       ;;
   esac
 }
+# command placed before the executable of the case by `run`, inside mpirun
+# (for instance a profiler, see cases/measure-layout.sh), empty by default
+launcher=()
 # usage: run name threads processes library [VARIABLE=value...]
 # The given environment variables select the options of mfem-mgis
 # (MFEM_MGIS_BEHAVIOUR_INTEGRATION=Batch, ...).
@@ -224,7 +227,8 @@ run() {
     return 1
   fi
   (cd "$B" && env OMP_NUM_THREADS="$threads" "${settings[@]}" \
-    timeout 3600 mpirun "${placement[@]}" -n "$np" "${cmd[@]}") \
+    timeout 3600 mpirun "${placement[@]}" -n "$np" "${launcher[@]}" \
+    "${cmd[@]}") \
     < /dev/null > "$out/$name.txt" 2>&1
   echo "   status $?" | tee -a "$out/summary.txt"
   /usr/bin/grep -E "$summary" "$out/$name.txt" | tee -a "$out/summary.txt"

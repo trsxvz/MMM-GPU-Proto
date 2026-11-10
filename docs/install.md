@@ -267,6 +267,12 @@ ones of before.
   slower. The measurement spreads the processes over the cores of the node
   and binds them to the closest GPUs (`--gpu-bind=closest`); in a job,
   `srun --cpus-per-task=<cores per GPU> --gpu-bind=closest` does the same.
+- **Layout of the data at the integration points**: job
+  `jobs/measure-layout.slurm` (one H100 and 24 cores):
+  `cases/measure-layout.sh` for the beam and the polycrystal, point by point
+  and component by component, on the GPU and on the CPU, then the hardware
+  counters of the kernels of the beam on the GPU if Nsight Compute is found
+  (`counters=1`).
 - **mpirun**: the Open MPI of IDRIS has no `mpirun` (spack variant
   `~legacylaunchers`: its `mpirun` only prints a message), only `srun`. The
   tests run `mpirun -n N`: both profiles put first in the PATH
@@ -287,7 +293,8 @@ Same organisation as `jean-zay-h100`, with the modules of `arch/a100`:
   runs on a login node, and the libraries are installed by
   `jobs/install.slurm` on `cpu_p1` (QoS dev, `<project>@cpu`; 40 minutes).
 - **Build, tests, measurements**: jobs `jobs/build.slurm`,
-  `jobs/tests-gpu.slurm` (one A100) and `jobs/measure-multi-gpu.slurm`
+  `jobs/tests-gpu.slurm` (one A100), `jobs/measure-multi-gpu.slurm`
   (one whole node: 1, 2, 4 and 8 GPUs, 16, 32 and 64 processes on the
-  CPU), with `<project>@a100`.
+  CPU) and `jobs/measure-layout.slurm` (one A100 and 16 cores), with
+  `<project>@a100`.
 - **Deployment**: in its own directory, for instance `$SCRATCH/mmm-a100`.

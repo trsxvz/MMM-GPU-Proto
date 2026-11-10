@@ -555,7 +555,8 @@ void generateHeaderFile(std::ostream &os,
      << d.name << "(const FiniteElementDiscretization &fed,\n"
      << "const size_type m,\n"
      << "std::unique_ptr<const Behaviour> b_ptr,\n"
-     << "const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);\n";
+     << "const mgis::behaviour::MaterialDataManagerLayout& l = "
+        "mgis::FieldLayout::POINT_BY_POINT);\n";
   if (d.requires_unknown_value_as_external_state_variable) {
     os << "/*!\n"
        << " * \\brief method called at the beginning of each resolution\n"
@@ -819,7 +820,7 @@ void generateSourceFile(std::ostream &os,
      << "        const FiniteElementDiscretization &fed,\n"
      << "        const size_type m,\n"
      << "        std::unique_ptr<const Behaviour> b_ptr,\n"
-     << "        const mgis::FieldLayout l)\n"
+     << "        const mgis::behaviour::MaterialDataManagerLayout& l)\n"
      << "    : StandardBehaviourIntegratorCRTPBase<" << d.name << ">(\n"
      << "          buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), "
         "l) {\n";

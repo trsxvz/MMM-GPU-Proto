@@ -73,9 +73,10 @@ namespace mfem_mgis {
      * by the computations element by element, which use the point by point
      * layout.
      */
-    Material(const PartialQuadratureSpace &s,
+    Material(const PartialQuadratureSpace& s,
              std::unique_ptr<const Behaviour> b_ptr,
-             const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+             const mgis::behaviour::MaterialDataManagerLayout& l =
+                 mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \brief set the macroscopic gradients
      *
@@ -156,7 +157,7 @@ namespace mfem_mgis {
      * (by default, the tangent operator blocks are set to zero)
      */
     void updateMaterialStates(
-        const mgis::behaviour::UpdateArguments & = {});
+        const mgis::behaviour::UpdateArguments& args = {});
     /*!
      * \brief copies the state at the beginning of the time step on the state
      * at the end of the time step (see `mgis::behaviour::revert` and
@@ -205,21 +206,27 @@ namespace mfem_mgis {
      * access the memory of the host: the values must then be read through
      * the accessors of `mfem::Vector` which keep track of the valid copies
      * (`HostRead`, `Read`), not through `GetData` or `operator[]`
-     * \param[out] v: values, stored point by point whatever the layout of
-     * the arrays of the material (resized)
+     * \param[out] v: values, stored densely in the given layout whatever
+     * the layout of the arrays of the material (resized)
      * \param[in] s: state
+     * \param[in] l: layout of the values
      */
     void computeGradientsInGlobalFrame(
-        mfem::Vector& v, const StateSelection s = END_OF_TIME_STEP) const;
+        mfem::Vector& v,
+        const StateSelection s = END_OF_TIME_STEP,
+        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT) const;
     /*!
      * \brief computes the thermodynamic forces of a state in the global
      * frame at all the integration points (orthotropic behaviours), by one
      * rotation of all the points (see `computeGradientsInGlobalFrame`)
-     * \param[out] v: values, stored point by point (resized)
+     * \param[out] v: values, stored densely in the given layout (resized)
      * \param[in] s: state
+     * \param[in] l: layout of the values
      */
     void computeThermodynamicForcesInGlobalFrame(
-        mfem::Vector& v, const StateSelection s = END_OF_TIME_STEP) const;
+        mfem::Vector& v,
+        const StateSelection s = END_OF_TIME_STEP,
+        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT) const;
     /*!
      * \return a view of MGIS on the copies of the arrays of the material on
      * the device, for an integration of its behaviour on the device by
@@ -269,10 +276,12 @@ namespace mfem_mgis {
      * \param[out] v: values
      * \param[in] a: array (gradients or thermodynamic forces)
      * \param[in] s: state
+     * \param[in] l: layout of the values
      */
-    void computeValuesInGlobalFrame(mfem::Vector &,
+    void computeValuesInGlobalFrame(mfem::Vector&,
                                     const StateArray,
-                                    const StateSelection) const;
+                                    const StateSelection,
+                                    const mgis::FieldLayout) const;
     //! \brief copy constructor (disabled)
     Material(const Material &) = delete;
     //! \brief move constructor (disabled)
@@ -303,16 +312,6 @@ namespace mfem_mgis {
       const Behaviour& b) noexcept;
 
   /*!
-   * \return true if the arrays of the material are in the point by point
-   * layout, required by the accessors and the evaluators based on a stride
-   * between points; otherwise, an error message is registered
-   * \param[in, out] eh: error handler
-   * \param[in] m: material
-   */
-  MFEM_MGIS_EXPORT [[nodiscard]] bool checkPointByPointLayout(
-      AbstractErrorHandler& eh, const Material& m) noexcept;
-
-  /*!
    * \brief get a gradient of the material
    * \return a view on the copy on the host of the array of the material,
    * or an empty value on failure (the error being registered in `ctx`)
@@ -321,8 +320,9 @@ namespace mfem_mgis {
    * \param[in] m: material
    * \param[in] n: name of the gradient
    * \param[in] s: state considered
-   * \note the arrays must be stored point by point (see
-   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * \note the view accounts for the layout of the array (see
+   * `PartialQuadratureFunctionDataLayout::getComponentStride`). The array is
+   * first made valid on the host,
    * its copy on the device being invalidated (see
    * `Material::synchronizeOnHost`): the view is only valid until the next
    * access to the array on the device.
@@ -342,8 +342,9 @@ namespace mfem_mgis {
    * \param[in] m: material
    * \param[in] n: name of the gradient
    * \param[in] s: state considered
-   * \note the arrays must be stored point by point (see
-   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * \note the view accounts for the layout of the array (see
+   * `PartialQuadratureFunctionDataLayout::getComponentStride`). The array is
+   * first made valid on the host,
    * its copy on the device staying valid (see
    * `Material::synchronizeOnHostForReading`): the view is only valid until
    * the next access to the array on the device.
@@ -364,8 +365,9 @@ namespace mfem_mgis {
    * \param[in] m: material
    * \param[in] n: name of the thermodynamic force
    * \param[in] s: state considered
-   * \note the arrays must be stored point by point (see
-   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * \note the view accounts for the layout of the array (see
+   * `PartialQuadratureFunctionDataLayout::getComponentStride`). The array is
+   * first made valid on the host,
    * its copy on the device being invalidated (see
    * `Material::synchronizeOnHost`): the view is only valid until the next
    * access to the array on the device.
@@ -385,8 +387,9 @@ namespace mfem_mgis {
    * \param[in] m: material
    * \param[in] n: name of the thermodynamic force
    * \param[in] s: state considered
-   * \note the arrays must be stored point by point (see
-   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * \note the view accounts for the layout of the array (see
+   * `PartialQuadratureFunctionDataLayout::getComponentStride`). The array is
+   * first made valid on the host,
    * its copy on the device staying valid (see
    * `Material::synchronizeOnHostForReading`): the view is only valid until
    * the next access to the array on the device.
@@ -407,8 +410,9 @@ namespace mfem_mgis {
    * \param[in] m: material
    * \param[in] n: name of the state variable
    * \param[in] s: state considered
-   * \note the arrays must be stored point by point (see
-   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * \note the view accounts for the layout of the array (see
+   * `PartialQuadratureFunctionDataLayout::getComponentStride`). The array is
+   * first made valid on the host,
    * its copy on the device being invalidated (see
    * `Material::synchronizeOnHost`): the view is only valid until the next
    * access to the array on the device.
@@ -427,8 +431,9 @@ namespace mfem_mgis {
    * \param[in] m: material
    * \param[in] n: name of the state variable
    * \param[in] s: state considered
-   * \note the arrays must be stored point by point (see
-   * `checkPointByPointLayout`). The array is first made valid on the host,
+   * \note the view accounts for the layout of the array (see
+   * `PartialQuadratureFunctionDataLayout::getComponentStride`). The array is
+   * first made valid on the host,
    * its copy on the device staying valid (see
    * `Material::synchronizeOnHostForReading`): the view is only valid until
    * the next access to the array on the device.
@@ -619,6 +624,52 @@ namespace mfem_mgis {
   static_assert(!mgis::function::FunctionConcept<RotationMatrixEvaluator>);
 
 #endif /* MGIS_FUNCTION_SUPPORT */
+
+  /*!
+   * \return the values of a point of an array of a material, given by a view
+   * of the array (see `mgis::behaviour::getGradientsView`, etc.): the values
+   * of the array if the components of a point are contiguous (point by point
+   * layout, with or without padding), a copy in the given buffer otherwise.
+   * The computations element by element, which handle the values of a point
+   * as contiguous, read the arrays of the materials through this function
+   * and write them back with `setPointValues`.
+   * \param[in, out] buffer: buffer, resized if the values are copied
+   * \param[in] v: view of the array
+   * \param[in] o: offset of the point
+   */
+  template <typename ValueType>
+  std::span<ValueType> getPointValues(std::vector<real>& buffer,
+                                      const mgis::FieldView<ValueType>& v,
+                                      const size_type o) {
+    const auto nc = v.getNumberOfComponents();
+    if (v.hasContiguousComponents()) {
+      return {v.data() + o * v.getPointStride(), nc};
+    }
+    buffer.resize(nc);
+    for (size_type c = 0; c != nc; ++c) {
+      buffer[c] = v(o, c);
+    }
+    return {buffer.data(), nc};
+  }  // end of getPointValues
+
+  /*!
+   * \brief copies the values of a point, given by `getPointValues` and
+   * modified, in the array if they are a copy
+   * \param[in] v: view of the array
+   * \param[in] o: offset of the point
+   * \param[in] values: values of the point
+   */
+  inline void setPointValues(const mgis::FieldView<real>& v,
+                             const size_type o,
+                             const std::span<const real> values) noexcept {
+    if (v.hasContiguousComponents()) {
+      // the values were modified in place
+      return;
+    }
+    for (size_type c = 0; c != values.size(); ++c) {
+      v(o, c) = values[c];
+    }
+  }  // end of setPointValues
 
 }  // end of namespace mfem_mgis
 

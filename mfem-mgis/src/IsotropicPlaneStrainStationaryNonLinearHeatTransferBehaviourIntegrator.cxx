@@ -37,10 +37,10 @@ namespace mfem_mgis {
 
   IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator::
       IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator(
-          const FiniteElementDiscretization &fed,
+          const FiniteElementDiscretization& fed,
           const size_type m,
           std::unique_ptr<const Behaviour> b_ptr,
-          const mgis::FieldLayout l)
+          const mgis::behaviour::MaterialDataManagerLayout& l)
       : StandardBehaviourIntegratorCRTPBase<
             IsotropicPlaneStrainStationaryNonLinearHeatTransferBehaviourIntegrator>(
             buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {

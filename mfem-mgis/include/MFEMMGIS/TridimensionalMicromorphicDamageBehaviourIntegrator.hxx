@@ -68,10 +68,11 @@ namespace mfem_mgis {
      * \param[in] l: layout of the data at the integration points
      */
     TridimensionalMicromorphicDamageBehaviourIntegrator(
-        const FiniteElementDiscretization &fed,
+        const FiniteElementDiscretization& fed,
         const size_type m,
         std::unique_ptr<const Behaviour> b_ptr,
-        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+        const mgis::behaviour::MaterialDataManagerLayout& l =
+            mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \return the rotation matrix associated with the given integration
      * point

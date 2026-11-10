@@ -34,14 +34,14 @@ namespace mfem_mgis {
 
   FBarIsotropicPlaneStrainBehaviourIntegrator::
       FBarIsotropicPlaneStrainBehaviourIntegrator(
-          const FiniteElementDiscretization &fed,
+          const FiniteElementDiscretization& fed,
           const size_type m,
           std::unique_ptr<const Behaviour> b_ptr,
-          const mgis::FieldLayout l)
+          const mgis::behaviour::MaterialDataManagerLayout& l)
       : FBarBehaviourIntegratorCRTPBase<
             FBarIsotropicPlaneStrainBehaviourIntegrator,
-            Hypothesis::PLANESTRAIN>(buildQuadratureSpace(throwing, fed, m),
-                                     std::move(b_ptr), l) {
+            Hypothesis::PLANESTRAIN>(
+            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
     this->checkBehaviourSymmetry(throwing, Behaviour::ISOTROPIC);
     this->checkHypothesis(throwing, Hypothesis::PLANESTRAIN);

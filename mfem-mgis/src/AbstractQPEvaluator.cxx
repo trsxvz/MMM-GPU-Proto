@@ -58,19 +58,24 @@ namespace mfem_mgis {
     if (!opts.ensure_contiguous_storage) {
       return oresult;
     }
-    if (oresult->getNumberOfComponents() == oresult->getDataStride()) {
-      // data are stored contigously in memory, nothing to be done
-      if (oresult->getDataOffset() != 0) {
-        return ctx.registerErrorMessage("invalid result");
-      }
+    if (oresult->isDense(opts.layout)) {
+      // the values are stored densely in the requested layout
       return oresult;
     }
     // copy the result of the evaluation to a new partial quadrature function
-    auto of = PartialQuadratureFunction::copy(ctx, *oresult);
-    if (isInvalid(of)) {
-      return {};
+    // storing its values densely in the requested layout
+    try {
+      auto f = PartialQuadratureFunction(oresult->getPartialQuadratureSpace(),
+                                         oresult->getNumberOfComponents(),
+                                         opts.layout);
+      if (!assign_values(ctx, f.view(), *oresult)) {
+        return {};
+      }
+      return QPEvaluatorResult::fromFunction(std::move(f));
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
     }
-    return QPEvaluatorResult::fromFunction(std::move(*of));
+    return {};
   }  // end of evaluate
 
 }  // end of namespace mfem_mgis

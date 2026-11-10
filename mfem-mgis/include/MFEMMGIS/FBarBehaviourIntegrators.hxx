@@ -10,6 +10,7 @@
 #define LIB_MFEM_MGIS_FBARBEHAVIOURINTEGRATORS_HXX
 
 #include "MGIS/FieldView.hxx"
+#include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/Parameters.hxx"
@@ -38,7 +39,7 @@ namespace mfem_mgis {
       const size_type m,
       std::unique_ptr<const Behaviour> b,
       const Parameters& params,
-      const mgis::FieldLayout l =
+      const mgis::behaviour::MaterialDataManagerLayout& l =
           mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
   /*!
@@ -59,7 +60,7 @@ namespace mfem_mgis {
       const size_type m,
       std::unique_ptr<const Behaviour> b,
       const Parameters& params,
-      const mgis::FieldLayout l =
+      const mgis::behaviour::MaterialDataManagerLayout& l =
           mgis::FieldLayout::POINT_BY_POINT) noexcept;
 
 }  // end of namespace mfem_mgis

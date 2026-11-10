@@ -126,25 +126,10 @@ namespace mfem_mgis {
     mfem::Vector elt_forces;
     F.SetSize(nc);
     F = real{0};
-    // the selection is checked for all the materials, so that all the
-    // processes report the same errors: the inner forces are computed
-    // element by element, which requires the point by point layout of the
-    // arrays of the materials, from the thermodynamic forces read on the host
-    const auto point_by_point = [](Context& c,
-                                   const Material& m) noexcept -> bool {
-      if (m.layout == mgis::FieldLayout::POINT_BY_POINT) {
-        return true;
-      }
-      return c.registerErrorMessage(
-          "computeResultantForceOnBoundary: the inner forces are computed "
-          "element by element, which is not supported by a material whose "
-          "arrays are stored component by component (parameter "
-          "QuadratureDataLayout)");
-    };
-    if ((!internals::applyToSelectedMaterials(ctx, p, selection,
-                                              point_by_point)) ||
-        (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
-                                                                  selection))) {
+    // the inner forces are computed element by element, from the
+    // thermodynamic forces read on the host
+    if (!internals::synchronizeSelectedMaterialsOnHostForReading(ctx, p,
+                                                                 selection)) {
       return false;
     }
     for (const auto& e : elements) {

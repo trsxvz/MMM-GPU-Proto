@@ -175,59 +175,113 @@ namespace mfem_mgis::batch::internals {
           real iJ[N * N];
           loadInverseJacobian<N>(
               iJ, a.inverse_jacobians + static_cast<std::size_t>(N * N) * e, 1);
+          // derivatives at the center (one point per element)
+          real d0[V * N];
+          if (a.derivatives != nullptr) {
+            for (int j = 0; j != V * N; ++j) {
+              d0[j] = a.derivatives[static_cast<long long>(e) *
+                                        a.derivatives_point_stride +
+                                    static_cast<long long>(j) *
+                                        a.derivatives_component_stride];
+            }
+          }
           computeDeformationGradientAtCenter<K>(
               a.centers +
                   static_cast<std::size_t>(gs) * static_cast<std::size_t>(k),
               a.macroscopic_gradients,
-              (a.derivatives != nullptr)
-                  ? a.derivatives + static_cast<std::size_t>(V * N) * e
-                  : nullptr,
-              iJ);
+              (a.derivatives != nullptr) ? d0 : nullptr, iJ);
         });
   }  // end of launchFaltusCentersKernel
 
+  /*!
+   * \brief launches the kernel adding the inner forces of the Faltus
+   * correction, with one thread per point then one thread per node (see
+   * `maximum_number_of_points_per_block`): each point thread reads the
+   * deformation gradient of its point through its strides (coalesced
+   * accesses in the component by component layout) and computes
+   * `α (F - F0)`; each node thread then sums the contributions of the
+   * points in their order
+   * \tparam K: kind of the gradients
+   */
   template <GradientsKind K>
   static void launchFaltusInnerForcesKernel(
       const FaltusInnerForcesKernelArguments& a, const bool use_device) {
-    mfem::forall_switch(
-        use_device, a.geometry.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
-          constexpr auto N = getDimension<K>();
-          constexpr auto V = getUnknownsSize<K>();
-          constexpr auto gs = getGradientsSize<K>();
+    constexpr auto N = getDimension<K>();
+    constexpr auto V = getUnknownsSize<K>();
+    constexpr auto gs = getGradientsSize<K>();
+    constexpr auto P = maximum_number_of_points_per_block;
+    const auto bz = getNumberOfElementsPerBlock(a.geometry.nq, a.geometry.nd);
+    const auto bx = getNumberOfThreadsPerElement(a.geometry.nq, a.geometry.nd);
+    mfem::ForallWrap<2>(
+        use_device, a.geometry.number_of_elements,
+        [a] MFEM_HOST_DEVICE(int k) {
+          // α (F - F0), weights and inverses of the jacobians of the points
+          MFEM_SHARED real differences[P * gs];
+          MFEM_SHARED real weights[P];
+          MFEM_SHARED real inverse_jacobians[P * N * N];
           const auto& g = a.geometry;
           const auto e = static_cast<std::size_t>(g.elements[k]);
           const auto nd = static_cast<std::size_t>(g.nd);
+          const auto nq = static_cast<std::size_t>(g.nq);
           constexpr auto sgs = static_cast<std::size_t>(gs);
-          const auto np = static_cast<std::size_t>(a.number_of_points);
           const auto* const F0 = a.centers + sgs * static_cast<std::size_t>(k);
           auto* const fe = a.values + nd * V * e;
-          real iJ0[N * N];
-          loadCenterInverseJacobian<N>(iJ0, g, e);
-          for (std::size_t q = 0; q != static_cast<std::size_t>(g.nq); ++q) {
-            real iJ[N * N];
-            const auto w = loadPointInverseJacobian<N>(iJ, g, e, q);
-            const auto o = static_cast<std::size_t>(a.offsets[k]) + q;
-            // α (F - F0)
-            real dF[9];
-            for (int c = 0; c != gs; ++c) {
-              const auto sc = static_cast<std::size_t>(c);
-              const auto F = a.point_by_point ? a.gradients[o * sgs + sc]
-                                              : a.gradients[sc * np + o];
-              dF[c] = g.alpha * (F - F0[c]);
-            }
-            for (std::size_t node = 0; node != nd; ++node) {
-              real D[9][3];
-              computeFaltusOperator<K>(D, g, q, node, iJ, iJ0);
-              for (int v = 0; v != V; ++v) {
-                auto f = real{0};
-                for (int c = 0; c != gs; ++c) {
-                  f += D[c][v] * dF[c];
-                }
-                fe[node + nd * static_cast<std::size_t>(v)] += w * f;
+          // points processed at once, and first of them in the shared arrays
+          const auto np = getNumberOfPointsPerChunk(nq);
+          const auto b = static_cast<std::size_t>(MFEM_THREAD_ID(z)) * np;
+          for (std::size_t q0 = 0; q0 < nq; q0 += np) {
+            const auto nc = (nq - q0) < np ? nq - q0 : np;
+            MFEM_FOREACH_THREAD(iq, x, static_cast<int>(nc)) {
+              const auto q = q0 + static_cast<std::size_t>(iq);
+              const auto sq = b + static_cast<std::size_t>(iq);
+              weights[sq] = loadPointInverseJacobian<N>(
+                  inverse_jacobians + N * N * sq, g, e, q);
+              const auto o = static_cast<std::size_t>(a.offsets[k]) + q;
+              for (int c = 0; c != gs; ++c) {
+                const auto sc = static_cast<std::size_t>(c);
+                const auto F =
+                    a.gradients[static_cast<long long>(o) * a.point_stride +
+                                static_cast<long long>(sc) *
+                                    a.component_stride];
+                differences[sgs * sq + sc] = g.alpha * (F - F0[c]);
               }
             }
+            MFEM_SYNC_THREAD;
+            MFEM_FOREACH_THREAD(inode, x, g.nd) {
+              const auto node = static_cast<std::size_t>(inode);
+              real iJ0[N * N];
+              loadCenterInverseJacobian<N>(iJ0, g, e);
+              real fn[V];
+              for (int v = 0; v != V; ++v) {
+                fn[v] = fe[node + nd * static_cast<std::size_t>(v)];
+              }
+              for (std::size_t iq = 0; iq != nc; ++iq) {
+                const auto q = q0 + iq;
+                const auto sq = b + iq;
+                real D[9][3];
+                computeFaltusOperator<K>(D, g, q, node,
+                                         inverse_jacobians + N * N * sq, iJ0);
+                const auto* const dF = differences + sgs * sq;
+                const auto w = weights[sq];
+                for (int v = 0; v != V; ++v) {
+                  auto f = real{0};
+                  for (int c = 0; c != gs; ++c) {
+                    f += D[c][v] * dF[c];
+                  }
+                  fn[v] += w * f;
+                }
+              }
+              for (int v = 0; v != V; ++v) {
+                fe[node + nd * static_cast<std::size_t>(v)] = fn[v];
+              }
+            }
+            if (q0 + np < nq) {
+              // the next chunk overwrites the shared arrays
+              MFEM_SYNC_THREAD;
+            }
           }
-        });
+        },
+        bx, 1, bz);
   }  // end of launchFaltusInnerForcesKernel
 
   template <GradientsKind K>

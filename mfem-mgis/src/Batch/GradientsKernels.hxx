@@ -31,6 +31,14 @@ namespace mfem_mgis::batch::internals {
      * `gradientsRequireUnknownsValues`)
      */
     const real* unknowns_values = nullptr;
+    //! \brief stride between two points of the derivatives
+    long long derivatives_point_stride = 0;
+    //! \brief stride between two components of the derivatives
+    long long derivatives_component_stride = 0;
+    //! \brief stride between two points of the values of the unknowns
+    long long unknowns_values_point_stride = 0;
+    //! \brief stride between two components of the values of the unknowns
+    long long unknowns_values_component_stride = 0;
     /*!
      * \brief inverses of the jacobians of the element transformations (`nq x
      * dim x dim x ne`, see `ElementsJacobians::invJ`)
@@ -50,8 +58,10 @@ namespace mfem_mgis::batch::internals {
     int number_of_points = 0;
     //! \brief number of components of the gradients
     int gradients_size = 0;
-    //! \brief layout of the gradients: true if stored point by point
-    bool point_by_point = true;
+    //! \brief stride between two points of the gradients
+    long long point_stride = 0;
+    //! \brief stride between two components of the gradients
+    long long component_stride = 0;
     //! \brief macroscopic gradients
     real macroscopic_gradients[9] = {};
   };
@@ -85,6 +95,14 @@ namespace mfem_mgis::batch::internals {
      * `UnknownsDerivatives::point_values`), not computed if null
      */
     real* point_values = nullptr;
+    //! \brief stride between two points of the derivatives
+    long long derivatives_point_stride = 0;
+    //! \brief stride between two components of the derivatives
+    long long derivatives_component_stride = 0;
+    //! \brief stride between two points of the values at the points
+    long long point_values_point_stride = 0;
+    //! \brief stride between two components of the values at the points
+    long long point_values_component_stride = 0;
     //! \brief number of elements
     int number_of_elements = 0;
     //! \brief number of degrees of freedom per element and per component
@@ -110,6 +128,19 @@ namespace mfem_mgis::batch::internals {
     const real* point_values = nullptr;
     //! \brief values at the points of the material
     real* values = nullptr;
+    //! \brief stride between two points of the values at the points of all the
+    //! elements
+    long long point_values_point_stride = 0;
+    //! \brief stride between two components of the values at the points of all
+    //! the elements
+    long long point_values_component_stride = 0;
+    //! \brief stride between two points of the values at the points of the
+    //! material
+    long long values_point_stride = 0;
+    //! \brief stride between two components of the values at the points of the
+    //! material
+    long long values_component_stride = 0;
+
     //! \brief number of elements of the material
     int number_of_elements = 0;
     //! \brief number of integration points per element

@@ -34,14 +34,14 @@ namespace mfem_mgis {
 
   FBarOrthotropicTridimensionalBehaviourIntegrator::
       FBarOrthotropicTridimensionalBehaviourIntegrator(
-          const FiniteElementDiscretization &fed,
+          const FiniteElementDiscretization& fed,
           const size_type m,
           std::unique_ptr<const Behaviour> b_ptr,
-          const mgis::FieldLayout l)
+          const mgis::behaviour::MaterialDataManagerLayout& l)
       : FBarBehaviourIntegratorCRTPBase<
             FBarOrthotropicTridimensionalBehaviourIntegrator,
-            Hypothesis::TRIDIMENSIONAL>(buildQuadratureSpace(throwing, fed, m),
-                                        std::move(b_ptr), l) {
+            Hypothesis::TRIDIMENSIONAL>(
+            buildQuadratureSpace(throwing, fed, m), std::move(b_ptr), l) {
     this->checkIfAFiniteStrainBehaviourIsDeclared(throwing);
     this->checkBehaviourSymmetry(throwing, Behaviour::ORTHOTROPIC);
     this->checkHypothesis(throwing, Hypothesis::TRIDIMENSIONAL);

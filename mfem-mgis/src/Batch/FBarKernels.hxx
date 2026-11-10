@@ -27,6 +27,10 @@ namespace mfem_mgis::batch::internals {
      * of the mesh (see `UnknownsDerivatives`), null for null unknowns
      */
     const real* derivatives = nullptr;
+    //! \brief stride between two points (elements) of the derivatives
+    long long derivatives_point_stride = 0;
+    //! \brief stride between two components of the derivatives
+    long long derivatives_component_stride = 0;
     /*!
      * \brief inverses of the jacobians at the center of all the elements of
      * the mesh (see `ElementsJacobians::invJ`)
@@ -68,8 +72,12 @@ namespace mfem_mgis::batch::internals {
      * the kernel of the gradients, replaced by `F̄`), null for null unknowns
      */
     real* gradients = nullptr;
-    //! \brief deformation gradients `F`, point by point
+    //! \brief deformation gradients `F`
     real* deformation_gradients = nullptr;
+    //! \brief stride between two points of the deformation gradients `F`
+    long long deformation_gradients_point_stride = 0;
+    //! \brief stride between two components of the deformation gradients `F`
+    long long deformation_gradients_component_stride = 0;
     //! \brief coefficients `α`
     real* coefficients = nullptr;
     //! \brief number of elements of the material
@@ -78,8 +86,10 @@ namespace mfem_mgis::batch::internals {
     int nq = 0;
     //! \brief number of integration points of the material
     int number_of_points = 0;
-    //! \brief layout of the gradients: true if stored point by point
-    bool point_by_point = true;
+    //! \brief stride between two points of the gradients
+    long long point_stride = 0;
+    //! \brief stride between two components of the gradients
+    long long component_stride = 0;
     //! \brief macroscopic gradients (for null unknowns)
     real macroscopic_gradients[9] = {};
   };
@@ -97,8 +107,12 @@ namespace mfem_mgis::batch::internals {
     const int* offsets = nullptr;
     //! \brief data at the center of the elements of the material
     const real* centers = nullptr;
-    //! \brief deformation gradients `F`, point by point
+    //! \brief deformation gradients `F`
     const real* deformation_gradients = nullptr;
+    //! \brief stride between two points of the deformation gradients `F`
+    long long deformation_gradients_point_stride = 0;
+    //! \brief stride between two components of the deformation gradients `F`
+    long long deformation_gradients_component_stride = 0;
     //! \brief coefficients `α`
     const real* coefficients = nullptr;
     //! \brief tangent operator blocks of the behaviour
@@ -107,15 +121,21 @@ namespace mfem_mgis::batch::internals {
     long long point_stride = 0;
     //! \brief stride between two components of the tangent operator blocks
     long long component_stride = 0;
-    /*!
-     * \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`,
-     * point by point
-     */
+    //! \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`
     real* v = nullptr;
-    //! \brief vectors `c = dα/dF`, point by point
+    //! \brief vectors `c = dα/dF`
     real* c = nullptr;
-    //! \brief pseudo-stresses, point by point
+    //! \brief stride between two points of `v` and of `c`
+    long long tangent_point_stride = 0;
+    //! \brief stride between two components of `v` and of `c`
+    long long tangent_component_stride = 0;
+    //! \brief pseudo-stresses
     real* pseudo_stresses = nullptr;
+    //! \brief stride between two points of the pseudo-stresses
+    long long pseudo_stresses_point_stride = 0;
+    //! \brief stride between two components of the pseudo-stresses
+    long long pseudo_stresses_component_stride = 0;
+
     //! \brief number of elements of the material
     int number_of_elements = 0;
     //! \brief number of integration points per element

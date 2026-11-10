@@ -22,7 +22,7 @@ namespace mfem_mgis {
       const size_type m,
       std::unique_ptr<const Behaviour> b,
       const Parameters& params,
-      const mgis::FieldLayout l) noexcept {
+      const mgis::behaviour::MaterialDataManagerLayout& l) noexcept {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }
@@ -54,7 +54,7 @@ namespace mfem_mgis {
       const size_type m,
       std::unique_ptr<const Behaviour> b,
       const Parameters& params,
-      const mgis::FieldLayout l) noexcept {
+      const mgis::behaviour::MaterialDataManagerLayout& l) noexcept {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }
@@ -86,7 +86,7 @@ namespace mfem_mgis {
       const size_type m,
       std::unique_ptr<const Behaviour> b,
       const Parameters& params,
-      const mgis::FieldLayout l) noexcept {
+      const mgis::behaviour::MaterialDataManagerLayout& l) noexcept {
     if (b->btype != Behaviour::STANDARDFINITESTRAINBEHAVIOUR) {
       return ctx.registerErrorMessage("invalid behaviour type");
     }

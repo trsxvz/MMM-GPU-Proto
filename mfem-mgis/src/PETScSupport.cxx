@@ -514,6 +514,27 @@ namespace mfem_mgis::internals {
     copyDeviceArray(arrays.ya, z.Read(), ny);
   }  // end of applyOnDevice
 
+  void warnIfRigidBodyModesAreIgnored(Context& ctx,
+                                      const FiniteElementSpace<true>& fespace,
+                                      const Parameters& options) noexcept {
+    if ((!hasRigidBodyModes(fespace)) ||
+        (fespace.GetOrdering() == mfem::Ordering::byVDIM) ||
+        (fespace.GetMyRank() != 0) || (!options.contains("pc_type"))) {
+      return;
+    }
+    // the type of the option is checked without registering an error in the
+    // context of the caller
+    auto lctx = Context{};
+    const auto opc = get<std::string>(lctx, options, "pc_type");
+    if (isInvalid(opc) || (*opc != "gamg")) {
+      return;
+    }
+    warning(ctx.log(),
+            "PETSc: the rigid body modes are not given to the preconditioner "
+            "GAMG: they require unknowns ordered by vector dimension (i.e. "
+            "the parameter 'FiniteElementSpaceOrdering' set to 'byVDIM')");
+  }  // end of warnIfRigidBodyModesAreIgnored
+
   void PETScRigidBodyModes::initialize(FiniteElementSpace<true>& fespace) {
     this->dimension = 0;
     this->coordinates.clear();

@@ -223,17 +223,24 @@ namespace mfem_mgis::batch::internals {
         (K == GradientsKind::DEFORMATION_GRADIENT_2D);
     if (deformation_gradient && (a.modification_coefficients != nullptr)) {
       const auto so = static_cast<std::size_t>(o);
-      const auto* const v = a.modification_v + gs * so;
-      const auto* const c = a.modification_c + gs * so;
+      const auto ms = a.modification_component_stride;
+      const auto* const v0 = a.modification_v + o * a.modification_point_stride;
+      const auto* const c0 = a.modification_c + o * a.modification_point_stride;
+      auto v = [v0, ms](const std::size_t i) {
+        return v0[static_cast<long long>(i) * ms];
+      };
+      auto c = [c0, ms](const std::size_t i) {
+        return c0[static_cast<long long>(i) * ms];
+      };
       const auto alpha = a.modification_coefficients[so];
       auto cx = real{0};
       for (const auto& e : entries) {
         if (static_cast<std::size_t>(e.column) == d) {
-          cx += c[e.row] * (e.factor * x[e.source]);
+          cx += c(static_cast<std::size_t>(e.row)) * (e.factor * x[e.source]);
         }
       }
       for (std::size_t r1 = 0; r1 != gs; ++r1) {
-        y[r1] = alpha * y[r1] + v[r1] * cx;
+        y[r1] = alpha * y[r1] + v(r1) * cx;
       }
     }
   }  // end of multiplyByTangentOperatorAndB
@@ -294,15 +301,22 @@ namespace mfem_mgis::batch::internals {
         (K == GradientsKind::DEFORMATION_GRADIENT_2D);
     if (deformation_gradient && (a.modification_coefficients != nullptr)) {
       const auto so = static_cast<std::size_t>(o);
-      const auto* const v = a.modification_v + gs * so;
-      const auto* const c = a.modification_c + gs * so;
+      const auto ms = a.modification_component_stride;
+      const auto* const v0 = a.modification_v + o * a.modification_point_stride;
+      const auto* const c0 = a.modification_c + o * a.modification_point_stride;
+      auto v = [v0, ms](const std::size_t i) {
+        return v0[static_cast<long long>(i) * ms];
+      };
+      auto c = [c0, ms](const std::size_t i) {
+        return c0[static_cast<long long>(i) * ms];
+      };
       const auto alpha = a.modification_coefficients[so];
       auto cx = real{0};
       for (std::size_t r = 0; r != gs; ++r) {
-        cx += c[r] * x[r];
+        cx += c(r) * x[r];
       }
       for (std::size_t r1 = 0; r1 != gs; ++r1) {
-        y[r1] = alpha * y[r1] + v[r1] * cx;
+        y[r1] = alpha * y[r1] + v(r1) * cx;
       }
     }
   }  // end of multiplyByTangentOperator
@@ -636,13 +650,17 @@ namespace mfem_mgis::batch::internals {
   }  // end of launchStiffnessMatricesNodalBlocksKernel
 
   /*!
-   * \brief launches the kernel adding the action of the stiffness matrices of
-   * the elements of a material on values given element by element (see
-   * `launchTangentOperatorActionKernel`): one thread per element, which
-   * computes, at each point, the increment of the gradients `B x`, the
-   * increment of the thermodynamic forces `K B x` (plus the contribution of
-   * the increment of the unknowns `N x` for the heat transfer behaviours)
-   * and adds `Bᵀ K B x w det J` to the values of the element
+   * \brief launches the kernel applying the tangent operator of the
+   * elements of a material on values given element by element (see
+   * `launchTangentOperatorActionKernel`), with one thread per point then one
+   * thread per node (see `maximum_number_of_points_per_block`): each point
+   * thread computes the increment of the gradients `B x`, then the increment
+   * of the thermodynamic forces `K B x` (plus the contribution of the
+   * increment of the unknowns `N x` for the heat transfer behaviours),
+   * reading the tangent operator blocks of its point through their strides
+   * (coalesced accesses in the component by component layout); each node
+   * thread then adds `Bᵀ K B x w det J` to the values of the element, the
+   * contributions of the points being summed in their order
    * \tparam K: kind of the gradients
    * \param[in] a: arguments of the kernels
    * \param[in] x: values element by element
@@ -655,71 +673,114 @@ namespace mfem_mgis::batch::internals {
       const real* const x,
       real* const y,
       const bool use_device) {
-    mfem::forall_switch(
-        use_device, a.number_of_elements, [a, x, y] MFEM_HOST_DEVICE(int k) {
-          // dimension and number of components of the unknowns
-          constexpr auto N = getDimension<K>();
-          constexpr auto V = getUnknownsSize<K>();
-          constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
+    // dimension and number of components of the unknowns and of the
+    // gradients
+    constexpr auto N = getDimension<K>();
+    constexpr auto V = getUnknownsSize<K>();
+    constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
+    constexpr auto P = maximum_number_of_points_per_block;
+    const auto bz = getNumberOfElementsPerBlock(a.nq, a.nd);
+    const auto bx = getNumberOfThreadsPerElement(a.nq, a.nd);
+    mfem::ForallWrap<2>(
+        use_device, a.number_of_elements,
+        [a, x, y] MFEM_HOST_DEVICE(int k) {
+          // increments of the thermodynamic forces, weights and inverses of
+          // the jacobians of the points
+          MFEM_SHARED real forces_increments[P * gs];
+          MFEM_SHARED real weights[P];
+          MFEM_SHARED real inverse_jacobians[P * N * N];
           const auto nd = static_cast<std::size_t>(a.nd);
           const auto nq = static_cast<std::size_t>(a.nq);
           const auto e = static_cast<std::size_t>(a.elements[k]);
           const auto* const xe = x + nd * V * e;
           auto* const ye = y + nd * V * e;
-          for (std::size_t q = 0; q != nq; ++q) {
-            const auto detJ = a.determinants[q + nq * e];
-            real iJ[N * N];
-            loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
-                                   nq);
-            // increment of the gradients, B x, without forming B (see
-            // `getBOperatorEntries`)
-            constexpr auto entries = getBOperatorEntries<K>();
-            real dg[gs] = {};
-            for (std::size_t node = 0; node != nd; ++node) {
-              real xn[N + 1];
-              computePhysicalDerivatives<N>(xn, a.shape_functions_gradients, q,
-                                            nq, node, iJ);
-              xn[N] = getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
-              for (const auto& en : entries) {
-                const auto c = static_cast<std::size_t>(en.column);
-                dg[en.row] += (en.factor * xn[en.source]) * xe[node + nd * c];
-              }
-            }
-            // increment of the thermodynamic forces, K B x
-            const auto o = static_cast<long long>(a.offsets[k]) +
-                           static_cast<long long>(q);
-            // tangent operator blocks of the point, for the derivatives with
-            // respect to the unknowns
-            [[maybe_unused]] const auto* const t =
-                a.tangent_operator + o * a.point_stride;
-            [[maybe_unused]] const auto cs = a.component_stride;
-            real ds[gs];
-            multiplyByTangentOperator<K>(ds, a, o, dg);
-            if constexpr (hasUnknownsBlock<K>()) {
-              // increment of the unknowns at the point, N x, times the
-              // derivatives of the thermodynamic forces with respect to the
-              // unknowns
-              auto du = real{0};
+          // points processed at once, and first of them in the shared arrays
+          const auto np = getNumberOfPointsPerChunk(nq);
+          const auto b = static_cast<std::size_t>(MFEM_THREAD_ID(z)) * np;
+          for (std::size_t q0 = 0; q0 < nq; q0 += np) {
+            const auto nc = (nq - q0) < np ? nq - q0 : np;
+            MFEM_FOREACH_THREAD(iq, x, static_cast<int>(nc)) {
+              const auto q = q0 + static_cast<std::size_t>(iq);
+              const auto sq = b + static_cast<std::size_t>(iq);
+              auto* const iJ = inverse_jacobians + N * N * sq;
+              loadInverseJacobian<N>(
+                  iJ, a.inverse_jacobians + q + nq * N * N * e, nq);
+              // increment of the gradients, B x, without forming B (see
+              // `getBOperatorEntries`)
+              constexpr auto entries = getBOperatorEntries<K>();
+              real dg[gs] = {};
               for (std::size_t node = 0; node != nd; ++node) {
-                du += a.shape_functions[q + nq * node] * xe[node];
+                real xn[N + 1];
+                computePhysicalDerivatives<N>(xn, a.shape_functions_gradients,
+                                              q, nq, node, iJ);
+                xn[N] =
+                    getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
+                for (const auto& en : entries) {
+                  const auto c = static_cast<std::size_t>(en.column);
+                  dg[en.row] += (en.factor * xn[en.source]) * xe[node + nd * c];
+                }
+              }
+              // increment of the thermodynamic forces, K B x
+              const auto o = static_cast<long long>(a.offsets[k]) +
+                             static_cast<long long>(q);
+              // tangent operator blocks of the point, for the derivatives
+              // with respect to the unknowns
+              [[maybe_unused]] const auto* const t =
+                  a.tangent_operator + o * a.point_stride;
+              [[maybe_unused]] const auto cs = a.component_stride;
+              real ds[gs];
+              multiplyByTangentOperator<K>(ds, a, o, dg);
+              if constexpr (hasUnknownsBlock<K>()) {
+                // increment of the unknowns at the point, N x, times the
+                // derivatives of the thermodynamic forces with respect to
+                // the unknowns
+                auto du = real{0};
+                for (std::size_t node = 0; node != nd; ++node) {
+                  du += a.shape_functions[q + nq * node] * xe[node];
+                }
+                for (std::size_t r1 = 0; r1 != gs; ++r1) {
+                  ds[r1] += t[static_cast<long long>(gs * gs + r1) * cs] * du;
+                }
               }
               for (std::size_t r1 = 0; r1 != gs; ++r1) {
-                ds[r1] += t[static_cast<long long>(gs * gs + r1) * cs] * du;
+                forces_increments[gs * sq + r1] = ds[r1];
+              }
+              weights[sq] = a.weights[q] * a.determinants[q + nq * e];
+            }
+            MFEM_SYNC_THREAD;
+            // Bᵀ K B x w det J
+            MFEM_FOREACH_THREAD(inode, x, a.nd) {
+              const auto node = static_cast<std::size_t>(inode);
+              real yn[V];
+              for (std::size_t c = 0; c != V; ++c) {
+                yn[c] = ye[node + nd * c];
+              }
+              for (std::size_t iq = 0; iq != nc; ++iq) {
+                const auto q = q0 + iq;
+                const auto sq = b + iq;
+                real xn[N + 1];
+                computePhysicalDerivatives<N>(xn, a.shape_functions_gradients,
+                                              q, nq, node,
+                                              inverse_jacobians + N * N * sq);
+                xn[N] =
+                    getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
+                const auto w = weights[sq];
+                const auto* const ds = forces_increments + gs * sq;
+                for (std::size_t c = 0; c != V; ++c) {
+                  yn[c] += w * multiplyByTransposedB<K>(xn, c, ds);
+                }
+              }
+              for (std::size_t c = 0; c != V; ++c) {
+                ye[node + nd * c] = yn[c];
               }
             }
-            // Bᵀ K B x w det J
-            const auto w = a.weights[q] * detJ;
-            for (std::size_t node = 0; node != nd; ++node) {
-              real xn[N + 1];
-              computePhysicalDerivatives<N>(xn, a.shape_functions_gradients, q,
-                                            nq, node, iJ);
-              xn[N] = getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
-              for (std::size_t c = 0; c != V; ++c) {
-                ye[node + nd * c] += w * multiplyByTransposedB<K>(xn, c, ds);
-              }
+            if (q0 + np < nq) {
+              // the next chunk overwrites the shared arrays
+              MFEM_SYNC_THREAD;
             }
           }
-        });
+        },
+        bx, 1, bz);
   }  // end of launchTangentOperatorActionKernel
 
   void launchTangentOperatorActionKernel(

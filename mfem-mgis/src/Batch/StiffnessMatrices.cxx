@@ -118,6 +118,8 @@ namespace mfem_mgis::batch {
       a.modification_coefficients = mod.coefficients;
       a.modification_v = mod.v;
       a.modification_c = mod.c;
+      a.modification_point_stride = mod.point_stride;
+      a.modification_component_stride = mod.component_stride;
     }
     a.elements = elements.Read(use_device);
     a.offsets = offsets.Read(use_device);

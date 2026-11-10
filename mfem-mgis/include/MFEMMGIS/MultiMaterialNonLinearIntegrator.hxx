@@ -16,6 +16,7 @@
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/Parameters.hxx"
+#include "MFEMMGIS/QuadratureDataLayout.hxx"
 #include "MFEMMGIS/Batch/Gradients.hxx"
 #include "MFEMMGIS/Batch/InnerForces.hxx"
 #include "MFEMMGIS/Batch/StiffnessMatrices.hxx"
@@ -179,17 +180,6 @@ namespace mfem_mgis {
     [[nodiscard]] bool checkInnerForcesKernelsSupport(
         Context& ctx, const bool gradients_kernels) const noexcept;
     /*!
-     * \return true if the gradients, the inner forces and the stiffness
-     * matrices of all the behaviour integrators can be computed element by
-     * element: these computations read and write the arrays of the
-     * materials point by point; otherwise (material whose arrays are stored
-     * component by component, see `quadrature_data_layout_parameter`), an
-     * error message naming the material is registered
-     * \param[in, out] ctx: execution context
-     */
-    [[nodiscard]] bool checkElementByElementComputationsSupport(
-        Context& ctx) const noexcept;
-    /*!
      * \brief compute the gradients of all the behaviour integrators by
      * kernels (first step of the integration by batches, replacing the calls
      * to `computeGradients` element by element): the derivatives of the
@@ -273,13 +263,15 @@ namespace mfem_mgis {
      */
     void setOrderedStiffnessMatricesAssembly(const bool b) noexcept;
     /*!
-     * \brief set the layout of the data at the integration points of the
-     * materials added afterwards by `addBehaviourIntegrator`, unless given
-     * by their `QuadratureDataLayout` parameter (point by point by default,
-     * see `quadrature_data_layout_parameter`)
-     * \param[in] l: layout
+     * \brief set the layouts of the data at the integration points of the
+     * materials added afterwards by `addBehaviourIntegrator`, the layouts
+     * not given by their `QuadratureDataLayout` parameter being the ones of
+     * this specification (automatic by default, see
+     * `quadrature_data_layout_parameter`)
+     * \param[in] s: specification
      */
-    void setQuadratureDataLayout(const mgis::FieldLayout l) noexcept;
+    void setQuadratureDataLayout(
+        const QuadratureDataLayoutSpecification& s) noexcept;
     /*!
      * \return the number of assemblies made by
      * `assembleStiffnessMatrixByKernels` in a fixed order (see
@@ -605,8 +597,7 @@ namespace mfem_mgis {
     //! \brief see `setOrderedStiffnessMatricesAssembly`
     bool ordered_stiffness_matrices_assembly = false;
     //! \brief see `setQuadratureDataLayout`
-    mgis::FieldLayout quadrature_data_layout =
-        mgis::FieldLayout::POINT_BY_POINT;
+    QuadratureDataLayoutSpecification quadrature_data_layout;
     //! \brief see `getNumberOfOrderedStiffnessMatricesAssemblies`
     size_type ordered_stiffness_matrices_assemblies = 0;
     /*!

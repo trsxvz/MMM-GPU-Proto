@@ -63,10 +63,11 @@ namespace mfem_mgis {
      * \param[in] l: layout of the data at the integration points
      */
     FBarOrthotropicPlaneStrainBehaviourIntegrator(
-        const FiniteElementDiscretization &fed,
+        const FiniteElementDiscretization& fed,
         const size_type m,
         std::unique_ptr<const Behaviour> b_ptr,
-        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+        const mgis::behaviour::MaterialDataManagerLayout& l =
+            mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \brief get the rotation matrix at the given integration point
      * \return the rotation matrix associated with the given integration

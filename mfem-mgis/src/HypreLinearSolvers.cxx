@@ -290,16 +290,18 @@ namespace mfem_mgis {
       // is not supported by hypre when it computes on a GPU
       const auto by_vdim = fespace.GetOrdering() == mfem::Ordering::byVDIM;
       elasticity = by_vdim && (!isHypreUsingGPU());
-      if ((!elasticity) && (fespace.GetMyRank() == 0)) {
+      if (!by_vdim) {
+        internals::warnAboutNodalBlocks<true>(
+            ctx, fespace,
+            "setLinearSolverParameters: strategy 'Elasticity' of "
+            "preconditioner HypreBoomerAMG requires unknowns ordered by vector "
+            "dimension (i.e. the parameter 'FiniteElementSpaceOrdering' must "
+            "be set to 'byVDIM'), using strategy 'System' instead");
+      } else if ((!elasticity) && (fespace.GetMyRank() == 0)) {
         warning(ctx.log(),
-                by_vdim ? "setLinearSolverParameters: strategy 'Elasticity' "
-                          "of preconditioner HypreBoomerAMG is not supported "
-                          "by hypre on a GPU, using strategy 'System' instead"
-                        : "setLinearSolverParameters: strategy 'Elasticity' "
-                          "of preconditioner HypreBoomerAMG requires unknowns "
-                          "ordered by vector dimension (i.e. the parameter "
-                          "'FiniteElementSpaceOrdering' must be set to "
-                          "'byVDIM'), using strategy 'System' instead");
+                "setLinearSolverParameters: strategy 'Elasticity' of "
+                "preconditioner HypreBoomerAMG is not supported by hypre on a "
+                "GPU, using strategy 'System' instead");
       }
     } else if ((*ostrategy != "System") && (*ostrategy != "None")) {
       return ctx.registerErrorMessage(

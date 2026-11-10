@@ -42,11 +42,11 @@ material. Behaviour integrators are associated with:
      location where the behaviour of this material is expected to be
      integrated, checked against its library (see
      :ref:`mfem_mgis_batch_computations_execution`);
-   - :code:`QuadratureDataLayout` (:code:`PointByPoint` or
-     :code:`ComponentByComponent`): the layout of the data at the
-     integration points of this material, replacing the one given by the
-     parameter of the same name of the problem (see
-     :ref:`mfem_mgis_batch_computations`);
+   - :code:`QuadratureDataLayout` (:code:`PointByPoint`,
+     :code:`ComponentByComponent`, :code:`Automatic`, or the layout of
+     each array): the layouts of the data at the integration points of this
+     material, replacing the ones given by the parameter of the same name
+     of the problem (see :ref:`mfem_mgis_batch_computations`);
    - :code:`DisplacementGradient` (boolean, :code:`false` by default):
      give the displacement gradient :math:`H = F - I` instead of the
      deformation gradient :math:`F` to a finite strain behaviour. The

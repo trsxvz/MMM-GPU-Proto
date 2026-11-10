@@ -20,6 +20,23 @@ namespace mfem_mgis {
     return this->data_stride;
   }  // end of getDataStride
 
+  inline size_type PartialQuadratureFunctionDataLayout::getComponentStride()
+      const noexcept {
+    return this->data_component_stride;
+  }  // end of getComponentStride
+
+  inline bool PartialQuadratureFunctionDataLayout::hasContiguousComponents()
+      const noexcept {
+    return (this->data_component_stride == 1) || (this->data_size == 1);
+  }  // end of hasContiguousComponents
+
+  inline void PartialQuadratureFunctionDataLayout::checkContiguousComponents(
+      const char* const m) const {
+    if (!this->hasContiguousComponents()) {
+      raiseNonContiguousComponents(m);
+    }
+  }  // end of checkContiguousComponents
+
   inline size_type PartialQuadratureFunctionDataLayout::getDataOffset()
       const noexcept {
     return this->data_begin;
@@ -53,12 +70,14 @@ namespace mfem_mgis {
 
   inline const real* ImmutablePartialQuadratureFunctionView::data(
       const size_type o) const {
+    this->checkContiguousComponents("data");
     return this->immutable_values.data() + this->getDataOffset(o);
   }  // end of data
 
   inline std::span<const real>
   ImmutablePartialQuadratureFunctionView::getIntegrationPointValues(
       const size_type o) const {
+    this->checkContiguousComponents("getIntegrationPointValues");
     return std::span<const real>(
         this->immutable_values.data() + this->getDataOffset(o),
         this->data_size);
@@ -75,20 +94,23 @@ namespace mfem_mgis {
           "inconstent data size");
     }
 #endif /* MFEM_MGIS_DEBUG */
+    this->checkContiguousComponents("getIntegrationPointValues");
     return std::span<const real, N>(
         this->immutable_values.data() + this->getDataOffset(o),
         this->data_size);
   }  // end of getIntegrationPointValues
 
-  inline std::span<const real>
+  inline mgis::StridedSpan<const real>
   ImmutablePartialQuadratureFunctionView::operator()(const size_type o) const {
-    return this->getIntegrationPointValues(o);
+    return {this->immutable_values.data() + this->getDataOffset(o),
+            static_cast<mgis::size_type>(this->data_size),
+            static_cast<mgis::size_type>(this->data_component_stride)};
   }
 
-  inline std::span<const real>
+  inline mgis::StridedSpan<const real>
   ImmutablePartialQuadratureFunctionView::operator()(const size_type e,
                                                      const size_type i) const {
-    return this->getIntegrationPointValues(e, i);
+    return this->operator()(this->qspace.getOffset(e) + i);
   }
 
   inline PartialQuadratureFunctionView::PartialQuadratureFunctionView(
@@ -110,6 +132,7 @@ namespace mfem_mgis {
         mutable_values(v) {}  // end of PartialQuadratureFunctionView
 
   inline real* PartialQuadratureFunctionView::data(const size_type o) {
+    this->checkContiguousComponents("data");
     return this->mutable_values.data() + this->getDataOffset(o);
   }  // end of getIntegrationPointValues
 
@@ -120,6 +143,7 @@ namespace mfem_mgis {
 
   inline std::span<real>
   PartialQuadratureFunctionView::getIntegrationPointValues(const size_type o) {
+    this->checkContiguousComponents("getIntegrationPointValues");
     return std::span<real>(this->mutable_values.data() + this->getDataOffset(o),
                            this->data_size);
   }  // end of getIntegrationPointValues
@@ -134,18 +158,21 @@ namespace mfem_mgis {
           "inconstent data size");
     }
 #endif /* MFEM_MGIS_DEBUG */
+    this->checkContiguousComponents("getIntegrationPointValues");
     return std::span<real, N>(
         this->mutable_values.data() + this->getDataOffset(o), this->data_size);
   }  // end of getIntegrationPointValues
 
-  inline std::span<real> PartialQuadratureFunctionView::operator()(
+  inline mgis::StridedSpan<real> PartialQuadratureFunctionView::operator()(
       const size_type o) {
-    return this->getIntegrationPointValues(o);
+    return {this->mutable_values.data() + this->getDataOffset(o),
+            static_cast<mgis::size_type>(this->data_size),
+            static_cast<mgis::size_type>(this->data_component_stride)};
   }
 
-  inline std::span<real> PartialQuadratureFunctionView::operator()(
+  inline mgis::StridedSpan<real> PartialQuadratureFunctionView::operator()(
       const size_type e, const size_type i) {
-    return this->getIntegrationPointValues(e, i);
+    return this->operator()(this->qspace.getOffset(e) + i);
   }
 
   inline std::span<real> PartialQuadratureFunctionView::getValues() {

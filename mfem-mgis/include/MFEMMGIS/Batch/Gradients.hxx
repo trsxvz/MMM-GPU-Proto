@@ -10,8 +10,10 @@
 #define LIB_MFEM_MGIS_BATCH_GRADIENTS_HXX
 
 #include <map>
+#include <utility>
 #include <optional>
 #include "mfem/linalg/vector.hpp"
+#include "MGIS/FieldView.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Behaviour.hxx"
 #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
@@ -63,6 +65,14 @@ namespace mfem_mgis::batch {
     mfem::Vector point_values;
     //! \brief if true, the values at the integration points are computed
     bool has_point_values = false;
+    /*!
+     * \brief layout of `values` and of `point_values` over the points of
+     * all the elements (`q + nq * e`): point by point (the indices given
+     * above, by default) or component by component (the `j`-th component of
+     * the `p`-th point at `j * nq * ne + p`), see
+     * `computeUnknownsDerivatives`. Both layouts give the same results.
+     */
+    mgis::FieldLayout layout = mgis::FieldLayout::POINT_BY_POINT;
     //! \brief number of components of the unknowns
     int vdim = 0;
     //! \brief dimension of the space
@@ -72,6 +82,35 @@ namespace mfem_mgis::batch {
     //! \brief number of elements
     int ne = 0;
   };
+
+  /*!
+   * \return the strides, between two points and between two components, of
+   * an array of `nc` components at `n` points stored densely in the given
+   * layout
+   * \param[in] l: layout
+   * \param[in] n: number of points
+   * \param[in] nc: number of components
+   */
+  inline std::pair<long long, long long> getDenseStrides(
+      const mgis::FieldLayout l,
+      const long long n,
+      const long long nc) noexcept {
+    if (l == mgis::FieldLayout::POINT_BY_POINT) {
+      return {nc, 1};
+    }
+    return {1, n};
+  }  // end of getDenseStrides
+
+  /*!
+   * \return the strides, between two points and between two components, of
+   * the derivatives of the unknowns (see `UnknownsDerivatives::layout`)
+   * \param[in] d: derivatives
+   */
+  inline std::pair<long long, long long> getDerivativesStrides(
+      const UnknownsDerivatives& d) noexcept {
+    return getDenseStrides(d.layout, static_cast<long long>(d.nq) * d.ne,
+                           static_cast<long long>(d.vdim) * d.dim);
+  }  // end of getDerivativesStrides
 
   /*!
    * \brief derivatives of the unknowns for the integration rules of several
@@ -256,6 +295,8 @@ namespace mfem_mgis::batch {
    * \param[in] ir: integration rule
    * \param[in] values: if true, the values of the unknowns at the points are
    * computed
+   * \param[in] l: layout of the derivatives and of the values (see
+   * `UnknownsDerivatives::layout`)
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool computeUnknownsDerivatives(
       Context& ctx,
@@ -263,24 +304,28 @@ namespace mfem_mgis::batch {
       const mfem::FiniteElementSpace& fes,
       const mfem::Vector& u,
       const mfem::IntegrationRule& ir,
-      const bool values = false) noexcept;
+      const bool values = false,
+      const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT) noexcept;
   /*!
    * \brief gathers the values of the unknowns at the integration points of
    * a material, in the order of the points of the material, by a kernel, on
-   * the device if a device is enabled: the value of the `i`-th component at
-   * the point `o` is `v[i + vdim * o]`
+   * the device if a device is enabled, in the given layout: the value of the
+   * `i`-th component at the point `o` is `v[i + vdim * o]` point by point,
+   * `v[o + n * i]` component by component, `n` being the number of points
    * \return true on success
    * \param[in, out] ctx: execution context
    * \param[out] v: values
    * \param[in] qs: quadrature space of the material. All its elements must
    * use the integration rule of the derivatives.
    * \param[in] d: derivatives of the unknowns, with the values at the points
+   * \param[in] l: layout of the values
    */
   MFEM_MGIS_EXPORT [[nodiscard]] bool getUnknownsValues(
       Context& ctx,
       mfem::Vector& v,
       const PartialQuadratureSpace& qs,
-      const UnknownsDerivatives& d) noexcept;
+      const UnknownsDerivatives& d,
+      const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT) noexcept;
   /*!
    * \brief computes the gradients at the end of the time step of a material
    * at all its integration points, by a kernel: macroscopic gradients plus

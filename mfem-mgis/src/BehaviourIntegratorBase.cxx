@@ -25,6 +25,7 @@
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
 #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
+#include "MFEMMGIS/QuadratureDataLayout.hxx"
 #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
 
 namespace mfem_mgis {
@@ -61,7 +62,7 @@ namespace mfem_mgis {
   BehaviourIntegratorBase::BehaviourIntegratorBase(
       const PartialQuadratureSpace& s,
       std::unique_ptr<const Behaviour> b_ptr,
-      const mgis::FieldLayout l)
+      const mgis::behaviour::MaterialDataManagerLayout& l)
       : Material(s, std::move(b_ptr), l) {
     // The following arrays are storing material properties and external
     // state variables. They can be allocated a single time
@@ -82,17 +83,17 @@ namespace mfem_mgis {
     }
   }  // end of BehaviourIntegratorBase::checkHypothesis
 
-  void BehaviourIntegratorBase::checkElementByElementComputationsSupport(
+  void BehaviourIntegratorBase::checkPointByPointIntegrationSupport(
       attributes::Throwing) const {
-    if (this->layout != mgis::FieldLayout::POINT_BY_POINT) {
+    if (!isStoredPointByPoint(this->layout)) {
       raise(
-          "the computations element by element (integration point by point, "
-          "gradients, inner forces and stiffness matrix of an element) read "
-          "the values of a point as contiguous: they are not supported by a "
-          "material whose arrays are stored component by component "
-          "(parameter QuadratureDataLayout)");
+          "the integration point by point of the behaviour reads the values "
+          "of a point as contiguous: it is not supported by a material whose "
+          "arrays are stored component by component (parameter "
+          "QuadratureDataLayout), whose behaviour must be integrated by "
+          "batches (parameter BehaviourIntegration set to Batch)");
     }
-  }  // end of checkElementByElementComputationsSupport
+  }  // end of checkPointByPointIntegrationSupport
 
   void BehaviourIntegratorBase::checkIfAFiniteStrainBehaviourIsDeclared(
       attributes::Throwing) const {
@@ -433,32 +434,6 @@ namespace mfem_mgis {
     return OptionalReference<const Material>{this};
   }  // end of getMaterial
 
-  /*!
-   * \return true if the values of an external state variable computed by an
-   * evaluator can be given to MGIS: they are stored point by point, and MGIS
-   * reads the values of a variable with several components in the layout of
-   * the arrays of the material; otherwise, an error message is registered
-   * \param[in, out] ctx: execution context
-   * \param[in] m: material
-   * \param[in] n: name of the external state variable
-   * \param[in] v: values
-   */
-  [[nodiscard]] static bool checkExternalStateVariableLayout(
-      Context& ctx,
-      const Material& m,
-      const std::string& n,
-      const ImmutablePartialQuadratureFunctionView& v) noexcept {
-    if ((m.layout == mgis::FieldLayout::POINT_BY_POINT) ||
-        (v.getNumberOfComponents() == 1)) {
-      return true;
-    }
-    return ctx.registerErrorMessage(
-        "the external state variable '" + n +
-        "' has several components, computed point by point by an "
-        "evaluator: it can't be given to a material whose arrays are stored "
-        "component by component (parameter QuadratureDataLayout)");
-  }  // end of checkExternalStateVariableLayout
-
   bool BehaviourIntegratorBase::setup(Context& ctx,
                                       const real t,
                                       const real dt) noexcept {
@@ -552,7 +527,11 @@ namespace mfem_mgis {
           }
         }
       } else {
-        auto of = evaluate(ctx, *e, t, dt, {.ensure_contiguous_storage = true});
+        // the values of an external state variable with several components
+        // are given to MGIS in the layout of the material
+        auto of = evaluate(ctx, *e, t, dt,
+                           {.ensure_contiguous_storage = true,
+                            .layout = this->layout.external_state_variables});
         if (isInvalid(of)) {
           return false;
         }
@@ -584,7 +563,11 @@ namespace mfem_mgis {
           }
         }
       } else {
-        auto of = evaluate(ctx, *e, t, dt, {.ensure_contiguous_storage = true});
+        // the values of an external state variable with several components
+        // are given to MGIS in the layout of the material
+        auto of = evaluate(ctx, *e, t, dt,
+                           {.ensure_contiguous_storage = true,
+                            .layout = this->layout.external_state_variables});
         if (isInvalid(of)) {
           return false;
         }
@@ -612,9 +595,6 @@ namespace mfem_mgis {
       }
     }
     for (auto& [name, e] : this->wks.pqfcts_esvs_bts) {
-      if (!checkExternalStateVariableLayout(ctx, *this, name, e)) {
-        return false;
-      }
       if (!mgis::behaviour::setExternalStateVariable(
               ctx, this->s0, name, e.getValues(),
               mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
@@ -623,9 +603,6 @@ namespace mfem_mgis {
       }
     }
     for (auto& [name, e] : this->wks.pqfcts_esvs_ets) {
-      if (!checkExternalStateVariableLayout(ctx, *this, name, e)) {
-        return false;
-      }
       if (!mgis::behaviour::setExternalStateVariable(
               ctx, this->s1, name, e.getValues(),
               mgis::behaviour::MaterialStateManager::EXTERNAL_STORAGE,
@@ -782,9 +759,17 @@ namespace mfem_mgis {
     this->wks.has_rotated_thermodynamic_forces = false;
     char error_msg[512];
     error_msg[0] = '\0';
-    const auto g_offset = this->s0.gradients_stride * ip;
-    const auto t_offset = this->s0.thermodynamic_forces_stride * ip;
-    const auto isvs_offset = this->s0.internal_state_variables_stride * ip;
+    // offsets of the point in the arrays, stored point by point (see
+    // `checkPointByPointIntegrationSupport`): the stride between two points
+    // of an array of `nc` values per point is `nc` plus the padding
+    const auto getOffset = [this, ip](const size_type nc) noexcept {
+      return nc == 0 ? size_type{0} : (nc + this->layout.padding) * ip;
+    };
+    const auto g_offset = getOffset(this->s0.gradients_stride);
+    const auto t_offset = getOffset(this->s0.thermodynamic_forces_stride);
+    const auto isvs_offset =
+        getOffset(this->s0.internal_state_variables_stride);
+    const auto K_offset = getOffset(this->K_stride);
     // Fill vector `v` with material properties or external state variables.
     // Evaluators are used to deal with both uniform or spatially
     // variable quantities.
@@ -812,7 +797,7 @@ namespace mfem_mgis {
     v.error_message = error_msg;
     v.rdt = &rdt;
     v.dt = this->time_increment;
-    v.K = this->K.data() + this->K_stride * ip;
+    v.K = this->K.data() + K_offset;
     v.speed_of_sound = nullptr;
     v.s0.gradients = this->s0.gradients.data() + g_offset;
     v.s1.gradients = this->s1.gradients.data() + g_offset;
@@ -988,8 +973,10 @@ namespace mfem_mgis {
         auto& rf = this->wks.rotated_thermodynamic_forces;
         rf.UseDevice(true);
         rf.SetSize(static_cast<int>(size));
-        const auto d = mgis::makePointByPointFieldView(
-            std::span<real>(rf.Write(), size), np, nc, nc);
+        // the values follow the layout of the thermodynamic forces
+        const auto d =
+            mgis::makeFieldView(std::span<real>(rf.Write(), size),
+                                this->layout.thermodynamic_forces, np, nc);
         mgis::behaviour::rotateThermodynamicForces(
             d, this->b, v.s1.thermodynamic_forces, matrices, l);
         this->wks.has_rotated_thermodynamic_forces = true;
@@ -1068,8 +1055,10 @@ namespace mfem_mgis {
     auto& v = this->wks.rotated_thermodynamic_forces;
     v.SetSize(static_cast<int>(size));
     if (size != 0) {
-      const auto d = mgis::makePointByPointFieldView(
-          std::span<real>(v.HostWrite(), size), np, nc, nc);
+      // the values follow the layout of the thermodynamic forces
+      const auto d =
+          mgis::makeFieldView(std::span<real>(v.HostWrite(), size),
+                              this->layout.thermodynamic_forces, np, nc);
       mgis::behaviour::rotateThermodynamicForces(
           d, this->b, mgis::behaviour::getThermodynamicForcesView(this->s1),
           matrices);
@@ -1085,13 +1074,14 @@ namespace mfem_mgis {
       // on the host, or on the device if the computations of the behaviour
       // can't access the memory of the host
       this->computeThermodynamicForcesInGlobalFrame(
-          this->wks.rotated_thermodynamic_forces);
+          this->wks.rotated_thermodynamic_forces, END_OF_TIME_STEP,
+          this->layout.thermodynamic_forces);
       this->wks.has_rotated_thermodynamic_forces = true;
     }
     return true;
   }  // end of updateRotatedThermodynamicForces
 
-  std::span<const real>
+  mgis::FieldView<const real>
   BehaviourIntegratorBase::getRotatedThermodynamicForces() {
     if (!this->updateRotatedThermodynamicForces()) {
       return {};
@@ -1100,7 +1090,10 @@ namespace mfem_mgis {
     if (v.Size() == 0) {
       return {};
     }
-    return {v.HostRead(), static_cast<std::size_t>(v.Size())};
+    return mgis::makeFieldView(
+        std::span<const real>(v.HostRead(), static_cast<std::size_t>(v.Size())),
+        this->layout.thermodynamic_forces, static_cast<size_type>(this->n),
+        this->s1.thermodynamic_forces_stride);
   }  // end of getRotatedThermodynamicForces
 
   bool BehaviourIntegratorBase::cleanup(Context& ctx) noexcept {
@@ -1271,8 +1264,10 @@ namespace mfem_mgis {
     const auto s =
         std::span<const real>(this->getArrays().readTangentOperatorBlocks(d),
                               static_cast<std::size_t>(v.Size()));
-    return mgis::makeFieldView(s, this->getArrays().array_layout,
-                               static_cast<size_type>(this->n), this->K_stride);
+    const auto& l = this->getArrays().array_layout;
+    return mgis::makeFieldView(s, l.tangent_operator,
+                               static_cast<size_type>(this->n), this->K_stride,
+                               l.padding);
   }  // end of readTangentOperatorBlocks
 
   bool BehaviourIntegratorBase::addInnerForcesFromThermodynamicForcesByKernels(
@@ -1294,14 +1289,15 @@ namespace mfem_mgis {
         // thermodynamic forces in the global frame at all the points
         auto& v = this->wks.rotated_thermodynamic_forces;
         if (!this->updateRotatedThermodynamicForces()) {
-          this->computeThermodynamicForcesInGlobalFrame(v);
+          this->computeThermodynamicForcesInGlobalFrame(
+              v, END_OF_TIME_STEP, this->layout.thermodynamic_forces);
         }
         const auto s = std::span<const real>(
             v.Read(use_device), static_cast<std::size_t>(v.Size()));
         return batch::addInnerForces(
             ctx, f, this->quadrature_space,
-            mgis::makePointByPointFieldView(s, np, nc, nc), *(data.geometry),
-            data.kind);
+            mgis::makeFieldView(s, this->layout.thermodynamic_forces, np, nc),
+            *(data.geometry), data.kind);
       }
       const auto a =
           mfem_mgis::MaterialArrays::StateArray::THERMODYNAMIC_FORCES;
@@ -1309,9 +1305,10 @@ namespace mfem_mgis {
       const auto s =
           std::span<const real>(this->getArrays().read(a, ets, use_device),
                                 static_cast<std::size_t>(v.Size()));
+      const auto& l = this->getArrays().array_layout;
       return batch::addInnerForces(
           ctx, f, this->quadrature_space,
-          mgis::makeFieldView(s, this->getArrays().array_layout, np, nc),
+          mgis::makeFieldView(s, l.thermodynamic_forces, np, nc, l.padding),
           *(data.geometry), data.kind);
     } catch (std::exception& e) {
       return ctx.registerErrorMessage(std::string{"addInnerForcesByKernels: "} +

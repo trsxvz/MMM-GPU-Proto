@@ -348,7 +348,7 @@ see [JOURNAL.md](../JOURNAL.md). The preconditioner kept on `K0` goes through th
 | Where | Parameter | Values |
 |---|---|---|
 | problem | `AssemblyStrategy` | `Legacy` (default, current path), `BatchedOperator` (dedicated operator), `PartialAssembly` (partial assembly of MFEM) |
-| problem | `QuadratureDataLayout` | `PointByPoint` (default), `ComponentByComponent` (refused by the integration point by point and the computations element by element); also a parameter of `addBehaviourIntegrator` (one material) and of `PointWiseModel` |
+| problem | `QuadratureDataLayout` | `Automatic` (default since 10/11/2026: `ComponentByComponent` for a material integrated by batches on a GPU, `PointByPoint` otherwise), `PointByPoint`, `ComponentByComponent`, or the layout of each array with a padding; refused only by the integration point by point; also a parameter of `addBehaviourIntegrator` (one material) and of `PointWiseModel` |
 | problem | `TangentOperator` | `Assembled` (option c, default), `MatrixFree` (option a), `ElementMatrices` (element assembly), `ElasticOperator` (option b) |
 | problem | `IntegrationRuleOrder` | order of the integration rule; by default the current one (`2 * OrderGrad`) |
 | problem | `Prediction` | dictionary taking up the four current axes (`Strategy`, `Operator`, `IntegrationOperator`, `NullTimeIncrement`), plus the new `Extrapolation` strategy |
@@ -489,6 +489,8 @@ Work:
   `AssemblyStrategy=Legacy` come with the batch path (L2, L3). In this
   work package, only the data of the materials and their description
   change; the accesses of the current path remain point by point.
+  Since 10/11/2026, all the paths read the arrays through their strides,
+  except the integration point by point (see [mgis.md](mgis.md#views-and-layouts)).
 - **Host access through the public API** (accessors of `Material`,
   post-processings, projections, `StateManager`, gradient evaluators,
   initialization of the internal variables): each accessor synchronizes

@@ -9,6 +9,7 @@
 #define LIB_MFEM_MGIS_SRC_BATCH_KERNELSUTILITIES_HXX
 
 #include <array>
+#include <algorithm>
 #include <cstddef>
 #include "mfem/general/forall.hpp"
 #include "MFEMMGIS/Config.hxx"
@@ -183,6 +184,77 @@ namespace mfem_mgis::batch::internals {
       iJ[8] = (j(0, 0) * j(1, 1) - j(0, 1) * j(1, 0)) / detJ;
     }
   }  // end of invertJacobian
+
+  /*!
+   * \brief maximum number of integration points of the elements processed
+   * by a block of threads of the kernels using one thread per point: those
+   * kernels store the data of the points in the shared memory of the block
+   * (thermodynamic forces or their increments, weights, inverses of the
+   * jacobians), then sum the contributions of the points to each node in
+   * their order, so that the results do not depend on the number of threads
+   * (deterministic reduction, as the kernels of the partial assembly of
+   * MFEM). The points of an element having more points are processed by
+   * chunks of this size, in their order (see `getNumberOfPointsPerChunk`).
+   * On the host, a block is an element, processed sequentially.
+   */
+  inline constexpr int maximum_number_of_points_per_block = 128;
+
+  /*!
+   * \return the number of points of an element processed at once by the
+   * kernels using one thread per point then one thread per node: all the
+   * points if they fit in a block, `maximum_number_of_points_per_block`
+   * otherwise. The chunks of points are then processed one after the other,
+   * the node threads adding the contributions of a chunk to the sums of the
+   * previous chunks, read from and written to the global memory (an exact
+   * operation): the results do not depend on the number of chunks.
+   * \param[in] nq: number of integration points per element
+   */
+  MFEM_HOST_DEVICE constexpr std::size_t getNumberOfPointsPerChunk(
+      const std::size_t nq) {
+    constexpr auto P =
+        static_cast<std::size_t>(maximum_number_of_points_per_block);
+    return nq < P ? nq : P;
+  }  // end of getNumberOfPointsPerChunk
+
+  //! \brief maximum number of threads of a block (CUDA and HIP)
+  inline constexpr int maximum_number_of_threads_per_block = 1024;
+
+  /*!
+   * \brief maximum number of elements processed by a block of threads: the
+   * elements are the third dimension of the blocks, at most 64 with CUDA
+   */
+  inline constexpr int maximum_number_of_elements_per_block = 64;
+
+  /*!
+   * \return the number of threads per element of the kernels using one
+   * thread per point then one thread per node: one thread per point or per
+   * node, within the limit of a block (the threads loop over the points or
+   * the nodes in excess)
+   * \param[in] nq: number of integration points per element
+   * \param[in] nd: number of nodes per element
+   */
+  inline int getNumberOfThreadsPerElement(const int nq, const int nd) {
+    const auto np = static_cast<int>(
+        getNumberOfPointsPerChunk(static_cast<std::size_t>(nq)));
+    return std::clamp(std::max(np, nd), 1, maximum_number_of_threads_per_block);
+  }  // end of getNumberOfThreadsPerElement
+
+  /*!
+   * \return the number of elements processed by a block of threads of the
+   * kernels using one thread per point then one thread per node
+   * \param[in] nq: number of integration points per element
+   * \param[in] nd: number of nodes per element
+   */
+  inline int getNumberOfElementsPerBlock(const int nq, const int nd) {
+    const auto np = static_cast<int>(
+        getNumberOfPointsPerChunk(static_cast<std::size_t>(nq)));
+    const auto by_points = np == 0 ? maximum_number_of_points_per_block
+                                   : maximum_number_of_points_per_block / np;
+    const auto by_threads = maximum_number_of_threads_per_block /
+                            getNumberOfThreadsPerElement(nq, nd);
+    return std::max(1, std::min({by_points, by_threads,
+                                 maximum_number_of_elements_per_block}));
+  }  // end of getNumberOfElementsPerBlock
 
   /*!
    * \brief reads the inverse of the jacobian at a point, computed once by the

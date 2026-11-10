@@ -17,12 +17,12 @@ namespace mfem_mgis {
 
   std::unique_ptr<AbstractBehaviourIntegrator>
   generatePlaneStrainFBarBehaviourIntegrators(
-      Context &ctx,
-      const FiniteElementDiscretization &fed,
+      Context& ctx,
+      const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters &params,
-      const mgis::FieldLayout l) noexcept {
+      const Parameters& params,
+      const mgis::behaviour::MaterialDataManagerLayout& l) noexcept {
     if (!params.empty()) {
       return ctx.registerErrorMessage("no parameter expected");
     }
@@ -59,12 +59,12 @@ namespace mfem_mgis {
 
   std::unique_ptr<AbstractBehaviourIntegrator>
   generateTridimensionalFBarBehaviourIntegrators(
-      Context &ctx,
-      const FiniteElementDiscretization &fed,
+      Context& ctx,
+      const FiniteElementDiscretization& fed,
       const size_type m,
       std::unique_ptr<const Behaviour> b,
-      const Parameters &params,
-      const mgis::FieldLayout l) noexcept {
+      const Parameters& params,
+      const mgis::behaviour::MaterialDataManagerLayout& l) noexcept {
     if (!params.empty()) {
       return ctx.registerErrorMessage("no parameter expected");
     }

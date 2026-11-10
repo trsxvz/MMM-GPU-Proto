@@ -23,23 +23,28 @@
 # (MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered). The time of each phase is
 # given by `cases/summary-profiling.py <directory>/*.txt`.
 #
-# The variable `executable` gives the executable of the case, built against
-# a mfem-mgis which has the parameter QuadratureDataLayout: by default
-# build/cases-layout/beam/beam and
-# build/mm-opera-hpc-layout/polycrystal/uniaxial-polycrystal (see
-# cases/README.md). The behaviours are the ones of the usual builds.
+# With `counters=1`, the computations on the GPU only are made under Nsight
+# Compute (`ncu`, whose hardware counters must be allowed to the user), which
+# measures the first `counters_launches` (60 by default) kernels of mfem-mgis
+# and of the integration of the behaviour, with the caches flushed before
+# each kernel: sectors per request of the global loads and stores (8 for
+# coalesced accesses to double values, a warp reading 256 bytes, that is 8
+# sectors of 32 bytes; 32 if the values of consecutive threads are 32 bytes
+# or more apart), bytes read and written in the DRAM, duration, throughput
+# of the DRAM and of the SMs relative to their peak. Those counters do not
+# depend on the size of the cache of the GPU, unlike the times. Reports in
+# `<name>.ncu-rep` (not versioned), values in `<name>-counters.csv`, summary
+# by kernel and by layout by `cases/summary-counters.py <directory>`.
 #
-# usage: cases/measure-layout.sh [beam|polycrystal] [results directory]
+# The variable `executable` gives the executable of the case, by default the
+# one of the usual builds (build/cases/beam, build/mm-opera-hpc/polycrystal).
+#
+# usage: [counters=1] cases/measure-layout.sh [beam|polycrystal]
+#        [results directory]
 work_package=layout
 case_name=${1:-beam}
-proto=$(cd "$(dirname "$0")/.." && pwd)
 case "$case_name" in
-  beam)
-    executable=${executable:-$proto/build/cases-layout/beam/beam}
-    ;;
-  polycrystal)
-    executable=${executable:-$proto/build/mm-opera-hpc-layout/polycrystal/uniaxial-polycrystal}
-    ;;
+  beam | polycrystal) ;;
   *)
     echo "usage: $0 [beam|polycrystal] [results directory]" >&2
     exit 1
@@ -49,6 +54,44 @@ source "$(dirname "$0")/measure-common.sh" "$case_name" "${2:-}"
 cuda=$gp/generic-parallel-cuda/src/libGenericParallelBehaviour-cuda.so
 linear_tolerance=1e-4
 np=${CPU_PROCESSES:-8}
+counters=${counters:-0}
+# metrics of Nsight Compute (counters=1)
+metrics=gpu__time_duration.sum
+metrics+=,l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum
+metrics+=,l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum
+metrics+=,l1tex__t_requests_pipe_lsu_mem_global_op_st.sum
+metrics+=,l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum
+# bytes read and written in the DRAM: dram__bytes_read and dram__bytes_write
+# on the A100 and H100 GPUs, dram__bytes_op_read and dram__bytes_op_write on
+# the GPUs of the Blackwell generation; their sum exists on all of them
+metrics+=,dram__bytes.sum
+metrics+=,dram__throughput.avg.pct_of_peak_sustained_elapsed
+metrics+=,sm__throughput.avg.pct_of_peak_sustained_elapsed
+if [ "$counters" = 1 ]; then
+  ncu=${NCU:-$(command -v ncu || true)}
+  if [ -z "$ncu" ]; then
+    echo "ncu not found (variable NCU or PATH)" | tee -a "$out/summary.txt"
+    exit 1
+  fi
+fi
+# usage: run_gpu name [VARIABLE=value...]
+# computation on the GPU, under Nsight Compute if counters=1
+run_gpu() {
+  local name=$1
+  shift
+  if [ "$counters" = 1 ]; then
+    launcher=("$ncu" --metrics "$metrics" --cache-control all
+      --clock-control base --kernel-name-base demangled
+      --kernel-name "regex:mfem_mgis::batch|generic_parallel::gpu"
+      --launch-count "${counters_launches:-60}" -f -o "$out/$name")
+  fi
+  run "$name" 1 1 "$cuda" "$@"
+  launcher=()
+  if [ "$counters" = 1 ] && [ -f "$out/$name.ncu-rep" ]; then
+    "$ncu" --import "$out/$name.ncu-rep" --csv --page raw \
+      --metrics "$metrics" > "$out/$name-counters.csv"
+  fi
+}
 for layout in PointByPoint ComponentByComponent; do
   settings=(MFEM_MGIS_QUADRATURE_DATA_LAYOUT=$layout
     MFEM_MGIS_TANGENT_OPERATOR_ASSEMBLY=Ordered)
@@ -56,17 +99,22 @@ for layout in PointByPoint ComponentByComponent; do
   options="--execution gpu"
   linear_solver=pcg-amg
   reference="layout-gpu-assembled-PointByPoint"
-  run "layout-gpu-assembled-$layout" 1 1 "$cuda" "${settings[@]}"
+  run_gpu "layout-gpu-assembled-$layout" "${settings[@]}"
   # GPU, tangent operator applied without assembly (beam)
   if [ "$case_name" = beam ]; then
     linear_solver=cg-jacobi
-    run "layout-gpu-matrix-free-$layout" 1 1 "$cuda" "${settings[@]}" \
+    run_gpu "layout-gpu-matrix-free-$layout" "${settings[@]}" \
       MFEM_MGIS_TANGENT_OPERATOR_COMPUTATION=MatrixFree
   fi
   # CPU
-  options="--execution cpu"
-  linear_solver=pcg-amg
-  reference="layout-cpu-${np}p-PointByPoint"
-  run "layout-cpu-${np}p-$layout" 1 "$np" "$generic" "${settings[@]}"
+  if [ "$counters" != 1 ]; then
+    options="--execution cpu"
+    linear_solver=pcg-amg
+    reference="layout-cpu-${np}p-PointByPoint"
+    run "layout-cpu-${np}p-$layout" 1 "$np" "$generic" "${settings[@]}"
+  fi
 done
+if [ "$counters" = 1 ]; then
+  python3 "$P/cases/summary-counters.py" "$out" | tee -a "$out/summary.txt"
+fi
 echo "results in $out"

@@ -42,16 +42,20 @@ namespace mfem_mgis::batch {
    * supported for the deformation gradients. The arrays are given for all
    * the points of the material, in the order of its quadrature space (one
    * coefficient, and as many values of `v` and of `c` as components of the
-   * gradients, point by point), located on the device if a device is
+   * gradients, with the given strides), located on the device if a device is
    * enabled; the modification is not applied if `coefficients` is null.
    */
   struct MFEM_MGIS_EXPORT TangentOperatorModification {
     //! \brief coefficients `α` at the points of the material
     const real* coefficients = nullptr;
-    //! \brief vectors `v` at the points of the material, point by point
+    //! \brief vectors `v` at the points of the material
     const real* v = nullptr;
-    //! \brief vectors `c` at the points of the material, point by point
+    //! \brief vectors `c` at the points of the material
     const real* c = nullptr;
+    //! \brief stride between two points of `v` and of `c`
+    long long point_stride = 0;
+    //! \brief stride between two components of `v` and of `c`
+    long long component_stride = 0;
   };
 
   /*!

@@ -32,6 +32,20 @@ namespace mfem_mgis {
     return m;
   }  // end of loadModel
 
+  /*!
+   * \return a model and the layouts of its arrays, resolved from the
+   * placement of its integration
+   * \param[in] parameters: parameters
+   */
+  static std::pair<std::unique_ptr<const Behaviour>,
+                   mgis::behaviour::MaterialDataManagerLayout>
+  loadModelAndLayout(attributes::Throwing, const Parameters& parameters) {
+    auto m = std::unique_ptr<const Behaviour>(loadModel(throwing, parameters));
+    const auto l = resolveQuadratureDataLayout(
+        getQuadratureDataLayoutSpecification(may_throw, parameters), *m);
+    return {std::move(m), l};
+  }  // end of loadModelAndLayout
+
   std::map<std::string, std::string>
   PointWiseModel::getParametersDescription() noexcept {
     auto descriptions = ModelBase::getParametersDescription();
@@ -47,10 +61,18 @@ namespace mfem_mgis {
   PointWiseModel::PointWiseModel(Context& ctx,
                                  const PartialQuadratureSpace& qspace,
                                  const Parameters& parameters)
+      : PointWiseModel(
+            ctx, qspace, parameters, loadModelAndLayout(throwing, parameters)) {
+  }  // end of PointWiseModel
+
+  PointWiseModel::PointWiseModel(
+      Context& ctx,
+      const PartialQuadratureSpace& qspace,
+      const Parameters& parameters,
+      std::pair<std::unique_ptr<const Behaviour>,
+                mgis::behaviour::MaterialDataManagerLayout>&& m)
       : ModelBase(ctx, qspace.getFiniteElementDiscretization()),
-        Material(qspace,
-                 loadModel(throwing, parameters),
-                 getQuadratureDataLayout(may_throw, parameters)) {
+        Material(qspace, std::move(m.first), m.second) {
     checkParameters(throwing, parameters,
                     PointWiseModel::getParametersDescription());
   }  // end of PointWiseModel

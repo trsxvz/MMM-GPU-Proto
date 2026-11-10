@@ -859,10 +859,12 @@ namespace mfem_mgis::internals {
     }
     if ((fespace.GetVDim() < 2) ||
         (fespace.GetOrdering() != mfem::Ordering::byVDIM)) {
-      return ctx.registerErrorMessage(
+      warnAboutNodalBlocks<parallel>(
+          ctx, fespace,
           "AmgX: the nodal blocks require vector unknowns ordered by vector "
           "dimension (i.e. the parameter 'FiniteElementSpaceOrdering' set "
-          "to 'byVDIM')");
+          "to 'byVDIM'): the unknowns are not grouped in blocks");
+      return 1;
     }
     if (classical) {
       return ctx.registerErrorMessage(

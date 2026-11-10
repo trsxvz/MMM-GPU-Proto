@@ -1,0 +1,818 @@
+From 45463daf349e91e4441837ecc4fb55caf8f4fc17 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 23:25:46 +0100
+Subject: [PATCH] Bindings: layouts of the arrays and padding of the material
+ managers
+
+The C bindings get an enumeration of the arrays (mgis_bv_MaterialArray)
+and functions setting and getting the layout of one array and the
+padding, on the initializer and on the managers. The functions getting
+the single layout of a manager report an error if the layouts of its
+arrays differ. The Fortran bindings wrap the same functions, and their
+accessors returning multidimensional arrays check the layout and the
+padding of the array they return.
+---
+ .../MGIS/Behaviour/MaterialDataManager.h      |  65 +++-
+ .../MGIS/Behaviour/MaterialStateManager.h     |  61 +++-
+ bindings/c/src/MaterialDataManager.cxx        | 135 +++++++-
+ bindings/c/src/MaterialStateManager.cxx       |  66 +++-
+ bindings/fortran/src/mgis_behaviour.f90       | 294 +++++++++++++++++-
+ 5 files changed, 595 insertions(+), 26 deletions(-)
+
+diff --git a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
+index 6b43eb9..de63f28 100644
+--- a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
++++ b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
+@@ -67,13 +67,56 @@ MGIS_C_EXPORT
+ mgis_status mgis_bv_material_data_manager_initializer_bind_speed_of_sound(
+     mgis_bv_MaterialDataManagerInitializer*, mgis_real* const, mgis_size_type);
+ /*!
+- * \brief set the layout of all the arrays of the material data manager
++ * \brief set the layout of all the arrays of the material data manager (the
++ * padding is kept)
+  * \param[in,out] d: initializer
+  * \param[in] l: layout
+  */
+ MGIS_C_EXPORT
+ mgis_status mgis_bv_material_data_manager_initializer_set_layout(
+     mgis_bv_MaterialDataManagerInitializer*, const mgis_bv_FieldLayout);
++/*!
++ * \brief set the layout of an array of the material data manager
++ * \param[in,out] d: initializer
++ * \param[in] a: array
++ * \param[in] l: layout
++ */
++MGIS_C_EXPORT
++mgis_status mgis_bv_material_data_manager_initializer_set_array_layout(
++    mgis_bv_MaterialDataManagerInitializer*,
++    const mgis_bv_MaterialArray,
++    const mgis_bv_FieldLayout);
++/*!
++ * \brief get the layout of an array of the material data manager
++ * \param[out] l: layout
++ * \param[in] d: initializer
++ * \param[in] a: array
++ */
++MGIS_C_EXPORT
++mgis_status mgis_bv_material_data_manager_initializer_get_array_layout(
++    mgis_bv_FieldLayout* const,
++    mgis_bv_MaterialDataManagerInitializer* const,
++    const mgis_bv_MaterialArray);
++/*!
++ * \brief set the padding of the arrays of the material data manager, i.e.
++ * the number of unused values added to the leading dimension of the arrays
++ * of the states and of the tangent operator blocks (see
++ * `mgis::behaviour::MaterialDataManagerLayout`). The arrays bound to the
++ * initializer must account for the padding.
++ * \param[in,out] d: initializer
++ * \param[in] p: padding
++ */
++MGIS_C_EXPORT
++mgis_status mgis_bv_material_data_manager_initializer_set_padding(
++    mgis_bv_MaterialDataManagerInitializer*, const mgis_size_type);
++/*!
++ * \brief get the padding of the arrays of the material data manager
++ * \param[out] p: padding
++ * \param[in] d: initializer
++ */
++MGIS_C_EXPORT
++mgis_status mgis_bv_material_data_manager_initializer_get_padding(
++    mgis_size_type* const, mgis_bv_MaterialDataManagerInitializer* const);
+ /*!
+  * \brief get the initializer of the state at the beginning of the time step
+  * \param[out] s: pointer to a pointer to the state initializer
+@@ -208,7 +251,9 @@ MGIS_C_EXPORT mgis_status mgis_bv_material_data_manager_get_tangent_operator(
+     mgis_real * *const, mgis_bv_MaterialDataManager* const);
+ /*!
+  * \brief return the number of values of the tangent operator at an
+- * integration point
++ * integration point. It is the stride between two points only if the
++ * layout of the tangent operator blocks is `MGIS_BV_POINT_BY_POINT` and if
++ * the arrays are not padded.
+  * \param[out] s: stride
+  * \param[in]  d: material data manager
+  */
+@@ -230,6 +275,22 @@ mgis_bv_material_data_manager_get_number_of_tangent_operator_blocks(
+  */
+ MGIS_C_EXPORT mgis_status mgis_bv_material_data_manager_get_layout(
+     mgis_bv_FieldLayout* const, mgis_bv_MaterialDataManager* const);
++/*!
++ * \param[out] l: a pointer where the layout of the array will be written
++ * \param[in]  d: material data manager
++ * \param[in]  a: array
++ */
++MGIS_C_EXPORT mgis_status mgis_bv_material_data_manager_get_array_layout(
++    mgis_bv_FieldLayout* const,
++    mgis_bv_MaterialDataManager* const,
++    const mgis_bv_MaterialArray);
++/*!
++ * \param[out] p: a pointer where the padding of the arrays will be written
++ * (see `mgis_bv_material_data_manager_initializer_set_padding`)
++ * \param[in]  d: material data manager
++ */
++MGIS_C_EXPORT mgis_status mgis_bv_material_data_manager_get_padding(
++    mgis_size_type* const, mgis_bv_MaterialDataManager* const);
+ /*!
+  * \brief update the material data manager
+  * \param[in,out] d: data manager
+diff --git a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
+index bbb4851..ebbb516 100644
+--- a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
++++ b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
+@@ -53,8 +53,11 @@ typedef enum {
+ } mgis_bv_MaterialStateManagerUpdatePolicy;
+ 
+ /*!
+- * \brief layout of the arrays of a material state manager (see
+- * `mgis::FieldLayout`)
++ * \brief layout of an array of a material state manager (see
++ * `mgis::FieldLayout`). The positions given below are the ones of an array
++ * without padding: a padding `p` (see
++ * `mgis_bv_material_state_manager_get_padding`) is added to the leading
++ * dimension, i.e. to `stride` or to `n`.
+  */
+ typedef enum {
+   /*!
+@@ -71,6 +74,35 @@ typedef enum {
+   MGIS_BV_COMPONENT_BY_COMPONENT = 1
+ } mgis_bv_FieldLayout;
+ 
++/*!
++ * \brief arrays of a material data manager which have their own layout (see
++ * `mgis::behaviour::MaterialDataManagerLayout`)
++ */
++typedef enum {
++  /*!
++   * \brief gradients
++   */
++  MGIS_BV_GRADIENTS_ARRAY = 0,
++  /*!
++   * \brief thermodynamic forces
++   */
++  MGIS_BV_THERMODYNAMIC_FORCES_ARRAY = 1,
++  /*!
++   * \brief internal state variables
++   */
++  MGIS_BV_INTERNAL_STATE_VARIABLES_ARRAY = 2,
++  /*!
++   * \brief values given at each point for the external state variables with
++   * several components
++   */
++  MGIS_BV_EXTERNAL_STATE_VARIABLES_ARRAY = 3,
++  /*!
++   * \brief tangent operator blocks (array of a material data manager, not of
++   * a material state manager)
++   */
++  MGIS_BV_TANGENT_OPERATOR_ARRAY = 4
++} mgis_bv_MaterialArray;
++
+ /*!
+  * \brief bind the gradients to the given array
+  * \param[in,out] s: initializer
+@@ -149,12 +181,33 @@ MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_gradients(
+  */
+ MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_layout(
+     mgis_bv_FieldLayout* const, mgis_bv_MaterialStateManager* const);
++/*!
++ * \param[out] l: a pointer where the layout of the array will be written
++ * \param[in]  s: state manager
++ * \param[in]  a: array (the tangent operator blocks are refused)
++ */
++MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_array_layout(
++    mgis_bv_FieldLayout* const,
++    mgis_bv_MaterialStateManager* const,
++    const mgis_bv_MaterialArray);
++/*!
++ * \param[out] p: a pointer where the padding of the arrays will be written,
++ * i.e. the number of unused values added to the leading dimension of the
++ * arrays of the gradients, of the thermodynamic forces and of the internal
++ * state variables (see `mgis::behaviour::MaterialStateManagerLayout`)
++ * \param[in]  s: state manager
++ */
++MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_padding(
++    mgis_size_type* const, mgis_bv_MaterialStateManager* const);
+ /*!
+  * \param[out] gs: a pointer where the gradients' stride will be written
+  * \param[in]  s: state manager
+  * \note the stride is the number of values of a point. It is the stride
+- * between two points only if the layout is `MGIS_BV_POINT_BY_POINT` (see
+- * `mgis_bv_material_state_manager_get_layout`).
++ * between two points only if the layout of the array is
++ * `MGIS_BV_POINT_BY_POINT` (see
++ * `mgis_bv_material_state_manager_get_array_layout`) and if the arrays are
++ * not padded (see `mgis_bv_material_state_manager_get_padding`). The same
++ * holds for the other strides.
+  */
+ MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_gradients_stride(
+     mgis_size_type* const, mgis_bv_MaterialStateManager* const);
+diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
+index 97a028d..005ae9e 100644
+--- a/bindings/c/src/MaterialDataManager.cxx
++++ b/bindings/c/src/MaterialDataManager.cxx
+@@ -15,6 +15,40 @@
+ #include <limits>
+ #include "MGIS/Behaviour/MaterialDataManager.h"
+ 
++/*!
++ * \return a pointer to the layout of an array, or a null pointer if the
++ * array is invalid
++ * \param[in] l: layouts of the arrays of a material data manager
++ * \param[in] a: array
++ */
++template <typename LayoutType>
++static auto getArrayLayout(LayoutType& l, const mgis_bv_MaterialArray a) noexcept
++    -> decltype(&(l.gradients)) {
++  switch (a) {
++    case MGIS_BV_GRADIENTS_ARRAY:
++      return &(l.gradients);
++    case MGIS_BV_THERMODYNAMIC_FORCES_ARRAY:
++      return &(l.thermodynamic_forces);
++    case MGIS_BV_INTERNAL_STATE_VARIABLES_ARRAY:
++      return &(l.internal_state_variables);
++    case MGIS_BV_EXTERNAL_STATE_VARIABLES_ARRAY:
++      return &(l.external_state_variables);
++    case MGIS_BV_TANGENT_OPERATOR_ARRAY:
++      return &(l.tangent_operator);
++    default:
++      break;
++  }
++  return nullptr;
++}  // end of getArrayLayout
++
++//! \return the layout of the C bindings associated with a layout
++static mgis_bv_FieldLayout convertFieldLayout(
++    const mgis::FieldLayout l) noexcept {
++  return l == mgis::FieldLayout::POINT_BY_POINT
++             ? MGIS_BV_POINT_BY_POINT
++             : MGIS_BV_COMPONENT_BY_COMPONENT;
++}  // end of convertFieldLayout
++
+ extern "C" {
+ 
+ mgis_status mgis_bv_create_material_data_manager_initializer(
+@@ -76,6 +110,74 @@ mgis_status mgis_bv_material_data_manager_initializer_set_layout(
+   return mgis_report_success();
+ }  // end of mgis_bv_material_data_manager_initializer_set_layout
+ 
++mgis_status mgis_bv_material_data_manager_initializer_set_array_layout(
++    mgis_bv_MaterialDataManagerInitializer* d,
++    const mgis_bv_MaterialArray a,
++    const mgis_bv_FieldLayout l) {
++  if (d == nullptr) {
++    return mgis_report_failure(
++        "mgis_bv_material_data_manager_initializer_set_array_layout: "
++        "null argument");
++  }
++  if ((l != MGIS_BV_POINT_BY_POINT) && (l != MGIS_BV_COMPONENT_BY_COMPONENT)) {
++    return mgis_report_failure(
++        "mgis_bv_material_data_manager_initializer_set_array_layout: "
++        "invalid layout");
++  }
++  auto* const al = getArrayLayout(d->layout, a);
++  if (al == nullptr) {
++    return mgis_report_failure(
++        "mgis_bv_material_data_manager_initializer_set_array_layout: "
++        "invalid array");
++  }
++  *al = l == MGIS_BV_POINT_BY_POINT ? mgis::FieldLayout::POINT_BY_POINT
++                                    : mgis::FieldLayout::COMPONENT_BY_COMPONENT;
++  return mgis_report_success();
++}  // end of mgis_bv_material_data_manager_initializer_set_array_layout
++
++mgis_status mgis_bv_material_data_manager_initializer_get_array_layout(
++    mgis_bv_FieldLayout* const l,
++    mgis_bv_MaterialDataManagerInitializer* const d,
++    const mgis_bv_MaterialArray a) {
++  *l = MGIS_BV_POINT_BY_POINT;
++  if (d == nullptr) {
++    return mgis_report_failure(
++        "mgis_bv_material_data_manager_initializer_get_array_layout: "
++        "null argument");
++  }
++  const auto* const al = getArrayLayout(d->layout, a);
++  if (al == nullptr) {
++    return mgis_report_failure(
++        "mgis_bv_material_data_manager_initializer_get_array_layout: "
++        "invalid array");
++  }
++  *l = convertFieldLayout(*al);
++  return mgis_report_success();
++}  // end of mgis_bv_material_data_manager_initializer_get_array_layout
++
++mgis_status mgis_bv_material_data_manager_initializer_set_padding(
++    mgis_bv_MaterialDataManagerInitializer* d, const mgis_size_type p) {
++  if (d == nullptr) {
++    return mgis_report_failure(
++        "mgis_bv_material_data_manager_initializer_set_padding: "
++        "null argument");
++  }
++  d->layout.padding = p;
++  return mgis_report_success();
++}  // end of mgis_bv_material_data_manager_initializer_set_padding
++
++mgis_status mgis_bv_material_data_manager_initializer_get_padding(
++    mgis_size_type* const p, mgis_bv_MaterialDataManagerInitializer* const d) {
++  if (d == nullptr) {
++    *p = mgis_size_type{};
++    return mgis_report_failure(
++        "mgis_bv_material_data_manager_initializer_get_padding: "
++        "null argument");
++  }
++  *p = d->layout.padding;
++  return mgis_report_success();
++}  // end of mgis_bv_material_data_manager_initializer_get_padding
++
+ mgis_status mgis_bv_material_data_manager_initializer_bind_speed_of_sound(
+     mgis_bv_MaterialDataManagerInitializer* d,
+     mgis_real* const p,
+@@ -393,12 +495,39 @@ mgis_status mgis_bv_material_data_manager_get_layout(
+         "mgis_bv_material_data_manager_get_layout: "
+         "the arrays of the material data manager have different layouts");
+   }
+-  *l = *ol == mgis::FieldLayout::POINT_BY_POINT
+-           ? MGIS_BV_POINT_BY_POINT
+-           : MGIS_BV_COMPONENT_BY_COMPONENT;
++  *l = convertFieldLayout(*ol);
+   return mgis_report_success();
+ }  // end of mgis_bv_material_data_manager_get_layout
+ 
++mgis_status mgis_bv_material_data_manager_get_array_layout(
++    mgis_bv_FieldLayout* const l,
++    mgis_bv_MaterialDataManager* const d,
++    const mgis_bv_MaterialArray a) {
++  *l = MGIS_BV_POINT_BY_POINT;
++  if (d == nullptr) {
++    return mgis_report_failure(
++        "invalid argument (material data manager is null)");
++  }
++  const auto* const al = getArrayLayout(d->layout, a);
++  if (al == nullptr) {
++    return mgis_report_failure(
++        "mgis_bv_material_data_manager_get_array_layout: invalid array");
++  }
++  *l = convertFieldLayout(*al);
++  return mgis_report_success();
++}  // end of mgis_bv_material_data_manager_get_array_layout
++
++mgis_status mgis_bv_material_data_manager_get_padding(
++    mgis_size_type* const p, mgis_bv_MaterialDataManager* const d) {
++  if (d == nullptr) {
++    *p = mgis_size_type{};
++    return mgis_report_failure(
++        "invalid argument (material data manager is null)");
++  }
++  *p = d->layout.padding;
++  return mgis_report_success();
++}  // end of mgis_bv_material_data_manager_get_padding
++
+ mgis_status mgis_bv_update_material_data_manager(
+     mgis_bv_MaterialDataManager* const d) {
+   if (d == nullptr) {
+diff --git a/bindings/c/src/MaterialStateManager.cxx b/bindings/c/src/MaterialStateManager.cxx
+index a5ee978..6aca8b6 100644
+--- a/bindings/c/src/MaterialStateManager.cxx
++++ b/bindings/c/src/MaterialStateManager.cxx
+@@ -14,6 +14,39 @@
+ 
+ #include "MGIS/Behaviour/MaterialStateManager.h"
+ 
++/*!
++ * \return a pointer to the layout of an array, or a null pointer if the
++ * array is invalid (the tangent operator blocks are not an array of a
++ * material state manager)
++ * \param[in] l: layouts of the arrays of a material state manager
++ * \param[in] a: array
++ */
++static const mgis::FieldLayout* getArrayLayout(
++    const mgis::behaviour::MaterialStateManagerLayout& l,
++    const mgis_bv_MaterialArray a) noexcept {
++  switch (a) {
++    case MGIS_BV_GRADIENTS_ARRAY:
++      return &(l.gradients);
++    case MGIS_BV_THERMODYNAMIC_FORCES_ARRAY:
++      return &(l.thermodynamic_forces);
++    case MGIS_BV_INTERNAL_STATE_VARIABLES_ARRAY:
++      return &(l.internal_state_variables);
++    case MGIS_BV_EXTERNAL_STATE_VARIABLES_ARRAY:
++      return &(l.external_state_variables);
++    default:
++      break;
++  }
++  return nullptr;
++}  // end of getArrayLayout
++
++//! \return the layout of the C bindings associated with a layout
++static mgis_bv_FieldLayout convertFieldLayout(
++    const mgis::FieldLayout l) noexcept {
++  return l == mgis::FieldLayout::POINT_BY_POINT
++             ? MGIS_BV_POINT_BY_POINT
++             : MGIS_BV_COMPONENT_BY_COMPONENT;
++}  // end of convertFieldLayout
++
+ namespace mgis::behaviour::internals {
+ 
+   [[nodiscard]] static MaterialStateManager::UpdatePolicy convert(
+@@ -235,12 +268,39 @@ mgis_status mgis_bv_material_state_manager_get_layout(
+         "mgis_bv_material_state_manager_get_layout: "
+         "the arrays of the material state manager have different layouts");
+   }
+-  *l = *ol == mgis::FieldLayout::POINT_BY_POINT
+-           ? MGIS_BV_POINT_BY_POINT
+-           : MGIS_BV_COMPONENT_BY_COMPONENT;
++  *l = convertFieldLayout(*ol);
+   return mgis_report_success();
+ }  // end of mgis_bv_material_state_manager_get_layout
+ 
++mgis_status mgis_bv_material_state_manager_get_array_layout(
++    mgis_bv_FieldLayout* const l,
++    mgis_bv_MaterialStateManager* const s,
++    const mgis_bv_MaterialArray a) {
++  *l = MGIS_BV_POINT_BY_POINT;
++  if (s == nullptr) {
++    return mgis_report_failure("null state manager");
++  }
++  const auto* const al = getArrayLayout(s->layout, a);
++  if (al == nullptr) {
++    return mgis_report_failure(
++        "mgis_bv_material_state_manager_get_array_layout: "
++        "invalid array (the tangent operator blocks are not an array of a "
++        "material state manager)");
++  }
++  *l = convertFieldLayout(*al);
++  return mgis_report_success();
++}  // end of mgis_bv_material_state_manager_get_array_layout
++
++mgis_status mgis_bv_material_state_manager_get_padding(
++    mgis_size_type* const p, mgis_bv_MaterialStateManager* const s) {
++  if (s == nullptr) {
++    *p = mgis_size_type{};
++    return mgis_report_failure("null state manager");
++  }
++  *p = s->layout.padding;
++  return mgis_report_success();
++}  // end of mgis_bv_material_state_manager_get_padding
++
+ mgis_status mgis_bv_material_state_manager_get_internal_state_variables_stride(
+     mgis_size_type* const gs, mgis_bv_MaterialStateManager* const s) {
+   if (s == nullptr) {
+diff --git a/bindings/fortran/src/mgis_behaviour.f90 b/bindings/fortran/src/mgis_behaviour.f90
+index ae753bd..680bf29 100644
+--- a/bindings/fortran/src/mgis_behaviour.f90
++++ b/bindings/fortran/src/mgis_behaviour.f90
+@@ -49,6 +49,15 @@ module mgis_behaviour
+      enumerator :: POINT_BY_POINT = 0
+      enumerator :: COMPONENT_BY_COMPONENT = 1
+   end enum
++  ! arrays of a material data manager which have their own layout, with the
++  ! values of the enumeration mgis_bv_MaterialArray of the C bindings
++  enum, bind(C)
++     enumerator :: GRADIENTS_ARRAY = 0
++     enumerator :: THERMODYNAMIC_FORCES_ARRAY = 1
++     enumerator :: INTERNAL_STATE_VARIABLES_ARRAY = 2
++     enumerator :: EXTERNAL_STATE_VARIABLES_ARRAY = 3
++     enumerator :: TANGENT_OPERATOR_ARRAY = 4
++  end enum
+   enum, bind(C)
+      enumerator :: PREDICTION_TANGENT_OPERATOR = -3
+      enumerator :: PREDICTION_SECANT_OPERATOR = -2
+@@ -3723,6 +3732,106 @@ contains
+     s = material_data_manager_initializer_set_layout_wrapper(d%ptr,l)
+   end function material_data_manager_initializer_set_layout
+   !
++  function material_data_manager_initializer_set_array_layout(d,a,l) result(s)
++    use, intrinsic :: iso_c_binding, only: c_int
++    use mgis, only: mgis_status
++    implicit none
++    interface
++       function mdm_initializer_set_array_layout_wrapper(d,a,l) &
++            bind(c,name = 'mgis_bv_material_data_manager_initializer_set_array_layout') &
++            result(r)
++         use, intrinsic :: iso_c_binding, only: c_ptr, c_int
++         use mgis, only: mgis_status
++         implicit none
++         type(c_ptr), intent(in), value :: d
++         integer(kind=c_int), intent(in), value :: a
++         integer(kind=c_int), intent(in), value :: l
++         type(mgis_status) :: r
++       end function mdm_initializer_set_array_layout_wrapper
++    end interface
++    type(MaterialDataManagerInitializer), intent(in) :: d
++    integer(kind=c_int), intent(in) :: a
++    integer(kind=c_int), intent(in) :: l
++    type(mgis_status) :: s
++    s = mdm_initializer_set_array_layout_wrapper(d%ptr,a,l)
++  end function material_data_manager_initializer_set_array_layout
++  !
++  function material_data_manager_initializer_get_array_layout(l,d,a) result(s)
++    use, intrinsic :: iso_c_binding, only: c_int
++    use mgis, only: mgis_status
++    implicit none
++    interface
++       function mdm_initializer_get_array_layout_wrapper(l,d,a) &
++            bind(c,name = 'mgis_bv_material_data_manager_initializer_get_array_layout') &
++            result(r)
++         use, intrinsic :: iso_c_binding, only: c_ptr, c_int
++         use mgis, only: mgis_status
++         implicit none
++         integer(kind=c_int), intent(out) :: l
++         type(c_ptr), intent(in), value :: d
++         integer(kind=c_int), intent(in), value :: a
++         type(mgis_status) :: r
++       end function mdm_initializer_get_array_layout_wrapper
++    end interface
++    integer(kind=c_int), intent(out) :: l
++    type(MaterialDataManagerInitializer), intent(in) :: d
++    integer(kind=c_int), intent(in) :: a
++    type(mgis_status) :: s
++    s = mdm_initializer_get_array_layout_wrapper(l,d%ptr,a)
++  end function material_data_manager_initializer_get_array_layout
++  !
++  function material_data_manager_initializer_set_padding(d,p) result(s)
++    use, intrinsic :: iso_c_binding, only: c_size_t
++    use mgis, only: mgis_status
++    implicit none
++    interface
++       function mdm_initializer_set_padding_wrapper(d,p) &
++            bind(c,name = 'mgis_bv_material_data_manager_initializer_set_padding') &
++            result(r)
++         use, intrinsic :: iso_c_binding, only: c_ptr, c_size_t
++         use mgis, only: mgis_status
++         implicit none
++         type(c_ptr), intent(in), value :: d
++         integer(kind=c_size_t), intent(in), value :: p
++         type(mgis_status) :: r
++       end function mdm_initializer_set_padding_wrapper
++    end interface
++    type(MaterialDataManagerInitializer), intent(in) :: d
++    integer, intent(in) :: p
++    type(mgis_status) :: s
++    integer(kind=c_size_t) :: pc
++    pc = p
++    s = mdm_initializer_set_padding_wrapper(d%ptr,pc)
++  end function material_data_manager_initializer_set_padding
++  !
++  function material_data_manager_initializer_get_padding(p,d) result(s)
++    use, intrinsic :: iso_c_binding, only: c_size_t
++    use mgis, only: mgis_status, MGIS_SUCCESS
++    implicit none
++    interface
++       function mdm_initializer_get_padding_wrapper(p,d) &
++            bind(c,name = 'mgis_bv_material_data_manager_initializer_get_padding') &
++            result(r)
++         use, intrinsic :: iso_c_binding, only: c_ptr, c_size_t
++         use mgis, only: mgis_status
++         implicit none
++         integer(kind=c_size_t), intent(out) :: p
++         type(c_ptr), intent(in), value :: d
++         type(mgis_status) :: r
++       end function mdm_initializer_get_padding_wrapper
++    end interface
++    integer, intent(out) :: p
++    type(MaterialDataManagerInitializer), intent(in) :: d
++    type(mgis_status) :: s
++    integer(kind=c_size_t) :: pc
++    s = mdm_initializer_get_padding_wrapper(pc,d%ptr)
++    if( s%exit_status .eq. MGIS_SUCCESS) then
++       p = pc
++    else
++       p = -1
++    end if
++  end function material_data_manager_initializer_get_padding
++  !
+   function free_material_data_manager_initializer(ptr) result(r)
+     use, intrinsic :: iso_c_binding, only: c_associated
+     use mgis
+@@ -4206,26 +4315,178 @@ contains
+     r = material_data_manager_get_layout_wrapper(l, d %ptr)
+   end function material_data_manager_get_layout
+   !
+-  ! check that the arrays of a material state manager are stored point by
+-  ! point, as required by the functions returning them as two-dimensional
+-  ! arrays (one column per point)
+-  function material_state_manager_check_point_by_point_layout(s, f) &
++  function material_state_manager_get_array_layout(l, s, a) &
+        result(r)
+     use, intrinsic :: iso_c_binding, only: c_int
+-    use mgis, only: mgis_status, report_failure, MGIS_SUCCESS
++    use mgis, only: mgis_status
++    implicit none
++    interface
++       function material_state_manager_get_array_layout_wrapper(l, s, a) &
++            bind(c,name = 'mgis_bv_material_state_manager_get_array_layout') &
++            result(r)
++         use, intrinsic :: iso_c_binding, only: c_ptr, c_int
++         use mgis, only: mgis_status
++         integer(kind=c_int), intent(out) :: l
++         type(c_ptr), intent(in),value :: s
++         integer(kind=c_int), intent(in), value :: a
++         type(mgis_status) :: r
++       end function material_state_manager_get_array_layout_wrapper
++    end interface
++    integer(kind=c_int), intent(out) :: l
++    type(MaterialStateManager), intent(in) :: s
++    integer(kind=c_int), intent(in) :: a
++    type(mgis_status) :: r
++    r = material_state_manager_get_array_layout_wrapper(l, s %ptr, a)
++  end function material_state_manager_get_array_layout
++  !
++  function material_data_manager_get_array_layout(l, d, a) &
++       result(r)
++    use, intrinsic :: iso_c_binding, only: c_int
++    use mgis, only: mgis_status
+     implicit none
++    interface
++       function material_data_manager_get_array_layout_wrapper(l, d, a) &
++            bind(c,name = 'mgis_bv_material_data_manager_get_array_layout') &
++            result(r)
++         use, intrinsic :: iso_c_binding, only: c_ptr, c_int
++         use mgis, only: mgis_status
++         integer(kind=c_int), intent(out) :: l
++         type(c_ptr), intent(in),value :: d
++         integer(kind=c_int), intent(in), value :: a
++         type(mgis_status) :: r
++       end function material_data_manager_get_array_layout_wrapper
++    end interface
++    integer(kind=c_int), intent(out) :: l
++    type(MaterialDataManager), intent(in) :: d
++    integer(kind=c_int), intent(in) :: a
++    type(mgis_status) :: r
++    r = material_data_manager_get_array_layout_wrapper(l, d %ptr, a)
++  end function material_data_manager_get_array_layout
++  !
++  function material_state_manager_get_padding(p, s) &
++       result(r)
++    use, intrinsic :: iso_c_binding, only: c_size_t
++    use mgis, only: mgis_status, MGIS_SUCCESS
++    implicit none
++    interface
++       function material_state_manager_get_padding_wrapper(p, s) &
++            bind(c,name = 'mgis_bv_material_state_manager_get_padding') &
++            result(r)
++         use, intrinsic :: iso_c_binding, only: c_ptr, c_size_t
++         use mgis, only: mgis_status
++         integer(kind=c_size_t), intent(out) :: p
++         type(c_ptr), intent(in),value :: s
++         type(mgis_status) :: r
++       end function material_state_manager_get_padding_wrapper
++    end interface
++    integer, intent(out) :: p
+     type(MaterialStateManager), intent(in) :: s
++    type(mgis_status) :: r
++    integer(kind=c_size_t) :: pc
++    r = material_state_manager_get_padding_wrapper(pc, s %ptr)
++    if( r%exit_status .eq. MGIS_SUCCESS) then
++       p = pc
++    else
++       p = -1
++    end if
++  end function material_state_manager_get_padding
++  !
++  function material_data_manager_get_padding(p, d) &
++       result(r)
++    use, intrinsic :: iso_c_binding, only: c_size_t
++    use mgis, only: mgis_status, MGIS_SUCCESS
++    implicit none
++    interface
++       function material_data_manager_get_padding_wrapper(p, d) &
++            bind(c,name = 'mgis_bv_material_data_manager_get_padding') &
++            result(r)
++         use, intrinsic :: iso_c_binding, only: c_ptr, c_size_t
++         use mgis, only: mgis_status
++         integer(kind=c_size_t), intent(out) :: p
++         type(c_ptr), intent(in),value :: d
++         type(mgis_status) :: r
++       end function material_data_manager_get_padding_wrapper
++    end interface
++    integer, intent(out) :: p
++    type(MaterialDataManager), intent(in) :: d
++    type(mgis_status) :: r
++    integer(kind=c_size_t) :: pc
++    r = material_data_manager_get_padding_wrapper(pc, d %ptr)
++    if( r%exit_status .eq. MGIS_SUCCESS) then
++       p = pc
++    else
++       p = -1
++    end if
++  end function material_data_manager_get_padding
++  !
++  ! check that an array (layout l, padding p) is stored point by point
++  ! without padding, as required by the functions returning the arrays as
++  ! multidimensional arrays (one column per point)
++  function check_point_by_point_array(l, p, f) &
++       result(r)
++    use, intrinsic :: iso_c_binding, only: c_int
++    use mgis, only: mgis_status, report_failure, report_success
++    implicit none
++    integer(kind=c_int), intent(in) :: l
++    integer, intent(in) :: p
++    character(len=*), intent(in) :: f
++    type(mgis_status) :: r
++    if (l .ne. POINT_BY_POINT) then
++       r = report_failure(f // ": the array is stored component by component")
++    else if (p .ne. 0) then
++       r = report_failure(f // ": the array is padded")
++    else
++       r = report_success()
++    end if
++  end function check_point_by_point_array
++  !
++  ! check that an array of a material state manager is stored point by
++  ! point without padding (see check_point_by_point_array)
++  function material_state_manager_check_point_by_point_array(s, a, f) &
++       result(r)
++    use, intrinsic :: iso_c_binding, only: c_int
++    use mgis, only: mgis_status, MGIS_SUCCESS
++    implicit none
++    type(MaterialStateManager), intent(in) :: s
++    integer(kind=c_int), intent(in) :: a
+     character(len=*), intent(in) :: f
+     type(mgis_status) :: r
+     integer(kind=c_int) l
+-    r = material_state_manager_get_layout(l, s)
++    integer p
++    r = material_state_manager_get_array_layout(l, s, a)
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+-    if (l .ne. POINT_BY_POINT) then
+-       r = report_failure(f // ": the arrays are stored component by component")
++    r = material_state_manager_get_padding(p, s)
++    if( r%exit_status .ne. MGIS_SUCCESS) then
++       return
++    end if
++    r = check_point_by_point_array(l, p, f)
++  end function material_state_manager_check_point_by_point_array
++  !
++  ! check that an array of a material data manager is stored point by
++  ! point without padding (see check_point_by_point_array)
++  function material_data_manager_check_point_by_point_array(d, a, f) &
++       result(r)
++    use, intrinsic :: iso_c_binding, only: c_int
++    use mgis, only: mgis_status, MGIS_SUCCESS
++    implicit none
++    type(MaterialDataManager), intent(in) :: d
++    integer(kind=c_int), intent(in) :: a
++    character(len=*), intent(in) :: f
++    type(mgis_status) :: r
++    integer(kind=c_int) l
++    integer p
++    r = material_data_manager_get_array_layout(l, d, a)
++    if( r%exit_status .ne. MGIS_SUCCESS) then
++       return
++    end if
++    r = material_data_manager_get_padding(p, d)
++    if( r%exit_status .ne. MGIS_SUCCESS) then
++       return
+     end if
+-  end function material_state_manager_check_point_by_point_layout
++    r = check_point_by_point_array(l, p, f)
++  end function material_data_manager_check_point_by_point_array
+   !
+   function material_state_manager_get_number_of_integration_points(n, s) &
+        result(r)
+@@ -4321,7 +4582,8 @@ contains
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+-    r = material_state_manager_check_point_by_point_layout(s, "material_state_manager_get_gradients")
++    r = material_state_manager_check_point_by_point_array(s, GRADIENTS_ARRAY, &
++         "material_state_manager_get_gradients")
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+@@ -4393,7 +4655,9 @@ contains
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+-    r = material_state_manager_check_point_by_point_layout(s, "material_state_manager_get_thermodynamic_forces")
++    r = material_state_manager_check_point_by_point_array(s, &
++         THERMODYNAMIC_FORCES_ARRAY, &
++         "material_state_manager_get_thermodynamic_forces")
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+@@ -4814,7 +5078,9 @@ contains
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+-    r = material_state_manager_check_point_by_point_layout(s, "material_state_manager_get_internal_state_variables")
++    r = material_state_manager_check_point_by_point_array(s, &
++         INTERNAL_STATE_VARIABLES_ARRAY, &
++         "material_state_manager_get_internal_state_variables")
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+@@ -5152,8 +5418,8 @@ contains
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+-    r = material_state_manager_check_point_by_point_layout(s0, &
+-         "material_data_manager_get_tangent_operator")
++    r = material_data_manager_check_point_by_point_array(m, &
++         TANGENT_OPERATOR_ARRAY, "material_data_manager_get_tangent_operator")
+     if( r%exit_status .ne. MGIS_SUCCESS) then
+        return
+     end if
+-- 
+2.43.0
+

@@ -80,3 +80,10 @@ Patches, by subject (independently of their numbers; the details are in
   #283; same checks of the stress measure and of the tangent operator in
   the finite strain conversions of the material data views; tolerances of
   the tests of the second review of 3.2 for the float numerical type.
+- layouts array by array and strided values of a point (patches 0095 to
+  0101): `FieldView` with a padding; one layout per array of the material
+  managers (`MaterialStateManagerLayout`, `MaterialDataManagerLayout`,
+  built implicitly from a `FieldLayout`) and a padding whose unused values
+  are quiet NaNs; bindings (C, Fortran, Python); tests and documentation;
+  `StridedSpan`, values of a point with a stride, read by the functions of
+  `mgis::function` without copy.

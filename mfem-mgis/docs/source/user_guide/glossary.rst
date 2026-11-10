@@ -1025,7 +1025,8 @@ ones:
 +-------------------------------------+-------------------------------------------------------------+
 | TangentOperatorAssembly             | Atomic (default) or Ordered [string]                        |
 +-------------------------------------+-------------------------------------------------------------+
-| QuadratureDataLayout                | PointByPoint (default) or ComponentByComponent [string]     |
+| QuadratureDataLayout                | Automatic (default), PointByPoint, ComponentByComponent     |
+|                                     | [string], or layouts of the arrays [Parameters]             |
 +-------------------------------------+-------------------------------------------------------------+
 
 The last six parameters and their default values are described in

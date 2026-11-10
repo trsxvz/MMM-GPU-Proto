@@ -47,11 +47,12 @@ namespace mfem_mgis {
     return *b_ptr;
   }
 
-  Material::Material(const PartialQuadratureSpace &s,
+  Material::Material(const PartialQuadratureSpace& s,
                      std::unique_ptr<const Behaviour> b_ptr,
-                     const mgis::FieldLayout l)
+                     const mgis::behaviour::MaterialDataManagerLayout& l)
       : MaterialArrays(Material_dereferenceBehaviour(b_ptr),
-                       s.getNumberOfIntegrationPoints(), l),
+                       s.getNumberOfIntegrationPoints(),
+                       l),
         MaterialDataManager(Material_dereferenceBehaviour(b_ptr),
                             s.getNumberOfIntegrationPoints(),
                             this->getInitializer()),
@@ -112,6 +113,24 @@ namespace mfem_mgis {
     }
   }  // end of checkBehaviourSymmetry
 
+  /*!
+   * \return the values of a function defining a material axis at an
+   * integration point, copied in an array: the rotation matrices are built
+   * from contiguous values, whatever the layout of the function
+   * \param[in] f: function
+   * \param[in] o: offset of the integration point
+   */
+  template <std::size_t N>
+  static std::array<real, N> getMaterialAxisValues(
+      const PartialQuadratureFunction& f, const size_type o) {
+    const auto v = f(o);
+    auto a = std::array<real, N>{};
+    for (std::size_t i = 0; i != N; ++i) {
+      a[i] = v[i];
+    }
+    return a;
+  }  // end of getMaterialAxisValues
+
   void Material::setRotationMatrix(const RotationMatrix2D &r) {
     checkBehaviourSymmetry(this->b);
     if (mgis::behaviour::getSpaceDimension(this->b.hypothesis) != 2u) {
@@ -131,7 +150,7 @@ namespace mfem_mgis {
             const auto &f =
                 *(std::get<std::shared_ptr<PartialQuadratureFunction>>(rm));
             return mgis::behaviour::buildRotationMatrix(
-                f.getIntegrationPointValues<2>(o));
+                getMaterialAxisValues<2>(f, o));
           };
     } else {
       raise("Material::setRotationMatrix: unimplemented case yet");
@@ -184,7 +203,7 @@ namespace mfem_mgis {
               *(std::get<std::shared_ptr<PartialQuadratureFunction>>(a2));
           return mgis::behaviour::buildRotationMatrix(
               std::get<std::array<real, 3u>>(a1),
-              f2.getIntegrationPointValues<3>(o));
+              getMaterialAxisValues<3>(f2, o));
         };
       } else if ((std::holds_alternative<
                      std::shared_ptr<PartialQuadratureFunction>>(v1)) &&
@@ -196,7 +215,7 @@ namespace mfem_mgis {
           const auto &f1 =
               *(std::get<std::shared_ptr<PartialQuadratureFunction>>(a1));
           return mgis::behaviour::buildRotationMatrix(
-              f1.getIntegrationPointValues<3>(o),
+              getMaterialAxisValues<3>(f1, o),
               std::get<std::array<real, 3u>>(a2));
         };
       } else if ((std::holds_alternative<
@@ -212,8 +231,7 @@ namespace mfem_mgis {
           const auto &f2 =
               *(std::get<std::shared_ptr<PartialQuadratureFunction>>(a2));
           return mgis::behaviour::buildRotationMatrix(
-              f1.getIntegrationPointValues<3>(o),
-              f2.getIntegrationPointValues<3>(o));
+              getMaterialAxisValues<3>(f1, o), getMaterialAxisValues<3>(f2, o));
         };
       } else {
         raise("Material::setRotationMatrix: unimplemented case yet");
@@ -285,9 +303,10 @@ namespace mfem_mgis {
     return mgis::makePointByPointFieldView(matrices, np, 9, 9);
   }  // end of computeRotationMatrices
 
-  void Material::computeValuesInGlobalFrame(mfem::Vector &v,
+  void Material::computeValuesInGlobalFrame(mfem::Vector& v,
                                             const StateArray a,
-                                            const StateSelection s) const {
+                                            const StateSelection s,
+                                            const mgis::FieldLayout ol) const {
     const auto gradients = a == StateArray::GRADIENTS;
     const auto *const method =
         gradients ? "Material::computeGradientsInGlobalFrame"
@@ -329,8 +348,8 @@ namespace mfem_mgis {
     const auto matrices =
         host ? hmatrices : relocate(hmatrices, r.Read(), r.Size());
     auto *const values = host ? v.HostWrite() : v.Write();
-    const auto d = mgis::makePointByPointFieldView(
-        std::span<real>(values, size), np, nc, nc);
+    const auto d =
+        mgis::makeFieldView(std::span<real>(values, size), ol, np, nc);
     if (gradients) {
       mgis::behaviour::rotateGradients(d, this->b, source, matrices, l);
     } else {
@@ -339,22 +358,27 @@ namespace mfem_mgis {
     }
   }  // end of computeValuesInGlobalFrame
 
-  void Material::computeGradientsInGlobalFrame(mfem::Vector &v,
-                                               const StateSelection s) const {
-    this->computeValuesInGlobalFrame(v, StateArray::GRADIENTS, s);
+  void Material::computeGradientsInGlobalFrame(
+      mfem::Vector& v,
+      const StateSelection s,
+      const mgis::FieldLayout l) const {
+    this->computeValuesInGlobalFrame(v, StateArray::GRADIENTS, s, l);
   }  // end of computeGradientsInGlobalFrame
 
   void Material::computeThermodynamicForcesInGlobalFrame(
-      mfem::Vector &v, const StateSelection s) const {
-    this->computeValuesInGlobalFrame(v, StateArray::THERMODYNAMIC_FORCES, s);
+      mfem::Vector& v,
+      const StateSelection s,
+      const mgis::FieldLayout l) const {
+    this->computeValuesInGlobalFrame(v, StateArray::THERMODYNAMIC_FORCES, s, l);
   }  // end of computeThermodynamicForcesInGlobalFrame
 
   /*!
    * \return a view of a copy, readable on the device, of the values of a
    * material property, of an external state variable or of the mass
    * density, given by a view of their values on the host
-   * \param[out] c: copy, stored point by point (one point for uniform
-   * values)
+   * \param[out] c: copy, stored densely in the layout of the values on the
+   * host (point by point unless the components are not contiguous), one
+   * point for uniform values
    * \param[in] v: view of the values on the host
    */
   static mgis::FieldView<const real> copyToDevice(
@@ -367,20 +391,21 @@ namespace mfem_mgis {
     }
     c.UseDevice(true);
     c.SetSize(static_cast<int>(size));
-    auto* const values = c.HostWrite();
-    const auto* const h = v.data();
-    const auto ps = v.getPointStride();
-    const auto cs = v.getComponentStride();
+    const auto l = (v.isUniform() || (nc <= 1) || v.hasContiguousComponents())
+                       ? mgis::FieldLayout::POINT_BY_POINT
+                       : mgis::FieldLayout::COMPONENT_BY_COMPONENT;
+    const auto dst =
+        mgis::makeFieldView(std::span<real>(c.HostWrite(), size), l, np, nc);
     for (size_type i = 0; i != np; ++i) {
       for (size_type j = 0; j != nc; ++j) {
-        values[i * nc + j] = h[i * ps + j * cs];
+        dst(i, j) = v(i, j);
       }
     }
     const auto d = std::span<const real>(c.Read(), size);
     if (v.isUniform()) {
       return mgis::makeUniformFieldView(d, v.getNumberOfPoints());
     }
-    return mgis::makePointByPointFieldView(d, np, nc, nc);
+    return mgis::makeFieldView(d, l, np, nc);
   }  // end of copyToDevice
 
   mgis::behaviour::MaterialDataView Material::makeDeviceView(
@@ -454,70 +479,67 @@ namespace mfem_mgis {
 
   Material::~Material() = default;
 
+  /*!
+   * \return the specifications of a partial quadrature function viewing the
+   * values of a variable of a material, whatever the layout of the array
+   * holding it
+   * \param[in] values: values of the array holding the variable
+   * \param[in] v: view of the variable, given by MGIS
+   */
+  template <typename ValueType>
+  [[nodiscard]] static ViewSpecifications getViewSpecifications(
+      std::span<ValueType> values,
+      const mgis::FieldView<ValueType>& v) noexcept {
+    // the strides of an empty view may be null
+    return {.data_begin = static_cast<size_type>(v.data() - values.data()),
+            .data_size = static_cast<size_type>(v.getNumberOfComponents()),
+            .data_stride = std::max(static_cast<size_type>(v.getPointStride()),
+                                    size_type{1}),
+            .data_component_stride = std::max(
+                static_cast<size_type>(v.getComponentStride()), size_type{1})};
+  }  // end of getViewSpecifications
+
+  /*!
+   * \return a partial quadrature function viewing the values of a variable
+   * of a material
+   * \param[in, out] ctx: execution context
+   * \param[in] qs: quadrature space
+   * \param[in] values: values of the array holding the variable
+   * \param[in] get_view: function returning the view of the variable, given
+   * by MGIS, which may throw if the variable does not exist
+   */
   [[nodiscard]] static std::optional<PartialQuadratureFunction>
   buildPartialQuadratureFunction(
-      Context &ctx,
-      const PartialQuadratureSpace &qs,
+      Context& ctx,
+      const PartialQuadratureSpace& qs,
       std::span<mgis::real> values,
-      const std::vector<mgis::behaviour::Variable> &variables,
-      const std::string_view n,
-      const Hypothesis h) noexcept {
-    using namespace mgis::behaviour;
-    const auto ostride = getArraySize(ctx, variables, h);
-    const auto ov = getVariable(ctx, variables, n);
-    const auto oo = getVariableOffset(ctx, variables, n, h);
-    if (isInvalid(ostride) || isInvalid(oo) || isInvalid(ov)) {
-      return {};
+      const std::function<mgis::FieldView<mgis::real>()>& get_view) noexcept {
+    try {
+      const auto v = get_view();
+      return PartialQuadratureFunction::borrow(
+          ctx, qs, values, getViewSpecifications(values, v));
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
     }
-    const auto os = getVariableSize(ctx, *ov, h);
-    if (isInvalid(os)) {
-      return {};
-    }
-    return PartialQuadratureFunction::borrow(
-        ctx, qs, values,
-        {.data_begin = static_cast<size_type>(*oo),
-         .data_size = static_cast<size_type>(*os),
-         .data_stride = static_cast<size_type>(*ostride)});
+    return {};
   }  // end of buildPartialQuadratureFunction
 
-  //   static PartialQuadratureFunction buildPartialQuadratureFunction(
-  //       std::shared_ptr<const PartialQuadratureSpace> qs,
-  //       std::span<mgis::real> values,
-  //       const std::vector<mgis::behaviour::Variable> &variables,
-  //       const std::string_view n,
-  //       const Hypothesis h) {
-  //     const auto o = getVariableOffset(variables, n, h);
-  //     const auto s =
-  //         getVariableSize(mgis::behaviour::getVariable(variables, n), h);
-  //     return PartialQuadratureFunction(qs, StorageMode::EXTERNAL_STORAGE,
-  //     values,
-  //                                      o, s);
-  //   }  // end of buildPartialQuadratureFunction
-
+  //! \brief immutable counterpart of `buildPartialQuadratureFunction`
   [[nodiscard]] static std::optional<ImmutablePartialQuadratureFunctionView>
   buildImmutablePartialQuadratureFunctionView(
-      Context &ctx,
-      const PartialQuadratureSpace &qs,
+      Context& ctx,
+      const PartialQuadratureSpace& qs,
       std::span<const mgis::real> values,
-      const std::vector<mgis::behaviour::Variable> &variables,
-      const std::string_view n,
-      const Hypothesis h) {
-    using namespace mgis::behaviour;
-    const auto ostride = getArraySize(ctx, variables, h);
-    const auto ov = getVariable(ctx, variables, n);
-    const auto oo = getVariableOffset(ctx, variables, n, h);
-    if (isInvalid(ostride) || isInvalid(oo) || isInvalid(ov)) {
-      return {};
+      const std::function<mgis::FieldView<const mgis::real>()>&
+          get_view) noexcept {
+    try {
+      const auto v = get_view();
+      return ImmutablePartialQuadratureFunctionView(
+          qs, values, getViewSpecifications(values, v));
+    } catch (...) {
+      std::ignore = registerExceptionInErrorBacktrace(ctx);
     }
-    const auto os = getVariableSize(ctx, *ov, h);
-    if (isInvalid(os)) {
-      return {};
-    }
-    return ImmutablePartialQuadratureFunctionView(
-        qs, values,
-        {.data_begin = static_cast<size_type>(*oo),
-         .data_size = static_cast<size_type>(*os),
-         .data_stride = static_cast<size_type>(*ostride)});
+    return {};
   }  // end of buildImmutablePartialQuadratureFunctionView
 
   bool isIntegratedByBatchesOnDevice(const Behaviour& b) noexcept {
@@ -526,16 +548,6 @@ namespace mfem_mgis {
            mgis::behaviour::isMemoryLocationAccessible(
                b, getDeviceMemoryLocation());
   }  // end of isIntegratedByBatchesOnDevice
-
-  bool checkPointByPointLayout(AbstractErrorHandler &eh,
-                               const Material &m) noexcept {
-    if (m.layout != mgis::FieldLayout::POINT_BY_POINT) {
-      return eh.registerErrorMessage(
-          "the accessors and the evaluators of the material require the "
-          "point by point layout of its arrays");
-    }
-    return true;
-  }  // end of checkPointByPointLayout
 
   /*!
    * \brief synchronize an array of a material on the host, reporting the
@@ -581,19 +593,17 @@ namespace mfem_mgis {
   }  // end of synchronizeOnHostForReading
 
   std::optional<PartialQuadratureFunction> getGradient(
-      Context &ctx,
-      Material &m,
+      Context& ctx,
+      Material& m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
-    if (!checkPointByPointLayout(ctx, m)) {
-      return {};
-    }
     if (!synchronizeOnHost(ctx, m, StateArray::GRADIENTS, s)) {
       return {};
     }
-    return buildPartialQuadratureFunction(ctx, m.getPartialQuadratureSpace(),
-                                          getStateManager(m, s).gradients,
-                                          m.b.gradients, n, m.b.hypothesis);
+    auto& sm = getStateManager(m, s);
+    return buildPartialQuadratureFunction(
+        ctx, m.getPartialQuadratureSpace(), sm.gradients,
+        [&sm, n] { return mgis::behaviour::getGradientView(sm, n); });
   }  // end of getGradient
 
   std::optional<ImmutablePartialQuadratureFunctionView> getGradient(
@@ -601,86 +611,75 @@ namespace mfem_mgis {
       const Material &m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
-    if (!checkPointByPointLayout(ctx, m)) {
+    if (!synchronizeOnHostForReading(ctx, m, StateArray::GRADIENTS, s)) {
       return {};
     }
-    if (!synchronizeOnHostForReading(
-            ctx, m, StateArray::GRADIENTS, s)) {
-      return {};
-    }
+    const auto& sm = getStateManager(m, s);
     return buildImmutablePartialQuadratureFunctionView(
-        ctx, m.getPartialQuadratureSpace(), getStateManager(m, s).gradients,
-        m.b.gradients, n, m.b.hypothesis);
+        ctx, m.getPartialQuadratureSpace(), sm.gradients,
+        [&sm, n] { return mgis::behaviour::getGradientView(sm, n); });
   }  // end of getGradient
 
   std::optional<PartialQuadratureFunction> getThermodynamicForce(
-      Context &ctx,
-      Material &m,
+      Context& ctx,
+      Material& m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
-    if (!checkPointByPointLayout(ctx, m)) {
-      return {};
-    }
     if (!synchronizeOnHost(ctx, m, StateArray::THERMODYNAMIC_FORCES, s)) {
       return {};
     }
+    auto& sm = getStateManager(m, s);
     return buildPartialQuadratureFunction(
-        ctx, m.getPartialQuadratureSpace(),
-        getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
-        m.b.hypothesis);
+        ctx, m.getPartialQuadratureSpace(), sm.thermodynamic_forces,
+        [&sm, n] { return mgis::behaviour::getThermodynamicForceView(sm, n); });
   }  // end of getThermodynamicForce
 
   std::optional<ImmutablePartialQuadratureFunctionView> getThermodynamicForce(
-      Context &ctx,
-      const Material &m,
+      Context& ctx,
+      const Material& m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
-    if (!checkPointByPointLayout(ctx, m)) {
-      return {};
-    }
     if (!synchronizeOnHostForReading(
             ctx, m, StateArray::THERMODYNAMIC_FORCES, s)) {
       return {};
     }
+    const auto& sm = getStateManager(m, s);
     return buildImmutablePartialQuadratureFunctionView(
-        ctx, m.getPartialQuadratureSpace(),
-        getStateManager(m, s).thermodynamic_forces, m.b.thermodynamic_forces, n,
-        m.b.hypothesis);
+        ctx, m.getPartialQuadratureSpace(), sm.thermodynamic_forces,
+        [&sm, n] { return mgis::behaviour::getThermodynamicForceView(sm, n); });
   }  // end of getThermodynamicForce
 
   std::optional<PartialQuadratureFunction> getInternalStateVariable(
-      Context &ctx,
-      Material &m,
+      Context& ctx,
+      Material& m,
       const std::string_view n,
       const Material::StateSelection s) noexcept {
-    if (!checkPointByPointLayout(ctx, m)) {
-      return {};
-    }
     if (!synchronizeOnHost(ctx, m, StateArray::INTERNAL_STATE_VARIABLES, s)) {
       return {};
     }
+    auto& sm = getStateManager(m, s);
     return buildPartialQuadratureFunction(
-        ctx, m.getPartialQuadratureSpace(),
-        getStateManager(m, s).internal_state_variables, m.b.isvs, n,
-        m.b.hypothesis);
+        ctx, m.getPartialQuadratureSpace(), sm.internal_state_variables,
+        [&sm, n] {
+          return mgis::behaviour::getInternalStateVariableView(sm, n);
+        });
   }  // end of getInternalStateVariable
 
   std::optional<ImmutablePartialQuadratureFunctionView>
-  getInternalStateVariable(Context &ctx,
-                           const Material &m,
+  getInternalStateVariable(Context& ctx,
+                           const Material& m,
                            const std::string_view n,
                            const Material::StateSelection s) noexcept {
-    if (!checkPointByPointLayout(ctx, m)) {
-      return {};
-    }
     if (!synchronizeOnHostForReading(
             ctx, m, StateArray::INTERNAL_STATE_VARIABLES, s)) {
       return {};
     }
+    const auto& sm = getStateManager(m, s);
     return buildImmutablePartialQuadratureFunctionView(
-        ctx, m.getPartialQuadratureSpace(),
-        getStateManager(m, s).internal_state_variables, m.b.isvs, n,
-        m.b.hypothesis);
+        ctx, m.getPartialQuadratureSpace(), sm.internal_state_variables,
+        [&sm, n] {
+          return mgis::behaviour::getInternalStateVariableView(sm, n);
+        });
   }  // end of getInternalStateVariable
 
   std::optional<PartialQuadratureFunction> getStoredEnergy(

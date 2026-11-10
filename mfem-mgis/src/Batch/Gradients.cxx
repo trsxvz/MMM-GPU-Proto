@@ -5,6 +5,7 @@
  * \date   09/10/2026
  */
 
+#include <tuple>
 #include <limits>
 #include <string>
 #include <cstdint>
@@ -170,7 +171,8 @@ namespace mfem_mgis::batch {
                                   const mfem::FiniteElementSpace& fes,
                                   const mfem::Vector& u,
                                   const mfem::IntegrationRule& ir,
-                                  const bool values) noexcept {
+                                  const bool values,
+                                  const mgis::FieldLayout l) noexcept {
     try {
       const auto& mesh = *(fes.GetMesh());
       if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
@@ -183,6 +185,7 @@ namespace mfem_mgis::batch {
       d.dim = mesh.Dimension();
       d.nq = ir.GetNPoints();
       d.ne = fes.GetNE();
+      d.layout = l;
       const auto size = std::int64_t{d.vdim} * std::int64_t{d.dim} *
                         std::int64_t{d.nq} * std::int64_t{d.ne};
       if (!resizeArray(ctx, d.values, size)) {
@@ -237,9 +240,14 @@ namespace mfem_mgis::batch {
       a.element_values = d.element_values.Read(use_device);
       a.shape_functions_gradients = maps.G.Read(use_device);
       a.derivatives = d.values.Write(use_device);
+      const auto np = std::int64_t{d.nq} * std::int64_t{d.ne};
+      std::tie(a.derivatives_point_stride, a.derivatives_component_stride) =
+          getDerivativesStrides(d);
       if (values) {
         a.shape_functions = maps.B.Read(use_device);
         a.point_values = d.point_values.Write(use_device);
+        std::tie(a.point_values_point_stride, a.point_values_component_stride) =
+            getDenseStrides(l, np, d.vdim);
       }
       internals::launchUnknownsDerivativesKernel(a, use_device);
     } catch (std::exception& e) {
@@ -391,6 +399,9 @@ namespace mfem_mgis::batch {
     a.elements = elements.Read(use_device);
     a.offsets = offsets.Read(use_device);
     a.derivatives = d.values.Read(use_device);
+    const auto dnp = std::int64_t{d.nq} * std::int64_t{d.ne};
+    std::tie(a.derivatives_point_stride, a.derivatives_component_stride) =
+        getDerivativesStrides(d);
     if (gradientsRequireUnknownsValues(k)) {
       if (!d.has_point_values) {
         return ctx.registerErrorMessage(
@@ -398,6 +409,9 @@ namespace mfem_mgis::batch {
             ": the values of the unknowns at the points are not computed");
       }
       a.unknowns_values = d.point_values.Read(use_device);
+      std::tie(a.unknowns_values_point_stride,
+               a.unknowns_values_component_stride) =
+          getDenseStrides(d.layout, dnp, d.vdim);
     }
     a.inverse_jacobians = g.jacobians->invJ.Read(use_device);
     error = false;
@@ -426,8 +440,10 @@ namespace mfem_mgis::batch {
                                        use_device)) {
         return !error;
       }
-      a.point_by_point =
-          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
+      // strides of the gradients of the material (layout and padding)
+      const auto gv = mgis::behaviour::getGradientsView(m.s1);
+      a.point_stride = static_cast<long long>(gv.getPointStride());
+      a.component_stride = static_cast<long long>(gv.getComponentStride());
       const auto macroscopic_gradients = m.getMacroscopicGradients();
       for (size_type c = 0; c != gsize; ++c) {
         a.macroscopic_gradients[c] = macroscopic_gradients[c];
@@ -447,7 +463,8 @@ namespace mfem_mgis::batch {
   bool getUnknownsValues(Context& ctx,
                          mfem::Vector& v,
                          const PartialQuadratureSpace& qs,
-                         const UnknownsDerivatives& d) noexcept {
+                         const UnknownsDerivatives& d,
+                         const mgis::FieldLayout l) noexcept {
     const auto& elements = qs.getElements();
     const auto& offsets = qs.getElementOffsets();
     const auto n = std::int64_t{qs.getNumberOfIntegrationPoints()};
@@ -473,7 +490,12 @@ namespace mfem_mgis::batch {
       a.elements = elements.Read(use_device);
       a.offsets = offsets.Read(use_device);
       a.point_values = d.point_values.Read(use_device);
+      std::tie(a.point_values_point_stride, a.point_values_component_stride) =
+          getDenseStrides(d.layout, std::int64_t{d.nq} * std::int64_t{d.ne},
+                          d.vdim);
       a.values = v.Write(use_device);
+      std::tie(a.values_point_stride, a.values_component_stride) =
+          getDenseStrides(l, n, d.vdim);
       a.number_of_elements = elements.Size();
       a.nq = d.nq;
       a.vdim = d.vdim;

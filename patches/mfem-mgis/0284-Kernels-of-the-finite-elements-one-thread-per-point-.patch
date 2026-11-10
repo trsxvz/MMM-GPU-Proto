@@ -1,0 +1,1634 @@
+From 3f46af8740ca114666c3384b77b08cb8dbc1f85a Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Tue, 10 Nov 2026 02:12:37 +0100
+Subject: [PATCH] Kernels of the finite elements: one thread per point, strides
+ of the work arrays
+
+- Inner forces, tangent operator applied without assembly and inner forces
+  of the regularization of Faltus et al.: on a GPU, one thread per
+  integration point loads the data of its point in shared memory (forces
+  or their increments, weight, inverse of the jacobian), then one thread
+  per node sums the contributions of the points in their order. The
+  accesses to the arrays of the material are coalesced in the component
+  by component layout, and the results are the same to the last bit in
+  all the layouts and as before. A block holds at most 128 points, 64
+  elements and 1024 threads. The points of an element having more than
+  128 points are processed by chunks of 128 points, in their order: the
+  node threads add the contributions of a chunk to the sums of the
+  previous chunks, read from and written to the global memory, so that
+  the results do not depend on the number of chunks. On the host, an
+  element is processed by one thread, as before.
+- Work arrays: the derivatives of the unknowns and the values at the
+  points of all the elements are stored in the layout of the gradients
+  given to the problem (component by component if the kernels compute on
+  a GPU, for the automatic layout); the deformation gradients, the vectors
+  of the modified tangent operator and the pseudo-stresses of the F-bar
+  formulation in the layout of the array they relate to. The kernels read
+  them, and the arrays of the materials, through their strides (padding
+  included): the boolean point_by_point is removed.
+- IntegrationRuleOrderTest: rule of order 11 (216 points per hexahedron),
+  point by point and by kernels.
+---
+ include/MFEMMGIS/Batch/FBar.hxx              |  13 +-
+ include/MFEMMGIS/Batch/Gradients.hxx         |  53 ++++-
+ include/MFEMMGIS/Batch/StiffnessMatrices.hxx |  10 +-
+ src/Batch/FBar.cxx                           |  59 ++++--
+ src/Batch/FBarKernels.cxx                    |  61 +++---
+ src/Batch/FBarKernels.hxx                    |  40 +++-
+ src/Batch/Faltus.cxx                         |  11 +-
+ src/Batch/FaltusKernels.cxx                  | 116 ++++++++---
+ src/Batch/FaltusKernels.hxx                  |  10 +-
+ src/Batch/Gradients.cxx                      |  30 ++-
+ src/Batch/GradientsKernels.cxx               |  52 +++--
+ src/Batch/GradientsKernels.hxx               |  35 +++-
+ src/Batch/InnerForcesKernels.cxx             |  99 +++++++---
+ src/Batch/KernelsUtilities.hxx               |  72 +++++++
+ src/Batch/StiffnessMatrices.cxx              |   2 +
+ src/Batch/StiffnessMatricesKernels.cxx       | 191 ++++++++++++-------
+ src/Batch/StiffnessMatricesKernels.hxx       |   8 +-
+ tests/IntegrationRuleOrderTest.cxx           |  49 +++--
+ 18 files changed, 677 insertions(+), 234 deletions(-)
+
+diff --git a/include/MFEMMGIS/Batch/FBar.hxx b/include/MFEMMGIS/Batch/FBar.hxx
+index ee9b68ed2c..7ed5a89042 100644
+--- a/include/MFEMMGIS/Batch/FBar.hxx
++++ b/include/MFEMMGIS/Batch/FBar.hxx
+@@ -11,6 +11,7 @@
+ #include "mfem/linalg/vector.hpp"
+ #include "MGIS/Context.hxx"
+ #include "MGIS/FieldView.hxx"
++#include "MGIS/Behaviour/MaterialDataManager.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Batch/Gradients.hxx"
+ #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+@@ -68,9 +69,17 @@ namespace mfem_mgis::batch {
+    * the caller must).
+    */
+   struct MFEM_MGIS_EXPORT FBarData {
++    /*!
++     * \brief layouts of the arrays of the material, followed by the arrays at
++     * the integration points of this structure, stored densely: the
++     * deformation gradients `F` as the gradients, the vectors `v` and `c` as
++     * the tangent operator blocks they modify, the pseudo-stresses as the
++     * thermodynamic forces (see `computeFBarData`)
++     */
++    mgis::behaviour::MaterialDataManagerLayout layout;
+     /*!
+      * \brief deformation gradients `F` at the integration points of the
+-     * material, in the global frame, point by point
++     * material, in the global frame
+      */
+     mfem::Vector deformation_gradients;
+     //! \brief coefficients `α` at the integration points of the material
+@@ -86,7 +95,7 @@ namespace mfem_mgis::batch {
+     mfem::Vector a;
+     /*!
+      * \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`
+-     * at the integration points of the material, point by point (see
++     * at the integration points of the material (see
+      * `computeFBarTangentOperator`)
+      */
+     mfem::Vector tangent_v;
+diff --git a/include/MFEMMGIS/Batch/Gradients.hxx b/include/MFEMMGIS/Batch/Gradients.hxx
+index f55b0a7139..4d56233fd0 100644
+--- a/include/MFEMMGIS/Batch/Gradients.hxx
++++ b/include/MFEMMGIS/Batch/Gradients.hxx
+@@ -10,8 +10,10 @@
+ #define LIB_MFEM_MGIS_BATCH_GRADIENTS_HXX
+ 
+ #include <map>
++#include <utility>
+ #include <optional>
+ #include "mfem/linalg/vector.hpp"
++#include "MGIS/FieldView.hxx"
+ #include "MFEMMGIS/Config.hxx"
+ #include "MFEMMGIS/Behaviour.hxx"
+ #include "MFEMMGIS/Batch/ElementsGeometry.hxx"
+@@ -63,6 +65,14 @@ namespace mfem_mgis::batch {
+     mfem::Vector point_values;
+     //! \brief if true, the values at the integration points are computed
+     bool has_point_values = false;
++    /*!
++     * \brief layout of `values` and of `point_values` over the points of
++     * all the elements (`q + nq * e`): point by point (the indices given
++     * above, by default) or component by component (the `j`-th component of
++     * the `p`-th point at `j * nq * ne + p`), see
++     * `computeUnknownsDerivatives`. Both layouts give the same results.
++     */
++    mgis::FieldLayout layout = mgis::FieldLayout::POINT_BY_POINT;
+     //! \brief number of components of the unknowns
+     int vdim = 0;
+     //! \brief dimension of the space
+@@ -73,6 +83,35 @@ namespace mfem_mgis::batch {
+     int ne = 0;
+   };
+ 
++  /*!
++   * \return the strides, between two points and between two components, of
++   * an array of `nc` components at `n` points stored densely in the given
++   * layout
++   * \param[in] l: layout
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   */
++  inline std::pair<long long, long long> getDenseStrides(
++      const mgis::FieldLayout l,
++      const long long n,
++      const long long nc) noexcept {
++    if (l == mgis::FieldLayout::POINT_BY_POINT) {
++      return {nc, 1};
++    }
++    return {1, n};
++  }  // end of getDenseStrides
++
++  /*!
++   * \return the strides, between two points and between two components, of
++   * the derivatives of the unknowns (see `UnknownsDerivatives::layout`)
++   * \param[in] d: derivatives
++   */
++  inline std::pair<long long, long long> getDerivativesStrides(
++      const UnknownsDerivatives& d) noexcept {
++    return getDenseStrides(d.layout, static_cast<long long>(d.nq) * d.ne,
++                           static_cast<long long>(d.vdim) * d.dim);
++  }  // end of getDerivativesStrides
++
+   /*!
+    * \brief derivatives of the unknowns for the integration rules of several
+    * materials, computed once for each integration rule
+@@ -256,6 +295,8 @@ namespace mfem_mgis::batch {
+    * \param[in] ir: integration rule
+    * \param[in] values: if true, the values of the unknowns at the points are
+    * computed
++   * \param[in] l: layout of the derivatives and of the values (see
++   * `UnknownsDerivatives::layout`)
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool computeUnknownsDerivatives(
+       Context& ctx,
+@@ -263,24 +304,28 @@ namespace mfem_mgis::batch {
+       const mfem::FiniteElementSpace& fes,
+       const mfem::Vector& u,
+       const mfem::IntegrationRule& ir,
+-      const bool values = false) noexcept;
++      const bool values = false,
++      const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT) noexcept;
+   /*!
+    * \brief gathers the values of the unknowns at the integration points of
+    * a material, in the order of the points of the material, by a kernel, on
+-   * the device if a device is enabled: the value of the `i`-th component at
+-   * the point `o` is `v[i + vdim * o]`
++   * the device if a device is enabled, in the given layout: the value of the
++   * `i`-th component at the point `o` is `v[i + vdim * o]` point by point,
++   * `v[o + n * i]` component by component, `n` being the number of points
+    * \return true on success
+    * \param[in, out] ctx: execution context
+    * \param[out] v: values
+    * \param[in] qs: quadrature space of the material. All its elements must
+    * use the integration rule of the derivatives.
+    * \param[in] d: derivatives of the unknowns, with the values at the points
++   * \param[in] l: layout of the values
+    */
+   MFEM_MGIS_EXPORT [[nodiscard]] bool getUnknownsValues(
+       Context& ctx,
+       mfem::Vector& v,
+       const PartialQuadratureSpace& qs,
+-      const UnknownsDerivatives& d) noexcept;
++      const UnknownsDerivatives& d,
++      const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT) noexcept;
+   /*!
+    * \brief computes the gradients at the end of the time step of a material
+    * at all its integration points, by a kernel: macroscopic gradients plus
+diff --git a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+index f2a5f0a9fe..d685099ee8 100644
+--- a/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
++++ b/include/MFEMMGIS/Batch/StiffnessMatrices.hxx
+@@ -42,16 +42,20 @@ namespace mfem_mgis::batch {
+    * supported for the deformation gradients. The arrays are given for all
+    * the points of the material, in the order of its quadrature space (one
+    * coefficient, and as many values of `v` and of `c` as components of the
+-   * gradients, point by point), located on the device if a device is
++   * gradients, with the given strides), located on the device if a device is
+    * enabled; the modification is not applied if `coefficients` is null.
+    */
+   struct MFEM_MGIS_EXPORT TangentOperatorModification {
+     //! \brief coefficients `α` at the points of the material
+     const real* coefficients = nullptr;
+-    //! \brief vectors `v` at the points of the material, point by point
++    //! \brief vectors `v` at the points of the material
+     const real* v = nullptr;
+-    //! \brief vectors `c` at the points of the material, point by point
++    //! \brief vectors `c` at the points of the material
+     const real* c = nullptr;
++    //! \brief stride between two points of `v` and of `c`
++    long long point_stride = 0;
++    //! \brief stride between two components of `v` and of `c`
++    long long component_stride = 0;
+   };
+ 
+   /*!
+diff --git a/src/Batch/FBar.cxx b/src/Batch/FBar.cxx
+index 54b6988e80..e136c6430b 100644
+--- a/src/Batch/FBar.cxx
++++ b/src/Batch/FBar.cxx
+@@ -5,6 +5,7 @@
+  * \date   11/10/2026
+  */
+ 
++#include <tuple>
+ #include <limits>
+ #include <string>
+ #include <cstdint>
+@@ -111,8 +112,8 @@ namespace mfem_mgis::batch {
+    * \param[in, out] gradients: gradients of the material at the end of the
+    * time step (deformation gradients, replaced by `F̄`), or a null pointer
+    * for null unknowns (`F` is then given by the macroscopic gradients)
+-   * \param[in] point_by_point: layout of `gradients` (true if stored point
+-   * by point)
++   * \param[in] gv: view of the gradients of the material at the end of the
++   * time step, giving the strides of `gradients`
+    * \param[in] d0: derivatives at the center, null for null unknowns
+    * \param[in] g0: geometric data of the center of the elements
+    * \param[in] k: kind of the gradients
+@@ -122,7 +123,7 @@ namespace mfem_mgis::batch {
+                               FBarData& data,
+                               const Material& m,
+                               real* const gradients,
+-                              const bool point_by_point,
++                              const mgis::FieldView<const real>& gv,
+                               const UnknownsDerivatives* const d0,
+                               const ElementsGeometry& g0,
+                               const GradientsKind k,
+@@ -141,6 +142,7 @@ namespace mfem_mgis::batch {
+     const auto vdim = getUnknownsSize(k);
+     data.has_tangent_operator = false;
+     data.valid = true;
++    data.layout = m.layout;
+     if ((!resizeFBarArray(ctx, data.deformation_gradients, np * gsize)) ||
+         (!resizeFBarArray(ctx, data.coefficients, np)) ||
+         (!resizeFBarArray(ctx, data.centers, elements.Size())) ||
+@@ -183,6 +185,10 @@ namespace mfem_mgis::batch {
+     auto ca = internals::FBarCentersKernelArguments{};
+     ca.elements = elements.Read(use_device);
+     ca.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
++    if (d0 != nullptr) {
++      std::tie(ca.derivatives_point_stride, ca.derivatives_component_stride) =
++          getDerivativesStrides(*d0);
++    }
+     ca.inverse_jacobians = g0.jacobians->invJ.Read(use_device);
+     ca.shape_functions_gradients = g0.maps->G.Read(use_device);
+     ca.centers = data.centers.Write(use_device);
+@@ -204,7 +210,11 @@ namespace mfem_mgis::batch {
+     ga.number_of_elements = elements.Size();
+     ga.nq = nq;
+     ga.number_of_points = static_cast<int>(np);
+-    ga.point_by_point = point_by_point;
++    ga.point_stride = static_cast<long long>(gv.getPointStride());
++    ga.component_stride = static_cast<long long>(gv.getComponentStride());
++    std::tie(ga.deformation_gradients_point_stride,
++             ga.deformation_gradients_component_stride) =
++        getDenseStrides(data.layout.gradients, np, gsize);
+     for (std::int64_t c = 0; c != gsize; ++c) {
+       ga.macroscopic_gradients[c] = macroscopic_gradients[c];
+     }
+@@ -283,9 +293,15 @@ namespace mfem_mgis::batch {
+    */
+   static TangentOperatorModification getFBarTangentOperatorModification(
+       const FBarData& data, const bool use_device) {
++    const auto np = static_cast<std::int64_t>(data.coefficients.Size());
++    const auto [ps, cs] = getDenseStrides(
++        data.layout.tangent_operator, np,
++        np == 0 ? 0 : static_cast<std::int64_t>(data.tangent_v.Size()) / np);
+     return {.coefficients = data.coefficients.Read(use_device),
+             .v = data.tangent_v.Read(use_device),
+-            .c = data.tangent_c.Read(use_device)};
++            .c = data.tangent_c.Read(use_device),
++            .point_stride = ps,
++            .component_stride = cs};
+   }  // end of getFBarTangentOperatorModification
+ 
+   bool applyFBar(Context& ctx,
+@@ -302,10 +318,9 @@ namespace mfem_mgis::batch {
+       const auto use_device = mfem::Device::IsEnabled();
+       auto* const gradients = m.getArrays().readWrite(
+           MaterialArrays::StateArray::GRADIENTS, ets, use_device);
+-      return computeFBarData(
+-          ctx, data, m, gradients,
+-          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT, &d0,
+-          g0, k, "applyFBar");
++      return computeFBarData(ctx, data, m, gradients,
++                             mgis::behaviour::getGradientsView(m.s1), &d0, g0,
++                             k, "applyFBar");
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(std::string{"applyFBar: "} + e.what());
+     } catch (...) {
+@@ -319,8 +334,9 @@ namespace mfem_mgis::batch {
+                       const ElementsGeometry& g0,
+                       const GradientsKind k) noexcept {
+     try {
+-      return computeFBarData(ctx, data, m, nullptr, true, nullptr, g0, k,
+-                             "initializeFBar");
++      return computeFBarData(ctx, data, m, nullptr,
++                             mgis::behaviour::getGradientsView(m.s1), nullptr,
++                             g0, k, "initializeFBar");
+     } catch (std::exception& e) {
+       return ctx.registerErrorMessage(std::string{"initializeFBar: "} +
+                                       e.what());
+@@ -377,6 +393,15 @@ namespace mfem_mgis::batch {
+         a.centers = data.centers.Read(use_device);
+         a.deformation_gradients = data.deformation_gradients.Read(use_device);
+         a.coefficients = data.coefficients.Read(use_device);
++        const auto gs = std::int64_t{gsize};
++        std::tie(a.deformation_gradients_point_stride,
++                 a.deformation_gradients_component_stride) =
++            getDenseStrides(data.layout.gradients, np, gs);
++        std::tie(a.tangent_point_stride, a.tangent_component_stride) =
++            getDenseStrides(data.layout.tangent_operator, np, gs);
++        std::tie(a.pseudo_stresses_point_stride,
++                 a.pseudo_stresses_component_stride) =
++            getDenseStrides(data.layout.thermodynamic_forces, np, gs);
+         a.tangent_operator = K.data();
+         a.point_stride = static_cast<long long>(K.getPointStride());
+         a.component_stride = static_cast<long long>(K.getComponentStride());
+@@ -390,12 +415,12 @@ namespace mfem_mgis::batch {
+         const auto s = std::span<const real>(
+             data.pseudo_stresses.Read(use_device),
+             static_cast<std::size_t>(data.pseudo_stresses.Size()));
+-        if (!addMaterialInnerForces(ctx, data.a, qs,
+-                                    mgis::makePointByPointFieldView(
+-                                        s, qs.getNumberOfIntegrationPoints(),
+-                                        static_cast<size_type>(gsize),
+-                                        static_cast<size_type>(gsize)),
+-                                    g, k)) {
++        if (!addMaterialInnerForces(
++                ctx, data.a, qs,
++                mgis::makeFieldView(s, data.layout.thermodynamic_forces,
++                                    qs.getNumberOfIntegrationPoints(),
++                                    static_cast<size_type>(gsize)),
++                g, k)) {
+           return false;
+         }
+       }
+diff --git a/src/Batch/FBarKernels.cxx b/src/Batch/FBarKernels.cxx
+index d5b0941b5c..a9b2916320 100644
+--- a/src/Batch/FBarKernels.cxx
++++ b/src/Batch/FBarKernels.cxx
+@@ -104,14 +104,21 @@ namespace mfem_mgis::batch::internals {
+           real iJ[N * N];
+           loadInverseJacobian<N>(
+               iJ, a.inverse_jacobians + static_cast<std::size_t>(N * N) * e, 1);
++          // derivatives at the center (one point per element)
++          real d0[V * N];
++          if (a.derivatives != nullptr) {
++            for (int j = 0; j != V * N; ++j) {
++              d0[j] = a.derivatives[static_cast<long long>(e) *
++                                        a.derivatives_point_stride +
++                                    static_cast<long long>(j) *
++                                        a.derivatives_component_stride];
++            }
++          }
+           // deformation gradient at the center
+           real F0[9];
+           computeDeformationGradientAtCenter<K>(
+               F0, a.macroscopic_gradients,
+-              (a.derivatives != nullptr)
+-                  ? a.derivatives + static_cast<std::size_t>(V * N) * e
+-                  : nullptr,
+-              iJ);
++              (a.derivatives != nullptr) ? d0 : nullptr, iJ);
+           real dJ0[9];
+           computeDeterminantDerivative<K>(dJ0, F0);
+           a.centers[k] = computeDeterminant<K>(F0);
+@@ -144,7 +151,6 @@ namespace mfem_mgis::batch::internals {
+       const auto k = i / a.nq;
+       const auto q = i - k * a.nq;
+       const auto o = static_cast<std::size_t>(a.offsets[k] + q);
+-      const auto np = static_cast<std::size_t>(a.number_of_points);
+       const auto sgs = static_cast<std::size_t>(gs);
+       // deformation gradient at the point
+       real F[9];
+@@ -152,8 +158,8 @@ namespace mfem_mgis::batch::internals {
+         if (a.gradients == nullptr) {
+           F[c] = a.macroscopic_gradients[c];
+         } else {
+-          F[c] = a.point_by_point ? a.gradients[o * sgs + c]
+-                                  : a.gradients[c * np + o];
++          F[c] = a.gradients[static_cast<long long>(o) * a.point_stride +
++                             static_cast<long long>(c) * a.component_stride];
+         }
+       }
+       const auto J0 = a.centers[k];
+@@ -161,7 +167,11 @@ namespace mfem_mgis::batch::internals {
+           computeFBarCoefficient<K>(J0, computeDeterminant<K>(F));
+       a.coefficients[o] = alpha;
+       for (std::size_t c = 0; c != sgs; ++c) {
+-        a.deformation_gradients[o * sgs + c] = F[c];
++        a.deformation_gradients[static_cast<long long>(o) *
++                                    a.deformation_gradients_point_stride +
++                                static_cast<long long>(c) *
++                                    a.deformation_gradients_component_stride] =
++            F[c];
+       }
+       if (a.gradients != nullptr) {
+         for (std::size_t c = 0; c != sgs; ++c) {
+@@ -170,11 +180,8 @@ namespace mfem_mgis::batch::internals {
+               ((K == GradientsKind::DEFORMATION_GRADIENT_2D) && (c == 2))
+                   ? real{1}
+                   : alpha * F[c];
+-          if (a.point_by_point) {
+-            a.gradients[o * sgs + c] = v;
+-          } else {
+-            a.gradients[c * np + o] = v;
+-          }
++          a.gradients[static_cast<long long>(o) * a.point_stride +
++                      static_cast<long long>(c) * a.component_stride] = v;
+         }
+       }
+     });
+@@ -190,8 +197,15 @@ namespace mfem_mgis::batch::internals {
+       const auto k = i / a.nq;
+       const auto q = i - k * a.nq;
+       const auto o = static_cast<std::size_t>(a.offsets[k] + q);
+-      const auto sgs = static_cast<std::size_t>(gs);
+-      const auto* const F = a.deformation_gradients + o * sgs;
++      // deformation gradient at the point
++      real F[9];
++      for (int r = 0; r != gs; ++r) {
++        F[r] = a.deformation_gradients
++                   [static_cast<long long>(o) *
++                        a.deformation_gradients_point_stride +
++                    static_cast<long long>(r) *
++                        a.deformation_gradients_component_stride];
++      }
+       const auto alpha = a.coefficients[o];
+       const auto J = computeDeterminant<K>(F);
+       const auto J0 = a.centers[k];
+@@ -222,15 +236,16 @@ namespace mfem_mgis::batch::internals {
+       }
+       // vectors of the modification of the tangent operator, `K' = α K + v
+       // ⊗ c`, applied by the kernels of the stiffness matrices
+-      auto* const vo = a.v + o * sgs;
+-      auto* const co = a.c + o * sgs;
+-      for (int r = 0; r != gs; ++r) {
+-        vo[r] = v[r];
+-        co[r] = c[r];
+-      }
+-      auto* const s = a.pseudo_stresses + o * sgs;
++      const auto lo = static_cast<long long>(o);
+       for (int r = 0; r != gs; ++r) {
+-        s[r] = alpha / (ie * J0) * v[r];
++        const auto t = lo * a.tangent_point_stride +
++                       static_cast<long long>(r) * a.tangent_component_stride;
++        a.v[t] = v[r];
++        a.c[t] = c[r];
++        a.pseudo_stresses[lo * a.pseudo_stresses_point_stride +
++                          static_cast<long long>(r) *
++                              a.pseudo_stresses_component_stride] =
++            alpha / (ie * J0) * v[r];
+       }
+     });
+   }  // end of launchFBarTangentOperatorKernel
+diff --git a/src/Batch/FBarKernels.hxx b/src/Batch/FBarKernels.hxx
+index 5dc87ee5af..f905647611 100644
+--- a/src/Batch/FBarKernels.hxx
++++ b/src/Batch/FBarKernels.hxx
+@@ -27,6 +27,10 @@ namespace mfem_mgis::batch::internals {
+      * of the mesh (see `UnknownsDerivatives`), null for null unknowns
+      */
+     const real* derivatives = nullptr;
++    //! \brief stride between two points (elements) of the derivatives
++    long long derivatives_point_stride = 0;
++    //! \brief stride between two components of the derivatives
++    long long derivatives_component_stride = 0;
+     /*!
+      * \brief inverses of the jacobians at the center of all the elements of
+      * the mesh (see `ElementsJacobians::invJ`)
+@@ -68,8 +72,12 @@ namespace mfem_mgis::batch::internals {
+      * the kernel of the gradients, replaced by `F̄`), null for null unknowns
+      */
+     real* gradients = nullptr;
+-    //! \brief deformation gradients `F`, point by point
++    //! \brief deformation gradients `F`
+     real* deformation_gradients = nullptr;
++    //! \brief stride between two points of the deformation gradients `F`
++    long long deformation_gradients_point_stride = 0;
++    //! \brief stride between two components of the deformation gradients `F`
++    long long deformation_gradients_component_stride = 0;
+     //! \brief coefficients `α`
+     real* coefficients = nullptr;
+     //! \brief number of elements of the material
+@@ -78,8 +86,10 @@ namespace mfem_mgis::batch::internals {
+     int nq = 0;
+     //! \brief number of integration points of the material
+     int number_of_points = 0;
+-    //! \brief layout of the gradients: true if stored point by point
+-    bool point_by_point = true;
++    //! \brief stride between two points of the gradients
++    long long point_stride = 0;
++    //! \brief stride between two components of the gradients
++    long long component_stride = 0;
+     //! \brief macroscopic gradients (for null unknowns)
+     real macroscopic_gradients[9] = {};
+   };
+@@ -97,8 +107,12 @@ namespace mfem_mgis::batch::internals {
+     const int* offsets = nullptr;
+     //! \brief data at the center of the elements of the material
+     const real* centers = nullptr;
+-    //! \brief deformation gradients `F`, point by point
++    //! \brief deformation gradients `F`
+     const real* deformation_gradients = nullptr;
++    //! \brief stride between two points of the deformation gradients `F`
++    long long deformation_gradients_point_stride = 0;
++    //! \brief stride between two components of the deformation gradients `F`
++    long long deformation_gradients_component_stride = 0;
+     //! \brief coefficients `α`
+     const real* coefficients = nullptr;
+     //! \brief tangent operator blocks of the behaviour
+@@ -107,15 +121,21 @@ namespace mfem_mgis::batch::internals {
+     long long point_stride = 0;
+     //! \brief stride between two components of the tangent operator blocks
+     long long component_stride = 0;
+-    /*!
+-     * \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`,
+-     * point by point
+-     */
++    //! \brief vectors `v = K F` of the tangent operator `K' = α K + v ⊗ c`
+     real* v = nullptr;
+-    //! \brief vectors `c = dα/dF`, point by point
++    //! \brief vectors `c = dα/dF`
+     real* c = nullptr;
+-    //! \brief pseudo-stresses, point by point
++    //! \brief stride between two points of `v` and of `c`
++    long long tangent_point_stride = 0;
++    //! \brief stride between two components of `v` and of `c`
++    long long tangent_component_stride = 0;
++    //! \brief pseudo-stresses
+     real* pseudo_stresses = nullptr;
++    //! \brief stride between two points of the pseudo-stresses
++    long long pseudo_stresses_point_stride = 0;
++    //! \brief stride between two components of the pseudo-stresses
++    long long pseudo_stresses_component_stride = 0;
++
+     //! \brief number of elements of the material
+     int number_of_elements = 0;
+     //! \brief number of integration points per element
+diff --git a/src/Batch/Faltus.cxx b/src/Batch/Faltus.cxx
+index dac5713943..b45ca8b4d2 100644
+--- a/src/Batch/Faltus.cxx
++++ b/src/Batch/Faltus.cxx
+@@ -5,6 +5,7 @@
+  * \date   11/10/2026
+  */
+ 
++#include <tuple>
+ #include <limits>
+ #include <string>
+ #include <cstdint>
+@@ -188,6 +189,10 @@ namespace mfem_mgis::batch {
+       auto a = internals::FaltusCentersKernelArguments{};
+       a.elements = elements.Read(use_device);
+       a.derivatives = (d0 != nullptr) ? d0->values.Read(use_device) : nullptr;
++      if (d0 != nullptr) {
++        std::tie(a.derivatives_point_stride, a.derivatives_component_stride) =
++            getDerivativesStrides(*d0);
++      }
+       a.inverse_jacobians = g0.jacobians->invJ.Read(use_device);
+       a.centers = data.centers.Write(use_device);
+       a.number_of_elements = elements.Size();
+@@ -245,8 +250,10 @@ namespace mfem_mgis::batch {
+       a.offsets = qs.getElementOffsets().Read(use_device);
+       a.gradients = m.getArrays().read(MaterialArrays::StateArray::GRADIENTS,
+                                        ets, use_device);
+-      a.point_by_point =
+-          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
++      // strides of the gradients of the material (layout and padding)
++      const auto gv = mgis::behaviour::getGradientsView(m.s1);
++      a.point_stride = static_cast<long long>(gv.getPointStride());
++      a.component_stride = static_cast<long long>(gv.getComponentStride());
+       a.number_of_points = qs.getNumberOfIntegrationPoints();
+       a.centers = data.centers.Read(use_device);
+       a.values = f.ReadWrite(use_device);
+diff --git a/src/Batch/FaltusKernels.cxx b/src/Batch/FaltusKernels.cxx
+index ddeae2efaf..4688b3647c 100644
+--- a/src/Batch/FaltusKernels.cxx
++++ b/src/Batch/FaltusKernels.cxx
+@@ -175,59 +175,113 @@ namespace mfem_mgis::batch::internals {
+           real iJ[N * N];
+           loadInverseJacobian<N>(
+               iJ, a.inverse_jacobians + static_cast<std::size_t>(N * N) * e, 1);
++          // derivatives at the center (one point per element)
++          real d0[V * N];
++          if (a.derivatives != nullptr) {
++            for (int j = 0; j != V * N; ++j) {
++              d0[j] = a.derivatives[static_cast<long long>(e) *
++                                        a.derivatives_point_stride +
++                                    static_cast<long long>(j) *
++                                        a.derivatives_component_stride];
++            }
++          }
+           computeDeformationGradientAtCenter<K>(
+               a.centers +
+                   static_cast<std::size_t>(gs) * static_cast<std::size_t>(k),
+               a.macroscopic_gradients,
+-              (a.derivatives != nullptr)
+-                  ? a.derivatives + static_cast<std::size_t>(V * N) * e
+-                  : nullptr,
+-              iJ);
++              (a.derivatives != nullptr) ? d0 : nullptr, iJ);
+         });
+   }  // end of launchFaltusCentersKernel
+ 
++  /*!
++   * \brief launches the kernel adding the inner forces of the Faltus
++   * correction, with one thread per point then one thread per node (see
++   * `maximum_number_of_points_per_block`): each point thread reads the
++   * deformation gradient of its point through its strides (coalesced
++   * accesses in the component by component layout) and computes
++   * `α (F - F0)`; each node thread then sums the contributions of the
++   * points in their order
++   * \tparam K: kind of the gradients
++   */
+   template <GradientsKind K>
+   static void launchFaltusInnerForcesKernel(
+       const FaltusInnerForcesKernelArguments& a, const bool use_device) {
+-    mfem::forall_switch(
+-        use_device, a.geometry.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
+-          constexpr auto N = getDimension<K>();
+-          constexpr auto V = getUnknownsSize<K>();
+-          constexpr auto gs = getGradientsSize<K>();
++    constexpr auto N = getDimension<K>();
++    constexpr auto V = getUnknownsSize<K>();
++    constexpr auto gs = getGradientsSize<K>();
++    constexpr auto P = maximum_number_of_points_per_block;
++    const auto bz = getNumberOfElementsPerBlock(a.geometry.nq, a.geometry.nd);
++    const auto bx = getNumberOfThreadsPerElement(a.geometry.nq, a.geometry.nd);
++    mfem::ForallWrap<2>(
++        use_device, a.geometry.number_of_elements,
++        [a] MFEM_HOST_DEVICE(int k) {
++          // α (F - F0), weights and inverses of the jacobians of the points
++          MFEM_SHARED real differences[P * gs];
++          MFEM_SHARED real weights[P];
++          MFEM_SHARED real inverse_jacobians[P * N * N];
+           const auto& g = a.geometry;
+           const auto e = static_cast<std::size_t>(g.elements[k]);
+           const auto nd = static_cast<std::size_t>(g.nd);
++          const auto nq = static_cast<std::size_t>(g.nq);
+           constexpr auto sgs = static_cast<std::size_t>(gs);
+-          const auto np = static_cast<std::size_t>(a.number_of_points);
+           const auto* const F0 = a.centers + sgs * static_cast<std::size_t>(k);
+           auto* const fe = a.values + nd * V * e;
+-          real iJ0[N * N];
+-          loadCenterInverseJacobian<N>(iJ0, g, e);
+-          for (std::size_t q = 0; q != static_cast<std::size_t>(g.nq); ++q) {
+-            real iJ[N * N];
+-            const auto w = loadPointInverseJacobian<N>(iJ, g, e, q);
+-            const auto o = static_cast<std::size_t>(a.offsets[k]) + q;
+-            // α (F - F0)
+-            real dF[9];
+-            for (int c = 0; c != gs; ++c) {
+-              const auto sc = static_cast<std::size_t>(c);
+-              const auto F = a.point_by_point ? a.gradients[o * sgs + sc]
+-                                              : a.gradients[sc * np + o];
+-              dF[c] = g.alpha * (F - F0[c]);
++          // points processed at once, and first of them in the shared arrays
++          const auto np = getNumberOfPointsPerChunk(nq);
++          const auto b = static_cast<std::size_t>(MFEM_THREAD_ID(z)) * np;
++          for (std::size_t q0 = 0; q0 < nq; q0 += np) {
++            const auto nc = (nq - q0) < np ? nq - q0 : np;
++            MFEM_FOREACH_THREAD(iq, x, static_cast<int>(nc)) {
++              const auto q = q0 + static_cast<std::size_t>(iq);
++              const auto sq = b + static_cast<std::size_t>(iq);
++              weights[sq] = loadPointInverseJacobian<N>(
++                  inverse_jacobians + N * N * sq, g, e, q);
++              const auto o = static_cast<std::size_t>(a.offsets[k]) + q;
++              for (int c = 0; c != gs; ++c) {
++                const auto sc = static_cast<std::size_t>(c);
++                const auto F =
++                    a.gradients[static_cast<long long>(o) * a.point_stride +
++                                static_cast<long long>(sc) *
++                                    a.component_stride];
++                differences[sgs * sq + sc] = g.alpha * (F - F0[c]);
++              }
+             }
+-            for (std::size_t node = 0; node != nd; ++node) {
+-              real D[9][3];
+-              computeFaltusOperator<K>(D, g, q, node, iJ, iJ0);
++            MFEM_SYNC_THREAD;
++            MFEM_FOREACH_THREAD(inode, x, g.nd) {
++              const auto node = static_cast<std::size_t>(inode);
++              real iJ0[N * N];
++              loadCenterInverseJacobian<N>(iJ0, g, e);
++              real fn[V];
+               for (int v = 0; v != V; ++v) {
+-                auto f = real{0};
+-                for (int c = 0; c != gs; ++c) {
+-                  f += D[c][v] * dF[c];
++                fn[v] = fe[node + nd * static_cast<std::size_t>(v)];
++              }
++              for (std::size_t iq = 0; iq != nc; ++iq) {
++                const auto q = q0 + iq;
++                const auto sq = b + iq;
++                real D[9][3];
++                computeFaltusOperator<K>(D, g, q, node,
++                                         inverse_jacobians + N * N * sq, iJ0);
++                const auto* const dF = differences + sgs * sq;
++                const auto w = weights[sq];
++                for (int v = 0; v != V; ++v) {
++                  auto f = real{0};
++                  for (int c = 0; c != gs; ++c) {
++                    f += D[c][v] * dF[c];
++                  }
++                  fn[v] += w * f;
+                 }
+-                fe[node + nd * static_cast<std::size_t>(v)] += w * f;
++              }
++              for (int v = 0; v != V; ++v) {
++                fe[node + nd * static_cast<std::size_t>(v)] = fn[v];
+               }
+             }
++            if (q0 + np < nq) {
++              // the next chunk overwrites the shared arrays
++              MFEM_SYNC_THREAD;
++            }
+           }
+-        });
++        },
++        bx, 1, bz);
+   }  // end of launchFaltusInnerForcesKernel
+ 
+   template <GradientsKind K>
+diff --git a/src/Batch/FaltusKernels.hxx b/src/Batch/FaltusKernels.hxx
+index b06180864c..b43d3c03cf 100644
+--- a/src/Batch/FaltusKernels.hxx
++++ b/src/Batch/FaltusKernels.hxx
+@@ -27,6 +27,10 @@ namespace mfem_mgis::batch::internals {
+      * of the mesh (see `UnknownsDerivatives`), null for null unknowns
+      */
+     const real* derivatives = nullptr;
++    //! \brief stride between two points (elements) of the derivatives
++    long long derivatives_point_stride = 0;
++    //! \brief stride between two components of the derivatives
++    long long derivatives_component_stride = 0;
+     /*!
+      * \brief inverses of the jacobians at the center of all the elements of
+      * the mesh (see `ElementsJacobians::invJ`)
+@@ -98,8 +102,10 @@ namespace mfem_mgis::batch::internals {
+     const int* offsets = nullptr;
+     //! \brief deformation gradients at the integration points
+     const real* gradients = nullptr;
+-    //! \brief layout of the gradients: true if stored point by point
+-    bool point_by_point = true;
++    //! \brief stride between two points of the gradients
++    long long point_stride = 0;
++    //! \brief stride between two components of the gradients
++    long long component_stride = 0;
+     //! \brief number of integration points of the material
+     int number_of_points = 0;
+     //! \brief deformation gradients `F0` at the center of the elements
+diff --git a/src/Batch/Gradients.cxx b/src/Batch/Gradients.cxx
+index 8d019f0892..780f8a0abd 100644
+--- a/src/Batch/Gradients.cxx
++++ b/src/Batch/Gradients.cxx
+@@ -5,6 +5,7 @@
+  * \date   09/10/2026
+  */
+ 
++#include <tuple>
+ #include <limits>
+ #include <string>
+ #include <cstdint>
+@@ -170,7 +171,8 @@ namespace mfem_mgis::batch {
+                                   const mfem::FiniteElementSpace& fes,
+                                   const mfem::Vector& u,
+                                   const mfem::IntegrationRule& ir,
+-                                  const bool values) noexcept {
++                                  const bool values,
++                                  const mgis::FieldLayout l) noexcept {
+     try {
+       const auto& mesh = *(fes.GetMesh());
+       if (mesh.GetNumGeometries(mesh.Dimension()) > 1) {
+@@ -183,6 +185,7 @@ namespace mfem_mgis::batch {
+       d.dim = mesh.Dimension();
+       d.nq = ir.GetNPoints();
+       d.ne = fes.GetNE();
++      d.layout = l;
+       const auto size = std::int64_t{d.vdim} * std::int64_t{d.dim} *
+                         std::int64_t{d.nq} * std::int64_t{d.ne};
+       if (!resizeArray(ctx, d.values, size)) {
+@@ -237,9 +240,14 @@ namespace mfem_mgis::batch {
+       a.element_values = d.element_values.Read(use_device);
+       a.shape_functions_gradients = maps.G.Read(use_device);
+       a.derivatives = d.values.Write(use_device);
++      const auto np = std::int64_t{d.nq} * std::int64_t{d.ne};
++      std::tie(a.derivatives_point_stride, a.derivatives_component_stride) =
++          getDerivativesStrides(d);
+       if (values) {
+         a.shape_functions = maps.B.Read(use_device);
+         a.point_values = d.point_values.Write(use_device);
++        std::tie(a.point_values_point_stride, a.point_values_component_stride) =
++            getDenseStrides(l, np, d.vdim);
+       }
+       internals::launchUnknownsDerivativesKernel(a, use_device);
+     } catch (std::exception& e) {
+@@ -391,6 +399,9 @@ namespace mfem_mgis::batch {
+     a.elements = elements.Read(use_device);
+     a.offsets = offsets.Read(use_device);
+     a.derivatives = d.values.Read(use_device);
++    const auto dnp = std::int64_t{d.nq} * std::int64_t{d.ne};
++    std::tie(a.derivatives_point_stride, a.derivatives_component_stride) =
++        getDerivativesStrides(d);
+     if (gradientsRequireUnknownsValues(k)) {
+       if (!d.has_point_values) {
+         return ctx.registerErrorMessage(
+@@ -398,6 +409,9 @@ namespace mfem_mgis::batch {
+             ": the values of the unknowns at the points are not computed");
+       }
+       a.unknowns_values = d.point_values.Read(use_device);
++      std::tie(a.unknowns_values_point_stride,
++               a.unknowns_values_component_stride) =
++          getDenseStrides(d.layout, dnp, d.vdim);
+     }
+     a.inverse_jacobians = g.jacobians->invJ.Read(use_device);
+     error = false;
+@@ -426,8 +440,10 @@ namespace mfem_mgis::batch {
+                                        use_device)) {
+         return !error;
+       }
+-      a.point_by_point =
+-          m.getArrays().array_layout == mgis::FieldLayout::POINT_BY_POINT;
++      // strides of the gradients of the material (layout and padding)
++      const auto gv = mgis::behaviour::getGradientsView(m.s1);
++      a.point_stride = static_cast<long long>(gv.getPointStride());
++      a.component_stride = static_cast<long long>(gv.getComponentStride());
+       const auto macroscopic_gradients = m.getMacroscopicGradients();
+       for (size_type c = 0; c != gsize; ++c) {
+         a.macroscopic_gradients[c] = macroscopic_gradients[c];
+@@ -447,7 +463,8 @@ namespace mfem_mgis::batch {
+   bool getUnknownsValues(Context& ctx,
+                          mfem::Vector& v,
+                          const PartialQuadratureSpace& qs,
+-                         const UnknownsDerivatives& d) noexcept {
++                         const UnknownsDerivatives& d,
++                         const mgis::FieldLayout l) noexcept {
+     const auto& elements = qs.getElements();
+     const auto& offsets = qs.getElementOffsets();
+     const auto n = std::int64_t{qs.getNumberOfIntegrationPoints()};
+@@ -473,7 +490,12 @@ namespace mfem_mgis::batch {
+       a.elements = elements.Read(use_device);
+       a.offsets = offsets.Read(use_device);
+       a.point_values = d.point_values.Read(use_device);
++      std::tie(a.point_values_point_stride, a.point_values_component_stride) =
++          getDenseStrides(d.layout, std::int64_t{d.nq} * std::int64_t{d.ne},
++                          d.vdim);
+       a.values = v.Write(use_device);
++      std::tie(a.values_point_stride, a.values_component_stride) =
++          getDenseStrides(l, n, d.vdim);
+       a.number_of_elements = elements.Size();
+       a.nq = d.nq;
+       a.vdim = d.vdim;
+diff --git a/src/Batch/GradientsKernels.cxx b/src/Batch/GradientsKernels.cxx
+index e0729500db..34ee2b4e2b 100644
+--- a/src/Batch/GradientsKernels.cxx
++++ b/src/Batch/GradientsKernels.cxx
+@@ -94,9 +94,15 @@ namespace mfem_mgis::batch::internals {
+       constexpr auto V = getUnknownsSize<K>();
+       const auto nq = static_cast<std::size_t>(a.nq);
+       const auto sq = static_cast<std::size_t>(q);
++      // point of the mesh
++      const auto p = static_cast<long long>(sq + nq * e);
+       // derivatives with respect to the reference coordinates
+-      const auto* const dr =
+-          a.derivatives + static_cast<std::size_t>(V * N) * (sq + nq * e);
++      real dr[V * N];
++      for (int j = 0; j != V * N; ++j) {
++        dr[j] = a.derivatives[p * a.derivatives_point_stride +
++                              static_cast<long long>(j) *
++                                  a.derivatives_component_stride];
++      }
+       // physical derivatives: du_i/dx_j = sum_r du_i/dxi_r (J^-1)_{rj}
+       real iJ[N * N];
+       loadInverseJacobian<N>(
+@@ -113,21 +119,22 @@ namespace mfem_mgis::batch::internals {
+         }
+       }
+       // values of the unknowns at the point
+-      const auto* const u =
+-          usesShapeFunctionsValues<K>()
+-              ? a.unknowns_values + static_cast<std::size_t>(V) * (sq + nq * e)
+-              : nullptr;
++      real u[V] = {};
++      if constexpr (usesShapeFunctionsValues<K>()) {
++        for (int c = 0; c != V; ++c) {
++          u[c] = a.unknowns_values[p * a.unknowns_values_point_stride +
++                                   static_cast<long long>(c) *
++                                       a.unknowns_values_component_stride];
++        }
++      }
+       real g[9];
+-      computeGradientsAtPoint<K>(g, du, u);
+-      const auto np = static_cast<std::size_t>(a.number_of_points);
++      computeGradientsAtPoint<K>(g, du,
++                                 usesShapeFunctionsValues<K>() ? u : nullptr);
+       const auto gs = static_cast<std::size_t>(a.gradients_size);
+       for (std::size_t c = 0; c != gs; ++c) {
+         const auto v = a.macroscopic_gradients[c] + g[c];
+-        if (a.point_by_point) {
+-          a.gradients[o * gs + c] = v;
+-        } else {
+-          a.gradients[c * np + o] = v;
+-        }
++        a.gradients[static_cast<long long>(o) * a.point_stride +
++                    static_cast<long long>(c) * a.component_stride] = v;
+       }
+     });
+   }  // end of launchGradientsKernel
+@@ -143,7 +150,8 @@ namespace mfem_mgis::batch::internals {
+       const auto e = static_cast<std::size_t>(i) / nq;
+       const auto q = static_cast<std::size_t>(i) - e * nq;
+       const auto* const ue = a.element_values + nd * vdim * e;
+-      auto* const d = a.derivatives + vdim * dim * (q + nq * e);
++      // point of the mesh
++      const auto p = static_cast<long long>(q + nq * e);
+       for (std::size_t r = 0; r != dim; ++r) {
+         const auto* const G = a.shape_functions_gradients + q + nq * r;
+         for (std::size_t c = 0; c != vdim; ++c) {
+@@ -151,17 +159,20 @@ namespace mfem_mgis::batch::internals {
+           for (std::size_t node = 0; node != nd; ++node) {
+             v += G[nq * dim * node] * ue[node + nd * c];
+           }
+-          d[c + vdim * r] = v;
++          const auto j = static_cast<long long>(c + vdim * r);
++          a.derivatives[p * a.derivatives_point_stride +
++                        j * a.derivatives_component_stride] = v;
+         }
+       }
+       if (a.point_values != nullptr) {
+-        auto* const pv = a.point_values + vdim * (q + nq * e);
+         for (std::size_t c = 0; c != vdim; ++c) {
+           auto v = real{0};
+           for (std::size_t node = 0; node != nd; ++node) {
+             v += a.shape_functions[q + nq * node] * ue[node + nd * c];
+           }
+-          pv[c] = v;
++          a.point_values[p * a.point_values_point_stride +
++                         static_cast<long long>(c) *
++                             a.point_values_component_stride] = v;
+         }
+       }
+     });
+@@ -177,8 +188,13 @@ namespace mfem_mgis::batch::internals {
+       const auto q = static_cast<std::size_t>(i) - k * nq;
+       const auto e = static_cast<std::size_t>(a.elements[k]);
+       const auto o = static_cast<std::size_t>(a.offsets[k]) + q;
++      const auto p = static_cast<long long>(q + nq * e);
+       for (std::size_t c = 0; c != vdim; ++c) {
+-        a.values[c + vdim * o] = a.point_values[c + vdim * (q + nq * e)];
++        const auto sc = static_cast<long long>(c);
++        a.values[static_cast<long long>(o) * a.values_point_stride +
++                 sc * a.values_component_stride] =
++            a.point_values[p * a.point_values_point_stride +
++                           sc * a.point_values_component_stride];
+       }
+     });
+   }  // end of launchUnknownsValuesKernel
+diff --git a/src/Batch/GradientsKernels.hxx b/src/Batch/GradientsKernels.hxx
+index fae618b30e..b6f0e7548a 100644
+--- a/src/Batch/GradientsKernels.hxx
++++ b/src/Batch/GradientsKernels.hxx
+@@ -31,6 +31,14 @@ namespace mfem_mgis::batch::internals {
+      * `gradientsRequireUnknownsValues`)
+      */
+     const real* unknowns_values = nullptr;
++    //! \brief stride between two points of the derivatives
++    long long derivatives_point_stride = 0;
++    //! \brief stride between two components of the derivatives
++    long long derivatives_component_stride = 0;
++    //! \brief stride between two points of the values of the unknowns
++    long long unknowns_values_point_stride = 0;
++    //! \brief stride between two components of the values of the unknowns
++    long long unknowns_values_component_stride = 0;
+     /*!
+      * \brief inverses of the jacobians of the element transformations (`nq x
+      * dim x dim x ne`, see `ElementsJacobians::invJ`)
+@@ -50,8 +58,10 @@ namespace mfem_mgis::batch::internals {
+     int number_of_points = 0;
+     //! \brief number of components of the gradients
+     int gradients_size = 0;
+-    //! \brief layout of the gradients: true if stored point by point
+-    bool point_by_point = true;
++    //! \brief stride between two points of the gradients
++    long long point_stride = 0;
++    //! \brief stride between two components of the gradients
++    long long component_stride = 0;
+     //! \brief macroscopic gradients
+     real macroscopic_gradients[9] = {};
+   };
+@@ -85,6 +95,14 @@ namespace mfem_mgis::batch::internals {
+      * `UnknownsDerivatives::point_values`), not computed if null
+      */
+     real* point_values = nullptr;
++    //! \brief stride between two points of the derivatives
++    long long derivatives_point_stride = 0;
++    //! \brief stride between two components of the derivatives
++    long long derivatives_component_stride = 0;
++    //! \brief stride between two points of the values at the points
++    long long point_values_point_stride = 0;
++    //! \brief stride between two components of the values at the points
++    long long point_values_component_stride = 0;
+     //! \brief number of elements
+     int number_of_elements = 0;
+     //! \brief number of degrees of freedom per element and per component
+@@ -110,6 +128,19 @@ namespace mfem_mgis::batch::internals {
+     const real* point_values = nullptr;
+     //! \brief values at the points of the material
+     real* values = nullptr;
++    //! \brief stride between two points of the values at the points of all the
++    //! elements
++    long long point_values_point_stride = 0;
++    //! \brief stride between two components of the values at the points of all
++    //! the elements
++    long long point_values_component_stride = 0;
++    //! \brief stride between two points of the values at the points of the
++    //! material
++    long long values_point_stride = 0;
++    //! \brief stride between two components of the values at the points of the
++    //! material
++    long long values_component_stride = 0;
++
+     //! \brief number of elements of the material
+     int number_of_elements = 0;
+     //! \brief number of integration points per element
+diff --git a/src/Batch/InnerForcesKernels.cxx b/src/Batch/InnerForcesKernels.cxx
+index 190292680e..a4404fde12 100644
+--- a/src/Batch/InnerForcesKernels.cxx
++++ b/src/Batch/InnerForcesKernels.cxx
+@@ -71,49 +71,92 @@ namespace mfem_mgis::batch::internals {
+ 
+   /*!
+    * \brief launches the kernel adding the inner forces of the elements of a
+-   * material: one thread per element, which loads the inverse of the
+-   * jacobian once per point (see `ElementsJacobians`)
++   * material, with one thread per point then one thread per node (see
++   * `maximum_number_of_points_per_block`): each point thread reads the
++   * thermodynamic forces of its point through their strides (coalesced
++   * accesses in the component by component layout), its weight and the
++   * inverse of its jacobian; each node thread then sums the contributions
++   * of the points in their order
+    * \tparam K: kind of the gradients
+    */
+   template <GradientsKind K>
+   static void launchInnerForcesKernel(const InnerForcesKernelArguments& a,
+                                       const bool use_device) {
+-    mfem::forall_switch(
+-        use_device, a.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
+-          // dimension and number of components of the unknowns
+-          constexpr auto N = getDimension<K>();
+-          constexpr auto V = getUnknownsSize<K>();
++    // dimension, number of components of the unknowns and of the
++    // thermodynamic forces
++    constexpr auto N = getDimension<K>();
++    constexpr auto V = getUnknownsSize<K>();
++    constexpr auto S = getGradientsSize<K>();
++    constexpr auto P = maximum_number_of_points_per_block;
++    const auto bz = getNumberOfElementsPerBlock(a.nq, a.nd);
++    const auto bx = getNumberOfThreadsPerElement(a.nq, a.nd);
++    mfem::ForallWrap<2>(
++        use_device, a.number_of_elements,
++        [a] MFEM_HOST_DEVICE(int k) {
++          MFEM_SHARED real forces[P * S];
++          MFEM_SHARED real weights[P];
++          MFEM_SHARED real inverse_jacobians[P * N * N];
+           const auto e = static_cast<std::size_t>(a.elements[k]);
+           const auto nq = static_cast<std::size_t>(a.nq);
+           const auto nd = static_cast<std::size_t>(a.nd);
+           const auto ke =
+               a.by_material_element ? static_cast<std::size_t>(k) : e;
+           auto* const fe = a.values + nd * V * ke;
+-          for (std::size_t q = 0; q != nq; ++q) {
+-            const auto detJ = a.determinants[q + nq * e];
+-            real iJ[N * N];
+-            loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
+-                                   nq);
+-            const auto o = static_cast<long long>(a.offsets[k]) +
+-                           static_cast<long long>(q);
+-            const auto* const s0 = a.thermodynamic_forces + o * a.point_stride;
+-            const auto cs = a.component_stride;
+-            auto s = [s0, cs](const int c) { return s0[c * cs]; };
+-            const auto w = a.weights[q] * detJ;
+-            for (std::size_t node = 0; node != nd; ++node) {
+-              real dN[N];
+-              computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
+-                                            nq, node, iJ);
+-              const auto Nv =
+-                  getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
+-              real f[V] = {};
+-              addInnerForces<K>(f, dN, Nv, s, w);
++          // points processed at once, and first of them in the shared arrays
++          const auto np = getNumberOfPointsPerChunk(nq);
++          const auto b = static_cast<std::size_t>(MFEM_THREAD_ID(z)) * np;
++          for (std::size_t q0 = 0; q0 < nq; q0 += np) {
++            const auto nc = (nq - q0) < np ? nq - q0 : np;
++            MFEM_FOREACH_THREAD(iq, x, static_cast<int>(nc)) {
++              const auto q = q0 + static_cast<std::size_t>(iq);
++              const auto sq = b + static_cast<std::size_t>(iq);
++              loadInverseJacobian<N>(inverse_jacobians + N * N * sq,
++                                     a.inverse_jacobians + q + nq * N * N * e,
++                                     nq);
++              weights[sq] = a.weights[q] * a.determinants[q + nq * e];
++              const auto o = static_cast<long long>(a.offsets[k]) +
++                             static_cast<long long>(q);
++              const auto* const s0 =
++                  a.thermodynamic_forces + o * a.point_stride;
++              for (int c = 0; c != S; ++c) {
++                forces[S * sq + c] = s0[c * a.component_stride];
++              }
++            }
++            MFEM_SYNC_THREAD;
++            MFEM_FOREACH_THREAD(inode, x, a.nd) {
++              const auto node = static_cast<std::size_t>(inode);
++              real fn[V];
++              for (std::size_t c = 0; c != V; ++c) {
++                fn[c] = fe[node + nd * c];
++              }
++              for (std::size_t iq = 0; iq != nc; ++iq) {
++                const auto q = q0 + iq;
++                const auto sq = b + iq;
++                real dN[N];
++                computePhysicalDerivatives<N>(dN, a.shape_functions_gradients,
++                                              q, nq, node,
++                                              inverse_jacobians + N * N * sq);
++                const auto Nv =
++                    getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
++                const auto* const sp = forces + S * sq;
++                auto s = [sp](const int c) { return sp[c]; };
++                real f[V] = {};
++                addInnerForces<K>(f, dN, Nv, s, weights[sq]);
++                for (std::size_t c = 0; c != V; ++c) {
++                  fn[c] += f[c];
++                }
++              }
+               for (std::size_t c = 0; c != V; ++c) {
+-                fe[node + nd * c] += f[c];
++                fe[node + nd * c] = fn[c];
+               }
+             }
++            if (q0 + np < nq) {
++              // the next chunk overwrites the shared arrays
++              MFEM_SYNC_THREAD;
++            }
+           }
+-        });
++        },
++        bx, 1, bz);
+   }  // end of launchInnerForcesKernel
+ 
+   void launchInnerForcesKernel(const GradientsKind k,
+diff --git a/src/Batch/KernelsUtilities.hxx b/src/Batch/KernelsUtilities.hxx
+index 9e960c1cb6..2dccbe7cb2 100644
+--- a/src/Batch/KernelsUtilities.hxx
++++ b/src/Batch/KernelsUtilities.hxx
+@@ -9,6 +9,7 @@
+ #define LIB_MFEM_MGIS_SRC_BATCH_KERNELSUTILITIES_HXX
+ 
+ #include <array>
++#include <algorithm>
+ #include <cstddef>
+ #include "mfem/general/forall.hpp"
+ #include "MFEMMGIS/Config.hxx"
+@@ -184,6 +185,77 @@ namespace mfem_mgis::batch::internals {
+     }
+   }  // end of invertJacobian
+ 
++  /*!
++   * \brief maximum number of integration points of the elements processed
++   * by a block of threads of the kernels using one thread per point: those
++   * kernels store the data of the points in the shared memory of the block
++   * (thermodynamic forces or their increments, weights, inverses of the
++   * jacobians), then sum the contributions of the points to each node in
++   * their order, so that the results do not depend on the number of threads
++   * (deterministic reduction, as the kernels of the partial assembly of
++   * MFEM). The points of an element having more points are processed by
++   * chunks of this size, in their order (see `getNumberOfPointsPerChunk`).
++   * On the host, a block is an element, processed sequentially.
++   */
++  inline constexpr int maximum_number_of_points_per_block = 128;
++
++  /*!
++   * \return the number of points of an element processed at once by the
++   * kernels using one thread per point then one thread per node: all the
++   * points if they fit in a block, `maximum_number_of_points_per_block`
++   * otherwise. The chunks of points are then processed one after the other,
++   * the node threads adding the contributions of a chunk to the sums of the
++   * previous chunks, read from and written to the global memory (an exact
++   * operation): the results do not depend on the number of chunks.
++   * \param[in] nq: number of integration points per element
++   */
++  MFEM_HOST_DEVICE constexpr std::size_t getNumberOfPointsPerChunk(
++      const std::size_t nq) {
++    constexpr auto P =
++        static_cast<std::size_t>(maximum_number_of_points_per_block);
++    return nq < P ? nq : P;
++  }  // end of getNumberOfPointsPerChunk
++
++  //! \brief maximum number of threads of a block (CUDA and HIP)
++  inline constexpr int maximum_number_of_threads_per_block = 1024;
++
++  /*!
++   * \brief maximum number of elements processed by a block of threads: the
++   * elements are the third dimension of the blocks, at most 64 with CUDA
++   */
++  inline constexpr int maximum_number_of_elements_per_block = 64;
++
++  /*!
++   * \return the number of threads per element of the kernels using one
++   * thread per point then one thread per node: one thread per point or per
++   * node, within the limit of a block (the threads loop over the points or
++   * the nodes in excess)
++   * \param[in] nq: number of integration points per element
++   * \param[in] nd: number of nodes per element
++   */
++  inline int getNumberOfThreadsPerElement(const int nq, const int nd) {
++    const auto np = static_cast<int>(
++        getNumberOfPointsPerChunk(static_cast<std::size_t>(nq)));
++    return std::clamp(std::max(np, nd), 1, maximum_number_of_threads_per_block);
++  }  // end of getNumberOfThreadsPerElement
++
++  /*!
++   * \return the number of elements processed by a block of threads of the
++   * kernels using one thread per point then one thread per node
++   * \param[in] nq: number of integration points per element
++   * \param[in] nd: number of nodes per element
++   */
++  inline int getNumberOfElementsPerBlock(const int nq, const int nd) {
++    const auto np = static_cast<int>(
++        getNumberOfPointsPerChunk(static_cast<std::size_t>(nq)));
++    const auto by_points = np == 0 ? maximum_number_of_points_per_block
++                                   : maximum_number_of_points_per_block / np;
++    const auto by_threads = maximum_number_of_threads_per_block /
++                            getNumberOfThreadsPerElement(nq, nd);
++    return std::max(1, std::min({by_points, by_threads,
++                                 maximum_number_of_elements_per_block}));
++  }  // end of getNumberOfElementsPerBlock
++
+   /*!
+    * \brief reads the inverse of the jacobian at a point, computed once by the
+    * kernel of the geometric data (see `ElementsJacobians::invJ`)
+diff --git a/src/Batch/StiffnessMatrices.cxx b/src/Batch/StiffnessMatrices.cxx
+index 5b1e247e2a..5e8fa330b7 100644
+--- a/src/Batch/StiffnessMatrices.cxx
++++ b/src/Batch/StiffnessMatrices.cxx
+@@ -118,6 +118,8 @@ namespace mfem_mgis::batch {
+       a.modification_coefficients = mod.coefficients;
+       a.modification_v = mod.v;
+       a.modification_c = mod.c;
++      a.modification_point_stride = mod.point_stride;
++      a.modification_component_stride = mod.component_stride;
+     }
+     a.elements = elements.Read(use_device);
+     a.offsets = offsets.Read(use_device);
+diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
+index 947b1ff034..53bcc7be9b 100644
+--- a/src/Batch/StiffnessMatricesKernels.cxx
++++ b/src/Batch/StiffnessMatricesKernels.cxx
+@@ -223,17 +223,24 @@ namespace mfem_mgis::batch::internals {
+         (K == GradientsKind::DEFORMATION_GRADIENT_2D);
+     if (deformation_gradient && (a.modification_coefficients != nullptr)) {
+       const auto so = static_cast<std::size_t>(o);
+-      const auto* const v = a.modification_v + gs * so;
+-      const auto* const c = a.modification_c + gs * so;
++      const auto ms = a.modification_component_stride;
++      const auto* const v0 = a.modification_v + o * a.modification_point_stride;
++      const auto* const c0 = a.modification_c + o * a.modification_point_stride;
++      auto v = [v0, ms](const std::size_t i) {
++        return v0[static_cast<long long>(i) * ms];
++      };
++      auto c = [c0, ms](const std::size_t i) {
++        return c0[static_cast<long long>(i) * ms];
++      };
+       const auto alpha = a.modification_coefficients[so];
+       auto cx = real{0};
+       for (const auto& e : entries) {
+         if (static_cast<std::size_t>(e.column) == d) {
+-          cx += c[e.row] * (e.factor * x[e.source]);
++          cx += c(static_cast<std::size_t>(e.row)) * (e.factor * x[e.source]);
+         }
+       }
+       for (std::size_t r1 = 0; r1 != gs; ++r1) {
+-        y[r1] = alpha * y[r1] + v[r1] * cx;
++        y[r1] = alpha * y[r1] + v(r1) * cx;
+       }
+     }
+   }  // end of multiplyByTangentOperatorAndB
+@@ -294,15 +301,22 @@ namespace mfem_mgis::batch::internals {
+         (K == GradientsKind::DEFORMATION_GRADIENT_2D);
+     if (deformation_gradient && (a.modification_coefficients != nullptr)) {
+       const auto so = static_cast<std::size_t>(o);
+-      const auto* const v = a.modification_v + gs * so;
+-      const auto* const c = a.modification_c + gs * so;
++      const auto ms = a.modification_component_stride;
++      const auto* const v0 = a.modification_v + o * a.modification_point_stride;
++      const auto* const c0 = a.modification_c + o * a.modification_point_stride;
++      auto v = [v0, ms](const std::size_t i) {
++        return v0[static_cast<long long>(i) * ms];
++      };
++      auto c = [c0, ms](const std::size_t i) {
++        return c0[static_cast<long long>(i) * ms];
++      };
+       const auto alpha = a.modification_coefficients[so];
+       auto cx = real{0};
+       for (std::size_t r = 0; r != gs; ++r) {
+-        cx += c[r] * x[r];
++        cx += c(r) * x[r];
+       }
+       for (std::size_t r1 = 0; r1 != gs; ++r1) {
+-        y[r1] = alpha * y[r1] + v[r1] * cx;
++        y[r1] = alpha * y[r1] + v(r1) * cx;
+       }
+     }
+   }  // end of multiplyByTangentOperator
+@@ -636,13 +650,17 @@ namespace mfem_mgis::batch::internals {
+   }  // end of launchStiffnessMatricesNodalBlocksKernel
+ 
+   /*!
+-   * \brief launches the kernel adding the action of the stiffness matrices of
+-   * the elements of a material on values given element by element (see
+-   * `launchTangentOperatorActionKernel`): one thread per element, which
+-   * computes, at each point, the increment of the gradients `B x`, the
+-   * increment of the thermodynamic forces `K B x` (plus the contribution of
+-   * the increment of the unknowns `N x` for the heat transfer behaviours)
+-   * and adds `Bᵀ K B x w det J` to the values of the element
++   * \brief launches the kernel applying the tangent operator of the
++   * elements of a material on values given element by element (see
++   * `launchTangentOperatorActionKernel`), with one thread per point then one
++   * thread per node (see `maximum_number_of_points_per_block`): each point
++   * thread computes the increment of the gradients `B x`, then the increment
++   * of the thermodynamic forces `K B x` (plus the contribution of the
++   * increment of the unknowns `N x` for the heat transfer behaviours),
++   * reading the tangent operator blocks of its point through their strides
++   * (coalesced accesses in the component by component layout); each node
++   * thread then adds `Bᵀ K B x w det J` to the values of the element, the
++   * contributions of the points being summed in their order
+    * \tparam K: kind of the gradients
+    * \param[in] a: arguments of the kernels
+    * \param[in] x: values element by element
+@@ -655,71 +673,114 @@ namespace mfem_mgis::batch::internals {
+       const real* const x,
+       real* const y,
+       const bool use_device) {
+-    mfem::forall_switch(
+-        use_device, a.number_of_elements, [a, x, y] MFEM_HOST_DEVICE(int k) {
+-          // dimension and number of components of the unknowns
+-          constexpr auto N = getDimension<K>();
+-          constexpr auto V = getUnknownsSize<K>();
+-          constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
++    // dimension and number of components of the unknowns and of the
++    // gradients
++    constexpr auto N = getDimension<K>();
++    constexpr auto V = getUnknownsSize<K>();
++    constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
++    constexpr auto P = maximum_number_of_points_per_block;
++    const auto bz = getNumberOfElementsPerBlock(a.nq, a.nd);
++    const auto bx = getNumberOfThreadsPerElement(a.nq, a.nd);
++    mfem::ForallWrap<2>(
++        use_device, a.number_of_elements,
++        [a, x, y] MFEM_HOST_DEVICE(int k) {
++          // increments of the thermodynamic forces, weights and inverses of
++          // the jacobians of the points
++          MFEM_SHARED real forces_increments[P * gs];
++          MFEM_SHARED real weights[P];
++          MFEM_SHARED real inverse_jacobians[P * N * N];
+           const auto nd = static_cast<std::size_t>(a.nd);
+           const auto nq = static_cast<std::size_t>(a.nq);
+           const auto e = static_cast<std::size_t>(a.elements[k]);
+           const auto* const xe = x + nd * V * e;
+           auto* const ye = y + nd * V * e;
+-          for (std::size_t q = 0; q != nq; ++q) {
+-            const auto detJ = a.determinants[q + nq * e];
+-            real iJ[N * N];
+-            loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
+-                                   nq);
+-            // increment of the gradients, B x, without forming B (see
+-            // `getBOperatorEntries`)
+-            constexpr auto entries = getBOperatorEntries<K>();
+-            real dg[gs] = {};
+-            for (std::size_t node = 0; node != nd; ++node) {
+-              real xn[N + 1];
+-              computePhysicalDerivatives<N>(xn, a.shape_functions_gradients, q,
+-                                            nq, node, iJ);
+-              xn[N] = getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
+-              for (const auto& en : entries) {
+-                const auto c = static_cast<std::size_t>(en.column);
+-                dg[en.row] += (en.factor * xn[en.source]) * xe[node + nd * c];
+-              }
+-            }
+-            // increment of the thermodynamic forces, K B x
+-            const auto o = static_cast<long long>(a.offsets[k]) +
+-                           static_cast<long long>(q);
+-            // tangent operator blocks of the point, for the derivatives with
+-            // respect to the unknowns
+-            [[maybe_unused]] const auto* const t =
+-                a.tangent_operator + o * a.point_stride;
+-            [[maybe_unused]] const auto cs = a.component_stride;
+-            real ds[gs];
+-            multiplyByTangentOperator<K>(ds, a, o, dg);
+-            if constexpr (hasUnknownsBlock<K>()) {
+-              // increment of the unknowns at the point, N x, times the
+-              // derivatives of the thermodynamic forces with respect to the
+-              // unknowns
+-              auto du = real{0};
++          // points processed at once, and first of them in the shared arrays
++          const auto np = getNumberOfPointsPerChunk(nq);
++          const auto b = static_cast<std::size_t>(MFEM_THREAD_ID(z)) * np;
++          for (std::size_t q0 = 0; q0 < nq; q0 += np) {
++            const auto nc = (nq - q0) < np ? nq - q0 : np;
++            MFEM_FOREACH_THREAD(iq, x, static_cast<int>(nc)) {
++              const auto q = q0 + static_cast<std::size_t>(iq);
++              const auto sq = b + static_cast<std::size_t>(iq);
++              auto* const iJ = inverse_jacobians + N * N * sq;
++              loadInverseJacobian<N>(
++                  iJ, a.inverse_jacobians + q + nq * N * N * e, nq);
++              // increment of the gradients, B x, without forming B (see
++              // `getBOperatorEntries`)
++              constexpr auto entries = getBOperatorEntries<K>();
++              real dg[gs] = {};
+               for (std::size_t node = 0; node != nd; ++node) {
+-                du += a.shape_functions[q + nq * node] * xe[node];
++                real xn[N + 1];
++                computePhysicalDerivatives<N>(xn, a.shape_functions_gradients,
++                                              q, nq, node, iJ);
++                xn[N] =
++                    getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
++                for (const auto& en : entries) {
++                  const auto c = static_cast<std::size_t>(en.column);
++                  dg[en.row] += (en.factor * xn[en.source]) * xe[node + nd * c];
++                }
++              }
++              // increment of the thermodynamic forces, K B x
++              const auto o = static_cast<long long>(a.offsets[k]) +
++                             static_cast<long long>(q);
++              // tangent operator blocks of the point, for the derivatives
++              // with respect to the unknowns
++              [[maybe_unused]] const auto* const t =
++                  a.tangent_operator + o * a.point_stride;
++              [[maybe_unused]] const auto cs = a.component_stride;
++              real ds[gs];
++              multiplyByTangentOperator<K>(ds, a, o, dg);
++              if constexpr (hasUnknownsBlock<K>()) {
++                // increment of the unknowns at the point, N x, times the
++                // derivatives of the thermodynamic forces with respect to
++                // the unknowns
++                auto du = real{0};
++                for (std::size_t node = 0; node != nd; ++node) {
++                  du += a.shape_functions[q + nq * node] * xe[node];
++                }
++                for (std::size_t r1 = 0; r1 != gs; ++r1) {
++                  ds[r1] += t[static_cast<long long>(gs * gs + r1) * cs] * du;
++                }
+               }
+               for (std::size_t r1 = 0; r1 != gs; ++r1) {
+-                ds[r1] += t[static_cast<long long>(gs * gs + r1) * cs] * du;
++                forces_increments[gs * sq + r1] = ds[r1];
+               }
++              weights[sq] = a.weights[q] * a.determinants[q + nq * e];
+             }
++            MFEM_SYNC_THREAD;
+             // Bᵀ K B x w det J
+-            const auto w = a.weights[q] * detJ;
+-            for (std::size_t node = 0; node != nd; ++node) {
+-              real xn[N + 1];
+-              computePhysicalDerivatives<N>(xn, a.shape_functions_gradients, q,
+-                                            nq, node, iJ);
+-              xn[N] = getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
++            MFEM_FOREACH_THREAD(inode, x, a.nd) {
++              const auto node = static_cast<std::size_t>(inode);
++              real yn[V];
++              for (std::size_t c = 0; c != V; ++c) {
++                yn[c] = ye[node + nd * c];
++              }
++              for (std::size_t iq = 0; iq != nc; ++iq) {
++                const auto q = q0 + iq;
++                const auto sq = b + iq;
++                real xn[N + 1];
++                computePhysicalDerivatives<N>(xn, a.shape_functions_gradients,
++                                              q, nq, node,
++                                              inverse_jacobians + N * N * sq);
++                xn[N] =
++                    getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
++                const auto w = weights[sq];
++                const auto* const ds = forces_increments + gs * sq;
++                for (std::size_t c = 0; c != V; ++c) {
++                  yn[c] += w * multiplyByTransposedB<K>(xn, c, ds);
++                }
++              }
+               for (std::size_t c = 0; c != V; ++c) {
+-                ye[node + nd * c] += w * multiplyByTransposedB<K>(xn, c, ds);
++                ye[node + nd * c] = yn[c];
+               }
+             }
++            if (q0 + np < nq) {
++              // the next chunk overwrites the shared arrays
++              MFEM_SYNC_THREAD;
++            }
+           }
+-        });
++        },
++        bx, 1, bz);
+   }  // end of launchTangentOperatorActionKernel
+ 
+   void launchTangentOperatorActionKernel(
+diff --git a/src/Batch/StiffnessMatricesKernels.hxx b/src/Batch/StiffnessMatricesKernels.hxx
+index 159c41b03a..a25619ea45 100644
+--- a/src/Batch/StiffnessMatricesKernels.hxx
++++ b/src/Batch/StiffnessMatricesKernels.hxx
+@@ -78,10 +78,14 @@ namespace mfem_mgis::batch::internals {
+      * `TangentOperatorModification`), null if the blocks are not modified
+      */
+     const real* modification_coefficients = nullptr;
+-    //! \brief vectors `v` of the modification, point by point
++    //! \brief vectors `v` of the modification
+     const real* modification_v = nullptr;
+-    //! \brief vectors `c` of the modification, point by point
++    //! \brief vectors `c` of the modification
+     const real* modification_c = nullptr;
++    //! \brief stride between two points of `v` and of `c`
++    long long modification_point_stride = 0;
++    //! \brief stride between two components of `v` and of `c`
++    long long modification_component_stride = 0;
+     //! \brief matrices element by element
+     real* matrices = nullptr;
+     //! \brief number of elements of the material
+diff --git a/tests/IntegrationRuleOrderTest.cxx b/tests/IntegrationRuleOrderTest.cxx
+index f2bc54c1bf..4338a77986 100644
+--- a/tests/IntegrationRuleOrderTest.cxx
++++ b/tests/IntegrationRuleOrderTest.cxx
+@@ -3,11 +3,12 @@
+  * \brief  Test of the `IntegrationRuleOrder` parameter of the finite
+  * element discretization: the behaviour integrators use the rule of the
+  * given order (8 points on the hexahedra of order 1 for the order 3,
+- * instead of 27 by default) for their quadrature spaces and their
+- * integrations; on a mesh of affine hexahedra, whose elastic stiffness is
+- * integrated exactly by both rules, the solutions are the same, with the
+- * integration point by point and with the computations by kernels; a
+- * negative order is refused.
++ * instead of 27 by default, and 216 points for the order 11, more than the
++ * points processed at once by the kernels) for their quadrature spaces and
++ * their integrations; on a mesh of affine hexahedra, whose elastic
++ * stiffness is integrated exactly by these rules, the solutions are the
++ * same, with the integration point by point and with the computations by
++ * kernels; a negative order is refused.
+  * \date   11/10/2026
+  */
+ 
+@@ -16,6 +17,7 @@
+ #include <iostream>
+ #include <optional>
+ #include <string>
++#include <utility>
+ #include <vector>
+ #include <algorithm>
+ #include "mfem/general/optparser.hpp"
+@@ -210,22 +212,27 @@ int main(int argc, char** argv) {
+         "default rule: " + std::to_string(r.points_per_element) +
+             " points per element, " + std::to_string(r.rule_points) +
+             " points in the rule of the behaviour integrator");
+-  // rule of order 3: 8 points, same solution on affine hexahedra, point by
+-  // point and by kernels
+-  for (const auto kernels : {false, true}) {
+-    const auto name = std::string{kernels ? "kernels" : "point by point"};
+-    const auto r3 = compute(mesh, library, 3, kernels);
+-    check((r3.points_per_element == 8) && (r3.rule_points == 8),
+-          "rule of order 3, " + name + ": " +
+-              std::to_string(r3.points_per_element) + " points per element, " +
+-              std::to_string(r3.rule_points) +
+-              " points in the rule of the behaviour integrator");
+-    const auto d = getRelativeDifference(r.u, r3.u);
+-    std::cout << "rule of order 3, " << name
+-              << ": relative difference of the unknowns " << d << '\n';
+-    // in float, the relative difference reaches 3.9e-7
+-    check(d < mfem_mgis::unit_tests::tolerance(1e-10, 4e-6),
+-          "rule of order 3, " + name + ": different solution");
++  // rules of order 3 (8 points) and 11 (216 points, more than the points
++  // processed at once by the kernels using one thread per point): same
++  // solution on affine hexahedra, point by point and by kernels
++  for (const auto& [order, points] : {std::pair{3, 8}, std::pair{11, 216}}) {
++    for (const auto kernels : {false, true}) {
++      const auto name = "rule of order " + std::to_string(order) + ", " +
++                        (kernels ? "kernels" : "point by point");
++      const auto ro = compute(mesh, library, order, kernels);
++      check((ro.points_per_element ==
++             static_cast<mfem_mgis::size_type>(points)) &&
++                (ro.rule_points == points),
++            name + ": " + std::to_string(ro.points_per_element) +
++                " points per element, " + std::to_string(ro.rule_points) +
++                " points in the rule of the behaviour integrator");
++      const auto d = getRelativeDifference(r.u, ro.u);
++      std::cout << name << ": relative difference of the unknowns " << d
++                << '\n';
++      // in float, the relative difference reaches 3.9e-7
++      check(d < mfem_mgis::unit_tests::tolerance(1e-10, 4e-6),
++            name + ": different solution");
++    }
+   }
+   // a negative order is refused
+   {
+-- 
+2.43.0
+

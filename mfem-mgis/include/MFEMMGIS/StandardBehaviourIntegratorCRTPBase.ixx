@@ -9,9 +9,13 @@
 #ifndef LIB_MFEM_MGIS_STANDARDBEHAVIOURINTEGRATORCRTPBASE_IXX
 #define LIB_MFEM_MGIS_STANDARDBEHAVIOURINTEGRATORCRTPBASE_IXX
 
+#include <vector>
+#include <utility>
 #include "mfem/fem/fe.hpp"
 #include "mfem/fem/eltrans.hpp"
 #include "mfem/general/device.hpp"
+#include "MGIS/Behaviour/MaterialStateManager.hxx"
+#include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/IntegrationType.hxx"
 #include "MFEMMGIS/FiniteElementDiscretization.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
@@ -24,7 +28,7 @@ namespace mfem_mgis {
       StandardBehaviourIntegratorCRTPBase(
           const PartialQuadratureSpace &s,
           std::unique_ptr<const Behaviour> b_ptr,
-          const mgis::FieldLayout l)
+          const mgis::behaviour::MaterialDataManagerLayout& l)
       : BehaviourIntegratorBase(s, std::move(b_ptr), l) {
     using Traits = BehaviourIntegratorTraits<Child>;
     constexpr auto usize = static_cast<size_type>(Traits::unknownsSize);
@@ -45,7 +49,7 @@ namespace mfem_mgis {
       mfem::ElementTransformation &tr,
       const mfem::Vector &u,
       const IntegrationType it) {
-    this->checkElementByElementComputationsSupport(may_throw);
+    this->checkPointByPointIntegrationSupport(may_throw);
     //
     using Traits = BehaviourIntegratorTraits<Child>;
     static_assert(
@@ -63,6 +67,10 @@ namespace mfem_mgis {
     // element offset
     const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
     const auto &ir = child.getIntegrationRule(e, tr);
+    // views of the arrays of the material (see `getPointValues`)
+    auto buffer = std::vector<real>{};
+    const auto gv = mgis::behaviour::getGradientsView(this->s1);
+    const auto Kv = mgis::behaviour::getTangentOperatorBlocksView(*this);
     if ((it == IntegrationType::PREDICTION_TANGENT_OPERATOR) ||
         (it == IntegrationType::PREDICTION_SECANT_OPERATOR) ||
         (it == IntegrationType::PREDICTION_ELASTIC_OPERATOR)) {
@@ -74,8 +82,9 @@ namespace mfem_mgis {
         }
         // rotate the tangent operator blocks
         const auto r = child.getRotationMatrix(o);
-        auto Kip = this->K.subspan(o * (this->K_stride), this->K_stride);
+        auto Kip = getPointValues(buffer, Kv, o);
         child.rotateTangentOperatorBlocks(Kip, r);
+        setPointValues(Kv, o, Kip);
       }
       return true;
     }
@@ -96,22 +105,24 @@ namespace mfem_mgis {
       this->dshape.SetSize(e.GetDof(), e.GetDim());
     }
 #endif
-    const auto gsize = this->s1.gradients_stride;
     for (size_type i = 0; i != ir.GetNPoints(); ++i) {
       // offset of the integration point
       const auto o = eoffset + i;
       this->computeGradientsAtIntegrationPoint(e, tr, u, ir.IntPoint(i), o,
-                                               shape, dshape);
+                                               shape, dshape, buffer);
       const auto r = child.getRotationMatrix(o);
-      child.rotateGradients(this->s1.gradients.subspan(o * gsize, gsize), r);
+      auto g = getPointValues(buffer, gv, o);
+      child.rotateGradients(g, r);
+      setPointValues(gv, o, g);
       if (!this->performsLocalBehaviourIntegration(o, it)) {
         return false;
       }
       // Here we rotate the tangent operator blocks but not the thermodynamic
       // forces.
       if (it != IntegrationType::INTEGRATION_NO_TANGENT_OPERATOR) {
-        auto Kip = this->K.subspan(o * (this->K_stride), this->K_stride);
+        auto Kip = getPointValues(buffer, Kv, o);
         child.rotateTangentOperatorBlocks(Kip, r);
+        setPointValues(Kv, o, Kip);
       }
     }
     return true;
@@ -126,7 +137,8 @@ namespace mfem_mgis {
           const mfem::IntegrationPoint &ip,
           const size_type o,
           mfem::Vector &shape_functions,
-          mfem::DenseMatrix &shape_functions_derivatives) {
+          mfem::DenseMatrix &shape_functions_derivatives,
+          std::vector<real> &buffer) {
     using Traits = BehaviourIntegratorTraits<Child>;
     constexpr const auto evaluateShapeFunctions =
         Traits::updateExternalStateVariablesFromUnknownsValues ||
@@ -135,7 +147,6 @@ namespace mfem_mgis {
         Traits::gradientsComputationRequiresShapeFunctionsDerivatives;
     auto &child = static_cast<Child&>(*this);
     const auto nnodes = e.GetDof();
-    const auto gsize = this->s1.gradients_stride;
     tr.SetIntPoint(&ip);
     if constexpr (evaluateShapeFunctions) {
       // get the gradients of the shape functions
@@ -149,7 +160,8 @@ namespace mfem_mgis {
       // get the gradients of the shape functions
       e.CalcPhysDShape(tr, shape_functions_derivatives);
     }
-    auto g = this->s1.gradients.subspan(o * gsize, gsize);
+    const auto gv = mgis::behaviour::getGradientsView(this->s1);
+    auto g = getPointValues(buffer, gv, o);
     std::copy(this->macroscopic_gradients.begin(),
               this->macroscopic_gradients.end(), g.begin());
     for (size_type ni = 0; ni != nnodes; ++ni) {
@@ -165,6 +177,7 @@ namespace mfem_mgis {
         child.updateGradients(g, u, shape_functions, ni);
       }
     }
+    setPointValues(gv, o, g);
   }  // end of computeGradientsAtIntegrationPoint
 
   template <typename Child>
@@ -172,7 +185,6 @@ namespace mfem_mgis {
       const mfem::FiniteElement &e,
       mfem::ElementTransformation &tr,
       const mfem::Vector &u) {
-    this->checkElementByElementComputationsSupport(may_throw);
     using Traits = BehaviourIntegratorTraits<Child>;
     constexpr const auto evaluateShapeFunctions =
         Traits::updateExternalStateVariablesFromUnknownsValues ||
@@ -199,9 +211,10 @@ namespace mfem_mgis {
       this->dshape.SetSize(e.GetDof(), e.GetDim());
     }
 #endif
+    auto buffer = std::vector<real>{};
     for (size_type i = 0; i != ir.GetNPoints(); ++i) {
-      this->computeGradientsAtIntegrationPoint(e, tr, u, ir.IntPoint(i),
-                                               eoffset + i, shape, dshape);
+      this->computeGradientsAtIntegrationPoint(
+          e, tr, u, ir.IntPoint(i), eoffset + i, shape, dshape, buffer);
     }
     return true;
   }  // end of implementComputeGradients
@@ -295,8 +308,11 @@ namespace mfem_mgis {
       // external state variable of the behaviour, stored on the host (the
       // behaviours integrated on the device read the copies of the external
       // state variables, see `BehaviourIntegratorBase`)
+      // the values are given in the layout of the external state variables
+      // of the material
       if (!batch::getUnknownsValues(ctx, this->unknowns_values,
-                                    this->quadrature_space, p->second)) {
+                                    this->quadrature_space, p->second,
+                                    this->layout.external_state_variables)) {
         return false;
       }
       try {
@@ -468,7 +484,6 @@ namespace mfem_mgis {
       mfem::Vector &Fe,
       const mfem::FiniteElement &e,
       mfem::ElementTransformation &tr) {
-    this->checkElementByElementComputationsSupport(may_throw);
     using Traits = BehaviourIntegratorTraits<Child>;
     constexpr const auto evaluateShapeFunctions =
         Traits::updateExternalStateVariablesFromUnknownsValues ||
@@ -498,12 +513,14 @@ namespace mfem_mgis {
     }
 #endif
     const auto nnodes = e.GetDof();
-    const auto thsize = this->s1.thermodynamic_forces_stride;
     // thermodynamic forces in the global frame: rotated point by point, or,
     // for an orthotropic behaviour without functions rotating the values of
     // one point (generic-parallel interface), rotated at all the points at
     // once by the integration by batches
     const auto rotated_thforces = this->getRotatedThermodynamicForces();
+    const auto sv =
+        mgis::behaviour::getThermodynamicForcesView(std::as_const(this->s1));
+    auto buffer = std::vector<real>{};
     // element offset
     const auto eoffset = this->quadrature_space.getOffset(tr.ElementNo);
     Fe.SetSize(e.GetDof() * Traits::unknownsSize);
@@ -540,11 +557,10 @@ namespace mfem_mgis {
         }
       };
       if (!rotated_thforces.empty()) {
-        update(rotated_thforces.subspan(o * thsize, thsize));
+        update(getPointValues(buffer, rotated_thforces, o));
       } else {
         const auto r = child.getRotationMatrix(o);
-        const auto s =
-            this->s1.thermodynamic_forces.subspan(o * thsize, thsize);
+        const auto s = getPointValues(buffer, sv, o);
         update(child.rotateThermodynamicForces(s, r));
       }
     }
@@ -555,7 +571,6 @@ namespace mfem_mgis {
       mfem::DenseMatrix &Ke,
       const mfem::FiniteElement &e,
       mfem::ElementTransformation &tr) {
-    this->checkElementByElementComputationsSupport(may_throw);
     using Traits = BehaviourIntegratorTraits<Child>;
     auto &child = static_cast<Child &>(*this);
     constexpr const auto evaluateShapeFunctions =
@@ -591,6 +606,9 @@ namespace mfem_mgis {
                e.GetDof() * Traits::unknownsSize);
     Ke = 0.;
     const auto &ir = child.getIntegrationRule(e, tr);
+    const auto Kv =
+        mgis::behaviour::getTangentOperatorBlocksView(std::as_const(*this));
+    auto buffer = std::vector<real>{};
     for (size_type i = 0; i != ir.GetNPoints(); ++i) {
       // get the gradients of the shape functions
       const auto &ip = ir.IntPoint(i);
@@ -607,7 +625,7 @@ namespace mfem_mgis {
       const auto w = child.getIntegrationPointWeight(tr, ip);
       // offset of the integration point
       const auto o = eoffset + i;
-      const auto Kip = this->K.subspan(o * (this->K_stride), this->K_stride);
+      const auto Kip = getPointValues(buffer, Kv, o);
       // assembly of the stiffness matrix
       for (size_type ni = 0; ni != nnodes; ++ni) {
         if constexpr ((evaluateShapeFunctions) &&

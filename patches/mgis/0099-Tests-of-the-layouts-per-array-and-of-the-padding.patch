@@ -1,0 +1,473 @@
+From f32db26ef86921b598d05bb1e89d21e3893618b1 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 23:25:46 +0100
+Subject: [PATCH] Tests of the layouts per array and of the padding
+
+Managers whose arrays have different layouts, or are padded, give the
+results of a manager stored point by point to the bit, through the
+integration, the end of the time step and the revert; the unused values
+remain NaN; the views account for the padding; HDF5 files saved from a
+padded manager are read by a manager which is not. The refusals are
+tested: states of different paddings, unpadded arrays given by an
+initializer, outputs given by an array to a manager whose layouts are
+not uniform. The C, Fortran and Python tests cover one manager with
+mixed layouts and one padded manager. The C test now returns the status
+of its checks.
+---
+ bindings/c/tests/LayoutTest-c.c         |  69 +++++++-
+ bindings/fortran/tests/LayoutTest-f.f90 |  43 +++++
+ bindings/python/tests/LayoutTest.py     |  30 ++++
+ tests/MaterialDataManagerLayoutTest.cxx | 206 +++++++++++++++++++++++-
+ 4 files changed, 344 insertions(+), 4 deletions(-)
+
+diff --git a/bindings/c/tests/LayoutTest-c.c b/bindings/c/tests/LayoutTest-c.c
+index 3c99059..2e89803 100644
+--- a/bindings/c/tests/LayoutTest-c.c
++++ b/bindings/c/tests/LayoutTest-c.c
+@@ -25,12 +25,15 @@ mgis_bv_Behaviour* b = NULL;
+ mgis_ThreadPool* p = NULL;
+ mgis_bv_MaterialDataManager* m = NULL;
+ mgis_bv_MaterialDataManagerInitializer* mi = NULL;
++mgis_bv_MaterialDataManager* m2 = NULL;
++mgis_bv_MaterialDataManagerInitializer* mi2 = NULL;
+ 
+ static void check_status(const mgis_status s) {
+   if (s.exit_status != MGIS_SUCCESS) {
+     fprintf(stderr, "invalid function call: %s\n", s.msg);
+     mgis_bv_free_behaviour(&b);
+     mgis_bv_free_material_data_manager(&m);
++    mgis_bv_free_material_data_manager(&m2);
+     mgis_free_thread_pool(&p);
+     exit(EXIT_FAILURE);
+   }
+@@ -91,6 +94,14 @@ int main(const int argc, const char* const* argv) {
+   mgis_size_type i;
+   int r;
+   mgis_bv_FieldLayout l;
++  mgis_size_type pd;      /* padding */
++  mgis_real* g2;          /* gradients of the padded manager */
++  mgis_real* isvs0_2;     /* internal state variables of the padded manager */
++  mgis_real* isvs1_2;     /* internal state variables of the padded manager */
++  mgis_real pi2[21];      /* see pi */
++  mgis_real pe2[21];      /* see pe */
++  mgis_bv_MaterialStateManager* s0_2;
++  mgis_bv_MaterialStateManager* s1_2;
+   check_status(mgis_create_thread_pool(&p, 2));
+   check_status(mgis_bv_load_behaviour(&b, argv[1], "Norton", "Tridimensional"));
+   /* arrays stored component by component */
+@@ -154,6 +165,62 @@ int main(const int argc, const char* const* argv) {
+     pi[i + 1] = isvs1[ni];
+     pe[i + 1] = isvs1[ne];
+   }
++  /* arrays of the states stored point by point with a padding of two
++   * values, tangent operator blocks stored component by component */
++  check_status(mgis_bv_create_material_data_manager_initializer(&mi2));
++  check_status(mgis_bv_material_data_manager_initializer_set_layout(
++      mi2, MGIS_BV_POINT_BY_POINT));
++  check_status(mgis_bv_material_data_manager_initializer_set_array_layout(
++      mi2, MGIS_BV_TANGENT_OPERATOR_ARRAY, MGIS_BV_COMPONENT_BY_COMPONENT));
++  check_status(mgis_bv_material_data_manager_initializer_set_padding(mi2, 2));
++  check_status(
++      mgis_bv_create_material_data_manager_with_initializer(&m2, b, n, mi2));
++  check_status(mgis_bv_material_data_manager_get_array_layout(
++      &l, m2, MGIS_BV_TANGENT_OPERATOR_ARRAY));
++  check(l == MGIS_BV_COMPONENT_BY_COMPONENT,
++        "invalid layout of the tangent operator blocks");
++  check_status(mgis_bv_material_data_manager_get_array_layout(
++      &l, m2, MGIS_BV_GRADIENTS_ARRAY));
++  check(l == MGIS_BV_POINT_BY_POINT, "invalid layout of the gradients");
++  check_status(mgis_bv_material_data_manager_get_padding(&pd, m2));
++  check(pd == 2, "invalid padding");
++  check(mgis_bv_material_data_manager_get_layout(&l, m2).exit_status !=
++            MGIS_SUCCESS,
++        "the layouts of the arrays are not uniform: no single layout");
++  check_status(mgis_bv_material_data_manager_get_state_0(&s0_2, m2));
++  check_status(mgis_bv_material_data_manager_get_state_1(&s1_2, m2));
++  check_status(
++      mgis_bv_material_state_manager_set_uniform_scalar_external_state_variable(
++          s1_2, "Temperature", 293.15));
++  check_status(mgis_bv_update_material_data_manager(m2));
++  check_status(mgis_bv_material_state_manager_get_gradients(&g2, s1_2));
++  check_status(mgis_bv_material_state_manager_get_internal_state_variables(
++      &isvs0_2, s0_2));
++  check_status(mgis_bv_material_state_manager_get_internal_state_variables(
++      &isvs1_2, s1_2));
++  /* the stride between two points is the number of values of a point plus
++   * the padding */
++  for (idx = 0; idx != n; ++idx) {
++    g2[idx * (g_stride + pd)] = de;
++  }
++  pi2[0] = isvs0_2[o];
++  pe2[0] = isvs0_2[(n - 1) * (isvs_stride + pd) + o];
++  for (i = 0; i != 20; ++i) {
++    check_status(mgis_bv_integrate_material_data_manager(
++        &r, p, m2, MGIS_BV_INTEGRATION_NO_TANGENT_OPERATOR, dt));
++    check_status(mgis_bv_update_material_data_manager(m2));
++    for (idx = 0; idx != n; ++idx) {
++      g2[idx * (g_stride + pd)] += de;
++    }
++    pi2[i + 1] = isvs1_2[o];
++    pe2[i + 1] = isvs1_2[(n - 1) * (isvs_stride + pd) + o];
++  }
++  for (i = 0; i != 21; ++i) {
++    check((pi2[i] == pi[i]) && (pe2[i] == pe[i]),
++          "LayoutTest: the padded manager gives other results");
++  }
++  check_status(mgis_bv_free_material_data_manager(&m2));
++  check_status(mgis_bv_free_material_data_manager_initializer(&mi2));
+   check_status(mgis_bv_free_behaviour(&b));
+   check_status(mgis_bv_free_material_data_manager(&m));
+   check_status(mgis_bv_free_material_data_manager_initializer(&mi));
+@@ -176,5 +243,5 @@ int main(const int argc, const char* const* argv) {
+       return EXIT_FAILURE;
+     }
+   }
+-  return EXIT_SUCCESS;
++  return test_status;
+ }
+diff --git a/bindings/fortran/tests/LayoutTest-f.f90 b/bindings/fortran/tests/LayoutTest-f.f90
+index aeedc42..cef1cdd 100644
+--- a/bindings/fortran/tests/LayoutTest-f.f90
++++ b/bindings/fortran/tests/LayoutTest-f.f90
+@@ -26,6 +26,7 @@ subroutine test()
+   type(BehaviourData) d
+   type(FiniteStrainBehaviourOptions) o
+   integer(kind=c_int) :: l
++  integer :: pd
+   integer :: n = 10
+   integer :: ri
+   logical :: r
+@@ -109,6 +110,48 @@ subroutine test()
+   call check_status(free_behaviour_data(d))
+   call check_status(free_behaviour(bf))
+   call check_status(free_finite_strain_behaviour_options(o))
++  ! states point by point and tangent operator component by component: the
++  ! gradients can be returned as a two-dimensional array, the tangent
++  ! operator can't
++  call check_status(free_material_data_manager_initializer(i))
++  call check_status(create_material_data_manager_initializer(i))
++  call check_status(material_data_manager_initializer_set_array_layout(i, &
++       TANGENT_OPERATOR_ARRAY, COMPONENT_BY_COMPONENT))
++  call check_status(create_material_data_manager_with_initializer(m, b, i, n))
++  call check_status(material_data_manager_get_array_layout(l, m, &
++       TANGENT_OPERATOR_ARRAY))
++  r = check(l == COMPONENT_BY_COMPONENT, &
++       'invalid layout of the tangent operator')
++  call check_status(material_data_manager_get_array_layout(l, m, &
++       GRADIENTS_ARRAY))
++  r = check(l == POINT_BY_POINT, 'invalid layout of the gradients')
++  st = material_data_manager_get_layout(l, m)
++  r = check(st%exit_status .ne. MGIS_SUCCESS, &
++       'the layouts of the arrays are not uniform: no single layout')
++  call check_status(material_data_manager_get_state_1(s1, m))
++  call check_status(material_state_manager_set_us_external_state_variable( &
++       s1, "Temperature", 293.15d0))
++  call check_status(update_material_data_manager(m))
++  call check_status(integrate_material_data_manager( &
++       ri, p, m, INTEGRATION_CONSISTENT_TANGENT_OPERATOR, 180d0))
++  r = check(ri.eq.1, 'integration failed (mixed layouts)')
++  call check_status(material_state_manager_get_gradients(g, s1))
++  st = material_data_manager_get_tangent_operator(K, m)
++  r = check(st%exit_status .ne. MGIS_SUCCESS, &
++       'the layout of the tangent operator has not been checked')
++  call check_status(free_material_data_manager(m))
++  ! padded arrays can't be returned as two-dimensional arrays
++  call check_status(free_material_data_manager_initializer(i))
++  call check_status(create_material_data_manager_initializer(i))
++  call check_status(material_data_manager_initializer_set_padding(i, 1))
++  call check_status(create_material_data_manager_with_initializer(m, b, i, n))
++  call check_status(material_data_manager_get_padding(pd, m))
++  r = check(pd == 1, 'invalid padding')
++  call check_status(material_data_manager_get_state_1(s1, m))
++  st = material_state_manager_get_gradients(g, s1)
++  r = check(st%exit_status .ne. MGIS_SUCCESS, &
++       'the padding of the gradients has not been checked')
++  call check_status(free_material_data_manager(m))
+   ! free ressources
+   call check_status(free_material_data_manager_initializer(i))
+   call check_status(free_behaviour(b))
+diff --git a/bindings/python/tests/LayoutTest.py b/bindings/python/tests/LayoutTest.py
+index 2503c2c..b2c1b61 100644
+--- a/bindings/python/tests/LayoutTest.py
++++ b/bindings/python/tests/LayoutTest.py
+@@ -54,6 +54,36 @@ class LayoutTest(unittest.TestCase):
+                             (8, 8 * 6 * nig, 8 * nig))
+             for m in managers:
+                 mgis_bv.update(m)
++        # one layout per array and a padding: same results, numpy arrays
++        # with the strides of the padded layout
++        layout = mgis_bv.MaterialDataManagerLayout(
++            mgis_bv.FieldLayout.POINT_BY_POINT)
++        layout.tangent_operator = mgis_bv.FieldLayout.COMPONENT_BY_COMPONENT
++        layout.padding = 2
++        mixed = []
++        for lm in [mgis_bv.MaterialDataManagerLayout(
++                       mgis_bv.FieldLayout.POINT_BY_POINT), layout]:
++            i = mgis_bv.MaterialDataManagerInitializer()
++            i.layout = lm
++            m = mgis_bv.MaterialDataManager(b, nig, i)
++            self.assertTrue(m.layout == lm)
++            mgis_bv.setExternalStateVariable(m.s1, 'Temperature', 293.15)
++            mgis_bv.update(m)
++            mixed.append(m)
++        self.assertTrue(mixed[1].layout.padding == 2)
++        self.assertTrue(mixed[1].s1.gradients.strides == (8 * 8, 8))
++        for step in range(0, 3):
++            for m in mixed:
++                for j in range(0, nig):
++                    m.s1.gradients[j][0] += 5.e-5 * (1 + 0.1 * j)
++                mgis_bv.integrate(m, it, 180, 0, nig)
++            for a in ['thermodynamic_forces', 'internal_state_variables']:
++                v0 = getattr(mixed[0].s1, a)
++                v1 = getattr(mixed[1].s1, a)
++                self.assertTrue((v0 == v1).all())
++            self.assertTrue((mixed[0].K == mixed[1].K).all())
++            for m in mixed:
++                mgis_bv.update(m)
+         # a strided array can't be given as an array of values
+         bt = mgis_bv.load(lib, 'TensorialExternalStateVariableTest', h)
+         d = mgis_bv.BehaviourData(bt)
+diff --git a/tests/MaterialDataManagerLayoutTest.cxx b/tests/MaterialDataManagerLayoutTest.cxx
+index 7711339..589fd4e 100644
+--- a/tests/MaterialDataManagerLayoutTest.cxx
++++ b/tests/MaterialDataManagerLayoutTest.cxx
+@@ -108,11 +108,11 @@ static void copy(const FieldView<real>& dst, const FieldView<const real>& src) {
+   }
+ }  // end of copy
+ 
+-//! \return a material data manager with the given layout
++//! \return a material data manager with the given layouts
+ static std::unique_ptr<mgis::behaviour::MaterialDataManager> makeManager(
+     const mgis::behaviour::Behaviour& b,
+     const size_type n,
+-    const FieldLayout l) {
++    const mgis::behaviour::MaterialDataManagerLayout l) {
+   auto i = mgis::behaviour::MaterialDataManagerInitializer{};
+   i.layout = l;
+   return std::make_unique<mgis::behaviour::MaterialDataManager>(b, n, i);
+@@ -1029,7 +1029,10 @@ static void testHDF5(const std::string& library) {
+     const auto other = l == FieldLayout::POINT_BY_POINT
+                            ? FieldLayout::COMPONENT_BY_COMPONENT
+                            : FieldLayout::POINT_BY_POINT;
+-    auto m = makeManager(b, n, l);
++    // the saved manager is padded, the restored one is not
++    auto lm = mgis::behaviour::MaterialDataManagerLayout{l};
++    lm.padding = 2;
++    auto m = makeManager(b, n, lm);
+     auto r = makeManager(b, n, other);
+     for (auto* const s : {&m->s1, &r->s1}) {
+       setMaterialProperty(*s, "YoungModulus", 150e9);
+@@ -1097,6 +1100,202 @@ static void testHDF5(const std::string& library) {
+ 
+ #endif /* MGIS_HAVE_HDF5 */
+ 
++/*!
++ * \return true if the unused values of an array stored with the given
++ * layout and padding are all NaN
++ * \param[in] values: values of the array
++ * \param[in] l: layout
++ * \param[in] n: number of points
++ * \param[in] nc: number of components
++ * \param[in] p: padding
++ */
++static bool isPaddingNaN(std::span<const real> values,
++                         const FieldLayout l,
++                         const size_type n,
++                         const size_type nc,
++                         const size_type p) {
++  const auto pbp = l == FieldLayout::POINT_BY_POINT;
++  // minimal leading dimension and number of rows of the array
++  const auto ld = pbp ? nc : n;
++  const auto nr = pbp ? n : nc;
++  if (values.size() != nr * (ld + p)) {
++    return false;
++  }
++  for (size_type i = 0; i != nr; ++i) {
++    for (size_type j = ld; j != ld + p; ++j) {
++      if (!std::isnan(values[i * (ld + p) + j])) {
++        return false;
++      }
++    }
++  }
++  return true;
++}  // end of isPaddingNaN
++
++/*!
++ * \return true if the unused values of the arrays of the states and of the
++ * tangent operator blocks, if allocated, of a material data manager are all
++ * NaN
++ */
++static bool isPaddingNaN(const mgis::behaviour::MaterialDataManager& m) {
++  const auto& l = m.layout;
++  // the tangent operator blocks are allocated by the first integration
++  // requesting them
++  auto r = m.K.empty() || isPaddingNaN(m.K, l.tangent_operator, m.n,
++                                       m.K_stride, l.padding);
++  for (const auto* const s : {&m.s0, &m.s1}) {
++    r = r &&
++        isPaddingNaN(s->gradients, l.gradients, m.n, s->gradients_stride,
++                     l.padding) &&
++        isPaddingNaN(s->thermodynamic_forces, l.thermodynamic_forces, m.n,
++                     s->thermodynamic_forces_stride, l.padding) &&
++        isPaddingNaN(s->internal_state_variables, l.internal_state_variables,
++                     m.n, s->internal_state_variables_stride, l.padding);
++  }
++  return r;
++}  // end of isPaddingNaN
++
++/*!
++ * \brief one layout per array and padding of the arrays: the integration
++ * gives the results of a manager stored point by point to the bit, the
++ * unused values remain NaN, the views account for the padding, and the
++ * values given by arrays in the layout of a manager whose arrays have
++ * different layouts are refused
++ */
++static void testLayoutsPerArrayAndPadding(const std::string& library) {
++  using namespace mgis::behaviour;
++  const auto b = load(library, "Norton", Hypothesis::TRIDIMENSIONAL);
++  constexpr auto n = size_type{9};
++  constexpr auto pbp = FieldLayout::POINT_BY_POINT;
++  constexpr auto cbc = FieldLayout::COMPONENT_BY_COMPONENT;
++  auto layouts = std::vector<MaterialDataManagerLayout>{};
++  {
++    // tangent operator component by component, states point by point
++    auto l = MaterialDataManagerLayout{pbp};
++    l.tangent_operator = cbc;
++    layouts.push_back(l);
++  }
++  {
++    // the reverse
++    auto l = MaterialDataManagerLayout{cbc};
++    l.tangent_operator = pbp;
++    layouts.push_back(l);
++  }
++  {
++    auto l = MaterialDataManagerLayout{pbp};
++    l.gradients = cbc;
++    l.internal_state_variables = cbc;
++    layouts.push_back(l);
++  }
++  {
++    auto l = MaterialDataManagerLayout{pbp};
++    l.padding = 3;
++    layouts.push_back(l);
++  }
++  {
++    auto l = MaterialDataManagerLayout{cbc};
++    l.padding = 2;
++    layouts.push_back(l);
++  }
++  {
++    auto l = MaterialDataManagerLayout{cbc};
++    l.thermodynamic_forces = pbp;
++    l.padding = 1;
++    layouts.push_back(l);
++  }
++  auto opts = BehaviourIntegrationOptions{};
++  opts.integration_type =
++      IntegrationType::INTEGRATION_CONSISTENT_TANGENT_OPERATOR;
++  for (const auto& l : layouts) {
++    auto ma = makeManager(b, n, pbp);
++    auto mt = makeManager(b, n, l);
++    check(mt->layout == l, "layouts per array: layouts not stored");
++    check(getStateLayout(l) == mt->s1.layout,
++          "layouts per array: layouts of the states not stored");
++    check(isPaddingNaN(*mt), "padding: unused values not NaN, " + library);
++    for (auto* const m : {ma.get(), mt.get()}) {
++      setExternalStateVariable(m->s0, "Temperature", 293.15);
++      setExternalStateVariable(m->s1, "Temperature", 293.15);
++    }
++    for (int step = 0; step != 3; ++step) {
++      const auto e = getGradientsView(ma->s1);
++      for (size_type i = 0; i != n; ++i) {
++        for (size_type c = 0; c != 6; ++c) {
++          e(i, c) += 1e-4 * static_cast<real>((step + 1) * (c + 1)) *
++                     (1 + 0.1 * static_cast<real>(i));
++        }
++      }
++      copyStates(*mt, *ma);
++      const auto ra = integrate(*ma, opts, 180);
++      const auto rt = integrate(*mt, opts, 180);
++      check(ra.exit_status == rt.exit_status,
++            "layouts per array: invalid status");
++      check(haveSameOutputs(*ma, *mt),
++            "layouts per array: invalid outputs, " + library);
++      check(isPaddingNaN(*mt),
++            "padding: unused values not NaN after the integration, " +
++                library);
++      update(*ma);
++      update(*mt);
++    }
++    revert(*ma);
++    revert(*mt);
++    check(same(getInternalStateVariablesView(ma->s1),
++               getInternalStateVariablesView(mt->s1)) &&
++              isPaddingNaN(*mt),
++          "layouts per array: invalid revert, " + library);
++  }
++  // views on padded arrays
++  {
++    auto l = MaterialDataManagerLayout{pbp};
++    l.padding = 3;
++    const auto m = makeManager(b, n, l);
++    const auto g = getGradientsView(m->s1);
++    check((g.getPointStride() == 9) && (g.getComponentStride() == 1),
++          "padding: invalid strides of a view point by point");
++    l = MaterialDataManagerLayout{cbc};
++    l.padding = 2;
++    const auto m2 = makeManager(b, n, l);
++    const auto g2 = getGradientsView(m2->s1);
++    check((g2.getPointStride() == 1) && (g2.getComponentStride() == n + 2),
++          "padding: invalid strides of a view component by component");
++    // states of different paddings can't be updated one from the other
++    auto ctx = mgis::Context{};
++    check(!updateValues(ctx, m2->s0, m->s1),
++          "padding: update of a state from a state of another padding");
++  }
++  // arrays given by an initializer must be padded
++  {
++    auto values = std::vector<real>(n * 6);
++    auto i = MaterialDataManagerInitializer{};
++    i.layout.padding = 1;
++    i.s1.gradients = values;
++    check(throws([&b, &i] { MaterialDataManager(b, n, i); },
++                 "padding included"),
++          "padding: unpadded array given by the initializer accepted");
++  }
++  // values given by an array in the layout of the manager require a
++  // uniform layout
++  {
++    const auto bp =
++        load(library, "PostProcessingTest", Hypothesis::TRIDIMENSIONAL);
++    auto l = MaterialDataManagerLayout{pbp};
++    l.tangent_operator = cbc;
++    auto m = makeManager(bp, n, l);
++    for (auto* const s : {&m->s0, &m->s1}) {
++      setMaterialProperty(*s, "YoungModulus", 150e9);
++      setMaterialProperty(*s, "PoissonRatio", 0.3);
++      setExternalStateVariable(*s, "Temperature", 293.15);
++    }
++    auto o = allocatePostProcessingVariables(*m, "PrincipalStrain");
++    check(throws([&o, &m] {
++            static_cast<void>(
++                executePostProcessing(o, *m, "PrincipalStrain"));
++          },
++                 "must be given by a FieldView"),
++          "layouts per array: outputs given by an array accepted");
++  }
++}  // end of testLayoutsPerArrayAndPadding
++
+ int main(const int argc, const char* const* const argv) {
+   if (argc != 3) {
+     std::cerr << "usage: " << argv[0]
+@@ -1114,6 +1313,7 @@ int main(const int argc, const char* const* const argv) {
+       testUpdateOfMaterialPropertiesAndExternalStateVariables(library);
+       testFiniteStrainConversionsOnViews(library);
+       testVariablesViews(library);
++      testLayoutsPerArrayAndPadding(library);
+     }
+     testMaterialFunctionManager(argv[2]);
+ #ifdef MGIS_HAVE_HDF5
+-- 
+2.43.0
+

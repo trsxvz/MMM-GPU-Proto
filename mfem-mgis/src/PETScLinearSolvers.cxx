@@ -497,6 +497,7 @@ namespace mfem_mgis::internals {
       } else {
         if (*orbm) {
           s->initializeRigidBodyModes(fespace);
+          warnIfRigidBodyModesAreIgnored(ctx, fespace, *oopts);
         }
         if (*ofields) {
           s->initializeComponentFields(fespace);
@@ -536,6 +537,7 @@ namespace mfem_mgis::internals {
     }
     if (*orbm) {
       p->initializeRigidBodyModes(fespace);
+      warnIfRigidBodyModesAreIgnored(ctx, fespace, *oopts);
     }
     if (*ofields) {
       p->initializeComponentFields(fespace);

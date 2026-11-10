@@ -71,49 +71,92 @@ namespace mfem_mgis::batch::internals {
 
   /*!
    * \brief launches the kernel adding the inner forces of the elements of a
-   * material: one thread per element, which loads the inverse of the
-   * jacobian once per point (see `ElementsJacobians`)
+   * material, with one thread per point then one thread per node (see
+   * `maximum_number_of_points_per_block`): each point thread reads the
+   * thermodynamic forces of its point through their strides (coalesced
+   * accesses in the component by component layout), its weight and the
+   * inverse of its jacobian; each node thread then sums the contributions
+   * of the points in their order
    * \tparam K: kind of the gradients
    */
   template <GradientsKind K>
   static void launchInnerForcesKernel(const InnerForcesKernelArguments& a,
                                       const bool use_device) {
-    mfem::forall_switch(
-        use_device, a.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
-          // dimension and number of components of the unknowns
-          constexpr auto N = getDimension<K>();
-          constexpr auto V = getUnknownsSize<K>();
+    // dimension, number of components of the unknowns and of the
+    // thermodynamic forces
+    constexpr auto N = getDimension<K>();
+    constexpr auto V = getUnknownsSize<K>();
+    constexpr auto S = getGradientsSize<K>();
+    constexpr auto P = maximum_number_of_points_per_block;
+    const auto bz = getNumberOfElementsPerBlock(a.nq, a.nd);
+    const auto bx = getNumberOfThreadsPerElement(a.nq, a.nd);
+    mfem::ForallWrap<2>(
+        use_device, a.number_of_elements,
+        [a] MFEM_HOST_DEVICE(int k) {
+          MFEM_SHARED real forces[P * S];
+          MFEM_SHARED real weights[P];
+          MFEM_SHARED real inverse_jacobians[P * N * N];
           const auto e = static_cast<std::size_t>(a.elements[k]);
           const auto nq = static_cast<std::size_t>(a.nq);
           const auto nd = static_cast<std::size_t>(a.nd);
           const auto ke =
               a.by_material_element ? static_cast<std::size_t>(k) : e;
           auto* const fe = a.values + nd * V * ke;
-          for (std::size_t q = 0; q != nq; ++q) {
-            const auto detJ = a.determinants[q + nq * e];
-            real iJ[N * N];
-            loadInverseJacobian<N>(iJ, a.inverse_jacobians + q + nq * N * N * e,
-                                   nq);
-            const auto o = static_cast<long long>(a.offsets[k]) +
-                           static_cast<long long>(q);
-            const auto* const s0 = a.thermodynamic_forces + o * a.point_stride;
-            const auto cs = a.component_stride;
-            auto s = [s0, cs](const int c) { return s0[c * cs]; };
-            const auto w = a.weights[q] * detJ;
-            for (std::size_t node = 0; node != nd; ++node) {
-              real dN[N];
-              computePhysicalDerivatives<N>(dN, a.shape_functions_gradients, q,
-                                            nq, node, iJ);
-              const auto Nv =
-                  getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
-              real f[V] = {};
-              addInnerForces<K>(f, dN, Nv, s, w);
-              for (std::size_t c = 0; c != V; ++c) {
-                fe[node + nd * c] += f[c];
+          // points processed at once, and first of them in the shared arrays
+          const auto np = getNumberOfPointsPerChunk(nq);
+          const auto b = static_cast<std::size_t>(MFEM_THREAD_ID(z)) * np;
+          for (std::size_t q0 = 0; q0 < nq; q0 += np) {
+            const auto nc = (nq - q0) < np ? nq - q0 : np;
+            MFEM_FOREACH_THREAD(iq, x, static_cast<int>(nc)) {
+              const auto q = q0 + static_cast<std::size_t>(iq);
+              const auto sq = b + static_cast<std::size_t>(iq);
+              loadInverseJacobian<N>(inverse_jacobians + N * N * sq,
+                                     a.inverse_jacobians + q + nq * N * N * e,
+                                     nq);
+              weights[sq] = a.weights[q] * a.determinants[q + nq * e];
+              const auto o = static_cast<long long>(a.offsets[k]) +
+                             static_cast<long long>(q);
+              const auto* const s0 =
+                  a.thermodynamic_forces + o * a.point_stride;
+              for (int c = 0; c != S; ++c) {
+                forces[S * sq + c] = s0[c * a.component_stride];
               }
             }
+            MFEM_SYNC_THREAD;
+            MFEM_FOREACH_THREAD(inode, x, a.nd) {
+              const auto node = static_cast<std::size_t>(inode);
+              real fn[V];
+              for (std::size_t c = 0; c != V; ++c) {
+                fn[c] = fe[node + nd * c];
+              }
+              for (std::size_t iq = 0; iq != nc; ++iq) {
+                const auto q = q0 + iq;
+                const auto sq = b + iq;
+                real dN[N];
+                computePhysicalDerivatives<N>(dN, a.shape_functions_gradients,
+                                              q, nq, node,
+                                              inverse_jacobians + N * N * sq);
+                const auto Nv =
+                    getShapeFunctionValue<K>(a.shape_functions, q, nq, node);
+                const auto* const sp = forces + S * sq;
+                auto s = [sp](const int c) { return sp[c]; };
+                real f[V] = {};
+                addInnerForces<K>(f, dN, Nv, s, weights[sq]);
+                for (std::size_t c = 0; c != V; ++c) {
+                  fn[c] += f[c];
+                }
+              }
+              for (std::size_t c = 0; c != V; ++c) {
+                fe[node + nd * c] = fn[c];
+              }
+            }
+            if (q0 + np < nq) {
+              // the next chunk overwrites the shared arrays
+              MFEM_SYNC_THREAD;
+            }
           }
-        });
+        },
+        bx, 1, bz);
   }  // end of launchInnerForcesKernel
 
   void launchInnerForcesKernel(const GradientsKind k,

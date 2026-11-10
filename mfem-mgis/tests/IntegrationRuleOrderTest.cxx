@@ -3,11 +3,12 @@
  * \brief  Test of the `IntegrationRuleOrder` parameter of the finite
  * element discretization: the behaviour integrators use the rule of the
  * given order (8 points on the hexahedra of order 1 for the order 3,
- * instead of 27 by default) for their quadrature spaces and their
- * integrations; on a mesh of affine hexahedra, whose elastic stiffness is
- * integrated exactly by both rules, the solutions are the same, with the
- * integration point by point and with the computations by kernels; a
- * negative order is refused.
+ * instead of 27 by default, and 216 points for the order 11, more than the
+ * points processed at once by the kernels) for their quadrature spaces and
+ * their integrations; on a mesh of affine hexahedra, whose elastic
+ * stiffness is integrated exactly by these rules, the solutions are the
+ * same, with the integration point by point and with the computations by
+ * kernels; a negative order is refused.
  * \date   11/10/2026
  */
 
@@ -16,6 +17,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 #include <algorithm>
 #include "mfem/general/optparser.hpp"
@@ -78,9 +80,15 @@ static mfem_mgis::Parameters getParameters(const char* const mesh,
       {"InnerForcesComputation", k},
       {"TangentOperatorComputation", k},
       {"Parallel", false}};
+  auto ctx = Context{};
   if (order.has_value()) {
-    auto ctx = Context{};
     p.insert(ctx, "IntegrationRuleOrder", *order) |
+        ctx.getFatalFailureHandler();
+  }
+  if (!kernels) {
+    // the integration point by point requires the point by point layout,
+    // whatever the layout given by the environment
+    p.insert(ctx, "QuadratureDataLayout", "PointByPoint") |
         ctx.getFatalFailureHandler();
   }
   return p;
@@ -204,22 +212,27 @@ int main(int argc, char** argv) {
         "default rule: " + std::to_string(r.points_per_element) +
             " points per element, " + std::to_string(r.rule_points) +
             " points in the rule of the behaviour integrator");
-  // rule of order 3: 8 points, same solution on affine hexahedra, point by
-  // point and by kernels
-  for (const auto kernels : {false, true}) {
-    const auto name = std::string{kernels ? "kernels" : "point by point"};
-    const auto r3 = compute(mesh, library, 3, kernels);
-    check((r3.points_per_element == 8) && (r3.rule_points == 8),
-          "rule of order 3, " + name + ": " +
-              std::to_string(r3.points_per_element) + " points per element, " +
-              std::to_string(r3.rule_points) +
-              " points in the rule of the behaviour integrator");
-    const auto d = getRelativeDifference(r.u, r3.u);
-    std::cout << "rule of order 3, " << name
-              << ": relative difference of the unknowns " << d << '\n';
-    // in float, the relative difference reaches 3.9e-7
-    check(d < mfem_mgis::unit_tests::tolerance(1e-10, 4e-6),
-          "rule of order 3, " + name + ": different solution");
+  // rules of order 3 (8 points) and 11 (216 points, more than the points
+  // processed at once by the kernels using one thread per point): same
+  // solution on affine hexahedra, point by point and by kernels
+  for (const auto& [order, points] : {std::pair{3, 8}, std::pair{11, 216}}) {
+    for (const auto kernels : {false, true}) {
+      const auto name = "rule of order " + std::to_string(order) + ", " +
+                        (kernels ? "kernels" : "point by point");
+      const auto ro = compute(mesh, library, order, kernels);
+      check((ro.points_per_element ==
+             static_cast<mfem_mgis::size_type>(points)) &&
+                (ro.rule_points == points),
+            name + ": " + std::to_string(ro.points_per_element) +
+                " points per element, " + std::to_string(ro.rule_points) +
+                " points in the rule of the behaviour integrator");
+      const auto d = getRelativeDifference(r.u, ro.u);
+      std::cout << name << ": relative difference of the unknowns " << d
+                << '\n';
+      // in float, the relative difference reaches 3.9e-7
+      check(d < mfem_mgis::unit_tests::tolerance(1e-10, 4e-6),
+            name + ": different solution");
+    }
   }
   // a negative order is refused
   {

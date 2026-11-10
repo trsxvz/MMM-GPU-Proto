@@ -8,11 +8,14 @@
 #ifndef LIB_MFEMMGIS_POINTWISEMODEL_HXX
 #define LIB_MFEMMGIS_POINTWISEMODEL_HXX
 
+#include <memory>
 #include <vector>
+#include <utility>
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/Material.hxx"
 #include "MFEMMGIS/ModelBase.hxx"
 #include "MFEMMGIS/PartialQuadratureSpace.hxx"
+#include "MFEMMGIS/QuadratureDataLayout.hxx"
 
 namespace mfem_mgis {
 
@@ -26,9 +29,10 @@ namespace mfem_mgis {
      * \param[in, out] ctx: execution context
      * \param[in] qspace: partial quadrature space
      * \param[in] parameters: parameters. The optional `QuadratureDataLayout`
-     * parameter gives the layout of the data at the integration points (see
+     * parameter gives the layouts of the data at the integration points (see
      * `quadrature_data_layout_parameter`), the default being given by the
-     * `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` environment variable
+     * environment variables (see
+     * `getDefaultQuadratureDataLayoutSpecification`)
      * \note the model must be integrated where the execution settings place
      * the behaviours (see `ExecutionSettings`): an exception is thrown
      * otherwise
@@ -78,6 +82,19 @@ namespace mfem_mgis {
     ~PointWiseModel() override;
 
    private:
+    /*!
+     * \brief constructor from a loaded model and the layouts of its arrays
+     * \param[in, out] ctx: execution context
+     * \param[in] qspace: partial quadrature space
+     * \param[in] parameters: parameters
+     * \param[in] m: model and layouts of its arrays, resolved from the
+     * placement of its integration (see `resolveQuadratureDataLayout`)
+     */
+    PointWiseModel(Context& ctx,
+                   const PartialQuadratureSpace& qspace,
+                   const Parameters& parameters,
+                   std::pair<std::unique_ptr<const Behaviour>,
+                             mgis::behaviour::MaterialDataManagerLayout>&& m);
     /*!
      * \brief copies on the device of the material properties, of the
      * external state variables and of the mass density, for an integration

@@ -264,8 +264,11 @@ compilation and linking only).
   `PendingBatchEvaluation`), whose `getResult` gives the result once the
   caller has synchronised the queue.
 - **Views and layouts.** `FieldView` (values with a stride between
-  points and a stride between components), a layout per material data
-  manager (`POINT_BY_POINT` or `COMPONENT_BY_COMPONENT`), and
+  points and a stride between components, with a padding), a layout per
+  array of a material data manager (`POINT_BY_POINT` or
+  `COMPONENT_BY_COMPONENT`) and a padding of quiet NaNs for the tests,
+  `StridedSpan` (values of a point with a stride, read by `mgis::function`
+  without copy), and
   `MaterialDataView`, the data of a material in the arrays of the
   caller. All functions of the manager exist on a view, with a single
   code path.
@@ -434,18 +437,29 @@ an environment variable.
   gradients are then displacement gradients. A test checks that the
   Newton solver converges in `float` below the floor reached with the
   deformation gradient.
+- **Layouts of the data at the integration points** (parameter
+  `QuadratureDataLayout`, 03 and 10/11/2026): point by point, component
+  by component, or array by array with a padding of NaNs for the tests;
+  automatic by default (component by component for a material
+  integrated by batches on a GPU, point by point otherwise). All the
+  paths read the arrays through their strides: partial quadrature
+  functions (values of a point as a strided span), accessors,
+  evaluators, post-processings, computations element by element, and the
+  kernels of the finite elements, which use one thread per point on the
+  GPU (sums in the order of the points: same results in all the layouts).
+  Only the integration point by point requires the point by point layout.
 - **Documentation** in the tree of mfem-mgis, for example
   `docs/source/user_guide/batch_computations.rst`.
 
 ## mfem-mgis-examples and mm-opera-hpc
 
-- **mfem-mgis-examples** (38 patches): options of the examples
+- **mfem-mgis-examples** (39 patches): options of the examples
   (behaviour library, device, solvers, profiling), synchronisations on
   the host for the GPU, choice of the direct solvers, behaviour
   libraries for the CPU and the GPU chosen by `--execution`, tests on
   the GPU. Tests on the GPU are registered only when the GPU behaviour
   library is built.
-- **mm-opera-hpc** (40 patches): for the polycrystal, choice of the
+- **mm-opera-hpc** (41 patches): for the polycrystal, choice of the
   nonlinear solver (Newton, NewtonK0), of the adaptive tolerance and of
   AmgX, behaviour integrated on the GPU; for the bubble and the cermet,
   options of mfem-mgis and of the behaviour, synchronisations on the

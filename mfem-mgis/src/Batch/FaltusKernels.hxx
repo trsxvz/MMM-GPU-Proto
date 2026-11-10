@@ -27,6 +27,10 @@ namespace mfem_mgis::batch::internals {
      * of the mesh (see `UnknownsDerivatives`), null for null unknowns
      */
     const real* derivatives = nullptr;
+    //! \brief stride between two points (elements) of the derivatives
+    long long derivatives_point_stride = 0;
+    //! \brief stride between two components of the derivatives
+    long long derivatives_component_stride = 0;
     /*!
      * \brief inverses of the jacobians at the center of all the elements of
      * the mesh (see `ElementsJacobians::invJ`)
@@ -98,8 +102,10 @@ namespace mfem_mgis::batch::internals {
     const int* offsets = nullptr;
     //! \brief deformation gradients at the integration points
     const real* gradients = nullptr;
-    //! \brief layout of the gradients: true if stored point by point
-    bool point_by_point = true;
+    //! \brief stride between two points of the gradients
+    long long point_stride = 0;
+    //! \brief stride between two components of the gradients
+    long long component_stride = 0;
     //! \brief number of integration points of the material
     int number_of_points = 0;
     //! \brief deformation gradients `F0` at the center of the elements

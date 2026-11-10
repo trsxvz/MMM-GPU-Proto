@@ -75,6 +75,12 @@ computes, with the serial node of Tpetra on the host, except FROSch (see
   unknowns, against 54 for BoomerAMG); the configuration
   `PCG_AGGREGATION_JACOBI` of AmgX does not converge. Giving the matrix to
   AmgX by nodal blocks (`NodalBlocks`) does not reduce the iterations.
+  On the GPU, ordering the unknowns by vector dimension, as these blocks
+  require, gains nothing for BoomerAMG or for the classical multigrid of
+  AmgX. With the aggregation multigrid and the nodal blocks, the beam r4
+  takes 5 % less time: a slower setup of the preconditioner, faster
+  resolutions (`cases/measure-ordering-gpu.sh`, 10/11/2026). The unknowns
+  therefore stay ordered by nodes by default.
 - MueLu of Trilinos with the rigid body modes, a Jacobi smoother (two
   sweeps damped by 0.6), its factories not written with Kokkos (the default
   of mfem-mgis since d08224ba8f: the local QR of the tentative prolongator

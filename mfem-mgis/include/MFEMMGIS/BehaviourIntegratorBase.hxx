@@ -13,6 +13,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/Config.hxx"
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
@@ -138,10 +139,10 @@ namespace mfem_mgis {
      * \param[in] l: layout of the data at the integration points (see
      * `quadrature_data_layout_parameter`)
      */
-    BehaviourIntegratorBase(
-        const PartialQuadratureSpace& s,
-        std::unique_ptr<const Behaviour> b_ptr,
-        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+    BehaviourIntegratorBase(const PartialQuadratureSpace& s,
+                            std::unique_ptr<const Behaviour> b_ptr,
+                            const mgis::behaviour::MaterialDataManagerLayout&
+                                l = mgis::FieldLayout::POINT_BY_POINT);
     //! \brief data of the computations by kernels on the material
     struct KernelsData {
       //! \brief kind of the gradients
@@ -254,13 +255,13 @@ namespace mfem_mgis {
                          const Hypothesis h) const;
     /*!
      * \brief check that the arrays of the material are stored point by
-     * point, as required by the computations element by element
-     * (integration point by point, gradients, inner forces and stiffness
-     * matrix of an element), which read the values of a point as contiguous
+     * point, with or without padding, as required by the integration point
+     * by point of the behaviour, which reads the values of a point as
+     * contiguous
      * \param[in] throwing: dummy attribute to indicate that this function may
      * throw an exception
      */
-    void checkElementByElementComputationsSupport(
+    void checkPointByPointIntegrationSupport(
         attributes::Throwing throwing) const;
     /*!
      * \brief throw an exception stating that the behaviour type is not the
@@ -303,9 +304,10 @@ namespace mfem_mgis {
                                                    const IntegrationType it);
     /*!
      * \return the thermodynamic forces at the end of the time step in the
-     * global frame at all the integration points, stored point by point,
-     * for an orthotropic behaviour without functions rotating the values of
-     * one point (`generic-parallel` interface); an empty view for the other
+     * global frame at all the integration points, stored in the layout of
+     * the thermodynamic forces of the material (without padding), for an
+     * orthotropic behaviour without functions rotating the values of one
+     * point (`generic-parallel` interface); an empty view for the other
      * behaviours, whose thermodynamic forces are rotated point by point by
      * the computation of the inner forces.
      *
@@ -314,7 +316,7 @@ namespace mfem_mgis {
      * `revert`). A direct modification of the thermodynamic forces of the
      * material is not detected.
      */
-    std::span<const real> getRotatedThermodynamicForces();
+    mgis::FieldView<const real> getRotatedThermodynamicForces();
     /*!
      * \brief computes the thermodynamic forces at the end of the time step in
      * the global frame (see `getRotatedThermodynamicForces`) if they are

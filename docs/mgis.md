@@ -368,6 +368,24 @@ its contract already describes each field by two strides.
   with several components, inputs of the initialize functions, outputs of
   the post-processings, of the extraction and of the finite strain
   conversions. `save` and `restore` always write point by point.
+- **Layouts array by array and padding** (10/11/2026): the layout is a
+  structure (`MaterialStateManagerLayout`, `MaterialDataManagerLayout`)
+  giving the layout of each array (gradients, thermodynamic forces,
+  internal state variables, external state variables with several
+  components, tangent operator blocks) and a padding, built implicitly
+  from a single `FieldLayout` (the former API is unchanged). The padding
+  adds unused values to the leading dimension of the arrays, set to quiet
+  NaNs: a code computing the position of a value instead of using the
+  views reads NaNs. It is a testing facility. The `*_stride` members stay
+  the number of values of a point. Helpers: `getStateLayout`,
+  `getUniformLayout`, `getFieldArraySize`, `makeFieldView` with a
+  padding. Bindings: C, Fortran (layout of each array) and Python
+  (structure, padding).
+- **`StridedSpan`**: values of a point with a stride between components,
+  without `data()`, so that it is never taken for contiguous values.
+  `mgis::function` reads it through the strided coalesced views of TFEL
+  (`StridedCoalescedView`): an evaluator returning the values of a point
+  of an array stored component by component is read without copy.
 - **`MaterialDataView`**: the data of a material in the arrays of the
   caller. All the functions of the manager exist on a view. Those of the
   manager call those of the view: a single code path. Without a policy,
@@ -418,6 +436,21 @@ its contract already describes each field by two strides.
 The layout by element blocks (`byNODES` of the MFEM interpolators) is not
 covered: it would require a third stride and an extended TFEL contract.
 The MFEM kernels read the `byVDIM` layout, which the views cover.
+
+In mfem-mgis, the parameter `QuadratureDataLayout` selects the layouts
+(`Automatic` by default: component by component for a material whose
+behaviour is integrated by batches on a GPU, point by point otherwise),
+array by array if needed, with a padding for the tests
+(`MFEM_MGIS_QUADRATURE_DATA_PADDING`). All the paths read the arrays
+through their strides: partial quadrature functions (`StridedSpan` per
+point), accessors, evaluators, projections, post-processings, kernels of
+the finite elements (one thread per point on a GPU, sums in the order of
+the points, bit for bit identical in all the layouts), computations
+element by element (values of a point copied in a small buffer only if
+they are not contiguous). Only the integration point by point of a
+`generic` behaviour requires the point by point layout (with or without
+padding): in the component by component layout, the behaviour must be
+integrated by batches.
 
 The design, its variants set aside and the reviews are in
 [history/design-views-mgis-2026-10-08.md](history/design-views-mgis-2026-10-08.md).

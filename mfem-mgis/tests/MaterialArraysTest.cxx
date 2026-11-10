@@ -20,6 +20,8 @@
 #include <cmath>
 #include <array>
 #include <vector>
+#include <cstddef>
+#include <utility>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -141,6 +143,27 @@ static bool checkWrittenValues(const mfem_mgis::real* const v,
 }  // end of checkWrittenValues
 
 /*!
+ * \return true if the values of a view are the ones written by
+ * `writeOnTheDevice` (`3 * i + k` at the position `i` of the array), the
+ * position of a value being its offset in its array, which accounts for the
+ * layout and for the padding of the array
+ * \param[in] v: view of an array
+ * \param[in] k: first value
+ */
+static bool checkWrittenValues(const mgis::FieldView<const mfem_mgis::real>& v,
+                               const int k) {
+  for (mfem_mgis::size_type i = 0; i != v.getNumberOfPoints(); ++i) {
+    for (mfem_mgis::size_type c = 0; c != v.getNumberOfComponents(); ++c) {
+      const auto o = &v(i, c) - v.data();
+      if (v(i, c) != static_cast<mfem_mgis::real>(3 * o + k)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}  // end of checkWrittenValues
+
+/*!
  * \brief checks that MGIS uses an array of the memory of MFEM without copy
  * \param[in] v: array of the memory of MFEM
  * \param[in] s: view used by MGIS
@@ -240,34 +263,48 @@ static void testMaterial(
             name + ": deformation gradient not initialized to identity");
     }
   }
-  // the accessors based on a stride between points require the point by
-  // point layout (the six accessors, mutable and read-only)
+  // the six accessors (mutable and read-only) give views on the arrays of
+  // the material, in both layouts: their values are the ones of the views of
+  // MGIS
   {
     const auto& cm = static_cast<const Material&>(m);
-    auto refused = [](const auto& o) { return isInvalid(o); };
+    auto c = Context{};
+    auto same_values = [n](const auto& o, const auto& v) {
+      if (isInvalid(o) || (o->getNumberOfComponents() !=
+                           static_cast<size_type>(v.getNumberOfComponents()))) {
+        return false;
+      }
+      for (size_type i = 0; i != n; ++i) {
+        const auto values = (*o)(i);
+        for (size_type j = 0; j != o->getNumberOfComponents(); ++j) {
+          if (&values[j] != &v(i, j)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    };
     const auto g = m.b.gradients.front().name;
     const auto t = m.b.thermodynamic_forces.front().name;
-    auto c = Context{};
-    check(refused(getGradient(c, m, g, ets)) != pbp,
-          name + ": layout and mutable accessor of the gradients");
-    check(refused(getGradient(c, cm, g, ets)) != pbp,
-          name + ": layout and read-only accessor of the gradients");
-    check(refused(getThermodynamicForce(c, m, t, ets)) != pbp,
-          name + ": layout and mutable accessor of the thermodynamic forces");
-    check(refused(getThermodynamicForce(c, cm, t, ets)) != pbp,
-          name + ": layout and read-only accessor of the thermodynamic forces");
+    const auto gv = mgis::behaviour::getGradientView(m.s1, g);
+    const auto tv = mgis::behaviour::getThermodynamicForceView(m.s1, t);
+    check(same_values(getGradient(c, m, g, ets), gv),
+          name + ": mutable accessor of the gradients");
+    check(same_values(getGradient(c, cm, g, ets), gv),
+          name + ": read-only accessor of the gradients");
+    check(same_values(getThermodynamicForce(c, m, t, ets), tv),
+          name + ": mutable accessor of the thermodynamic forces");
+    check(same_values(getThermodynamicForce(c, cm, t, ets), tv),
+          name + ": read-only accessor of the thermodynamic forces");
     if (!m.b.isvs.empty()) {
-      const auto i = m.b.isvs.front().name;
-      check(refused(getInternalStateVariable(c, m, i, ets)) != pbp,
-            name +
-                ": layout and mutable accessor of the internal state "
-                "variables");
-      check(refused(getInternalStateVariable(c, cm, i, ets)) != pbp,
-            name +
-                ": layout and read-only accessor of the internal state "
-                "variables");
+      const auto i = m.b.isvs.back().name;
+      const auto iv = mgis::behaviour::getInternalStateVariableView(m.s1, i);
+      check(same_values(getInternalStateVariable(c, m, i, ets), iv),
+            name + ": mutable accessor of the internal state variables");
+      check(same_values(getInternalStateVariable(c, cm, i, ets), iv),
+            name + ": read-only accessor of the internal state variables");
     }
-    check(!refused(getStoredEnergy(c, cm, ets)) == m.b.computesStoredEnergy,
+    check(isValid(getStoredEnergy(c, cm, ets)) == m.b.computesStoredEnergy,
           name + ": the energies are accessible in both layouts");
   }
   // validity of the copies: values written by a kernel on the device are
@@ -576,36 +613,21 @@ static void testHostAccesses(mfem_mgis::Context& ctx,
   // device are copied at the end of the time step
   writeAllOnTheDevice(a, 5);
   check(problem.revert(ctx), "revert");
-  check(checkWrittenValues(m.s1.internal_state_variables.data(), 1, n * stride,
-                           first(5, bts)),
+  // the copies of the states only copy the values of the points (not the
+  // padding): the values are read through their views
+  check(checkWrittenValues(
+            mgis::behaviour::getInternalStateVariablesView(std::as_const(m.s1)),
+            first(5, bts)),
         "revert: values of the device not seen");
   // update: the values at the end of the time step written on the device
   // are copied at the beginning of the time step
   writeAllOnTheDevice(a, 6);
   check(problem.update(ctx), "update");
-  check(checkWrittenValues(m.s0.internal_state_variables.data(), 1, n * stride,
-                           first(6, ets)),
+  check(checkWrittenValues(
+            mgis::behaviour::getInternalStateVariablesView(std::as_const(m.s0)),
+            first(6, ets)),
         "update: values of the device not seen");
 }  // end of testHostAccesses
-
-/*!
- * \return the value of a component of a point of an array of a material, in
- * its layout
- * \param[in] v: values of the array
- * \param[in] l: layout
- * \param[in] n: number of points
- * \param[in] nc: number of components
- * \param[in] i: point
- * \param[in] c: component
- */
-static mfem_mgis::real getValue(const std::span<const mfem_mgis::real> v,
-                                const mgis::FieldLayout l,
-                                const std::size_t n,
-                                const std::size_t nc,
-                                const std::size_t i,
-                                const std::size_t c) {
-  return l == mgis::FieldLayout::POINT_BY_POINT ? v[i * nc + c] : v[c * n + i];
-}  // end of getValue
 
 /*!
  * \return true if the values in the global frame computed by the material
@@ -630,8 +652,10 @@ static bool checkValuesInGlobalFrame(const mfem_mgis::Material& m,
       static_cast<std::size_t>(values_in_global_frame.Size()));
   m.synchronizeOnHostForReading();
   const auto& sm = s == ets ? m.s1 : m.s0;
-  const auto values =
-      std::span<const real>(gradients ? sm.gradients : sm.thermodynamic_forces);
+  // views of MGIS, which account for the layouts of the arrays
+  const auto values = gradients
+                          ? mgis::behaviour::getGradientsView(sm)
+                          : mgis::behaviour::getThermodynamicForcesView(sm);
   const auto n = static_cast<std::size_t>(m.n);
   const auto nc = static_cast<std::size_t>(
       gradients ? sm.gradients_stride : sm.thermodynamic_forces_stride);
@@ -642,7 +666,8 @@ static bool checkValuesInGlobalFrame(const mfem_mgis::Material& m,
   auto rv = std::vector<real>(nc);
   for (std::size_t i = 0; i != n; ++i) {
     for (std::size_t c = 0; c != nc; ++c) {
-      v[c] = getValue(values, m.getArrays().array_layout, n, nc, i, c);
+      v[c] = values(static_cast<mfem_mgis::size_type>(i),
+                    static_cast<mfem_mgis::size_type>(c));
     }
     const auto r = m.getRotationMatrixAtIntegrationPoint(i);
     if (gradients) {
@@ -845,20 +870,26 @@ static void testPointWiseModel(mfem_mgis::Context& ctx,
       check(isvs.GetMemory().DeviceIsValid(),
             "point-wise model: integration on the device (" + step + ")");
       // direct read on the host, without synchronization (protected memory
-      // with the debug device if the copies on the host are not valid)
-      const auto* const v = m.s1.internal_state_variables.data();
-      check(std::all_of(v, v + m.n,
-                        [s_ref](const real value) {
-                          return std::abs(value - s_ref) < 1e-8;
-                        }),
+      // with the debug device if the copies on the host are not valid),
+      // through the view of the variable (layout and padding)
+      const auto sv = mgis::behaviour::getInternalStateVariableView(
+          std::as_const(m.s1), "Shrinkage");
+      const auto np = static_cast<int>(sv.getNumberOfPoints());
+      auto host_ok = true;
+      for (int i = 0; i != np; ++i) {
+        host_ok = host_ok && (std::abs(sv(i) - s_ref) < 1e-8);
+      }
+      check(host_ok,
             "point-wise model: shrinkage read on the host (" + step + ")");
-      // values on the device
+      // values on the device, at the same offsets
+      const auto offset = sv.data() - m.s1.internal_state_variables.data();
+      const auto ps = static_cast<std::ptrdiff_t>(sv.getPointStride());
       const auto* const d = isvs.Read();
       auto n_ok = mfem::Vector(1);
       n_ok = real{0};
       auto* const pn = n_ok.ReadWrite();
-      mfem::forall(isvs.Size(), [=] MFEM_HOST_DEVICE(int i) {
-        const auto e = d[i] - s_ref;
+      mfem::forall(np, [=] MFEM_HOST_DEVICE(int i) {
+        const auto e = d[offset + i * ps] - s_ref;
         if ((e > 1e-8) || (e < -1e-8)) {
           pn[0] = 1;
         }

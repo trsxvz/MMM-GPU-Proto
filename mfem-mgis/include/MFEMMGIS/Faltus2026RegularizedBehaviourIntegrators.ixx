@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <utility>
 #include "mfem/fem/fe.hpp"
 #include "mfem/fem/eltrans.hpp"
 #include "MFEMMGIS/Parameters.hxx"
@@ -27,7 +28,7 @@ namespace mfem_mgis {
           const size_type m,
           std::unique_ptr<const Behaviour> b_ptr,
           const Parameters &params,
-          const mgis::FieldLayout l)
+          const mgis::behaviour::MaterialDataManagerLayout& l)
       : Faltus2026RegularizedIsotropicBehaviourIntegratorBase<H>(
             fed, m, std::move(b_ptr), l),
         alpha(get<real>(may_throw, params, "PenalizationCoefficient")) {
@@ -96,6 +97,10 @@ namespace mfem_mgis {
     // contribution to the residual
     auto dF = std::array<real, gsize>{};
     const auto &ir = this->getIntegrationRule(e, tr);
+    // view of the gradients of the material (see `getPointValues`)
+    const auto gv =
+        mgis::behaviour::getGradientsView(std::as_const(this->s1));
+    auto buffer = std::vector<real>{};
     for (size_type i = 0; i != ir.GetNPoints(); ++i) {
       const auto &ip = ir.IntPoint(i);
       tr.SetIntPoint(&ip);
@@ -109,7 +114,7 @@ namespace mfem_mgis {
       const auto o = eoffset + i;
       // current estimation of the deformation gradient at the end of the time
       // step
-      auto F = this->s1.gradients.subspan(o * gsize, gsize);
+      const auto F = getPointValues(buffer, gv, o);
       for (size_type c = 0; c != gsize; ++c) {
         dF[c] = this->alpha * (F[c] - F0[c]);
       }

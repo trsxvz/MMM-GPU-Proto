@@ -845,6 +845,9 @@ namespace mfem_mgis::internals {
     if (!NonLinearSolverBase::setSolverParameters(ctx, remove(params, own))) {
       return false;
     }
+    if ((*orbm) && (new_petsc_linear_solver) && (this->fespace != nullptr)) {
+      warnIfRigidBodyModesAreIgnored(ctx, *(this->fespace), new_options);
+    }
     this->petsc_linear_solver = new_petsc_linear_solver;
     this->options = std::move(new_options);
     this->stagnation_relative_tolerance = static_cast<real>(*ostagnation);

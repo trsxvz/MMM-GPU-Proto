@@ -6483,3 +6483,127 @@ Validation on the workstation, with the TFEL of `install/tfel-mmm-gpu`:
   `kokkos-host` green; `openacc-nvhpc-gpu` failed once on the TDLS
   behaviours (runtime error, status `-7`) while test suites of mfem-mgis
   were using the GPU, and passes alone (24 of 24 comparisons).
+
+### 2026-11-10, layouts of the data at the integration points: all the paths
+
+Work of the table of 09/11 (to do, optional), the excluded items being
+kept out (integration point by point of `generic` behaviours in the
+component by component layout, accessors returning a point by point copy,
+permutation to byVDIM at the boundary of the solvers, element level,
+output formats, strided ABI of `generic`, AoSoA).
+
+MGIS (patches 0095 to 0101):
+
+- `MaterialStateManagerLayout`, `MaterialDataManagerLayout`: one layout
+  per array (gradients, thermodynamic forces, internal state variables,
+  external state variables with several components, tangent operator
+  blocks) and a padding, built implicitly from a `FieldLayout` (the
+  former API is unchanged). The padding adds quiet NaNs to the leading
+  dimension of the arrays: a code reading them without the views reads
+  NaNs. Bindings: C, Fortran (layout of each array), Python (structure,
+  padding).
+- `StridedSpan`: values of a point with a stride, without `data()`;
+  `mgis::function` reads it through `tfel::math::StridedCoalescedView`.
+
+mfem-mgis:
+
+- `PartialQuadratureFunction`: stride between the components; the call
+  operator returns a `mgis::StridedSpan`; the contiguous accessors check
+  the layout (inlined check). The accessors of the materials, the
+  evaluators, the L2 projections, the post-processings and the copies
+  read and write through the strides.
+- `QuadratureDataLayout`: a layout for all the arrays, or a set of
+  parameters giving the layout of each array and a padding
+  (`MFEM_MGIS_QUADRATURE_DATA_PADDING` for the tests). `Automatic`, the
+  default: component by component for a material whose behaviour is
+  integrated by batches on a GPU, point by point otherwise. It is resolved
+  as point by point for the generators of behaviour integrators which do
+  not declare that they support the layouts.
+- Computations element by element (gradients, inner forces, stiffness
+  matrices, linearized operators, resultant force) in all the layouts:
+  values of a point read in place if contiguous, copied in a small buffer
+  otherwise. Only the integration point by point requires the point by
+  point layout (with or without padding). Without this, the automatic
+  default would have broken the resultant force and the fallbacks of the
+  optional kernels for the materials integrated on a GPU.
+- External state variables with several components computed by an
+  evaluator: given to MGIS in the layout of the material (the former
+  refusal is removed).
+- Kernels of the finite elements: inner forces, tangent operator applied
+  without assembly and inner forces of the regularization of Faltus et al.
+  use one thread per point on a GPU (data of the points in shared memory,
+  then one thread per node summing in the order of the points; at most 128
+  points, 64 elements and 1024 threads per block, the points of larger
+  elements being processed by chunks of 128 points, in their order); work
+  arrays (derivatives of the unknowns, F-bar, rotated forces) in the layout
+  of their arrays.
+- Linear solvers: one rule for the options exploiting the nodal blocks
+  (BoomerAMG elasticity options, rigid body modes of GAMG, nodal blocks of
+  AmgX, BlockILU): ignored with a warning when the unknowns are ordered by
+  nodes or the blocks are not nodal (any block size of BlockILU for a
+  scalar unknown, whose ordering does not matter).
+- Documentation: no Doxygen warning, as master (parameters named in the
+  documented declarations).
+
+Users: bubble (stresses through the view), ex6 (call operator), ex8
+(deformation gradient and swelling shared through the views; the external
+state variables of the thermal materials stored in the layout of the
+gradients of the mechanical ones, which covers the mixed execution).
+
+Cases: `cases/measure-layout.sh` (hardware counters with `counters=1`,
+`cases/summary-counters.py`), jobs `measure-layout.slurm` (H100, A100),
+options `-ord`, `-amgxa` and `-amgxnb` of the beam,
+`cases/measure-ordering-gpu.sh`.
+
+Defects found by the validation and by a review of the changes, all
+fixed: kernels launched with more than 64 elements per block (limit of the
+third dimension of a CUDA block); views of zero or one point refused in the
+component by component layout; forces in the global frame of orthotropic
+materials stored point by point; elements of more than 128 points refused
+by the kernels using one thread per point, which the former kernels
+accepted; block size of BlockILU dropped for a scalar unknown ordered by
+nodes; tests reading the arrays without their strides; the tests of the
+case ssna303 of `cases/`, which write the same output files in the build
+directory of ex4, had no lock and failed when two of them ran at the same
+time (lock `ssna303-outputs`, as the other cases).
+
+Validation (see [docs/validation.md](docs/validation.md#mfem-mgis)): suites
+of mfem-mgis on the CPU by default, component by component (kernels forced
+or integration by batches) and with a padding of 3 NaN values; on the GPU
+with the kernels forced component by component and with the padding in the
+default mode (automatic layout); comparisons of the layouts to the bit in
+`BatchIntegrationTest`; mutations ignoring one stride each, all detected;
+MGIS 63/63; tests of the examples, of mm-opera-hpc and of the cases on the
+CPU and on the GPU. The `-O3` matrix of the rebase of 09/11 ended green:
+`openacc-nvhpc-gpu` and `stlpar-parunseq-nvhpc-gpu`, which failed while
+test suites were using the GPU, pass alone
+(`results/generic-parallel-tests-2026-11-10-rebase-nvhpc-gpu-rerun-O3.txt`).
+Pitfall of the
+validation, already met on 12/10: `scripts/env.sh` exports
+`OMP_PROC_BIND=spread` and `OMP_PLACES=threads`, and the OpenMP runtime of
+each process of a parallel test then binds its main thread to the first
+processor. The processes of a test, and those of the other parallel tests
+running at the same time, then share one core: tests tens of times slower
+or exceeding their time limit, the machine being idle. Scripts running the
+tests after `scripts/env.sh` unset these variables, as
+`scripts/mfem-mgis-gpu-suite.sh` and the measurement scripts of `cases/`
+do.
+
+Measurements on the RTX 5080 (`results/layout-counters-beam-2026-11-10`,
+`results/ordering-gpu-beam-2026-11-10`):
+
+- hardware counters of the beam r3: in the component by component layout,
+  the integration of the behaviour reads 8.4 sectors per request instead
+  of 29.7 and writes 9 instead of 32 (8 is the value of coalesced accesses
+  to double values), and takes 13 % less time; the derivatives of the
+  unknowns are written with 8 sectors per request instead of 32 (22 % less
+  time). The inner forces and the action of the tangent operator already
+  read the data of the points in shared memory: same time. The bytes read
+  and written in the DRAM change little (275 MB against 285 MB for the
+  integration of the behaviour): the gain comes from the number of
+  transactions between the SMs and the L2 cache.
+- ordering of the unknowns on the GPU (beam r4, 111,843 unknowns): no gain
+  of byVDIM with BoomerAMG (6.81 s against 6.90 s) or with the classical
+  multigrid of AmgX (67.8 s against 69.0 s); 5 % with the aggregation
+  multigrid of AmgX and its nodal blocks (17.1 s against 18.0 s). The
+  unknowns stay ordered by nodes by default.

@@ -246,6 +246,21 @@ namespace mfem_mgis::internals {
                      Vec y);
 
   /*!
+   * \brief report a warning, on the first process, if the given options of
+   * PETSc select its algebraic multigrid (`pc_type` set to `gamg`) while
+   * the rigid body modes of the finite element space can't be given to it,
+   * its unknowns being ordered by nodes. As for the strategy `Elasticity`
+   * of the preconditioner BoomerAMG of hypre, the resolution continues
+   * without them.
+   * \param[in, out] ctx: execution context
+   * \param[in] fespace: finite element space
+   * \param[in] options: options of PETSc
+   */
+  void warnIfRigidBodyModesAreIgnored(Context& ctx,
+                                      const FiniteElementSpace<true>& fespace,
+                                      const Parameters& options) noexcept;
+
+  /*!
    * \brief rigid body modes of the unknowns of a finite element space,
    * given to the assembled matrices of PETSc as near null space, the number
    * of components being their block size: the algebraic multigrid of PETSc
@@ -254,6 +269,7 @@ namespace mfem_mgis::internals {
    * is the space dimension (2 or 3), and given when the unknowns are ordered
    * by vector dimension, the block size of PETSc grouping consecutive rows.
    */
+
   struct PETScRigidBodyModes {
     /*!
      * \brief compute the coordinates of the nodes of a finite element space

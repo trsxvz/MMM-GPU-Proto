@@ -9,6 +9,7 @@
 #define LIB_MFEM_MGIS_ISOTROPICSTANDARDBEHAVIOURINTEGRATORCRTPBASE_HXX
 
 #include <mfem/linalg/densemat.hpp>
+#include "MGIS/Behaviour/MaterialDataManager.hxx"
 #include "MFEMMGIS/BehaviourIntegratorBase.hxx"
 
 namespace mfem_mgis {
@@ -168,7 +169,8 @@ namespace mfem_mgis {
     StandardBehaviourIntegratorCRTPBase(
         const PartialQuadratureSpace& s,
         std::unique_ptr<const Behaviour> b_ptr,
-        const mgis::FieldLayout l = mgis::FieldLayout::POINT_BY_POINT);
+        const mgis::behaviour::MaterialDataManagerLayout& l =
+            mgis::FieldLayout::POINT_BY_POINT);
     /*!
      * \brief integrate the behaviour over the time step
      *
@@ -211,6 +213,8 @@ namespace mfem_mgis {
      * \param[in, out] shape_functions: values of the shape functions
      * \param[in, out] shape_functions_derivatives: derivatives of the shape
      * functions
+     * \param[in, out] buffer: buffer of the values of the point, for arrays
+     * whose components are not contiguous (see `getPointValues`)
      */
     void computeGradientsAtIntegrationPoint(
         const mfem::FiniteElement& e,
@@ -219,7 +223,8 @@ namespace mfem_mgis {
         const mfem::IntegrationPoint& ip,
         const size_type o,
         mfem::Vector& shape_functions,
-        mfem::DenseMatrix& shape_functions_derivatives);
+        mfem::DenseMatrix& shape_functions_derivatives,
+        std::vector<real>& buffer);
     /*!
      * \brief compute the contribution of the element to the residual
      * \param[out] Fe: element contribution to the residual

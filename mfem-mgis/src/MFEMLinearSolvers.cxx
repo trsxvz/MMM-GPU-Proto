@@ -687,9 +687,12 @@ namespace mfem_mgis {
                          std::vector<std::string>{"BlockSize", "Reordering"})) {
       return {};
     }
-    // the blocks of the unknowns ordered by vector dimension
-    const auto default_block_size =
-        fespace.GetOrdering() == mfem::Ordering::byVDIM ? fespace.GetVDim() : 1;
+    // the blocks of the unknowns ordered by vector dimension (a scalar
+    // unknown is ordered by vector dimension whatever the ordering)
+    const auto vdim = fespace.GetVDim();
+    const auto by_vdim =
+        (vdim == 1) || (fespace.GetOrdering() == mfem::Ordering::byVDIM);
+    const auto default_block_size = by_vdim ? vdim : 1;
     const auto osize = get_if<int>(ctx, opts, "BlockSize", default_block_size);
     const auto oreordering = get_if<std::string>(
         ctx, opts, "Reordering", std::string{"MinimumDiscardedFill"});
@@ -707,8 +710,23 @@ namespace mfem_mgis {
       return ctx.registerErrorMessage(
           "invalid block size of the block ILU factorization");
     }
+    // the blocks are point-wise, or nodal blocks of the unknowns ordered by
+    // vector dimension: other blocks are replaced by the default ones
+    const auto nodal = (*osize == 1) || (by_vdim && ((*osize % vdim) == 0));
+    if (!nodal) {
+      internals::warnAboutNodalBlocks<parallel>(
+          ctx, fespace,
+          "BlockILU: the blocks of size " + std::to_string(*osize) +
+              " are not nodal blocks, which require unknowns ordered by "
+              "vector dimension (i.e. the parameter "
+              "'FiniteElementSpaceOrdering' set to 'byVDIM') and a size "
+              "multiple of their number of components: blocks of size " +
+              std::to_string(default_block_size) + " are used instead");
+    }
     return std::make_unique<HostSparseMatrixSolver>(
-        std::make_unique<BlockILU>(*osize, reordering), "BlockILU");
+        std::make_unique<BlockILU>(nodal ? *osize : default_block_size,
+                                   reordering),
+        "BlockILU");
   }  // end of makeBlockILU
 
   /*!

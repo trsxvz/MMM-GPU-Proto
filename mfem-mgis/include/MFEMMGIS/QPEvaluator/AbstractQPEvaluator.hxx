@@ -130,8 +130,14 @@ namespace mfem_mgis {
 
   //! \brief options passed to the evaluate function
   struct QPEvaluationOptions {
-    //! \brief if the evaluated values must be stored contiguously
+    /*!
+     * \brief if the evaluated values must be stored densely in the layout
+     * given below: they are copied in this layout if the evaluator returns
+     * them otherwise
+     */
     const bool ensure_contiguous_storage = false;
+    //! \brief layout of the values, if they must be stored densely
+    const mgis::FieldLayout layout = mgis::FieldLayout::POINT_BY_POINT;
   };  // end of struct QPEvaluationOptions
 
   /*!

@@ -7,6 +7,8 @@
 
 #include <cmath>
 #include <memory>
+#include <optional>
+#include <algorithm>
 #include <vector>
 #include <utility>
 #include <cstdlib>
@@ -23,6 +25,11 @@
 #include "MFEMMGIS/AbstractBehaviourIntegrator.hxx"
 #include "MFEMMGIS/UniformDirichletBoundaryCondition.hxx"
 #include "MFEMMGIS/NonLinearEvolutionProblem.hxx"
+#include "MFEMMGIS/QPEvaluator/AbstractQPEvaluator.hxx"
+#include "MFEMMGIS/QPEvaluator/QPEvaluators.hxx"
+#if defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL)
+#include "MGIS/Function/TFEL/Mechanics.hxx"
+#endif /* defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL) */
 #include "UnitTestingUtilities.hxx"
 
 auto parameters = mfem_mgis::unit_tests::TestParameters{};
@@ -37,6 +44,7 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
     this->test1<true>();
     this->test1<false>();
     this->test2();
+    this->test3();
     // the problem is destroyed before the finalization of MFEM (this test
     // case is a static object, destroyed at the exit of the program, after
     // the release of the device)
@@ -95,9 +103,22 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
     TFEL_TESTS_ASSERT(strain.getNumberOfComponents() == 6);
     TFEL_TESTS_ASSERT(stress.getNumberOfComponents() == 6);
     TFEL_TESTS_ASSERT(p.getNumberOfComponents() == 1);
-    TFEL_TESTS_ASSERT(strain.getDataStride() == 6);
-    TFEL_TESTS_ASSERT(stress.getDataStride() == 6);
-    TFEL_TESTS_ASSERT(p.getDataStride() == 1);
+    // strides of the arrays of the material, which depend on their layouts
+    // (6, 6 and 1 point by point without padding)
+    {
+      using namespace mgis::behaviour;
+      // the strides of an empty view may be null
+      const auto same_strides = [](const auto& f, const auto& v) {
+        constexpr auto one = mgis::size_type{1};
+        return (f.getDataStride() == std::max(v.getPointStride(), one)) &&
+               (f.getComponentStride() ==
+                std::max(v.getComponentStride(), one));
+      };
+      TFEL_TESTS_ASSERT(same_strides(strain, getGradientsView(m1.s1)));
+      TFEL_TESTS_ASSERT(
+          same_strides(stress, getThermodynamicForcesView(m1.s1)));
+      TFEL_TESTS_ASSERT(same_strides(p, getInternalStateVariablesView(m1.s1)));
+    }
     if (getSpaceSize(qspace) != 0) {
       if constexpr (!mutable_version) {
         TFEL_TESTS_ASSERT(strain.getValues().data() == m1.s1.gradients.data());
@@ -151,6 +172,151 @@ struct PartialQuadratureFunctionTest final : public tfel::tests::TestCase {
           {.data_begin = 0, .data_size = 1, .data_stride = 2})));
     }
   }  // end of test2
+  /*!
+   * \brief views on values stored component by component, with a padding
+   * filled with NaN: the accessors, the copies and the evaluators give the
+   * values of the function stored point by point
+   */
+  void test3() {
+    using namespace mfem_mgis;
+    if (isInvalid(problem)) {
+      return;
+    }
+    auto or_raise = ctx.getThrowingFailureHandler();
+    auto& b = this->problem->getBehaviourIntegrator(ctx, 1, 0) | or_raise;
+    const auto om = std::as_const(b).getMaterial(ctx);
+    TFEL_TESTS_ASSERT(isValid(om));
+    const auto qspace = om->getPartialQuadratureSpace();
+    const auto n = getSpaceSize(qspace);
+    constexpr size_type nc = 6;
+    const auto ld = n + 2;
+    const auto value = [](const size_type i, const size_type c) {
+      return real(1 + i) * real(c + 2) / 3 - real(c % 2);
+    };
+    auto soa = std::vector<real>(ld * nc, std::nan(""));
+    auto aos = PartialQuadratureFunction(qspace, nc);
+    for (size_type i = 0; i != n; ++i) {
+      for (size_type c = 0; c != nc; ++c) {
+        soa[c * ld + i] = value(i, c);
+        aos.getIntegrationPointValues(i)[c] = value(i, c);
+      }
+    }
+    auto of = PartialQuadratureFunction::borrow(ctx, qspace, soa,
+                                                {.data_begin = 0,
+                                                 .data_size = nc,
+                                                 .data_stride = 1,
+                                                 .data_component_stride = ld});
+    TFEL_TESTS_ASSERT(isValid(of));
+    TFEL_TESTS_CHECK(of->getComponentStride() == ld);
+    TFEL_TESTS_CHECK(!of->hasContiguousComponents());
+    for (size_type i = 0; i != n; ++i) {
+      const auto v = (*of)(i);
+      TFEL_TESTS_CHECK(v.size() == nc);
+      for (size_type c = 0; c != nc; ++c) {
+        TFEL_TESTS_CHECK(v[c] == value(i, c));
+      }
+    }
+    // the accessors returning contiguous values refuse the view
+    if (n != 0) {
+      auto refused = false;
+      try {
+        std::ignore = of->getIntegrationPointValues(0);
+      } catch (std::exception&) {
+        refused = true;
+      }
+      TFEL_TESTS_CHECK(refused);
+    }
+    // a scalar view on the third component is contiguous
+    auto os = PartialQuadratureFunction::borrow(ctx, qspace, soa,
+                                                {.data_begin = 2 * ld,
+                                                 .data_size = 1,
+                                                 .data_stride = 1,
+                                                 .data_component_stride = ld});
+    TFEL_TESTS_ASSERT(isValid(os));
+    TFEL_TESTS_CHECK(os->hasContiguousComponents());
+    for (size_type i = 0; i != n; ++i) {
+      TFEL_TESTS_CHECK(os->getIntegrationPointValue(i) == value(i, 2));
+    }
+    // copy in a function stored point by point
+    auto ocopy =
+        PartialQuadratureFunction::copy(ctx, std::as_const(*of).view());
+    TFEL_TESTS_ASSERT(isValid(ocopy));
+    TFEL_TESTS_CHECK(ocopy->getComponentStride() == 1);
+    for (size_type i = 0; i != n; ++i) {
+      for (size_type c = 0; c != nc; ++c) {
+        TFEL_TESTS_CHECK(ocopy->getIntegrationPointValues(i)[c] == value(i, c));
+      }
+    }
+    // assignment of values stored point by point to the view: the padding is
+    // left untouched
+    for (size_type i = 0; i != n; ++i) {
+      for (size_type c = 0; c != nc; ++c) {
+        aos.getIntegrationPointValues(i)[c] = 2 * value(i, c);
+      }
+    }
+    TFEL_TESTS_CHECK(assign_values(ctx, of->view(), std::as_const(aos).view()));
+    for (size_type c = 0; c != nc; ++c) {
+      for (size_type i = 0; i != n; ++i) {
+        TFEL_TESTS_CHECK(soa[c * ld + i] == 2 * value(i, c));
+      }
+      TFEL_TESTS_CHECK(std::isnan(soa[c * ld + n]));
+      TFEL_TESTS_CHECK(std::isnan(soa[c * ld + n + 1]));
+    }
+    // evaluation in a given layout (external state variables with several
+    // components): the values are copied only if they are not dense in it
+    {
+      const auto e = StandardQPEvaluator(
+          qspace, nc,
+          [&aos](Context&, const real, const real)
+              -> std::optional<ImmutablePartialQuadratureFunctionView> {
+            return std::as_const(aos).view();
+          });
+      for (const auto l : {mgis::FieldLayout::POINT_BY_POINT,
+                           mgis::FieldLayout::COMPONENT_BY_COMPONENT}) {
+        const auto r = evaluate(
+            ctx, e, 0, 1, {.ensure_contiguous_storage = true, .layout = l});
+        TFEL_TESTS_ASSERT(isValid(r));
+        TFEL_TESTS_CHECK(r->isDense(l));
+        const auto values = r->getValues();
+        if (n != 0) {
+          TFEL_TESTS_CHECK(
+              (values.data() == std::as_const(aos).getValues().data()) ==
+              (l == mgis::FieldLayout::POINT_BY_POINT));
+        }
+        for (size_type i = 0; i != n; ++i) {
+          for (size_type c = 0; c != nc; ++c) {
+            const auto p = (l == mgis::FieldLayout::POINT_BY_POINT) ? i * nc + c
+                                                                    : c * n + i;
+            TFEL_TESTS_CHECK(values[p] == 2 * value(i, c));
+          }
+        }
+      }
+    }
+#if defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL)
+    // the evaluators give the same results to the bit in both layouts
+    {
+      using namespace mgis::function;
+      auto r1 = PartialQuadratureFunction(qspace, 1);
+      auto r2 = PartialQuadratureFunction(qspace, 1);
+      TFEL_TESTS_CHECK(std::as_const(aos).view() | as_stensor<3> | vmis | r1);
+      TFEL_TESTS_CHECK(std::as_const(*of).view() | as_stensor<3> | vmis | r2);
+      for (size_type i = 0; i != n; ++i) {
+        TFEL_TESTS_CHECK(r1.getIntegrationPointValue(i) ==
+                         r2.getIntegrationPointValue(i));
+      }
+    }
+#endif /* defined(MGIS_FUNCTION_SUPPORT) && defined(MGIS_HAVE_TFEL) */
+    // the values of a component must fit in the component stride
+    if (n > 1) {
+      auto ctx2 = Context{};
+      TFEL_TESTS_CHECK(isInvalid(
+          PartialQuadratureFunction::borrow(ctx2, qspace, soa,
+                                            {.data_begin = 0,
+                                             .data_size = nc,
+                                             .data_stride = 1,
+                                             .data_component_stride = n - 1})));
+    }
+  }  // end of test3
   //
   std::unique_ptr<mfem_mgis::NonLinearEvolutionProblem> problem;
 };

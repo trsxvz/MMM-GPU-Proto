@@ -1,0 +1,125 @@
+From dcc26a4009a8c12be4e6acf5e90280bb08364bd4 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 23:02:39 +0100
+Subject: [PATCH] FieldView: arrays with a padding
+
+getFieldArraySize gives the number of values of an array holding the
+values of nc components at n points with a given layout, its leading
+dimension being increased by a number of unused values (padding): the
+stride between two points becomes nc + p point by point, the stride
+between two components becomes n + p component by component. An array
+holding no value is empty.
+
+makeFieldView takes this padding as an optional last argument (null by
+default, which gives the previous dense views). This is the base of the
+padding of the arrays of the material managers.
+---
+ include/MGIS/FieldView.hxx | 30 ++++++++++++++++++++++++++----
+ include/MGIS/FieldView.ixx | 25 ++++++++++++++++++++-----
+ 2 files changed, 46 insertions(+), 9 deletions(-)
+
+diff --git a/include/MGIS/FieldView.hxx b/include/MGIS/FieldView.hxx
+index 48d562b..5a41c3b 100644
+--- a/include/MGIS/FieldView.hxx
++++ b/include/MGIS/FieldView.hxx
+@@ -23,7 +23,9 @@ namespace mgis {
+ 
+   /*!
+    * \brief layout of the arrays holding the values of a group of variables
+-   * at a set of points
++   * at a set of points. The indices given below are the ones of a dense
++   * array: an array with a padding has a greater leading dimension (see
++   * `getFieldArraySize`).
+    */
+   enum struct FieldLayout {
+     /*!
+@@ -200,17 +202,37 @@ namespace mgis {
+   };  // end of FieldView
+ 
+   /*!
+-   * \return a view on values stored densely, with the given layout
+-   * \param[in] v: values, which must hold `n * nc` values
++   * \return the number of values of an array holding the values of `nc`
++   * components at `n` points with the given layout, its leading dimension
++   * being increased by `p` unused values (padding): the stride between two
++   * points is `nc + p` with the `POINT_BY_POINT` layout, and the stride
++   * between two components is `n + p` with the `COMPONENT_BY_COMPONENT`
++   * layout. An array holding no value (`n * nc` null) is empty.
+    * \param[in] l: layout
+    * \param[in] n: number of points
+    * \param[in] nc: number of components
++   * \param[in] p: padding
++   */
++  constexpr size_type getFieldArraySize(const FieldLayout,
++                                        const size_type,
++                                        const size_type,
++                                        const size_type = 0) noexcept;
++  /*!
++   * \return a view on values stored with the given layout, densely or with
++   * a padding (see `getFieldArraySize`)
++   * \param[in] v: values, which must hold `getFieldArraySize(l, n, nc, p)`
++   * values (`n * nc` values without padding)
++   * \param[in] l: layout
++   * \param[in] n: number of points
++   * \param[in] nc: number of components
++   * \param[in] p: padding
+    */
+   template <typename ValueType>
+   constexpr FieldView<ValueType> makeFieldView(std::span<ValueType>,
+                                                const FieldLayout,
+                                                const size_type,
+-                                               const size_type);
++                                               const size_type,
++                                               const size_type = 0);
+   /*!
+    * \return a view on values stored point by point, the components of a
+    * point being contiguous
+diff --git a/include/MGIS/FieldView.ixx b/include/MGIS/FieldView.ixx
+index a5bf0c1..47355af 100644
+--- a/include/MGIS/FieldView.ixx
++++ b/include/MGIS/FieldView.ixx
+@@ -188,21 +188,36 @@ namespace mgis {
+     return this->values[i * this->point_stride + j * this->component_stride];
+   }  // end of operator()
+ 
++  constexpr size_type getFieldArraySize(const FieldLayout l,
++                                        const size_type n,
++                                        const size_type nc,
++                                        const size_type p) noexcept {
++    if ((n == 0) || (nc == 0)) {
++      return 0;
++    }
++    if (l == FieldLayout::POINT_BY_POINT) {
++      return n * (nc + p);
++    }
++    return (n + p) * nc;
++  }  // end of getFieldArraySize
++
+   template <typename ValueType>
+   constexpr FieldView<ValueType> makeFieldView(std::span<ValueType> v,
+                                                const FieldLayout l,
+                                                const size_type n,
+-                                               const size_type nc) {
+-    if (v.size() != n * nc) {
++                                               const size_type nc,
++                                               const size_type p) {
++    const auto s = getFieldArraySize(l, n, nc, p);
++    if (v.size() != s) {
+       internals::reportFieldViewContractViolation(
+           "makeFieldView: invalid number of values (" +
+-          std::to_string(v.size()) + " given, " + std::to_string(n * nc) +
++          std::to_string(v.size()) + " given, " + std::to_string(s) +
+           " expected)");
+     }
+     if (l == FieldLayout::POINT_BY_POINT) {
+-      return FieldView<ValueType>(v, n, nc, nc, 1);
++      return FieldView<ValueType>(v, n, nc, nc + p, 1);
+     }
+-    return FieldView<ValueType>(v, n, nc, 1, n);
++    return FieldView<ValueType>(v, n, nc, 1, n + p);
+   }  // end of makeFieldView
+ 
+   template <typename ValueType>
+-- 
+2.43.0
+

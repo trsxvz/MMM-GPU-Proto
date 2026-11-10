@@ -25,6 +25,7 @@
 
 #include <cmath>
 #include <string>
+#include <sstream>
 #include <tuple>
 #include <type_traits>
 #include <cstdlib>
@@ -343,6 +344,18 @@ static void run(LaplaceSystem<is_parallel>& s,
   check(refused("BlockILU", Parameters{{"Reordering", "RCM"}},
                 "invalid reordering"),
         "BlockILU: invalid reordering not refused");
+  // a scalar unknown is ordered by vector dimension whatever the ordering
+  // of the space: the block size of BlockILU is kept, without warning
+  {
+    auto log = std::ostringstream{};
+    auto ctx = Context{};
+    ctx.setLogStream(log);
+    const auto ls = LinearSolverFactory<is_parallel>::getFactory().generate(
+        ctx, "GMRESSolver", s.fespace,
+        getGMRESParameters("BlockILU", Parameters{{"BlockSize", 2}}));
+    check(isValid(ls) && (log.str().find("BlockILU") == std::string::npos),
+          "BlockILU: blocks of a scalar unknown replaced");
+  }
   check(refused("DSmoother", Parameters{{"Damping", 0.}},
                 "invalid damping factor"),
         "DSmoother: null damping factor not refused");

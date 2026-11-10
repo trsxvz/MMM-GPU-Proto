@@ -9,6 +9,7 @@
 #define LIB_MFEMMGIS_BEHAVIOURINTEGRATORFACTORY_HXX
 
 #include <map>
+#include <set>
 #include <memory>
 #include <functional>
 #include "MFEMMGIS/Config.hxx"
@@ -72,11 +73,26 @@ namespace mfem_mgis {
      * \param[in, out] ctx: execution context
      * \param[in] n: name
      * \param[in] g: generator
+     * \param[in] layouts: if true, the generator builds the material of the
+     * behaviour integrator in the layouts given by the `QuadratureDataLayout`
+     * parameter (see `supportsQuadratureDataLayouts`)
      * \return true on success
      */
     [[nodiscard]] bool addGenerator(Context& ctx,
                                     const std::string& n,
-                                    const Generator g) noexcept;
+                                    const Generator g,
+                                    const bool layouts = false) noexcept;
+    /*!
+     * \return true if the generator of the given name builds the material of
+     * its behaviour integrators in the layouts given by the
+     * `QuadratureDataLayout` parameter, as the generators of mfem-mgis. The
+     * other generators are only given this parameter if the layouts are
+     * given explicitly: the automatic layouts are resolved as the point by
+     * point layout for them.
+     * \param[in] n: name
+     */
+    [[nodiscard]] bool supportsQuadratureDataLayouts(
+        std::string_view n) const noexcept;
     /*!
      * \brief create a new behaviour integrator
      * \param[in, out] ctx: execution context
@@ -162,6 +178,8 @@ namespace mfem_mgis {
     buildFactories();
     //! \brief registered generators
     std::map<std::string, Generator, std::less<>> generators;
+    //! \brief see `supportsQuadratureDataLayouts`
+    std::set<std::string, std::less<>> generators_supporting_layouts;
 
   };  // end of BehaviourIntegratorFactory
 

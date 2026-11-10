@@ -1,0 +1,1833 @@
+From 13b70494d51c5ff6c31475c3813ba7fa5a727479 Mon Sep 17 00:00:00 2001
+From: t <tristan75015@gmail.com>
+Date: Mon, 9 Nov 2026 23:12:31 +0100
+Subject: [PATCH] Material managers: one layout per array
+
+The layout of a material manager was a single FieldLayout. It becomes a
+layout per array: MaterialStateManagerLayout gives the layouts of the
+gradients, of the thermodynamic forces, of the internal state variables
+and of the values given at each point for the external state variables
+with several components. MaterialDataManagerLayout adds the layout of
+the tangent operator blocks. Both structures are implicitly built from
+a FieldLayout, which gives the same layout to all the arrays, and are
+compared by ==: initializer.layout = FieldLayout::X and the comparisons
+of the layout member with a FieldLayout keep compiling.
+getStateLayout gives the layout of the states of a material data
+manager, getUniformLayout the layout of all the arrays if they have the
+same one.
+
+Every site uses the layout of the array it handles: views on the
+arrays and on the variables, views of make_view, duplication of the
+uniform external state variables, HDF5 files, extraction of the
+internal state variables, finite strain conversions (layout of the
+thermodynamic forces for the stress, of the tangent operator blocks for
+the tangent operator). The inputs of the initialize functions and the
+outputs of the post-processings given by a std::span are stored in the
+layout of the manager, which must then be the same for all its arrays:
+otherwise, an error tells to give them by a FieldView. The views of the
+material function managers are built from the views of the groups of
+variables. The integration point by point gathers the components which
+are not contiguous, and the integration of batches reads the strides of
+the views: both handle any layout per array.
+
+C bindings: the get_layout functions report an error if the layouts
+differ. Python bindings: both layout structures are exposed.
+---
+ .../MGIS/Behaviour/MaterialDataManager.h      |   7 +-
+ .../MGIS/Behaviour/MaterialStateManager.h     |   1 +
+ bindings/c/src/MaterialDataManager.cxx        |   9 +-
+ bindings/c/src/MaterialStateManager.cxx       |   9 +-
+ bindings/python/src/MaterialDataManager.cxx   |  22 ++-
+ bindings/python/src/MaterialStateManager.cxx  |  16 ++
+ .../MGIS/Behaviour/FiniteStrainSupport.hxx    |   7 +-
+ include/MGIS/Behaviour/Integrate.hxx          |  36 ++--
+ .../MGIS/Behaviour/MaterialDataManager.hxx    | 112 ++++++++++--
+ .../Behaviour/MaterialFunctionManager.hxx     |  88 ++++-----
+ .../Behaviour/MaterialFunctionManager.ixx     | 172 ++++++++----------
+ .../MGIS/Behaviour/MaterialStateManager.hxx   | 115 +++++++++---
+ src/FiniteStrainSupport.cxx                   |   7 +-
+ src/Integrate.cxx                             |  45 ++++-
+ src/MaterialDataManager.cxx                   |  17 +-
+ src/MaterialDataView.cxx                      |  22 +--
+ src/MaterialStateManager.cxx                  | 113 +++++++-----
+ 17 files changed, 520 insertions(+), 278 deletions(-)
+
+diff --git a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
+index 625da3a..6b43eb9 100644
+--- a/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
++++ b/bindings/c/include/MGIS/Behaviour/MaterialDataManager.h
+@@ -67,7 +67,7 @@ MGIS_C_EXPORT
+ mgis_status mgis_bv_material_data_manager_initializer_bind_speed_of_sound(
+     mgis_bv_MaterialDataManagerInitializer*, mgis_real* const, mgis_size_type);
+ /*!
+- * \brief set the layout of the arrays of the material data manager
++ * \brief set the layout of all the arrays of the material data manager
+  * \param[in,out] d: initializer
+  * \param[in] l: layout
+  */
+@@ -199,8 +199,8 @@ MGIS_C_EXPORT mgis_status
+ mgis_bv_material_data_manager_set_time_step_scaling_factor(
+     mgis_bv_MaterialDataManager* const, const mgis_real);
+ /*!
+- * \brief return the tangent operator blocks, stored in the layout of the
+- * material data manager (see `mgis_bv_material_data_manager_get_layout`)
++ * \brief return the tangent operator blocks, stored in their layout (see
++ * `mgis_bv_material_data_manager_get_layout`)
+  * \param[out] K: tangent operator
+  * \param[in]  d: behaviour data
+  */
+@@ -226,6 +226,7 @@ mgis_bv_material_data_manager_get_number_of_tangent_operator_blocks(
+ /*!
+  * \param[out] l: a pointer where the layout of the arrays will be written
+  * \param[in]  d: material data manager
++ * \note an error is reported if the arrays have different layouts
+  */
+ MGIS_C_EXPORT mgis_status mgis_bv_material_data_manager_get_layout(
+     mgis_bv_FieldLayout* const, mgis_bv_MaterialDataManager* const);
+diff --git a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
+index 444546b..bbb4851 100644
+--- a/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
++++ b/bindings/c/include/MGIS/Behaviour/MaterialStateManager.h
+@@ -145,6 +145,7 @@ MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_gradients(
+ /*!
+  * \param[out] l: a pointer where the layout of the arrays will be written
+  * \param[in]  s: state manager
++ * \note an error is reported if the arrays have different layouts
+  */
+ MGIS_C_EXPORT mgis_status mgis_bv_material_state_manager_get_layout(
+     mgis_bv_FieldLayout* const, mgis_bv_MaterialStateManager* const);
+diff --git a/bindings/c/src/MaterialDataManager.cxx b/bindings/c/src/MaterialDataManager.cxx
+index cebb570..a2ebd57 100644
+--- a/bindings/c/src/MaterialDataManager.cxx
++++ b/bindings/c/src/MaterialDataManager.cxx
+@@ -383,7 +383,14 @@ mgis_status mgis_bv_material_data_manager_get_layout(
+     return mgis_report_failure(
+         "invalid argument (material data manager is null)");
+   }
+-  *l = d->layout == mgis::FieldLayout::POINT_BY_POINT
++  const auto ol = mgis::behaviour::getUniformLayout(d->layout);
++  if (!ol.has_value()) {
++    *l = MGIS_BV_POINT_BY_POINT;
++    return mgis_report_failure(
++        "mgis_bv_material_data_manager_get_layout: "
++        "the arrays of the material data manager have different layouts");
++  }
++  *l = *ol == mgis::FieldLayout::POINT_BY_POINT
+            ? MGIS_BV_POINT_BY_POINT
+            : MGIS_BV_COMPONENT_BY_COMPONENT;
+   return mgis_report_success();
+diff --git a/bindings/c/src/MaterialStateManager.cxx b/bindings/c/src/MaterialStateManager.cxx
+index 3d0f0b1..a5ee978 100644
+--- a/bindings/c/src/MaterialStateManager.cxx
++++ b/bindings/c/src/MaterialStateManager.cxx
+@@ -228,7 +228,14 @@ mgis_status mgis_bv_material_state_manager_get_layout(
+     *l = MGIS_BV_POINT_BY_POINT;
+     return mgis_report_failure("null state manager");
+   }
+-  *l = s->layout == mgis::FieldLayout::POINT_BY_POINT
++  const auto ol = mgis::behaviour::getUniformLayout(s->layout);
++  if (!ol.has_value()) {
++    *l = MGIS_BV_POINT_BY_POINT;
++    return mgis_report_failure(
++        "mgis_bv_material_state_manager_get_layout: "
++        "the arrays of the material state manager have different layouts");
++  }
++  *l = *ol == mgis::FieldLayout::POINT_BY_POINT
+            ? MGIS_BV_POINT_BY_POINT
+            : MGIS_BV_COMPONENT_BY_COMPONENT;
+   return mgis_report_success();
+diff --git a/bindings/python/src/MaterialDataManager.cxx b/bindings/python/src/MaterialDataManager.cxx
+index 8fad71a..b3c4232 100644
+--- a/bindings/python/src/MaterialDataManager.cxx
++++ b/bindings/python/src/MaterialDataManager.cxx
+@@ -13,6 +13,7 @@
+  */
+ 
+ #include <pybind11/pybind11.h>
++#include <pybind11/operators.h>
+ #include <pybind11/stl.h>
+ #include "MGIS/Python/NumPySupport.hxx"
+ #include "MGIS/Behaviour/Behaviour.hxx"
+@@ -78,9 +79,26 @@ void declareMaterialDataManager(pybind11::module_& m) {
+   using mgis::behaviour::Behaviour;
+   using mgis::behaviour::MaterialDataManager;
+   using mgis::behaviour::MaterialDataManagerInitializer;
++  using mgis::behaviour::MaterialDataManagerLayout;
+   // pointers to free functions to disambiguate the function resolution
+   void (*ptr_update)(MaterialDataManager&) = &mgis::behaviour::update;
+   void (*ptr_revert)(MaterialDataManager&) = &mgis::behaviour::revert;
++  // layouts of the arrays of a material data manager
++  pybind11::class_<MaterialDataManagerLayout>(m, "MaterialDataManagerLayout")
++      .def(pybind11::init<>())
++      .def(pybind11::init<mgis::FieldLayout>(), "layout of all the arrays")
++      .def_readwrite("gradients", &MaterialDataManagerLayout::gradients)
++      .def_readwrite("thermodynamic_forces",
++                     &MaterialDataManagerLayout::thermodynamic_forces)
++      .def_readwrite("internal_state_variables",
++                     &MaterialDataManagerLayout::internal_state_variables)
++      .def_readwrite("external_state_variables",
++                     &MaterialDataManagerLayout::external_state_variables)
++      .def_readwrite("tangent_operator",
++                     &MaterialDataManagerLayout::tangent_operator)
++      .def(pybind11::self == pybind11::self);
++  pybind11::implicitly_convertible<mgis::FieldLayout,
++                                   MaterialDataManagerLayout>();
+   // exporting the MaterialDataManager class
+   pybind11::class_<MaterialDataManagerInitializer>(
+       m, "MaterialDataManagerInitializer")
+@@ -93,7 +111,9 @@ void declareMaterialDataManager(pybind11::module_& m) {
+                     "initializer of the state at the end of the time step "
+                     "(the arrays bound through it must be kept alive by the "
+                     "caller)")
+-      .def_readwrite("layout", &MaterialDataManagerInitializer::layout)
++      .def_readwrite("layout", &MaterialDataManagerInitializer::layout,
++                     "layouts of the arrays (a FieldLayout gives the same "
++                     "layout to all the arrays)")
+       .def("bindTangentOperator",
+            &MaterialDataManagerInitializer_bindTangentOperator,
+            "use the given array to store the tangent operator blocks",
+diff --git a/bindings/python/src/MaterialStateManager.cxx b/bindings/python/src/MaterialStateManager.cxx
+index 1ec0d21..8fd0031 100644
+--- a/bindings/python/src/MaterialStateManager.cxx
++++ b/bindings/python/src/MaterialStateManager.cxx
+@@ -13,6 +13,7 @@
+  */
+ 
+ #include <pybind11/pybind11.h>
++#include <pybind11/operators.h>
+ #include <pybind11/stl.h>
+ #include "MGIS/Raise.hxx"
+ #include "MGIS/Python/NumPySupport.hxx"
+@@ -257,6 +258,7 @@ void declareMaterialStateManager(pybind11::module_& m) {
+   using mgis::behaviour::Behaviour;
+   using mgis::behaviour::MaterialStateManager;
+   using mgis::behaviour::MaterialStateManagerInitializer;
++  using mgis::behaviour::MaterialStateManagerLayout;
+   // documentation of the overloads taking a storage mode
+   const auto* const storage_mode_doc =
+       "with EXTERNAL_STORAGE, the given array is used without copy: it must "
+@@ -310,6 +312,20 @@ void declareMaterialStateManager(pybind11::module_& m) {
+       .value("POINT_BY_POINT", mgis::FieldLayout::POINT_BY_POINT)
+       .value("COMPONENT_BY_COMPONENT",
+              mgis::FieldLayout::COMPONENT_BY_COMPONENT);
++  // layouts of the arrays of a material state manager
++  pybind11::class_<MaterialStateManagerLayout>(m, "MaterialStateManagerLayout")
++      .def(pybind11::init<>())
++      .def(pybind11::init<mgis::FieldLayout>(), "layout of all the arrays")
++      .def_readwrite("gradients", &MaterialStateManagerLayout::gradients)
++      .def_readwrite("thermodynamic_forces",
++                     &MaterialStateManagerLayout::thermodynamic_forces)
++      .def_readwrite("internal_state_variables",
++                     &MaterialStateManagerLayout::internal_state_variables)
++      .def_readwrite("external_state_variables",
++                     &MaterialStateManagerLayout::external_state_variables)
++      .def(pybind11::self == pybind11::self);
++  pybind11::implicitly_convertible<mgis::FieldLayout,
++                                   MaterialStateManagerLayout>();
+   // wrapping the MaterialStateManager class
+   pybind11::class_<MaterialStateManager>(m, "MaterialStateManager")
+       .def(pybind11::init<const Behaviour&, const size_type>(),
+diff --git a/include/MGIS/Behaviour/FiniteStrainSupport.hxx b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
+index 828ea8a..7b7f690 100644
+--- a/include/MGIS/Behaviour/FiniteStrainSupport.hxx
++++ b/include/MGIS/Behaviour/FiniteStrainSupport.hxx
+@@ -67,7 +67,8 @@ namespace mgis::behaviour {
+                                                     const real* const);
+ 
+   /*!
+-   * \param[out] s: new stress, in the layout of the material data manager
++   * \param[out] s: new stress, in the layout of the thermodynamic forces of
++   * the material data manager
+    * \param[in] m: material data manager
+    * \param[in] t: expected finite strain stress type
+    * \pre the behaviour must be loaded with the Cauchy stress as stress
+@@ -77,8 +78,8 @@ namespace mgis::behaviour {
+                                              const MaterialDataManager&,
+                                              const FiniteStrainStress);
+   /*!
+-   * \param[out] K: new tangent operator, in the layout of the material data
+-   * manager
++   * \param[out] K: new tangent operator, in the layout of the tangent
++   * operator blocks of the material data manager
+    * \param[in] m: material data manager
+    * \param[in] t: expected finite strain operator type
+    * \pre the behaviour must be loaded with the Cauchy stress as stress
+diff --git a/include/MGIS/Behaviour/Integrate.hxx b/include/MGIS/Behaviour/Integrate.hxx
+index 468ad1f..cfdc808 100644
+--- a/include/MGIS/Behaviour/Integrate.hxx
++++ b/include/MGIS/Behaviour/Integrate.hxx
+@@ -229,7 +229,7 @@ namespace mgis::behaviour {
+    * \param[in,out] d: material data manager
+    * \param[in] n: name of the initialize function
+    * \param[in] inputs: initialize function inputs, uniform or given at each
+-   * point in the layout of the material data manager
++   * point in the uniform layout of the material data manager
+    *
+    * \note the inputs can be uniform or not.
+    * \note for a behaviour generated by the `generic-parallel` interface, the
+@@ -261,7 +261,7 @@ namespace mgis::behaviour {
+    * \param[in,out] d: material data manager
+    * \param[in] n: name of the initialize function
+    * \param[in] inputs: initialize function inputs, uniform or given at each
+-   * point in the layout of the material data manager
++   * point in the uniform layout of the material data manager
+    * \param[in] b: index of the first integration point of the range
+    * \param[in] e: index following the last integration point of the range
+    *               (the integration points of indices in [b, e) are treated)
+@@ -298,7 +298,7 @@ namespace mgis::behaviour {
+    * \param[in,out] d: material data manager
+    * \param[in] n: name of the initialize function
+    * \param[in] inputs: initialize function inputs, uniform or given at each
+-   * point in the layout of the material data manager
++   * point in the uniform layout of the material data manager
+    *
+    * \note the inputs can be uniform or not.
+    * \note for a behaviour generated by the `generic-parallel` interface, the
+@@ -336,7 +336,7 @@ namespace mgis::behaviour {
+    * \param[in,out] m: material data manager
+    * \param[in] n: name of the initialize function
+    * \param[in] inputs: inputs of the initialize function, uniform or given
+-   * for each point in the layout of the material data manager. As the
++   * for each point in the uniform layout of the material data manager. As the
+    * values given to the material data manager, they
+    * must be located as its arrays (`memory_location` member), whose
+    * location is checked against the memory space of the behaviour.
+@@ -368,7 +368,7 @@ namespace mgis::behaviour {
+    * \param[in,out] m: material data manager
+    * \param[in] n: name of the initialize function
+    * \param[in] inputs: inputs of the initialize function, uniform or given at
+-   * each point in the layout of the material data manager
++   * each point in the uniform layout of the material data manager
+    * \param[in] b: first index of the range
+    * \param[in] e: last index of the range
+    */
+@@ -823,8 +823,8 @@ namespace mgis::behaviour {
+                                         const std::string_view);
+   /*!
+    * \brief execute the given post-processing
+-   * \param[out] outputs: post-processing results, in the layout of the material
+-   * data manager
++   * \param[out] outputs: post-processing results, in the uniform layout of the
++   * material data manager
+    * \param[in,out] d: material data manager
+    * \param[in] n: name of the post-processing
+    * \note for a behaviour generated by the `generic-parallel` interface, the
+@@ -835,9 +835,9 @@ namespace mgis::behaviour {
+       std::span<real>, MaterialDataManager&, const std::string_view);
+   /*!
+    * \brief execute the given post-processing over a range of integration points
+-   * \param[out] outputs: post-processing results, in the layout of the material
+-   * data manager. The outputs of a point where the post-processing failed
+-   * are unspecified.
++   * \param[out] outputs: post-processing results, in the uniform layout of the
++   * material data manager. The outputs of a point where the post-processing
++   * failed are unspecified.
+    * \param[in,out] d: material data manager
+    * \param[in] n: name of the post-processing
+    * \param[in] b: index of the first integration point of the range
+@@ -856,8 +856,8 @@ namespace mgis::behaviour {
+   /*!
+    * \brief execute the given post-processing over all integration points using
+    * a thread pool to parallelize the execution.
+-   * \param[out] outputs: post-processing results, in the layout of the material
+-   * data manager
++   * \param[out] outputs: post-processing results, in the uniform layout of the
++   * material data manager
+    * \param[in,out] p: thread pool
+    * \param[in,out] d: material data manager
+    * \param[in] n: name of the post-processing
+@@ -880,8 +880,8 @@ namespace mgis::behaviour {
+    * The overloads without execution policy use the execution policy of the
+    * material data manager.
+    *
+-   * \param[out] outputs: post-processing results, in the layout of the material
+-   * data manager. As the values given to
++   * \param[out] outputs: post-processing results, in the uniform layout of the
++   * material data manager. As the values given to
+    * the material data manager, they must be located as its arrays
+    * (`memory_location` member), whose location is checked against the
+    * memory space of the behaviour.
+@@ -903,8 +903,8 @@ namespace mgis::behaviour {
+   /*!
+    * \brief execute the given post-processing as a batch over a range of
+    * integration points (see the previous overload)
+-   * \param[out] outputs: post-processing results, in the layout of the material
+-   * data manager
++   * \param[out] outputs: post-processing results, in the uniform layout of the
++   * material data manager
+    * \param[in] p: execution policy
+    * \param[in,out] m: material data manager
+    * \param[in] n: name of the post-processing
+@@ -930,8 +930,8 @@ namespace mgis::behaviour {
+    * `DeferredReportBatchExecutionPolicy`). The outputs must not be read
+    * before.
+    *
+-   * \param[out] outputs: post-processing results, in the layout of the material
+-   * data manager
++   * \param[out] outputs: post-processing results, in the uniform layout of the
++   * material data manager
+    * \param[in] p: execution policy
+    * \param[in,out] m: material data manager
+    * \param[in] n: name of the post-processing
+diff --git a/include/MGIS/Behaviour/MaterialDataManager.hxx b/include/MGIS/Behaviour/MaterialDataManager.hxx
+index 186db36..90d6d05 100644
+--- a/include/MGIS/Behaviour/MaterialDataManager.hxx
++++ b/include/MGIS/Behaviour/MaterialDataManager.hxx
+@@ -35,6 +35,73 @@ namespace mgis::behaviour {
+   // forward declaration
+   struct Behaviour;
+ 
++  /*!
++   * \brief layout of the arrays of a material data manager: layouts of the
++   * arrays of its states (see `MaterialStateManagerLayout`) and layout of
++   * the tangent operator blocks.
++   *
++   * A layout is implicitly built from a `FieldLayout`, which is then the
++   * layout of all the arrays.
++   */
++  struct MaterialDataManagerLayout {
++    /*!
++     * \brief constructor
++     * \param[in] l: layout of all the arrays
++     */
++    constexpr MaterialDataManagerLayout(
++        const FieldLayout l = FieldLayout::POINT_BY_POINT) noexcept
++        : gradients(l),
++          thermodynamic_forces(l),
++          internal_state_variables(l),
++          external_state_variables(l),
++          tangent_operator(l) {}
++    //! \brief comparison operator
++    constexpr bool operator==(const MaterialDataManagerLayout&) const noexcept =
++        default;
++    //! \brief layout of the gradients
++    FieldLayout gradients;
++    //! \brief layout of the thermodynamic forces
++    FieldLayout thermodynamic_forces;
++    //! \brief layout of the internal state variables
++    FieldLayout internal_state_variables;
++    /*!
++     * \brief layout of the values given at each point for an external state
++     * variable with several components (see `MaterialStateManagerLayout`)
++     */
++    FieldLayout external_state_variables;
++    //! \brief layout of the tangent operator blocks
++    FieldLayout tangent_operator;
++  };  // end of MaterialDataManagerLayout
++
++  /*!
++   * \return the layout of the arrays of the states of a material data
++   * manager
++   * \param[in] l: layout of the arrays of the material data manager
++   */
++  constexpr MaterialStateManagerLayout getStateLayout(
++      const MaterialDataManagerLayout& l) noexcept {
++    auto r = MaterialStateManagerLayout{};
++    r.gradients = l.gradients;
++    r.thermodynamic_forces = l.thermodynamic_forces;
++    r.internal_state_variables = l.internal_state_variables;
++    r.external_state_variables = l.external_state_variables;
++    return r;
++  }  // end of getStateLayout
++
++  /*!
++   * \return the layout of all the arrays of a material data manager, if
++   * they have the same layout
++   * \param[in] l: layout of the arrays
++   */
++  constexpr std::optional<FieldLayout> getUniformLayout(
++      const MaterialDataManagerLayout& l) noexcept {
++    const auto ol = getUniformLayout(getStateLayout(l));
++    if ((!ol.has_value()) || (*ol != l.tangent_operator)) {
++      return {};
++    }
++    return ol;
++  }  // end of getUniformLayout
++
+   /*!
+    * \brief a structure in charge of holding information on how a material
+    * data manager shall be initialized.
+@@ -82,14 +149,22 @@ namespace mgis::behaviour {
+      */
+     MemoryLocation location = MemoryLocation::HOST;
+     /*!
+-     * \brief layout of the arrays of the material data manager, given by this
+-     * initializer or allocated by the material data manager: states (see
+-     * `MaterialStateManager::layout`), tangent operator blocks, and values
+-     * given at each point to the functions of the manager (inputs of the
+-     * initialize functions, outputs of the post-processings, values of the
+-     * external state variables with several components)
++     * \brief layouts of the arrays of the material data manager, given by
++     * this initializer or allocated by the material data manager: states
++     * (see `MaterialStateManager::layout`) and tangent operator blocks.
++     * Assigning a `FieldLayout` gives the same layout to all the arrays.
++     *
++     * The values given at each point by a `std::span` to the functions of
++     * the manager are stored in the layout of the related array: values of
++     * the external state variables with several components, outputs of
++     * `extractInternalStateVariable` (internal state variables), converted
++     * finite strain stresses (thermodynamic forces) and tangent operators
++     * (tangent operator blocks). The inputs of the initialize functions and
++     * the outputs of the post-processings given by a `std::span` are stored
++     * in the layout of all the arrays, which must then be the same (see
++     * `getUniformLayout`): otherwise, they must be given by a `FieldView`.
+      */
+-    FieldLayout layout = FieldLayout::POINT_BY_POINT;
++    MaterialDataManagerLayout layout = {};
+     /*!
+      * \brief memory resource used to allocate the arrays which are not given
+      * by this initializer (states, tangent operators, speed of sound). If
+@@ -169,8 +244,9 @@ namespace mgis::behaviour {
+      * \param[in] m: memory view
+      *
+      * \note the array must be located in the memory location of the manager
+-     * and stored in its layout (only its size is checked). This method calls
+-     * `releaseArrayOfTangentOperatorBlocks` before using the external memory.
++     * and stored in the layout of the tangent operator blocks (only its size
++     * is checked). This method calls `releaseArrayOfTangentOperatorBlocks`
++     * before using the external memory.
+      */
+     void useExternalArrayOfTangentOperatorBlocks(std::span<real>);
+     /*!
+@@ -238,7 +314,8 @@ namespace mgis::behaviour {
+     MaterialStateManager s1;
+     /*!
+      * \brief view of the stiffness matrices, if required, stored in the
+-     * layout of the material data manager (see `getTangentOperatorBlocksView`)
++     * layout of the tangent operator blocks of the material data manager
++     * (see `getTangentOperatorBlocksView`)
+      */
+     std::span<real> K;
+     /*!
+@@ -273,10 +350,10 @@ namespace mgis::behaviour {
+     const size_type n;
+     //! \brief location of the arrays (see `MaterialDataManagerInitializer`)
+     const MemoryLocation memory_location = MemoryLocation::HOST;
+-    //! \brief layout of the arrays (see `MaterialDataManagerInitializer`)
+-    const FieldLayout layout = FieldLayout::POINT_BY_POINT;
++    //! \brief layouts of the arrays (see `MaterialDataManagerInitializer`)
++    const MaterialDataManagerLayout layout = {};
+     /*!
+-     * \brief the size of the stiffness matrix for one integration point (the
++     * \brief number of values of the tangent operator blocks at a point (the
+      * size of K is K_stride times the number of integration points). With the
+      * `COMPONENT_BY_COMPONENT` layout, `K_stride` is not the stride between
+      * two points: see `getTangentOperatorBlocksView`.
+@@ -452,9 +529,10 @@ namespace mgis::behaviour {
+ #endif /* MGIS_HAVE_HDF5 */
+ 
+   /*!
+-   * \return a view on the tangent operator blocks of all the points, in the
+-   * layout of the material data manager. The view is empty if the array of
+-   * the tangent operator blocks is not allocated.
++   * \return a view on the tangent operator blocks of all the points, in
++   * their layout (see the `layout` member of the material data manager). The
++   * view is empty if the array of the tangent operator blocks is not
++   * allocated.
+    * \param[in] m: material data manager
+    */
+   MGIS_EXPORT FieldView<real> getTangentOperatorBlocksView(
+@@ -465,7 +543,7 @@ namespace mgis::behaviour {
+   /*!
+    * \return a view on a tangent operator block, i.e. the derivative of the
+    * first variable with respect to the second one, stored row by row at each
+-   * point, in the layout of the material data manager
++   * point, in the layout of the tangent operator blocks
+    * \param[in] m: material data manager
+    * \param[in] v1: name of the first variable
+    * \param[in] v2: name of the second variable
+diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.hxx b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
+index 450aacb..aeed3b6 100644
+--- a/include/MGIS/Behaviour/MaterialFunctionManager.hxx
++++ b/include/MGIS/Behaviour/MaterialFunctionManager.hxx
+@@ -187,9 +187,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the gradient
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<
+@@ -204,9 +204,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the gradient
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<mgis::function::FunctionView<
+@@ -223,9 +223,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the gradient
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<mgis::function::FunctionView<
+@@ -241,9 +241,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the gradient
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<mgis::function::FunctionView<
+@@ -261,9 +261,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the thermodynamic force
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<
+@@ -278,9 +278,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the thermodynamic force
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<mgis::function::FunctionView<
+@@ -297,9 +297,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the thermodynamic force
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<mgis::function::FunctionView<
+@@ -315,9 +315,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the thermodynamic force
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<mgis::function::FunctionView<
+@@ -335,9 +335,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the internal state variable
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<
+@@ -352,9 +352,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the internal state variable
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<mgis::function::FunctionView<
+@@ -371,9 +371,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the internal state variable
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<mgis::function::FunctionView<
+@@ -389,9 +389,9 @@ namespace mgis::behaviour {
+    * \param[in] m: material function manager
+    * \param[in] n: name of the internal state variable
+    * \param[in] ts: time step stage
+-   * \note if the layout of the manager is `COMPONENT_BY_COMPONENT`, only the
+-   * scalar variables are accepted: see the `getStridedCoalesced*` functions
+-   * for the other ones.
++   * \note if the layout of the array of the variable is
++   * `COMPONENT_BY_COMPONENT`, only the scalar variables are accepted: see the
++   * `getStridedCoalesced*` functions for the other ones.
+    */
+   template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+   std::optional<mgis::function::FunctionView<
+@@ -405,10 +405,10 @@ namespace mgis::behaviour {
+ 
+   /*
+    * The functions above return views on the values stored point by point,
+-   * i.e. for a material function manager whose layout is `POINT_BY_POINT`,
+-   * or for scalar variables. The functions below return views on the values
+-   * stored component by component (layout `COMPONENT_BY_COMPONENT`), i.e.
+-   * views with a strided coalesced memory access.
++   * i.e. for an array whose layout is `POINT_BY_POINT`, or for scalar
++   * variables. The functions below return views on the values stored
++   * component by component (layout `COMPONENT_BY_COMPONENT`), i.e. views
++   * with a strided coalesced memory access.
+    */
+ 
+   //! \brief a simple alias
+@@ -423,7 +423,7 @@ namespace mgis::behaviour {
+ 
+   /*!
+    * \return the gradient associated with the given name, for a material
+-   * function manager whose layout is `COMPONENT_BY_COMPONENT`
++   * function manager whose gradients are stored component by component
+    * \param[in] eh: error handler
+    * \param[in] m: material function manager
+    * \param[in] n: name of the gradient
+@@ -446,7 +446,8 @@ namespace mgis::behaviour {
+                               const TimeStepStage = ets);
+   /*!
+    * \return the thermodynamic force associated with the given name, for a
+-   * material function manager whose layout is `COMPONENT_BY_COMPONENT`
++   * material function manager whose thermodynamic forces are stored
++   * component by component
+    * \param[in] eh: error handler
+    * \param[in] m: material function manager
+    * \param[in] n: name of the thermodynamic force
+@@ -470,7 +471,8 @@ namespace mgis::behaviour {
+       const TimeStepStage = ets);
+   /*!
+    * \return the internal state variable associated with the given name, for
+-   * a material function manager whose layout is `COMPONENT_BY_COMPONENT`
++   * a material function manager whose internal state variables are stored
++   * component by component
+    * \param[in] eh: error handler
+    * \param[in] m: material function manager
+    * \param[in] n: name of the internal state variable
+diff --git a/include/MGIS/Behaviour/MaterialFunctionManager.ixx b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
+index ccba1e3..bf32c9d 100644
+--- a/include/MGIS/Behaviour/MaterialFunctionManager.ixx
++++ b/include/MGIS/Behaviour/MaterialFunctionManager.ixx
+@@ -163,21 +163,20 @@ namespace mgis::behaviour {
+     }  // end of registerErrorMessage
+ 
+     /*!
+-     * \return a view on a variable of a group of variables stored point by
+-     * point
++     * \return a view on a variable of a group of variables whose components
++     * are contiguous at each point
+      * \param[in] eh: error handler
+      * \param[in] qspace: quadrature space
+      * \param[in] variables: variables of the group
+-     * \param[in] values: values of the group
++     * \param[in] values: view on the values of the group
+      * \param[in] n: name of the variable
+      * \param[in] h: modelling hypothesis
+-     * \param[in] stride: number of values of the group at a point
+-     * \param[in] l: layout of the values. The views of `mgis::function`
+-     * with a dynamic stride describe values stored point by point: the
+-     * variables with several components stored component by component are
+-     * refused (see `makeStridedCoalescedFunctionView`)
+      * \param[in] emsg1: error message, followed by the name of the variable
+      * \param[in] emsg2: error message, if the error handler is not a context
++     * \note the views of `mgis::function` with a dynamic stride describe
++     * values whose components are contiguous at each point: the variables
++     * with several components stored component by component are refused
++     * (see `makeStridedCoalescedFunctionView`)
+      */
+     template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+     std::optional<mgis::function::FunctionView<
+@@ -186,21 +185,18 @@ namespace mgis::behaviour {
+     makeFunctionView(AbstractErrorHandler& eh,
+                      const mgis::function::SharedSpace<SpaceType>& qspace,
+                      const std::vector<Variable>& variables,
+-                     std::span<real> values,
++                     const FieldView<real>& values,
+                      std::string_view n,
+                      const Hypothesis h,
+-                     size_type stride,
+-                     const FieldLayout l,
+                      const char* const emsg1,
+                      const char* const emsg2) {
+-      using ::mgis::function::FunctionDataLayout;
+       using ::mgis::function::FunctionView;
+       if (!contains(variables, n)) {
+         return registerErrorMessage(eh, n, emsg1, emsg2);
+       }
+       const auto& v = getVariable(variables, n);
+       const auto vs = getVariableSize(v, h);
+-      auto vo = getVariableOffset(variables, n, h);
++      const auto vo = getVariableOffset(variables, n, h);
+       if constexpr (N != dynamic_extent) {
+         if (N != vs) {
+           return registerErrorMessage(eh, n,
+@@ -208,22 +204,8 @@ namespace mgis::behaviour {
+                                       "invalid variable size");
+         }
+       }
+-      if ((l == FieldLayout::COMPONENT_BY_COMPONENT) &&
+-          (getSpaceSize(qspace) != 0)) {
+-        // the values of a scalar variable are contiguous; the other
+-        // variables require a view with a strided coalesced memory access
+-        if (vs != 1) {
+-          return registerErrorMessage(
+-              eh, n,
+-              "the values are stored component by component (see the "
+-              "getStridedCoalesced* functions) for variable",
+-              "the values are stored component by component (see the "
+-              "getStridedCoalesced* functions)");
+-        }
+-        vo *= static_cast<size_type>(getSpaceSize(qspace));
+-        stride = 1;
+-      }
+       if (getSpaceSize(qspace) == 0) {
++        const auto stride = values.getNumberOfComponents();
+         if constexpr (N == dynamic_extent) {
+           return FunctionView<mgis::function::SharedSpace<SpaceType>>(
+               qspace, {}, vs, stride);
+@@ -234,31 +216,38 @@ namespace mgis::behaviour {
+                                                                     stride);
+         }
+       }
++      // the values of a scalar variable are contiguous; the other
++      // variables require a view with a strided coalesced memory access if
++      // they are stored component by component
++      if ((vs != 1) && (!values.hasContiguousComponents())) {
++        return registerErrorMessage(
++            eh, n,
++            "the values are stored component by component (see the "
++            "getStridedCoalesced* functions) for variable",
++            "the values are stored component by component (see the "
++            "getStridedCoalesced* functions)");
++      }
++      const auto vv = getComponents(values, vo, vs);
+       if constexpr (N == dynamic_extent) {
+         return FunctionView<mgis::function::SharedSpace<SpaceType>>(
+-            qspace, values.subspan(vo), vs, stride);
++            qspace, vv.getValues(), vs, vv.getPointStride());
+       } else {
+         return FunctionView<
+             mgis::function::SharedSpace<SpaceType>,
+             fixed_size_dynamic_stride_data_layout_description<N>>(
+-            qspace, values.subspan(vo), stride);
++            qspace, vv.getValues(), vv.getPointStride());
+       }
+     }  // end of makeFunctionView
+ 
+     /*!
+-     * \return an immutable view on a variable of a group of variables stored
+-     * point by point
++     * \return an immutable view on a variable of a group of variables whose
++     * components are contiguous at each point (see `makeFunctionView`)
+      * \param[in] eh: error handler
+      * \param[in] qspace: quadrature space
+      * \param[in] variables: variables of the group
+-     * \param[in] values: values of the group
++     * \param[in] values: view on the values of the group
+      * \param[in] n: name of the variable
+      * \param[in] h: modelling hypothesis
+-     * \param[in] stride: number of values of the group at a point
+-     * \param[in] l: layout of the values. The views of `mgis::function`
+-     * with a dynamic stride describe values stored point by point: the
+-     * variables with several components stored component by component are
+-     * refused (see `makeStridedCoalescedFunctionView`)
+      * \param[in] emsg1: error message, followed by the name of the variable
+      * \param[in] emsg2: error message, if the error handler is not a context
+      */
+@@ -271,21 +260,18 @@ namespace mgis::behaviour {
+         AbstractErrorHandler& eh,
+         const mgis::function::SharedSpace<SpaceType>& qspace,
+         const std::vector<Variable>& variables,
+-        std::span<const real> values,
++        const FieldView<const real>& values,
+         std::string_view n,
+         const Hypothesis h,
+-        size_type stride,
+-        const FieldLayout l,
+         const char* const emsg1,
+         const char* const emsg2) {
+-      using ::mgis::function::FunctionDataLayout;
+       using ::mgis::function::FunctionView;
+       if (!contains(variables, n)) {
+         return registerErrorMessage(eh, n, emsg1, emsg2);
+       }
+       const auto& v = getVariable(variables, n);
+       const auto vs = getVariableSize(v, h);
+-      auto vo = getVariableOffset(variables, n, h);
++      const auto vo = getVariableOffset(variables, n, h);
+       if constexpr (N != dynamic_extent) {
+         if (N != vs) {
+           return registerErrorMessage(eh, n,
+@@ -293,22 +279,8 @@ namespace mgis::behaviour {
+                                       "invalid variable size");
+         }
+       }
+-      if ((l == FieldLayout::COMPONENT_BY_COMPONENT) &&
+-          (getSpaceSize(qspace) != 0)) {
+-        // the values of a scalar variable are contiguous; the other
+-        // variables require a view with a strided coalesced memory access
+-        if (vs != 1) {
+-          return registerErrorMessage(
+-              eh, n,
+-              "the values are stored component by component (see the "
+-              "getStridedCoalesced* functions) for variable",
+-              "the values are stored component by component (see the "
+-              "getStridedCoalesced* functions)");
+-        }
+-        vo *= static_cast<size_type>(getSpaceSize(qspace));
+-        stride = 1;
+-      }
+       if (getSpaceSize(qspace) == 0) {
++        const auto stride = values.getNumberOfComponents();
+         if constexpr (N == dynamic_extent) {
+           return FunctionView<mgis::function::SharedSpace<SpaceType>,
+                               mgis::function::FunctionDataLayoutDescription{},
+@@ -320,15 +292,28 @@ namespace mgis::behaviour {
+               qspace, {}, stride);
+         }
+       }
++      // the values of a scalar variable are contiguous; the other
++      // variables require a view with a strided coalesced memory access if
++      // they are stored component by component
++      if ((vs != 1) && (!values.hasContiguousComponents())) {
++        return registerErrorMessage(
++            eh, n,
++            "the values are stored component by component (see the "
++            "getStridedCoalesced* functions) for variable",
++            "the values are stored component by component (see the "
++            "getStridedCoalesced* functions)");
++      }
++      const auto vv = getComponents(values, vo, vs);
+       if constexpr (N == dynamic_extent) {
+         return FunctionView<mgis::function::SharedSpace<SpaceType>,
+                             mgis::function::FunctionDataLayoutDescription{},
+-                            false>(qspace, values.subspan(vo), vs, stride);
++                            false>(qspace, vv.getValues(), vs,
++                                   vv.getPointStride());
+       } else {
+         return FunctionView<
+             mgis::function::SharedSpace<SpaceType>,
+             fixed_size_dynamic_stride_data_layout_description<N>, false>(
+-            qspace, values.subspan(vo), stride);
++            qspace, vv.getValues(), vv.getPointStride());
+       }
+     }  // end of makeImmutableFunctionView
+ 
+@@ -366,9 +351,8 @@ namespace mgis::behaviour {
+               const TimeStepStage ts) {
+     auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeFunctionView<N>(
+-        eh, m.getSharedSpace(), m.b.gradients, s.gradients, n, m.b.hypothesis,
+-        s.gradients_stride, s.layout, "no gradient named",
+-        "no gradient with the given name");
++        eh, m.getSharedSpace(), m.b.gradients, getGradientsView(s), n,
++        m.b.hypothesis, "no gradient named", "no gradient with the given name");
+   }  // end of getGradient
+ 
+   template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+@@ -382,9 +366,8 @@ namespace mgis::behaviour {
+               const TimeStepStage ts) {
+     auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeImmutableFunctionView<N>(
+-        eh, m.getSharedSpace(), m.b.gradients, s.gradients, n, m.b.hypothesis,
+-        s.gradients_stride, s.layout, "no gradient named",
+-        "no gradient with the given name");
++        eh, m.getSharedSpace(), m.b.gradients, getGradientsView(s), n,
++        m.b.hypothesis, "no gradient named", "no gradient with the given name");
+   }  // end of getGradient
+ 
+   template <mgis::function::LinearElementSpaceConcept SpaceType>
+@@ -420,8 +403,8 @@ namespace mgis::behaviour {
+     auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeFunctionView<N>(
+         eh, m.getSharedSpace(), m.b.thermodynamic_forces,
+-        s.thermodynamic_forces, n, m.b.hypothesis,
+-        s.thermodynamic_forces_stride, s.layout, "no thermodynamic force named",
++        getThermodynamicForcesView(s), n, m.b.hypothesis,
++        "no thermodynamic force named",
+         "no thermodynamic force with the given name");
+   }  // end of getThermodynamicForce
+ 
+@@ -437,8 +420,8 @@ namespace mgis::behaviour {
+     auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeImmutableFunctionView<N>(
+         eh, m.getSharedSpace(), m.b.thermodynamic_forces,
+-        s.thermodynamic_forces, n, m.b.hypothesis,
+-        s.thermodynamic_forces_stride, s.layout, "no thermodynamic force named",
++        getThermodynamicForcesView(s), n, m.b.hypothesis,
++        "no thermodynamic force named",
+         "no thermodynamic force with the given name");
+   }  // end of getThermodynamicForce
+ 
+@@ -474,9 +457,8 @@ namespace mgis::behaviour {
+                            const TimeStepStage ts) {
+     auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeFunctionView<N>(
+-        eh, m.getSharedSpace(), m.b.isvs, s.internal_state_variables, n,
+-        m.b.hypothesis, s.internal_state_variables_stride, s.layout,
+-        "no internal state variable named",
++        eh, m.getSharedSpace(), m.b.isvs, getInternalStateVariablesView(s), n,
++        m.b.hypothesis, "no internal state variable named",
+         "no internal state variable with the given name");
+   }  // end of getInternalStateVariable
+ 
+@@ -491,9 +473,8 @@ namespace mgis::behaviour {
+                            const TimeStepStage ts) {
+     auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeImmutableFunctionView<N>(
+-        eh, m.getSharedSpace(), m.b.isvs, s.internal_state_variables, n,
+-        m.b.hypothesis, s.internal_state_variables_stride, s.layout,
+-        "no internal state variable named",
++        eh, m.getSharedSpace(), m.b.isvs, getInternalStateVariablesView(s), n,
++        m.b.hypothesis, "no internal state variable named",
+         "no internal state variable with the given name");
+   }  // end of getInternalStateVariable
+ 
+@@ -505,10 +486,9 @@ namespace mgis::behaviour {
+      * \param[in] eh: error handler
+      * \param[in] qspace: quadrature space
+      * \param[in] variables: variables of the group
+-     * \param[in] values: values of the group
++     * \param[in] values: view on the values of the group
+      * \param[in] n: name of the variable
+      * \param[in] h: modelling hypothesis
+-     * \param[in] l: layout of the values
+      * \param[in] emsg1: error message, followed by the name of the variable
+      * \param[in] emsg2: error message, if the error handler is not a context
+      */
+@@ -521,10 +501,9 @@ namespace mgis::behaviour {
+         AbstractErrorHandler& eh,
+         const mgis::function::SharedSpace<SpaceType>& qspace,
+         const std::vector<Variable>& variables,
+-        std::span<ValueType> values,
++        const FieldView<ValueType>& values,
+         std::string_view n,
+         const Hypothesis h,
+-        const FieldLayout l,
+         const char* const emsg1,
+         const char* const emsg2) {
+       if (!contains(variables, n)) {
+@@ -535,7 +514,10 @@ namespace mgis::behaviour {
+         return registerErrorMessage(eh, n, "invalid variable size for variable",
+                                     "invalid variable size");
+       }
+-      if (l != FieldLayout::COMPONENT_BY_COMPONENT) {
++      // the values of the k-th component of the i-th point must be stored
++      // at the position k * ne + i
++      const auto ne = static_cast<size_type>(getSpaceSize(qspace));
++      if ((ne > 1) && (values.getPointStride() != 1)) {
+         return registerErrorMessage(
+             eh, n,
+             "the values are stored point by point (see the getGradient, "
+@@ -544,10 +526,10 @@ namespace mgis::behaviour {
+             "the values are stored point by point (see the getGradient, "
+             "getThermodynamicForce and getInternalStateVariable functions)");
+       }
+-      const auto ne = static_cast<size_type>(getSpaceSize(qspace));
+       const auto vo = getVariableOffset(variables, n, h);
++      const auto vv = getComponents(values, vo, N);
+       return StridedCoalescedFunctionView<N, SpaceType, is_mutable>(
+-          qspace, values.subspan(vo * ne, N * ne));
++          qspace, vv.getValues().first(N * ne));
+     }  // end of makeStridedCoalescedFunctionView
+ 
+   }  // end of namespace internals
+@@ -560,8 +542,8 @@ namespace mgis::behaviour {
+                               const TimeStepStage ts) {
+     auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeStridedCoalescedFunctionView<N, true, SpaceType>(
+-        eh, m.getSharedSpace(), m.b.gradients, s.gradients, n, m.b.hypothesis,
+-        s.layout, "no gradient named", "no gradient with the given name");
++        eh, m.getSharedSpace(), m.b.gradients, getGradientsView(s), n,
++        m.b.hypothesis, "no gradient named", "no gradient with the given name");
+   }  // end of getStridedCoalescedGradient
+ 
+   template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+@@ -572,9 +554,8 @@ namespace mgis::behaviour {
+                               const TimeStepStage ts) {
+     const auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeStridedCoalescedFunctionView<N, false, SpaceType>(
+-        eh, m.getSharedSpace(), m.b.gradients,
+-        std::span<const real>(s.gradients), n, m.b.hypothesis, s.layout,
+-        "no gradient named", "no gradient with the given name");
++        eh, m.getSharedSpace(), m.b.gradients, getGradientsView(s), n,
++        m.b.hypothesis, "no gradient named", "no gradient with the given name");
+   }  // end of getStridedCoalescedGradient
+ 
+   template <size_type N, mgis::function::LinearElementSpaceConcept SpaceType>
+@@ -586,7 +567,7 @@ namespace mgis::behaviour {
+     auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeStridedCoalescedFunctionView<N, true, SpaceType>(
+         eh, m.getSharedSpace(), m.b.thermodynamic_forces,
+-        s.thermodynamic_forces, n, m.b.hypothesis, s.layout,
++        getThermodynamicForcesView(s), n, m.b.hypothesis,
+         "no thermodynamic force named",
+         "no thermodynamic force with the given name");
+   }  // end of getStridedCoalescedThermodynamicForce
+@@ -601,8 +582,8 @@ namespace mgis::behaviour {
+     const auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeStridedCoalescedFunctionView<N, false, SpaceType>(
+         eh, m.getSharedSpace(), m.b.thermodynamic_forces,
+-        std::span<const real>(s.thermodynamic_forces), n, m.b.hypothesis,
+-        s.layout, "no thermodynamic force named",
++        getThermodynamicForcesView(s), n, m.b.hypothesis,
++        "no thermodynamic force named",
+         "no thermodynamic force with the given name");
+   }  // end of getStridedCoalescedThermodynamicForce
+ 
+@@ -615,8 +596,8 @@ namespace mgis::behaviour {
+       const TimeStepStage ts) {
+     auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeStridedCoalescedFunctionView<N, true, SpaceType>(
+-        eh, m.getSharedSpace(), m.b.isvs, s.internal_state_variables, n,
+-        m.b.hypothesis, s.layout, "no internal state variable named",
++        eh, m.getSharedSpace(), m.b.isvs, getInternalStateVariablesView(s), n,
++        m.b.hypothesis, "no internal state variable named",
+         "no internal state variable with the given name");
+   }  // end of getStridedCoalescedInternalStateVariable
+ 
+@@ -629,9 +610,8 @@ namespace mgis::behaviour {
+       const TimeStepStage ts) {
+     const auto& s = (ts == ets) ? m.s1 : m.s0;
+     return internals::makeStridedCoalescedFunctionView<N, false, SpaceType>(
+-        eh, m.getSharedSpace(), m.b.isvs,
+-        std::span<const real>(s.internal_state_variables), n, m.b.hypothesis,
+-        s.layout, "no internal state variable named",
++        eh, m.getSharedSpace(), m.b.isvs, getInternalStateVariablesView(s), n,
++        m.b.hypothesis, "no internal state variable named",
+         "no internal state variable with the given name");
+   }  // end of getStridedCoalescedInternalStateVariable
+ 
+diff --git a/include/MGIS/Behaviour/MaterialStateManager.hxx b/include/MGIS/Behaviour/MaterialStateManager.hxx
+index e7b763f..7f57d68 100644
+--- a/include/MGIS/Behaviour/MaterialStateManager.hxx
++++ b/include/MGIS/Behaviour/MaterialStateManager.hxx
+@@ -48,6 +48,56 @@ namespace mgis::behaviour {
+   // forward declaration
+   struct Behaviour;
+ 
++  /*!
++   * \brief layout of the arrays of a material state manager: each array has
++   * its own layout (see `FieldLayout`).
++   *
++   * A layout is implicitly built from a `FieldLayout`, which is then the
++   * layout of all the arrays.
++   */
++  struct MaterialStateManagerLayout {
++    /*!
++     * \brief constructor
++     * \param[in] l: layout of all the arrays
++     */
++    constexpr MaterialStateManagerLayout(
++        const FieldLayout l = FieldLayout::POINT_BY_POINT) noexcept
++        : gradients(l),
++          thermodynamic_forces(l),
++          internal_state_variables(l),
++          external_state_variables(l) {}
++    //! \brief comparison operator
++    constexpr bool operator==(const MaterialStateManagerLayout&) const noexcept =
++        default;
++    //! \brief layout of the gradients
++    FieldLayout gradients;
++    //! \brief layout of the thermodynamic forces
++    FieldLayout thermodynamic_forces;
++    //! \brief layout of the internal state variables
++    FieldLayout internal_state_variables;
++    /*!
++     * \brief layout of the values given at each point (by a `std::span`, or
++     * copied with the `LOCAL_STORAGE` mode) for an external state variable
++     * with several components
++     */
++    FieldLayout external_state_variables;
++  };  // end of MaterialStateManagerLayout
++
++  /*!
++   * \return the layout of all the arrays of a material state manager, if
++   * they have the same layout
++   * \param[in] l: layout of the arrays
++   */
++  constexpr std::optional<FieldLayout> getUniformLayout(
++      const MaterialStateManagerLayout& l) noexcept {
++    if ((l.thermodynamic_forces != l.gradients) ||
++        (l.internal_state_variables != l.gradients) ||
++        (l.external_state_variables != l.gradients)) {
++      return {};
++    }
++    return l.gradients;
++  }  // end of getUniformLayout
++
+   /*!
+    * \brief a structure in charge of holding information on how a material
+    * state manager shall be initialized.
+@@ -232,7 +282,7 @@ namespace mgis::behaviour {
+                          const MaterialStateManagerInitializer&,
+                          const MemoryLocation,
+                          std::pmr::memory_resource* const,
+-                         const FieldLayout = FieldLayout::POINT_BY_POINT);
++                         const MaterialStateManagerLayout& = {});
+     //
+     MaterialStateManager(MaterialStateManager&&) = delete;
+     MaterialStateManager(const MaterialStateManager&) = delete;
+@@ -242,11 +292,18 @@ namespace mgis::behaviour {
+     ~MaterialStateManager();
+     //! \brief view to the values of the gradients
+     std::span<mgis::real> gradients;
+-    //! stride associate with the gradients
++    /*!
++     * \brief number of values of the gradients at a point. It is the stride
++     * between two points only for an array stored point by point (see the
++     * `layout` member and `getGradientsView`).
++     */
+     const size_type gradients_stride;
+     //! \brief view to the values of the thermodynamic_forces
+     std::span<mgis::real> thermodynamic_forces;
+-    //! stride associate with the thermodynamic forces
++    /*!
++     * \brief number of values of the thermodynamic forces at a point (see
++     * `gradients_stride`)
++     */
+     const size_type thermodynamic_forces_stride;
+     /*!
+      * \brief view to the values to the stored energy.
+@@ -283,9 +340,9 @@ namespace mgis::behaviour {
+     //! \brief view to the values of the internal state variables
+     std::span<mgis::real> internal_state_variables;
+     /*!
+-     * \brief stride associate with internal state variables.
+-     * \note this is also the size of an array containing all the internal
+-     * state variables for one integration point.
++     * \brief number of values of the internal state variables at a point,
++     * i.e. the size of an array containing all the internal state variables
++     * for one integration point (see `gradients_stride`)
+      */
+     const size_type internal_state_variables_stride;
+     /*!
+@@ -315,15 +372,15 @@ namespace mgis::behaviour {
+      * \brief layout of the arrays of the gradients, of the thermodynamic
+      * forces and of the internal state variables, and of the values given
+      * at each point (by a `std::span`, or copied with the `LOCAL_STORAGE`
+-     * mode) for an external state variable with several components. With
+-     * the `COMPONENT_BY_COMPONENT` layout, the `j`-th component of the
+-     * `i`-th point of the gradients is stored at `gradients[j * n + i]`: the
+-     * `*_stride` members still give the number of values of a point, but are
+-     * not the stride between two points. The functions `getGradientsView`,
+-     * `getGradientView`, etc. give views on the arrays which account for the
+-     * layout.
++     * mode) for an external state variable with several components (see
++     * `MaterialStateManagerLayout`). With the `COMPONENT_BY_COMPONENT`
++     * layout, the `j`-th component of the `i`-th point of the gradients is
++     * stored at `gradients[j * n + i]`: the `*_stride` members still give
++     * the number of values of a point, but are not the stride between two
++     * points. The functions `getGradientsView`, `getGradientView`, etc. give
++     * views on the arrays which account for the layouts.
+      */
+-    const FieldLayout layout = FieldLayout::POINT_BY_POINT;
++    const MaterialStateManagerLayout layout = {};
+ 
+    private:
+     //! \brief value of the gradients, if hold internally
+@@ -535,8 +592,8 @@ namespace mgis::behaviour {
+    * \param[out] m: material state manager
+    * \param[in] n: name
+    * \param[in] v: values, for all the integration points, stored in the
+-   * layout of the manager (see the `layout` member), or the values of a
+-   * uniform variable
++   * layout of the external state variables of the manager (see the
++   * `layout` member), or the values of a uniform variable
+    * \param[in] s: storage mode
+    * \param[in] p: update policy
+    * \param[in] h: clean-up hook, called once when the given values are no
+@@ -574,8 +631,8 @@ namespace mgis::behaviour {
+    * \param[out] m: material state manager
+    * \param[in] n: name
+    * \param[in] v: values, for all the integration points, stored in the
+-   * layout of the manager (see the `layout` member), or the values of a
+-   * uniform variable
++   * layout of the external state variables of the manager (see the
++   * `layout` member), or the values of a uniform variable
+    * \param[in] s: storage mode
+    * \param[in] p: update policy
+    * \param[in] h: clean-up hook, called once when the given values are no
+@@ -599,8 +656,8 @@ namespace mgis::behaviour {
+    * \param[out] m: material state manager
+    * \param[in] n: name
+    * \param[in] v: values, for all the integration points, stored in the
+-   * layout of the manager (see the `layout` member), or the values of a
+-   * uniform variable
++   * layout of the external state variables of the manager (see the
++   * `layout` member), or the values of a uniform variable
+    * \param[in] s: storage mode
+    * \param[in] p: update policy
+    *
+@@ -660,7 +717,7 @@ namespace mgis::behaviour {
+       Context&, const MaterialStateManager&, std::string_view) MGIS_NOEXCEPT;
+   /*!
+    * \brief update the values of a state from another state. The states must
+-   * have the same layout.
++   * have the same layouts.
+    * \param[out] o: output state
+    * \param[in] i: input state
+    * \note the copies are performed on the host: the update fails if one of
+@@ -670,7 +727,7 @@ namespace mgis::behaviour {
+                                 const MaterialStateManager&);
+   /*!
+    * \brief update the values of a state from another state. The states must
+-   * have the same layout.
++   * have the same layouts.
+    * \param[out] o: output state
+    * \param[in] i: input state
+    * \note the copies are performed on the host: the update fails if one of
+@@ -684,7 +741,7 @@ namespace mgis::behaviour {
+    * \brief update the values of a state from another state, the arrays of
+    * the states and the values given by the calling code being copied by the
+    * given operations (see the list below). The states must have the same
+-   * layout.
++   * layouts.
+    *
+    * The procedure is the one of the other overloads, which use
+    * `HostFieldOperations`:
+@@ -727,7 +784,7 @@ namespace mgis::behaviour {
+    * the states (gradients, thermodynamic forces, internal state variables,
+    * energies). The calling code copies these arrays, for instance on their
+    * copies on a device (see `update(const MaterialDataView&,
+-   * FieldOperations&)`). The states must have the same layout, as with
++   * FieldOperations&)`). The states must have the same layouts, as with
+    * `updateValues`.
+    * \return true on success
+    * \param[in, out] ctx: execution context
+@@ -749,8 +806,8 @@ namespace mgis::behaviour {
+    * \param[in] n: name of the internal state variable
+    *
+    * \note the output buffer must be allocated properly. The values are
+-   * written in the layout of the material state manager (see the `layout`
+-   * member).
++   * written in the layout of the internal state variables of the material
++   * state manager (see the `layout` member).
+    * \note the values are read on the host: an exception is thrown if the
+    * internal state variables are located in the memory of a device.
+    */
+@@ -791,9 +848,9 @@ namespace mgis::behaviour {
+       FieldOperations&);
+ 
+   /*
+-   * Views on the arrays of a material state manager, in its layout (see the
+-   * `layout` member). Those views refer to the arrays of the material state
+-   * manager: they are invalidated if those arrays change.
++   * Views on the arrays of a material state manager, in their layouts (see
++   * the `layout` member). Those views refer to the arrays of the material
++   * state manager: they are invalidated if those arrays change.
+    */
+ 
+   /*!
+diff --git a/src/FiniteStrainSupport.cxx b/src/FiniteStrainSupport.cxx
+index 39a5898..79da881 100644
+--- a/src/FiniteStrainSupport.cxx
++++ b/src/FiniteStrainSupport.cxx
+@@ -356,7 +356,8 @@ namespace mgis::behaviour {
+                   std::to_string(s.size()) + " values given, " +
+                   std::to_string(m.n * ts) + " expected)");
+     }
+-    convertFiniteStrainStress(makeFieldView(s, m.layout, m.n, ts), m, t);
++    convertFiniteStrainStress(
++        makeFieldView(s, m.layout.thermodynamic_forces, m.n, ts), m, t);
+   }  // end of convertFiniteStrainStress
+ 
+   void convertFiniteStrainStress(const FieldView<real>& s,
+@@ -1023,8 +1024,8 @@ namespace mgis::behaviour {
+           std::to_string(K.size()) + " values given, " +
+           std::to_string(m.n * ts * ts) + " expected)");
+     }
+-    convertFiniteStrainTangentOperator(makeFieldView(K, m.layout, m.n, ts * ts),
+-                                       m, t);
++    convertFiniteStrainTangentOperator(
++        makeFieldView(K, m.layout.tangent_operator, m.n, ts * ts), m, t);
+   }  // end of convertFiniteStrainTangentOperator
+ 
+   void convertFiniteStrainTangentOperator(const FieldView<real>& K,
+diff --git a/src/Integrate.cxx b/src/Integrate.cxx
+index 99e3dcb..d1a0159 100644
+--- a/src/Integrate.cxx
++++ b/src/Integrate.cxx
+@@ -1586,10 +1586,44 @@ namespace mgis::behaviour {
+         v.n, istride, false);
+   }  // end of checkInitializeFunctionInputs
+ 
++  /*!
++   * \return a view on values given at each point by a `std::span` to a
++   * function of a material data manager, stored in the layout of the
++   * material data manager, i.e. the layout of all its arrays
++   * \param[in] f: name of the calling function
++   * \param[in] d: description of the values
++   * \param[in] m: material data manager
++   * \param[in] values: values, whose size has been checked
++   * \param[in] nc: number of components
++   * \note an exception is thrown if some values are given and if the arrays
++   * of the material data manager have different layouts
++   */
++  template <typename ValueType>
++  static FieldView<ValueType> makeViewOfValuesGivenAtEachPoint(
++      const std::string_view f,
++      const std::string_view d,
++      const MaterialDataManager& m,
++      const std::span<ValueType> values,
++      const size_type nc) {
++    if (values.empty()) {
++      // no value: the layout does not matter
++      return makeFieldView(values, FieldLayout::POINT_BY_POINT, m.n, nc);
++    }
++    const auto l = getUniformLayout(m.layout);
++    if (!l.has_value()) {
++      mgis::raise(std::string{f} + ": the " + std::string{d} +
++                  " given by an array are stored in the layout of the "
++                  "material data manager, whose arrays have different "
++                  "layouts: they must be given by a FieldView");
++    }
++    return makeFieldView(values, *l, m.n, nc);
++  }  // end of makeViewOfValuesGivenAtEachPoint
++
+   /*!
+    * \return a view of the inputs of an initialize function given to a
+    * material data manager: the inputs are uniform, or given at each point,
+-   * in the layout of the material data manager
++   * in the layout of the material data manager, which must be the same for
++   * all its arrays
+    * \param[in] m: material data manager
+    * \param[in] f: initialize function
+    * \param[in] n: name of the initialize function
+@@ -1610,7 +1644,8 @@ namespace mgis::behaviour {
+     if ((inputs.size() == istride) && (m.n != 1)) {
+       return makeUniformFieldView(inputs, m.n);
+     }
+-    return makeFieldView(inputs, m.layout, m.n, istride);
++    return makeViewOfValuesGivenAtEachPoint("executeInitializeFunction",
++                                            "inputs", m, inputs, istride);
+   }  // end of getInitializeFunctionInputsView
+ 
+   static const BehaviourPostProcessing& getBehaviourPostProcessing(
+@@ -1644,7 +1679,8 @@ namespace mgis::behaviour {
+ 
+   /*!
+    * \return a view of the outputs of a post-processing given to a material
+-   * data manager, in the layout of the material data manager
++   * data manager, in the layout of the material data manager, which must be
++   * the same for all its arrays
+    * \param[in] outputs: outputs
+    * \param[in] m: material data manager
+    * \param[in] p: post-processing
+@@ -1662,7 +1698,8 @@ namespace mgis::behaviour {
+           "invalid size of the outputs '" +
+           std::string{n} + "'");
+     }
+-    return makeFieldView(outputs, m.layout, m.n, ostride);
++    return makeViewOfValuesGivenAtEachPoint("executePostProcessing",
++                                            "outputs", m, outputs, ostride);
+   }  // end of getPostProcessingOutputsView
+ 
+   /*!
+diff --git a/src/MaterialDataManager.cxx b/src/MaterialDataManager.cxx
+index 19833fd..e9a911a 100644
+--- a/src/MaterialDataManager.cxx
++++ b/src/MaterialDataManager.cxx
+@@ -93,8 +93,18 @@ namespace mgis::behaviour {
+       const Behaviour& behaviour,
+       const size_type s,
+       const MaterialDataManagerInitializer& i)
+-      : s0(behaviour, s, i.s0, i.location, i.resource, i.layout),
+-        s1(behaviour, s, i.s1, i.location, i.resource, i.layout),
++      : s0(behaviour,
++           s,
++           i.s0,
++           i.location,
++           i.resource,
++           getStateLayout(i.layout)),
++        s1(behaviour,
++           s,
++           i.s1,
++           i.location,
++           i.resource,
++           getStateLayout(i.layout)),
+         n(s),
+         memory_location(i.location),
+         layout(i.layout),
+@@ -391,7 +401,8 @@ namespace mgis::behaviour {
+     if (m.K.empty()) {
+       return FieldView<ValueType>{};
+     }
+-    return makeFieldView(std::span<ValueType>(m.K), m.layout, m.n, m.K_stride);
++    return makeFieldView(std::span<ValueType>(m.K), m.layout.tangent_operator,
++                         m.n, m.K_stride);
+   }  // end of getTangentOperatorBlocksView
+ 
+   FieldView<real> getTangentOperatorBlocksView(MaterialDataManager& m) {
+diff --git a/src/MaterialDataView.cxx b/src/MaterialDataView.cxx
+index db6f3c0..9d22b86 100644
+--- a/src/MaterialDataView.cxx
++++ b/src/MaterialDataView.cxx
+@@ -207,7 +207,9 @@ namespace mgis::behaviour {
+             "make_view, make_unchecked_view: invalid number of values for '" +
+             v.name + "' (" + std::to_string(values.size()) + " given)");
+       }
+-      return makeFieldView(values, m.layout, m.n, s);
++      // a material property is a scalar: the layout only matters for the
++      // external state variables with several components
++      return makeFieldView(values, m.layout.external_state_variables, m.n, s);
+     };
+     if (std::holds_alternative<std::monostate>(fh)) {
+       return FieldView<const real>{};
+@@ -318,12 +320,10 @@ namespace mgis::behaviour {
+                             const MaterialDataManager& m,
+                             MaterialStateManager& s,
+                             const bool check) {
+-    const auto l = m.layout;
+-    v.gradients = makeFieldView(s.gradients, l, m.n, s.gradients_stride);
+-    v.thermodynamic_forces = makeFieldView(s.thermodynamic_forces, l, m.n,
+-                                           s.thermodynamic_forces_stride);
+-    v.internal_state_variables = makeFieldView(
+-        s.internal_state_variables, l, m.n, s.internal_state_variables_stride);
++    constexpr auto l = FieldLayout::POINT_BY_POINT;
++    v.gradients = getGradientsView(s);
++    v.thermodynamic_forces = getThermodynamicForcesView(s);
++    v.internal_state_variables = getInternalStateVariablesView(s);
+     if (s.stored_energies.size() == m.n) {
+       v.stored_energies = makeFieldView(s.stored_energies, l, m.n, 1);
+     }
+@@ -347,15 +347,13 @@ namespace mgis::behaviour {
+   static MaterialDataView make_view(MaterialDataManager& m,
+                                     std::pmr::memory_resource* const r,
+                                     const bool check) {
+-    const auto l = m.layout;
+     auto v = MaterialDataView(m.b, m.n, m.memory_location, r);
+     makeStateView(v.s0, m, m.s0, check);
+     makeStateView(v.s1, m, m.s1, check);
+-    if (!m.K.empty()) {
+-      v.K = makeFieldView(m.K, l, m.n, m.K_stride);
+-    }
++    v.K = getTangentOperatorBlocksView(m);
+     if (!m.speed_of_sound.empty()) {
+-      v.speed_of_sound = makeFieldView(m.speed_of_sound, l, m.n, 1);
++      v.speed_of_sound =
++          makeFieldView(m.speed_of_sound, FieldLayout::POINT_BY_POINT, m.n, 1);
+     }
+     v.batch_execution_policy = m.batch_execution_policy;
+     return v;
+diff --git a/src/MaterialStateManager.cxx b/src/MaterialStateManager.cxx
+index 124a0fe..682eb54 100644
+--- a/src/MaterialStateManager.cxx
++++ b/src/MaterialStateManager.cxx
+@@ -119,7 +119,7 @@ namespace mgis::behaviour {
+       const MaterialStateManagerInitializer& i,
+       const MemoryLocation l,
+       std::pmr::memory_resource* const r,
+-      const FieldLayout lt)
++      const MaterialStateManagerLayout& lt)
+       : gradients_stride(
+             getArraySize(behaviour.gradients, behaviour.hypothesis)),
+         thermodynamic_forces_stride(
+@@ -776,14 +776,16 @@ namespace mgis::behaviour {
+       if ((values.size() != to_v.size()) &&
+           (values.size() * o.n == to_v.size())) {
+         // duplicate the uniform values at each point, in the layout of the
+-        // material state manager. The copy is made by the host.
++        // external state variables of the material state manager (a material
++        // property is a scalar). The copy is made by the host.
+         if (!u.host_accessible) {
+           return ctx.registerErrorMessage(
+               "uniform values can't be duplicated by the host in an array "
+               "given by the calling code, located in the memory of a device");
+         }
+         const auto nc = static_cast<size_type>(values.size());
+-        const auto v = makeFieldView(to_v, o.layout, o.n, nc);
++        const auto v =
++            makeFieldView(to_v, o.layout.external_state_variables, o.n, nc);
+         for (size_type idx = 0; idx != o.n; ++idx) {
+           for (size_type c = 0; c != nc; ++c) {
+             v(idx, c) = values[c];
+@@ -1200,7 +1202,8 @@ namespace mgis::behaviour {
+           "extractInternalStateVariable: "
+           "unmatched number of integration points");
+     }
+-    extractInternalStateVariable(makeFieldView(o, s.layout, s.n, nc), s, n);
++    extractInternalStateVariable(
++        makeFieldView(o, s.layout.internal_state_variables, s.n, nc), s, n);
+   }  // end of extractInternalStateVariable
+ 
+   void extractInternalStateVariable(
+@@ -1229,93 +1232,106 @@ namespace mgis::behaviour {
+     ops.copy(o, v);
+   }  // end of extractInternalStateVariable
+ 
+-  template <typename ValueType, typename MaterialStateManagerType>
+-  static FieldView<ValueType> getStateView(MaterialStateManagerType& s,
++  /*!
++   * \return a view on an array of a material state manager
++   * \param[in] s: material state manager
++   * \param[in] values: values of the array
++   * \param[in] nc: number of values of a point
++   * \param[in] l: layout of the array
++   */
++  template <typename ValueType>
++  static FieldView<ValueType> getStateView(const MaterialStateManager& s,
+                                            const std::span<ValueType> values,
+-                                           const size_type nc) {
+-    return makeFieldView(values, s.layout, s.n, nc);
++                                           const size_type nc,
++                                           const FieldLayout l) {
++    return makeFieldView(values, l, s.n, nc);
+   }  // end of getStateView
+ 
+-  template <typename ValueType, typename MaterialStateManagerType>
++  /*!
++   * \return a view on a variable of a group of variables
++   * \param[in] s: material state manager
++   * \param[in] values: view on the group of variables
++   * \param[in] variables: variables of the group
++   * \param[in] n: name of the variable
++   */
++  template <typename ValueType>
+   static FieldView<ValueType> getVariableView(
+-      MaterialStateManagerType& s,
+-      const std::span<ValueType> values,
+-      const size_type nc,
++      const MaterialStateManager& s,
++      const FieldView<ValueType>& values,
+       const std::vector<Variable>& variables,
+       const std::string_view n) {
+     const auto& v = getVariable(variables, n);
+     const auto o = getVariableOffset(variables, n, s.b.hypothesis);
+     const auto vs = getVariableSize(v, s.b.hypothesis);
+-    return getComponents(getStateView(s, values, nc), o, vs);
++    return getComponents(values, o, vs);
+   }  // end of getVariableView
+ 
+   FieldView<real> getGradientsView(MaterialStateManager& s) {
+-    return getStateView(s, s.gradients, s.gradients_stride);
++    return getStateView(s, s.gradients, s.gradients_stride,
++                        s.layout.gradients);
+   }
+ 
+   FieldView<const real> getGradientsView(const MaterialStateManager& s) {
+     return getStateView(s, std::span<const real>(s.gradients),
+-                        s.gradients_stride);
++                        s.gradients_stride, s.layout.gradients);
+   }
+ 
+   FieldView<real> getThermodynamicForcesView(MaterialStateManager& s) {
+     return getStateView(s, s.thermodynamic_forces,
+-                        s.thermodynamic_forces_stride);
++                        s.thermodynamic_forces_stride,
++                        s.layout.thermodynamic_forces);
+   }
+ 
+   FieldView<const real> getThermodynamicForcesView(
+       const MaterialStateManager& s) {
+     return getStateView(s, std::span<const real>(s.thermodynamic_forces),
+-                        s.thermodynamic_forces_stride);
++                        s.thermodynamic_forces_stride,
++                        s.layout.thermodynamic_forces);
+   }
+ 
+   FieldView<real> getInternalStateVariablesView(MaterialStateManager& s) {
+     return getStateView(s, s.internal_state_variables,
+-                        s.internal_state_variables_stride);
++                        s.internal_state_variables_stride,
++                        s.layout.internal_state_variables);
+   }
+ 
+   FieldView<const real> getInternalStateVariablesView(
+       const MaterialStateManager& s) {
+     return getStateView(s, std::span<const real>(s.internal_state_variables),
+-                        s.internal_state_variables_stride);
++                        s.internal_state_variables_stride,
++                        s.layout.internal_state_variables);
+   }
+ 
+   FieldView<real> getGradientView(MaterialStateManager& s,
+                                   const std::string_view n) {
+-    return getVariableView(s, s.gradients, s.gradients_stride, s.b.gradients,
+-                           n);
++    return getVariableView(s, getGradientsView(s), s.b.gradients, n);
+   }
+ 
+   FieldView<const real> getGradientView(const MaterialStateManager& s,
+                                         const std::string_view n) {
+-    return getVariableView(s, std::span<const real>(s.gradients),
+-                           s.gradients_stride, s.b.gradients, n);
++    return getVariableView(s, getGradientsView(s), s.b.gradients, n);
+   }
+ 
+   FieldView<real> getThermodynamicForceView(MaterialStateManager& s,
+                                             const std::string_view n) {
+-    return getVariableView(s, s.thermodynamic_forces,
+-                           s.thermodynamic_forces_stride,
++    return getVariableView(s, getThermodynamicForcesView(s),
+                            s.b.thermodynamic_forces, n);
+   }
+ 
+   FieldView<const real> getThermodynamicForceView(const MaterialStateManager& s,
+                                                   const std::string_view n) {
+-    return getVariableView(s, std::span<const real>(s.thermodynamic_forces),
+-                           s.thermodynamic_forces_stride,
++    return getVariableView(s, getThermodynamicForcesView(s),
+                            s.b.thermodynamic_forces, n);
+   }
+ 
+   FieldView<real> getInternalStateVariableView(MaterialStateManager& s,
+                                                const std::string_view n) {
+-    return getVariableView(s, s.internal_state_variables,
+-                           s.internal_state_variables_stride, s.b.isvs, n);
++    return getVariableView(s, getInternalStateVariablesView(s), s.b.isvs, n);
+   }
+ 
+   FieldView<const real> getInternalStateVariableView(
+       const MaterialStateManager& s, const std::string_view n) {
+-    return getVariableView(s, std::span<const real>(s.internal_state_variables),
+-                           s.internal_state_variables_stride, s.b.isvs, n);
++    return getVariableView(s, getInternalStateVariablesView(s), s.b.isvs, n);
+   }
+ 
+ #ifdef MGIS_HAVE_HDF5
+@@ -1464,10 +1480,12 @@ namespace mgis::behaviour {
+       return write(ctx, g, n, std::get<real>(f.value), opts.allow_overwrite);
+     } else if (std::holds_alternative<std::span<real>>(f.value)) {
+       return writePointByPoint(ctx, g, n, std::get<std::span<real>>(f.value),
+-                               s.n, nc, s.layout, opts.allow_overwrite);
++                               s.n, nc, s.layout.external_state_variables,
++                               opts.allow_overwrite);
+     }
+     return writePointByPoint(ctx, g, n, std::get<std::vector<real>>(f.value),
+-                             s.n, nc, s.layout, opts.allow_overwrite);
++                             s.n, nc, s.layout.external_state_variables,
++                             opts.allow_overwrite);
+   }  // end of save
+ 
+   /*!
+@@ -1495,7 +1513,8 @@ namespace mgis::behaviour {
+     }
+     if (std::holds_alternative<std::span<const real>>(f)) {
+       return writePointByPoint(ctx, g, n, std::get<std::span<const real>>(f),
+-                               s.n, nc, s.layout, opts.allow_overwrite);
++                               s.n, nc, s.layout.external_state_variables,
++                               opts.allow_overwrite);
+     }
+     return save(ctx, g, n,
+                 std::get<MaterialStateManager::MutableFieldHolder>(f), s, nc,
+@@ -1527,16 +1546,18 @@ namespace mgis::behaviour {
+     }
+     if ((opts.save_gradients) && (!s.b.gradients.empty())) {
+       if (!writePointByPoint(ctx, g, "gradients", s.gradients, s.n,
+-                             s.gradients_stride, s.layout,
++                             s.gradients_stride, s.layout.gradients,
+                              opts.allow_overwrite)) {
+         return false;
+       }
+     }
+     if ((opts.save_thermodynamic_forces) &&
+         (!s.b.thermodynamic_forces.empty())) {
+-      if (!writePointByPoint(
+-              ctx, g, "thermodynamic_forces", s.thermodynamic_forces, s.n,
+-              s.thermodynamic_forces_stride, s.layout, opts.allow_overwrite)) {
++      if (!writePointByPoint(ctx, g, "thermodynamic_forces",
++                             s.thermodynamic_forces, s.n,
++                             s.thermodynamic_forces_stride,
++                             s.layout.thermodynamic_forces,
++                             opts.allow_overwrite)) {
+         return false;
+       }
+     }
+@@ -1561,7 +1582,8 @@ namespace mgis::behaviour {
+     if (!s.b.isvs.empty()) {
+       if (!writePointByPoint(ctx, g, "internal_state_variables",
+                              s.internal_state_variables, s.n,
+-                             s.internal_state_variables_stride, s.layout,
++                             s.internal_state_variables_stride,
++                             s.layout.internal_state_variables,
+                              opts.allow_overwrite)) {
+         return false;
+       }
+@@ -1811,7 +1833,7 @@ namespace mgis::behaviour {
+     }
+     if ((opts.restore_gradients) && (!s.b.gradients.empty())) {
+       if (!readPointByPoint(ctx, s.gradients, g, "gradients", s.n,
+-                            s.gradients_stride, s.layout)) {
++                            s.gradients_stride, s.layout.gradients)) {
+         return ctx.registerErrorMessage("restoring gradients failed");
+       }
+     }
+@@ -1819,7 +1841,8 @@ namespace mgis::behaviour {
+         (!s.b.thermodynamic_forces.empty())) {
+       if (!readPointByPoint(ctx, s.thermodynamic_forces, g,
+                             "thermodynamic_forces", s.n,
+-                            s.thermodynamic_forces_stride, s.layout)) {
++                            s.thermodynamic_forces_stride,
++                            s.layout.thermodynamic_forces)) {
+         return ctx.registerErrorMessage(
+             "restoring thermodynamic forces failed");
+       }
+@@ -1837,7 +1860,8 @@ namespace mgis::behaviour {
+     if ((opts.restore_internal_state_variables) && (!s.b.isvs.empty())) {
+       if (!readPointByPoint(ctx, s.internal_state_variables, g,
+                             "internal_state_variables", s.n,
+-                            s.internal_state_variables_stride, s.layout)) {
++                            s.internal_state_variables_stride,
++                            s.layout.internal_state_variables)) {
+         return ctx.registerErrorMessage(
+             "restoring internal state variables failed");
+       }
+@@ -1878,7 +1902,7 @@ namespace mgis::behaviour {
+         if (std::holds_alternative<MutableFieldHolder>(f)) {
+           auto& mfh = std::get<MutableFieldHolder>(f);
+           if (!restoreMutableFieldHolder(ctx, mfh, *ogmp, mp.name, s.n, *ovsize,
+-                                         s.layout)) {
++                                         s.layout.external_state_variables)) {
+             return ctx.registerErrorMessage("restoring material property '" +
+                                             mp.name + "' failed");
+           }
+@@ -1917,7 +1941,8 @@ namespace mgis::behaviour {
+         if (std::holds_alternative<MutableFieldHolder>(f)) {
+           auto& mfh = std::get<MutableFieldHolder>(f);
+           if (!restoreMutableFieldHolder(ctx, mfh, *ogesv, esv.name, s.n,
+-                                         *ovsize, s.layout)) {
++                                         *ovsize,
++                                         s.layout.external_state_variables)) {
+             return ctx.registerErrorMessage(
+                 "restoring external state variable '" + esv.name + "' failed");
+           }
+-- 
+2.43.0
+

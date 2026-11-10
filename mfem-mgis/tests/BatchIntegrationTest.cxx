@@ -67,6 +67,7 @@
 #include "MFEMMGIS/AbstractBoundaryCondition.hxx"
 #include "MFEMMGIS/UniformImposedPressureBoundaryCondition.hxx"
 #include "MFEMMGIS/PointWiseModel.hxx"
+#include "MFEMMGIS/QuadratureDataLayout.hxx"
 #include "SequentialLinearSolver.hxx"
 #include "Tolerance.hxx"
 
@@ -288,6 +289,12 @@ struct ComputationOptions {
    * `addBehaviourIntegrator`)
    */
   bool component_by_component = false;
+  /*!
+   * \brief if not empty, layouts of the arrays of the tested material, given
+   * array by array with a padding (parameter `QuadratureDataLayout` of the
+   * problem), replacing `component_by_component`
+   */
+  mfem_mgis::Parameters layouts = {};
 };
 
 /*!
@@ -706,18 +713,38 @@ static double getRelativeDifference(const std::vector<mfem_mgis::real>& a,
 static void checkStatesAfterUpdateOrRevert(const mfem_mgis::Material& m,
                                            const std::string& name,
                                            const bool revert) {
-  const auto same_states = std::ranges::equal(m.s0.gradients, m.s1.gradients) &&
-                           std::ranges::equal(m.s0.thermodynamic_forces,
-                                              m.s1.thermodynamic_forces) &&
-                           std::ranges::equal(m.s0.internal_state_variables,
-                                              m.s1.internal_state_variables);
+  // the unused values of padded arrays are NaN: the arrays are compared
+  // through their views
+  auto equal = [](const mgis::FieldView<const mfem_mgis::real>& a,
+                  const mgis::FieldView<const mfem_mgis::real>& b) {
+    for (mfem_mgis::size_type i = 0; i != a.getNumberOfPoints(); ++i) {
+      for (mfem_mgis::size_type c = 0; c != a.getNumberOfComponents(); ++c) {
+        if (a(i, c) != b(i, c)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  using namespace mgis::behaviour;
+  const auto same_states =
+      equal(getGradientsView(m.s0), getGradientsView(m.s1)) &&
+      equal(getThermodynamicForcesView(m.s0),
+            getThermodynamicForcesView(m.s1)) &&
+      equal(getInternalStateVariablesView(m.s0),
+            getInternalStateVariablesView(m.s1));
   check(same_states, name + ": different states after an update or a revert");
   if (!revert) {
     return;
   }
-  check(std::ranges::all_of(
-            m.K, [](const mfem_mgis::real v) noexcept { return v == 0; }),
-        name + ": tangent operator blocks not null after a revert");
+  const auto K = getTangentOperatorBlocksView(m);
+  auto null = true;
+  for (mfem_mgis::size_type i = 0; i != K.getNumberOfPoints(); ++i) {
+    for (mfem_mgis::size_type c = 0; c != K.getNumberOfComponents(); ++c) {
+      null = null && (K(i, c) == 0);
+    }
+  }
+  check(null, name + ": tangent operator blocks not null after a revert");
 }  // end of checkStatesAfterUpdateOrRevert
 
 /*!
@@ -958,9 +985,16 @@ static Results compute(mfem_mgis::Context& ctx,
   if (opts.ordered_assembly) {
     parameters.insert(throwing, {{"TangentOperatorAssembly", "Ordered"}});
   }
-  if (opts.component_by_component) {
+  // the reference computations are made point by point, whatever the
+  // automatic layout (component by component for a behaviour integrated
+  // by batches on a GPU)
+  if (!opts.layouts.empty()) {
+    parameters.insert(throwing, {{"QuadratureDataLayout", opts.layouts}});
+  } else {
     parameters.insert(throwing,
-                      {{"QuadratureDataLayout", "ComponentByComponent"}});
+                      {{"QuadratureDataLayout", opts.component_by_component
+                                                    ? "ComponentByComponent"
+                                                    : "PointByPoint"}});
   }
   auto problem = construct<NonLinearEvolutionProblem>(ctx, parameters) | or_die;
   if (opts.distorted_mesh) {
@@ -992,10 +1026,20 @@ static Results compute(mfem_mgis::Context& ctx,
         or_die;
   }
   auto& m = problem.getMaterial(ctx, "Cube", 0) | or_die;
-  check(m.layout == (opts.component_by_component
-                         ? mgis::FieldLayout::COMPONENT_BY_COMPONENT
-                         : mgis::FieldLayout::POINT_BY_POINT),
-        behaviour + ": layout of the arrays of the material");
+  if (opts.layouts.empty()) {
+    check(m.layout == (opts.component_by_component
+                           ? mgis::FieldLayout::COMPONENT_BY_COMPONENT
+                           : mgis::FieldLayout::POINT_BY_POINT),
+          behaviour + ": layout of the arrays of the material");
+  } else {
+    check((m.layout.gradients == mgis::FieldLayout::COMPONENT_BY_COMPONENT) &&
+              (m.layout.thermodynamic_forces ==
+               mgis::FieldLayout::POINT_BY_POINT) &&
+              (m.layout.tangent_operator ==
+               mgis::FieldLayout::COMPONENT_BY_COMPONENT) &&
+              (m.layout.padding == 2),
+          behaviour + ": layouts of the arrays of the material");
+  }
   for (auto* s : {&m.s0, &m.s1}) {
     mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature", 293.15) |
         or_die;
@@ -1037,15 +1081,16 @@ static Results compute(mfem_mgis::Context& ctx,
   }
   if (opts.second_material_library != nullptr) {
     const auto params2 =
-        opts.component_by_component
+        (opts.component_by_component || (!opts.layouts.empty()))
             ? Parameters{{"QuadratureDataLayout", "PointByPoint"}}
             : Parameters{};
     problem.addBehaviourIntegrator(ctx, "Mechanics", "Cube2",
                                    opts.second_material_library,
                                    "IsotropicLinearElasticity", params2) |
         or_die;
+    // the padding given to the problem is kept
     auto& m2 = problem.getMaterial(ctx, "Cube2", 0) | or_die;
-    check(m2.layout == mgis::FieldLayout::POINT_BY_POINT,
+    check(isStoredPointByPoint(m2.layout),
           behaviour + ": layout of the arrays of the second material");
     for (auto* s : {&m2.s0, &m2.s1}) {
       mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
@@ -1436,8 +1481,7 @@ static void compare(const Results& r1,
 
 /*!
  * \return true if the computations of the finite elements are made by
- * kernels, as required by a material whose arrays are stored component by
- * component (parameter `QuadratureDataLayout`)
+ * kernels
  * \param[in] opts: options of the computation
  */
 static bool computesFiniteElementsByKernels(const ComputationOptions& opts) {
@@ -1469,6 +1513,13 @@ static void compareComponentByComponentLayout(mfem_mgis::Context& ctx,
                                               const std::string& b,
                                               const ComputationOptions& opts,
                                               const std::string& name) {
+  // the computations element by element run on the host whatever the
+  // device: they are compared in sequential without device only, to bound
+  // the duration of the test
+  if ((!computesFiniteElementsByKernels(opts)) &&
+      (parallel || mfem::Device::IsEnabled())) {
+    return;
+  }
   auto soa = opts;
   soa.component_by_component = true;
   const auto gpu = mfem::Device::Allows(mfem::Backend::DEVICE_MASK);
@@ -1480,15 +1531,28 @@ static void compareComponentByComponentLayout(mfem_mgis::Context& ctx,
   compare(results, compute(ctx, mesh, library, b, "Batch", soa),
           name + ", component by component)",
           reproducible ? 0 : getComparisonTolerance(opts));
+  // layouts given array by array, with a padding whose unused values are
+  // NaN: any value read without the views would spoil the results
+  auto mixed = opts;
+  mixed.layouts =
+      mfem_mgis::Parameters{{"Gradients", "ComponentByComponent"},
+                            {"ThermodynamicForces", "PointByPoint"},
+                            {"InternalStateVariables", "ComponentByComponent"},
+                            {"ExternalStateVariables", "PointByPoint"},
+                            {"TangentOperator", "ComponentByComponent"},
+                            {"Padding", 2}};
+  compare(results, compute(ctx, mesh, library, b, "Batch", mixed),
+          name + ", layouts per array with a padding)",
+          reproducible ? 0 : getComparisonTolerance(opts));
 }  // end of compareComponentByComponentLayout
 
 /*!
- * \brief refusals of the component by component layout: integration point
- * by point, computations of the finite elements element by element, direct
- * call of an element method of a behaviour integrator, linearized operators,
- * resultant force on a boundary, invalid values of the `QuadratureDataLayout`
- * parameter of the problem and of a material and of the
- * `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` environment variable, which the
+ * \brief component by component layout: refusal of the integration point by
+ * point, same results of the computations element by element (direct calls
+ * of the element methods of a behaviour integrator, linearized operators,
+ * resultant force on a boundary) in both layouts, invalid values of the
+ * `QuadratureDataLayout` parameter of the problem and of a material and of
+ * the `MFEM_MGIS_QUADRATURE_DATA_LAYOUT` environment variable, which the
  * parameter takes precedence over; layout of a point-wise model
  * \param[in, out] ctx: execution context
  * \param[in] mesh: mesh of a cube
@@ -1527,55 +1591,101 @@ static void testQuadratureDataLayoutRefusals(mfem_mgis::Context& ctx,
   const auto contains = [](const std::string& msg, std::string_view s) {
     return msg.find(s) != std::string::npos;
   };
-  for (const auto& [integration, computation, expected] :
-       {std::tuple{"PointByPoint", "ElementByElement", "integrated by batches"},
-        std::tuple{"Batch", "ElementByElement", "computed by kernels"}}) {
-    auto problem = construct<NonLinearEvolutionProblem>(
-                       ctx, parameters(integration, computation, soa)) |
-                   or_die;
+  // the integration point by point of the behaviour is refused
+  {
+    auto problem =
+        construct<NonLinearEvolutionProblem>(
+            ctx, parameters("PointByPoint", "ElementByElement", soa)) |
+        or_die;
     problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, b) | or_die;
     auto c = Context{};
     const auto r = problem.solve(c, 0, 1);
     const auto msg = std::string{c.getErrorMessage()};
     check((!r.status) && contains(msg, "component by component") &&
-              contains(msg, expected),
-          std::string{"the component by component layout is not refused ("} +
-              integration + ", " + computation + "): " + msg);
+              contains(msg, "integrated by batches"),
+          "the integration point by point of a material stored component by "
+          "component is not refused: " +
+              msg);
   }
-  // methods computing element by element
+  // computations element by element (inner forces and stiffness matrix of
+  // an element, linearized operators, resultant force), from thermodynamic
+  // forces and tangent operator blocks set to the same values in both
+  // layouts: same results to the last bit
   {
-    auto problem = construct<NonLinearEvolutionProblem>(
-                       ctx, parameters("Batch", "Kernels", soa)) |
-                   or_die;
-    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, b) | or_die;
-    auto c = Context{};
-    const auto& u = problem.getUnknowns(bts);
-    check(isInvalid(problem.getLinearizedOperators(c, u)) &&
-              contains(c.getErrorMessage(), "component by component"),
-          "linearized operators of a material stored component by component "
-          "not refused: " +
-              std::string{c.getErrorMessage()});
-    auto c2 = Context{};
-    auto F = mfem::Vector{};
-    check((!computeResultantForceOnBoundary(c2, F, problem, {})) &&
-              contains(c2.getErrorMessage(), "component by component"),
-          "resultant force of a material stored component by component not "
-          "refused: " +
-              std::string{c2.getErrorMessage()});
-    auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
-    const auto& fes = problem.getFiniteElementDiscretization()
-                          .getFiniteElementSpace<false>();
-    auto Fe = mfem::Vector{};
-    auto msg = std::string{};
-    try {
-      bi.computeInnerForces(Fe, *(fes.GetFE(0)),
-                            *(fes.GetElementTransformation(0)));
-    } catch (std::exception& e) {
-      msg = e.what();
+    auto results = std::vector<std::vector<real>>{};
+    for (const auto* const layout : {"PointByPoint", soa}) {
+      auto problem = construct<NonLinearEvolutionProblem>(
+                         ctx, parameters("Batch", "Kernels", layout)) |
+                     or_die;
+      problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, b) | or_die;
+      auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
+      for (auto* const s : {&m.s0, &m.s1}) {
+        mgis::behaviour::setExternalStateVariable(ctx, *s, "Temperature",
+                                                  293.15) |
+            or_die;
+      }
+      // the first resolution allocates the tangent operator blocks
+      check(problem.solve(ctx, 0, 1).status, "resolution failed");
+      // values written on the host through the views
+      std::ignore = m.getArrays().readWrite(
+          MaterialArrays::StateArray::THERMODYNAMIC_FORCES, ets, false);
+      std::ignore = m.getArrays().readWriteTangentOperatorBlocks(false);
+      const auto sv = mgis::behaviour::getThermodynamicForcesView(m.s1);
+      for (size_type o = 0; o != sv.getNumberOfPoints(); ++o) {
+        for (size_type c = 0; c != sv.getNumberOfComponents(); ++c) {
+          sv(o, c) = 1e6 * (1 + std::sin(real(1 + o * 7 + c)));
+        }
+      }
+      const auto Kv = mgis::behaviour::getTangentOperatorBlocksView(m);
+      for (size_type o = 0; o != Kv.getNumberOfPoints(); ++o) {
+        for (size_type c = 0; c != Kv.getNumberOfComponents(); ++c) {
+          Kv(o, c) = 1e9 * (1 + std::cos(real(1 + o * 5 + c)));
+        }
+      }
+      auto r = std::vector<real>{};
+      const auto fed = problem.getFiniteElementDiscretization();
+      const auto& fes = fed.getFiniteElementSpace<false>();
+      auto& fe = *(fes.GetFE(0));
+      auto& tr = *(fes.GetElementTransformation(0));
+      // direct calls of the element methods of the behaviour integrator
+      auto& bi = problem.getBehaviourIntegrator(ctx, 1, 0) | or_die;
+      auto Fe = mfem::Vector{};
+      auto Ke = mfem::DenseMatrix{};
+      auto ue = mfem::Vector(3 * fe.GetDof());
+      ue = real{0};
+      bi.computeInnerForces(Fe, fe, tr);
+      bi.updateJacobian(Ke, fe, tr, ue);
+      r.insert(r.end(), Fe.GetData(), Fe.GetData() + Fe.Size());
+      r.insert(r.end(), Ke.GetData(), Ke.GetData() + Ke.Height() * Ke.Width());
+      // linearized operators
+      auto ops = problem.getLinearizedOperators(ctx, problem.getUnknowns(ets));
+      if (isInvalid(ops)) {
+        check(false,
+              "linearized operators: " + std::string{ctx.getErrorMessage()});
+        return;
+      }
+      ops->K->AssembleElementMatrix(fe, tr, Ke);
+      ops->mFi->AssembleRHSElementVect(fe, tr, Fe);
+      r.insert(r.end(), Fe.GetData(), Fe.GetData() + Fe.Size());
+      r.insert(r.end(), Ke.GetData(), Ke.GetData() + Ke.Height() * Ke.Width());
+      // resultant force on the nodes of the first element
+      auto nodes = std::vector<std::vector<size_type>>(3);
+      for (auto& n : nodes) {
+        for (size_type i = 0; i != static_cast<size_type>(fe.GetDof()); ++i) {
+          n.push_back(i);
+        }
+      }
+      auto F = mfem::Vector{};
+      computeResultantForceOnBoundary(ctx, F, problem, {{0, nodes}}) | or_die;
+      r.insert(r.end(), F.GetData(), F.GetData() + F.Size());
+      results.push_back(std::move(r));
     }
-    check(contains(msg, "component by component"),
-          "direct call of an element method of a behaviour integrator of a "
-          "material stored component by component not refused");
+    check(results[0] == results[1],
+          "computations element by element of a material stored component "
+          "by component: different results");
+    check(std::ranges::any_of(results[0], [](const real v) { return v != 0; }),
+          "computations element by element of a material stored component "
+          "by component: null results");
   }
   // invalid values, for the problem and for a material
   {
@@ -1596,6 +1706,35 @@ static void testQuadratureDataLayoutRefusals(mfem_mgis::Context& ctx,
     const auto msg = std::string{c.getErrorMessage()};
     check(isInvalid(o) && contains(msg, "QuadratureDataLayout"),
           "invalid value of QuadratureDataLayout accepted (material): " + msg);
+  }
+  // layouts given array by array: an unknown array or a negative padding is
+  // refused; the automatic layout is the component by component one only
+  // for a behaviour integrated by batches on a GPU
+  {
+    auto problem = construct<NonLinearEvolutionProblem>(
+                       ctx, parameters("Batch", "Kernels", nullptr)) |
+                   or_die;
+    for (const auto& invalid :
+         {Parameters{{"Stress", "PointByPoint"}}, Parameters{{"Padding", -1}},
+          Parameters{{"Gradients", "SoA"}}}) {
+      auto c = Context{};
+      check(isInvalid(problem.addBehaviourIntegrator(
+                c, "Mechanics", 1, library, b,
+                {{"QuadratureDataLayout", invalid}})),
+            "invalid layouts given array by array accepted");
+    }
+    problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, b,
+                                   {{"QuadratureDataLayout", "Automatic"}}) |
+        or_die;
+    const auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
+    const auto on_gpu = isIntegratedByBatchesOnDevice(m.b) &&
+                        mfem::Device::Allows(mfem::Backend::CUDA_MASK |
+                                             mfem::Backend::HIP_MASK);
+    // the padding may be given by the environment
+    check(mgis::behaviour::getUniformLayout(m.layout) ==
+              (on_gpu ? mgis::FieldLayout::COMPONENT_BY_COMPONENT
+                      : mgis::FieldLayout::POINT_BY_POINT),
+          "automatic layout");
   }
   // environment variable: its invalid value is refused, and only read if
   // the parameter is not given; a valid value gives the default layout
@@ -1621,7 +1760,9 @@ static void testQuadratureDataLayoutRefusals(mfem_mgis::Context& ctx,
                    or_die;
     problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, b) | or_die;
     const auto& m = problem.getMaterial(ctx, 1, 0) | or_die;
-    check(m.layout == mgis::FieldLayout::COMPONENT_BY_COMPONENT,
+    // the padding may be given by the environment
+    check(mgis::behaviour::getUniformLayout(m.layout) ==
+              mgis::FieldLayout::COMPONENT_BY_COMPONENT,
           "layout not given by the environment variable");
     if (previous.has_value()) {
       ::setenv(v, previous->c_str(), 1);
@@ -1737,6 +1878,12 @@ static void testRefusal(mfem_mgis::Context& ctx,
                     fed, m, std::move(b));
               }) |
       or_die;
+  // the automatic layouts are point by point for a generator which does not
+  // declare that it supports the layouts
+  const auto& f = BehaviourIntegratorFactory::get(Hypothesis::PLANESTRAIN);
+  check(f.supportsQuadratureDataLayouts("Mechanics") &&
+            (!f.supportsQuadratureDataLayouts("NoBatchIntegration")),
+        "generators supporting the layouts");
   auto problem = construct<NonLinearEvolutionProblem>(
                      ctx, Parameters{{"MeshFileName", mesh_2d},
                                      {"FiniteElementFamily", "H1"},
@@ -1808,16 +1955,20 @@ static void testFailure(mfem_mgis::Context& ctx,
                         const bool all_points) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
-  auto problem = construct<NonLinearEvolutionProblem>(
-                     ctx, Parameters{{"MeshFileName", mesh},
-                                     {"FiniteElementFamily", "H1"},
-                                     {"FiniteElementOrder", 1},
-                                     {"UnknownsSize", 3},
-                                     {"NumberOfUniformRefinements", 2},
-                                     {"Hypothesis", "Tridimensional"},
-                                     {"BehaviourIntegration", mode},
-                                     {"Parallel", false}}) |
-                 or_die;
+  // the integration point by point requires the point by point layout,
+  // whatever the layout given by the environment
+  auto parameters = Parameters{{"MeshFileName", mesh},
+                               {"FiniteElementFamily", "H1"},
+                               {"FiniteElementOrder", 1},
+                               {"UnknownsSize", 3},
+                               {"NumberOfUniformRefinements", 2},
+                               {"Hypothesis", "Tridimensional"},
+                               {"BehaviourIntegration", mode},
+                               {"Parallel", false}};
+  if (std::string_view{mode} == "PointByPoint") {
+    parameters.insert(throwing, {{"QuadratureDataLayout", "PointByPoint"}});
+  }
+  auto problem = construct<NonLinearEvolutionProblem>(ctx, parameters) | or_die;
   problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library,
                                  "FailingIsotropicLinearElasticity") |
       or_die;
@@ -1849,16 +2000,18 @@ static void testFailure(mfem_mgis::Context& ctx,
   }
   // by batches, all the points are integrated: the stresses are the ones of
   // the elasticity where the integration succeeds
+  // the arrays are read through their views, in all the layouts
   m.synchronizeOnHostForReading();
-  const auto gs = m.s1.gradients_stride;
-  const auto ts = m.s1.thermodynamic_forces_stride;
+  const auto ev = mgis::behaviour::getGradientsView(std::as_const(m.s1));
+  const auto sv =
+      mgis::behaviour::getThermodynamicForcesView(std::as_const(m.s1));
   auto nsuccess = size_type{};
   auto nfailure = size_type{};
   auto ok = true;
   for (size_type i = 0; i != static_cast<size_type>(m.n); ++i) {
-    const auto* const e = m.s1.gradients.data() + i * gs;
-    const auto* const sig = m.s1.thermodynamic_forces.data() + i * ts;
-    const auto tr = e[0] + e[1] + e[2];
+    const auto e = [&ev, i](const size_type k) { return ev(i, k); };
+    const auto sig = [&sv, i](const size_type k) { return sv(i, k); };
+    const auto tr = e(0) + e(1) + e(2);
     if (std::abs(tr) > 1e-3) {
       ++nfailure;
       continue;
@@ -1868,8 +2021,8 @@ static void testFailure(mfem_mgis::Context& ctx,
       continue;
     }
     ++nsuccess;
-    const auto sxx = 1.2e11 * tr + 2 * 8e10 * e[0];
-    ok = ok && (std::abs(sig[0] - sxx) <=
+    const auto sxx = 1.2e11 * tr + 2 * 8e10 * e(0);
+    ok = ok && (std::abs(sig(0) - sxx) <=
                 mfem_mgis::unit_tests::tolerance(1e-8) * std::abs(sxx));
   }
   check((nsuccess != 0) && (nfailure != 0),
@@ -1892,6 +2045,9 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
                                          const std::string& behaviour) {
   using namespace mfem_mgis;
   auto or_die = ctx.getFatalFailureHandler();
+  // the element methods integrate the behaviour point by point, which
+  // requires the point by point layout, whatever the layout given by the
+  // environment
   auto problem = construct<NonLinearEvolutionProblem>(
                      ctx, Parameters{{"MeshFileName", mesh},
                                      {"FiniteElementFamily", "H1"},
@@ -1899,6 +2055,7 @@ static void testElementByElementSequence(mfem_mgis::Context& ctx,
                                      {"UnknownsSize", 3},
                                      {"NumberOfUniformRefinements", 1},
                                      {"Hypothesis", "Tridimensional"},
+                                     {"QuadratureDataLayout", "PointByPoint"},
                                      {"Parallel", false}}) |
                  or_die;
   problem.addBehaviourIntegrator(ctx, "Mechanics", 1, library, behaviour) |
@@ -2780,10 +2937,8 @@ int main(int argc, char** argv) {
       const auto results = compute(ctx, m, library, b, "Batch", opts);
       compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
               b + " (kernels" + name + ")", getComparisonTolerance(opts));
-      if (computesFiniteElementsByKernels(opts)) {
-        compareComponentByComponentLayout(ctx, results, m, library, b, opts,
-                                          b + " (kernels" + name);
-      }
+      compareComponentByComponentLayout(ctx, results, m, library, b, opts,
+                                        b + " (kernels" + name);
       // the linear solver of the sequential computations is reproducible
       // to the last bit if it is a direct solver, or if it runs on the host
       // (with float, MFEM has no sequential direct solver, and the
@@ -2931,11 +3086,9 @@ int main(int argc, char** argv) {
       compare(compute(ctx, m, library, b, "PointByPoint", reference), results,
               b + " (generic-parallel, " + backend + name + ")",
               getComparisonTolerance(opts));
-      if (computesFiniteElementsByKernels(opts)) {
-        compareComponentByComponentLayout(
-            ctx, results, m, l, b, opts,
-            b + " (generic-parallel, " + backend + name);
-      }
+      compareComponentByComponentLayout(
+          ctx, results, m, l, b, opts,
+          b + " (generic-parallel, " + backend + name);
     }
     if (!parallel) {
       testPointByPointRefusal(ctx, mesh, l);

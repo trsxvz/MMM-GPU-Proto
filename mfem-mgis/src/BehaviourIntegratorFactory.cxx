@@ -44,22 +44,24 @@ namespace mfem_mgis {
       "layout of the data at the integration points (optional)";
 
   /*!
-   * \return the layout of the data at the integration points given to a
-   * generator which accepts no other parameter
+   * \return the layouts of the data at the integration points given to a
+   * generator which accepts no other parameter (see
+   * `getQuadratureDataLayout`)
    * \param[in, out] ctx: execution context
    * \param[in] params: parameters
+   * \param[in] b: behaviour
    */
-  [[nodiscard]] static std::optional<mgis::FieldLayout>
+  [[nodiscard]] static std::optional<mgis::behaviour::MaterialDataManagerLayout>
   getQuadratureDataLayoutAsSoleParameter(Context& ctx,
-                                         const Parameters& params) noexcept {
+                                         const Parameters& params,
+                                         const Behaviour& b) noexcept {
     if (!checkParameters(ctx, params,
                          std::map<std::string, std::string>{
                              {quadrature_data_layout_parameter,
                               quadrature_data_layout_description}})) {
       return {};
     }
-    return getQuadratureDataLayout(ctx, params,
-                                   mgis::FieldLayout::POINT_BY_POINT);
+    return getQuadratureDataLayout(ctx, params, b);
   }  // end of getQuadratureDataLayoutAsSoleParameter
 
   /*!
@@ -74,12 +76,11 @@ namespace mfem_mgis {
   template <Hypothesis H>
   static void fillWithDefaultBehaviourIntegrators(
       BehaviourIntegratorFactory& f) {
-    auto generator =
-        [](Context& ctx, const FiniteElementDiscretization& fed,
-           const size_type m, std::unique_ptr<const Behaviour> b,
-           const Parameters& params) noexcept
+    auto generator = [](Context& ctx, const FiniteElementDiscretization& fed,
+                        const size_type m, std::unique_ptr<const Behaviour> b,
+                        const Parameters& params) noexcept
         -> std::unique_ptr<AbstractBehaviourIntegrator> {
-      const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+      const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params, *b);
       if (isInvalid(ol)) {
         return {};
       }
@@ -91,7 +92,7 @@ namespace mfem_mgis {
     };
     auto ctx = Context{};
     auto or_die = ctx.getFatalFailureHandler();
-    f.addGenerator(ctx, "TransientHeatTransfer", generator) | or_die;
+    f.addGenerator(ctx, "TransientHeatTransfer", generator, true) | or_die;
   }  // end of fillWithDefaultBehaviourIntegrators
 
   /*!
@@ -148,8 +149,7 @@ namespace mfem_mgis {
                  quadrature_data_layout_description}})) {
       return {};
     }
-    const auto ol =
-        getQuadratureDataLayout(ctx, params, mgis::FieldLayout::POINT_BY_POINT);
+    const auto ol = getQuadratureDataLayout(ctx, params, *b);
     if (isInvalid(ol)) {
       return {};
     }
@@ -227,7 +227,8 @@ namespace mfem_mgis {
            const size_type m, std::unique_ptr<const Behaviour> b,
            const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
-          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          const auto ol =
+              getQuadratureDataLayoutAsSoleParameter(ctx, params, *b);
           if (isInvalid(ol)) {
             return {};
           }
@@ -249,7 +250,8 @@ namespace mfem_mgis {
            const size_type m, std::unique_ptr<const Behaviour> b,
            const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
-          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          const auto ol =
+              getQuadratureDataLayoutAsSoleParameter(ctx, params, *b);
           if (isInvalid(ol)) {
             return {};
           }
@@ -273,8 +275,7 @@ namespace mfem_mgis {
                  quadrature_data_layout_description}})) {
       return {};
     }
-    const auto ol =
-        getQuadratureDataLayout(ctx, params, mgis::FieldLayout::POINT_BY_POINT);
+    const auto ol = getQuadratureDataLayout(ctx, params, *b);
     if (isInvalid(ol)) {
       return {};
     }
@@ -352,7 +353,8 @@ namespace mfem_mgis {
            const size_type m, std::unique_ptr<const Behaviour> b,
            const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
-          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          const auto ol =
+              getQuadratureDataLayoutAsSoleParameter(ctx, params, *b);
           if (isInvalid(ol)) {
             return {};
           }
@@ -375,7 +377,8 @@ namespace mfem_mgis {
            const size_type m, std::unique_ptr<const Behaviour> b,
            const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
-          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          const auto ol =
+              getQuadratureDataLayoutAsSoleParameter(ctx, params, *b);
           if (isInvalid(ol)) {
             return {};
           }
@@ -405,8 +408,7 @@ namespace mfem_mgis {
                  quadrature_data_layout_description}})) {
       return {};
     }
-    const auto ol =
-        getQuadratureDataLayout(ctx, params, mgis::FieldLayout::POINT_BY_POINT);
+    const auto ol = getQuadratureDataLayout(ctx, params, *b);
     if (isInvalid(ol)) {
       return {};
     }
@@ -474,7 +476,8 @@ namespace mfem_mgis {
            const size_type m, std::unique_ptr<const Behaviour> b,
            const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
-          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          const auto ol =
+              getQuadratureDataLayoutAsSoleParameter(ctx, params, *b);
           if (isInvalid(ol)) {
             return {};
           }
@@ -497,7 +500,8 @@ namespace mfem_mgis {
            const size_type m, std::unique_ptr<const Behaviour> b,
            const Parameters& params) noexcept
             -> std::unique_ptr<AbstractBehaviourIntegrator> {
-          const auto ol = getQuadratureDataLayoutAsSoleParameter(ctx, params);
+          const auto ol =
+              getQuadratureDataLayoutAsSoleParameter(ctx, params, *b);
           if (isInvalid(ol)) {
             return {};
           }
@@ -558,7 +562,8 @@ namespace mfem_mgis {
 
   bool BehaviourIntegratorFactory::addGenerator(Context& ctx,
                                                 const std::string& n,
-                                                const Generator g) noexcept {
+                                                const Generator g,
+                                                const bool layouts) noexcept {
     if (this->generators.count(n) != 0) {
       return ctx.registerErrorMessage(
           "BehaviourIntegratorFactory::addGenerator: "
@@ -571,16 +576,30 @@ namespace mfem_mgis {
           "invalid generator provided for behaviour integrator '" +
           n + "'");
     }
-    this->generators.insert({n, g});
+    try {
+      this->generators.insert({n, g});
+      if (layouts) {
+        this->generators_supporting_layouts.insert(n);
+      }
+    } catch (...) {
+      return registerExceptionInErrorBacktrace(ctx);
+    }
     return true;
   }  // end of addGenerator
+
+  bool BehaviourIntegratorFactory::supportsQuadratureDataLayouts(
+      std::string_view n) const noexcept {
+    return this->generators_supporting_layouts.find(n) !=
+           this->generators_supporting_layouts.end();
+  }  // end of supportsQuadratureDataLayouts
 
   void BehaviourIntegratorFactory::addGenerator(attributes::MayAbort,
                                                 std::string_view n,
                                                 const Generator g) {
+    // the generators of mfem-mgis support the layouts
     auto ctx = Context{};
     auto or_die = ctx.getFatalFailureHandler();
-    this->addGenerator(ctx, std::string{n}, g) | or_die;
+    this->addGenerator(ctx, std::string{n}, g, true) | or_die;
   }  // end of addGenerator
 
   void BehaviourIntegratorFactory::addGenerator(
