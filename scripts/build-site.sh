@@ -64,7 +64,9 @@ website() {
 }
 website tfel -Denable-python=OFF -Denable-python-bindings=OFF \
   -Denable-fortran=OFF -Denable-testing=OFF
-website mgis -Denable-testing=OFF
+# the parallel algorithms of the standard library, enabled by default by
+# MGIS with gcc, require TBB, which the pages do not need
+website mgis -Denable-testing=OFF -Denable-parallel-stl-algorithms=OFF
 
 # mfem-mgis: Sphinx, then Doxygen (with the image of its style sheet,
 # installed by the CMake of mfem-mgis)
