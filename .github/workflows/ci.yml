@@ -295,6 +295,8 @@ jobs:
           cuda-cccl-13-0 cuda-driver-dev-13-0 cuda-profiler-api-13-0 \
           cuda-nvtx-13-0 libcublas-dev-13-0 libcusparse-dev-13-0 \
           libcusolver-dev-13-0 libcurand-dev-13-0 libnvjitlink-13-0
+        # TBB: parallel algorithms of libstdc++ (enabled by default by MGIS)
+        sudo apt-get install -y libtbb-dev
         echo "$CUDA/bin" >> $GITHUB_PATH
         $CUDA/bin/nvcc --version
 
@@ -480,6 +482,9 @@ jobs:
     # (see scripts/build-hip-amd.sh)
     - name: Install ROCm
       run: |
+        # TBB: parallel algorithms of libstdc++ (enabled by default by MGIS)
+        sudo apt-get update
+        sudo apt-get install -y libtbb-dev
         python3 -m venv $RUNNER_TEMP/rocm
         $RUNNER_TEMP/rocm/bin/pip install --quiet --index-url \
           https://stable.repo.amd.com/rocm/whl-next/ \
