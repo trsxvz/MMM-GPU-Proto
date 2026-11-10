@@ -673,17 +673,18 @@ namespace mfem_mgis::batch::internals {
       const real* const x,
       real* const y,
       const bool use_device) {
-    // dimension and number of components of the unknowns and of the
-    // gradients
-    constexpr auto N = getDimension<K>();
-    constexpr auto V = getUnknownsSize<K>();
-    constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
-    constexpr auto P = maximum_number_of_points_per_block;
     const auto bz = getNumberOfElementsPerBlock(a.nq, a.nd);
     const auto bx = getNumberOfThreadsPerElement(a.nq, a.nd);
     mfem::ForallWrap<2>(
         use_device, a.number_of_elements,
         [a, x, y] MFEM_HOST_DEVICE(int k) {
+          // dimension and number of components of the unknowns and of the
+          // gradients, points per block (declared in the kernel: the lambda
+          // captures no variable of the host function)
+          constexpr auto N = getDimension<K>();
+          constexpr auto V = getUnknownsSize<K>();
+          constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
+          constexpr auto P = maximum_number_of_points_per_block;
           // increments of the thermodynamic forces, weights and inverses of
           // the jacobians of the points
           MFEM_SHARED real forces_increments[P * gs];

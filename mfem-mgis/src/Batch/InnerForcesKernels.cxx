@@ -82,17 +82,18 @@ namespace mfem_mgis::batch::internals {
   template <GradientsKind K>
   static void launchInnerForcesKernel(const InnerForcesKernelArguments& a,
                                       const bool use_device) {
-    // dimension, number of components of the unknowns and of the
-    // thermodynamic forces
-    constexpr auto N = getDimension<K>();
-    constexpr auto V = getUnknownsSize<K>();
-    constexpr auto S = getGradientsSize<K>();
-    constexpr auto P = maximum_number_of_points_per_block;
     const auto bz = getNumberOfElementsPerBlock(a.nq, a.nd);
     const auto bx = getNumberOfThreadsPerElement(a.nq, a.nd);
     mfem::ForallWrap<2>(
         use_device, a.number_of_elements,
         [a] MFEM_HOST_DEVICE(int k) {
+          // dimension, number of components of the unknowns and of the
+          // thermodynamic forces, points per block (declared in the kernel:
+          // the lambda captures no variable of the host function)
+          constexpr auto N = getDimension<K>();
+          constexpr auto V = getUnknownsSize<K>();
+          constexpr auto S = getGradientsSize<K>();
+          constexpr auto P = maximum_number_of_points_per_block;
           MFEM_SHARED real forces[P * S];
           MFEM_SHARED real weights[P];
           MFEM_SHARED real inverse_jacobians[P * N * N];

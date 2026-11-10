@@ -1,4 +1,4 @@
-From 3f46af8740ca114666c3384b77b08cb8dbc1f85a Mon Sep 17 00:00:00 2001
+From e37c16539bdbfaf1ff4c8c67652c9f425c4f6476 Mon Sep 17 00:00:00 2001
 From: t <tristan75015@gmail.com>
 Date: Tue, 10 Nov 2026 02:12:37 +0100
 Subject: [PATCH] Kernels of the finite elements: one thread per point, strides
@@ -30,24 +30,24 @@ Subject: [PATCH] Kernels of the finite elements: one thread per point, strides
   point by point and by kernels.
 ---
  include/MFEMMGIS/Batch/FBar.hxx              |  13 +-
- include/MFEMMGIS/Batch/Gradients.hxx         |  53 ++++-
+ include/MFEMMGIS/Batch/Gradients.hxx         |  53 +++++-
  include/MFEMMGIS/Batch/StiffnessMatrices.hxx |  10 +-
  src/Batch/FBar.cxx                           |  59 ++++--
  src/Batch/FBarKernels.cxx                    |  61 +++---
  src/Batch/FBarKernels.hxx                    |  40 +++-
  src/Batch/Faltus.cxx                         |  11 +-
- src/Batch/FaltusKernels.cxx                  | 116 ++++++++---
+ src/Batch/FaltusKernels.cxx                  | 112 ++++++++---
  src/Batch/FaltusKernels.hxx                  |  10 +-
  src/Batch/Gradients.cxx                      |  30 ++-
- src/Batch/GradientsKernels.cxx               |  52 +++--
+ src/Batch/GradientsKernels.cxx               |  52 ++++--
  src/Batch/GradientsKernels.hxx               |  35 +++-
- src/Batch/InnerForcesKernels.cxx             |  99 +++++++---
+ src/Batch/InnerForcesKernels.cxx             |  96 +++++++---
  src/Batch/KernelsUtilities.hxx               |  72 +++++++
  src/Batch/StiffnessMatrices.cxx              |   2 +
- src/Batch/StiffnessMatricesKernels.cxx       | 191 ++++++++++++-------
+ src/Batch/StiffnessMatricesKernels.cxx       | 186 ++++++++++++-------
  src/Batch/StiffnessMatricesKernels.hxx       |   8 +-
- tests/IntegrationRuleOrderTest.cxx           |  49 +++--
- 18 files changed, 677 insertions(+), 234 deletions(-)
+ tests/IntegrationRuleOrderTest.cxx           |  49 ++---
+ 18 files changed, 673 insertions(+), 226 deletions(-)
 
 diff --git a/include/MFEMMGIS/Batch/FBar.hxx b/include/MFEMMGIS/Batch/FBar.hxx
 index ee9b68ed2c..7ed5a89042 100644
@@ -607,10 +607,10 @@ index dac5713943..b45ca8b4d2 100644
        a.centers = data.centers.Read(use_device);
        a.values = f.ReadWrite(use_device);
 diff --git a/src/Batch/FaltusKernels.cxx b/src/Batch/FaltusKernels.cxx
-index ddeae2efaf..4688b3647c 100644
+index ddeae2efaf..7ca8afc648 100644
 --- a/src/Batch/FaltusKernels.cxx
 +++ b/src/Batch/FaltusKernels.cxx
-@@ -175,59 +175,113 @@ namespace mfem_mgis::batch::internals {
+@@ -175,59 +175,115 @@ namespace mfem_mgis::batch::internals {
            real iJ[N * N];
            loadInverseJacobian<N>(
                iJ, a.inverse_jacobians + static_cast<std::size_t>(N * N) * e, 1);
@@ -651,18 +651,17 @@ index ddeae2efaf..4688b3647c 100644
        const FaltusInnerForcesKernelArguments& a, const bool use_device) {
 -    mfem::forall_switch(
 -        use_device, a.geometry.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
--          constexpr auto N = getDimension<K>();
--          constexpr auto V = getUnknownsSize<K>();
--          constexpr auto gs = getGradientsSize<K>();
-+    constexpr auto N = getDimension<K>();
-+    constexpr auto V = getUnknownsSize<K>();
-+    constexpr auto gs = getGradientsSize<K>();
-+    constexpr auto P = maximum_number_of_points_per_block;
 +    const auto bz = getNumberOfElementsPerBlock(a.geometry.nq, a.geometry.nd);
 +    const auto bx = getNumberOfThreadsPerElement(a.geometry.nq, a.geometry.nd);
 +    mfem::ForallWrap<2>(
 +        use_device, a.geometry.number_of_elements,
 +        [a] MFEM_HOST_DEVICE(int k) {
++          // declared in the kernel: the lambda captures no variable of the
++          // host function
+           constexpr auto N = getDimension<K>();
+           constexpr auto V = getUnknownsSize<K>();
+           constexpr auto gs = getGradientsSize<K>();
++          constexpr auto P = maximum_number_of_points_per_block;
 +          // α (F - F0), weights and inverses of the jacobians of the points
 +          MFEM_SHARED real differences[P * gs];
 +          MFEM_SHARED real weights[P];
@@ -739,15 +738,15 @@ index ddeae2efaf..4688b3647c 100644
 +                  fn[v] += w * f;
                  }
 -                fe[node + nd * static_cast<std::size_t>(v)] += w * f;
-+              }
+               }
 +              for (int v = 0; v != V; ++v) {
 +                fe[node + nd * static_cast<std::size_t>(v)] = fn[v];
-               }
-             }
++              }
++            }
 +            if (q0 + np < nq) {
 +              // the next chunk overwrites the shared arrays
 +              MFEM_SYNC_THREAD;
-+            }
+             }
            }
 -        });
 +        },
@@ -1057,10 +1056,10 @@ index fae618b30e..b6f0e7548a 100644
      int number_of_elements = 0;
      //! \brief number of integration points per element
 diff --git a/src/Batch/InnerForcesKernels.cxx b/src/Batch/InnerForcesKernels.cxx
-index 190292680e..a4404fde12 100644
+index 190292680e..65823d512a 100644
 --- a/src/Batch/InnerForcesKernels.cxx
 +++ b/src/Batch/InnerForcesKernels.cxx
-@@ -71,49 +71,92 @@ namespace mfem_mgis::batch::internals {
+@@ -71,49 +71,93 @@ namespace mfem_mgis::batch::internals {
  
    /*!
     * \brief launches the kernel adding the inner forces of the elements of a
@@ -1080,19 +1079,18 @@ index 190292680e..a4404fde12 100644
 -    mfem::forall_switch(
 -        use_device, a.number_of_elements, [a] MFEM_HOST_DEVICE(int k) {
 -          // dimension and number of components of the unknowns
--          constexpr auto N = getDimension<K>();
--          constexpr auto V = getUnknownsSize<K>();
-+    // dimension, number of components of the unknowns and of the
-+    // thermodynamic forces
-+    constexpr auto N = getDimension<K>();
-+    constexpr auto V = getUnknownsSize<K>();
-+    constexpr auto S = getGradientsSize<K>();
-+    constexpr auto P = maximum_number_of_points_per_block;
 +    const auto bz = getNumberOfElementsPerBlock(a.nq, a.nd);
 +    const auto bx = getNumberOfThreadsPerElement(a.nq, a.nd);
 +    mfem::ForallWrap<2>(
 +        use_device, a.number_of_elements,
 +        [a] MFEM_HOST_DEVICE(int k) {
++          // dimension, number of components of the unknowns and of the
++          // thermodynamic forces, points per block (declared in the kernel:
++          // the lambda captures no variable of the host function)
+           constexpr auto N = getDimension<K>();
+           constexpr auto V = getUnknownsSize<K>();
++          constexpr auto S = getGradientsSize<K>();
++          constexpr auto P = maximum_number_of_points_per_block;
 +          MFEM_SHARED real forces[P * S];
 +          MFEM_SHARED real weights[P];
 +          MFEM_SHARED real inverse_jacobians[P * N * N];
@@ -1285,7 +1283,7 @@ index 5b1e247e2a..5e8fa330b7 100644
      a.elements = elements.Read(use_device);
      a.offsets = offsets.Read(use_device);
 diff --git a/src/Batch/StiffnessMatricesKernels.cxx b/src/Batch/StiffnessMatricesKernels.cxx
-index 947b1ff034..53bcc7be9b 100644
+index 947b1ff034..89a1c5b13e 100644
 --- a/src/Batch/StiffnessMatricesKernels.cxx
 +++ b/src/Batch/StiffnessMatricesKernels.cxx
 @@ -223,17 +223,24 @@ namespace mfem_mgis::batch::internals {
@@ -1369,27 +1367,25 @@ index 947b1ff034..53bcc7be9b 100644
     * \tparam K: kind of the gradients
     * \param[in] a: arguments of the kernels
     * \param[in] x: values element by element
-@@ -655,71 +673,114 @@ namespace mfem_mgis::batch::internals {
+@@ -655,71 +673,115 @@ namespace mfem_mgis::batch::internals {
        const real* const x,
        real* const y,
        const bool use_device) {
 -    mfem::forall_switch(
 -        use_device, a.number_of_elements, [a, x, y] MFEM_HOST_DEVICE(int k) {
 -          // dimension and number of components of the unknowns
--          constexpr auto N = getDimension<K>();
--          constexpr auto V = getUnknownsSize<K>();
--          constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
-+    // dimension and number of components of the unknowns and of the
-+    // gradients
-+    constexpr auto N = getDimension<K>();
-+    constexpr auto V = getUnknownsSize<K>();
-+    constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
-+    constexpr auto P = maximum_number_of_points_per_block;
 +    const auto bz = getNumberOfElementsPerBlock(a.nq, a.nd);
 +    const auto bx = getNumberOfThreadsPerElement(a.nq, a.nd);
 +    mfem::ForallWrap<2>(
 +        use_device, a.number_of_elements,
 +        [a, x, y] MFEM_HOST_DEVICE(int k) {
++          // dimension and number of components of the unknowns and of the
++          // gradients, points per block (declared in the kernel: the lambda
++          // captures no variable of the host function)
+           constexpr auto N = getDimension<K>();
+           constexpr auto V = getUnknownsSize<K>();
+           constexpr auto gs = static_cast<std::size_t>(getGradientsSize<K>());
++          constexpr auto P = maximum_number_of_points_per_block;
 +          // increments of the thermodynamic forces, weights and inverses of
 +          // the jacobians of the points
 +          MFEM_SHARED real forces_increments[P * gs];
@@ -1500,7 +1496,8 @@ index 947b1ff034..53bcc7be9b 100644
 +            MFEM_FOREACH_THREAD(inode, x, a.nd) {
 +              const auto node = static_cast<std::size_t>(inode);
 +              real yn[V];
-+              for (std::size_t c = 0; c != V; ++c) {
+               for (std::size_t c = 0; c != V; ++c) {
+-                ye[node + nd * c] += w * multiplyByTransposedB<K>(xn, c, ds);
 +                yn[c] = ye[node + nd * c];
 +              }
 +              for (std::size_t iq = 0; iq != nc; ++iq) {
@@ -1518,8 +1515,7 @@ index 947b1ff034..53bcc7be9b 100644
 +                  yn[c] += w * multiplyByTransposedB<K>(xn, c, ds);
 +                }
 +              }
-               for (std::size_t c = 0; c != V; ++c) {
--                ye[node + nd * c] += w * multiplyByTransposedB<K>(xn, c, ds);
++              for (std::size_t c = 0; c != V; ++c) {
 +                ye[node + nd * c] = yn[c];
                }
              }

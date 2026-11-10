@@ -206,15 +206,17 @@ namespace mfem_mgis::batch::internals {
   template <GradientsKind K>
   static void launchFaltusInnerForcesKernel(
       const FaltusInnerForcesKernelArguments& a, const bool use_device) {
-    constexpr auto N = getDimension<K>();
-    constexpr auto V = getUnknownsSize<K>();
-    constexpr auto gs = getGradientsSize<K>();
-    constexpr auto P = maximum_number_of_points_per_block;
     const auto bz = getNumberOfElementsPerBlock(a.geometry.nq, a.geometry.nd);
     const auto bx = getNumberOfThreadsPerElement(a.geometry.nq, a.geometry.nd);
     mfem::ForallWrap<2>(
         use_device, a.geometry.number_of_elements,
         [a] MFEM_HOST_DEVICE(int k) {
+          // declared in the kernel: the lambda captures no variable of the
+          // host function
+          constexpr auto N = getDimension<K>();
+          constexpr auto V = getUnknownsSize<K>();
+          constexpr auto gs = getGradientsSize<K>();
+          constexpr auto P = maximum_number_of_points_per_block;
           // α (F - F0), weights and inverses of the jacobians of the points
           MFEM_SHARED real differences[P * gs];
           MFEM_SHARED real weights[P];

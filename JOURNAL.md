@@ -6565,7 +6565,10 @@ accepted; block size of BlockILU dropped for a scalar unknown ordered by
 nodes; tests reading the arrays without their strides; the tests of the
 case ssna303 of `cases/`, which write the same output files in the build
 directory of ex4, had no lock and failed when two of them ran at the same
-time (lock `ssna303-outputs`, as the other cases).
+time (lock `ssna303-outputs`, as the other cases); the new kernels used
+in their lambdas, which capture no variable by default, constants of the
+host function: nvcc accepts it, the HIP compiler of the CI refuses it (the
+constants are now declared in the kernels, as in the other kernels).
 
 Validation (see [docs/validation.md](docs/validation.md#mfem-mgis)): suites
 of mfem-mgis on the CPU by default, component by component (kernels forced
